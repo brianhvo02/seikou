@@ -17,6 +17,10 @@ Other Chromium browsers such as Edge may work but are not tested.
 
 The player needs WebCodecs, AudioWorklet and a few other modern features. A browser without them shows "This browser is missing: …" on the first screen and the Open button stays off.
 
+## Light and dark
+
+The switch at the top of the page, beside **Help**, sets the look: **Auto** follows your device's light or dark setting, **Light** and **Dark** keep one look whatever the device says. On a phone it shows as three icons. The choice is kept on this device only, and a new device starts on Auto. The player itself is always dark, so the page turns dark while a disc is open and back when you close it.
+
 ## Open a disc
 
 You need a Blu-ray disc as a folder, already decrypted (the player does not remove copy protection). The folder is the one that contains `BDMV`. The `BDMV` folder itself works too.

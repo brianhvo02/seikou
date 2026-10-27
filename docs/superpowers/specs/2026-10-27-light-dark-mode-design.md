@@ -1,7 +1,7 @@
 # Light and dark mode — Design Spec
 
 Date: 2026-10-27
-Status: design, not built.
+Status: done, 2026-10-27 (plan `docs/superpowers/plans/2026-10-27-light-dark-mode.md`).
 
 ## 1. Why
 
