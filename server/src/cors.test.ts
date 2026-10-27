@@ -7,14 +7,14 @@ import { createServer } from './http';
 import type { Handler } from './http';
 
 describe('corsHeaders', () => {
-  it.each(['https://bluray.pages.dev', 'https://fix-x.bluray.pages.dev', 'https://bluray-web.pages.dev', 'https://fix-x.bluray-web.pages.dev', 'http://localhost:4173', 'http://localhost:5173'])(
+  it.each(['https://bluray.pages.dev', 'https://fix-x.bluray.pages.dev', 'http://localhost:4173', 'http://localhost:5173'])(
     'echoes the allowed origin %s',
     (origin) => {
       expect(corsHeaders(origin)['Access-Control-Allow-Origin']).toBe(origin);
     },
   );
 
-  it.each([['https://evil.pages.dev'], ['https://bluray.pages.dev.evil.com'], ['https://evil-bluray.pages.dev'], [undefined]])(
+  it.each([['https://evil.pages.dev'], ['https://bluray.pages.dev.evil.com'], ['https://evil-bluray.pages.dev'], ['https://bluray-web.pages.dev'], [undefined]])(
     'gives no Allow-Origin to %s',
     (origin) => {
       expect(corsHeaders(origin)).not.toHaveProperty('Access-Control-Allow-Origin');

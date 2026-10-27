@@ -427,14 +427,14 @@ describe('signalling routes', () => {
 });
 
 describe('CORS', () => {
-  it.each([APP, 'https://fix-x.bluray.pages.dev', 'https://bluray-web.pages.dev', 'https://fix-x.bluray-web.pages.dev', 'http://localhost:5173', 'http://localhost:4173'])('allows %s', async (origin) => {
+  it.each([APP, 'https://fix-x.bluray.pages.dev', 'http://localhost:5173', 'http://localhost:4173'])('allows %s', async (origin) => {
     const res = await call('/codes/lookup', { code: CODE }, { Origin: origin });
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe(origin);
     expect(res.headers.get('Vary')).toBe('Origin');
     expect(res.headers.get('Cross-Origin-Resource-Policy')).toBe('cross-origin');
   });
 
-  it.each(['https://evil.pages.dev', 'https://bluray.pages.dev.evil.com', 'https://evil-bluray.pages.dev'])('gives no Allow-Origin to %s', async (origin) => {
+  it.each(['https://evil.pages.dev', 'https://bluray.pages.dev.evil.com', 'https://evil-bluray.pages.dev', 'https://bluray-web.pages.dev'])('gives no Allow-Origin to %s', async (origin) => {
     const res = await call('/codes/lookup', { code: CODE }, { Origin: origin });
     expect(res.headers.get('Access-Control-Allow-Origin')).toBeNull();
     expect(res.headers.get('Vary')).toBe('Origin');

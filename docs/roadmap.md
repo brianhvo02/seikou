@@ -10,9 +10,9 @@ Short tasks that unblock or protect what is already deployed.
 
 | Item | Size | Notes |
 | --- | --- | --- |
-| **Finish the move to `bluray.pages.dev`.** The site moved from `bluray-web.pages.dev` on 2026-10-27, and browser data stays with the old origin. Put a notice on the old site that links to the new one, then retire it and drop `bluray-web` from `src/engine/disc/cors-policy.ts` once paired devices have moved. A one-time export of pairings, local places and shaders from the old origin is optional. | S | |
+| **Retire the old site.** Paired devices have moved to `bluray.pages.dev`, and the NAS and Worker no longer allow `bluray-web.pages.dev`. What remains is to put a notice on the old Pages project that links to the new one, or delete it. | S | owner's call |
 | **Caddy's Tailscale certificate** is issued by hand and may lapse around late November, which would take down every site behind Caddy. Renew it or let Caddy manage it. | S | owner, ssh |
-| **Owner set-up still pending:** the Discogs token in the NAS's `.env`, and the first real "Find fansubs" run on a title. | S | owner |
+| **Owner set-up still pending:** the first real "Find fansubs" run on a title. | S | owner |
 | **Open owner decisions:** play links behind a closed title gate (spec §5.2 of permalinks says guests can't open them; today they can), the not-found copy on paired devices, `v` cycling into Mode A (HQ) first, a saved built-in shader set switching itself on, the landing page naming Edge, and help pages that are dark-only. | S | owner's call |
 | **Stale status lines.** These specs still say "not built" or "pending" for work that has shipped: permalinks-resume, music shelf, self-hosting, readme-and-docs, the lower-quality phase 2 device run, and the Mac NAS runs in the cross-browser and nas-server specs. The main spec's out-of-scope table is out of date too. In known-issues, fix the stale "subtitle files are not remembered per disc" item and the two contradicting `queryLocalFonts()` notes. CLAUDE.md's "Lower quality disabled" in buffer first is also stale. | S | |
 | **Small bugs with a known fix:** | S each | |
