@@ -450,12 +450,64 @@ export function LandingScreen({ controller, snapshot, nas, places, history, play
   const paired = pairing !== undefined && pairing !== null && !pairRequested;
   const errorPaths = localError ? [] : (snapshot.error?.paths ?? []);
 
+  /** Which NAS panel shows: the not-found screen, the pair screen, the paired line, or none while pairings load. */
+  const nasPanel = pairing === undefined ? null : pairing === null && browsing && !pairRequested ? 'not-found' : pairing === null || pairRequested ? 'pair' : 'paired';
+  const pairedLine = nasPanel === 'paired' && pairing && (
+    <p className="status nas-paired" data-testid="nas-paired">
+      {pairedAs(pairing)}{' '}
+      {!browsing && (
+        <button
+          type="button"
+          className="primary"
+          data-testid="nas-open"
+          onClick={() => {
+            setLocalError(null);
+            history.push(LIBRARY);
+          }}
+        >
+          Open from NAS
+        </button>
+      )}{' '}
+      <button type="button" className="quiet" data-testid="nas-forget" onClick={forgetNas}>
+        Forget this NAS
+      </button>
+    </p>
+  );
+
+  // On a NAS screen the disc picker shrinks into the app bar; at home it is the page's disc.
   return (
-    <main className="landing" data-testid="landing">
-      <header className="landing-head">
-        <h1>
-          <img className="landing-logo" src="/logo.svg" alt="Seikou" width={90} height={112} />
+    <main className={`landing${browsing ? ' browsing' : ''}`} data-testid="landing">
+      <header className="app-bar">
+        <h1 className="app-name">
+          <img className="app-mark" src="/favicon.svg" alt="" width={32} height={32} />
+          Seikou
         </h1>
+        <div
+          className={`drop-zone${dragging ? ' dragging' : ''}`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={onDrop}
+        >
+          {!browsing && <div className="drop-disc" aria-hidden="true" />}
+          <div className="drop-text">
+            {!browsing && <h2 className="drop-title">Play a disc</h2>}
+            {!browsing && <p>Drop a decrypted Blu-ray folder here: the disc folder, or the BDMV folder inside it.</p>}
+            {!browsing && capabilities.core.ok && !capabilities.bdj.ok && (
+              <p className="hint" data-testid="bdj-capability-hint">
+                BD-J (Java) menus can't run in this browser: it lacks {capabilities.bdj.missing.join(', ')}. Discs with them open to their playlists.
+              </p>
+            )}
+            {!browsing && storageHint && <p className="hint">On Safari, add the app to your Home Screen or Dock so your settings aren't cleared after 7 days without a visit.</p>}
+            <button type="button" className={browsing ? undefined : 'primary'} data-testid="open-folder" disabled={!capabilities.core.ok} onClick={onPickFolder}>
+              Open disc folder
+            </button>
+          </div>
+          {/* webkitdirectory is rendered, not set in an effect: the input must pick folders from the moment it exists */}
+          <input ref={inputRef} type="file" multiple hidden data-testid="folder-input" {...{ webkitdirectory: '' }} onChange={onInput} />
+        </div>
         <AppLink history={history} to="/help" className="help-link" testId="help-link">
           Help
         </AppLink>
@@ -465,28 +517,6 @@ export function LandingScreen({ controller, snapshot, nas, places, history, play
           This browser is missing: {capabilities.core.missing.join(', ')}. Use Chrome, Edge, Safari or Firefox (desktop), or Chrome on Android.
         </div>
       )}
-      <div
-        className={`drop-zone${dragging ? ' dragging' : ''}`}
-        onDragOver={(e) => {
-          e.preventDefault();
-          setDragging(true);
-        }}
-        onDragLeave={() => setDragging(false)}
-        onDrop={onDrop}
-      >
-        <p>Drop a decrypted Blu-ray folder here: the disc folder, or the BDMV folder inside it.</p>
-        {capabilities.core.ok && !capabilities.bdj.ok && (
-          <p className="hint" data-testid="bdj-capability-hint">
-            BD-J (Java) menus can't run in this browser: it lacks {capabilities.bdj.missing.join(', ')}. Discs with them open to their playlists.
-          </p>
-        )}
-        {storageHint && <p className="hint">On Safari, add the app to your Home Screen or Dock so your settings aren't cleared after 7 days without a visit.</p>}
-        <button type="button" data-testid="open-folder" disabled={!capabilities.core.ok} onClick={onPickFolder}>
-          Open disc folder
-        </button>
-        {/* webkitdirectory is rendered, not set in an effect: the input must pick folders from the moment it exists */}
-        <input ref={inputRef} type="file" multiple hidden data-testid="folder-input" {...{ webkitdirectory: '' }} onChange={onInput} />
-      </div>
       {pending && (
         <ResumePrompt
           place={pending.offer.place}
@@ -549,46 +579,26 @@ export function LandingScreen({ controller, snapshot, nas, places, history, play
           )}
         </div>
       )}
-      {pairing === null && browsing && !pairRequested && <NasNotFound reason="unpaired" onLeave={pairFromNotFound} />}
-      {pairing !== undefined &&
-        !(pairing === null && browsing && !pairRequested) &&
-        (pairing === null || pairRequested ? (
-          <PairScreen
-            client={nas}
-            link={pairLink}
-            paired={pairing !== null}
-            onLinkDropped={() => {
-              // back to the paired view when this device was already paired
-              setPairRequested(false);
-              onPairLinkSpent?.();
-            }}
-            onPaired={() => {
-              setPairRequested(false);
-              onPairLinkSpent?.();
-              setLocalError(null);
-              loadPairing();
-            }}
-          />
-        ) : (
-          <p className="status" data-testid="nas-paired">
-            {pairedAs(pairing)}{' '}
-            {!browsing && (
-              <button
-                type="button"
-                data-testid="nas-open"
-                onClick={() => {
-                  setLocalError(null);
-                  history.push(LIBRARY);
-                }}
-              >
-                Open from NAS
-              </button>
-            )}{' '}
-            <button type="button" data-testid="nas-forget" onClick={forgetNas}>
-              Forget this NAS
-            </button>
-          </p>
-        ))}
+      {nasPanel === 'not-found' && <NasNotFound reason="unpaired" onLeave={pairFromNotFound} />}
+      {nasPanel === 'pair' && (
+        <PairScreen
+          client={nas}
+          link={pairLink}
+          paired={pairing !== null}
+          onLinkDropped={() => {
+            // back to the paired view when this device was already paired
+            setPairRequested(false);
+            onPairLinkSpent?.();
+          }}
+          onPaired={() => {
+            setPairRequested(false);
+            onPairLinkSpent?.();
+            setLocalError(null);
+            loadPairing();
+          }}
+        />
+      )}
+      {!browsing && pairedLine}
       {paired && playLink !== null && <PlayLink nas={nas} places={places} controller={controller} history={history} playingRoute={playingRoute} route={playLink} onLibrary={libraryFromNotFound} />}
       {paired && shown !== null && playLink === null && guestOnTitleRoute && <NasNotFound reason="closed" onLeave={libraryFromNotFound} />}
       {paired && shown !== null && playLink === null && titleMissing && !guestOnTitleRoute && <NasNotFound reason="missing" onLeave={libraryFromNotFound} />}
@@ -641,6 +651,7 @@ export function LandingScreen({ controller, snapshot, nas, places, history, play
           </ul>
         </section>
       )}
+      {browsing && pairedLine && <footer className="app-foot">{pairedLine}</footer>}
     </main>
   );
 }

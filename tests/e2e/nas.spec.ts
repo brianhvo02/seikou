@@ -378,9 +378,9 @@ test('a code typed with another rendezvous is looked up there', async ({ page, b
   expect(lookups).toEqual([]);
 });
 
-test("the title library's Help link opens the help pages, and Back returns to the library", async ({ page, browserName }) => {
+test("the app bar's Help link opens the help pages from the title library, and Back returns to the library", async ({ page, browserName }) => {
   await openTitles(page, browserName);
-  await page.getByTestId('library-help').click();
+  await page.getByTestId('help-link').click();
   await expect(page).toHaveURL(/\/help$/);
   await expect(page.getByTestId('help-index')).toBeVisible();
   await page.goBack();

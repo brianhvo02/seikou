@@ -513,13 +513,14 @@ export function Preflight({ nas, controller, disc, playlistId, title, startTimeS
           )}
           <div className="preflight-actions">
             {plan?.kind === 'ask' && (
-              <button type="button" data-testid="nas-wait" disabled={!manifest || opening !== 'idle' || !placesReady || !levelsKnown} onClick={() => waitFor(plan.bytes, offer.kind === 'ask' ? resumeLaunch() : offer.kind === 'changed' ? startOverLaunch() : playLaunch())}>
+              <button type="button" className="primary" data-testid="nas-wait" disabled={!manifest || opening !== 'idle' || !placesReady || !levelsKnown} onClick={() => waitFor(plan.bytes, offer.kind === 'ask' ? resumeLaunch() : offer.kind === 'changed' ? startOverLaunch() : playLaunch())}>
                 Wait
               </button>
             )}
             {playButton && (
               <button
                 type="button"
+                className={plan?.kind === 'ask' ? undefined : 'primary'}
                 data-testid="nas-play"
                 disabled={!manifest || opening !== 'idle' || estimating || !placesReady || !levelsKnown}
                 onClick={() => go(playLaunch())}

@@ -67,6 +67,7 @@ Shipped inside the app, the server image or the Worker.
 - The OpenJDK 8 class library (GPLv2 with the Classpath Exception), trimmed for BD-J, with [Apache Xerces](https://xerces.apache.org) (Apache-2.0), the [SAX](http://www.saxproject.org) classes (public domain notice) and ICU4J-derived classes ([ICU](https://icu.unicode.org)), as listed in [src/bdj-classlib/NOTICE](src/bdj-classlib/NOTICE).
 - [Anime4K](https://github.com/bloc97/Anime4K) v4.0.1, MIT: the shaders and mode definitions behind the built-in shader sets.
 - [DejaVu Sans](https://dejavu-fonts.github.io) 2.37, Bitstream Vera / DejaVu licence: the fallback font for ASS subtitles and BD-J text.
+- [Instrument Sans](https://github.com/Instrument/instrument-sans) (through `@fontsource-variable/instrument-sans`), SIL Open Font License 1.1: the app's typeface, bundled with the site.
 - libbluray's BD-J Java stack, as jars (`libbluray-j2se`, `libbluray-awt-j2se`), LGPL-2.1-or-later.
 - The `cacerts` keystore in the class library, generated from Ubuntu's ca-certificates ([src/bdj-classlib/NOTICE](src/bdj-classlib/NOTICE)).
 - [TheDiscDB data](https://github.com/TheDiscDb/data), MIT: the server's disc index (`server/data/discdb-index.json`).

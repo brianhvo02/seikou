@@ -39,6 +39,7 @@
     "fixture:synthetic": "tsx scripts/make-audio-fixtures.ts && tsx scripts/make-fixture-disc.ts fixtures/synthetic/disc1 && bash scripts/make-iso-fixture.sh && tsx scripts/make-error-fixtures.ts && tsx scripts/make-bframe-disc.ts fixtures/synthetic/disc2 && tsx scripts/make-audio-disc.ts fixtures/synthetic/disc3 && tsx scripts/make-vm-disc.ts fixtures/synthetic/disc-vm && tsx scripts/make-menu-disc.ts fixtures/synthetic/disc-menu && tsx scripts/make-subs-disc.ts fixtures/synthetic/disc-subs && tsx scripts/make-bdj-disc.ts fixtures/synthetic/disc-bdj && tsx scripts/make-bdj-mixed-disc.ts fixtures/synthetic/disc-bdj-mixed && tsx scripts/make-bdj-background-disc.ts fixtures/synthetic/disc-bdj-background && tsx scripts/make-bdj-menu-disc.ts fixtures/synthetic/disc-bdj-menu && tsx scripts/make-mpeg2-disc.ts fixtures/synthetic/disc-mpeg2-menu && tsx scripts/make-bdj-store-disc.ts fixtures/synthetic/disc-bdj-store && tsx scripts/make-level-discs.ts fixtures/synthetic && tsx scripts/make-speech-disc.ts fixtures/synthetic/disc-speech"
   },
   "dependencies": {
+    "@fontsource-variable/instrument-sans": "5.3.0",
     "7z-wasm": "1.2.0",
     "qrcode-generator": "2.0.4",
     "react": "^19.3.0",

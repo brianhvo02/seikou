@@ -499,7 +499,7 @@ export function AdminScreen({ nas, thisDeviceId, onClose, onAccessLost, now = Da
           <input type="checkbox" data-testid="nas-code-invite" checked={invite} onChange={(e) => setInvite(e.target.checked)} disabled={minting} /> Send as an invite
           (valid 3 days)
         </label>
-        <button type="submit" data-testid="nas-new-code" disabled={minting}>
+        <button type="submit" className="primary" data-testid="nas-new-code" disabled={minting}>
           New pairing code
         </button>
       </form>

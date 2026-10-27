@@ -1,6 +1,8 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './ui/App';
+// Instrument Sans with its width axis (OFL), bundled so the app keeps its type offline.
+import '@fontsource-variable/instrument-sans/wdth.css';
 import './ui/styles.css';
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {

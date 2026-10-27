@@ -122,7 +122,7 @@ export function PairScreen({ client, link, onPaired, onLinkDropped, dev = isLoop
           Device name{' '}
           <input data-testid="pair-device-name" value={deviceName} onChange={(e) => setDeviceName(e.target.value)} maxLength={100} disabled={busy} />
         </label>{' '}
-        <button type="submit" data-testid="pair-button" disabled={busy || refused || normalizeCode(code) === null || deviceName.trim() === ''}>
+        <button type="submit" className="primary" data-testid="pair-button" disabled={busy || refused || normalizeCode(code) === null || deviceName.trim() === ''}>
           Pair
         </button>
       </form>

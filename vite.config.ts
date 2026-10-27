@@ -51,7 +51,7 @@ export default defineConfig({
         rollupFormat: 'iife',
         // jar: the BD-J class library (rt-bdj.jar is about 4 MB, over Workbox's 2 MiB default).
         // No glsl: the bundled Anime4K shaders load on demand, and src/sw.ts caches them at runtime.
-        globPatterns: ['**/*.{js,css,html,wasm,ttf,svg,png,webmanifest,jar}'],
+        globPatterns: ['**/*.{js,css,html,wasm,ttf,woff2,svg,png,webmanifest,jar}'],
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
         // The diagnostics page is online-only.
         globIgnores: ['probe.html', 'assets/probe-*.js'],

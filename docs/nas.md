@@ -12,7 +12,7 @@ You need a pairing code or an invite link from the NAS owner.
 - **Link or QR:** open the link, or scan the QR code with your phone's camera. The player opens with the code already filled in. Choose **Pair** to finish. If the link names a server or pairing service other than the player's own, the player first asks you to confirm it ("This link pairs with: … Only continue if you trust them."). An invite lasts 3 days.
 - If your browser asks about **local network access**, allow it. Pairing waits until you answer. If the NAS is reached over Tailscale at home, being on the tailnet gives the direct route. Without it the player falls back to WebRTC.
 
-When paired, the first screen shows who you are paired as, with **Open from NAS** and **Forget this NAS**. A device can be paired with one NAS at a time: pairing again replaces it.
+When paired, the first screen shows who you are paired as, with **Open from NAS** and **Forget this NAS**. While you browse the NAS, that line moves to the foot of the page, and **Open disc folder** stays in the bar at the top, beside **Help**. A device can be paired with one NAS at a time: pairing again replaces it.
 
 "Use another rendezvous" under the code field is for a NAS that runs its own pairing service. Most people never need it.
 

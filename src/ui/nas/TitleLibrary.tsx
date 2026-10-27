@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import type { SeasonDetail, TitleDetail, TitleKind, TitleSummary } from '../../engine/disc/nas-api';
 import type { PlayerController } from '../../player/player-controller';
-import { AppLink } from '../help/HelpLink';
 import { AdminScreen } from './AdminScreen';
 import { artistIndex, artistNames, groupArtists, searchArtists, type ArtistGroup } from './artist-model';
 import type { MusicOwner } from './ArtistPage';
@@ -611,9 +610,6 @@ export function TitleLibrary({ nas, controller, history, playingRoute, places, o
         <header className="titles-head">
           <h2>Library</h2>
           <div className="titles-actions">
-            <AppLink history={history} to="/help" className="help-link" testId="library-help">
-              Help
-            </AppLink>
             {owner && (
               <button type="button" className="title-icon-button" data-testid="nas-settings" aria-label="NAS settings" onClick={() => history.push({ kind: 'settings' })}>
                 <span aria-hidden="true">⚙</span>
