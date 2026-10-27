@@ -2,7 +2,7 @@
 
 Seikou opens a decrypted Blu-ray folder in your browser. Nothing is uploaded: the disc is read on your device.
 
-The player's address is now `bluray.pages.dev`; it used to be `bluray-web.pages.dev`, which can no longer reach a NAS. What a browser keeps (NAS pairings, recent discs, the places of local discs, imported shaders, disc saves from a local folder) stayed with the old address, so pair again at the new one. Places and disc saves kept on a NAS belong to your person there and come back once this device is paired as you again; ask the NAS owner for a code for your person if you can't make one yourself.
+The player's address is now `bluray.pages.dev`; it used to be `bluray-web.pages.dev`, which is gone. What a browser keeps (NAS pairings, recent discs, the places of local discs, imported shaders, disc saves from a local folder) stayed with the old address, so pair again at the new one. Places and disc saves kept on a NAS belong to your person there and come back once this device is paired as you again; ask the NAS owner for a code for your person if you can't make one yourself.
 
 ## Browsers
 

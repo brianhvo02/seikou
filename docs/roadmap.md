@@ -10,7 +10,6 @@ Short tasks that unblock or protect what is already deployed.
 
 | Item | Size | Notes |
 | --- | --- | --- |
-| **Retire the old site.** Paired devices have moved to `bluray.pages.dev`, and the NAS and Worker no longer allow `bluray-web.pages.dev`. What remains is to put a notice on the old Pages project that links to the new one, or delete it. | S | owner's call |
 | **Caddy's Tailscale certificate** is issued by hand and may lapse around late November, which would take down every site behind Caddy. Renew it or let Caddy manage it. | S | owner, ssh |
 | **Owner set-up still pending:** the first real "Find fansubs" run on a title. | S | owner |
 | **Open owner decisions:** play links behind a closed title gate (spec §5.2 of permalinks says guests can't open them; today they can), the not-found copy on paired devices, `v` cycling into Mode A (HQ) first, a saved built-in shader set switching itself on, the landing page naming Edge, and help pages that are dark-only. | S | owner's call |
