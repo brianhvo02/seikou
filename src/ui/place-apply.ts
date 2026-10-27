@@ -45,8 +45,6 @@ export interface LaunchSettingsDeps {
   readonly onStoredSubtitle?: (id: string) => void;
   /** A resumed Anime Tosho pick is in the text set again (the search checks its track). */
   readonly onFansubPick?: (pick: FansubPick, fansub: PlaceFansub) => void;
-  /** Chooses a shader set (null: off) the way the Shaders menu does; a set this device doesn't have is left alone. */
-  readonly selectShader: (name: string | null) => void;
   readonly log?: (message: string, err: unknown) => void;
   readonly nowMs?: () => number;
 }
@@ -93,8 +91,7 @@ export function filesToAdd(wanted: readonly PlaceTextFile[], stored: readonly St
 }
 
 /**
- * Applies a launch's settings once its disc plays (spec 2026-10-20 §6.1, §6.3, §6.6): volume and mute, the shader set,
- * audio and PG by language for another playlist's settings, and the text subtitle files (this device's, and on a resume
+ * Applies a launch's settings once its disc plays (spec 2026-10-20 §6.1, §6.3, §6.6): volume and mute, audio and PG by language for another playlist's settings, and the text subtitle files (this device's, and on a resume
  * those stored on the NAS) with their placements, offsets and scale. A carried file this device has no bytes for (for
  * this disc), or that the NAS no longer has or can't send, is skipped silently. For Up next, a stored subtitle that was
  * shown picks this playlist's stored subtitle in its language instead, and the episode before's other files are left.
@@ -119,8 +116,11 @@ export class LaunchSettingsApplier {
     this.downloads.clear();
   }
 
-  /** Each snapshot of the player, with the shader set chosen now. */
-  observe(s: PlayerSnapshot, shaderSet: string | null): void {
+  /**
+   * Each snapshot of the player. A place's shader set is never applied: the shader is this device's own choice (Off
+   * until chosen here), so a place saved elsewhere doesn't switch one on.
+   */
+  observe(s: PlayerSnapshot): void {
     if (this.text) this.finishText(s);
     // nothing playing: no playlist to pick a resumed subtitle for, so the launch waits (a pick needs one)
     const playlistId = s.currentPlaylistId;
@@ -131,7 +131,6 @@ export class LaunchSettingsApplier {
     const settings = launch.byLanguage ? settingsForUpNext(launch.settings, s.audioTracks, s.subtitles?.pg ?? []) : launch.settings;
     controller.setVolume(settings.volume);
     if (settings.muted !== s.muted) controller.toggleMute();
-    if (settings.shaderSet !== shaderSet) this.deps.selectShader(settings.shaderSet);
     const pg = s.subtitles?.pg ?? [];
     // Up next: a stored subtitle shown on the episode before carries its language to this one's (spec §6.6)
     const carried = launch.byLanguage && settings.textOn ? settings.textFiles.find((f) => fromNas(f) && f.language !== undefined) : undefined;

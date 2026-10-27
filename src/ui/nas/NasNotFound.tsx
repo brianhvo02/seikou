@@ -6,7 +6,7 @@ export type NotFoundReason = 'unpaired' | 'missing' | 'closed';
 const COPY: Record<NotFoundReason, { readonly text: string; readonly button: string }> = {
   unpaired: { text: "This link is for a NAS this device isn't paired with. Ask its owner to send you an invite.", button: 'Pair with a NAS' },
   missing: {
-    text: "Your NAS doesn't have what this link points to. It may have been removed or renamed, or the link may be for a different NAS.",
+    text: "This NAS doesn't have what this link points to. It may have been removed or renamed, or the link may be for another NAS.",
     button: 'Back to the library',
   },
   closed: {

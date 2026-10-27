@@ -2039,7 +2039,7 @@ test('NAS settings list own titles, to rename, change seasons and delete after a
 });
 
 const NOT_FOUND_COPY = "This link is for a NAS this device isn't paired with. Ask its owner to send you an invite.";
-const MISSING_COPY = "Your NAS doesn't have what this link points to. It may have been removed or renamed, or the link may be for a different NAS.";
+const MISSING_COPY = "This NAS doesn't have what this link points to. It may have been removed or renamed, or the link may be for another NAS.";
 const CLOSED_COPY = "The NAS owner hasn't opened the title library to this device, so this link can't open here. You can still browse the NAS by folder.";
 
 test('a NAS link on an unpaired device asks for an invite', async ({ page }) => {

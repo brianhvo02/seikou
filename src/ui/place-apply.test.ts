@@ -51,7 +51,6 @@ function setup(launch: LaunchSettings | null, stored: StoredTextFile[] = [], opt
   const loaded: string[][] = [];
   const signals: (AbortSignal | undefined)[] = [];
   let pending = launch;
-  let shader: string | null = null;
   const controller = {
     discOpens: 1,
     setVolume: (v: number) => void calls.push(['volume', v]),
@@ -119,10 +118,6 @@ function setup(launch: LaunchSettings | null, stored: StoredTextFile[] = [], opt
         if (opts.keepFails) throw new Error('quota');
       },
     },
-    selectShader: (name) => {
-      shader = name;
-      calls.push(['shader', name]);
-    },
     nowMs: () => clock,
     log: () => {},
   });
@@ -142,7 +137,7 @@ function setup(launch: LaunchSettings | null, stored: StoredTextFile[] = [], opt
     controller,
     show(change: Partial<PlayerSnapshot>) {
       snap = { ...snap, ...change };
-      applier.observe(snap, shader);
+      applier.observe(snap);
     },
     get snap() {
       return snap;
@@ -159,13 +154,13 @@ const listing = (snap: PlayerSnapshot, ...names: string[]): Partial<PlayerSnapsh
 });
 
 describe('LaunchSettingsApplier', () => {
-  it('waits for the disc to play, then sets volume, mute and the shader once', () => {
+  it("waits for the disc to play, then sets volume and mute once, leaving the device's shader alone", () => {
     const t = setup({ settings: { ...base, volume: 0.4, muted: true, shaderSet: 'Mode A' }, byLanguage: false });
     t.show({});
     expect(t.calls).toEqual([]);
     t.show({ engineState: 'playing', currentPlaylistId: '00001' });
     t.show({ timeUs: 1 });
-    expect(t.calls).toEqual([['volume', 0.4], ['mute'], ['shader', 'Mode A']]);
+    expect(t.calls).toEqual([['volume', 0.4], ['mute']]);
   });
 
   it("chooses audio and PG by language for another playlist's settings", () => {

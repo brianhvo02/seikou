@@ -514,7 +514,7 @@ export function LandingScreen({ controller, snapshot, nas, places, history, play
       </header>
       {!capabilities.core.ok && (
         <div className="error-banner" role="alert">
-          This browser is missing: {capabilities.core.missing.join(', ')}. Use Chrome, Edge, Safari or Firefox (desktop), or Chrome on Android.
+          This browser is missing: {capabilities.core.missing.join(', ')}. Use Chrome, Safari or Firefox on a computer, or Chrome on Android.
         </div>
       )}
       {pending && (

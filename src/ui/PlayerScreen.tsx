@@ -125,9 +125,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
   // Each snapshot may save the place (spec 2026-10-20 §6.2).
   const shaderSet = shaderState.selected;
   useEffect(() => places.observe(snapshot, shaderSet), [places, snapshot, shaderSet]);
-  // A resumed (or carried-over) launch's settings, once the disc plays: volume, shader, tracks and subtitle files.
-  const shaderStateRef = useRef(shaderState);
-  shaderStateRef.current = shaderState;
+  // A resumed (or carried-over) launch's settings, once the disc plays: volume, tracks and subtitle files.
   /** The place is saved before the disc closes: its registers are read while it is still open. */
   const savePlaceAndEnd = useCallback((): void => {
     void places.flushNow({ keepalive: false });
@@ -260,10 +258,6 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
       new LaunchSettingsApplier({
         controller,
         places,
-        // a set this device doesn't have stays unchosen, rather than chosen and missing
-        selectShader: (name) => {
-          if (name === null || shaderStateRef.current.sets.some((set) => set.name === name && set.available)) void shaderModel.select(name);
-        },
         ...(nas && storedPicker
           ? { nas, pickStored: (s: StoredSubtitle) => pickStoredWith(storedPicker, s), pickFansub: (req: FansubPickRequest, origin: FansubOrigin) => pickFansubWith(storedPicker, req, origin) }
           : {}),
@@ -278,7 +272,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
         log: (message, err) => console.warn(message, err),
       }),
   );
-  useEffect(() => launchSettings.observe(snapshot, shaderSet), [launchSettings, snapshot, shaderSet]);
+  useEffect(() => launchSettings.observe(snapshot), [launchSettings, snapshot]);
   const storedHere = stored && currentPlaylistId !== null ? forPlaylist(stored.items, stored.discKey, currentPlaylistId) : null;
   // checked while its file is still the text set's (Remove takes it away)
   const storedActiveId = storedHere?.find((s) => s.id === storedActive && snapshot.subtitles?.text?.files.some((f) => f.name === s.fileName))?.id ?? null;
