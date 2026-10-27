@@ -1,7 +1,7 @@
 # Milestone 3: HDMV Menus — Design Spec
 
 Date: 2026-10-14
-Status: Approved design, pending spec review
+Status: Done; merged and pushed 2026-10-15 (52cd891); real-disc gate passed 2026-10-15.
 Parent spec: `2026-10-12-bluray-web-player-design.md` (§5, §7, §8, §9, §11 milestone 3)
 
 ## 1. Goal and scope

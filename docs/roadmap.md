@@ -12,14 +12,8 @@ Short tasks that unblock or protect what is already deployed.
 | --- | --- | --- |
 | **Caddy's Tailscale certificate** is issued by hand and may lapse around late November, which would take down every site behind Caddy. Renew it or let Caddy manage it. | S | owner, ssh |
 | **Owner set-up still pending:** the first real "Find fansubs" run on a title. | S | owner |
-| **Open owner decisions:** play links behind a closed title gate (spec §5.2 of permalinks says guests can't open them; today they can), the not-found copy on paired devices, `v` cycling into Mode A (HQ) first, a saved built-in shader set switching itself on, the landing page naming Edge, and help pages that are dark-only. | S | owner's call |
-| **Stale status lines.** These specs still say "not built" or "pending" for work that has shipped: permalinks-resume, music shelf, self-hosting, readme-and-docs, the lower-quality phase 2 device run, and the Mac NAS runs in the cross-browser and nas-server specs. The main spec's out-of-scope table is out of date too. In known-issues, fix the stale "subtitle files are not remembered per disc" item and the two contradicting `queryLocalFonts()` notes. CLAUDE.md's "Lower quality disabled" in buffer first is also stale. | S | |
-| **Small bugs with a known fix:** | S each | |
-| • An uploaded WOFF2 font can't be used: the ASS renderer refuses WOFF2, but the subtitle store accepts it. Refuse it at upload, or decode it. | | |
-| • The subtitle on screen is missing after a seek when its display set comes before the keyframe. Read PG a few seconds earlier. | | |
-| • A play item without the selected audio stream drops to buffering. | | |
-| • `src/engine/ass/trace.ts` imports a type from `tests/`. | | |
-| • `live-check.ts` real touches miss on the iPhone player screen. Fix before the next device gate. | | |
+| **Open owner decision:** help pages that are dark-only. | S | owner's call |
+| **Device check of the tools' touch timing:** `tools/devices/tap.ts` (settle, hold, check where each touch landed) has not run on an iPhone yet. Run it at the next device gate. | S | needs a device |
 
 ## Next: finish what was planned
 

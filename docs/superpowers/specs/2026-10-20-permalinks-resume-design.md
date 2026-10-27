@@ -1,6 +1,6 @@
 # Permalinks, resume and Continue watching, and the NAS subtitle store
 
-Date: 2026-10-20. Status: design, not built.
+Date: 2026-10-20. Status: done and deployed. Piece 1 (links) merged 2026-10-21 (0a46717), piece 2 (resume) 2026-10-21 (c0af3e4), piece 3 (the subtitle store, eac8d74) pushed 2026-10-22; site and NAS deployed at 32dd53e on 2026-10-22. Resume passed the real-iPhone check (`live-check.ts --places`).
 
 Decisions marked **(user)** are the user's. Those marked **(my call)** were made while writing this and can be overridden; the builder may revisit anything marked (builder).
 
@@ -68,8 +68,8 @@ All under `/nas/` (my call). Ids are URL-encoded path segments.
 
 - **Paired, title or disc found:** the app opens straight onto that screen. A `/nas/play/…` link opens the disc at that playlist and time, with the receiver's own saved settings for that disc if they have any, else defaults. It does not show the resume prompt.
 - **Not paired:** a not-found screen: "This link is for a NAS this device isn't paired with. Ask its owner to send you an invite." with a button to the pairing screen (user).
-- **Paired, and the NAS doesn't have it** (a disc key or title it can't resolve, opened from a link rather than an in-app step): the same screen with its own wording, "Your NAS doesn't have what this link points to. It may have been removed or renamed, or the link may be for a different NAS.", and a "Back to the library" button (user asked for separate wording for this case, 2026-10-21; the words are my call).
-- **A guest behind the closed title gate opening a title, season or extras link:** the same screen, "The NAS owner hasn't opened the title library to this device, so this link can't open here. You can still browse the NAS by folder.", with a "Browse by folder" button (my call). Play links still open for a guest: disc routes are open to every paired device and the gate covers only the title library, so a guest can already play that disc from the folder view (my call, made while building piece 1; the user has seen it).
+- **Paired, and the NAS doesn't have it** (a disc key or title it can't resolve, opened from a link rather than an in-app step): the same screen with its own wording, "This NAS doesn't have what this link points to. It may have been removed or renamed, or the link may be for another NAS.", and a "Back to the library" button (user asked for separate wording for this case, 2026-10-21; the words are my call; "Your NAS" became "This NAS" on 2026-10-27, since a guest's NAS isn't theirs).
+- **A guest behind the closed title gate opening a title, season or extras link:** the same screen, "The NAS owner hasn't opened the title library to this device, so this link can't open here. You can still browse the NAS by folder.", with a "Browse by folder" button (my call). Play links still open for a guest: disc routes are open to every paired device and the gate covers only the title library, so a guest can already play that disc from the folder view (my call, made while building piece 1; the user confirmed it on 2026-10-27).
 - **The disc moved:** a fingerprint key still resolves. A `d.` key whose disc id is gone gives the not-found screen.
 
 ### 5.3 Hosting

@@ -1,6 +1,6 @@
 # Fansubs from SeaDex and Anime Tosho: design
 
-Status: done, 2026-10-23.
+Status: done, 2026-10-23; merged (08d0cdd) and deployed to the NAS the same day.
 
 ## 1. Why
 

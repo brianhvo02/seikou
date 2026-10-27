@@ -1,6 +1,6 @@
 # Self-hosting the NAS server: design
 
-Status: design agreed in conversation 2026-10-22; not built.
+Status: done; on main and deployed 2026-10-22 at 2b975fb (site, Worker, first GHCR image). The owner's NAS cutover to the generic compose is done (checked 2026-10-23).
 
 ## 1. Why
 

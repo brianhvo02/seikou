@@ -1,7 +1,7 @@
 # Milestone 2: Audio Coverage — Design Spec
 
 Date: 2026-10-13
-Status: Approved design, pending spec review
+Status: Done; merged and pushed 2026-10-13 (2e59954); real-disc gate passed 2026-10-13.
 Parent spec: `2026-10-12-bluray-web-player-design.md` (§11, milestone 2)
 
 ## 1. Goal and scope

@@ -1,6 +1,6 @@
 # Music shelf by artist: design
 
-Status: built on branch feat/music-shelf 2026-10-22 (not yet deployed).
+Status: done; on main and deployed (site and NAS, 5948459) 2026-10-22. The optional Discogs token was not yet set at deploy, so lookups started with MusicBrainz alone.
 
 ## 1. Why
 

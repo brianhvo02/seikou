@@ -1,7 +1,7 @@
 # Milestone 5e: every BD-J disc in the library — design
 
 Date: 2026-10-18
-Status: Implemented on branch `spec/bdj-5e` (approved 2026-10-18); the device check passed on a real iPhone on 2026-10-22 (§9, R27, R33, R34)
+Status: Done; merged to main via PR #9 (32dd53e) 2026-10-22 (approved 2026-10-18); the device check passed on a real iPhone on 2026-10-22 (§9, R27, R33, R34)
 Builds on: `2026-10-17-m5d-bdj-menus-design.md` (5d, merged as PR #7), `2026-10-16-m5c-bdj-playback-design.md`, `2026-10-15-m5b-bdj-jvm-core-design.md`. Parent: `2026-10-12-bluray-web-player-design.md`. Depends in part on the NAS session's step 3 (people and a per-person store; `2026-10-17-nas-server-design.md` and its step-3 successor).
 
 ## 1. Intent

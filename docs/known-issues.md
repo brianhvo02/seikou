@@ -48,21 +48,26 @@ what would change that decision.
 - **HDMV TextST streams (stream type 0x92) are not decoded.** No local disc carries one. *Revisit when* a disc does.
 - **PG carried in sub-paths is not decoded**, as in libbluray (it decodes main-path PG only); such tracks are left out
   of the subtitle menu. *Revisit if* a disc carries its only subtitles in a sub-path.
-- **After a seek or a stream switch, the subtitle on screen comes back only if its display set lies after the keyframe
-  the read starts at;** otherwise the next subtitle is the first one shown (libbluray behaves the same). *Revisit if*
-  this is noticeable on real discs (reading PG from a few seconds earlier would fix it).
-- **Subtitle files are not remembered per disc**, and a file dropped on the player before a playlist plays is ignored
-  (the file belongs to the open disc).
+- **After a seek or a PG stream switch, a subtitle comes back only if it began at most about 5 s before the target.**
+  The pipeline reads the PG PID alone from the EP entry 5 s before the target (`PG_SEEK_LEAD_US`, never before the
+  play item's IN time), so the display set on screen at the target is drawn at once; libbluray shows nothing until the
+  next one. The lead costs up to about 5 s of extra stream bytes per seek while PG is on. Checked by unit tests, not
+  yet on a real disc. *Revisit if* a seek with subtitles on feels slow over a slow NAS link (shorten the lead).
+- **A subtitle file dropped on the player before a playlist plays is ignored** (the file belongs to the open disc).
+  Files added while a playlist plays are remembered per disc on this device, with their placement and offset, and
+  come back on a resume (places, `PlaceStore`).
 - **SRT is verified on synthetic data only** (unit tests and `tests/e2e/subtitles.spec.ts`); no real-world SRT corpus
   is tested. Encodings other than UTF-8 need the user's choice in the encoding prompt (no detection).
 
 ## ASS subtitles
 
-- **Not loaded yet: subtitles and fonts inside `.mkv` files, and installed system fonts (`queryLocalFonts()`).**
-  Both are a later milestone. Fonts come from files picked or dropped with the script and from its `[Fonts]`
-  section; a family that is still missing is replaced and named in a notice.
-- **WOFF2 fonts are not accepted** (Brotli and table transforms); `.ttf`, `.otf`, `.ttc` and `.woff` are. Fansub
-  fonts are TTF/OTF. *Revisit if* a release ships WOFF2.
+- **Not loaded yet: subtitles and fonts inside `.mkv` files** (on the roadmap). Installed system fonts
+  (`queryLocalFonts()`) won't be: see the Fansubs section. Fonts come from files picked or dropped with the script,
+  from its `[Fonts]` section, from the subtitle store and from Anime Tosho; a family that is still missing is
+  replaced and named in a notice.
+- **WOFF2 fonts are not accepted** (Brotli and table transforms); `.ttf`, `.otf`, `.ttc` and `.woff` are. A local
+  pick ignores WOFF2 files, the subtitle store refuses them at upload (the upload screen says to convert them to TTF
+  or OTF), and fansub font packs leave them out. Fansub fonts are TTF/OTF. *Revisit if* a release ships WOFF2.
 - **Legacy `Effect` field effects (`Banner`, `Scroll up`, `Scroll down`) are ignored**, and `Comment`, `Picture`,
   `Sound`, `Movie` and `Command` events are skipped. *Revisit if* a real file uses them.
 - **Right-to-left text is reordered by Chrome within a style run only**; libass's FriBidi reordering across runs is
@@ -86,9 +91,6 @@ what would change that decision.
   `ASS_LOCAL=1`). The 15 committed synthetic fixtures cover the tag set. *Revisit* by adding scripts to
   `fixtures/local/ass/`.
 
-- **`src/engine/ass/trace.ts` imports its types from `tests/ass-trace/format.ts`.** The import is type-only and the
-  module is used only by the trace page, so nothing from `tests/` reaches the player bundle. *Revisit if* the trace
-  format moves into the engine (it would then belong in `src/engine/ass/`).
 - **The local corpus gate needs Docker and the developer's files**, so CI runs only the synthetic fixtures. *Revisit*
   if a freely licensed real-world script with fonts becomes available to commit.
 
@@ -366,8 +368,10 @@ what would change that decision.
   iPhone over the live NAS, with the iPad Simulator as the second device (no iPad at hand): the two-person saved-data
   check passed, and the 14 unconfirmed discs opened. `tools/devices/live-check.ts`'s real touches miss on the
   iPhone's player screen (a probe showed the phone places touches exactly, so it is the tool's timing, likely a touch
-  sent while Safari still scrolls), so arrows and Enter were checked in desktop Chrome. *Revisit* the tool's touch
-  timing before the next device gate.
+  sent while Safari still scrolls), so arrows and Enter were checked in desktop Chrome. Since 2026-10-27 the tools wait for the page to
+  settle before each touch, hold the finger 60 ms, check where the touch landed and log a miss (`tools/devices/tap.ts`),
+  and the remote's keys fall back to a DOM click after two missed touches; not yet run on a device. *Revisit* at the
+  next device gate: the log says where each touch landed.
 - **No HTTPS for BD-J (5e, ruling R13).** The class library has no JSSE (about 267 classes and 1.2 MB, a quarter
   more jar) for the one library disc that asks for an `https:` URL: Java finds no handler, the disc's BD-Live client
   catches the `MalformedURLException` and carries on, where HotSpot offline would fail later with another exception.
@@ -468,9 +472,12 @@ what would change that decision.
 
 - **TrueHD and DTS-HD play through their lossy cores.** The output is a stereo 48 kHz downmix,
   so decoding MLP or XLL would not be audible. *Revisit if* multichannel or high-resolution output is added.
-- **A play item without the selected audio stream** gets no audio units. The audio clock then behaves as for any gap
-  in the audio (it can drop to buffering until video read-ahead fills). Blu-ray discs carry every stream in every
-  play item, so nothing fills the gap. *Revisit if* a real disc shows it.
+- **A play item without the selected audio stream plays silence** on the audio clock (fixed 2026-10-27): an item whose
+  STN lacks the stream is filled with silence to its OUT time as soon as its read starts, and a listed stream whose
+  PID never appears becomes silence once the read is 1.5 s past it (`AUDIO_ABSENT_AFTER_US`; a disc muxing audio
+  more than 1.5 s behind its video would lose the start of that audio). A playlist whose first item has no audio
+  takes the stream of the first item that has one. Checked by unit tests and the playback E2E, not on a real disc.
+  *Revisit if* a real disc shows it.
 - **The last E-AC-3 access unit before the end of input is not played** (32 ms), because a group is emitted when
   the next one starts.
 - **AC-3 at 44.1 or 32 kHz is ignored** (treated as no sync). Blu-ray AC-3 is always 48 kHz.
@@ -556,7 +563,7 @@ Fill in from `probe.html` on each device.
 - **Fansubs: both services are volunteer-run.** animetosho.org stopped in May 2026 and .net is its successor. The base URLs are settings (`SEADEX_URL`, `TOSHO_FEED_URL`, `TOSHO_URL`). *Revisit if* either moves again.
 - **Fansubs: resuming after the NAS dropped a viewer's Anime Tosho pick is bounded by 15 s,** while rebuilding it (fetch and line up) can take longer. The first resume may say it couldn't load the subtitle; the next works.
 - **Fansubs: the `mobile-chromium` Playwright project doesn't run `tests/e2e/nas.spec.ts`,** so the player search's phone layout was checked by hand once.
-- **Local fonts (`queryLocalFonts`) were dropped** by the owner's choice; fonts come from Anime Tosho or are added by hand.
+- **Local fonts (`queryLocalFonts`) were dropped** by the owner's choice (the API is Chrome and Edge only); fonts come from Anime Tosho, the subtitle store, or are added by hand.
 
 ## Resolved (for reference)
 

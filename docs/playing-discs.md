@@ -29,7 +29,7 @@ A disc may block something at a given moment. The player then says "The disc doe
 Add `.srt`, `.ass` or `.ssa` files from the Subtitles menu (**Load subtitle files…**), or drop them on the player.
 
 - A text file that is not UTF-8 asks you to choose its encoding.
-- ASS files use their own fonts if you add them (**Add fonts…**, or drop font files with the subtitles: `.ttf`, `.otf`, `.ttc`, `.woff`, `.woff2`). The menu lists any missing fonts.
+- ASS files use their own fonts if you add them (**Add fonts…**, or drop font files with the subtitles: `.ttf`, `.otf`, `.ttc`, `.woff`; WOFF2 fonts can't be used, so convert them to TTF or OTF first). The menu lists any missing fonts.
 - Each file has a timing shift, in steps of 100 ms. `[` makes the subtitles earlier and `]` later.
 - **Size** in the menu makes the text smaller or larger (50% to 200%).
 - **Remove subtitle files** clears them.
@@ -44,7 +44,9 @@ On a disc opened from the NAS, the Subtitles menu has **Search Anime Tosho…**.
 
 ## Video shaders (Anime4K)
 
-The **Shaders** menu applies an mpv-style video shader to make the picture sharper. Press `V` to cycle through the sets.
+The **Shaders** menu applies an mpv-style video shader to make the picture sharper. Press `V` to cycle through the sets: Off, then Anime4K Mode A (HQ) and the other High-quality modes, then the Fast ones, then Off again.
+
+- The set you choose is this device's own setting: it stays on for every disc you play here until you change it. A new device starts with shaders off, and resuming a place saved on another device doesn't switch one on.
 
 - Anime4K's twelve modes come with the player (the Fast and High-quality sets). Nothing needs importing. A mode is downloaded the first time you pick it, then kept for offline use.
 - You can add your own shader files with **Add shaders…** (a folder), **Add files…**, or an mpv `input.conf`. **Manage…** lists and removes what you added. If a file you added has the same name as a built-in one, yours is used.
@@ -93,6 +95,6 @@ A disc remembers where you stopped, per playlist. The next time you open it:
 - A place in the first 30 seconds (or first 5% of a short playlist) asks nothing and plays from the start. So does a place near the end: a finished playlist starts over.
 - If the disc is not the same as when you stopped, only **Start from beginning** is offered ("This disc has changed since you stopped.").
 
-The place is saved every 10 seconds while playing and when you pause, seek or close. It includes the audio and subtitle choice, volume and shader set. A folder you open from your own drive keeps its place on that device. A NAS keeps places per person (see [NAS](nas.md)).
+The place is saved every 10 seconds while playing and when you pause, seek or close. It includes the audio and subtitle choice and the volume (not the shader set, which belongs to the device). A folder you open from your own drive keeps its place on that device. A NAS keeps places per person (see [NAS](nas.md)).
 
 A playlist makes a place when you launched it yourself (an episode or a link), when it is the disc's main title, or when it lasts five minutes or more. Menu loops never do.

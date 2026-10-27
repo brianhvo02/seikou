@@ -1,6 +1,6 @@
 # README, documentation and licence: design
 
-Status: design agreed in conversation 2026-10-22; not built.
+Status: done; merged a71d71a 2026-10-22 and live (`/help`), CI green at 0c461ec.
 
 ## 1. Why
 

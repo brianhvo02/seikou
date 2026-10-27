@@ -1,7 +1,7 @@
 # Blu-ray Web Player — Design Spec
 
 Date: 2026-10-12
-Status: Approved design, pending spec review
+Status: Approved design; v1 done: milestone 1 (2026-10-12), 2 (2026-10-13), 3 (2026-10-15), 4a and 4b (2026-10-15). Later work has its own specs in this folder.
 
 ## 1. Purpose and scope
 
@@ -33,13 +33,13 @@ A user on Chromium desktop can:
 
 | Item | Phase |
 |---|---|
-| ISO input (UDF 2.5 reader as a `ByteSource`) | Later, lower priority |
-| Lossless TrueHD / DTS-HD decoding, VC-1, MPEG-2 via WASM decoders | Later ("codec gaps") |
+| ISO input (UDF 2.5 reader as a `ByteSource`) | Done for NAS discs: the NAS server reads `.iso` files through a UDF reader (`2026-10-17-nas-server-design.md`, 2026-10-17). A folder picked in the browser must still be a BDMV folder. |
+| Lossless TrueHD / DTS-HD decoding, VC-1, MPEG-2 via WASM decoders | Lossless audio: later ("codec gaps"). MPEG-2 and VC-1 play without a picture (5e); from the NAS they play at a quality level the NAS re-encodes (`2026-10-19-lower-quality-design.md`, 2026-10-22). No WASM video decoder is planned. |
 | AACS / BD+ decryption (as a `ByteSource` decrypt stage with a user-supplied key DB and no bundled keys; legal review required before shipping) | Later |
 | JASSUB/libass fallback for ASS | Only if golden-image tests show the native renderer is unacceptable |
-| Safari / Firefox support | After Chromium v1 |
-| BD-J | Milestone 5 series: 5b JVM core, 5c playback and 5d menus (graphics plane, keys, mouse and touch, FreeType text, on desktop browsers, iPhone and iPad; `2026-10-17-m5d-bdj-menus-design.md`) done; 5e (storage, network, speed) planned. |
-| HDR tone mapping, 3D/MVC, multi-angle, PiP secondary video, mobile | Not planned for v1 |
+| Safari / Firefox support | Done: cross-browser step 1 (`2026-10-16-cross-browser-and-remote-design.md`, 2026-10-17): Safari 26 on macOS, iOS and iPadOS, Chrome and Firefox desktop, Chrome Android. |
+| BD-J | Milestone 5 series: 5b JVM core, 5c playback and 5d menus (graphics plane, keys, mouse and touch, FreeType text, on desktop browsers, iPhone and iPad; `2026-10-17-m5d-bdj-menus-design.md`) and 5e (every BD-J disc in the library, saved data per person; `2026-10-18-m5e-bdj-library-coverage-design.md`, merged 2026-10-22) done. |
+| HDR tone mapping, 3D/MVC, multi-angle, PiP secondary video, mobile | Mobile: done with cross-browser step 1 (2026-10-17). HDR tone mapping only through the NAS's `h264-1080-sdr` level. The rest is not planned. |
 
 ## 2. Architecture
 
@@ -245,7 +245,7 @@ v1 is delivered as four sequential plans. Each one ends in a working, testable a
 3. **Menus:** RegisterFile, HDMV VM, the libbluray VM trace harness, IG decoder, GraphicsController, UO masks, menu input routing, and the remote pad. Done (2026-10-15); details in `2026-10-14-m3-hdmv-menus-design.md`.
 4. **Subtitles:** PGS (including forced subtitles), SRT, the native ASS renderer, subtitle controls, and the ASS golden-image tests. Split in two: 4a (PGS, SRT and the subtitle controls) is done (2026-10-15), details in `2026-10-15-m4a-pgs-srt-design.md`; 4b (the native ASS renderer, episode subtitle sets and the libass golden-image tests) is done (2026-10-15), details in `2026-10-15-m4b-ass-renderer-design.md`.
 
-After v1, BD-J came as the milestone 5 series: 5b (the JVM core, `2026-10-15-m5b-bdj-jvm-core-design.md`), 5c (BD-J titles drive playback, `2026-10-16-m5c-bdj-playback-design.md`) and 5d (BD-J menus on every device, `2026-10-17-m5d-bdj-menus-design.md`) are done; 5e (storage, network, speed) is next.
+After v1, BD-J came as the milestone 5 series: 5b (the JVM core, `2026-10-15-m5b-bdj-jvm-core-design.md`), 5c (BD-J titles drive playback, `2026-10-16-m5c-bdj-playback-design.md`), 5d (BD-J menus on every device, `2026-10-17-m5d-bdj-menus-design.md`) and 5e (every BD-J disc in the library, `2026-10-18-m5e-bdj-library-coverage-design.md`) are done.
 
 ## 12. Decisions log
 
