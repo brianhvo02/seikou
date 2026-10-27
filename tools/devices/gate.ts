@@ -45,6 +45,7 @@ import { parseKeyScript, type KeyStep } from '../../tests/bdj/key-script';
 import { createDiscHandler, servedDiscBase } from '../disc-server/server';
 import { ensureAppium, parseMs, resolveDevice, safariCaps } from './run';
 import { DeviceSession, PageReloadedError, write } from './session';
+import { armExpr, centreOf, DISARM_EXPR, LANDING_EXPR, layoutExpr, sameLayout, TAP_HOLD_MS, tapVerdict, waitSettled, type LayoutReading, type TapAim, type TapLanding, type TapVerdict } from './tap';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const APPIUM_URL = process.env.APPIUM_URL ?? 'http://127.0.0.1:4723';
@@ -374,7 +375,12 @@ class SafariDriver implements GateDriver {
     await this.call('POST', '/actions', {
       actions: [{
         type: 'pointer', id: this.udid ? 'finger' : 'mouse', parameters: { pointerType: this.udid ? 'touch' : 'mouse' },
-        actions: [{ type: 'pointerMove', x: Math.round(x), y: Math.round(y), origin: 'viewport', duration: 0 }, { type: 'pointerDown', button: 0 }, { type: 'pointerUp', button: 0 }],
+        actions: [
+          { type: 'pointerMove', x: Math.round(x), y: Math.round(y), origin: 'viewport', duration: 0 },
+          { type: 'pointerDown', button: 0 },
+          { type: 'pause', duration: TAP_HOLD_MS }, // a finger stays down a moment: a zero-length touch is not a person's
+          { type: 'pointerUp', button: 0 },
+        ],
       }],
     });
     await this.call('DELETE', '/actions').catch(() => undefined);
@@ -465,8 +471,10 @@ const SNAPSHOT =
   "(() => { const p = document.querySelector('[data-testid=player]'); return { t: window.__blurayTelemetry ?? null," +
   " playlist: p?.getAttribute('data-playlist') ?? null, bdjMenu: p?.getAttribute('data-bdj-menu') ?? null, state: p?.getAttribute('data-state') ?? null }; })()";
 
+const firstVisibleExpr = (sel: string): string => `[...document.querySelectorAll(${JSON.stringify(sel)})].find((x) => x.getClientRects().length > 0)`;
+
 const visibleExpr = (sel: string): string =>
-  `(() => { const e = [...document.querySelectorAll(${JSON.stringify(sel)})].find((x) => x.getClientRects().length > 0); if (!e) return null;` +
+  `(() => { const e = ${firstVisibleExpr(sel)}; if (!e) return null;` +
   ` const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`;
 
 /** Whether the control bar is shown: an idled-out bar (class hidden) still has a box, but its buttons take no taps. */
@@ -480,7 +488,8 @@ export const BAND_POINT =
 
 export class Page {
   private marker = '';
-  constructor(readonly d: GateDriver) {}
+  /** `log` takes the page's notes: a touch that missed, a page that would not settle. */
+  constructor(readonly d: GateDriver, private readonly log: (line: string) => void = (line) => console.error(line)) {}
 
   async open(url: string): Promise<void> {
     await this.d.open(url);
@@ -513,11 +522,76 @@ export class Page {
     }
   }
 
-  /** Taps (clicks) the centre of the first visible element matching `selector`. */
-  async tapOn(selector: string, during: string): Promise<void> {
-    const p = await this.until<{ x: number; y: number }>(visibleExpr(selector), during, 30_000);
-    if (this.d.click && !this.d.touch) await this.d.click(selector);
-    else await this.d.tap(p.x, p.y);
+  /**
+   * Reads the page's layout (and `selector`'s box) until it holds still, scrolling the target into view first when it
+   * is off screen (tap.ts). A layout that never settles in time is used as last read, and logged.
+   */
+  async settle(selector: string | null, during: string): Promise<LayoutReading> {
+    let first = true;
+    const s = await waitSettled(() => {
+      const scroll = first && selector !== null;
+      first = false;
+      return this.probe<LayoutReading>(layoutExpr(selector, scroll), during);
+    }, sameLayout);
+    if (!s.settled) this.log(`${during}: the page was still moving after ${s.waitedMs} ms; tapping where it was last`);
+    return s.value;
+  }
+
+  /**
+   * A tap at a page point, checked by a listener in the page: says whether a touch arrived there, and logs a miss.
+   * `locate` reads the point from the page once it has stopped moving (a point read before could be stale); null
+   * when there is none, and nothing is tapped.
+   */
+  async tapAt(locate: () => Promise<{ x: number; y: number } | null>, during: string): Promise<{ x: number; y: number; verdict: TapVerdict } | null> {
+    await this.settle(null, during);
+    const p = await locate();
+    if (!p) return null;
+    const verdict = await this.tapChecked({ x: p.x, y: p.y, selector: null }, during, () => this.d.tap(p.x, p.y));
+    return { ...p, verdict };
+  }
+
+  /**
+   * Taps (clicks) the centre of the first visible element matching `selector`, once it is on screen and the page has
+   * stopped moving, its box read after that. Says whether the touch reached it, and logs a miss.
+   */
+  async tapOn(selector: string, during: string): Promise<TapVerdict> {
+    await this.until<{ x: number; y: number }>(visibleExpr(selector), during, 30_000);
+    const r = await this.settle(selector, during);
+    const p = centreOf(r) ?? (await this.until<{ x: number; y: number }>(visibleExpr(selector), during, 30_000));
+    const aim: TapAim = { x: p.x, y: p.y, selector };
+    const click = this.d.click && !this.d.touch ? this.d.click.bind(this.d) : null;
+    return this.tapChecked(aim, during, () => (click ? click(selector) : this.d.tap(p.x, p.y)));
+  }
+
+  /**
+   * A real touch on `selector`, tried `touches` times while it misses, then a DOM click, logged: for inputs that must
+   * arrive but need no user gesture (the remote's keys). Says which reached it.
+   */
+  async tapOnOrClick(selector: string, during: string, touches = 2): Promise<'touch' | 'click'> {
+    for (let i = 0; i < touches; i++) {
+      if ((await this.tapOn(selector, during)).landed) return 'touch';
+    }
+    this.log(`${during}: ${touches} touches missed; clicking it in the DOM`);
+    await this.until<boolean>(`(() => { const e = ${firstVisibleExpr(selector)}; if (!e) return false; e.click(); return true; })()`, during, 30_000);
+    return 'click';
+  }
+
+  private async tapChecked(aim: TapAim, during: string, tap: () => Promise<void>): Promise<TapVerdict> {
+    await this.probe<boolean>(armExpr(aim.selector), during);
+    await tap();
+    // the event can reach the page a little after the driver's call returns (a device's round trip)
+    let landing: TapLanding | null = null;
+    for (let i = 0; i < 6 && !landing; i++) {
+      landing = await this.probe<TapLanding | null>(LANDING_EXPR, during).catch((err: unknown) => {
+        if (err instanceof PageReloadedError) throw err;
+        return null;
+      });
+      if (!landing) await sleep(80);
+    }
+    if (!landing) await this.probe<boolean>(DISARM_EXPR, during).catch(() => undefined);
+    const v = tapVerdict(aim, landing);
+    if (!v.landed) this.log(`${during}: the touch missed: ${v.note}`);
+    return v;
   }
 
   visible(selector: string, during: string): Promise<{ x: number; y: number } | null> { return this.probe(visibleExpr(selector), during); }
@@ -643,13 +717,16 @@ export function remoteOpsFor(page: Page, tapPoint: readonly [number, number]): R
     tapsIgnored: async () => (await page.snapshot('the remote')).t?.bdjPlane?.tapsIgnored ?? 0,
     tapMenu: async () => {
       const [px, py] = tapPoint;
-      const p = await page.planePoint(px, py, 'a tap on the menu');
-      // what the tap will land on: the canvas, or something over it (the buffering spinner took it on the iPhone)
-      const target = await page.probe<string | null>(
-        `(() => { const e = document.elementFromPoint(${p.x}, ${p.y}); return e ? (e.getAttribute('data-testid') ?? (e.className || e.tagName.toLowerCase())) : null; })()`,
-        'a tap on the menu',
-      );
-      await page.d.tap(p.x, p.y);
+      let target: string | null = null;
+      await page.tapAt(async () => {
+        const p = await page.planePoint(px, py, 'a tap on the menu');
+        // what the tap will land on: the canvas, or something over it (the buffering spinner took it on the iPhone)
+        target = await page.probe<string | null>(
+          `(() => { const e = document.elementFromPoint(${p.x}, ${p.y}); return e ? (e.getAttribute('data-testid') ?? (e.className || e.tagName.toLowerCase())) : null; })()`,
+          'a tap on the menu',
+        );
+        return p;
+      }, 'a tap on the menu');
       return target;
     },
     waitRemote: async (ms) =>
@@ -661,13 +738,13 @@ export function remoteOpsFor(page: Page, tapPoint: readonly [number, number]): R
     showControls: async () => {
       // a tap off the picture (a letterbox or pillarbox band) shows the controls without reaching the disc (R13, R14);
       // where the picture fills the canvas, a long press does (R15)
-      const band = await page.probe<{ x: number; y: number } | null>(BAND_POINT, 'the letterbox');
+      const band = await page.tapAt(() => page.probe<{ x: number; y: number } | null>(BAND_POINT, 'the letterbox'), 'a tap off the picture');
       let how: string;
       if (band) {
-        await page.d.tap(band.x, band.y);
         how = 'a tap off the picture';
       } else if (page.d.longPress) {
         const [px, py] = tapPoint;
+        await page.settle(null, 'a long press on the menu');
         const p = await page.planePoint(px, py, 'a long press on the menu');
         await page.d.longPress(p.x, p.y, 800);
         how = 'a long press';
@@ -680,7 +757,9 @@ export function remoteOpsFor(page: Page, tapPoint: readonly [number, number]): R
       });
       return how;
     },
-    tapRemoteToggle: async () => page.tapOn('[data-testid=remote-toggle]', 'the remote button'),
+    tapRemoteToggle: async () => {
+      await page.tapOn('[data-testid=remote-toggle]', 'the remote button');
+    },
   };
 }
 
@@ -804,7 +883,7 @@ class DiscRun {
     const before = (await this.page.snapshot(`key ${key}`)).t?.bdj?.inputLatencyMs?.count ?? 0;
     if (this.page.d.touch) {
       await this.ensureRemote();
-      await this.page.tapOn(`[data-testid=remote-${key}]`, `the remote's ${key}`);
+      await this.page.tapOnOrClick(`[data-testid=remote-${key}]`, `the remote's ${key}`);
     } else {
       await this.page.d.press(key);
     }

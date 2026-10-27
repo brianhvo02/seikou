@@ -772,8 +772,11 @@ const forgetTest = (names: readonly string[], personIds: readonly string[]): str
 const visible = (sel: string): string => `[...document.querySelectorAll(${JSON.stringify(sel)})].some((e) => e.getClientRects().length > 0)`;
 const cssString = (s: string): string => JSON.stringify(s);
 
-/** Scrolls the first visible match to the middle of the viewport, then taps it (a tap off screen reaches nothing). */
-async function tapInView(page: Page, selector: string, during: string): Promise<void> {
+/**
+ * Scrolls the first visible match to the middle of the viewport, then taps it once the page has stopped moving (a tap
+ * off screen reaches nothing; one sent while Safari still scrolls lands beside it). Says whether the touch reached it.
+ */
+async function tapInView(page: Page, selector: string, during: string): Promise<boolean> {
   await page.until<boolean>(
     // the page's end can lie under Safari's floating toolbar: room below it (test only) lets the element reach the middle
     `(() => { const e = [...document.querySelectorAll(${JSON.stringify(selector)})].find((x) => x.getClientRects().length > 0); if (!e) return false;` +
@@ -781,12 +784,14 @@ async function tapInView(page: Page, selector: string, during: string): Promise<
     during,
     30_000,
   );
-  await sleep(400); // let a smooth scroll finish before the tap's coordinates are taken
   try {
-    await page.tapOn(selector, during);
+    // tapOn waits for the scroll (and the toolbar it moves) to settle and reads the element's box after it
+    return (await page.tapOn(selector, during)).landed;
   } finally {
-    // undo the room and the scroll: left in place, they push the player off the screen and later touches out of bounds
+    // undo the room and the scroll: left in place, they push the player off the screen and later touches out of bounds;
+    // then let the page settle, so the next screen's first touch is not aimed while it still moves
     await page.until<boolean>(`(() => { document.body.style.paddingBottom = ''; window.scrollTo(0, 0); return true; })()`, during, 10_000).catch(() => undefined);
+    await page.settle(null, during).catch(() => undefined);
   }
 }
 
@@ -906,7 +911,7 @@ class LiveCheck {
     b.driver = b.target === 'chrome-profile' || b.target === 'chrome'
       ? await ChromeDriver.start(b.target, this.o.headless, this.o.origin, this.o.nas)
       : await startTargetDriver(b.target, { driverPort: this.o.wdPorts[Math.max(0, iosIndex) % 2]!, headless: this.o.headless, touch: true, callTimeoutMs: this.o.callTimeoutMs });
-    b.page = new Page(b.driver);
+    b.page = new Page(b.driver, (line) => this.log(`${b.role}: ${line}`));
     this.log(`${b.role}: ${b.driver.via}`);
     return b.page;
   }
@@ -1355,9 +1360,9 @@ class LiveCheck {
     return {
       ...base,
       tapMenu: async () => {
-        const band = await page.probe<{ x: number; y: number } | null>(BAND_POINT, 'the letterbox');
+        // the band is read once the page has settled (tapAt), so the touch is not aimed at a page still moving
+        const band = await page.tapAt(() => page.probe<{ x: number; y: number } | null>(BAND_POINT, 'the letterbox'), 'a tap off the picture');
         if (!band) return base.tapMenu();
-        await page.d.tap(band.x, band.y);
         return 'the letterbox (off the picture)';
       },
     };
@@ -1369,7 +1374,8 @@ class LiveCheck {
       return;
     }
     await openRemote(this.remoteOps(page));
-    await page.tapOn(`[data-testid=remote-${key}]`, `the remote's ${key}`);
+    // a touch on the remote's key, checked in the page; two that miss give way to a DOM click, logged
+    await page.tapOnOrClick(`[data-testid=remote-${key}]`, `the remote's ${key}`);
   }
 
   /** The playlist playing when the last key was sent. */
