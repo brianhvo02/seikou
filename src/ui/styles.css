@@ -582,6 +582,9 @@ code { font-family: var(--mono); font-size: 0.9em; }
   .landing { padding: 0 max(16px, env(safe-area-inset-right)) max(32px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); gap: 20px; }
   .app-bar { padding-top: max(14px, env(safe-area-inset-top)); }
   .browsing .app-bar { gap: 10px; padding-bottom: 10px; }
+  /* the switch and Help leave no room for the disc picker beside the name: it takes its own row, as at home */
+  .browsing .app-bar { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'name help' 'drop drop'; }
+  .app-bar .app-tools { gap: 10px; }
   .theme-option { padding: 5px 8px; }
   .theme-word { display: none; }
   .theme-icon { display: block; }
@@ -611,6 +614,8 @@ code { font-family: var(--mono); font-size: 0.9em; }
   .subtitle-row-main > .title-row-text { flex-basis: calc(100% - 48px); }
 }
 @media (pointer: coarse) {
+  /* the theme options are labels, so the 44 px rule for buttons below doesn't reach them */
+  .theme-option { min-width: 44px; min-height: 40px; justify-content: center; box-sizing: border-box; }
   button, .audio-menu-list button { min-width: 44px; min-height: 44px; }
   .alphabet-rail { width: 26px; }
   .audio-menu-list .subtitle-adjust button { min-width: 44px; } /* beats the 32 px desktop rule's specificity */
