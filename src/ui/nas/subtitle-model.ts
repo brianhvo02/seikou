@@ -24,12 +24,15 @@ export const LANGUAGES: readonly { readonly code: string; readonly label: string
 ];
 
 const SUBTITLE_EXT = /\.(?:srt|ass|ssa)$/i;
-const FONT_EXT = /\.(?:ttf|otf|ttc|woff2?)$/i;
+const FONT_EXT = /\.(?:ttf|otf|ttc|woff)$/i;
+const WOFF2_EXT = /\.woff2$/i;
 
 /** One subtitle file with its fonts, or why the pick can't be uploaded. */
 export function validateUpload(files: readonly File[]): { subtitle: File; fonts: File[] } | { error: string } {
   const subtitles = files.filter((f) => SUBTITLE_EXT.test(f.name));
   const fonts = files.filter((f) => FONT_EXT.test(f.name));
+  const woff2 = files.find((f) => WOFF2_EXT.test(f.name));
+  if (woff2) return { error: `${woff2.name} is a WOFF2 font, which subtitles can't use. Convert it to TTF or OTF.` };
   const other = files.find((f) => !SUBTITLE_EXT.test(f.name) && !FONT_EXT.test(f.name));
   if (other) return { error: `${other.name} is neither a subtitle file nor a font.` };
   if (subtitles.length === 0) return { error: 'Pick a subtitle file (SRT, ASS or SSA).' };

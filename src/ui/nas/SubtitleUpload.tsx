@@ -158,7 +158,7 @@ export function SubtitleUpload({ nas, target, manifestOf, editing, discIdOfKey =
           <input
             type="file"
             multiple
-            accept=".srt,.ass,.ssa,.ttf,.otf,.ttc,.woff,.woff2"
+            accept=".srt,.ass,.ssa,.ttf,.otf,.ttc,.woff"
             data-testid="subtitle-upload-files"
             disabled={busy}
             onChange={(e) => {

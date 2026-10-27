@@ -13,7 +13,8 @@ export const FANSUB_LIMIT_BYTES = 20 * 1024 ** 3;
 const STALE_UPLOAD_MS = 60 * 60_000;
 const ID_RE = /^[0-9a-f]{16}$/;
 const SUBTITLE_EXT = /\.(?:srt|ass|ssa)$/i;
-const FONT_EXT = /\.(?:ttf|otf|ttc|woff2?)$/i;
+// WOFF2 is refused: the ASS renderer can't read it (Brotli and table transforms).
+const FONT_EXT = /\.(?:ttf|otf|ttc|woff)$/i;
 
 /** A body went past its limit (a file, the upload's fonts, or the store's total). */
 export class TooLargeError extends Error {

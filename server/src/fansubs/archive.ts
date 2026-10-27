@@ -10,7 +10,8 @@ export class TooLargeArchive extends Error {
   }
 }
 
-const FONT_NAME = /\.(ttf|otf|ttc|woff2?)$/i;
+// No WOFF2: the ASS renderer can't read it.
+const FONT_NAME = /\.(ttf|otf|ttc|woff)$/i;
 const MAX_FONT_ENTRIES = 200;
 const MAX_FONT_BYTES = 200 * 1024 * 1024;
 /** Everything in a pack is extracted before filtering, so the whole archive is bounded too (a test lowers these). */

@@ -141,8 +141,9 @@ describe('SubtitleStore', () => {
     expect(s.get(id)!.fonts).toEqual([{ name: 'a.ttf', size: 30 * mib }]);
     const w = await s.writeFont(id, 'a.ttf', bytes(45 * mib));
     expect(w.fonts).toEqual([{ name: 'a.ttf', size: 45 * mib }]);
-    await s.writeFont(id, 'b.woff2', bytes(5 * mib));
-    expect(s.fontPath(id, 'b.woff2')).toBe(join(dir, 'subtitles', id, 'fonts', 'b.woff2'));
+    await s.writeFont(id, 'b.woff', bytes(5 * mib));
+    expect(s.fontPath(id, 'b.woff')).toBe(join(dir, 'subtitles', id, 'fonts', 'b.woff'));
+    await expect(s.writeFont(id, 'c.woff2', bytes(1))).rejects.toBeInstanceOf(BadNameError);
     expect(s.fontPath(id, 'nope.ttf')).toBeNull();
   });
 

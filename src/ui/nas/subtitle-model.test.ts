@@ -41,6 +41,10 @@ describe('validateUpload', () => {
   it('refuses files that are neither', () => {
     expect(validateUpload([file('a.srt'), file('notes.txt')])).toEqual({ error: 'notes.txt is neither a subtitle file nor a font.' });
   });
+  it('refuses a WOFF2 font, which the ASS renderer cannot read', () => {
+    expect(validateUpload([file('a.ass'), file('f.woff2')])).toEqual({ error: "f.woff2 is a WOFF2 font, which subtitles can't use. Convert it to TTF or OTF." });
+    expect('subtitle' in validateUpload([file('a.ass'), file('f.woff')])).toBe(true);
+  });
   it('refuses an empty subtitle file', () => {
     expect(validateUpload([file('a.srt', 0)])).toEqual({ error: 'a.srt is empty.' });
   });
