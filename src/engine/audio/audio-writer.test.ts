@@ -47,6 +47,27 @@ describe('AudioWriter', () => {
     expect(ring.writtenFrames()).toBe(720);
   });
 
+  it('fills silence where no audio will come, as the ring has room, after queued chunks and without trimming later audio', () => {
+    const { writer, ring, views } = setup(0.01); // 480 frames
+    writer.start(0);
+    writer.enqueue(chunk(0, 480, 1));
+    writer.enqueue(chunk(10_000, 240, 2)); // waits for room
+    writer.fillSilenceTo(1_000_000);
+    expect(writer.queuedChunks).toBe(1); // the queued chunk keeps its place: silence never goes ahead of it
+    expect(ring.writtenFrames()).toBe(480);
+    ring.setPlaying(true);
+    for (let q = 0; q < 4; q++) renderQuantum(views, new Float32Array(128), new Float32Array(128));
+    writer.drain();
+    expect(writer.queuedChunks).toBe(0);
+    expect(ring.writtenFrames()).toBe(512 + 480); // the chunk, then silence up to the ring's capacity
+    expect(views.data[(700 % 480) * 2]).toBe(2);
+    expect(views.data[(800 % 480) * 2]).toBe(0);
+    writer.start(0);
+    expect(ring.writtenFrames()).toBe(992); // start() forgets the silence target
+    writer.drain();
+    expect(ring.writtenFrames()).toBe(992);
+  });
+
   it('maps media time to frames from the read head at start()', () => {
     const { writer, ring, views } = setup();
     ring.setPlaying(true);

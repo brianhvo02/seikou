@@ -81,6 +81,10 @@ interface Harness {
   entries: ReturnType<typeof discEntries>;
   /** Whether the engine has the ring in its playing state. */
   ringPlaying(): boolean;
+  /** Ring frame index of the first non-silent sample of every audible quantum the fake worklet rendered. */
+  audibleFrames: number[];
+  /** Underruns the fake worklet counted. */
+  underruns(): number;
   /** Advance simulated time; the fake worklet consumes audio unless audio: false; ticks unless render: false. */
   play(ms: number, opts?: { render?: boolean; audio?: boolean }): Promise<void>;
 }
@@ -186,6 +190,7 @@ async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?:
   if (!opts.noOpen) await player.handle({ type: 'open', disc: remote ? remote.spec : { kind: 'files', entries } });
   const left = new Float32Array(128);
   const right = new Float32Array(128);
+  const audibleFrames: number[] = [];
   return {
     player,
     events,
@@ -197,10 +202,20 @@ async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?:
     shaderStages,
     entries,
     ringPlaying: () => Atomics.load(views.control, Control.Playing) === 1,
+    audibleFrames,
+    underruns: () => Atomics.load(views.control, Control.Underruns),
     async play(ms, opts = {}) {
       for (let elapsed = 0; elapsed < ms; elapsed += STEP_MS) {
         clock.ms += STEP_MS;
-        if (opts.audio !== false) for (let q = 0; q < 5; q++) renderQuantum(views, left, right);
+        if (opts.audio !== false) {
+          for (let q = 0; q < 5; q++) {
+            const read = Number(views.counters[1]);
+            const playing = Atomics.load(views.control, Control.Playing) === 1;
+            renderQuantum(views, left, right);
+            const i = left.findIndex((v) => v !== 0);
+            if (i >= 0 && playing) audibleFrames.push(read + i);
+          }
+        }
         if (opts.render !== false) player.tick();
         await new Promise((r) => setTimeout(r, 1));
       }
@@ -1471,6 +1486,83 @@ describe('Player with HDMV navigation', () => {
 
   const clockOf = (h: Harness): number => (h.player as unknown as { clock: { nowUs(): number } }).clock.nowUs();
 
+  const statesSince = (h: Harness, from: number): PlaybackState[] => h.events.slice(from).flatMap((e) => (e.type === 'state' ? [e.state] : []));
+  const writerOf = (h: Harness): { frameAt(us: number): number } => (h.player as unknown as { audioWriter: { frameAt(us: number): number } }).audioWriter;
+
+  /** Plays on from a playing state and checks the clock ran on the audio output, without buffering or underruns. */
+  async function playsThrough(h: Harness, ms: number): Promise<void> {
+    const from = h.events.length;
+    const underruns = h.underruns();
+    const startUs = clockOf(h);
+    await h.play(ms);
+    expect(statesSince(h, from)).not.toContain('buffering');
+    expect((h.player as unknown as { clock: { mode: string } }).clock.mode).toBe('audio');
+    expect(clockOf(h) - startUs).toBeGreaterThan(ms * 1000 - 100_000);
+    expect(h.underruns() - underruns).toBe(0);
+  }
+
+  it('keeps the audio clock running through a play item without the selected audio stream', async () => {
+    const h = await harness(CodingType.LPCM, { secondClipAudioStreams: [] });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    h.drawn.length = 0;
+    await playsThrough(h, 5000);
+    expect(Math.max(...h.drawn)).toBeGreaterThan(clockOf(h) - 100_000); // the second item's video kept up with the clock
+    expect(Math.abs(lastTelemetry(h)?.avOffsetMeanUs ?? Infinity)).toBeLessThanOrEqual(20_000);
+  });
+
+  it('keeps the audio clock running through a play item whose audio PID never appears', async () => {
+    const h = await harness(CodingType.LPCM, { secondClipAudioStreams: [{ ...lpcmStream(0x1100, 4), units: [] }] });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await playsThrough(h, 5000);
+  });
+
+  it('keeps the audio clock running without a picture through a play item without audio', async () => {
+    const h = await harness(CodingType.LPCM, { secondClipAudioStreams: [], videoCodingType: CodingType.MPEG2_VIDEO });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await playsThrough(h, 5000);
+  });
+
+  it('plays a playlist whose first item has no audio on the audio clock, with the later audio in sync', async () => {
+    const h = await harness(undefined, { audioStreams: [], secondClipAudioStreams: [lpcmStream(0x1100, 4)] });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await playsThrough(h, 5500);
+    const first = h.audibleFrames[0];
+    expect(first).toBeDefined();
+    // the second item's tone starts where its PTS (4 s) maps in the ring: no earlier, and within a few frames
+    expect(Math.abs(first! - writerOf(h).frameAt(4_000_000))).toBeLessThanOrEqual(4);
+  });
+
+  it('seeks into a play item without audio and back out of it on the audio clock', async () => {
+    const h = await harness(CodingType.LPCM, { secondClipAudioStreams: [] });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await h.player.handle({ type: 'seek', timeUs: 5_000_000 });
+    await untilPlaying(h);
+    await playsThrough(h, 1500);
+    await h.player.handle({ type: 'seek', timeUs: 1_000_000 });
+    await untilPlaying(h);
+    h.audibleFrames.length = 0;
+    await playsThrough(h, 1000);
+    expect(h.audibleFrames.length).toBeGreaterThan(0);
+  });
+
+  it('keeps the audio clock running after an audio switch, into a play item without the new stream', async () => {
+    const h = await harness(undefined, {
+      audioStreams: [lpcmStream(0x1100, 4, { lang: 'jpn' }), lpcmStream(0x1101, 4, { lang: 'eng' })],
+      secondClipAudioStreams: [lpcmStream(0x1100, 4, { lang: 'jpn' })],
+    });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await h.play(1500);
+    await h.player.handle({ type: 'selectAudio', index: 2 });
+    await untilPlaying(h);
+    await playsThrough(h, 4500);
+  });
+
   it('reads the new position while a seek waits for the ring to discard, into an item with no audio stream', async () => {
     const h = await harness(CodingType.LPCM, { secondClipAudioStreams: [] });
     await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
@@ -1727,6 +1819,29 @@ describe('Player PG subtitles', () => {
     await untilPlaying(h);
     await playUntil(h, 3_100_000);
     expect(visibleAt(h, 300)).toBe(true);
+    expect(visibleAt(h, 100)).toBe(false);
+  });
+
+  it('a seek into a subtitle whose display set lies before the keyframe shows it at once', async () => {
+    const h = await raw();
+    await h.player.handle({ type: 'selectSubtitle', choice: { kind: 'pg', stream: 2 } });
+    // stream 2 shows 1.1–3.9 s; a seek to 2.5 s reads from the keyframe at 2 s, after the set at 1.1 s
+    await h.player.handle({ type: 'seek', timeUs: 2_500_000 });
+    await untilPlaying(h);
+    await h.play(STEP_MS);
+    expect(clockUs(h)).toBeLessThan(2_700_000);
+    expect(visibleAt(h, 500)).toBe(true);
+    await playUntil(h, 3_950_000);
+    expect(visibleAt(h, 500)).toBe(false);
+  });
+
+  it('a paused seek past a subtitle that already ended shows nothing', async () => {
+    const h = await raw();
+    await h.player.handle({ type: 'selectSubtitle', choice: { kind: 'pg', stream: 1 } });
+    // stream 1: 1.0–2.0 s at x 100; at 2.3 s nothing is up, though the sets at 1 s and 2 s are read again
+    await h.player.handle({ type: 'pause' });
+    await h.player.handle({ type: 'seek', timeUs: 2_300_000 });
+    for (let i = 0; i < 20; i++) await h.play(STEP_MS);
     expect(visibleAt(h, 100)).toBe(false);
   });
 

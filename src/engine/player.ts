@@ -194,6 +194,12 @@ const REMOTE_START_SECONDS = 3;
 const MAX_ENCODED_VIDEO_US = 2_000_000;
 const MAX_ENCODED_VIDEO_BYTES = 64 * 1024 * 1024;
 const AUDIO_PREBUFFER_US = 200_000;
+/**
+ * Audio that has not come by the time the video read is this far past it is not in the stream (a play item without the
+ * selected audio stream, or its PID missing): silence is written in its place. Well above the mux skew of video ahead of
+ * audio (≥ 0.5 s seen on real discs, see MAX_ENCODED_VIDEO_US), and below the video read-ahead, so the ring stays fed.
+ */
+const AUDIO_ABSENT_AFTER_US = 1_500_000;
 const TIME_EVENT_INTERVAL_US = 250_000;
 const TELEMETRY_INTERVAL_MS = 500;
 const HEARTBEAT_TIMEOUT_MS = 500;
@@ -322,6 +328,8 @@ interface Session {
   dropBeforeUs: number;
   /** Without a picture: the latest audio PTS delivered since the last start (read-ahead is paced on it and the pipeline's position). */
   audioReadUs: number;
+  /** The latest in-range video PTS delivered since the last start (missing audio is filled with silence behind it). */
+  videoReadUs: number;
   /** Without a picture: the latest PTS of anything delivered (audio, PG, IG) since the last start; the playlist ends once it has played out. */
   deliveredEndUs: number;
   /** Without a picture: at EOF, the playlist time the reads delivered up to (PlaybackPipeline.doneUs). */
@@ -2130,6 +2138,21 @@ export class Player {
     // With a disc program (HDMV or BD-J) the audio stream register (PSR1) decides, when it names a playable stream
     let audioIndex = choice.audioIndex;
     let audioEntry = choice.audio;
+    // a first item with no audio at all (a silent opening) takes the stream of the first item that has a playable one:
+    // the items without it play silence on the audio clock (audioItemStarted)
+    let audioItem = mpls.playItems[0];
+    if (!audioEntry && choice.unsupportedAudio.length === 0) {
+      for (const item of mpls.playItems) {
+        const later = chooseStreams(item.stn);
+        if (later.audio) {
+          audioIndex = later.audioIndex;
+          audioEntry = later.audio;
+          audioItem = item;
+          break;
+        }
+        if (later.unsupportedAudio.length > 0) break;
+      }
+    }
     const wanted = (audio ?? this.programRegs?.psrRead(PSR.PRIMARY_AUDIO_ID) ?? 0) & 0xfff;
     const wantedEntry = wanted > 0 ? audioEntryFor(mpls.playItems[startItem], wanted) : null;
     if (wantedEntry && PLAYABLE_AUDIO.has(wantedEntry.codingType)) {
@@ -2150,6 +2173,7 @@ export class Player {
       { source, timeline, clips, videoPid: choice.video.pid, readVideo: picture, playItems: mpls.playItems, audioStream: audioActive ? audioIndex : null, igStream: this.igStreamNumber() },
       {
         video: (u) => {
+          if (ref.current && u.inRange && u.ptsUs > ref.current.videoReadUs) ref.current.videoReadUs = u.ptsUs;
           if (ref.current) this.onVideoUnit(ref.current, u);
         },
         audio: (u) => {
@@ -2168,6 +2192,7 @@ export class Player {
           if (ref.current && ref.current === this.session && u.inRange) this.pg?.push(u);
         },
         itemStarted: (index, startUs) => {
+          if (ref.current) this.audioItemStarted(ref.current, index);
           if (ref.current) this.pgItemStarted(ref.current, index, startUs);
         },
         isFull: () => ref.current !== null && this.isFull(ref.current),
@@ -2184,7 +2209,7 @@ export class Player {
       owner: caller,
       timeline,
       chapters,
-      tracks: audioTracks(mpls.playItems[startItem].stn),
+      tracks: audioTracks((mpls.playItems[startItem].stn.audio.length > 0 ? mpls.playItems[startItem] : audioItem).stn),
       videoCodingType: choice.video.codingType,
       decoder,
       pipeline,
@@ -2201,6 +2226,7 @@ export class Player {
       pendingVideo: [],
       dropBeforeUs: 0,
       audioReadUs: -Infinity,
+      videoReadUs: -Infinity,
       deliveredEndUs: -Infinity,
       readEndUs: -Infinity,
       blankComposited: false,
@@ -2589,6 +2615,7 @@ export class Player {
     if (s.videoState === 'configured') s.decoder?.reset();
     s.pendingVideo = [];
     s.audioReadUs = -Infinity;
+    s.videoReadUs = -Infinity;
     s.deliveredEndUs = -Infinity;
     s.readEndUs = -Infinity;
     s.decimator?.reset();
@@ -2607,7 +2634,8 @@ export class Player {
     s.audioErrorsInRow = 0;
     s.failedAudioTypes.clear();
     for (const d of s.audioDecoders.values()) d.reset();
-    const audioType = s.audioActive ? this.audioCodingTypeAt(s, t) : null;
+    // at a target in an item without the stream, the decoder of the next item that has it loads now, as it would here
+    const audioType = s.audioActive ? (this.audioCodingTypeAt(s, t) ?? this.nextAudioCodingType(s, t)) : null;
     if (audioType !== null) {
       // The decoder may take a while to load (first WASM compile): stop the old audio and clock and show buffering meanwhile.
       // The clock holds at the target, as libbluray's position moves at once in _seek_internal and _open_playlist: ticks
@@ -2757,6 +2785,33 @@ export class Player {
     return entry && PLAYABLE_AUDIO.has(entry.codingType) ? entry.codingType : null;
   }
 
+  /** Coding type of the selected audio stream in the first item after the one containing `timeUs` that has it, if playable. */
+  private nextAudioCodingType(s: Session, timeUs: number): number | null {
+    for (let i = s.timeline.locate(timeUs).item.index + 1; i < s.playItems.length; i++) {
+      const entry = audioEntryFor(s.playItems[i], s.audioStream);
+      if (entry) return PLAYABLE_AUDIO.has(entry.codingType) ? entry.codingType : null;
+    }
+    return null;
+  }
+
+  /**
+   * A play item without the selected audio stream gets no audio units: its span is silence in the ring, so the output and
+   * the audio clock run through it and the next item's audio lands where its PTS says.
+   */
+  private audioItemStarted(s: Session, index: number): void {
+    const item = s.playItems[index];
+    if (!s.audioActive || !this.audioWriter || !item || this.session !== s || audioEntryFor(item, s.audioStream)) return;
+    this.audioWriter.fillSilenceTo(s.timeline.itemStartUs(index) + ((item.outTime - item.inTime) * 1000) / 45);
+  }
+
+  /** Audio that never came while the video (or, without a picture, the read position) went well past it is silence. */
+  private fillMissingAudio(s: Session): void {
+    const writer = this.audioWriter;
+    if (!s.audioActive || !writer) return;
+    const readUs = s.decoder ? s.videoReadUs : (s.pipeline.readUs ?? -Infinity);
+    writer.fillSilenceTo(readUs - AUDIO_ABSENT_AFTER_US); // drains the queued chunks first
+  }
+
   /** One load per coding type per session; a decoder that arrives after teardown is closed. */
   private loadAudioDecoder(s: Session, codingType: number): Promise<AudioDecoder> {
     let load = s.audioDecoderLoads.get(codingType);
@@ -2843,7 +2898,7 @@ export class Player {
     // Rendering can be throttled (background tab); drop late frames here so reading never stalls on them.
     if (this.state === 'playing') this.presenter.dropLate(this.clock.nowUs());
     this.feedDecoder(s);
-    this.audioWriter?.drain();
+    this.fillMissingAudio(s); // also drains the queued chunks
     return this.readerBlocked(s) || (s.audioActive && (this.audioWriter?.queuedChunks ?? 0) > 0);
   }
 
@@ -2923,6 +2978,7 @@ export class Player {
       void this.handle({ type: 'seek', timeUs: this.clock.nowUs() });
     }
     const ring = s.audioActive ? this.ring : null;
+    if (ring) this.fillMissingAudio(s); // the reader may be waiting or done: the ring is fed here too
     if (this.state === 'buffering' && this.wantPlaying) {
       const audioReady =
         !ring ||

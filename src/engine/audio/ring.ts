@@ -159,6 +159,25 @@ export class RingWriter {
     return true;
   }
 
+  /**
+   * Writes silence from the written end up to absolute frame `to`, as far as the ring has room (never past the read
+   * head plus capacity). Returns the frame written up to.
+   */
+  padTo(to: number): number {
+    const { data, capacity } = this.views;
+    const read = this.readFrames();
+    const written = Math.max(this.writtenFrames(), read);
+    const end = Math.min(to, read + capacity);
+    if (end <= written) return written;
+    for (let f = written; f < end; f++) {
+      const p = (f % capacity) * 2;
+      data[p] = 0;
+      data[p + 1] = 0;
+    }
+    Atomics.store(this.views.counters, COUNTER_WRITTEN, BigInt(end));
+    return end;
+  }
+
   /** Drops everything buffered. The worklet does it at a quantum boundary; if it is not running, we do it. */
   async requestDiscard(): Promise<void> {
     const { control, counters } = this.views;

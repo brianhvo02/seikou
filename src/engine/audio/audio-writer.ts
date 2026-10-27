@@ -8,6 +8,8 @@ export class AudioWriter {
   /** Frame just after the last chunk written; chunks landing within one frame of it are butted against it. */
   private nextFrame: number | null = null;
   private readonly queue: PcmChunk[] = [];
+  /** Media time up to which no audio will come: silence is written there once the queue is empty (fillSilenceTo). */
+  private silenceUntilUs = -Infinity;
 
   constructor(private readonly ring: RingWriter) {}
 
@@ -17,6 +19,7 @@ export class AudioWriter {
     this.baseFrame = this.ring.readFrames();
     this.queue.length = 0;
     this.nextFrame = null;
+    this.silenceUntilUs = -Infinity;
   }
 
   get queuedChunks(): number {
@@ -35,6 +38,16 @@ export class AudioWriter {
     this.drain();
   }
 
+  /**
+   * No audio will come before media time `us` (a play item without the selected stream, or a stream whose packets are
+   * missing): the ring is filled with silence up to there, so the output and the clock on it run on as through any
+   * audio. Written as the ring has room, after any queued chunks; it never counts as queued (reading never waits on it).
+   */
+  fillSilenceTo(us: number): void {
+    if (us > this.silenceUntilUs) this.silenceUntilUs = us;
+    this.drain();
+  }
+
   drain(): void {
     while (this.queue.length > 0) {
       const chunk = this.queue[0];
@@ -44,5 +57,6 @@ export class AudioWriter {
       this.nextFrame = at + chunk.frames;
       this.queue.shift();
     }
+    if (this.silenceUntilUs > -Infinity) this.ring.padTo(this.frameAt(this.silenceUntilUs));
   }
 }
