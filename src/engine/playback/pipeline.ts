@@ -7,6 +7,13 @@ import type { PlayItem } from '../bdmv/mpls-parser';
 import type { Timeline } from '../nav/timeline';
 import { audioEntryFor, igEntryFor } from './stream-selection';
 
+/**
+ * How far before a seek target PG is read (playlist time): the display set of a subtitle on screen at the target lies
+ * before the keyframe the read starts at when the subtitle began earlier, so the PG PID alone is read from the EP-map
+ * entry this much before the target. Display sets that already ended there are drawn and cleared in the same tick.
+ */
+export const PG_SEEK_LEAD_US = 5_000_000;
+
 export interface PipelineUnit {
   readonly data: Uint8Array;
   /** Playlist time. */
@@ -205,7 +212,16 @@ export class PlaybackPipeline {
       const fromClipStart = target <= item.inTime && (i === 0 || cc === 5 || cc === 6);
       const startSpn = fromClipStart || !ep ? range.startSpn : (findEpBefore(ep, target, range)?.spn ?? range.startSpn);
       const endSpn = ep ? (findEpAfter(ep, item.outTime, range)?.spn ?? rangeEnd) : rangeEnd;
-      const reader = new M2tsReader({ source, path: streamPath(item.clipId), startSpn, endSpn, pids });
+      // A seek inside the item: PG alone from a few seconds earlier (not before the item's IN time, so never a previous
+      // item's subtitle), so a subtitle shown since before the keyframe comes back; the reader passes the other PIDs from
+      // the keyframe on, as before. The 45 kHz clip time here is unwrapped (IN time plus offset), as for the keyframe.
+      let lead: { fromSpn: number; pids: ReadonlySet<number> } | undefined;
+      if (pgPid !== null && ep && i === startPos.item.index && !fromClipStart && target > item.inTime) {
+        const leadTarget = Math.max(item.inTime, target - Math.round((PG_SEEK_LEAD_US * 45) / 1000));
+        const fromSpn = findEpBefore(ep, leadTarget, range)?.spn ?? range.startSpn;
+        if (fromSpn < startSpn) lead = { fromSpn, pids: new Set([pgPid]) };
+      }
+      const reader = new M2tsReader({ source, path: streamPath(item.clipId), startSpn, endSpn, pids, lead });
       this.current?.cancel();
       this.retire(this.current); // a stopped earlier read keeps its counts
       this.current = reader;

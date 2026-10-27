@@ -42,6 +42,20 @@ describe('M2tsReader', () => {
     expect(out.some((p) => p.pts === units[20].pts)).toBe(true);
   });
 
+  it('with a lead-in passes only its PIDs before startSpn, and the others exactly as a read from startSpn', async () => {
+    const { source, units, unitSpns } = clip(true);
+    const startSpn = unitSpns[40]!; // unit 20's video
+    const lead = { fromSpn: unitSpns[10]!, pids: new Set([AUDIO]) };
+    const pids = new Set([VIDEO, AUDIO]);
+    const plain = await readAll({ source, path: PATH, startSpn, pids, chunkPackets: 64 });
+    const out = await readAll({ source, path: PATH, startSpn, pids, lead, chunkPackets: 64 });
+    expect(out.filter((p) => p.pid === VIDEO).map((p) => p.pts)).toEqual(plain.filter((p) => p.pid === VIDEO).map((p) => p.pts));
+    const leadFrom = Math.floor(lead.fromSpn / 32) * 32;
+    const audio = units.filter((u, i) => u.pid === AUDIO && unitSpns[i]! >= leadFrom).map((u) => u.pts);
+    expect(out.filter((p) => p.pid === AUDIO).map((p) => p.pts)).toEqual(audio);
+    expect(audio.length).toBeGreaterThan(plain.filter((p) => p.pid === AUDIO).length);
+  });
+
   it('stops at endSpn', async () => {
     const { source, units, unitSpns } = clip(false);
     const out = await readAll({ source, path: PATH, startSpn: 0, endSpn: unitSpns[10], pids: new Set([VIDEO]) });

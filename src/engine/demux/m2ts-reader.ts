@@ -11,6 +11,11 @@ export interface M2tsReaderOptions {
   /** Exclusive; defaults to end of file. */
   readonly endSpn?: number;
   readonly pids: ReadonlySet<number>;
+  /**
+   * A lead-in read before `startSpn`: reading starts at `fromSpn` (rounded down to an aligned unit), but until the aligned
+   * unit `startSpn` is in, only the packets of `pids` pass. The other PIDs see exactly what a read from `startSpn` sees.
+   */
+  readonly lead?: { readonly fromSpn: number; readonly pids: ReadonlySet<number> };
   /** Packets per read; rounded to whole aligned units. Default ≈ 2 MB. */
   readonly chunkPackets?: number;
 }
@@ -29,6 +34,8 @@ export class M2tsReader {
   private readonly endSpn: number;
   private readonly chunkPackets: number;
   private cursor: number;
+  /** Aligned packet where every PID of `pids` passes; before it only the lead's PIDs do. */
+  private readonly mainSpn: number;
   private prefetch: Promise<Uint8Array> | null = null;
   private readonly abort = new AbortController();
   private done = false;
@@ -40,7 +47,9 @@ export class M2tsReader {
     this.endSpn = Math.min(opts.endSpn ?? total, total);
     const requested = opts.chunkPackets ?? DEFAULT_CHUNK_PACKETS;
     this.chunkPackets = Math.max(1, Math.round(requested / PACKETS_PER_ALIGNED_UNIT)) * PACKETS_PER_ALIGNED_UNIT;
-    this.cursor = Math.floor(opts.startSpn / PACKETS_PER_ALIGNED_UNIT) * PACKETS_PER_ALIGNED_UNIT;
+    this.mainSpn = Math.floor(opts.startSpn / PACKETS_PER_ALIGNED_UNIT) * PACKETS_PER_ALIGNED_UNIT;
+    const lead = opts.lead;
+    this.cursor = lead && lead.fromSpn < this.mainSpn ? Math.floor(lead.fromSpn / PACKETS_PER_ALIGNED_UNIT) * PACKETS_PER_ALIGNED_UNIT : this.mainSpn;
   }
 
   /** Source packet where the chunks handed out by next() end (the prefetch is not counted): what was delivered. */
@@ -75,13 +84,15 @@ export class M2tsReader {
     this.prefetch = this.cursor < this.endSpn ? this.readPackets(this.cursor, Math.min(this.chunkPackets, this.endSpn - this.cursor)) : null;
 
     const packets = Math.floor(data.length / SOURCE_PACKET_SIZE);
+    const leadPids = this.opts.lead?.pids;
     for (let k = 0; k < packets; k++) {
       const packet = parseSourcePacket(data, k * SOURCE_PACKET_SIZE);
       if (!packet) {
         this.corruptPackets++;
         continue;
       }
-      if (this.opts.pids.has(packet.pid)) this.assembler.push(packet);
+      const pids = chunkStart + k < this.mainSpn && leadPids ? leadPids : this.opts.pids;
+      if (pids.has(packet.pid)) this.assembler.push(packet);
     }
     return this.out.splice(0);
   }

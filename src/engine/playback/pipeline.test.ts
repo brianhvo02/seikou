@@ -116,6 +116,37 @@ describe('PlaybackPipeline PG', () => {
     const { items } = await collect(await pgSetup(), () => 0x1200, 2_500_000);
     expect(items).toEqual([[1, 2_500_000]]);
   });
+
+  it('after a seek reads PG from a few seconds before the keyframe, so the subtitle on screen at the target is decoded; video and audio still start at the keyframe', async () => {
+    // a subtitle at 0.5 s (muxed well before the keyframe at 3 s that a seek to 3.5 s starts at)
+    const early = subtitleSegments({ x: 70 }).map((payload) => ({ pts: CLIP_START_PTS + 45_000, payload }));
+    const files = buildSyntheticDisc({
+      clips: [syntheticClip('00001', 6, { audio: CodingType.LPCM, pgStreams: [{ pid: 0x1200, lang: 'eng', units: early }] })],
+      playlists: [{ id: '00000', clipIds: ['00001'] }],
+    });
+    const source = syntheticSource(files);
+    const mpls = parseMpls(await readWhole(source, 'BDMV/PLAYLIST/00000.MPLS'));
+    const config: PipelineConfig = { source, timeline: new Timeline(mpls.playItems), clips: await loadClips(source, ['00001']), videoPid: VIDEO_PID, playItems: mpls.playItems, audioStream: 1 };
+    const got: { pg: PipelineUnit[]; video: PipelineUnit[]; audio: PipelineUnit[] } = { pg: [], video: [], audio: [] };
+    let finish: () => void = () => undefined;
+    const done = new Promise<void>((r) => (finish = r));
+    const p: PlaybackPipeline = new PlaybackPipeline(config, {
+      video: (u) => got.video.push(u), audio: (u) => got.audio.push(u), pg: (u) => got.pg.push(u), isFull: () => false, ended: () => finish(), failed: () => finish(),
+      itemStarted: () => p.setPgStream(0x1200),
+    });
+    p.start(3_500_000);
+    await done;
+    expect(got.pg).toHaveLength(subtitleSegments({}).length);
+    expect(got.pg[0]!.ptsUs).toBe(500_000);
+    expect(got.video[0]!.ptsUs).toBe(3_000_000);
+    expect(got.audio.every((u) => u.ptsUs >= 3_000_000 - 100_000)).toBe(true);
+  });
+
+  it('reads PG from before the keyframe only within the play item the seek lands in', async () => {
+    // item 1 has its subtitle at 1 s of playlist time; a seek to 2.5 s (item 2, keyframe at 2 s) must not bring it back
+    const { got } = await collect(await pgSetup(), () => 0x1200, 2_500_000);
+    expect(got.every((u) => u.ptsUs >= 2_000_000)).toBe(true);
+  });
 });
 
 describe('PlaybackPipeline IG', () => {
