@@ -1,7 +1,7 @@
 name: Preview deploy
 
 # manual only: deploys the branch the run was started on as a Cloudflare Pages preview.
-# main is refused here; production deploys stay in ci.yml, gated on the tests.
+# main and beta are refused here; their deploys stay in ci.yml, gated on the tests.
 on:
   workflow_dispatch:
 
@@ -13,7 +13,7 @@ concurrency:
 jobs:
   preview:
     name: Deploy preview to Cloudflare Pages
-    if: github.ref != 'refs/heads/main'
+    if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/beta'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:

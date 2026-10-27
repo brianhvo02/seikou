@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # beta deploys the site to https://beta.bluray.pages.dev (the Pages project's `beta` branch alias); the Worker and the
+    # server image come from main only
+    branches: [main, beta]
   pull_request:
   # Every job, weekly and by hand, for whatever the path groups in scripts/ci-changes.sh miss. A manual run on main
   # deploys too.
@@ -16,8 +18,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Which jobs this change needs. A push compares with the last push to main whose run succeeded, so the changes of a
-  # cancelled or failed run are tested (and deployed) by the next one; a pull request compares with its base branch.
+  # Which jobs this change needs. A push compares with the last push to its branch whose run succeeded (none yet: every
+  # job), so the changes of a cancelled or failed run are tested (and deployed) by the next one; a pull request compares
+  # with its base branch.
   changes:
     name: Changed paths
     runs-on: ubuntu-latest
@@ -43,7 +46,7 @@ jobs:
         run: |
           case "${{ github.event_name }}" in
             pull_request) base="$(git rev-parse HEAD^1)" ;;
-            push) base="$(gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?branch=main&event=push&status=success&per_page=1" \
+            push) base="$(gh api "repos/${{ github.repository }}/actions/workflows/ci.yml/runs?branch=${{ github.ref_name }}&event=push&status=success&per_page=1" \
                     --jq '.workflow_runs[0].head_sha // empty')" ;;
             *) base='' ;;
           esac
@@ -175,12 +178,12 @@ jobs:
     needs: [changes, check, e2e, ass]
     # a skipped test job (nothing of its own changed) doesn't hold a deploy back; a failed or cancelled one does
     if: >-
-      !cancelled() && !failure() && github.ref == 'refs/heads/main' &&
+      !cancelled() && !failure() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/beta') &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && needs.changes.outputs.site == 'true'
     runs-on: ubuntu-latest
-    # a newer push to main must not cancel an upload halfway; deploys queue instead
+    # a newer push to the branch must not cancel an upload halfway; deploys queue instead
     concurrency:
-      group: deploy-pages
+      group: deploy-pages-${{ github.ref_name }}
       cancel-in-progress: false
     permissions:
       contents: read
@@ -204,7 +207,8 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # wrangler-action's default (3.90.0) conflicts with @cloudflare/workers-types 5 in package.json
           wranglerVersion: '4.148.0'
-          command: pages deploy dist --project-name=bluray --branch=main
+          # main is the production site, bluray.pages.dev; beta is the branch alias beta.bluray.pages.dev
+          command: pages deploy dist --project-name=bluray --branch=${{ github.ref_name }}
 
   # The NAS server image, for people who self-host it (docs/self-hosting.md). The package is made public once in GitHub's
   # package settings. Its own job, so a failure here never blocks the site deploys.
