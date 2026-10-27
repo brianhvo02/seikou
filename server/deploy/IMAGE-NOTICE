@@ -1,6 +1,6 @@
 Notices for the GPL parts of the bluray-server image
 
-The image (server/Dockerfile, https://github.com/brianhvo02/bluray-web) ships the NAS server, a bundled
+The image (server/Dockerfile, https://github.com/brianhvo02/seikou) ships the NAS server, a bundled
 Node program, together with software that is not part of this project and is licensed on its own terms. The server
 runs it only as a child process (it never links to it).
 

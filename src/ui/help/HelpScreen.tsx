@@ -12,7 +12,7 @@ interface HelpScreenProps {
   readonly hash: string;
 }
 
-const APP_TITLE = 'Blu-ray Player';
+const APP_TITLE = '青光 Seikou';
 
 /** The player documentation (`docs/*.md`, converted at build time) under `/help`. */
 export function HelpScreen({ history, slug, hash }: HelpScreenProps): ReactElement {

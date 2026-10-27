@@ -63,16 +63,16 @@ describe('helpHref', () => {
   });
 
   it('repo-only links go to GitHub', () => {
-    expect(helpHref('contributing.md', 'docs/nas.md')).toBe('https://github.com/brianhvo02/bluray-web/blob/main/docs/contributing.md');
-    expect(helpHref('../CLAUDE.md', 'docs/nas.md')).toBe('https://github.com/brianhvo02/bluray-web/blob/main/CLAUDE.md');
+    expect(helpHref('contributing.md', 'docs/nas.md')).toBe('https://github.com/brianhvo02/seikou/blob/main/docs/contributing.md');
+    expect(helpHref('../CLAUDE.md', 'docs/nas.md')).toBe('https://github.com/brianhvo02/seikou/blob/main/CLAUDE.md');
     expect(helpHref('../server/deploy/compose.yaml#L3', 'docs/self-hosting.md')).toBe(
-      'https://github.com/brianhvo02/bluray-web/blob/main/server/deploy/compose.yaml#L3',
+      'https://github.com/brianhvo02/seikou/blob/main/server/deploy/compose.yaml#L3',
     );
-    expect(helpHref('/LICENSE', 'docs/nas.md')).toBe('https://github.com/brianhvo02/bluray-web/blob/main/LICENSE');
+    expect(helpHref('/LICENSE', 'docs/nas.md')).toBe('https://github.com/brianhvo02/seikou/blob/main/LICENSE');
   });
 
   it('leaves http(s) and mailto URLs and in-page anchors unchanged', () => {
-    expect(helpHref('https://bluray-web.pages.dev', 'docs/nas.md')).toBe('https://bluray-web.pages.dev');
+    expect(helpHref('https://bluray.pages.dev', 'docs/nas.md')).toBe('https://bluray.pages.dev');
     expect(helpHref('HTTP://example.com/a', 'docs/nas.md')).toBe('HTTP://example.com/a');
     expect(helpHref('mailto:someone@example.com', 'docs/nas.md')).toBe('mailto:someone@example.com');
     expect(helpHref('#pairing', 'docs/nas.md')).toBe('#pairing');

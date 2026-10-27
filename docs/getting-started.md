@@ -1,6 +1,8 @@
 # Getting started
 
-The player opens a decrypted Blu-ray folder in your browser. Nothing is uploaded: the disc is read on your device.
+青光 (Seikou) opens a decrypted Blu-ray folder in your browser. Nothing is uploaded: the disc is read on your device.
+
+The player's address is now `bluray.pages.dev`; it used to be `bluray-web.pages.dev`. What a browser keeps (NAS pairings, recent discs, the places of local discs, imported shaders, disc saves from a local folder) stays with the old address, so pair again at the new one. Places and disc saves kept on a NAS belong to your person there and come back once this device is paired as you again; ask the NAS owner for a code for your person if you can't make one yourself.
 
 ## Browsers
 

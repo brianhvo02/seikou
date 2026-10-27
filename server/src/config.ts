@@ -77,7 +77,7 @@ export interface RtcConfig {
 }
 
 /** The hosted player, which pairing links open unless `APP_URL` says otherwise. */
-export const DEFAULT_APP_URL = 'https://bluray-web.pages.dev/';
+export const DEFAULT_APP_URL = 'https://bluray.pages.dev/';
 
 /** Reads `LIBRARY_ROOTS` (comma-separated `name=dir` or `name=dir@group`), `DATA_DIR`, `PORT`, `NIGHTLY_SCAN_AT` (`HH:MM`), `SCAN_PAUSE_MS`, `PUBLIC_BASE` (required), `APP_URL`, `LOOKUP_CONTACT`, `TRUSTED_PROXY`, `RENDEZVOUS_URL`, `TMDB_API_KEY`, `DISCOGS_TOKEN`, `TITLE_LIBRARY`, `RTC_PORT`, `RTC_LAN_ADDRESS`, `RTC_ADVERTISE`, `LEVELS_BACKEND`, `TRANSCODE_CACHE_BYTES`, `FFMPEG_PATH` and `FFPROBE_PATH`. */
 export function loadConfig(env: Record<string, string | undefined>): Config {

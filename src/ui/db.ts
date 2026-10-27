@@ -50,7 +50,7 @@ function openDb(factory: IDBFactory): Promise<IDBDatabase> {
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
-    req.onblocked = () => reject(new Error('The bluray-web database upgrade is blocked by another tab; close other Blu-ray Web tabs and reload.'));
+    req.onblocked = () => reject(new Error('The player database upgrade is blocked by another tab; close other Seikou tabs and reload.'));
   });
 }
 

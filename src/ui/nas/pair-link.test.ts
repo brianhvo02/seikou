@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { allowedPairUrl, foreignHosts, parsePairLink, workerBase } from './pair-link';
 
-const APP = 'https://bluray-web.pages.dev/';
+const APP = 'https://bluray.pages.dev/';
 const link = (query: string, dev = false) => parsePairLink(new URL(`${APP}?${query}`), { dev });
 const enc = encodeURIComponent;
 

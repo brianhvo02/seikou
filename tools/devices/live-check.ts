@@ -3,7 +3,7 @@
  * of the player, BD-J saved data checked across people and devices, and the library discs left unconfirmed by the
  * library check (tools/bdj-library) opened from the NAS on a touch device with screenshots after every step.
  *
- *   npx tsx tools/devices/live-check.ts --origin https://<branch>.bluray-web.pages.dev --out <dir outside the repo> \
+ *   npx tsx tools/devices/live-check.ts --origin https://<branch>.bluray.pages.dev --out <dir outside the repo> \
  *     --mika-phone ios:<udid> --mika-tablet ios:<udid> [--sora-a chrome-profile] [--sora-b chrome] \
  *     [--store-disc auto|<library path>|none] [--rehearse-store <library path>] [--library] [--disc <id>]…
  *
@@ -58,7 +58,7 @@ export const SORA = 'Sora (test)';
 const TEST_NAMES: readonly string[] = [MIKA, SORA];
 const CONTROLLER_NAME = 'live-check controller';
 /** The production player: its storage is never touched. */
-export const PRODUCTION_ORIGIN = 'https://bluray-web.pages.dev';
+export const PRODUCTION_ORIGIN = 'https://bluray.pages.dev';
 /** The library check's unconfirmed discs (ledger, Task 7 and 7b). */
 export const UNCONFIRMED = [
   '085018d8d8', '14ac0689d3', '1f2a950e80', '52c889f003', '5a26f0e0a5', '5b2a44a1ad', '67e6e09cab',
@@ -93,8 +93,8 @@ export function checkOrigin(origin: string): string {
   const u = new URL(origin);
   if (u.origin !== origin.replace(/\/+$/, '')) throw new Error(`--origin ${origin}: give an origin only (no path)`);
   if (u.origin === PRODUCTION_ORIGIN) throw new Error('--origin is the live site: the check runs on a preview origin only');
-  if (!/^https:\/\/[a-z0-9-]+\.bluray-web\.pages\.dev$/.test(u.origin) && !/^http:\/\/localhost:4173$/.test(u.origin)) {
-    throw new Error(`--origin ${u.origin}: not a preview of the player (https://<branch>.bluray-web.pages.dev)`);
+  if (!/^https:\/\/[a-z0-9-]+\.bluray\.pages\.dev$/.test(u.origin) && !/^http:\/\/localhost:4173$/.test(u.origin)) {
+    throw new Error(`--origin ${u.origin}: not a preview of the player (https://<branch>.bluray.pages.dev)`);
   }
   return u.origin;
 }

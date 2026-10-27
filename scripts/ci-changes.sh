@@ -30,7 +30,7 @@ UNIT_KEEP='^docs/[^/]+\.md$'
 E2E='^(src/|server/|rendezvous/|fixtures/synthetic/|fixtures/shaders/|tests/e2e/|public/|vite/|vite\.config\.ts|playwright\.config\.ts|index\.html|probe\.html|docs/[^/]+\.md$)'
 ASS='^(src/engine/ass/|src/engine/subs/|src/engine/memory-profile\.ts|fixtures/ass/|tests/ass-trace/|playwright\.ass\.config\.ts|vite/|vite\.config\.ts)'
 SITE="^(src/|public/|vite/|vite\.config\.ts|index\.html|probe\.html|docs/[^/]+\.md$|tsconfig[^/]*\.json|$PKG)"
-WORKER="^(rendezvous/|tsconfig\.rendezvous\.json|$PKG)"
+WORKER="^(rendezvous/|src/engine/disc/(cors-policy|nas-api|pairing-code)\.ts|tsconfig\.rendezvous\.json|$PKG)"
 IMAGE="^(server/|src/engine/(bdmv|decode|demux|disc|util)/|tsconfig\.server\.json|$PKG)"
 
 has() { printf '%s\n' "$files" | grep -Eq "$1"; }

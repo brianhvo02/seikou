@@ -562,7 +562,7 @@ describe('HTTP', () => {
     expect(minted.status).toBe(200);
     const body = (await minted.json()) as { code: string; link: string; expiresAt: number; rendezvous: boolean };
     expect(body.code).toMatch(/^[0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4}$/);
-    expect(body.link).toBe(`https://bluray-web.pages.dev/?pair=${body.code.replaceAll('-', '')}&nas=https%3A%2F%2Fnas.example%2Fbluray%2Fapi%2F`);
+    expect(body.link).toBe(`https://bluray.pages.dev/?pair=${body.code.replaceAll('-', '')}&nas=https%3A%2F%2Fnas.example%2Fbluray%2Fapi%2F`);
     expect(body.expiresAt).toBe(clock + 10 * MINUTE);
     expect(body.rendezvous).toBe(true);
     const codeHashArg = registrar.registerCode.mock.calls[0] as unknown as [string, { https: string }, number];
@@ -733,15 +733,15 @@ describe('HTTP', () => {
   });
 });
 
-const LINKS = { publicBase: 'https://nas.example/bluray/api/', appUrl: 'https://bluray-web.pages.dev/', rendezvousUrl: undefined };
+const LINKS = { publicBase: 'https://nas.example/bluray/api/', appUrl: 'https://bluray.pages.dev/', rendezvousUrl: undefined };
 
 describe('owner-code', () => {
   it('prints an owner code that the server in the same data dir redeems', async () => {
     const lines: string[] = [];
-    await ownerCode(tmp, now, (line) => lines.push(line), { publicBase: 'https://nas.example/bluray/api/', appUrl: 'https://bluray-web.pages.dev/', rendezvousUrl: undefined });
+    await ownerCode(tmp, now, (line) => lines.push(line), { publicBase: 'https://nas.example/bluray/api/', appUrl: 'https://bluray.pages.dev/', rendezvousUrl: undefined });
     const code = /^Owner pairing code: ([0-9A-Z]{4}-[0-9A-Z]{4}-[0-9A-Z]{4})$/.exec(lines[0]!)?.[1];
     expect(code).toBeDefined();
-    expect(lines[1]).toBe(`Pairing link: https://bluray-web.pages.dev/?pair=${code!.replaceAll('-', '')}&nas=https%3A%2F%2Fnas.example%2Fbluray%2Fapi%2F`);
+    expect(lines[1]).toBe(`Pairing link: https://bluray.pages.dev/?pair=${code!.replaceAll('-', '')}&nas=https%3A%2F%2Fnas.example%2Fbluray%2Fapi%2F`);
     expect(lines[2]).toMatch(/^Expires: \d{4}-\d\d-\d\d \d\d:\d\d:\d\d /);
     expect(lines[3]).toBe('Person: Owner');
     expect(lines[5]).toMatch(/^[█▀▄ \n]+$/);

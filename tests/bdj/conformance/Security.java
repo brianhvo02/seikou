@@ -19,7 +19,7 @@ import java.security.cert.Certificate;
 // property read the policy file does not grant, and modifying the root thread group, with the permission HotSpot
 // names; the policy file's grant of java.version holds for it. The untrusted code runs through doPrivileged with a
 // context of only its protection domain. The program itself is trusted, as the boot class path it runs from in
-// bluray-web's tests is: under HotSpot, a policy that grants its own code source everything and asks the default
+// Seikou's tests is: under HotSpot, a policy that grants its own code source everything and asks the default
 // policy (the policy file) about every other domain.
 public class Security {
     interface Check {
@@ -127,7 +127,7 @@ public class Security {
             }
         });
         // no untrusted frame on the stack: everything is allowed (the program itself has no restricted context here
-        // in bluray-web; under HotSpot its application code source has the default policy, which grants this read)
+        // in Seikou; under HotSpot its application code source has the default policy, which grants this read)
         System.out.println("trusted read java.version: " + (System.getProperty("java.version") == null ? "null" : "set"));
     }
 }

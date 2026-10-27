@@ -35,7 +35,7 @@ describe('serverLinkFromLocation and origins', () => {
   });
 
   it('ignores a production player link to a disc server elsewhere, rather than falling back to its own list', () => {
-    const href = `https://bluray-web.pages.dev/?disc=${encodeURIComponent('https://192.168.1.5:8443/api/discs/abc/')}&token=tok`;
+    const href = `https://bluray.pages.dev/?disc=${encodeURIComponent('https://192.168.1.5:8443/api/discs/abc/')}&token=tok`;
     expect(serverLinkFromLocation(href)).toBeNull();
     // and the Vite dev server does not reach across to the disc server either
     expect(serverLinkFromLocation(`http://localhost:5173/?disc=${encodeURIComponent('https://192.168.1.5:8443/api/discs/abc/')}&token=tok`)).toBeNull();

@@ -7,28 +7,28 @@ import { createServer } from './http';
 import type { Handler } from './http';
 
 describe('corsHeaders', () => {
-  it.each(['https://bluray-web.pages.dev', 'https://fix-x.bluray-web.pages.dev', 'http://localhost:4173', 'http://localhost:5173'])(
+  it.each(['https://bluray.pages.dev', 'https://fix-x.bluray.pages.dev', 'https://bluray-web.pages.dev', 'https://fix-x.bluray-web.pages.dev', 'http://localhost:4173', 'http://localhost:5173'])(
     'echoes the allowed origin %s',
     (origin) => {
       expect(corsHeaders(origin)['Access-Control-Allow-Origin']).toBe(origin);
     },
   );
 
-  it.each([['https://evil.pages.dev'], ['https://bluray-web.pages.dev.evil.com'], [undefined]])(
+  it.each([['https://evil.pages.dev'], ['https://bluray.pages.dev.evil.com'], ['https://evil-bluray.pages.dev'], [undefined]])(
     'gives no Allow-Origin to %s',
     (origin) => {
       expect(corsHeaders(origin)).not.toHaveProperty('Access-Control-Allow-Origin');
     },
   );
 
-  it.each([['https://bluray-web.pages.dev'], ['https://evil.pages.dev'], [undefined]])('always sets Vary and CORP (%s)', (origin) => {
+  it.each([['https://bluray.pages.dev'], ['https://evil.pages.dev'], [undefined]])('always sets Vary and CORP (%s)', (origin) => {
     const headers = corsHeaders(origin);
     expect(headers['Vary']).toBe('Origin');
     expect(headers['Cross-Origin-Resource-Policy']).toBe('cross-origin');
   });
 
   it('exposes ETag and Retry-After, so the player sees when a level read should retry', () => {
-    const exposed = corsHeaders('https://bluray-web.pages.dev')['Access-Control-Expose-Headers']!.split(/,\s*/);
+    const exposed = corsHeaders('https://bluray.pages.dev')['Access-Control-Expose-Headers']!.split(/,\s*/);
     expect(exposed).toEqual(expect.arrayContaining(['ETag', 'Retry-After']));
   });
 });
@@ -50,10 +50,10 @@ describe('createServer', () => {
 
   it('answers GET /api/health', async () => {
     const base = await start();
-    const res = await fetch(`${base}/api/health`, { headers: { Origin: 'https://bluray-web.pages.dev' } });
+    const res = await fetch(`${base}/api/health`, { headers: { Origin: 'https://bluray.pages.dev' } });
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
-    expect(res.headers.get('access-control-allow-origin')).toBe('https://bluray-web.pages.dev');
+    expect(res.headers.get('access-control-allow-origin')).toBe('https://bluray.pages.dev');
     expect(res.headers.get('vary')).toBe('Origin');
     expect(res.headers.get('cross-origin-resource-policy')).toBe('cross-origin');
   });
@@ -74,11 +74,11 @@ describe('createServer', () => {
     const base = await start();
     const pre = await fetch(`${base}/api/bdj-store/persistent/0a1b2c3d`, {
       method: 'OPTIONS',
-      headers: { Origin: 'https://bluray-web.pages.dev', 'Access-Control-Request-Method': 'PUT', 'Access-Control-Request-Headers': 'if-match' },
+      headers: { Origin: 'https://bluray.pages.dev', 'Access-Control-Request-Method': 'PUT', 'Access-Control-Request-Headers': 'if-match' },
     });
     const allowed = pre.headers.get('access-control-allow-headers')!.split(',').map((h) => h.trim().toLowerCase());
     expect(allowed).toEqual(expect.arrayContaining(['authorization', 'content-type', 'range', 'if-match', 'if-none-match', 'x-bdj-person']));
-    const res = await fetch(`${base}/api/health`, { headers: { Origin: 'https://bluray-web.pages.dev' } });
+    const res = await fetch(`${base}/api/health`, { headers: { Origin: 'https://bluray.pages.dev' } });
     expect(res.headers.get('access-control-expose-headers')).toBe('ETag, Retry-After');
   });
 
@@ -109,10 +109,10 @@ describe('createServer', () => {
     const bad: Handler = async (_req, url) =>
       url.pathname === '/bad' ? { status: 200, headers: { 'X-Name': '鋼の旅団' }, body: 'x' } : null;
     const base = await start([bad]);
-    const res = await fetch(`${base}/bad`, { headers: { Origin: 'https://bluray-web.pages.dev' } });
+    const res = await fetch(`${base}/bad`, { headers: { Origin: 'https://bluray.pages.dev' } });
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: 'internal error' });
-    expect(res.headers.get('access-control-allow-origin')).toBe('https://bluray-web.pages.dev');
+    expect(res.headers.get('access-control-allow-origin')).toBe('https://bluray.pages.dev');
     expect(error).toHaveBeenCalled();
     const next = await fetch(`${base}/api/health`);
     expect(next.status).toBe(200);
@@ -142,7 +142,7 @@ describe('createServer', () => {
   it('sets nosniff and a sandboxing CSP on every response, beside the CORS and CORP headers', async () => {
     const base = await start();
     for (const res of [
-      await fetch(`${base}/api/health`, { headers: { Origin: 'https://bluray-web.pages.dev' } }),
+      await fetch(`${base}/api/health`, { headers: { Origin: 'https://bluray.pages.dev' } }),
       await fetch(`${base}/nope`),
       await fetch(`${base}/api/x`, { method: 'OPTIONS', headers: { Origin: 'http://localhost:4173', 'Access-Control-Request-Method': 'GET' } }),
     ]) {

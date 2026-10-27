@@ -17,7 +17,7 @@ describe('loadConfig', () => {
       nightlyScanAt: { hour: 4, minute: 0 },
       scanPauseMs: 10,
       publicBase: BASE,
-      appUrl: 'https://bluray-web.pages.dev/',
+      appUrl: 'https://bluray.pages.dev/',
       lookupContact: null,
       trustedProxy: null,
       tmdbApiKey: null,
@@ -37,7 +37,7 @@ describe('loadConfig', () => {
       nightlyScanAt: { hour: 4, minute: 0 },
       scanPauseMs: 10,
       publicBase: BASE,
-      appUrl: 'https://bluray-web.pages.dev/',
+      appUrl: 'https://bluray.pages.dev/',
       lookupContact: null,
       trustedProxy: null,
       tmdbApiKey: null,
@@ -187,8 +187,8 @@ describe('loadConfig', () => {
   });
 
   it('defaults APP_URL to the hosted app and keeps a trailing slash', () => {
-    expect(loadConfig(REQUIRED).appUrl).toBe('https://bluray-web.pages.dev/');
-    expect(loadConfig({ ...REQUIRED, APP_URL: '' }).appUrl).toBe('https://bluray-web.pages.dev/');
+    expect(loadConfig(REQUIRED).appUrl).toBe('https://bluray.pages.dev/');
+    expect(loadConfig({ ...REQUIRED, APP_URL: '' }).appUrl).toBe('https://bluray.pages.dev/');
     expect(loadConfig({ ...REQUIRED, APP_URL: 'https://player.example.org' }).appUrl).toBe('https://player.example.org/');
     expect(loadConfig({ ...REQUIRED, APP_URL: 'https://player.example.org/app/' }).appUrl).toBe('https://player.example.org/app/');
     expect(() => loadConfig({ ...REQUIRED, APP_URL: 'nope' })).toThrow('APP_URL "nope" is not an http(s) URL');

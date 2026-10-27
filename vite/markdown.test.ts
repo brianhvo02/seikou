@@ -11,7 +11,7 @@ describe('renderHelpPage', () => {
   it('rewrites links and gives headings their GitHub ids', () => {
     const { html, summary } = renderHelpPage('# Title\n\nSee [NAS](nas.md#pairing) and [notes](contributing.md).\n\n## Audio & text\n', 'docs/x.md');
     expect(html).toContain('<a href="/help/nas#pairing">NAS</a>');
-    expect(html).toContain('href="https://github.com/brianhvo02/bluray-web/blob/main/docs/contributing.md"');
+    expect(html).toContain('href="https://github.com/brianhvo02/seikou/blob/main/docs/contributing.md"');
     expect(html).toContain('<h2 id="audio--text">Audio &amp; text</h2>');
     expect(summary).toBe('See NAS and notes.');
   });

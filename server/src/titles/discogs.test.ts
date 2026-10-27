@@ -51,7 +51,7 @@ describe('createDiscogs', () => {
     for (const c of calls) {
       const h = new Headers(c.init?.headers);
       expect(h.get('Authorization')).toBe(`Discogs token=${TOKEN}`);
-      expect(h.get('User-Agent')).toBe('bluray-web/1.0 (https://github.com/brianhvo02/bluray-web)');
+      expect(h.get('User-Agent')).toBe('seikou/1.0 (https://github.com/brianhvo02/seikou)');
     }
   });
 

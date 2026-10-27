@@ -46,12 +46,12 @@ describe('pairing codes', () => {
   });
 
   it('pairingLink names the Worker when there is one, else the server itself', () => {
-    const o = { appUrl: 'https://bluray-web.pages.dev/', publicBase: 'https://nas.example.com/bluray/api/' };
+    const o = { appUrl: 'https://bluray.pages.dev/', publicBase: 'https://nas.example.com/bluray/api/' };
     expect(pairingLink('ABCD-2345-EFGH', { ...o, rendezvousUrl: 'https://rendezvous.example.workers.dev' })).toBe(
-      'https://bluray-web.pages.dev/?pair=ABCD2345EFGH&rv=https%3A%2F%2Frendezvous.example.workers.dev',
+      'https://bluray.pages.dev/?pair=ABCD2345EFGH&rv=https%3A%2F%2Frendezvous.example.workers.dev',
     );
     expect(pairingLink('ABCD2345EFGH', { ...o, rendezvousUrl: undefined })).toBe(
-      'https://bluray-web.pages.dev/?pair=ABCD2345EFGH&nas=https%3A%2F%2Fnas.example.com%2Fbluray%2Fapi%2F',
+      'https://bluray.pages.dev/?pair=ABCD2345EFGH&nas=https%3A%2F%2Fnas.example.com%2Fbluray%2Fapi%2F',
     );
   });
 });

@@ -802,7 +802,7 @@ test('the owner invites Mika, who pairs as Mika, then removes Mika, and rescans'
       contentType: 'application/json',
       headers: { 'Access-Control-Allow-Origin': origin },
       body: JSON.stringify({
-        code: 'K7QM-4XP2-R9TD', link: 'https://bluray-web.pages.dev/?pair=K7QM4XP2R9TD', expiresAt: Date.now() + 600_000, rendezvous: false,
+        code: 'K7QM-4XP2-R9TD', link: 'https://bluray.pages.dev/?pair=K7QM4XP2R9TD', expiresAt: Date.now() + 600_000, rendezvous: false,
         personId: ownPersonId, personName: 'Owner', invite: false,
       }),
     });

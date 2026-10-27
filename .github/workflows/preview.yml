@@ -46,7 +46,7 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           # wrangler-action's default (3.90.0) conflicts with @cloudflare/workers-types 5 in package.json
           wranglerVersion: '4.148.0'
-          command: pages deploy dist --project-name=bluray-web --branch=${{ github.ref_name }}
+          command: pages deploy dist --project-name=bluray --branch=${{ github.ref_name }}
       - name: Job summary
         env:
           BRANCH: ${{ github.ref_name }}

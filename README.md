@@ -1,19 +1,19 @@
-# bluray-web
+# 青光 Seikou
 
-[![CI](https://github.com/brianhvo02/bluray-web/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/brianhvo02/bluray-web/actions/workflows/ci.yml)
-[![WASM](https://github.com/brianhvo02/bluray-web/actions/workflows/wasm.yml/badge.svg?branch=main)](https://github.com/brianhvo02/bluray-web/actions/workflows/wasm.yml)
-[![VM trace](https://github.com/brianhvo02/bluray-web/actions/workflows/vm-trace.yml/badge.svg?branch=main)](https://github.com/brianhvo02/bluray-web/actions/workflows/vm-trace.yml)
-[![BD-J trace](https://github.com/brianhvo02/bluray-web/actions/workflows/bdj-trace.yml/badge.svg?branch=main)](https://github.com/brianhvo02/bluray-web/actions/workflows/bdj-trace.yml)
-[![BD-J class library](https://github.com/brianhvo02/bluray-web/actions/workflows/bdj-classlib.yml/badge.svg?branch=main)](https://github.com/brianhvo02/bluray-web/actions/workflows/bdj-classlib.yml)
-[![ASS trace](https://github.com/brianhvo02/bluray-web/actions/workflows/ass-trace.yml/badge.svg?branch=main)](https://github.com/brianhvo02/bluray-web/actions/workflows/ass-trace.yml)
+[![CI](https://github.com/brianhvo02/seikou/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/brianhvo02/seikou/actions/workflows/ci.yml)
+[![WASM](https://github.com/brianhvo02/seikou/actions/workflows/wasm.yml/badge.svg?branch=main)](https://github.com/brianhvo02/seikou/actions/workflows/wasm.yml)
+[![VM trace](https://github.com/brianhvo02/seikou/actions/workflows/vm-trace.yml/badge.svg?branch=main)](https://github.com/brianhvo02/seikou/actions/workflows/vm-trace.yml)
+[![BD-J trace](https://github.com/brianhvo02/seikou/actions/workflows/bdj-trace.yml/badge.svg?branch=main)](https://github.com/brianhvo02/seikou/actions/workflows/bdj-trace.yml)
+[![BD-J class library](https://github.com/brianhvo02/seikou/actions/workflows/bdj-classlib.yml/badge.svg?branch=main)](https://github.com/brianhvo02/seikou/actions/workflows/bdj-classlib.yml)
+[![ASS trace](https://github.com/brianhvo02/seikou/actions/workflows/ass-trace.yml/badge.svg?branch=main)](https://github.com/brianhvo02/seikou/actions/workflows/ass-trace.yml)
 [![License: LGPL-2.1-or-later](https://img.shields.io/badge/license-LGPL--2.1--or--later-blue)](LICENSE)
-[![Try it](https://img.shields.io/badge/try%20it-bluray--web.pages.dev-brightgreen)](https://bluray-web.pages.dev)
+[![Try it](https://img.shields.io/badge/try%20it-bluray.pages.dev-brightgreen)](https://bluray.pages.dev)
 
-A Blu-ray player that runs in your browser. It plays decrypted disc folders with their menus (HDMV and BD-J), subtitles and audio tracks, on desktop and on phones. Nothing is uploaded: the disc is read on your device, and an optional server on your own NAS can stream a whole library to it.
+**青光** (*Seikou*, "blue light": a pun on Blu-ray) is a Blu-ray player that runs in your browser. It plays decrypted disc folders with their menus (HDMV and BD-J), subtitles and audio tracks, on desktop and on phones. Nothing is uploaded: the disc is read on your device, and an optional server on your own NAS can stream a whole library to it.
 
 ## Get started
 
-1. Open [bluray-web.pages.dev](https://bluray-web.pages.dev).
+1. Open [bluray.pages.dev](https://bluray.pages.dev).
 2. Pick a disc folder (a decrypted `BDMV` disc, or the folder that holds it).
 3. Or pair the player with a NAS server, if you or a friend run one.
 
@@ -27,8 +27,9 @@ Supported browsers: Safari 26 (macOS, iOS, iPadOS), Chrome and Firefox on deskto
 - [Troubleshooting](docs/troubleshooting.md): the notices you may see and what to do.
 - [Run your own server](docs/self-hosting.md)
 - [Contributing](docs/contributing.md)
+- [Roadmap](docs/roadmap.md): what comes next.
 
-The player pages (all but Contributing) are also on the site under [/help](https://bluray-web.pages.dev/help); Contributing stays on GitHub.
+The player pages (all but Contributing) are also on the site under [/help](https://bluray.pages.dev/help); Contributing stays on GitHub.
 
 ## Run your own server
 
@@ -40,7 +41,7 @@ Commands and tests are in [docs/contributing.md](docs/contributing.md). [CLAUDE.
 
 ## Built on
 
-bluray-web stands on a lot of other work. Each entry links to the project and, where one applies, names its licence.
+Seikou stands on a lot of other work. Each entry links to the project and, where one applies, names its licence.
 
 ### Ported from
 

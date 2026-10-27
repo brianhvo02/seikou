@@ -20,7 +20,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
   { slug: 'self-hosting', file: 'docs/self-hosting.md', title: 'Run your own server' },
 ];
 
-const GITHUB_BLOB = 'https://github.com/brianhvo02/bluray-web/blob/main/';
+const GITHUB_BLOB = 'https://github.com/brianhvo02/seikou/blob/main/';
 const REPO_BASE = 'https://repo.invalid/';
 
 /**

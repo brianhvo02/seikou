@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Clones libbluray at the commit bluray-web ports from, into .cache/libbluray (gitignored).
+# Clones libbluray at the commit Seikou ports from, into .cache/libbluray (gitignored).
 set -euo pipefail
 COMMIT=448f896
 DEST="$(cd "$(dirname "$0")/.." && pwd)/.cache/libbluray"

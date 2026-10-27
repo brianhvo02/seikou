@@ -453,7 +453,7 @@ export function LandingScreen({ controller, snapshot, nas, places, history, play
   return (
     <main className="landing" data-testid="landing">
       <header className="landing-head">
-        <h1>Blu-ray Player</h1>
+        <h1>青光 Seikou</h1>
         <AppLink history={history} to="/help" className="help-link" testId="help-link">
           Help
         </AppLink>

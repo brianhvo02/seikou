@@ -11,7 +11,7 @@ function fakeApi(over: Partial<AdminApi> = {}): AdminApi {
   return {
     createCode: vi.fn(async (_target, invite: boolean) => ({
       code: 'K7QM-4XP2-R9TD',
-      link: 'https://bluray-web.pages.dev/?pair=K7QM4XP2R9TD',
+      link: 'https://bluray.pages.dev/?pair=K7QM4XP2R9TD',
       expiresAt: NOW + (invite ? 3 * DAY : 10 * MINUTE),
       rendezvous: true,
       personId: 'p1',

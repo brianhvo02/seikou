@@ -2,7 +2,7 @@
 
 The player is a static web app. Your discs stay on your machine; the NAS server serves them to the player over HTTPS (or WebRTC), lists them by title and keeps each person's resume points, BD-J saved data and uploaded subtitles. This guide is for people who already run Docker Compose, a reverse proxy or Tailscale, and router port forwards.
 
-You get the hosted player at `https://bluray-web.pages.dev/` for free: a pairing link from your server opens it and pairs the device straight with your server. A Cloudflare account is optional (typed codes, QR through a Worker, WebRTC for friends away from your network).
+You get the hosted player at `https://bluray.pages.dev/` for free: a pairing link from your server opens it and pairs the device straight with your server. A Cloudflare account is optional (typed codes, QR through a Worker, WebRTC for friends away from your network).
 
 ## Layers
 
@@ -39,7 +39,7 @@ Edit `.env`. Empty values mean unset.
 | `LIBRARY_MOUNT` | Host folder bound read-only at `/library` (compose default `/srv/bluray`). |
 | `LIBRARY_ROOTS` | Roots as above, e.g. `movies=/library/Movies,downloads=/library/Downloads@Downloads`. A second host folder goes in `compose.override.yaml` (same read-only bind options, own target such as `/library2`) and in `LIBRARY_ROOTS`. |
 | `PUBLIC_BASE` | **Required.** The HTTPS API base as devices reach it, ending in `/api/`, e.g. `https://nas.example.com/bluray/api/`. The server and every subcommand refuse to start without it. |
-| `APP_URL` | The player pairing links open, with no query or fragment. Default `https://bluray-web.pages.dev/`. Normally left as is: the server's CORS lets only the hosted player (`bluray-web.pages.dev` and its preview subdomains) talk to it, so a player served from anywhere else can't reach it. |
+| `APP_URL` | The player pairing links open, with no query or fragment. Default `https://bluray.pages.dev/`. Normally left as is: the server's CORS lets only the hosted player (`bluray.pages.dev` and its preview subdomains) talk to it, so a player served from anywhere else can't reach it. |
 | `RENDEZVOUS_URL` | Your Worker's base URL. Empty: pairing links only. |
 | `RTC_LAN_ADDRESS` | This host's LAN IPv4 (10/8, 192.168/16 or public), advertised to WebRTC peers on your network, e.g. `192.168.1.20`. Used with `RENDEZVOUS_URL`. |
 | `RTC_PORT` | The UDP port of the WebRTC route, default `47998`. Compose publishes it as given. |

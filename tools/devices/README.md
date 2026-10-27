@@ -176,10 +176,10 @@ This check runs on real devices against the live NAS, on a **preview** origin of
 
 ```sh
 export LIVE_CHECK_NAS=https://<nas host>/bluray/api/   # or --nas <api base>; there is no default
-npx tsx tools/devices/live-check.ts --origin https://<branch>.bluray-web.pages.dev --out <dir outside the repo> \
+npx tsx tools/devices/live-check.ts --origin https://<branch>.bluray.pages.dev --out <dir outside the repo> \
   --mika-phone ios:<iPhone udid> --mika-tablet ios:<iPad udid> --library
 # dry run: Simulators for Mika, Chrome for Sora, another disc for the store steps
-npx tsx tools/devices/live-check.ts --origin https://<branch>.bluray-web.pages.dev --out <dir> \
+npx tsx tools/devices/live-check.ts --origin https://<branch>.bluray.pages.dev --out <dir> \
   --mika-phone "sim:iPhone 17" --mika-tablet "sim:iPad Air 11-inch (M4)" --rehearse-store <library-check id> --library
 ```
 

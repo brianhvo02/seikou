@@ -51,7 +51,7 @@ describe('live-check', () => {
   });
 
   it('has no default root for the test disc', () => {
-    const args = ['--origin', 'https://spec-x.bluray-web.pages.dev', '--out', '/tmp/lc', '--nas', 'https://nas.example/bluray/api'];
+    const args = ['--origin', 'https://spec-x.bluray.pages.dev', '--out', '/tmp/lc', '--nas', 'https://nas.example/bluray/api'];
     expect(() => parseLiveArgs(args, {})).toThrow(/--place-root/);
     expect(parseLiveArgs([...args, '--store-disc', 'none'], {}).placeRoot).toBe('');
   });
@@ -67,15 +67,15 @@ describe('live-check', () => {
   });
 
   it('runs on a preview origin only', () => {
-    expect(checkOrigin('https://spec-x.bluray-web.pages.dev')).toBe('https://spec-x.bluray-web.pages.dev');
-    expect(checkOrigin('https://spec-x.bluray-web.pages.dev/')).toBe('https://spec-x.bluray-web.pages.dev');
-    expect(() => checkOrigin('https://bluray-web.pages.dev')).toThrow(/live site/);
+    expect(checkOrigin('https://spec-x.bluray.pages.dev')).toBe('https://spec-x.bluray.pages.dev');
+    expect(checkOrigin('https://spec-x.bluray.pages.dev/')).toBe('https://spec-x.bluray.pages.dev');
+    expect(() => checkOrigin('https://bluray.pages.dev')).toThrow(/live site/);
     expect(() => checkOrigin('https://example.com')).toThrow();
-    expect(() => checkOrigin('https://spec-x.bluray-web.pages.dev/app')).toThrow();
+    expect(() => checkOrigin('https://spec-x.bluray.pages.dev/app')).toThrow();
   });
 
   it('keeps results out of the repository and safaridriver off the stand-in ports', () => {
-    const base = ['--origin', 'https://spec-x.bluray-web.pages.dev', '--nas', 'https://nas.example/bluray/api', '--place-root', 'media0'];
+    const base = ['--origin', 'https://spec-x.bluray.pages.dev', '--nas', 'https://nas.example/bluray/api', '--place-root', 'media0'];
     expect(() => parseLiveArgs([...base, '--out', 'tools/devices/out'], {})).toThrow(/outside the repository/);
     expect(() => parseLiveArgs([...base, '--out', '/tmp/lc', '--wd-ports', '4191,4211'], {})).toThrow(/4191/);
     expect(() => parseLiveArgs([...base, '--out', '/tmp/lc', '--wd-ports', '4100,4211'], {})).toThrow();
@@ -88,7 +88,7 @@ describe('live-check', () => {
   });
 
   it('takes the NAS from --nas or LIVE_CHECK_NAS, with no default (review minor 9)', () => {
-    const base = ['--origin', 'https://spec-x.bluray-web.pages.dev', '--out', '/tmp/lc', '--place-root', 'media0'];
+    const base = ['--origin', 'https://spec-x.bluray.pages.dev', '--out', '/tmp/lc', '--place-root', 'media0'];
     expect(() => parseLiveArgs(base, {})).toThrow(/no NAS given: pass --nas <api base> or set LIVE_CHECK_NAS/);
     expect(parseLiveArgs(base, { LIVE_CHECK_NAS: 'https://nas.example/bluray/api/' }).nas).toBe('https://nas.example/bluray/api/');
     expect(parseLiveArgs([...base, '--nas', 'https://other.example/api'], { LIVE_CHECK_NAS: 'https://nas.example/bluray/api/' }).nas).toBe('https://other.example/api/');
