@@ -37,7 +37,7 @@ services:
     # also the server's RTC_PORT; keep the two equal.
     ports:
       - "${RTC_PORT:-47998}:${RTC_PORT:-47998}/udp"
-    # Quality levels (LEVELS_BACKEND=qsv): re-encoding on an Intel GPU through Quick Sync (jellyfin-ffmpeg in the
+    # Quality levels (LEVELS_BACKEND=qsv): re-encoding on an Intel GPU through Quick Sync (Debian's ffmpeg in the
     # image). The render node comes from compose.gpu.yaml; without it, or when the self-test at start fails, only
     # Original is offered. Segments are cached in /data/transcode (50 GB by default).
     # To reach the server through a reverse proxy that runs in Docker, attach this service to the proxy's network in

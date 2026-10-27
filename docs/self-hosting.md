@@ -189,4 +189,4 @@ CI publishes `ghcr.io/brianhvo02/bluray-server` for linux/amd64 on every passing
 
 ## Licences
 
-The server is part of this project (see the repository). The image also carries jellyfin-ffmpeg (GPL-3.0-or-later, run only as a child process) and Intel's media driver and oneVPL runtime (MIT); sources and licence locations are in `server/deploy/IMAGE-NOTICE`, which is also the notice for anyone you give the image to. Get the GPL source for three years from receipt of the image at https://github.com/jellyfin/jellyfin-ffmpeg and https://repo.jellyfin.org/debian.
+The server is part of this project (see the repository). The image also carries Debian's ffmpeg (GPL-2.0-or-later, run only as a child process) and Intel's media driver and oneVPL runtime (MIT); sources and licence locations are in `server/deploy/IMAGE-NOTICE`, which is also the notice for anyone you give the image to. Every package in it is Debian 13's, so the GPL source is Debian's source package of the installed version (https://sources.debian.org, https://snapshot.debian.org).

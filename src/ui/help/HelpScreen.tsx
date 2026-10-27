@@ -12,7 +12,7 @@ interface HelpScreenProps {
   readonly hash: string;
 }
 
-const APP_TITLE = '青光 Seikou';
+const APP_TITLE = 'Seikou';
 
 /** The player documentation (`docs/*.md`, converted at build time) under `/help`. */
 export function HelpScreen({ history, slug, hash }: HelpScreenProps): ReactElement {

@@ -1,4 +1,6 @@
-# 青光 Seikou
+<p align="center"><img src="public/logo.svg" alt="Seikou" width="200"></p>
+
+# Seikou
 
 [![CI](https://github.com/brianhvo02/seikou/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/brianhvo02/seikou/actions/workflows/ci.yml)
 [![WASM](https://github.com/brianhvo02/seikou/actions/workflows/wasm.yml/badge.svg?branch=main)](https://github.com/brianhvo02/seikou/actions/workflows/wasm.yml)
@@ -9,7 +11,7 @@
 [![License: LGPL-2.1-or-later](https://img.shields.io/badge/license-LGPL--2.1--or--later-blue)](LICENSE)
 [![Try it](https://img.shields.io/badge/try%20it-bluray.pages.dev-brightgreen)](https://bluray.pages.dev)
 
-**青光** (*Seikou*, "blue light": a pun on Blu-ray) is a Blu-ray player that runs in your browser. It plays decrypted disc folders with their menus (HDMV and BD-J), subtitles and audio tracks, on desktop and on phones. Nothing is uploaded: the disc is read on your device, and an optional server on your own NAS can stream a whole library to it.
+Seikou (青光, "blue light": a pun on Blu-ray) is a Blu-ray player that runs in your browser. It plays decrypted disc folders with their menus (HDMV and BD-J), subtitles and audio tracks, on desktop and on phones. Nothing is uploaded: the disc is read on your device, and an optional server on your own NAS can stream a whole library to it.
 
 ## Get started
 
@@ -72,8 +74,8 @@ Shipped inside the app, the server image or the Worker.
 - [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator), MIT: pairing QR codes.
 - [werift](https://github.com/shinyoshiaki/werift-webrtc), MIT: WebRTC in the server, with the packages it uses, under their own licences (see [server/NOTICE](server/NOTICE)).
 - [Workbox](https://github.com/GoogleChrome/workbox) (precaching and routing), MIT: the service worker.
-- [jellyfin-ffmpeg](https://github.com/jellyfin/jellyfin-ffmpeg) 7, GPL-3.0-or-later, in the server image for quality levels. It runs as a separate process. [server/deploy/IMAGE-NOTICE](server/deploy/IMAGE-NOTICE) has the source and its bundled libraries, and the server image is not to be redistributed.
-- [Intel media driver](https://github.com/intel/media-driver) and [oneVPL](https://github.com/intel/libvpl), MIT: hardware encoding inside jellyfin-ffmpeg.
+- [FFmpeg](https://ffmpeg.org) 7.1, Debian's GPL-2.0-or-later build, in the server image for quality levels. It runs as a separate process. [server/deploy/IMAGE-NOTICE](server/deploy/IMAGE-NOTICE) says where its source is.
+- [Intel media driver](https://github.com/intel/media-driver) and [oneVPL](https://github.com/intel/libvpl), MIT: hardware encoding for that ffmpeg.
 - [Node.js](https://nodejs.org), MIT: the server image's base.
 
 ### Used in tests
@@ -112,5 +114,6 @@ LGPL-2.1-or-later for everything that doesn't carry its own licence (see [LICENS
 - `fixtures/bdj-fonts/` and `fixtures/synthetic/disc-bdj-menu/` (Source Sans 3): SIL Open Font License 1.1.
 - `server/data/discdb-index.json`: MIT (TheDiscDB data).
 - `public/tmdb-logo.svg`: TMDB's logo, used for attribution only.
+- `public/logo.svg` and `public/favicon.svg`: the lettering is outlines of [Noto Serif CJK JP](https://github.com/notofonts/noto-cjk) Black (青光) and Noto Sans CJK JP Bold (Seikou), SIL Open Font License 1.1.
 
-The server image also contains jellyfin-ffmpeg (GPL-3.0); see [server/deploy/IMAGE-NOTICE](server/deploy/IMAGE-NOTICE).
+The server image also contains ffmpeg (GPL-2.0-or-later); see [server/deploy/IMAGE-NOTICE](server/deploy/IMAGE-NOTICE).

@@ -146,11 +146,11 @@ describe('loadConfig', () => {
   });
 
   it('reads the quality levels’ encoder settings', () => {
-    expect(loadConfig({ ...REQUIRED, LEVELS_BACKEND: 'x264', TRANSCODE_CACHE_BYTES: '1000000', FFMPEG_PATH: '/usr/lib/jellyfin-ffmpeg/ffmpeg', FFPROBE_PATH: '/usr/lib/jellyfin-ffmpeg/ffprobe' }).levels).toEqual({
+    expect(loadConfig({ ...REQUIRED, LEVELS_BACKEND: 'x264', TRANSCODE_CACHE_BYTES: '1000000', FFMPEG_PATH: '/usr/bin/ffmpeg', FFPROBE_PATH: '/usr/bin/ffprobe' }).levels).toEqual({
       backend: 'x264',
       cacheBytes: 1_000_000,
-      ffmpegPath: '/usr/lib/jellyfin-ffmpeg/ffmpeg',
-      ffprobePath: '/usr/lib/jellyfin-ffmpeg/ffprobe',
+      ffmpegPath: '/usr/bin/ffmpeg',
+      ffprobePath: '/usr/bin/ffprobe',
     });
     expect(loadConfig({ ...REQUIRED, LEVELS_BACKEND: 'off' }).levels.backend).toBe('off');
     expect(loadConfig({ ...REQUIRED, LEVELS_BACKEND: '' }).levels.backend).toBe('qsv');

@@ -623,7 +623,7 @@ const hasX264 = spawnSync('ffmpeg', ['-hide_banner', '-encoders'], { encoding: '
 const runFfmpegTests = hasX264 || Boolean(process.env.CI);
 
 describe.skipIf(!runFfmpegTests)('LevelService with libx264', () => {
-  // As it is, and behind a filter that moves every frame's PTS as jellyfin-ffmpeg's QSV filters do (by up to a frame).
+  // As it is, and behind a filter that moves every frame's PTS as ffmpeg 7.1's QSV filters do (by up to a frame).
   for (const [name, backend, merged] of [
     ['libx264', x264Backend, false],
     ['PTS 1129 ticks early', distortingBackend(shiftedBy(1129)), false],

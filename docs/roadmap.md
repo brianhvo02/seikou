@@ -1,6 +1,6 @@
 # Roadmap
 
-What comes next for 青光 Seikou, in rough order. It is drawn from [known-issues.md](known-issues.md) (the source of truth for each limitation, with the reasoning behind it), the specs and plans in `docs/superpowers/`, and the status notes from each milestone. Sizes are rough: **S** is a day or less, **M** a few days, **L** a milestone of its own. Items marked *needs a disc*, *needs a device* or *owner's call* can't start until that is to hand.
+What comes next for Seikou, in rough order. It is drawn from [known-issues.md](known-issues.md) (the source of truth for each limitation, with the reasoning behind it), the specs and plans in `docs/superpowers/`, and the status notes from each milestone. Sizes are rough: **S** is a day or less, **M** a few days, **L** a milestone of its own. Items marked *needs a disc*, *needs a device* or *owner's call* can't start until that is to hand.
 
 Everything listed in [CLAUDE.md](../CLAUDE.md) under "What this is" is done: milestones 1 to 5e, cross-browser and mobile, the NAS server and title library, people and WebRTC, quality levels, the music shelf, fansubs, resume and the subtitle store, self-hosting and the docs.
 
@@ -10,7 +10,6 @@ Short tasks that unblock or protect what is already deployed.
 
 | Item | Size | Notes |
 | --- | --- | --- |
-| **Licence of the published server image.** `server/NOTICE` says the image bundles jellyfin-ffmpeg built with libfdk-aac and must not be redistributed, but CI now publishes `ghcr.io/brianhvo02/bluray-server` publicly for self-hosters, and `server/deploy/IMAGE-NOTICE` doesn't mention fdk-aac. Choose one: an ffmpeg build without fdk-aac (the server never uses AAC), a different GPU-capable ffmpeg, or stop publishing. Then make the two notices agree. | M | owner's call; do first |
 | **Finish the move to `bluray.pages.dev`.** The site moved from `bluray-web.pages.dev` on 2026-10-27, and browser data stays with the old origin. Put a notice on the old site that links to the new one, then retire it and drop `bluray-web` from `src/engine/disc/cors-policy.ts` once paired devices have moved. A one-time export of pairings, local places and shaders from the old origin is optional. | S | |
 | **Caddy's Tailscale certificate** is issued by hand and may lapse around late November, which would take down every site behind Caddy. Renew it or let Caddy manage it. | S | owner, ssh |
 | **Owner set-up still pending:** the Discogs token in the NAS's `.env`, and the first real "Find fansubs" run on a title. | S | owner |
@@ -55,7 +54,7 @@ Short tasks that unblock or protect what is already deployed.
 | **ASS fidelity:** legacy `Effect`, FriBidi across style runs, line breaking (libunibreak), the auto-hinter, and approximations of BorderStyle 4, vertical `@font` and `\be`. | M–L | |
 | **Shader gaps:** a Lanczos final scaler, linear-light PREKERNEL, the `COMPUTE` and `TEXTURE` directives, an early probe for `unavailable`, and hand-made sets. | M | |
 | **iPhone fullscreen and PiP** through a `<video>` fed from the canvas. | M | experiment |
-| **A slimmer server image.** It is 185 MB compressed. This ties in with the licence item above. | M | |
+| **A slimmer server image.** It is about 730 MB unpacked, most of it libraries Debian's `ffmpeg` pulls in that the levels never use. A build of our own with only the QSV and x264 parts would cut it. | M | |
 | **JVM gaps,** each taken up when a disc needs it: JPEG decoding in Java, JSSE, annotation reflection, weak and soft references, finalizers, `SecureRandom` entropy, the verifier and access checks. Also libbluray deviations: one JVM per BD-J entry, and the HDMV navigator dropped rather than suspended. | S–M each | needs a disc |
 | **Faithful HDMV resume:** the VM's program counter and the IG page. Resume is an approximation today. | L | |
 

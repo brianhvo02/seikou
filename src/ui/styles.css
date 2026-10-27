@@ -454,8 +454,9 @@ a { color: #6ea8ff; }
 .level-note { color: #9a9aa5; }
 
 /* Help pages (/help): the docs/*.md pages, converted at build time, in the app's dark palette. */
-.landing-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.landing-head h1 { margin: 0; }
+.landing-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.landing-head h1 { margin: 0; line-height: 0; }
+.landing-logo { display: block; width: auto; height: 112px; }
 .help-link { flex: none; }
 .titles-actions .help-link { align-self: center; padding: 6px 4px; }
 .help {

@@ -453,7 +453,9 @@ export function LandingScreen({ controller, snapshot, nas, places, history, play
   return (
     <main className="landing" data-testid="landing">
       <header className="landing-head">
-        <h1>青光 Seikou</h1>
+        <h1>
+          <img className="landing-logo" src="/logo.svg" alt="Seikou" width={90} height={112} />
+        </h1>
         <AppLink history={history} to="/help" className="help-link" testId="help-link">
           Help
         </AppLink>

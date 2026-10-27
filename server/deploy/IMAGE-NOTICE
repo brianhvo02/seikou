@@ -4,22 +4,22 @@ The image (server/Dockerfile, https://github.com/brianhvo02/seikou) ships the NA
 Node program, together with software that is not part of this project and is licensed on its own terms. The server
 runs it only as a child process (it never links to it).
 
-jellyfin-ffmpeg 7 (package jellyfin-ffmpeg7, GPL-3.0-or-later build)
-  Jellyfin's build of FFmpeg, installed under /usr/lib/jellyfin-ffmpeg, used for the quality levels. It is licensed
-  under the GNU General Public License version 3 or later; the full text is in the image at
-  /usr/share/common-licenses/GPL-3 and /usr/share/doc/jellyfin-ffmpeg7/copyright, which also lists FFmpeg's own and
-  the bundled libraries' licences.
-  Source: https://github.com/jellyfin/jellyfin-ffmpeg (the tag of the installed version, see the Dockerfile's
-  JELLYFIN_FFMPEG_VERSION), and Jellyfin's apt repository at https://repo.jellyfin.org/debian, which holds the
-  source packages of its builds. FFmpeg itself: https://ffmpeg.org.
+ffmpeg (Debian 13 package ffmpeg, a GPL-2.0-or-later build)
+  FFmpeg as Debian builds it, installed under /usr/bin and /usr/lib/x86_64-linux-gnu, used for the quality levels. It
+  links libx264 and libx265 and is licensed under the GNU General Public License version 2 or later; the full text is
+  in the image at /usr/share/common-licenses/GPL-2, and /usr/share/doc/ffmpeg/copyright lists FFmpeg's own licences.
+  It links no non-free codec (no libfdk-aac).
 
-Intel media driver (iHD, intel-media-driver) and oneVPL runtime
-  Bundled in the jellyfin-ffmpeg package under /usr/lib/jellyfin-ffmpeg/lib, for hardware encoding through
-  Quick Sync. The media driver is MIT-licensed, with parts of its Gmmlib under MIT as well; the oneVPL runtime is
-  MIT-licensed.
-  Source: https://github.com/intel/media-driver (and https://github.com/intel/libvpl for the runtime).
+Intel media driver (Debian package intel-media-va-driver-non-free) and the oneVPL runtime (libmfx-gen1.2, libvpl2)
+  For hardware encoding through Quick Sync. The media driver is MIT (Expat), with parts under BSD-3-Clause; Debian
+  files it under non-free because its GPU kernels ship as prebuilt binaries, and it is redistributable. The oneVPL
+  runtime and dispatcher are MIT.
+  Source: https://github.com/intel/media-driver, https://github.com/intel/vpl-gpu-rt and https://github.com/intel/libvpl.
 
-Other bundled libraries are listed in the jellyfin-ffmpeg repository's build scripts and their upstreams.
+Every other package in the image comes from Debian 13 (the node:24-trixie-slim base and the libraries ffmpeg uses),
+each under the licence in its /usr/share/doc/<package>/copyright. Source: Debian's source package of the installed
+version (`dpkg -l` lists them), from `apt-get source <package>`, https://sources.debian.org or
+https://snapshot.debian.org.
 
 The server's own notices (TheDiscDB's MIT data and the rest) are in /app/NOTICE. To obtain the source of any GPL
 part for three years from your receipt of the image, use the locations above.

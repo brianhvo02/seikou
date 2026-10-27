@@ -1,7 +1,7 @@
 {
-  "name": "青光 Seikou",
-  "short_name": "青光",
-  "description": "青光 (Seikou), a Blu-ray player in the browser. Plays decrypted disc folders; nothing is uploaded.",
+  "name": "Seikou",
+  "short_name": "Seikou",
+  "description": "Seikou (青光, \"blue light\"), a Blu-ray player in the browser. Plays decrypted disc folders; nothing is uploaded.",
   "id": "/",
   "start_url": "/",
   "scope": "/",

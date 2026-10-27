@@ -66,7 +66,7 @@ export function frameTicks(fps: number): number {
 /**
  * When ffmpeg forces the keyframe of the frame at `pts90` (an EP entry): one microsecond after `pts90 − frameTicks`.
  * ffmpeg forces the first frame whose timestamp is at or after the time, and it compares the timestamp the encoder
- * sees, which jellyfin-ffmpeg's QSV filters have already rounded down to their frame-rate grid (by up to a frame; see
+ * sees, which ffmpeg 7.1's QSV filters have already rounded down to their frame-rate grid (by up to a frame; see
  * `SourceFrames`). The time lies after the frame before (at most `pts90 − frameTicks`) and at or before the frame
  * itself for any such shift under `frameTicks` less a microsecond, so the keyframe lands on the EP entry's frame
  * whether the build shifts timestamps or not.
@@ -98,7 +98,7 @@ function rateArgs(rateBps: number): string[] {
 /**
  * Every frame through as it comes (no frame-rate conversion: soft pulldown stays 23.976p), stamped on the 90 kHz clock:
  * the encoder's default time base is the frame rate's, which would move each PTS to its grid (1080i29.97 by 900 ticks)
- * and off the EP entries. `-mpegts_copyts` keeps the muxer from adding its 1.4 s delay. (jellyfin-ffmpeg 7.1's QSV
+ * and off the EP entries. `-mpegts_copyts` keeps the muxer from adding its 1.4 s delay. (ffmpeg 7.1's QSV
  * filters still round each PTS down to their frame-rate grid, which no option undoes: `ClipEncoder` restores them.)
  */
 const OUTPUT = ['-fps_mode', 'passthrough', '-enc_time_base', '1/90000', '-mpegts_copyts', '1', '-f', 'mpegts', 'pipe:1'];
@@ -272,8 +272,8 @@ export function runWindow(
  *
  * The run's bytes are always piped to ffmpeg (a path is read here too), and the video PES timestamps of those bytes
  * are taken on the way (`SourceFrames`): every encoded frame gets back its source frame's PTS, and its DTS moves with
- * it, before the split. Some ffmpeg builds move each re-encoded frame's PTS by up to a frame (jellyfin-ffmpeg 7.1's
- * QSV filters round it down to their frame-rate grid), which would put the encode off the EP entries and off the
+ * it, before the split. ffmpeg's QSV filters move each re-encoded frame's PTS by up to a frame (in 7.1 they
+ * round it down to their frame-rate grid), which would put the encode off the EP entries and off the
  * untouched audio and subtitles.
  */
 export class ClipEncoder extends EventEmitter<ClipEncoderEvents> {
@@ -445,7 +445,7 @@ function concat(a: Uint8Array, b: Uint8Array): Uint8Array {
  * entry), so each encoded frame can be given back its source frame's timestamps.
  *
  * An encoded frame whose PTS is `o` is the source frame with the smallest PTS `p ≥ o`. With `-fps_mode passthrough`
- * every encoded frame is one source frame, at its PTS or (in builds that round timestamps, such as jellyfin-ffmpeg 7.1
+ * every encoded frame is one source frame, at its PTS or (in builds that round timestamps, such as ffmpeg 7.1 through QSV
  * with QSV filters) moved earlier by less than a frame: `p − gap < o ≤ p`, where `gap` is the time to the frame before
  * in display order. So the source frame is found from `o` alone, for any shift under a frame (none included), and it
  * doesn't depend on which frames the decoder dropped or the encoder reordered, as counting frames would: the leading
