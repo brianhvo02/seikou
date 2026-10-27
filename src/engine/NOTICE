@@ -135,8 +135,8 @@ libass 0.17.5 (https://github.com/libass/libass, commit 4a05d81), ISC License
     ass/frame.ts          from libass/ass_render.c (ass_render_frame, event boxes, device positions)
     ass/raster.ts         from libass/ass_render.c (filters, quantize_transform positions, composition, clips),
                           ass_bitmap.c (ass_fix_outline), ass_font.c (emboldening, italic, decorations)
-  ass/gsub.ts, ass/measure.ts, ass/warp.ts, ass/renderer.ts, ass/trace.ts and
-  subs/text-set.ts are original implementations; they contain no libass,
+  ass/gsub.ts, ass/measure.ts, ass/warp.ts, ass/renderer.ts, ass/trace.ts,
+  ass/trace-format.ts and subs/text-set.ts are original implementations; they contain no libass,
   libbluray or FFmpeg code.
 
 libplacebo (https://code.videolan.org/videolan/libplacebo), LGPL-2.1-or-later:

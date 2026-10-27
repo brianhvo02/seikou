@@ -7,7 +7,7 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import type { TraceEvent, TraceRun } from '../../../tests/ass-trace/format';
+import type { TraceEvent, TraceRun } from './trace-format';
 import type { GlyphInfo } from './events';
 import type { AssFonts } from './fonts';
 import type { FrameEvent, FrameLayout } from './frame';
