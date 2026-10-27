@@ -5,6 +5,7 @@ import type { NasClient } from './nas-client';
 import { LANGUAGES, formatOffset, languageTag, subtitleErrorMessage, type SubtitleTarget } from './subtitle-model';
 import { rememberFansubDeletion } from './fansub-model';
 import { SubtitleUpload, type ManifestOf } from './SubtitleUpload';
+import { nameLang } from '../name-lang';
 
 /** A title's stored subtitles (null until known), why the last fetch failed (null when it didn't), and a way to fetch them again. */
 export function useStoredSubtitles(
@@ -144,7 +145,9 @@ export function SubtitleList({ nas, target, listing, error: listError, manifestO
             {languageTag(s.language)}
           </span>
           <span className="title-row-text">
-            <span className="title-row-name">{s.name}</span>
+            <span className="title-row-name" lang={nameLang(s.name)}>
+              {s.name}
+            </span>
             <span className="title-muted">
               {[attachmentLabel(s, target, discKeys), language ?? s.language].join(' · ')}
               {s.attached === false && (

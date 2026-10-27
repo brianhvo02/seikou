@@ -1,7 +1,8 @@
 /*
  * Seikou's look: the navy of the logo's disc, its blue as the one accent, and the disc's violet and cyan sheen spent
  * only on the home screen's disc. Instrument Sans (bundled, OFL) sets the Latin text, condensed for headings and titles;
- * Japanese falls back to the system's gothic. The player itself stays on black.
+ * Japanese is the system's gothic, named so its kanji keep their Japanese forms, set with proportional kana (palt)
+ * where Latin is condensed, since no Japanese font has a narrow width. The player itself stays on black.
  */
 :root {
   --night: #0a1330;
@@ -21,7 +22,8 @@
   --red: #ff8f8f;
   --green: #6fdc9a;
   --veil: rgba(10, 19, 48, 0.94);
-  --font: 'Instrument Sans Variable', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', 'Yu Gothic UI', system-ui, sans-serif;
+  /* Japanese: macOS and iOS, Windows, then Android and Linux (Noto's CJK families pick their JP forms by name or by lang) */
+  --font: 'Instrument Sans Variable', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', 'Meiryo', 'Noto Sans JP', 'Noto Sans CJK JP', system-ui, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   --narrow: 80%;
   --r-s: 6px;
@@ -45,6 +47,11 @@ body { background: var(--night); }
 h1, h2, h3, h4, .title-card-name, .artist-tile-name, .continue-title, .series-names h2, .drop-title, .app-name {
   font-stretch: var(--narrow); font-weight: 650; letter-spacing: 0.005em; line-height: 1.15;
 }
+/* proportional kana and punctuation: Japanese names, and every heading (Instrument Sans has no palt, so Latin is unchanged) */
+:is(h1, h2, h3, h4, .title-card-name, .artist-tile-name, .continue-title, .drop-title, .app-name, .owner-disc-name, .title-section, .resume-heading), [lang|='ja'] { font-feature-settings: 'palt'; }
+/* no Japanese font has a narrow width: a Japanese name set condensed is 6% smaller and a little tighter, so it sits at the
+   width and weight of the condensed Latin (each of these names its size in --name-size) */
+:is(.title-card-name, .artist-tile-name, .continue-title, .series-names h2, .owner-disc-name)[lang|='ja'] { font-size: calc(var(--name-size) * 0.94); letter-spacing: -0.03em; }
 h2 { font-size: 1.6rem; }
 h3 { font-size: 1.25rem; }
 
@@ -238,7 +245,7 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .title-card:hover:not(:disabled) { background: none; }
 .title-poster { display: block; width: 100%; aspect-ratio: 2 / 3; margin-bottom: 8px; object-fit: cover; border-radius: var(--r-s); background: var(--deep); box-shadow: 0 0 0 1px rgba(237, 241, 255, 0.06); }
 .title-card:hover .title-poster, .title-card:focus-visible .title-poster { box-shadow: 0 0 0 2px var(--laser); }
-.title-card-name { font-size: 1.08rem; overflow-wrap: anywhere; }
+.title-card-name { --name-size: 1.08rem; font-size: var(--name-size); overflow-wrap: anywhere; }
 
 .title-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .title-row, .episode-row { box-sizing: border-box; width: 100%; display: flex; align-items: center; gap: 14px; padding: 10px 14px; text-align: left; font-weight: 400; background: var(--deep); border-color: transparent; border-radius: var(--r-m); }
@@ -261,7 +268,7 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .artist-collage-empty { display: flex; align-items: center; justify-content: center; font-size: 2.6em; color: var(--mist); background: linear-gradient(135deg, var(--deep-2), var(--deep)); }
 .artist-tile-art { width: 100%; margin-bottom: 8px; box-shadow: 0 0 0 1px rgba(237, 241, 255, 0.06); }
 .artist-tile:hover .artist-tile-art, .artist-tile:focus-visible .artist-tile-art { box-shadow: 0 0 0 2px var(--laser); }
-.artist-tile-name { font-size: 1.08rem; overflow-wrap: anywhere; }
+.artist-tile-name { --name-size: 1.08rem; font-size: var(--name-size); overflow-wrap: anywhere; }
 .artist-head { display: flex; align-items: center; gap: 20px; }
 .artist-head-art { flex: none; width: 128px; }
 .artist-section { display: flex; flex-direction: column; gap: 12px; }
@@ -292,7 +299,7 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .series-banner:has(.series-banner-art) + .series-head { margin-top: -72px; padding-left: 20px; }
 .series-poster { flex: none; width: 140px; aspect-ratio: 2 / 3; object-fit: cover; border: 3px solid var(--night); border-radius: var(--r-m); background: var(--deep); }
 .series-names { min-width: 0; display: flex; flex-direction: column; gap: 2px; padding-bottom: 4px; }
-.series-names h2 { margin-bottom: 6px; font-size: clamp(1.8rem, 3.6vw, 2.6rem); overflow-wrap: anywhere; }
+.series-names h2 { --name-size: clamp(1.8rem, 3.6vw, 2.6rem); margin-bottom: 6px; font-size: var(--name-size); overflow-wrap: anywhere; }
 .series-meta { margin-top: 8px; font-size: 0.9em; color: var(--mist); }
 .extras-row { margin-top: -10px; }
 
@@ -328,7 +335,7 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .continue-progress, .episode-progress { display: block; height: 4px; background: rgba(237, 241, 255, 0.16); }
 .continue-progress { position: absolute; left: 0; right: 0; bottom: 0; }
 .continue-progress > i, .episode-progress > i { display: block; height: 100%; background: var(--laser); }
-.continue-title { font-size: 1.05rem; overflow-wrap: anywhere; }
+.continue-title { --name-size: 1.05rem; font-size: var(--name-size); overflow-wrap: anywhere; }
 .continue-line { line-height: 1.3; color: var(--mist); }
 .episode-row { position: relative; }
 .episode-row:has(.episode-progress) { padding-bottom: 16px; }
@@ -358,7 +365,7 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .disc-card .owner-card, .owner-notice .owner-card, .owner-row .owner-card { padding: 14px; background: var(--night-deep); border-radius: var(--r-m); }
 .owner-why { margin: 0; font-size: 0.88em; color: var(--amber); }
 .owner-disc { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.owner-disc-name { font-size: 1.15em; font-weight: 650; font-stretch: var(--narrow); overflow-wrap: anywhere; }
+.owner-disc-name { --name-size: 1.15rem; font-size: var(--name-size); font-weight: 650; font-stretch: var(--narrow); overflow-wrap: anywhere; }
 .owner-subhead { margin: 4px 0 0; font-size: 0.85em; font-weight: 600; color: var(--mist); }
 .owner-options { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .owner-option { box-sizing: border-box; width: 100%; display: flex; align-items: center; gap: 12px; padding: 7px 10px; text-align: left; font-weight: 400; }

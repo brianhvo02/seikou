@@ -4,6 +4,7 @@ import type { NasClient } from './nas-client';
 import type { NasHistory } from './nas-history';
 import { Poster } from './Poster';
 import { continueCard } from './resume-model';
+import { nameLang } from '../name-lang';
 
 interface ContinueRowProps {
   readonly nas: NasClient;
@@ -49,7 +50,9 @@ function ContinueCard({ nas, item, onOpen }: { readonly nas: NasClient; readonly
             </span>
           )}
         </span>
-        <span className="continue-title">{card.title}</span>
+        <span className="continue-title" lang={nameLang(card.title)}>
+          {card.title}
+        </span>
         <span className="title-muted continue-line">{card.line}</span>
       </button>
     </li>

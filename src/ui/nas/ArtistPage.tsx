@@ -5,6 +5,7 @@ import { ArtistCollage } from './ArtistGrid';
 import type { NasClient } from './nas-client';
 import { MusicRefile, MusicReleaseMenu, RenameForm, SetArtistForm, type ReleaseAction } from './MusicReleaseMenu';
 import { Poster } from './Poster';
+import { nameLang } from '../name-lang';
 
 export interface MusicOwner {
   readonly tmdb: boolean;
@@ -80,7 +81,7 @@ export function ArtistPage({ nas, group, onBack, onOpen, owner }: ArtistPageProp
       <div className="artist-head">
         <ArtistCollage nas={nas} group={group} className="artist-head-art" />
         <div className="series-names">
-          <h2 data-testid="artist-name" tabIndex={-1} data-focus-heading="">
+          <h2 data-testid="artist-name" tabIndex={-1} data-focus-heading="" lang={nameLang(group.name)}>
             {group.name}
           </h2>
           {group.otherName && (
@@ -142,7 +143,9 @@ function ReleaseCard({ nas, title, onOpen, menu }: { nas: NasClient; title: Titl
     <li className="music-release" data-testid="music-release" data-title-id={title.id} data-name={name}>
       <button type="button" className="title-card" data-title-id={title.id} onClick={() => onOpen(title)}>
         <Poster nas={nas} artId={title.poster} name={name} size="large" className="title-poster music-cover" />
-        <span className="title-card-name music-release-name">{name}</span>
+        <span className="title-card-name music-release-name" lang={nameLang(name)}>
+          {name}
+        </span>
         {year && <span className="title-muted">{year}</span>}
       </button>
       {menu}

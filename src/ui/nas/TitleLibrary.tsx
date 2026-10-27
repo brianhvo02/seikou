@@ -22,6 +22,7 @@ import { ENGLISH_KEYS, englishKey, firstOfEach, japaneseOrder, KANA_ROWS, kanaRo
 import type { OwnerFiling } from './FileDifferently';
 import { displayName, emptyLibraryText, recentlyAdded, searchTitles, seasonLabel, secondaryName, shelf } from './title-model';
 import { UnsortedScreen } from './UnsortedScreen';
+import { nameLang } from '../name-lang';
 
 interface TitleLibraryProps {
   readonly nas: NasClient;
@@ -152,7 +153,9 @@ function TitleCard({ nas, title, onOpen, jump }: TitleCardProps): ReactElement {
     <li>
       <button type="button" className="title-card" data-testid="title-card" data-name={name} data-title-id={title.id} data-jump={jump} onClick={() => onOpen(title.id)}>
         <Poster nas={nas} artId={title.poster} name={name} size="large" className="title-poster" />
-        <span className="title-card-name">{name}</span>
+        <span className="title-card-name" lang={nameLang(name)}>
+          {name}
+        </span>
         {native && (
           <span className="title-muted title-card-native" lang="ja">
             {native}
@@ -171,7 +174,9 @@ function TitleRow({ nas, title, onOpen, jump }: TitleCardProps): ReactElement {
       <button type="button" className="title-row" data-testid="title-row" data-name={name} data-title-id={title.id} data-jump={jump} onClick={() => onOpen(title.id)}>
         <Poster nas={nas} artId={title.poster} name={name} size="small" className="title-thumb" />
         <span className="title-row-text">
-          <span className="title-row-name">{name}</span>
+          <span className="title-row-name" lang={nameLang(name)}>
+            {name}
+          </span>
           {native && (
             <span className="title-muted" lang="ja">
               {native}

@@ -10,6 +10,7 @@ import { SubtitleList, useDiscKeys, useManifests, useStoredSubtitles } from './S
 import { SubtitleUpload } from './SubtitleUpload';
 import { ownerListing, subtitleTarget } from './subtitle-model';
 import { displayName, seasonCounts, seasonLabel, secondaryName, titleMeta } from './title-model';
+import { nameLang } from '../name-lang';
 
 interface SeriesScreenProps {
   readonly nas: NasClient;
@@ -55,7 +56,7 @@ export function SeriesScreen({ nas, detail, onBack, onSeason, onExtras, onTitle,
       <div className="series-head">
         <Poster nas={nas} artId={title.poster} name={name} size="large" className="series-poster" />
         <div className="series-names">
-          <h2 data-testid="series-name" tabIndex={-1} data-focus-heading="">
+          <h2 data-testid="series-name" tabIndex={-1} data-focus-heading="" lang={nameLang(name)}>
             {name}
           </h2>
           {romaji && <span className="title-muted">{romaji}</span>}
@@ -123,7 +124,9 @@ export function SeriesScreen({ nas, detail, onBack, onSeason, onExtras, onTitle,
               <button type="button" className="title-row" data-testid="related-row" data-title-id={r.id} onClick={() => onTitle(r.id)}>
                 <Poster nas={nas} artId={r.poster} name={displayName(r)} size="small" className="title-thumb" />
                 <span className="title-row-text">
-                  <span className="title-row-name">{displayName(r)}</span>
+                  <span className="title-row-name" lang={nameLang(displayName(r))}>
+                    {displayName(r)}
+                  </span>
                   <span className="title-muted">{[r.kind === 'movie' ? 'Movie' : r.kind === 'music' ? 'Music' : 'Series', r.year].filter((x) => x !== null).join(' · ')}</span>
                 </span>
                 <span className="title-chevron" aria-hidden="true">›</span>

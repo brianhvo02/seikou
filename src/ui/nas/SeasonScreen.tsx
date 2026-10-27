@@ -11,6 +11,7 @@ import { SubtitleUpload } from './SubtitleUpload';
 import { languageTag, ownerListing, subtitleTarget, tagsByEpisode } from './subtitle-model';
 import type { PreflightDisc } from './Preflight';
 import { copiesLabel, discHeading, episodeMeta } from './title-model';
+import { nameLang } from '../name-lang';
 
 /** Opens a disc's pre-flight, at an episode's playlist when one is given. */
 export type OpenDisc = (disc: PreflightDisc, playlistId?: string) => void;
@@ -49,7 +50,9 @@ export function DiscList({ season, discs, onOpen, owner }: DiscListProps): React
               const copy = (
                 <button key={c.discId} type="button" className="disc-copy" data-testid="disc-copy" onClick={() => onOpen(preflightDisc(c))}>
                   <span className="disc-copy-drive">{c.root}</span>
-                  <span className="disc-copy-folder">{c.folder}</span>
+                  <span className="disc-copy-folder" lang={nameLang(c.folder)}>
+                    {c.folder}
+                  </span>
                 </button>
               );
               if (!owner) return copy;

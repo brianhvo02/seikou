@@ -4,6 +4,7 @@ import type { NasClient, SkippedDisc } from './nas-client';
 import { Poster } from './Poster';
 import { displayName } from './title-model';
 import { applyNumber, blurayComSearchUrl, discPlace, extrasChoice, lookupFailure, mergeResults, parseNumber, reasonText, seasonOnPick, skippedText, suggestionLine, titleChoice } from './unsorted-model';
+import { nameLang } from '../name-lang';
 
 const PAGE = 50;
 const MAX_NAME = 200;
@@ -132,7 +133,9 @@ function TitleOption({ nas, title, selected, onPick }: { nas: NasClient; title: 
       <button type="button" className={`owner-option${selected ? ' selected' : ''}`} aria-pressed={selected} data-testid="title-option" data-name={name} onClick={onPick}>
         <Poster nas={nas} artId={title.poster} name={name} size="small" className="owner-option-poster" />
         <span className="title-row-text">
-          <span className="title-row-name">{name}</span>
+          <span className="title-row-name" lang={nameLang(name)}>
+            {name}
+          </span>
           <span className="title-muted">{suggestionLine(title)}</span>
         </span>
       </button>
@@ -246,7 +249,9 @@ export function DiscCard({ nas, disc, tmdb, onFiled, onCreated, onSkip }: DiscCa
         </p>
       )}
       <div className="owner-disc">
-        <strong className="owner-disc-name">{place.name}</strong>
+        <strong className="owner-disc-name" lang={nameLang(place.name)}>
+          {place.name}
+        </strong>
         {place.parent !== '' && <span className="title-muted">{place.parent}</span>}
         {ownTitle !== null && ownTitle !== place.name && <span className="title-muted">{ownTitle}</span>}
       </div>

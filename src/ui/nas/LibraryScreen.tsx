@@ -9,6 +9,7 @@ import type { NasPairing } from './nas-store';
 import type { PlayingRoute } from './playing-route';
 import type { PlaceSaver } from '../place-saver';
 import { Preflight } from './Preflight';
+import { nameLang } from '../name-lang';
 
 interface LibraryScreenProps {
   readonly nas: NasClient;
@@ -183,14 +184,18 @@ export function LibraryScreen({ nas, controller, history, playingRoute, places, 
             row.kind === 'folder' ? (
               <li key={`f:${row.folder.path}`}>
                 <button type="button" className="library-row" data-testid="nas-folder" data-name={row.folder.name} onClick={() => open(row.folder.path)}>
-                  <span className="library-name">{row.folder.name}/</span>
+                  <span className="library-name" lang={nameLang(row.folder.name)}>
+                    {row.folder.name}/
+                  </span>
                   <span className="library-meta">{row.folder.discs === 1 ? '1 disc' : `${row.folder.discs} discs`}</span>
                 </button>
               </li>
             ) : (
               <li key={`d:${row.disc.id}`}>
                 <button type="button" className="library-row" data-testid="nas-disc" data-name={row.disc.name} onClick={() => setSelected(row.disc)}>
-                  <span className="library-name">{row.disc.name}</span>
+                  <span className="library-name" lang={nameLang(row.disc.name)}>
+                    {row.disc.name}
+                  </span>
                   <span className="library-meta">
                     {discBadges(row.disc, uhdDiscs.get(row.disc.id)).map((b) => (
                       <span key={b} className="badge">

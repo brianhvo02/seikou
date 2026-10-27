@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactElement } from 'rea
 import type { DiscRef } from '../../engine/disc/nas-api';
 import { NasHttpError, type NasClient } from './nas-client';
 import { DiscCard } from './UnsortedScreen';
+import { nameLang } from '../name-lang';
 
 interface HiddenScreenProps {
   readonly nas: NasClient;
@@ -137,7 +138,9 @@ export function HiddenScreen({ nas, tmdb, onBack, onChanged }: HiddenScreenProps
               <li key={d.discId} className="owner-row" data-testid="hidden-row" data-folder={lastSegment(d.folder)}>
                 <div className="owner-row-main">
                   <span className="title-row-text">
-                    <span className="title-row-name">{name}</span>
+                    <span className="title-row-name" lang={nameLang(name)}>
+                      {name}
+                    </span>
                     <span className="title-muted">
                       {d.root} · {d.folder}
                     </span>

@@ -2,6 +2,7 @@ import type { ReactElement } from 'react';
 import { artistCount, collagePosters, type ArtistGroup } from './artist-model';
 import type { NasClient } from './nas-client';
 import { Poster } from './Poster';
+import { nameLang } from '../name-lang';
 
 /** An artist's round collage: up to four release covers (one fills the circle), or ♪ with none. */
 export function ArtistCollage({ nas, group, className }: { nas: NasClient; group: ArtistGroup; className: string }): ReactElement {
@@ -46,7 +47,9 @@ export function ArtistGrid({ nas, groups, onOpen, jumpOf }: ArtistGridProps): Re
             onClick={() => onOpen(g.id)}
           >
             <ArtistCollage nas={nas} group={g} className="artist-tile-art" />
-            <span className="artist-tile-name">{g.name}</span>
+            <span className="artist-tile-name" lang={nameLang(g.name)}>
+              {g.name}
+            </span>
             {g.otherName && (
               <span className="title-muted artist-tile-other" lang="ja">
                 {g.otherName}
