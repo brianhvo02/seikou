@@ -20,6 +20,7 @@ import { bundledAnime4k } from './bundled-shaders';
 import { idbShaderLibrary } from './shader-library';
 import { ShaderModel } from './shader-model';
 import { isWaitingWorker, reloadAction, shouldPromptUpdate } from './update-prompt';
+import { themeController } from './theme';
 
 /** The help pages load on their first visit, so the documentation stays out of the main bundle. */
 const HelpScreen = lazy(() => import('./help/HelpScreen').then((m) => ({ default: m.HelpScreen })));
@@ -158,6 +159,10 @@ export function App(): ReactElement {
   const help = parseHelpPath(here.pathname);
   const [playingRoute] = useState(() => new PlayingRoute(history, () => performance.now()));
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
+  const theme = themeController();
+  // the player, and the page with it, stay dark while a disc is open (spec 2026-10-27 §3)
+  const discOpen = snapshot.playlists.length > 0;
+  useEffect(() => theme.setDiscOpen(discOpen), [theme, discOpen]);
   useEffect(() => {
     const session = new PlatformSession(
       { wakeLock: navigator.wakeLock, mediaSession: navigator.mediaSession, MediaMetadata: globalThis.MediaMetadata },
@@ -199,11 +204,11 @@ export function App(): ReactElement {
       {snapshot.playlists.length === 0 && help !== null ? (
         <HelpLoadBoundary>
           <Suspense fallback={<p className="status">Loading…</p>}>
-            <HelpScreen history={history} slug={help.slug} hash={here.hash} />
+            <HelpScreen history={history} theme={theme} slug={help.slug} hash={here.hash} />
           </Suspense>
         </HelpLoadBoundary>
       ) : snapshot.playlists.length === 0 ? (
-        <LandingScreen controller={controller} snapshot={snapshot} nas={nas} places={places} history={history} playingRoute={playingRoute} pairLink={pairLink} onPairLinkSpent={spendPairLink} />
+        <LandingScreen controller={controller} theme={theme} snapshot={snapshot} nas={nas} places={places} history={history} playingRoute={playingRoute} pairLink={pairLink} onPairLinkSpent={spendPairLink} />
       ) : (
         <PlayerScreen
           controller={controller}

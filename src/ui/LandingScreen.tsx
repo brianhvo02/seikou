@@ -26,6 +26,8 @@ import { askOrOpen, localKeyOf, recentResumeLabel, type AskOffer } from './local
 import type { StartPoint } from '../engine/protocol';
 import type { DiscEntry } from '../engine/disc/nas-api';
 import { listRecentDiscs, reopenRecentDisc, saveRecentDisc, type RecentDisc } from './recent-discs';
+import type { ThemeController } from './theme';
+import { ThemeSwitch } from './ThemeSwitch';
 
 const LIBRARY: NasRoute = { kind: 'library', shelf: null, q: '' };
 
@@ -116,6 +118,7 @@ function PlayLink({ nas, places, controller, history, playingRoute, route, onLib
 
 interface LandingScreenProps {
   readonly controller: PlayerController;
+  readonly theme: ThemeController;
   readonly snapshot: PlayerSnapshot;
   readonly nas: NasClient;
   /** Saves the place of the disc opened here (on this device for a folder or disc-server disc). */
@@ -129,7 +132,7 @@ interface LandingScreenProps {
   readonly onPairLinkSpent?: () => void;
 }
 
-export function LandingScreen({ controller, snapshot, nas, places, history, playingRoute, pairLink, onPairLinkSpent }: LandingScreenProps): ReactElement {
+export function LandingScreen({ controller, theme, snapshot, nas, places, history, playingRoute, pairLink, onPairLinkSpent }: LandingScreenProps): ReactElement {
   const route = useNasRoute(history);
   /**
    * The screen a pre-flight launched its disc from, while the play route its Play pushed is shown: that screen stays
@@ -508,9 +511,12 @@ export function LandingScreen({ controller, snapshot, nas, places, history, play
           {/* webkitdirectory is rendered, not set in an effect: the input must pick folders from the moment it exists */}
           <input ref={inputRef} type="file" multiple hidden data-testid="folder-input" {...{ webkitdirectory: '' }} onChange={onInput} />
         </div>
-        <AppLink history={history} to="/help" className="help-link" testId="help-link">
-          Help
-        </AppLink>
+        <div className="app-tools">
+          <ThemeSwitch theme={theme} />
+          <AppLink history={history} to="/help" className="help-link" testId="help-link">
+            Help
+          </AppLink>
+        </div>
       </header>
       {!capabilities.core.ok && (
         <div className="error-banner" role="alert">

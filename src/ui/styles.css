@@ -143,7 +143,15 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .app-bar { display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'name help' 'drop drop'; align-items: center; gap: 20px 16px; padding-top: max(20px, env(safe-area-inset-top)); }
 .app-name { grid-area: name; margin: 0; display: flex; align-items: center; gap: 10px; font-size: 1.45rem; }
 .app-mark { display: block; width: 32px; height: 32px; }
-.app-bar .help-link { grid-area: help; }
+.app-bar .app-tools { grid-area: help; display: flex; align-items: center; gap: 14px; }
+/* Auto / Light / Dark: a segmented control; words on a wide screen, icons on a narrow one (their names stay for screen readers) */
+.theme-switch { display: inline-flex; margin: 0; padding: 2px; border: 1px solid var(--rim); border-radius: 999px; min-inline-size: 0; }
+.theme-option { position: relative; display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; color: var(--mist); font-size: 0.85em; font-weight: 550; cursor: pointer; }
+.theme-option input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
+.theme-option:has(input:checked) { background: var(--laser); color: var(--on-laser); }
+.theme-option:has(input:focus-visible) { outline: 2px solid var(--laser); outline-offset: 2px; }
+.theme-option:hover:not(:has(input:checked)) { color: var(--ice); }
+.theme-icon { display: none; }
 .app-bar .drop-zone { grid-area: drop; }
 .browsing .app-bar { grid-template-columns: auto 1fr auto; grid-template-areas: 'name drop help'; padding-bottom: 14px; border-bottom: 1px solid var(--rim); }
 .help-link { flex: none; color: var(--mist); text-decoration: none; font-weight: 550; padding: 6px 4px; border-radius: 6px; }
@@ -574,6 +582,9 @@ code { font-family: var(--mono); font-size: 0.9em; }
   .landing { padding: 0 max(16px, env(safe-area-inset-right)) max(32px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); gap: 20px; }
   .app-bar { padding-top: max(14px, env(safe-area-inset-top)); }
   .browsing .app-bar { gap: 10px; padding-bottom: 10px; }
+  .theme-option { padding: 5px 8px; }
+  .theme-word { display: none; }
+  .theme-icon { display: block; }
   .browsing .app-name { font-size: 1.25rem; }
   .browsing .drop-text > button { padding: 6px 12px; font-size: 0.9rem; }
   .pair form { flex-direction: column; align-items: stretch; }
@@ -633,7 +644,7 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .help a { color: var(--help-link); }
 .help a:focus-visible, .help h1[tabindex='-1']:focus-visible { outline: 2px solid var(--help-link); outline-offset: 2px; }
 .help h1[tabindex='-1']:focus:not(:focus-visible) { outline: none; }
-.help-head { max-width: 1040px; margin: 0 auto 24px; padding-bottom: 14px; border-bottom: 1px solid var(--help-rule); }
+.help-head { max-width: 1040px; margin: 0 auto 24px; padding-bottom: 14px; border-bottom: 1px solid var(--help-rule); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .help-home { font-weight: 650; font-stretch: var(--narrow); font-size: 1.3rem; color: var(--help-fg) !important; text-decoration: none; }
 .help-layout { max-width: 1040px; margin: 0 auto; display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 40px; align-items: start; }
 .help-nav { position: sticky; top: 16px; }

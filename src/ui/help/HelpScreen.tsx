@@ -1,11 +1,14 @@
 import { useEffect, useRef, type MouseEvent, type ReactElement } from 'react';
 import pages from 'virtual:help-pages';
 import type { NasHistory } from '../nas/nas-history';
+import type { ThemeController } from '../theme';
+import { ThemeSwitch } from '../ThemeSwitch';
 import { HELP_PAGES, helpPath } from './help-pages';
 import { AppLink, isPlainClick } from './HelpLink';
 
 interface HelpScreenProps {
   readonly history: NasHistory;
+  readonly theme: ThemeController;
   /** The page shown; null is the index. */
   readonly slug: string | null;
   /** The address bar's `#…`, for a link to a heading. */
@@ -15,7 +18,7 @@ interface HelpScreenProps {
 const APP_TITLE = 'Seikou';
 
 /** The player documentation (`docs/*.md`, converted at build time) under `/help`. */
-export function HelpScreen({ history, slug, hash }: HelpScreenProps): ReactElement {
+export function HelpScreen({ history, theme, slug, hash }: HelpScreenProps): ReactElement {
   const page = slug === null ? undefined : HELP_PAGES.find((p) => p.slug === slug);
   const article = useRef<HTMLElement>(null);
 
@@ -54,6 +57,7 @@ export function HelpScreen({ history, slug, hash }: HelpScreenProps): ReactEleme
         <AppLink history={history} to="/" className="help-home" testId="help-home">
           {APP_TITLE}
         </AppLink>
+        <ThemeSwitch theme={theme} />
       </header>
       <div className="help-layout">
         <nav className="help-nav" aria-label="Help pages">
