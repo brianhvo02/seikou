@@ -6,8 +6,26 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
-    <meta name="theme-color" content="#0b0b0d" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f8fe" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0a1330" />
     <title>Seikou</title>
+    <script id="theme-boot">
+      // The theme before first paint: a copy of readThemeChoice, effectiveTheme and applyTheme in src/ui/theme.ts,
+      // kept in step by src/ui/theme-boot.test.ts. No disc is open yet, so the stored choice and the device decide.
+      (function () {
+        var choice = 'auto';
+        try {
+          var v = window.localStorage.getItem('bluray-web:theme');
+          if (v === 'light' || v === 'dark') choice = v;
+        } catch (e) {}
+        var theme = choice === 'auto' ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : choice;
+        var root = document.documentElement;
+        root.dataset.theme = theme;
+        root.style.colorScheme = theme;
+        var metas = document.querySelectorAll('meta[name="theme-color"]');
+        for (var i = 0; i < metas.length; i++) metas[i].setAttribute('content', theme === 'light' ? '#f6f8fe' : '#0a1330');
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

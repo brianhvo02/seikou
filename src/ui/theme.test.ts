@@ -37,9 +37,9 @@ function memoryStorage(opts: { failWrites?: boolean; failReads?: boolean } = {})
 
 function setup(opts: { prefersLight?: boolean; storage?: Storage } = {}) {
   const media = fakeMedia(opts.prefersLight ?? false);
-  const target = new EventTarget() as unknown as ThemeDeps['target'];
+  const target = new EventTarget();
   const storage = opts.storage ?? memoryStorage();
-  const theme = new ThemeController({ storage: () => storage, matchMedia: () => media.mql, target, doc: document });
+  const theme = new ThemeController({ storage: () => storage, matchMedia: () => media.mql, target: target as unknown as ThemeDeps['target'], doc: document });
   return { theme, media, target, storage };
 }
 
