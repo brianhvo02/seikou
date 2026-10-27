@@ -510,9 +510,10 @@ async function checkViewing(v: Viewing, level: Level, maxBytes: number | null, l
 
   let decodeErrors = Buffer.concat(decode.stderr).toString().split('\n').filter((l) => l.trim() !== '');
   // A capped read stops at an EP entry, where an audio PES the level split between two intervals (its packets keep their
-  // own SPNs) is cut short: ffmpeg then reports the stream's last audio packet as too small. Only that is excused.
+  // own SPNs) is cut short: ffmpeg then reports the stream's last audio packet as too small ("incomplete frame" from the
+  // AC-3 decoder). Only that is excused.
   const capped = want < size;
-  if (capped && decodeErrors.length > 0 && decodeErrors.length <= 2 && decodeErrors.some((l) => /packet too small/i.test(l)) && decodeErrors.every((l) => /packet too small|Invalid data found when processing input/i.test(l))) {
+  if (capped && decodeErrors.length > 0 && decodeErrors.length <= 2 && decodeErrors.some((l) => /packet too small|\[ac3 @ [^\]]*\] incomplete frame/i.test(l)) && decodeErrors.every((l) => /packet too small|\[ac3 @ [^\]]*\] incomplete frame|Invalid data found when processing input/i.test(l))) {
     say(`ffmpeg's ${decodeErrors.length} errors are the last audio packet, cut short at the cap: ignored`);
     decodeErrors = [];
   }
