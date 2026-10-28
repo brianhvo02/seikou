@@ -51,7 +51,7 @@ const TODAY: Record<string, string> = {
 /** Tokens outside the player that need a light value (the spec's table and the ones the audit moved literals onto). */
 const THEMED = [
   ...Object.keys(TODAY), '--veil', '--hover', '--placeholder', '--error-bg', '--error-rim', '--selected', '--notice-bg', '--hairline', '--hairline-strong',
-  '--track', '--glass', '--poster-fg',
+  '--track', '--glass', '--poster-fg', '--control-rim',
 ];
 
 const GROUNDS = ['--night', '--night-deep', '--deep', '--deep-2'];
@@ -79,8 +79,28 @@ describe('the light palette', () => {
     expect(contrast(lightColor('--ice'), lightColor('--notice-bg')), '--ice on --notice-bg').toBeGreaterThanOrEqual(4.5);
   });
 
+  it('keeps secondary text and links at 4.5:1 on the tinted panels', () => {
+    for (const ground of ['--hover', '--selected', '--notice-bg', '--error-bg'])
+      for (const text of ['--ice', '--mist', '--laser-strong']) expect(contrast(lightColor(text), lightColor(ground)), `${text} on ${ground}`).toBeGreaterThanOrEqual(4.5);
+  });
+
   it('keeps control borders and the focus ring at 3:1', () => {
     for (const ground of GROUNDS)
-      for (const line of ['--rim-strong', '--laser']) expect(contrast(lightColor(line), lightColor(ground)), `${line} on ${ground}`).toBeGreaterThanOrEqual(3);
+      for (const line of ['--rim-strong', '--laser', '--control-rim']) expect(contrast(lightColor(line), lightColor(ground)), `${line} on ${ground}`).toBeGreaterThanOrEqual(3);
+  });
+
+  it('draws buttons, fields and the switch with the control border, which dark keeps as --rim', () => {
+    expect(dark.get('--control-rim')).toBe('#24356f');
+    for (const rule of [/\nbutton \{[^}]*\}/, /\ninput:is\([^{]*\{[^}]*\}/, /\n\.theme-switch \{[^}]*\}/, /\n\.segmented \{[^}]*\}/, /\n\.title-chip \{[^}]*\}/])
+      expect(rule.exec(css)?.[0], String(rule)).toMatch(/border(-color)?: (1px solid )?var\(--control-rim\)/);
+  });
+
+  it('puts the TMDB logo on a plate in light where each of its colours reads at 3:1', () => {
+    const plate = /:root\[data-theme='light'\] \.admin-tmdb img \{[^}]*background: (#[0-9a-f]{6})/i.exec(css)?.[1];
+    expect(plate, 'light .admin-tmdb img background').toBeDefined();
+    const svg = readFileSync(join(process.cwd(), 'public/tmdb-logo.svg'), 'utf8');
+    const stops = [...svg.matchAll(/stop-color="(#[0-9a-f]{6})"/gi)].map((m) => m[1]!);
+    expect(stops.length).toBeGreaterThan(0);
+    for (const c of stops) expect(contrast(c, plate!), `${c} on ${plate}`).toBeGreaterThanOrEqual(3);
   });
 });

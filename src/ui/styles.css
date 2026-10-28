@@ -45,6 +45,8 @@
   --mark-good: rgba(111, 220, 154, 0.18);
   --mark-warn: rgba(255, 200, 97, 0.22);
   --mark-bad: rgba(255, 143, 143, 0.2);
+  /* buttons, fields and the switch: a control's edge, 3:1 in light; the cards' --rim is decorative */
+  --control-rim: #24356f;
   /* Japanese: macOS and iOS, Windows, then Android and Linux (Noto's CJK families pick their JP forms by name or by lang) */
   --font: 'Instrument Sans Variable', 'Hiragino Sans', 'Hiragino Kaku Gothic ProN', 'Yu Gothic UI', 'Meiryo', 'Noto Sans JP', 'Noto Sans CJK JP', system-ui, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -95,6 +97,7 @@
   --mark-good: rgba(23, 114, 60, 0.12);
   --mark-warn: rgba(138, 86, 0, 0.14);
   --mark-bad: rgba(180, 35, 24, 0.12);
+  --control-rim: #7a88b8;
   color-scheme: light;
 }
 html, body, #root { height: 100%; margin: 0; }
@@ -113,7 +116,7 @@ h1, h2, h3, h4, .title-card-name, .artist-tile-name, .continue-title, .series-na
 h2 { font-size: 1.6rem; }
 h3 { font-size: 1.25rem; }
 
-button { font: inherit; font-weight: 550; color: inherit; background: var(--deep-2); border: 1px solid var(--rim); border-radius: 8px; padding: 7px 14px; cursor: pointer; }
+button { font: inherit; font-weight: 550; color: inherit; background: var(--deep-2); border: 1px solid var(--control-rim); border-radius: 8px; padding: 7px 14px; cursor: pointer; }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 /* :where keeps the hover at the plain button's specificity, so any classed button's own look wins */
 button:where(:hover:not(:disabled)) { background: var(--hover); border-color: var(--rim-strong); }
@@ -122,7 +125,7 @@ button:where(:hover:not(:disabled)) { background: var(--hover); border-color: va
 :is(button.primary, .resume-primary, .owner-primary):hover:not(:disabled) { background: var(--laser-strong); border-color: var(--laser-strong); }
 button.quiet { color: var(--mist); background: none; border-color: transparent; }
 button.quiet:hover:not(:disabled) { color: var(--ice); background: var(--deep); border-color: transparent; }
-input:is([type='text'], [type='search'], [type='number'], :not([type])), select { font: inherit; color: inherit; background: var(--night-deep); border: 1px solid var(--rim); border-radius: 8px; padding: 7px 12px; min-width: 0; }
+input:is([type='text'], [type='search'], [type='number'], :not([type])), select { font: inherit; color: inherit; background: var(--night-deep); border: 1px solid var(--control-rim); border-radius: 8px; padding: 7px 12px; min-width: 0; }
 input:is([type='text'], [type='search'], [type='number'], :not([type])):focus, select:focus { border-color: var(--laser); }
 input:disabled, select:disabled { opacity: 0.45; }
 input::placeholder { color: var(--placeholder); }
@@ -145,7 +148,7 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .app-mark { display: block; width: 32px; height: 32px; }
 .app-bar .app-tools { grid-area: help; display: flex; align-items: center; gap: 14px; }
 /* Auto / Light / Dark: a segmented control; words on a wide screen, icons on a narrow one (their names stay for screen readers) */
-.theme-switch { display: inline-flex; margin: 0; padding: 2px; border: 1px solid var(--rim); border-radius: 999px; min-inline-size: 0; }
+.theme-switch { display: inline-flex; margin: 0; padding: 2px; border: 1px solid var(--control-rim); border-radius: 999px; min-inline-size: 0; }
 .theme-option { position: relative; display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; color: var(--mist); font-size: 0.85em; font-weight: 550; cursor: pointer; }
 .theme-option input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
 .theme-option:has(input:checked) { background: var(--laser); color: var(--on-laser); }
@@ -263,6 +266,8 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .admin-own-form label { display: flex; align-items: center; gap: 6px; }
 .admin-tmdb { display: flex; align-items: center; gap: 10px; font-size: 0.8em; color: var(--mist); }
 .admin-tmdb img { flex: none; }
+/* TMDB's light gradient doesn't read on white: in light the logo sits on TMDB's own navy, as its dark-ground variants do */
+:root[data-theme='light'] .admin-tmdb img { background: #0d253f; padding: 4px 6px; border-radius: 4px; }
 
 /* NAS title library: shelves, posters, a title, a season */
 .titles { display: flex; flex-direction: column; gap: 18px; }
@@ -298,7 +303,7 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .title-shelves { display: flex; flex-wrap: nowrap; gap: 8px; overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none; }
 .title-shelves::-webkit-scrollbar { display: none; }
 .title-shelves .title-chip { flex: none; }
-.title-chip { display: inline-flex; align-items: center; gap: 8px; padding: 7px 16px; border-radius: 999px; background: var(--deep); border-color: var(--rim); }
+.title-chip { display: inline-flex; align-items: center; gap: 8px; padding: 7px 16px; border-radius: 999px; background: var(--deep); border-color: var(--control-rim); }
 .title-chip.selected { background: var(--ice); border-color: var(--ice); color: var(--night); }
 .title-chip-count { font-size: 0.8em; opacity: 0.7; font-variant-numeric: tabular-nums; }
 .title-section { margin: 12px 0 0; font-size: 1.25rem; font-weight: 650; font-stretch: var(--narrow); }
@@ -372,7 +377,7 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .season-head { display: flex; align-items: center; gap: 14px; }
 .season-head-text { min-width: 0; display: flex; flex-direction: column; }
 .season-head-text h2 { font-size: 1.8rem; }
-.segmented { align-self: flex-start; display: inline-flex; gap: 2px; padding: 3px; background: var(--night-deep); border: 1px solid var(--rim); border-radius: 999px; }
+.segmented { align-self: flex-start; display: inline-flex; gap: 2px; padding: 3px; background: var(--night-deep); border: 1px solid var(--control-rim); border-radius: 999px; }
 .segmented button { padding: 6px 18px; background: none; border: none; border-radius: 999px; }
 .segmented button.selected { background: var(--deep-2); box-shadow: inset 0 0 0 1px var(--rim-strong); }
 .episode-number { flex: none; width: 2.4em; height: 2.4em; display: flex; align-items: center; justify-content: center; border-radius: 8px; background: var(--night-deep); font-weight: 650; font-stretch: var(--narrow); font-size: 1.05em; font-variant-numeric: tabular-nums; }
