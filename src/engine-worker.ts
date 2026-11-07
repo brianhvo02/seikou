@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LGPL-2.1-or-later
+// SPDX-License-Identifier: LGPL-3.0-or-later
 // The app's engine worker entry: the engine (@seikou/engine/worker-main) with BD-J as its provider.
 import audioWasmUrl from '@seikou/engine/audio.wasm?url';
 import defaultFontUrl from '@seikou/ass/default-font.ttf?url';

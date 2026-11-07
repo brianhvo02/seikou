@@ -1,3 +1,4 @@
+/// <reference path="../7z-wasm-es6.d.ts" />
 /** Regenerates track.ass.xz and pack.7z with 7z-wasm (`npx tsx packages/fansubs/src/__fixtures__/make-fixtures.ts`). */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';

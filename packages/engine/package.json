@@ -8,7 +8,7 @@
     "./audio.wasm": "./wasm/audio/audio.wasm",
     "./*": "./src/*.ts"
   },
-  "files": ["src", "!src/**/*.test.ts", "wasm", "LICENSE", "COPYING", "LICENSES", "NOTICE"],
+  "files": ["src", "!src/**/*.test.ts", "!src/**/__fixtures__", "wasm", "LICENSE", "COPYING", "LICENSES", "NOTICE"],
   "dependencies": {
     "@seikou/ass": "*",
     "@seikou/bdmv": "*",

@@ -1,3 +1,4 @@
+/// <reference path="./7z-wasm-es6.d.ts" />
 /** Anime Tosho's xz tracks and 7z font packs, unpacked with 7-Zip's WASM build (no native code). Original code. */
 import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';

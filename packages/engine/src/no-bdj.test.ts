@@ -20,7 +20,10 @@ function packageFiles(dir: string): string[] {
   });
 }
 
-/** Every module specifier a file names: static and type imports, re-exports, import(), new URL(), quoted or template. */
+/**
+ * Every module specifier a file names: static and type imports, re-exports, import(), new URL(), vi.mock() and its
+ * kin (a mocked module is still a module the test names) and require(), quoted or template.
+ */
 function specifiers(source: string): string[] {
   const q = String.raw`(['"\`])((?:(?!\1)[^\\]|\\.)*)\1`;
   const patterns = [
@@ -28,11 +31,16 @@ function specifiers(source: string): string[] {
     new RegExp(String.raw`\bimport\s+${q}`, 'g'),
     new RegExp(String.raw`\bimport\s*\(\s*${q}`, 'g'),
     new RegExp(String.raw`\bnew\s+URL\s*\(\s*${q}`, 'g'),
+    new RegExp(String.raw`\bvi\.(?:mock|doMock|unmock|importActual|importMock)\s*(?:<[^>]*>)?\s*\(\s*${q}`, 'g'),
+    new RegExp(String.raw`\brequire(?:\.resolve)?\s*\(\s*${q}`, 'g'),
   ];
   const found: string[] = [];
   for (const re of patterns) for (const m of source.matchAll(re)) found.push(m[2]!);
   return found;
 }
+
+/** A specifier that reaches BD-J: a bdj/ directory, or the BD-J class library (bdj-classlib/). */
+const BDJ_PATH = /bdj(?:-classlib)?\//;
 
 describe('the engine package without BD-J', () => {
   it('finds specifiers of every form', () => {
@@ -43,16 +51,30 @@ describe('the engine package without BD-J', () => {
       "import './bdj/d';",
       'const e = await import(`./bdj/${name}`);',
       "new Worker(new URL('./bdj/f.ts', import.meta.url));",
+      "vi.mock('../bdj/g', () => ({}));",
+      "const h = await vi.importActual<typeof import('x')>('./bdj/h');",
+      "const i = require('../../src/bdj-classlib/i.jar');",
+      "const j = require.resolve(\"./bdj/j\");",
     ].join('\n');
-    expect(specifiers(source)).toEqual(['./bdj/a', '../bdj/b', './bdj/c', './bdj/d', './bdj/${name}', './bdj/f.ts']);
+    expect(specifiers(source)).toEqual([
+      './bdj/a', '../bdj/b', './bdj/c', './bdj/d', './bdj/${name}', 'x', './bdj/f.ts', '../bdj/g', './bdj/h',
+      '../../src/bdj-classlib/i.jar', './bdj/j',
+    ]);
   });
 
-  it('names no bdj/ directory in any module specifier', () => {
+  it('tells BD-J paths from the engine\'s own bdj-provider and bdj-types', () => {
+    const specs = ['./bdj/a', '../../src/bdj-classlib/rt-bdj.jar', 'src/bdj/provider', './bdj-provider', './bdj-types'];
+    expect(specs.map((s) => BDJ_PATH.test(s))).toEqual([true, true, true, false, false]);
+  });
+
+  it('names no bdj/ or bdj-classlib/ path in any module specifier', () => {
     const offenders: string[] = [];
     // (this file's own specifier fixtures above are not imports)
     for (const file of packageFiles(PACKAGE).filter((f) => f !== SELF)) {
       const rel = relative(PACKAGE, file).split(sep).join('/');
-      for (const spec of specifiers(readFileSync(file, 'utf8'))) if (spec.includes('bdj/')) offenders.push(`${rel}: ${spec}`);
+      for (const spec of specifiers(readFileSync(file, 'utf8'))) {
+        if (BDJ_PATH.test(spec)) offenders.push(`${rel}: ${spec}`);
+      }
     }
     expect(offenders).toEqual([]);
   });

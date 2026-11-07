@@ -54,7 +54,14 @@ export interface EngineWorkerOptions {
   readonly audioWasmUrl: string;
   /** The default ASS font's URL (`@seikou/ass/default-font.ttf?url`). */
   readonly defaultFontUrl: string;
-  /** The worker's global (default: self). */
+  /**
+   * The worker's messaging and frame pacing (default: self): the Player's events go out through its postMessage, the
+   * page's commands arrive on its onmessage, and its requestAnimationFrame paces frames (a 16 ms setTimeout without
+   * one).
+   * Everything else still reads the real worker global: the test flags in self.name (engineWorkerTestFlags), the ASS
+   * fonts in self.fonts, the read-ahead cache's FileSystemFileHandle and navigator.storage, navigator.language,
+   * fetch and OffscreenCanvas.
+   */
   readonly scope?: WorkerScope;
 }
 

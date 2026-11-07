@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Consumes the packages as an outside project would: a clean temp project installs them as file: dependencies (copied,
-# not linked, so only what each package's "files" lists arrives), parses a disc and an ASS script with tsx, and builds
-# a page that starts the engine's worker with Vite, whose output must carry the worker's wasm and font assets.
+# not linked, so only what each package's "files" lists arrives), typechecks a file importing every barrel with a
+# strict tsc, parses a disc and an ASS script with tsx, and builds a page that starts the engine's worker with Vite,
+# whose output must carry the worker's wasm and font assets.
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 bin="$repo/node_modules/.bin"
@@ -14,7 +15,42 @@ npm init -y >/dev/null
 # The engine's own @seikou dependencies are unpublished, so they are installed from the repo as well.
 npm install --no-audit --no-fund --install-links \
   "file:$repo/packages/bdmv" "file:$repo/packages/ass" "file:$repo/packages/nas" "file:$repo/packages/pg" \
-  "file:$repo/packages/engine" >/dev/null
+  "file:$repo/packages/engine" "file:$repo/packages/titles" "file:$repo/packages/fansubs" >/dev/null
+
+# Every barrel under a strict tsc, as a TypeScript consumer compiles them. The packages ship sources, so their own
+# type gaps (an ambient module declaration the program never sees) surface here and not in the repo's own tsconfigs,
+# which include every source file. The consumer's toolchain types come from the repo: Node's (titles and fansubs run
+# in Node) and Vite's client types (the engine imports its worker and wasm with ?url and ?worker&url).
+mkdir -p node_modules/@types
+ln -s "$repo/node_modules/@types/node" node_modules/@types/node
+ln -s "$repo/node_modules/vite" node_modules/vite
+cat > barrels.ts <<'TS'
+import * as ass from '@seikou/ass';
+import * as bdmv from '@seikou/bdmv';
+import * as engine from '@seikou/engine';
+import * as fansubs from '@seikou/fansubs';
+import * as nas from '@seikou/nas';
+import * as pg from '@seikou/pg';
+import * as titles from '@seikou/titles';
+export const barrels = [ass, bdmv, engine, fansubs, nas, pg, titles];
+TS
+cat > tsconfig.json <<'JSON'
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable", "DOM.AsyncIterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "skipLibCheck": true,
+    "noEmit": true,
+    "strict": true,
+    "types": ["node", "vite/client"]
+  },
+  "files": ["barrels.ts"]
+}
+JSON
+"$bin/tsc" --noEmit --strict -p tsconfig.json || fail 'a strict tsc over every package barrel failed'
 
 # Parsing through the barrels: disc1's index and first playlist, and a two-line ASS script.
 cat > parse.ts <<'TS'

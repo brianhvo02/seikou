@@ -2,7 +2,7 @@
 # Seikou's own code is LGPL-3.0-or-later. A source file keeps LGPL-2.1-or-later only when it ports or derives from an
 # upstream released under that licence, and its header says so. src/bdj-classlib/ (GPLv2 with the Classpath Exception)
 # is not checked. This fails when:
-# - a file carries LGPL-2.1 with no upstream named in its first 15 lines;
+# - a file carries LGPL-2.1 with no upstream named in its leading comment block (within its first 15 lines);
 # - a file a NOTICE lists as derived from libbluray, libudfread, FFmpeg or libass is missing or does not carry
 #   LGPL-2.1-or-later in its header (the NOTICE lists are the one record of derived files; the check reads them);
 # - a package holding LGPL-2.1 files does not ship the LGPL-2.1 text (LICENSES/LGPL-2.1.txt, listed in "files");
@@ -19,8 +19,20 @@ lgpl21='SPDX-License-Identifier: LGPL-2\.1'
 status=0
 problem() { echo "licence-check: $*" >&2; status=1; }
 
+# The file's leading comment block, within its first 15 lines: the comments before the first line of code. Only the
+# header counts, so a code line that merely names an upstream (an import of libbluray-j2se.jar) is no upstream line.
+leading_comments() {
+  awk '
+    NR > 15 { exit }
+    incomment { print; if ($0 ~ /\*\//) incomment = 0; next }
+    /^[ \t]*$/ { next }
+    /^[ \t]*\/\// { print; next }
+    /^[ \t]*\/\*/ { print; rest = substr($0, index($0, "/*") + 2); if (rest !~ /\*\//) incomment = 1; next }
+    { exit }' "$1"
+}
+
 while IFS= read -r file; do
-  header="$(head -n 15 "$file")"
+  header="$(leading_comments "$file")"
   grep -q "$lgpl21" <<<"$header" || continue
   grep -qiE "$upstream" <<<"$header" && continue
   grep -i 'copyright' <<<"$header" | grep -qviE "$own_holder" && continue
