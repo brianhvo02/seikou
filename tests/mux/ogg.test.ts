@@ -143,7 +143,15 @@ describe('readOggOpus', () => {
 
   it('rejects a stream that ends before OpusTags', async () => {
     const stream = page({ flags: 2, granule: 0n, seq: 0 }, [opusHead()]);
-    await expect(readOggOpus(Readable.from([stream]))).rejects.toThrow();
+    await expect(readOggOpus(Readable.from([stream]))).rejects.toThrow(/before OpusTags/);
+  });
+
+  it('rejects a page whose body is missing entirely', async () => {
+    const full = page({ flags: 2, granule: 0n, seq: 0 }, [opusHead()]);
+    const headerOnly = full.subarray(0, full.length - 19);
+    await expect(readOggOpus(Readable.from([headerOnly]))).rejects.toThrow(
+      /stream ended inside a page body/,
+    );
   });
 
   it('rejects a granule position beyond 2^53', async () => {

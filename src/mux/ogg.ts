@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import type { Readable } from 'node:stream';
+import { ChunkReader } from './chunk-reader';
 
 export interface OpusHead {
   channels: number;
@@ -27,6 +28,7 @@ export interface OggOpusEnd {
 export interface OggOpusStream {
   head: OpusHead;
   packets: AsyncIterable<OpusPacket>;
+  /** Settles only after `packets` has been fully consumed. */
   end: Promise<OggOpusEnd>;
 }
 
@@ -34,54 +36,6 @@ const MAX_PACKET_SAMPLES = 5760; // 120 ms at 48 kHz
 const OGG_PAGE_HEADER_SIZE = 27;
 const OPUS_HEAD_MIN_SIZE = 19;
 const NO_GRANULE = 0xffffffffffffffffn;
-
-/** Pulls exact byte counts from a Readable without buffering more than needed. */
-class ChunkReader {
-  private readonly iterator: AsyncIterator<unknown>;
-  private chunks: Uint8Array[] = [];
-  private available = 0;
-  private ended = false;
-
-  constructor(stream: Readable) {
-    this.iterator = stream[Symbol.asyncIterator]();
-  }
-
-  /** Returns exactly n bytes, or null on a clean end of stream before the first byte. */
-  async read(n: number): Promise<Uint8Array | null> {
-    while (this.available < n && !this.ended) {
-      const next = await this.iterator.next();
-      if (next.done === true) {
-        this.ended = true;
-        break;
-      }
-      const chunk = next.value as Uint8Array;
-      if (chunk.length > 0) {
-        this.chunks.push(chunk);
-        this.available += chunk.length;
-      }
-    }
-    if (this.available < n) {
-      if (this.available === 0) return null;
-      throw new Error(`Ogg: truncated stream (wanted ${n} bytes, got ${this.available})`);
-    }
-    return this.take(n);
-  }
-
-  private take(n: number): Uint8Array {
-    const out = new Uint8Array(n);
-    let filled = 0;
-    while (filled < n) {
-      const head = this.chunks[0]!;
-      const want = Math.min(n - filled, head.length);
-      out.set(head.subarray(0, want), filled);
-      filled += want;
-      if (want === head.length) this.chunks.shift();
-      else this.chunks[0] = head.subarray(want);
-    }
-    this.available -= n;
-    return out;
-  }
-}
 
 /** Duration in 48 kHz samples of one Opus packet (RFC 6716 section 3.1). */
 export function opusPacketDuration(packet: Uint8Array): number {
@@ -150,11 +104,12 @@ async function* readPackets(reader: ChunkReader): AsyncGenerator<RawPacket> {
     const granule = view.getBigUint64(6, true);
     const pageSerial = view.getUint32(14, true);
     const segmentCount = header[26]!;
-    const lacing = (await reader.read(segmentCount)) ?? new Uint8Array(0);
+    const lacing = await reader.read(segmentCount);
+    if (lacing === null) throw new Error('Ogg: stream ended inside a page header');
     let bodySize = 0;
     for (const v of lacing) bodySize += v;
-    const body = (await reader.read(bodySize)) ?? new Uint8Array(0);
-    if (segmentCount > 0 && lacing.length === 0) throw new Error('Ogg: truncated stream');
+    const body = await reader.read(bodySize);
+    if (body === null) throw new Error('Ogg: stream ended inside a page body');
     // CRC is not verified.
 
     if (serial === null) serial = pageSerial;
@@ -206,7 +161,7 @@ function concat(parts: Uint8Array[]): Uint8Array {
 }
 
 export async function readOggOpus(stream: Readable): Promise<OggOpusStream> {
-  const reader = new ChunkReader(stream);
+  const reader = new ChunkReader(stream, 'Ogg');
   const source = readPackets(reader);
 
   const first = await source.next();
