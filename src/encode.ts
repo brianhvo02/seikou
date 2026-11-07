@@ -41,6 +41,15 @@ export function svtArgs(o: Pick<EncodeOptions, 'crf' | 'preset' | 'extraSvtArgs'
     '--enable-variance-boost', '1',
     '--tf-strength', '1',
     '--film-grain', '4',
+    // From JET's base list for anime. Sharpness 1 raises the deblocking filter's sharpness, which the
+    // JET guide reports as a conservative gain in efficiency and perceived quality. Luma bias 25 gives
+    // dark frames more bits, since SVT-AV1 underspends on them; it is unsuited to PQ (HDR10) sources,
+    // which this encoder does not take.
+    '--sharpness', '1',
+    '--luminance-qp-bias', '25',
+    // Quantisation matrices with a lower floor: both JET and Codec Wiki recommend them for efficiency.
+    '--enable-qm', '1',
+    '--qm-min', '0',
     '--tile-columns', '1',
     '--keyint', '-2',
     '--color-primaries', '1',

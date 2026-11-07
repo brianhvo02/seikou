@@ -43,7 +43,7 @@ afterEach(() => {
 });
 
 it('builds encoder argument lists from the spec defaults', () => {
-  expect(svtArgs({ crf: 25, preset: 4, extraSvtArgs: ['--lp', '4'] })).toEqual(['--preset', '4', '--crf', '25', '--enable-variance-boost', '1', '--tf-strength', '1', '--film-grain', '4', '--tile-columns', '1', '--keyint', '-2', '--color-primaries', '1', '--transfer-characteristics', '1', '--matrix-coefficients', '1', '--color-range', '0', '--progress', '0', '--lp', '4']);
+  expect(svtArgs({ crf: 25, preset: 4, extraSvtArgs: ['--lp', '4'] })).toEqual(['--preset', '4', '--crf', '25', '--enable-variance-boost', '1', '--tf-strength', '1', '--film-grain', '4', '--sharpness', '1', '--luminance-qp-bias', '25', '--enable-qm', '1', '--qm-min', '0', '--tile-columns', '1', '--keyint', '-2', '--color-primaries', '1', '--transfer-characteristics', '1', '--matrix-coefficients', '1', '--color-range', '0', '--progress', '0', '--lp', '4']);
   expect(opusArgs(2)).toEqual(['--bitrate', '160', '--ignorelength']);
   expect(opusArgs(6)).toEqual(['--bitrate', '320', '--ignorelength']);
 });
