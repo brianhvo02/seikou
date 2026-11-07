@@ -28,10 +28,8 @@ export class BitReader {
   /** uvlc(): leading zero count, a one bit, then that many value bits. */
   uvlc(): number {
     let leadingZeros = 0;
-    while (this.bit() === 0) {
-      leadingZeros++;
-      if (leadingZeros >= 32) return 2 ** 32 - 1;
-    }
+    while (this.bit() === 0) leadingZeros++;
+    if (leadingZeros >= 32) return 2 ** 32 - 1;
     const value = this.f(leadingZeros);
     return 2 ** leadingZeros - 1 + value;
   }

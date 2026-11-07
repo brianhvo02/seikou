@@ -172,7 +172,7 @@ export function parseSequenceHeader(payload: Uint8Array): SequenceHeaderInfo {
     r.f(1); // color_range
     subsamplingX = 1;
     subsamplingY = 1;
-  } else if (colorPrimaries === 1 && transferCharacteristics === 13 && matrixCoefficients === 1) {
+  } else if (colorPrimaries === 1 && transferCharacteristics === 13 && matrixCoefficients === 0) {
     subsamplingX = 0;
     subsamplingY = 0;
   } else {

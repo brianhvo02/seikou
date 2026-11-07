@@ -59,7 +59,7 @@ class ChunkReader {
         this.ended = true;
         break;
       }
-      const chunk = Buffer.from(next.value as Uint8Array);
+      const chunk = next.value as Uint8Array;
       if (chunk.length > 0) {
         this.chunks.push(chunk);
         this.available += chunk.length;
