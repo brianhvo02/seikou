@@ -20,9 +20,12 @@ describe('appDataDir', () => {
   });
 });
 
+const KEY = 'd.0123456789abcdef';
+const FKEY = `f.${'AB'.repeat(16)}`;
+
 function sample(): SubtitleRecord {
   return {
-    disc: { key: 'd.abc', label: 'LANTERN_HARBOR_1' },
+    disc: { key: KEY, label: 'LANTERN_HARBOR_1' },
     playlist: '00000',
     episodeSpec: '1-2',
     anilist: { id: 900101, title: 'Lantern Harbor', episodeOffset: 0 },
@@ -65,16 +68,16 @@ describe('RecordStore', () => {
 
   it('round-trips a record', async () => {
     const store = new RecordStore(dir);
-    expect(await store.read('d.abc', '00000')).toBeNull();
+    expect(await store.read(KEY, '00000')).toBeNull();
     await store.write(sample());
-    expect(await store.read('d.abc', '00000')).toEqual(sample());
+    expect(await store.read(KEY, '00000')).toEqual(sample());
   });
 
   it('throws RecordError for a corrupt file', async () => {
     const store = new RecordStore(dir);
-    await mkdir(join(dir, 'subtitles', 'd.abc'), { recursive: true });
-    await writeFile(store.path('d.abc', '00000'), '{nope');
-    await expect(store.read('d.abc', '00000')).rejects.toBeInstanceOf(RecordError);
+    await mkdir(join(dir, 'subtitles', KEY), { recursive: true });
+    await writeFile(store.path(KEY, '00000'), '{nope');
+    await expect(store.read(KEY, '00000')).rejects.toBeInstanceOf(RecordError);
   });
 
   it('missingFiles groups by release', async () => {
@@ -87,6 +90,28 @@ describe('RecordStore', () => {
     await writeFile(join(dir, 'cache/r1/fonts/a.ttf'), 'x');
     await writeFile(join(dir, 'cache/r1/ep1.ass'), 'x');
     expect(await store.missingFiles(rec)).toEqual([]);
+  });
+});
+
+describe('record path safety', () => {
+  it('rejects a key or playlist that could leave subtitles/', () => {
+    const store = new RecordStore('/data');
+    expect(() => store.path('../x', '00000')).toThrow(RecordError);
+    expect(() => store.path('/abs', '00000')).toThrow(RecordError);
+    expect(() => store.path(KEY, '../x')).toThrow(RecordError);
+    expect(() => store.path(KEY, '/abs')).toThrow(RecordError);
+    const rec = sample();
+    rec.disc.key = '../x';
+    expect(() => parseRecord(rec)).toThrow(/disc\.key/);
+    const rec2 = sample();
+    rec2.playlist = '../../x';
+    expect(() => parseRecord(rec2)).toThrow(/playlist/);
+  });
+  it('accepts a fingerprint key', () => {
+    const rec = sample();
+    rec.disc.key = FKEY;
+    expect(parseRecord(rec).disc.key).toBe(FKEY);
+    expect(new RecordStore('/data').path(FKEY, '00001')).toBe(`/data/subtitles/${FKEY}/00001.json`);
   });
 });
 

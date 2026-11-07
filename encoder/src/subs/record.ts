@@ -2,6 +2,7 @@
 /** The saved subtitle record: what the user chose for one disc playlist, kept for the encode to read. */
 import { access, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { parseDiscKey } from '@seikou/nas/disc-key';
 import { replaceAtomically } from '@seikou/titles';
 import type { TrackKind } from './release-match';
 
@@ -100,6 +101,14 @@ function bool(v: unknown, path: string): boolean {
 function lang(v: unknown, path: string): string {
   const s = str(v, path);
   return /^[a-z]{3}$/.test(s) ? s : bad(path, 'expected an ISO 639-2 three-letter code');
+}
+function checkedDiscKey(v: unknown, path: string): string {
+  const s = str(v, path);
+  return parseDiscKey(s) ? s : bad(path, 'expected a disc key (f.<32 hex> or d.<16 hex>)');
+}
+function playlistId(v: unknown, path: string): string {
+  const s = str(v, path);
+  return /^\d{5}$/.test(s) ? s : bad(path, 'expected a five-digit playlist id');
 }
 function relPath(v: unknown, path: string): string {
   const s = str(v, path);
@@ -203,8 +212,8 @@ export function parseRecord(json: unknown): SubtitleRecord {
     };
   });
   return {
-    disc: { key: str(disc.key, 'disc.key'), label: str(disc.label, 'disc.label') },
-    playlist: str(o.playlist, 'playlist'),
+    disc: { key: checkedDiscKey(disc.key, 'disc.key'), label: str(disc.label, 'disc.label') },
+    playlist: playlistId(o.playlist, 'playlist'),
     episodeSpec: str(o.episodeSpec, 'episodeSpec'),
     anilist,
     release,
@@ -222,8 +231,10 @@ export class RecordStore {
   /** @param dataDir the app data directory; record paths are relative to it. */
   constructor(private readonly dataDir: string) {}
 
-  /** The file a disc's playlist record lives in. */
+  /** The file a disc's playlist record lives in. Throws `RecordError` unless the key is a disc key and the playlist a five-digit id, so no segment can leave `subtitles/`. */
   path(discKey: string, playlist: string): string {
+    checkedDiscKey(discKey, 'discKey');
+    playlistId(playlist, 'playlist');
     return join(this.dataDir, 'subtitles', discKey, `${playlist}.json`);
   }
 
