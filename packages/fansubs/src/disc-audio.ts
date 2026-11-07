@@ -1,4 +1,4 @@
-import type { Readable } from 'node:stream';
+import { Readable } from 'node:stream';
 import { findEpAfter, findEpBefore, parseClpi, stcSpnRange, type Clpi } from '@seikou/bdmv/clpi-parser';
 import { parseMpls, type PlayItem } from '@seikou/bdmv/mpls-parser';
 import { PesAssembler, readTimestamp } from '@seikou/bdmv/demux/pes-assembler';
@@ -186,7 +186,10 @@ export async function episodeAudio(
       const last = map && findEpAfter(map, to45 + MARGIN_45, range);
       const fromByte = (first?.spn ?? (Number.isFinite(range.startSpn) ? range.startSpn : 0)) * SOURCE_PACKET;
       const toByte = (last?.spn ?? Math.min(range.endSpn, clpi.numSourcePackets)) * SOURCE_PACKET;
-      const decoded = await decode({ read: clip.read(fromByte, toByte), pid: audio.pid, coding: audio.codingType, ...(signal ? { signal } : {}) });
+      // Lazy: the clip is opened only when the decoder starts consuming. A decoder may queue first (the server's waits for a
+      // slot), and a stream opened then, with nobody listening, would hold a file open and crash the process on an open error.
+      const read = Readable.from((async function* () { yield* clip.read(fromByte, toByte); })(), { objectMode: false });
+      const decoded = await decode({ read, pid: audio.pid, coding: audio.codingType, ...(signal ? { signal } : {}) });
       // PTS of the first sample, as playlist time (33-bit wrap folded into the nearest side of the play item's in-time).
       let delta = (decoded.firstPts - item.inTime * 2) % PTS_WRAP;
       if (delta > PTS_WRAP / 2) delta -= PTS_WRAP;

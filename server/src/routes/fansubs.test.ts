@@ -141,7 +141,7 @@ beforeEach(async () => {
     writeFileSync(join(fix, 'files', `${id}-0.ass.xz`), fullXz);
     writeFileSync(join(fix, 'files', `${id}-1.ass.xz`), signsXz);
   }
-  writeFileSync(join(fix, 'files', 'pack-101.7z'), readFileSync(new URL('../fansubs/__fixtures__/pack.7z', import.meta.url)));
+  writeFileSync(join(fix, 'files', 'pack-101.7z'), readFileSync(new URL('../../../packages/fansubs/src/__fixtures__/pack.7z', import.meta.url)));
 
   auth = new Auth(new Store(data), Date.now);
   gate = 'everyone';

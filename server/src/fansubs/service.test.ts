@@ -133,7 +133,7 @@ const standardFiles = (): Record<string, Buffer> => ({
   '201-0.ass.xz': fullXz, '201-1.ass.xz': signsXz,
   '202-0.ass.xz': fullXz, '202-1.ass.xz': signsXz,
   // GroupA's file has its font pack; GroupB's have none.
-  'pack-101.7z': readFileSync(new URL('./__fixtures__/pack.7z', import.meta.url)),
+  'pack-101.7z': readFileSync(new URL('../../../packages/fansubs/src/__fixtures__/pack.7z', import.meta.url)),
 });
 
 beforeEach(() => {
