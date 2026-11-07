@@ -1,6 +1,6 @@
 # subs/: subtitles for the episodes an encode cuts
 
-Fansub releases and the user's own files supply subtitles; this area decides what belongs to which episode and keeps what the user chose. Everything here is pure code with no I/O unless a later file says otherwise.
+Fansub releases and the user's own files supply subtitles; this area decides what belongs to which episode and keeps what the user chose. Matching and conversion are pure code; only `record.ts` touches the disk.
 
 ## Concepts
 
@@ -16,9 +16,12 @@ Fansub releases and the user's own files supply subtitles; this area decides wha
 - `trackKind(name)` returns `'full'` or `'signs'`.
 - `srtToAss(text)` returns an ASS script.
 - `decodeSubtitleText(bytes)` returns text, or throws `SubtitleEncodingError`.
+- `appDataDir(env, platform, home)` returns the app data directory (`SEIKOU_ENCODE_DATA`, else Application Support on macOS, else `$XDG_DATA_HOME`).
+- `RecordStore(dataDir)` reads, writes (atomically) and checks the saved `SubtitleRecord` at `subtitles/<discKey>/<playlist>.json`; `parseRecord(json)` validates one and throws `RecordError` with the JSON path of the first bad field; `missingFiles(record)` names the release whose cached files are gone.
 
 ## Where to look
 
 - `release-match.ts`: file-to-episode matching and track kinds.
 - `srt-to-ass.ts`: decoding and SRT conversion; the SRT format has no specification, so the parsing is tolerant by design (see the comment at the top).
+- `record.ts`: the record's types, validation and store (paths inside it are relative to the data directory); `app-data.ts`: where that directory is.
 - Tests: `encoder/tests/subs/`.
