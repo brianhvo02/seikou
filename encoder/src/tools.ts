@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: LGPL-3.0-or-later
+import { accessSync, constants } from 'node:fs';
+import path from 'node:path';
+import type { ToolPaths } from './pipeline/chain';
+
+export class ToolsError extends Error {
+  constructor(public missing: string[]) {
+    super(
+      `Missing required tools: ${missing.join(', ')}\n` +
+        'brew install vapoursynth vapoursynth-bestsource svt-av1 opus-tools',
+    );
+    this.name = 'ToolsError';
+  }
+}
+
+function findOnPath(name: string, override: string | undefined, env: NodeJS.ProcessEnv): string | null {
+  const candidates =
+    override !== undefined && override !== ''
+      ? [override]
+      : (env.PATH ?? '')
+          .split(path.delimiter)
+          .filter((d) => d !== '')
+          .map((d) => path.join(d, name));
+  for (const c of candidates) {
+    try {
+      accessSync(c, constants.X_OK);
+      return c;
+    } catch {
+      // not here, keep looking
+    }
+  }
+  return null;
+}
+
+export function findTools(env: NodeJS.ProcessEnv = process.env): ToolPaths {
+  const vspipe = findOnPath('vspipe', env.ENCODING_TOOLS_VSPIPE, env);
+  const svt = findOnPath('SvtAv1EncApp', env.ENCODING_TOOLS_SVT, env);
+  const opusenc = findOnPath('opusenc', env.ENCODING_TOOLS_OPUSENC, env);
+  const missing: string[] = [];
+  if (vspipe === null) missing.push('vspipe');
+  if (svt === null) missing.push('SvtAv1EncApp');
+  if (opusenc === null) missing.push('opusenc');
+  if (vspipe === null || svt === null || opusenc === null) throw new ToolsError(missing);
+  return { vspipe, svt, opusenc };
+}

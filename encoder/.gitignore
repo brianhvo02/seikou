@@ -1,0 +1,9 @@
+node_modules
+dist
+.cache
+*.tsbuildinfo
+test-results
+.superpowers/
+.DS_Store
+.claude/worktrees/
+vendor/
