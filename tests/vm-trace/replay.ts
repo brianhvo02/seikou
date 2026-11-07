@@ -9,7 +9,7 @@ import type { ByteSource } from '@seikou/bdmv/byte-source';
 import { FileSource } from '../../src/engine/disc/file-source';
 import { loadClips, openDisc, streamPath, type DiscModel } from '../../src/engine/disc/open-disc';
 import { BdVk } from '../../src/engine/graphics/graphics-controller';
-import { OverlayPlane } from '../../src/engine/graphics/overlay-plane';
+import { OverlayPlane } from '@seikou/pg';
 import { normalizeDiscPaths } from '../../src/engine/disc/paths';
 import { PSR, RegisterFile, type PsrEvent } from '../../src/engine/hdmv/registers';
 import type { UoMask, UoOp } from '../../src/engine/hdmv/uo-mask';

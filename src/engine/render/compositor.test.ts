@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { GraphicsPlaneReader, GraphicsPlaneWriter, createGraphicsPlane, updateGraphic } from '../bdj/graphics-plane';
-import { OverlayPlane } from '../graphics/overlay-plane';
+import { OverlayPlane } from '@seikou/pg';
 import type { ShaderStage } from '../shaders/stage';
 import { Compositor, fitRect } from './compositor';
 

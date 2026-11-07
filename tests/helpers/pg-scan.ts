@@ -4,7 +4,7 @@ import { FileSource } from '../../src/engine/disc/file-source';
 import { openDisc, streamPath } from '../../src/engine/disc/open-disc';
 import { normalizeDiscPaths } from '../../src/engine/disc/paths';
 import { M2tsReader } from '@seikou/bdmv/demux/m2ts-reader';
-import { PgSegmentDecoder } from '../../src/engine/graphics/pg-decoder';
+import { PgSegmentDecoder } from '@seikou/pg';
 import { Timeline } from '../../src/engine/nav/timeline';
 import { directoryEntries } from './file-blob';
 

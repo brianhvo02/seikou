@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   clearSegments, endSegment, odsSegment, pcsSegment, pdsSegment, subtitleSegments, wdsSegment,
-} from '../../../tests/helpers/pg-builders';
+} from '../test/pg-builders';
 import { PgSegmentDecoder, type PgDisplaySet } from './pg-decoder';
 
 function feed(d: PgSegmentDecoder, segs: Uint8Array[], pts = 1000, dts: number | null = null): PgDisplaySet[] {

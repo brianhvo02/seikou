@@ -4,7 +4,7 @@ import { endSegment, icsSegment, odsSegment, pdsSegment, type IcsSpec } from '..
 import { RegisterFile } from '../hdmv/registers';
 import { BdVk, GcStatus, GraphicsController } from './graphics-controller';
 import { IgSegmentDecoder, type IgDisplaySet } from './ig-decoder';
-import type { OverlayOp } from './overlay-plane';
+import type { OverlayOp } from '@seikou/pg';
 
 type ButtonSpec = IcsSpec['pages'][number]['bogs'][number]['buttons'][number];
 

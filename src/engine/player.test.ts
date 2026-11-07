@@ -18,7 +18,7 @@ import { parseMpls, type PlayItem } from '@seikou/bdmv/mpls-parser';
 import { CodingType } from '@seikou/bdmv/stream-types';
 import { createAudioDecoderFactory, type AudioDecoderFactory } from './decode/audio-decoder';
 import type { VideoCodecApi, VideoDecoderLike } from './decode/video-decoder';
-import { OverlayPlane } from './graphics/overlay-plane';
+import { OverlayPlane } from '@seikou/pg';
 import { RegisterFile } from './hdmv/registers';
 import { Navigator } from './nav/navigator';
 import { DEFAULT_CHUNK_PACKETS } from '@seikou/bdmv/demux/m2ts-reader';

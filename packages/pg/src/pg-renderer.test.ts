@@ -1,21 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { endSegment, odsSegment, pcsSegment, pdsSegment, subtitleSegments, clearSegments, wdsSegment } from '../../../tests/helpers/pg-builders';
-import { PSR, RegisterFile } from '../hdmv/registers';
+import { endSegment, odsSegment, pcsSegment, pdsSegment, subtitleSegments, clearSegments, wdsSegment } from '../test/pg-builders';
 import { compositionObjectOp } from './composition';
 import { OverlayPlane, type OverlayOp } from './overlay-plane';
 import { PgSegmentDecoder, type PgDisplaySet } from './pg-decoder';
 import { PgRenderer } from './pg-renderer';
 
-const DISPLAY = 0x80000000;
-
 function setup(display: boolean) {
-  const regs = new RegisterFile();
-  regs.psrWrite(PSR.PG_STREAM, (display ? DISPLAY : 0) | 1);
+  const flag = display;
   const ops: OverlayOp[] = [];
   const plane = new OverlayPlane(1920, 1080, { buffered: true });
-  const r = new PgRenderer({ regs, onOverlay: (op) => { ops.push(op); plane.apply(op); } });
+  const r = new PgRenderer({ displayFlag: () => flag, onOverlay: (op) => { ops.push(op); plane.apply(op); } });
   const empty = new OverlayPlane(1920, 1080).hash();
-  return { regs, ops, plane, r, empty };
+  return { ops, plane, r, empty };
 }
 
 const decoder = new PgSegmentDecoder();

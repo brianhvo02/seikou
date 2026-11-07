@@ -11,9 +11,7 @@
  */
 
 import type { PlayItem } from '@seikou/bdmv/mpls-parser';
-import { OverlayPlane, type OverlayOp } from '../graphics/overlay-plane';
-import { PgSegmentDecoder, type PgDisplaySet } from '../graphics/pg-decoder';
-import { PgRenderer } from '../graphics/pg-renderer';
+import { OverlayPlane, PgRenderer, PgSegmentDecoder, type OverlayOp, type PgDisplaySet } from '@seikou/pg';
 import { PSR, type PsrEvent, type RegisterFile } from '../hdmv/registers';
 import type { UoOp } from '../hdmv/uo-mask';
 import { langToUint32, updateStreamPsrByLang } from './stream-psrs';
@@ -52,7 +50,7 @@ export class PgStreamControl {
   private resetsAtUs: number[] = [];
 
   constructor(private readonly deps: PgStreamControlDeps) {
-    this.renderer = new PgRenderer({ regs: deps.regs, onOverlay: (op) => this.applyOverlay(op) });
+    this.renderer = new PgRenderer({ displayFlag: () => (deps.regs.psrRead(PSR.PG_STREAM) >>> 31) === 1, onOverlay: (op) => this.applyOverlay(op) });
     this.unsubscribe = deps.regs.onPsrEvent((e) => this.onPsrEvent(e));
   }
 

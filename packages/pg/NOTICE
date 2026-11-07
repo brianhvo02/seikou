@@ -1,0 +1,20 @@
+@seikou/pg
+Copyright (C) the Seikou authors.
+Licensed under LGPL-2.1-or-later; see LICENSE.
+
+Parts of this package are TypeScript ports of, or derive from, libbluray. They are
+modified for bluray-web (2026) and distributed under the GNU Lesser General Public
+License, version 2.1 or later (LGPL-2.1-or-later).
+
+libbluray (https://www.videolan.org/developers/libbluray.html), LGPL-2.1-or-later
+  Copyright (C) 2009-2010  John Stebbins
+  Copyright (C) 2010-2017  Petri Hintukainen <phintuka@users.sourceforge.net>
+  Derived files:
+  segments.ts   from src/libbluray/decoders/graphics_processor.c (segment joining), pg_decode.c, pg.h
+  pg-decoder.ts from src/libbluray/decoders/pg_decode.c, graphics_processor.c (PG display sets)
+  pg-renderer.ts from src/libbluray/decoders/graphics_controller.c (PG paths: _render_pg, _render_pg_composition_object, _reset_pg)
+  composition.ts from src/libbluray/decoders/graphics_controller.c (_render_composition_object)
+  rle.ts        from src/libbluray/decoders/rle.c (rle_crop_object)
+
+overlay-plane.ts and palette.ts are original implementations that follow the overlay
+command semantics of libbluray's decoders/overlay.h; they contain no libbluray code.

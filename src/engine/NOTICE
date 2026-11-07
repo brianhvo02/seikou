@@ -22,13 +22,8 @@ libbluray (https://www.videolan.org/developers/libbluray.html), LGPL-2.1-or-late
                           nav_chapter_get_current), moved out of nav/navigator.ts
     playback/pipeline.ts  derived from src/libbluray/bdnav/navigation.c (_fill_clip start packet)
     playback/buffer-ranges.ts derived from src/libbluray/bdnav/navigation.c (_fill_clip start packet), as playback/pipeline.ts
-    graphics/segments.ts  from src/libbluray/decoders/graphics_processor.c (segment joining), pg_decode.c, pg.h
     graphics/ig-decoder.ts from src/libbluray/decoders/ig_decode.c, ig.h, graphics_processor.c (IG display set decoding)
-    graphics/pg-decoder.ts from src/libbluray/decoders/pg_decode.c, graphics_processor.c (PG display sets)
     graphics/graphics-controller.ts from src/libbluray/decoders/graphics_controller.c, graphics_controller.h, keys.h (IG paths)
-    graphics/pg-renderer.ts from src/libbluray/decoders/graphics_controller.c (PG paths: _render_pg, _render_pg_composition_object, _reset_pg)
-    graphics/composition.ts from src/libbluray/decoders/graphics_controller.c (_render_composition_object)
-    graphics/rle.ts       from src/libbluray/decoders/rle.c (rle_crop_object)
     disc/main-title.ts    from src/libbluray/bdnav/navigation.c (_filter_repeats, _pl_cmp, _pl_guess_main_title)
     disc/disc-profile.ts  from src/libbluray/bluray.c (_fill_disc_info: the psr_init_UHD and psr_init_3D calls) and register.c
     disc/player-settings.ts from src/libbluray/bluray.c (bd_set_player_setting_str, bd_set_player_setting) and

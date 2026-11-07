@@ -4,7 +4,7 @@ import { clearSegments, endSegment, pcsSegment, pdsSegment, odsSegment, subtitle
 import { parseMpls, type PlayItem } from '@seikou/bdmv/mpls-parser';
 import type { UoOp } from '../hdmv/uo-mask';
 import { PSR, RegisterFile } from '../hdmv/registers';
-import { OverlayPlane } from '../graphics/overlay-plane';
+import { OverlayPlane } from '@seikou/pg';
 import { PgStreamControl } from './subtitles';
 
 const PG_CODING = 0x90;

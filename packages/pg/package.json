@@ -1,0 +1,18 @@
+{
+  "name": "@seikou/pg",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "LGPL-2.1-or-later",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "files": [
+    "src",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "dependencies": {
+    "@seikou/bdmv": "*"
+  }
+}

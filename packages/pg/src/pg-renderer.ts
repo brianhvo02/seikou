@@ -8,14 +8,14 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import { PSR, type RegisterFile } from '../hdmv/registers';
 import { compositionObjectOp } from './composition';
 import type { OverlayCmd, OverlayOp } from './overlay-plane';
 import type { PgDisplaySet } from './pg-decoder';
 import type { PgCompositionObject, PgPalette } from './segments';
 
 export interface PgRendererDeps {
-  readonly regs: RegisterFile;
+  /** The PG display flag (bit 31 of PSR2): when false only forced objects are drawn. */
+  displayFlag(): boolean;
   onOverlay(op: OverlayOp): void;
 }
 
@@ -47,7 +47,7 @@ export class PgRenderer {
     const palette = ds.palettes.get(pcs.paletteIdRef);
     if (!palette) return 0; // _render_pg(): unknown palette id
 
-    const displayFlag = this.deps.regs.psrRead(PSR.PG_STREAM) >>> 31;
+    const displayFlag = this.deps.displayFlag() ? 1 : 0;
 
     let drawn = 0;
     for (const cobj of pcs.compositionObjects) {

@@ -1,7 +1,7 @@
 /** Readable dump of IG menus (pages, buttons, rectangles, neighbours, commands), for writing trace scripts against real discs. */
 import { BranchSub, CmpOpt, GotoOpt, InsnGroup, JumpOpt, PlayOpt, SetOpt, SetSub, SetSystemOpt, type MobjCmd } from '@seikou/bdmv/mobj-parser';
 import { IgSegmentDecoder, type IgComposition } from '../../src/engine/graphics/ig-decoder';
-import type { PgObject } from '../../src/engine/graphics/segments';
+import type { PgObject } from '@seikou/pg';
 import type { IgUnit } from '../../src/engine/nav/navigator';
 
 const NONE = 0xffff;

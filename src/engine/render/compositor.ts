@@ -1,6 +1,6 @@
 import type { ShownStill } from '../bdj/background';
 import { PLANE_HEIGHT, PLANE_WIDTH, type GraphicsPlaneReader } from '../bdj/graphics-plane';
-import type { OverlayPlane } from '../graphics/overlay-plane';
+import type { OverlayPlane } from '@seikou/pg';
 import type { ShaderStage } from '../shaders/stage';
 import type { TextRenderOptions } from '../subs/text-renderer';
 

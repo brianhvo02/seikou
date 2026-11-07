@@ -15,7 +15,7 @@ import type { Mpls, StreamEntry } from '@seikou/bdmv/mpls-parser';
 import type { DiscModel } from '../disc/open-disc';
 import { BdVk, GraphicsController, GcStatus, type GcCtrl as GraphicsCtrl } from '../graphics/graphics-controller';
 import { IgSegmentDecoder, type IgDisplaySet } from '../graphics/ig-decoder';
-import { OverlayPlane, type OverlayOp } from '../graphics/overlay-plane';
+import { OverlayPlane, type OverlayOp } from '@seikou/pg';
 import { PSR, type PsrEvent, type RegisterFile } from '../hdmv/registers';
 import { combineUoMasks, EMPTY_UO_MASK, parseUoMaskTable, type UoMask, type UoOp } from '../hdmv/uo-mask';
 import { HdmvEventType, HdmvVm, type HdmvEvent } from '../hdmv/vm';

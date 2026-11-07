@@ -11,10 +11,8 @@
 import type { MobjCmd } from '@seikou/bdmv/mobj-parser';
 import { EMPTY_UO_MASK, type UoMask } from '../hdmv/uo-mask';
 import { PSR, type PsrEvent, type RegisterFile } from '../hdmv/registers';
-import { compositionObjectOp } from './composition';
+import { compositionObjectOp, type OverlayCmd, type OverlayOp, type PgCompositionObject, type PgObject, type PgPalette } from '@seikou/pg';
 import type { IgButton, IgComposition, IgDisplaySet, IgEffect, IgEffectSequence, IgPage } from './ig-decoder';
-import type { OverlayCmd, OverlayOp } from './overlay-plane';
-import type { PgCompositionObject, PgObject, PgPalette } from './segments';
 
 /** keys.h bd_vk_key_e (the keys the graphics controller handles) */
 export const BdVk = {
