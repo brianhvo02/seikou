@@ -104,6 +104,17 @@ describe('reduce', () => {
     expect(after.choices).toEqual({});
   });
 
+  it('changing the show keeps a release from an Anime Tosho search or the user own files', () => {
+    for (const from of ['tosho', 'local'] as const) {
+      const base = run(initialState(), { type: 'setRelease', release, from });
+      const after = run(base, { type: 'setTitle', title }, { type: 'setTitle', title: { ...title, alId: 900102 } }, { type: 'setTitle', title: null });
+      expect(after.release).toEqual(base.release);
+      expect(after.releaseSource).toBe(from);
+      expect(after.match).toEqual(base.match);
+      expect(after.choices).toEqual(base.choices);
+    }
+  });
+
   it('use original keeps the nudge, and accept marks it accepted', () => {
     const after = run(
       withRelease(),

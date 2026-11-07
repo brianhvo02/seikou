@@ -152,6 +152,51 @@ describe('ReleaseStep', () => {
     expect(screen.getByRole('searchbox', { name: /show/i })).toBeTruthy();
   });
 
+  it.each([
+    ['local', async () => fireEvent.change(screen.getByLabelText(/Add your own files/i), { target: { files: [new File(['x'], 'a.ass')] } })],
+    [
+      'tosho',
+      async () => {
+        const box = screen.getByRole('searchbox', { name: /Anime Tosho/i });
+        fireEvent.change(box, { target: { value: 'lantern' } });
+        fireEvent.submit(box.closest('form')!);
+        fireEvent.click(await screen.findByRole('button', { name: /Lantern Harbor \[GroupT\]/ }));
+      },
+    ],
+  ])('keeps a %s release when the show is picked and changed', async (_name, addRelease) => {
+    const api = fakeApi({ searchTosho: vi.fn(async () => [{ toshoId: 21, title: 'Lantern Harbor [GroupT]', date: 1700000000 }]) });
+    render(<Harness api={api} />);
+    await addRelease();
+    await screen.findByRole('region', { name: /Fetched release/i });
+    const box = screen.getByRole('searchbox', { name: /show/i });
+    fireEvent.change(box, { target: { value: 'lantern' } });
+    fireEvent.submit(box.closest('form')!);
+    fireEvent.click(await screen.findByRole('button', { name: /ランタン港/ }));
+    await waitFor(() => expect(api.seadex).toHaveBeenCalled());
+    expect(screen.getByRole('region', { name: /Fetched release/i })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Change' }));
+    expect(screen.getByRole('region', { name: /Fetched release/i })).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('keeps the newest AniList results when an earlier search answers late', async () => {
+    let releaseFirst: (hits: TitleHit[]) => void = () => {};
+    const first = new Promise<TitleHit[]>((r) => (releaseFirst = r));
+    const searchTitles = vi.fn().mockReturnValueOnce(first).mockResolvedValueOnce([{ ...hit, alId: 2, title: 'Newer Show' }]);
+    render(<Harness api={fakeApi({ searchTitles })} />);
+    const box = screen.getByRole('searchbox', { name: /show/i });
+    fireEvent.change(box, { target: { value: 'old' } });
+    fireEvent.submit(box.closest('form')!);
+    fireEvent.change(box, { target: { value: 'new' } });
+    fireEvent.submit(box.closest('form')!);
+    await screen.findByRole('button', { name: /Newer Show/ });
+    releaseFirst([hit]);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(screen.queryByRole('button', { name: /Lantern Harbor/ })).toBeNull();
+    expect(screen.getByRole('button', { name: /Newer Show/ })).toBeTruthy();
+  });
+
   it('a 503 shows the retry message beside the release list', async () => {
     const api = fakeApi({ seadex: vi.fn(async () => Promise.reject(new ApiError(503, 'source-unavailable', 'x', { source: 'SeaDex' }))) });
     await searchAndPick(api);

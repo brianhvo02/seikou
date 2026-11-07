@@ -86,6 +86,9 @@ export function ReleaseStep({ api, state, dispatch }: ReleaseStepProps) {
   const [uploadError, setUploadError] = useState<string | null>(null);
   // the newest fetch wins: an answer that arrives after another request started is dropped
   const fetchSeq = useRef(0);
+  // the same rule for the two searches: only the newest submit may set its results
+  const searchSeq = useRef(0);
+  const toshoSeq = useRef(0);
 
   // SeaDex belongs to the picked show: ask when one is picked (or restored), forget it when the show goes
   useEffect(() => {
@@ -108,19 +111,25 @@ export function ReleaseStep({ api, state, dispatch }: ReleaseStepProps) {
     e.preventDefault();
     const text = query.trim();
     if (text === '') return;
+    const seq = ++searchSeq.current;
     setSearching(true);
     setSearchError(null);
     try {
-      setHits(await api.searchTitles(text));
+      const found = await api.searchTitles(text);
+      if (seq === searchSeq.current) setHits(found);
     } catch (err) {
-      setHits(null);
-      setSearchError(errorText(err));
+      if (seq === searchSeq.current) {
+        setHits(null);
+        setSearchError(errorText(err));
+      }
     } finally {
-      setSearching(false);
+      if (seq === searchSeq.current) setSearching(false);
     }
   };
 
   const pickShow = (hit: TitleHit) => {
+    searchSeq.current += 1;
+    setSearching(false);
     setHits(null);
     setFetchError(null);
     dispatch({ type: 'setTitle', title: hit });
@@ -138,12 +147,16 @@ export function ReleaseStep({ api, state, dispatch }: ReleaseStepProps) {
     e.preventDefault();
     const text = toshoQuery.trim();
     if (text === '') return;
+    const seq = ++toshoSeq.current;
     setToshoError(null);
     try {
-      setToshoHits(await api.searchTosho(text));
+      const found = await api.searchTosho(text);
+      if (seq === toshoSeq.current) setToshoHits(found);
     } catch (err) {
-      setToshoHits(null);
-      setToshoError(errorText(err));
+      if (seq === toshoSeq.current) {
+        setToshoHits(null);
+        setToshoError(errorText(err));
+      }
     }
   };
 

@@ -65,7 +65,10 @@ export interface HelperState {
 export type HelperAction =
   /** Moves to a step, when `canEnter` allows it. */
   | { readonly type: 'goTo'; readonly step: Step }
-  /** Picks the show; a different show drops the release, the match, the choices and the timings. */
+  /**
+   * Picks the show (null clears it). A different show drops a release that came from the old show's SeaDex list,
+   * with its match, choices and timings; a release from an Anime Tosho search or the user's own files is kept.
+   */
   | { readonly type: 'setTitle'; readonly title: TitleHit | null }
   /** Sets the episode offset; the caller fetches the release again at the new offset and sends `setRelease`. */
   | { readonly type: 'setOffset'; readonly offset: number }
@@ -157,7 +160,7 @@ function apply(state: HelperState, action: HelperAction): HelperState {
     case 'saved':
       return { ...state, dirty: false };
     case 'setTitle':
-      if (action.title?.alId === state.title?.alId) return { ...state, title: action.title };
+      if (action.title?.alId === state.title?.alId || state.releaseSource !== 'seadex') return { ...state, title: action.title };
       return { ...state, title: action.title, release: null, releaseSource: null, match: [], choices: {}, timing: {} };
     case 'setOffset':
       return { ...state, episodeOffset: action.offset };
