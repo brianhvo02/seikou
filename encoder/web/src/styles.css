@@ -308,3 +308,188 @@ button:disabled {
     flex: 1;
   }
 }
+
+/* step 1: show, release and fetched summary, one column of quiet blocks */
+.release-step .block {
+  margin-bottom: 28px;
+}
+
+.release-step .block h2 {
+  font-size: 17px;
+}
+
+.search {
+  display: flex;
+  gap: 8px;
+  max-width: 38rem;
+}
+
+input[type='search'],
+input[type='number'] {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+}
+
+input[type='search'] {
+  flex: 1;
+  min-width: 0;
+}
+
+input[type='number'] {
+  width: 6rem;
+}
+
+input::placeholder {
+  color: var(--dim);
+}
+
+.problem {
+  margin-top: 8px;
+}
+
+.results,
+.releases,
+.per-episode {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  max-width: 38rem;
+}
+
+/* a show: cover beside its names, as a row to pick or, once picked, a line with Change */
+.show-row,
+.picked-show {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+}
+
+.show-row {
+  padding: 8px 10px 8px 8px;
+  border: 0;
+  border-top: 1px solid var(--rule);
+  background: none;
+  cursor: pointer;
+}
+
+.show-row:hover {
+  background: var(--panel);
+}
+
+.picked-show {
+  max-width: 38rem;
+  padding: 8px 0;
+}
+
+.picked-show .show-text {
+  flex: 1;
+}
+
+.cover {
+  flex: none;
+  width: 44px;
+  height: 62px;
+  border-radius: 3px;
+  object-fit: cover;
+  background: var(--panel);
+}
+
+.show-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.show-title {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.show-native {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.notes {
+  white-space: pre-line;
+  margin-bottom: 8px;
+}
+
+.seadex-link {
+  color: var(--accent);
+}
+
+/* releases: the chosen one carries the accent */
+.release-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 0;
+  border-left: 3px solid transparent;
+  border-top: 1px solid var(--rule);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.release-row:hover:not(:disabled) {
+  background: var(--panel);
+}
+
+.release-row[aria-pressed='true'] {
+  border-left-color: var(--accent);
+  background: var(--panel);
+}
+
+.release-group {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.offset {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+}
+
+.own-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 16px;
+  font-weight: 560;
+}
+
+.own-files input {
+  font-weight: 400;
+  color: var(--muted);
+  max-width: 100%;
+}
+
+.per-episode li {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-top: 1px solid var(--rule);
+}
+
+.fetched {
+  border-left: 3px solid var(--accent);
+  padding-left: 12px;
+}
+
+.step-next {
+  margin-top: 8px;
+}

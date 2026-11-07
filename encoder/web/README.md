@@ -19,6 +19,7 @@ The page the user works in to choose fansub subtitles for a disc's episodes befo
 - `helper-model.ts`: `HelperState`, `HelperAction`, `initialState`, `reduce`, `canEnter`, `toRecord`, `fromRecord`.
 - `metadata/metadata-model.ts`: `MetadataDraft`, `defaultMetadata`, `languageCode`, `languageName`, `defaultTrackName`, `defaultTitle`, `defaultTrack`.
 - `App({ api })`: the page shell; `StepBar` the three steps.
+- `ReleaseStep({ api, state, dispatch })` in `steps/`: step 1. AniList search (only on submit), the picked show, the episode offset, SeaDex releases for that show (asked only once a show is picked), an Anime Tosho search and the user's own files; `releaseSummary` in `release-model.ts` counts what a fetched release holds.
 
 ## Building and running
 
@@ -36,6 +37,7 @@ Dark only. One typeface, Instrument Sans (its width axis condenses the disc's na
 - `main.tsx`: the entry point, reading the token.
 - `App.tsx`: the header, step bar, Details sheet, save, and the step on screen.
 - `StepBar.tsx`: the steps.
+- `steps/ReleaseStep.tsx`, `steps/release-model.ts`: step 1 and its pure helpers.
 - `api.ts`, `api-types.ts`: the client and the wire shapes.
 - `helper-model.ts`: state, reducer, record conversion.
 - `metadata/metadata-model.ts`: the metadata draft and its defaults.

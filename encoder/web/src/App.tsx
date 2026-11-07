@@ -5,6 +5,7 @@ import type { EpisodesAnswer, SessionInfo } from './api-types';
 import { canEnter, initialState, reduce, toRecord, type HelperAction, type HelperState, type Step } from './helper-model';
 import { defaultMetadata } from './metadata/metadata-model';
 import { STEP_NAMES, StepBar } from './StepBar';
+import { ReleaseStep } from './steps/ReleaseStep';
 
 /** What the page needs: the backend client, made by the entry point from the run's token. */
 export interface AppProps {
@@ -162,6 +163,8 @@ export function App({ api }: AppProps) {
           <p className="error" role="alert">
             The helper could not load this disc. {loadError}
           </p>
+        ) : state.step === 1 && loaded ? (
+          <ReleaseStep api={api} state={state} dispatch={dispatch} />
         ) : (
           <section aria-labelledby="step-heading">
             <h2 id="step-heading">{STEP_NAMES[state.step]}</h2>
