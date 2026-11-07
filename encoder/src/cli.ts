@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
+import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import { statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -6,14 +9,22 @@ import { listPlaylists, loadPlaylist } from './disc/playlist';
 import { encodeEpisodes } from './encode';
 import { ChainError } from './pipeline/chain';
 import { EpisodeSpecError, parseEpisodeSpec } from './plan/episodes';
+import { startHelperServer } from './server/server';
+import { createSources } from './server/sources';
+import { appDataDir } from './subs/app-data';
 import { findTools, ToolsError } from './tools';
+import type { ToolPaths } from './pipeline/chain';
 
 class UsageError extends Error {}
+
+/** Thrown by `serve` when the helper page has not been built; the command line answers it with exit code 3. */
+class WebDirMissingError extends Error {}
 
 const USAGE = `Usage:
   seikou-encode plan <disc> [--playlist ID]
   seikou-encode encode <disc> --playlist ID --episodes SPEC --out DIR
-      [--name PATTERN] [--crf N] [--preset N] [--svt-args "..."] [--opus-bitrate N] [--title T]`;
+      [--name PATTERN] [--crf N] [--preset N] [--svt-args "..."] [--opus-bitrate N] [--title T] [--cache DIR]
+  seikou-encode serve <disc> --playlist ID --episodes SPEC [--port N] [--no-open]`;
 
 const pad = (n: number, w: number): string => String(n).padStart(w, '0');
 
@@ -35,6 +46,79 @@ function intOption(value: string, name: string): number {
   return n;
 }
 
+/**
+ * The folder BestSource keeps its index files in: `cache` (the `--cache` option) resolved against the working
+ * directory, else `bestsource` under the app data directory (see `appDataDir`), which `serve` shares so an encode
+ * reuses the index the line-up built.
+ */
+export function bestsourceCacheDir(cache: string | undefined, env: NodeJS.ProcessEnv = process.env): string {
+  return cache === undefined ? join(appDataDir(env), 'bestsource') : resolve(cache);
+}
+
+/** The built helper page: `SEIKOU_ENCODE_WEB_DIR` when set, else `web/dist` beside `src/`. */
+function helperWebDir(env: NodeJS.ProcessEnv): string {
+  return env.SEIKOU_ENCODE_WEB_DIR ? resolve(env.SEIKOU_ENCODE_WEB_DIR) : fileURLToPath(new URL('../web/dist', import.meta.url));
+}
+
+/** Asks the desktop to open `url` in the default browser; a failure to do so is ignored, the URL is printed anyway. */
+function openInBrowser(url: string): void {
+  const opener = process.platform === 'darwin' ? 'open' : 'xdg-open';
+  const child = spawn(opener, [url], { stdio: 'ignore', detached: true });
+  child.on('error', () => undefined);
+  child.unref();
+}
+
+/** Resolves when the process is asked to stop (SIGINT or SIGTERM). */
+function untilStopped(): Promise<void> {
+  return new Promise((done) => {
+    process.once('SIGINT', done);
+    process.once('SIGTERM', done);
+  });
+}
+
+async function serve(
+  disc: string,
+  playlistId: string,
+  episodes: string,
+  port: number,
+  open: boolean,
+): Promise<void> {
+  const discDir = resolve(disc);
+  // A bad episode spec is a usage error whether or not the page is built.
+  const playlist = await loadPlaylist(discDir, playlistId);
+  parseEpisodeSpec(episodes, playlist.chapters.length);
+  const webDir = helperWebDir(process.env);
+  if (statSync(join(webDir, 'index.html'), { throwIfNoEntry: false })?.isFile() !== true) {
+    throw new WebDirMissingError(`The helper page is not built (no index.html in ${webDir}); run npm run encoder:web:build first`);
+  }
+  let tools: ToolPaths | null = null;
+  try {
+    tools = findTools();
+  } catch (err) {
+    if (!(err instanceof ToolsError)) throw err;
+    console.log(`Alignment is unavailable: ${err.message.split('\n')[0]}`);
+  }
+  const token = randomBytes(32).toString('hex');
+  const server = await startHelperServer(
+    {
+      discDir,
+      playlistId,
+      episodeSpec: episodes,
+      dataDir: appDataDir(),
+      token,
+      webDir,
+      tools,
+      sources: createSources(process.env, fetch),
+    },
+    port,
+  );
+  const url = `${server.url}?t=${token}`;
+  console.log(`Helper: ${url}`);
+  if (open) openInBrowser(url);
+  await untilStopped();
+  await server.close();
+}
+
 async function run(argv: string[]): Promise<void> {
   const { values, positionals } = parseArgs({
     args: argv,
@@ -49,6 +133,9 @@ async function run(argv: string[]): Promise<void> {
       'svt-args': { type: 'string' },
       'opus-bitrate': { type: 'string' },
       title: { type: 'string' },
+      cache: { type: 'string' },
+      port: { type: 'string' },
+      'no-open': { type: 'boolean' },
     },
   });
   const [command, disc] = positionals;
@@ -74,7 +161,7 @@ async function run(argv: string[]): Promise<void> {
     if (values.episodes === undefined) throw new UsageError('--episodes is required');
     if (values.out === undefined) throw new UsageError('--out is required');
     const outDir = resolve(values.out);
-    const cacheDir = join(outDir, '.cache', 'bestsource');
+    const cacheDir = bestsourceCacheDir(values.cache);
     const opusBitrate =
       values['opus-bitrate'] === undefined ? undefined : intOption(values['opus-bitrate'], 'opus-bitrate');
     const crf = values.crf === undefined ? 25 : intOption(values.crf, 'crf');
@@ -107,12 +194,20 @@ async function run(argv: string[]): Promise<void> {
     return;
   }
 
+  if (command === 'serve') {
+    if (values.playlist === undefined) throw new UsageError('--playlist is required');
+    if (values.episodes === undefined) throw new UsageError('--episodes is required');
+    const port = values.port === undefined ? 0 : intOption(values.port, 'port');
+    await serve(disc, values.playlist, values.episodes, port, values['no-open'] !== true);
+    return;
+  }
+
   throw new UsageError(`unknown command "${command ?? ''}"`);
 }
 
 /**
  * Runs the command line and returns the process exit code: 0 success, 1 encode failure, 2 usage
- * error or bad episode list, 3 required tools missing. Output goes to stdout and stderr; nothing
+ * error or bad episode list, 3 required tools missing (or, for `serve`, the helper page not built). Output goes to stdout and stderr; nothing
  * is thrown.
  */
 export async function main(argv: string[]): Promise<number> {
@@ -127,6 +222,10 @@ export async function main(argv: string[]): Promise<number> {
     if (err instanceof EpisodeSpecError) {
       console.error(err.message);
       return 2;
+    }
+    if (err instanceof WebDirMissingError) {
+      console.error(err.message);
+      return 3;
     }
     if (err instanceof ToolsError) {
       console.error(err.message);
