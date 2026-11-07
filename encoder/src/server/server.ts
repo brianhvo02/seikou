@@ -8,6 +8,7 @@ import { alignRoutes } from './align-routes';
 import { discRoutes, prepareDisc } from './disc-routes';
 import { fansubRoutes } from './fansub-routes';
 import { httpError, sendFile, type HelperContext, type RouteTable } from './http';
+import { recordRoutes } from './record-routes';
 import { titleRoutes } from './title-routes';
 
 export type { HelperContext, HelperSources, Route, RouteTable } from './http';
@@ -18,7 +19,7 @@ export type { HelperContext, HelperSources, Route, RouteTable } from './http';
 // 127.0.0.1 (DNS rebinding) from reading the answers.
 
 /** Every route the API answers, in match order. */
-const ROUTES: RouteTable = [...discRoutes, ...titleRoutes, ...fansubRoutes, ...alignRoutes];
+const ROUTES: RouteTable = [...discRoutes, ...titleRoutes, ...fansubRoutes, ...alignRoutes, ...recordRoutes];
 
 /**
  * Cross-origin isolation on every answer: the page needs SharedArrayBuffer for the engine, and the API's answers are
