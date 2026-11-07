@@ -4,8 +4,9 @@
  * by hand. Original code.
  */
 import type { FansubAlignment } from '@seikou/nas/nas-api';
-import type { LevelDiscSource } from '../levels/level-discs';
+import type { AudioDecoder } from './audio-decoder';
 import { dialogueIntervals } from './dialogue';
+import type { FansubDiscSource } from './disc-source';
 import { episodeAudio, windowsFor, type AudioWindow, type TimeWindow } from './disc-audio';
 import { speechMask } from './speech';
 
@@ -421,19 +422,19 @@ const describeSpan = (spans: readonly TimeWindow[] | 'whole'): string =>
   spans === 'whole' ? 'the whole episode' : spans.map((s) => `${s.fromMs}-${s.toMs} ms`).join(', ');
 
 /**
- * The windows' audio, or null (logged) when they could not be read. An abort rejects, and so does an ffmpeg that can't
+ * The windows' audio, or null (logged) when they could not be read. An abort rejects, and so does a decoder that can't
  * be started: that is no bad window but a broken setup, which would otherwise read as `low-confidence` on every episode.
  */
 async function read(
-  disc: LevelDiscSource,
+  disc: FansubDiscSource,
   playlistId: string,
   spans: readonly TimeWindow[] | 'whole',
-  ffmpegPath: string,
+  decode: AudioDecoder,
   log: (message: string) => void,
   signal?: AbortSignal,
 ): Promise<AudioWindow | null> {
   try {
-    const [w] = await episodeAudio(disc, playlistId, spans, ffmpegPath, signal);
+    const [w] = await episodeAudio(disc, playlistId, spans, decode, signal);
     return w ?? null;
   } catch (err) {
     if (signal?.aborted) throw err;
@@ -459,11 +460,11 @@ function usable(w: Masked, dialogue: readonly Span[]): boolean {
  * A window that can't be read, or whose speech mask went quiet, is skipped; too few left is `low-confidence`.
  */
 export async function align(
-  disc: LevelDiscSource,
+  disc: FansubDiscSource,
   playlistId: string,
   durationMs: number,
   ass: string,
-  ffmpegPath: string,
+  decode: AudioDecoder,
   signal?: AbortSignal,
   options: AlignOptions = {},
 ): Promise<FansubAlignment> {
@@ -474,7 +475,7 @@ export async function align(
   const log = options.log ?? ((message: string) => console.warn(message));
 
   if (spans.length === 1 && spans[0]!.fromMs <= 0 && spans[0]!.toMs >= durationMs) {
-    const whole = await read(disc, playlistId, 'whole', ffmpegPath, log, signal);
+    const whole = await read(disc, playlistId, 'whole', decode, log, signal);
     if (!whole) return LOW;
     if (!usable(masked(whole), dialogue)) {
       log(`fansub align: playlist ${playlistId}: the whole episode's speech mask is quiet under the dialogue`);
@@ -487,7 +488,7 @@ export async function align(
 
   const windows: Masked[] = [];
   for (const span of spans) {
-    const w = await read(disc, playlistId, [span], ffmpegPath, log, signal);
+    const w = await read(disc, playlistId, [span], decode, log, signal);
     if (!w) continue;
     const m = masked(w);
     if (usable(m, dialogue)) windows.push(m);
@@ -496,7 +497,7 @@ export async function align(
   if (windows.length < Math.min(MIN_USABLE_WINDOWS, spans.length)) return LOW;
   const sampled = windowsAligned(windows, dialogue, 60_000);
   if (sampled.agree) return sampled.reliable.length ? agreedVerdict(sampled.curves, sampled.mid) : LOW;
-  const whole = await read(disc, playlistId, 'whole', ffmpegPath, log, signal);
+  const whole = await read(disc, playlistId, 'whole', decode, log, signal);
   if (!whole) return LOW;
   return alignWhole({ windows: [whole], dialogue }, sampled.perWindow);
 }

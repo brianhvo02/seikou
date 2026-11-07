@@ -1,5 +1,6 @@
 /** Anime Tosho's xz tracks and 7z font packs, unpacked with 7-Zip's WASM build (no native code). Original code. */
 import { readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import SevenZip from '7z-wasm/7zz.es6.js';
 import type { SevenZipModule } from '7z-wasm';
 
@@ -24,9 +25,10 @@ export const ARCHIVE_MODULE = { recycleBytes: 32 * 1024 * 1024, loads: 0 };
 
 /** The WASM sits next to the bundle (`dist/7zz.wasm`); unbundled (tests, tsx) it is in node_modules. */
 async function loadWasm(): Promise<Buffer> {
-  for (const url of [new URL('./7zz.wasm', import.meta.url), new URL('../../../node_modules/7z-wasm/7zz.wasm', import.meta.url)]) {
+  const places = [(): URL | string => new URL('./7zz.wasm', import.meta.url), (): string => createRequire(import.meta.url).resolve('7z-wasm/7zz.wasm')];
+  for (const place of places) {
     try {
-      return await readFile(url);
+      return await readFile(place());
     } catch {
       // try the next place
     }

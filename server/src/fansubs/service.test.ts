@@ -11,12 +11,13 @@ import { folderDiscSource } from '../levels/level-discs';
 import { FANSUB_LIMIT_BYTES, SubtitleStore } from '../subtitle-store';
 import type { Catalogue } from '@seikou/titles/catalogue';
 import { SourceUnavailable } from '@seikou/titles/sources';
-import { FetchCache } from './fetch-cache';
+import { FetchCache } from '@seikou/fansubs/fetch-cache';
+import { ffmpegAudioDecoder } from './ffmpeg-decoder';
 import { fixtureFansubSources } from './fixture-sources';
-import type { SeaDexEntry } from './seadex';
+import type { SeaDexEntry } from '@seikou/fansubs/seadex';
 import { FansubService } from './service';
 import { FansubState } from './state';
-import type { Tosho, ToshoRelease } from './tosho';
+import type { Tosho, ToshoRelease } from '@seikou/fansubs/tosho';
 
 const hasAc3 = spawnSync('ffmpeg', ['-hide_banner', '-decoders'], { encoding: 'utf8' }).stdout?.includes(' ac3 ') ?? false;
 /** CI installs ffmpeg: there, a missing AC-3 decoder fails these tests instead of skipping them. */
@@ -180,7 +181,7 @@ function setup(over: { tosho?: (t: Tosho) => Tosho; titles?: readonly string[]; 
     discKey: (id) => `d.${id}`,
     // Without a duration nothing is lined up: the tests that don't look at the alignment skip ffmpeg.
     durationMs: () => (over.align ? 150_000 : null),
-    ffmpegPath: 'ffmpeg', activity, encoding: () => false, now, log: over.log ?? (() => {}),
+    decoder: ffmpegAudioDecoder('ffmpeg'), activity, encoding: () => false, now, log: over.log ?? (() => {}),
     ...(over.realSleep ? {} : { sleep: over.sleep ?? (async (ms: number) => { sleeps.push(ms); clock.t += ms; }) }),
     ...(over.windowEnd ? { windowEnd: over.windowEnd } : {}),
   });

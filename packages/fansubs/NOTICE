@@ -1,0 +1,6 @@
+@seikou/fansubs
+Copyright (C) the Seikou authors.
+Licensed under LGPL-2.1-or-later; see LICENSE.
+
+All files in this package are original Seikou code, not ports of other projects.
+It uses 7-Zip's WebAssembly build through the 7z-wasm npm package (not bundled in this package).

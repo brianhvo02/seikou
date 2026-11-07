@@ -1,9 +1,10 @@
-/** Regenerates track.ass.xz and pack.7z with 7z-wasm (`npx tsx server/src/fansubs/__fixtures__/make-fixtures.ts`). */
+/** Regenerates track.ass.xz and pack.7z with 7z-wasm (`npx tsx packages/fansubs/src/__fixtures__/make-fixtures.ts`). */
 import { readFileSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import SevenZip from '7z-wasm';
 
 const here = new URL('./', import.meta.url);
-const wasmBinary = readFileSync(new URL('../../../../node_modules/7z-wasm/7zz.wasm', import.meta.url));
+const wasmBinary = readFileSync(createRequire(import.meta.url).resolve('7z-wasm/7zz.wasm'));
 
 const ASS = `[Script Info]
 Title: Starfall Wanderer 01
@@ -28,5 +29,5 @@ async function make(name: string, files: Record<string, Uint8Array>, args: strin
 await make('track.ass.xz', { 'track.ass': Buffer.from(ASS) }, ['-txz']);
 await make('pack.7z', {
   'track.ass': Buffer.from(ASS),
-  'Default.ttf': readFileSync(new URL('../../../../packages/ass/src/default-font.ttf', import.meta.url)),
+  'Default.ttf': readFileSync(createRequire(import.meta.url).resolve('@seikou/ass/default-font.ttf')),
 }, ['-t7z']);

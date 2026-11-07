@@ -14,13 +14,14 @@ import { Auth } from '../auth';
 import { BdjStore } from '../bdj-store';
 import { DiscActivity } from '../disc-activity';
 import { libraryFansubDiscs } from '../fansubs/disc-lookup';
-import { FetchCache } from '../fansubs/fetch-cache';
+import { FetchCache } from '@seikou/fansubs/fetch-cache';
+import { ffmpegAudioDecoder } from '../fansubs/ffmpeg-decoder';
 import { fixtureFansubSources } from '../fansubs/fixture-sources';
 import { FansubPicks } from '../fansubs/picks';
-import type { SeaDexEntry } from '../fansubs/seadex';
+import type { SeaDexEntry } from '@seikou/fansubs/seadex';
 import { FansubService } from '../fansubs/service';
 import { FansubState } from '../fansubs/state';
-import type { ToshoRelease } from '../fansubs/tosho';
+import type { ToshoRelease } from '@seikou/fansubs/tosho';
 import { createServer } from '../http';
 import { folderDiscSource } from '../levels/level-discs';
 import type { Library } from '../library';
@@ -159,9 +160,9 @@ beforeEach(async () => {
     store, state, seadex, tosho: held, cache, titles: { catalogue: () => catalogue }, discs, discKey: lookup.discKey,
     // runs here line nothing up (no ffmpeg); the picks do, through the library's playlists
     durationMs: () => null,
-    ffmpegPath: 'ffmpeg', activity: new DiscActivity(), encoding: () => false, log: () => {},
+    decoder: ffmpegAudioDecoder('ffmpeg'), activity: new DiscActivity(), encoding: () => false, log: () => {},
   });
-  const picks = new FansubPicks({ dataDir: data, tosho, cache, discs, lookup, ffmpegPath: 'ffmpeg', log: () => {} });
+  const picks = new FansubPicks({ dataDir: data, tosho, cache, discs, lookup, decoder: ffmpegAudioDecoder('ffmpeg'), log: () => {} });
   const server = createServer(appHandlers({
     auth, library, bdjStore: new BdjStore(data), subtitleStore: store, publicBase: 'https://nas.example/bluray/api/', titles,
     fansubs: { service, state, seadex, tosho, picks, lookup },

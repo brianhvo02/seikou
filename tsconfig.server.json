@@ -15,5 +15,5 @@
     "noFallthroughCasesInSwitch": true,
     "types": ["node"]
   },
-  "include": ["server/src"]
+  "include": ["server/src", "packages/fansubs/src/7z-wasm-es6.d.ts"]
 }

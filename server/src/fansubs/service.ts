@@ -8,25 +8,26 @@ import type {
   FansubAlignment, FansubEpisodeMark, FansubSeasonLine, FansubSource, FansubTitleState, StoredSubtitle, SubtitleAttachment,
 } from '@seikou/nas/nas-api';
 import type { DiscActivity } from '../disc-activity';
+import type { AudioDecoder } from '@seikou/fansubs/audio-decoder';
 import type { LevelDiscSource } from '../levels/level-discs';
 import type { SubtitleStore } from '../subtitle-store';
 import { TooLargeError } from '../subtitle-store';
 import type { Catalogue } from '@seikou/titles/catalogue';
 import { RateLimited } from '@seikou/titles/pacer';
 import { SourceUnavailable } from '@seikou/titles/sources';
-import { align } from './align';
-import { fontsIn7z, TooLargeArchive } from './archive';
-import { choosePerEpisode, languageTag, rankReleases } from './choose';
-import type { Candidate, EpisodeChoice } from './choose';
-import { dialogueIntervals } from './dialogue';
-import { retime } from './retime';
-import { episodeOfFile, mainFile, seasonEpisode } from './episode-files';
-import type { FetchCache } from './fetch-cache';
-import type { SeaDex, SeaDexRelease } from './seadex';
+import { align } from '@seikou/fansubs/align';
+import { fontsIn7z, TooLargeArchive } from '@seikou/fansubs/archive';
+import { choosePerEpisode, languageTag, rankReleases } from '@seikou/fansubs/choose';
+import type { Candidate, EpisodeChoice } from '@seikou/fansubs/choose';
+import { dialogueIntervals } from '@seikou/fansubs/dialogue';
+import { retime } from '@seikou/fansubs/retime';
+import { episodeOfFile, mainFile, seasonEpisode } from '@seikou/fansubs/episode-files';
+import type { FetchCache } from '@seikou/fansubs/fetch-cache';
+import type { SeaDex, SeaDexRelease } from '@seikou/fansubs/seadex';
 import type { FansubState } from './state';
-import { NotFoundOnTosho, PACK_DOWNLOAD_BYTES } from './tosho';
-import type { Tosho, ToshoFile, ToshoRelease, ToshoTrack } from './tosho';
-import { fetchTrack, languageName, mostDialogue } from './tracks';
+import { NotFoundOnTosho, PACK_DOWNLOAD_BYTES } from '@seikou/fansubs/tosho';
+import type { Tosho, ToshoFile, ToshoRelease, ToshoTrack } from '@seikou/fansubs/tosho';
+import { fetchTrack, languageName, mostDialogue } from '@seikou/fansubs/tracks';
 import { titleUnits } from './units';
 import type { Unit, UnitEpisode } from './units';
 
@@ -45,7 +46,7 @@ export interface FansubServiceOptions {
   readonly discs: (discId: string) => Promise<LevelDiscSource | null>;
   readonly discKey: (discId: string) => string | null;
   readonly durationMs: (discId: string, playlistId: string) => number | null;
-  readonly ffmpegPath: string;
+  readonly decoder: AudioDecoder;
   readonly activity: DiscActivity;
   /** A quality level is encoding. */
   readonly encoding: () => boolean;
@@ -237,7 +238,7 @@ export class FansubService {
       const n = dialogueIntervals(text).length;
       if (n > most) { base = text; most = n; }
     }
-    const alignment = await align(disc, target.playlistId, duration, base, this.opts.ffmpegPath, undefined, { log: this.log });
+    const alignment = await align(disc, target.playlistId, duration, base, this.opts.decoder, undefined, { log: this.log });
     const source: FansubSource = { ...s.source, alignment, linedUpOn: { discKey: target.discKey, playlistId: target.playlistId } };
     const replaced = this.opts.store.replaceFile(subtitleId, Buffer.from(retime(readFileSync(original, 'utf8'), alignment)), source);
     if (!replaced) return null;
@@ -575,7 +576,7 @@ export class FansubService {
     const disc = await this.opts.discs(ep.discId);
     const duration = this.opts.durationMs(ep.discId, ep.playlistId);
     const alignment = disc && duration !== null
-      ? await align(disc, ep.playlistId, duration, main.text, this.opts.ffmpegPath, signal, { log: this.log })
+      ? await align(disc, ep.playlistId, duration, main.text, this.opts.decoder, signal, { log: this.log })
       : UNSURE;
     signal.throwIfAborted();
 

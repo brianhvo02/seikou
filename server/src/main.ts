@@ -11,15 +11,16 @@ import { loadConfig } from './config';
 import type { Config } from './config';
 import { DiscActivity } from './disc-activity';
 import { libraryFansubDiscs } from './fansubs/disc-lookup';
-import { FetchCache } from './fansubs/fetch-cache';
+import { ffmpegAudioDecoder } from './fansubs/ffmpeg-decoder';
+import { FetchCache } from '@seikou/fansubs/fetch-cache';
 import { fixtureFansubSources } from './fansubs/fixture-sources';
 import { FansubPicks } from './fansubs/picks';
-import { createSeaDex } from './fansubs/seadex';
-import type { SeaDex } from './fansubs/seadex';
+import { createSeaDex } from '@seikou/fansubs/seadex';
+import type { SeaDex } from '@seikou/fansubs/seadex';
 import { FansubService } from './fansubs/service';
 import { FansubState } from './fansubs/state';
-import { createTosho } from './fansubs/tosho';
-import type { Tosho } from './fansubs/tosho';
+import { createTosho } from '@seikou/fansubs/tosho';
+import type { Tosho } from '@seikou/fansubs/tosho';
 import { createServer } from './http';
 import type { Handler } from './http';
 import { IsoTrees } from './iso';
@@ -229,12 +230,12 @@ async function serve(config: Config): Promise<void> {
   const fansubCache = new FetchCache(join(config.dataDir, 'fansubs', 'cache'), config.fansubs.cacheBytes);
   const discs = libraryDiscSources(library, isoTrees);
   const lookup = libraryFansubDiscs(library);
-  const { ffmpegPath } = config.levels;
+  const decoder = ffmpegAudioDecoder(config.levels.ffmpegPath);
   const fansubs = new FansubService({
     store: subtitleStore, state: fansubState, seadex, tosho, cache: fansubCache, titles, discs, discKey: lookup.discKey, durationMs: lookup.durationMs,
-    ffmpegPath, activity, encoding: () => (levels?.encodingNow().length ?? 0) > 0, windowEnd: config.fansubs.windowEnd, log: console.log,
+    decoder, activity, encoding: () => (levels?.encodingNow().length ?? 0) > 0, windowEnd: config.fansubs.windowEnd, log: console.log,
   });
-  const picks = new FansubPicks({ dataDir: config.dataDir, tosho, cache: fansubCache, discs, lookup, ffmpegPath, maxBytes: config.fansubs.picksBytes, log: console.log });
+  const picks = new FansubPicks({ dataDir: config.dataDir, tosho, cache: fansubCache, discs, lookup, decoder, maxBytes: config.fansubs.picksBytes, log: console.log });
   // After a scan the titles are matched first, so the nightly fansub pass sees the discs filed. `FANSUB_NIGHTLY=off`
   // (only the E2E stand-in sets it) keeps the pass from attaching tracks to the fixture series while tests run at night.
   const nightly = process.env.FANSUB_NIGHTLY !== 'off';
