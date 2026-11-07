@@ -80,3 +80,14 @@ export function buildAudioScript(plan: EpisodePlan, opts: VpyOptions): string {
   lines.push(...JOIN, 'clip.set_output(0)', '');
   return lines.join('\n');
 }
+
+/**
+ * The VapourSynth script whose audio subtitle alignment listens to: the episode's audio exactly as
+ * `buildAudioScript` cuts, joins and pads it for the encode, so a subtitle timed against it is timed
+ * against the encoded file. Nothing is converted in VapourSynth (it has no audio resampler); the
+ * caller downmixes and decimates the WAV itself. A function of its own so the encode's script can
+ * gain a conversion later without changing what alignment hears. Throws as `buildAudioScript` does.
+ */
+export function buildSpeechAudioScript(plan: EpisodePlan, opts: VpyOptions): string {
+  return buildAudioScript(plan, opts);
+}

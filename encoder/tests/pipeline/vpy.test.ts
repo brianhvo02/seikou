@@ -10,7 +10,7 @@ import type { PlaylistItem } from '../../src/disc/playlist';
 import { probeClip } from '../../src/disc/probe';
 import { parseEpisodeSpec, planEpisodes } from '../../src/plan/episodes';
 import type { EpisodePlan, Segment } from '../../src/plan/episodes';
-import { buildAudioScript, buildVideoScript } from '../../src/pipeline/vpy';
+import { buildAudioScript, buildSpeechAudioScript, buildVideoScript } from '../../src/pipeline/vpy';
 import { haveTools, toolPaths } from '../helpers/tools';
 import { fx } from '../paths';
 
@@ -50,6 +50,14 @@ describe('vpy script generation', () => {
         'if c.num_samples < 192000: c = c + core.std.BlankAudio(clip=c, length=192000 - c.num_samples)',
         'parts.append(c[96000:192000])',
       ].join('\n'));
+  });
+
+  it('emits the same audio for alignment as for the encode, without a format conversion', () => {
+    const plan = planWithSegments([['/d/00001.m2ts', [0, 96], [0, 96000]], ['/d/00002.m2ts', [0, 48], [10, 48010]]]);
+    const s = buildSpeechAudioScript(plan, { cacheDir: '/c' });
+    expect(s).toBe(buildAudioScript(plan, { cacheDir: '/c' }));
+    expect(s).not.toMatch(/resample|AudioConvert|format=/i);
+    expect(() => buildSpeechAudioScript(plan, { cacheDir: "/c'" })).toThrow(Error);
   });
 
   it('rejects paths a raw string cannot hold', () => {

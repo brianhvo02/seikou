@@ -45,6 +45,9 @@ Each area of `encoder/src/` has a README with its concepts, its API and where to
 - [`src/plan/`](src/plan/README.md): chapter ranges to frame and sample cuts.
 - [`src/pipeline/`](src/pipeline/README.md): VapourSynth scripts and the vspipe-to-encoder chains.
 - [`src/mux/`](src/mux/README.md): IVF and Ogg Opus readers and the Matroska writer.
+- [`src/audio/`](src/audio/README.md): an episode's audio as 16 kHz mono for subtitle alignment.
+
+The test discs are described in [`fixtures/README.md`](fixtures/README.md).
 
 Every export has a doc comment, and code that implements a format cites the specification section it follows; `npx vitest run --project encoder encoder/tests/docs.test.ts` checks the first rule and that no comment points at planning notes.
 

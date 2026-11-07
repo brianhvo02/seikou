@@ -11,7 +11,7 @@ The encoder never decodes or encodes in-process. It writes a small VapourSynth s
 
 ## API
 
-- `buildVideoScript(plan, { cacheDir })` and `buildAudioScript(plan, { cacheDir })` return script text.
+- `buildVideoScript(plan, { cacheDir })` and `buildAudioScript(plan, { cacheDir })` return script text. `buildSpeechAudioScript` returns the audio script that subtitle alignment decodes (see `audio/`): today the same as `buildAudioScript`, kept separate so a conversion added to the encode's audio does not change what alignment hears.
 - `videoChain(tools, scriptPath, svtArgs)` and `audioChain(tools, scriptPath, opusArgs)` return a `Chain`: `stream` (read it), `done` (await it for the outcome), `abort(reason)`.
 - `ToolPaths` names the three programs; `ChainError` is the failure type.
 
