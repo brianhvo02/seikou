@@ -10,6 +10,11 @@ it('maps Blu-ray rate and format codes', () => {
   expect(() => videoRate(5)).toThrow();
 });
 
+it('maps video format 5 to 720p and 7 to 576p, as libbluray does', () => {
+  expect(videoFormat(5)).toEqual({ width: 1280, height: 720, interlaced: false });
+  expect(videoFormat(7)).toEqual({ width: 720, height: 576, interlaced: false });
+});
+
 it('flags interlaced formats and rejects unknown codes', () => {
   expect(videoFormat(4)).toEqual({ width: 1920, height: 1080, interlaced: true });
   expect(videoFormat(1).interlaced).toBe(true);

@@ -20,9 +20,9 @@ const VIDEO_FORMATS: Readonly<Record<number, { width: number; height: number; in
   2: { width: 720, height: 576, interlaced: true },
   3: { width: 720, height: 480, interlaced: false },
   4: { width: 1920, height: 1080, interlaced: true },
-  5: { width: 720, height: 576, interlaced: false },
+  5: { width: 1280, height: 720, interlaced: false },
   6: { width: 1920, height: 1080, interlaced: false },
-  7: { width: 1280, height: 720, interlaced: false },
+  7: { width: 720, height: 576, interlaced: false },
   8: { width: 3840, height: 2160, interlaced: false },
 };
 
