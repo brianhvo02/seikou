@@ -11,7 +11,7 @@ import type { DiscManifest } from '@seikou/nas/nas-api';
 import { buildManifest, resolveDiscFile } from '../../../server/src/manifest';
 import { bdmvRoot, listPlaylists, loadPlaylist } from '../disc/playlist';
 import { probeClip, type ClipProbe } from '../disc/probe';
-import { EpisodeSpecError, parseEpisodeSpec, planEpisodes, type EpisodeSpec } from '../plan/episodes';
+import { EpisodeSpecError, parseEpisodeSpec, planEpisodes, type EpisodePlan, type EpisodeSpec } from '../plan/episodes';
 import { httpError, json, sendFile, type HelperContext, type Route, type RouteTable } from './http';
 
 // The disc half of the helper's API: the session, and the NAS disc API (manifest with inlined metadata, range reads)
@@ -66,13 +66,19 @@ interface DiscState {
   readonly key: string;
   readonly manifest: DiscManifest;
   /** The episode plan, worked out on first use (it reads the start of each clip). */
-  episodes: Promise<EpisodesAnswer> | null;
+  episodes: Promise<PlannedEpisodes> | null;
+}
+
+/** The episode plan as the encoder will cut it, and the answer of `GET /api/episodes` made from it. */
+interface PlannedEpisodes {
+  readonly plans: readonly EpisodePlan[];
+  readonly answer: EpisodesAnswer;
 }
 
 const states = new WeakMap<HelperContext, Promise<DiscState>>();
 
-/** A request the session cannot answer from the disc, as a 4xx with a code. */
-class DiscRequestError extends Error {
+/** A request the session cannot answer from the disc, as a 4xx with a code (`status`, `code`) to answer. */
+export class DiscRequestError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,
@@ -118,7 +124,7 @@ function usOf45(ticks45: number): number {
   return Math.round((ticks45 * 1_000_000) / 45_000);
 }
 
-async function planTimes(ctx: HelperContext, root: string): Promise<EpisodesAnswer> {
+async function planTimes(ctx: HelperContext, root: string): Promise<PlannedEpisodes> {
   const playlist = await loadPlaylist(root, ctx.playlistId);
   let specs: EpisodeSpec[];
   try {
@@ -149,7 +155,29 @@ async function planTimes(ctx: HelperContext, root: string): Promise<EpisodesAnsw
   const mpls = parseMpls(new Uint8Array(await readFile(join(bdmvRoot(root), 'PLAYLIST', `${ctx.playlistId}.mpls`))));
   const stn = mpls.playItems[0]!.stn;
   const audio = stn.audio.filter((e) => !e.subPath).map((e) => ({ pid: e.pid, codingType: e.codingType, language: e.lang }));
-  return { episodes, audio, pgCount: stn.pg.filter((e) => !e.subPath).length };
+  return { plans, answer: { episodes, audio, pgCount: stn.pg.filter((e) => !e.subPath).length } };
+}
+
+/** The run's episode plan, worked out once and shared by every route; a failure is tried again on the next call. */
+async function plannedEpisodes(ctx: HelperContext): Promise<PlannedEpisodes> {
+  const state = await stateOf(ctx);
+  if (!state.episodes) {
+    const planned = planTimes(ctx, state.root);
+    state.episodes = planned;
+    planned.catch(() => {
+      if (state.episodes === planned) state.episodes = null;
+    });
+  }
+  return state.episodes;
+}
+
+/**
+ * The encoder's plan of each episode of the run, in episode order (index 0 is episode 1), the same plan
+ * `GET /api/episodes` answers from. Rejects with `DiscRequestError` (422 `bad-episode-spec` or `no-audio`) when the
+ * episode list does not fit the playlist or the playlist has no audio.
+ */
+export async function episodePlans(ctx: HelperContext): Promise<readonly EpisodePlan[]> {
+  return (await plannedEpisodes(ctx)).plans;
 }
 
 /** The disc key capture of a disc route, or an answered 404 `disc-changed` when it names another disc. */
@@ -216,16 +244,8 @@ export const discRoutes: RouteTable = [
     'GET',
     /^\/api\/episodes$/,
     async (_req, res, _match, ctx) => {
-      const state = await stateOf(ctx);
-      if (!state.episodes) {
-        const planned = planTimes(ctx, state.root);
-        state.episodes = planned;
-        planned.catch(() => {
-          if (state.episodes === planned) state.episodes = null; // a failure is tried again on the next request
-        });
-      }
       try {
-        json(res, 200, await state.episodes);
+        json(res, 200, (await plannedEpisodes(ctx)).answer);
       } catch (e) {
         if (e instanceof DiscRequestError) return httpError(res, e.status, e.code, e.message);
         throw e;

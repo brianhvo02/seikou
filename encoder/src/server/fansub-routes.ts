@@ -26,8 +26,8 @@ const BATCH_PATTERN = /^[0-9a-f]{16}$/;
 
 const caches = new WeakMap<HelperContext, ReleaseCache>();
 
-/** The one `ReleaseCache` of this run, made on first use from the context's data directory and Anime Tosho source. */
-function releaseCacheOf(ctx: HelperContext): ReleaseCache {
+/** The one `ReleaseCache` of this run, made on first use from the context's data directory and Anime Tosho source; every route that reads releases shares it. */
+export function releaseCacheOf(ctx: HelperContext): ReleaseCache {
   let cache = caches.get(ctx);
   if (!cache) {
     const fetchCache = new FetchCache(join(ctx.dataDir, 'cache', 'fansubs'), FETCH_CACHE_BYTES);

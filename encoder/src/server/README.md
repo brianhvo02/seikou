@@ -41,7 +41,11 @@ The server listens on `127.0.0.1` only, so nothing else on the network can reach
 | POST | `/api/uploads/<batch>/commit?offset=` | the batch as a local release, answered as fetch is; the batch folder is removed; 422 `upload-rejected` or `bad-encoding` |
 | GET | `/api/releases/<key>?offset=` | a cached release plus `match`; 404 `not-found` |
 | GET | `/api/releases/<key>/fonts/<name>` | the font's bytes |
+| POST | `/api/episodes/<n>/align` | body `{ release, fileId }`; `{ alignment, trackId, speech, dialogue }`: the `FansubAlignment` found by lining the file's track with the most dialogue (`trackId`) up against episode n's disc audio, the disc's speech as `{ fromMs, toMs }` spans over the whole episode (runs under 200 ms apart joined), and the track's dialogue lines at its own timing; 503 `tools-missing` without vspipe and BestSource; 404 `not-found` for an unknown episode, release or file |
+| GET | `/api/episodes/<n>/subtitle?release=&file=&track=&timing=` | the track as `text/plain; charset=utf-8`, retimed with `timing` (base64url JSON of a `FansubAlignment`; absent is the track's own timing, byte for byte); 400 `bad-request` for a malformed timing |
 | GET, HEAD | anything else | a file of the page's folder (`/` is `index.html`), no token needed |
+
+Episodes are numbered from 1 in the run's episode list, and their times are milliseconds from the episode's first frame. Lining up decodes the episode's audio through vspipe once (BestSource keeps its index under `<data>/bestsource`, where the encode finds it too) and keeps the last two decodes; decodes run one at a time, and a client that goes away stops a decode no other request waits for. Track ids repeat between a release's files, so the subtitle route names the file as well as the track.
 
 There is no automatic lookup of the show from the disc: the AniList id is whatever the user searched for and picked. A failing or throttled upstream answers 503 `source-unavailable` with the failing `source` (`anilist`, `seadex` or `tosho`); an Anime Tosho release that does not exist answers 404 `not-on-tosho`. Uploads wait in `<data>/uploads/<batch>/` until commit.
 
@@ -53,5 +57,6 @@ A `<discKey>` other than the run's answers 404 `disc-changed`, which the engine 
 - `http.ts`: the context and route types and the answer helpers.
 - `disc-routes.ts`: the session, the NAS disc API, playlists and episode times.
 - `title-routes.ts`: the AniList search and episode titles.
-- `fansub-routes.ts`: SeaDex, Anime Tosho, uploads and cached releases (one `ReleaseCache` per run, kept beside the context).
+- `fansub-routes.ts`: SeaDex, Anime Tosho, uploads and cached releases (one `ReleaseCache` per run, kept beside the context, `releaseCacheOf`).
+- `align-routes.ts`: lining an episode up against the disc's audio, and the retimed track. The episode plan comes from `episodePlans` in `disc-routes.ts`, the same one `GET /api/episodes` answers from.
 - Tests: `encoder/tests/server/`.

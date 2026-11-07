@@ -165,10 +165,19 @@ describe.skipIf(!haveTools)('decodeEpisodeAudio16k with vspipe and BestSource', 
       ...plan,
       segments: plan.segments.map((s) => ({ ...s, item: { ...s.item, m2tsPath: '/nonexistent/00001.m2ts' } })),
     };
-    const ours = (): string[] => fs.readdirSync(os.tmpdir()).filter((n) => n.startsWith('seikou-speech-'));
-    const before = ours().length;
-    await expect(decodeEpisodeAudio16k(broken, tools, os.tmpdir())).rejects.toThrow(/vspipe failed \(exit code \d+\): \S/);
-    expect(ours().length).toBe(before);
+    // A private temporary folder: other test files decode in parallel and make their own script folders.
+    const savedTmp = process.env.TMPDIR;
+    const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'episode-audio-tmp-')));
+    process.env.TMPDIR = tmp;
+    try {
+      const ours = (): string[] => fs.readdirSync(tmp).filter((n) => n.startsWith('seikou-speech-'));
+      await expect(decodeEpisodeAudio16k(broken, tools, path.join(tmp, 'cache'))).rejects.toThrow(/vspipe failed \(exit code \d+\): \S/);
+      expect(ours()).toEqual([]);
+    } finally {
+      if (savedTmp === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = savedTmp;
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
   });
 
   it('stops vspipe and rejects with the reason when aborted', async () => {

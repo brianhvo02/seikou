@@ -14,11 +14,13 @@ Fansub tracks are lined up with a disc by comparing where their dialogue falls w
 
 - `decodeEpisodeAudio16k(plan, { vspipe }, cacheDir, signal?)` returns the episode as an `Int16Array` at 16 kHz. The script lives in a temporary folder removed afterwards; a vspipe failure rejects with a `ChainError` carrying its stderr tail; a decode shorter than the planned audio by more than one video frame (a WAV size cut short) rejects naming both lengths; an abort stops vspipe and rejects with the signal's reason. Output vspipe writes past the WAV's declared size is drained, so vspipe never blocks on a full pipe.
 - `episodeReader(pcm16k)` returns a `PlaylistAudioReader` for `alignAudio`: `'whole'` gives the PCM from 0 ms, spans give one window from the first span's start to the last span's end, zero outside the spans.
+- `new EpisodeAudioCache(load, keep = 2)`, then `get(episode, signal?)`: keeps the last `keep` decoded episodes, runs one `load` at a time, shares a running decode between requests for the same episode, and aborts a decode only when every request waiting on it has aborted.
 - `readWav(stream)` returns `{ format, frames }`, `frames` being planar `Float32Array` chunks in [-1, 1).
 - `new Downsampler16k(sourceRate)`, then `push(planar)` and one `flush()`, each returning the 16 kHz samples completed.
 
 ## Where to look
 
+- `episode-audio-cache.ts`: the decodes kept between line-ups.
 - `episode-audio.ts`: the vspipe run, its failure ordering (vspipe's own error wins over a reader error it caused), and the span slicing.
 - `downsample.ts`: the filter and the streaming decimator.
 - `wav.ts`: the RIFF reader.

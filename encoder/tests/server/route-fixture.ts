@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { fixtureFansubSources } from '@seikou/fansubs/fixture-sources';
+import type { ToolPaths } from '../../src/pipeline/chain';
 import { startHelperServer, type HelperContext, type HelperServer, type HelperSources } from '../../src/server/server';
 import { fixtureAniList } from '../../src/subs/fixture-anilist';
 import { fx } from '../paths';
@@ -27,12 +28,14 @@ export interface RouteFixture {
    * destroyed once the answer arrives, to test an answer given before the body is read.
    */
   send(path: string, init?: { method?: string; body?: string | Buffer; headers?: Record<string, string>; keepOpen?: boolean }): Promise<Reply>;
+  /** The run's data folder, removed by `stop`. */
+  readonly dataDir: string;
   /** Stops the server and removes its data folder. */
   stop(): Promise<void>;
 }
 
-/** Starts a helper server; `sources` replaces the recorded sources it names. */
-export async function startRouteFixture(sources: Partial<HelperSources> = {}): Promise<RouteFixture> {
+/** Starts a helper server; `sources` replaces the recorded sources it names, `tools` the missing tools (null by default). */
+export async function startRouteFixture(sources: Partial<HelperSources> = {}, tools: ToolPaths | null = null): Promise<RouteFixture> {
   const dataDir = mkdtempSync(join(tmpdir(), 'helper-routes-'));
   const fansubs = fixtureFansubSources(FANSUBS);
   const anilist = fixtureAniList(FANSUBS);
@@ -43,12 +46,13 @@ export async function startRouteFixture(sources: Partial<HelperSources> = {}): P
     dataDir,
     token: TOKEN,
     webDir: null,
-    tools: null,
+    tools,
     sources: { seadex: fansubs.seadex, tosho: fansubs.tosho, anilist: anilist.source, episodes: anilist.episodes, ...sources },
   };
   const server = await startHelperServer(ctx);
   return {
     server,
+    dataDir,
     send: (path, init = {}) =>
       new Promise((resolve, reject) => {
         const req = request(
