@@ -2,7 +2,7 @@
 
 `CLAUDE.md` at the repository root is the full developer reference: the architecture, every command, the constraints (licensing, supported browsers, test fixtures) and the specs under `docs/superpowers/specs/`. Read it first. This page keeps the everyday commands and notes.
 
-Seikou's own code is licensed LGPL-3.0-or-later (see the top-level `LICENSE` and `COPYING`). Files ported from libbluray, libudfread and FFmpeg keep LGPL-2.1-or-later, as their headers say. Some directories have their own licences: see the License section of the README. `npm run licence-check` checks the headers and every `package.json`.
+Seikou's own code is licensed LGPL-3.0-or-later (see the top-level `LICENSE` and `COPYING`). Files ported from libbluray, libudfread, FFmpeg and libass keep LGPL-2.1-or-later (the libass ports `AND ISC`), as their headers say; that text is `LICENSES/LGPL-2.1.txt`. Some directories have their own licences: see the License section of the README. `npm run licence-check` checks the headers against the NOTICE files and every `package.json`.
 
 ## Where code lives
 

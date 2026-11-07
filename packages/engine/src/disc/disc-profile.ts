@@ -1,4 +1,14 @@
-// SPDX-License-Identifier: LGPL-3.0-or-later
+/*
+ * Ported from libbluray src/libbluray/bluray.c (_fill_disc_info: the psr_init_UHD and
+ * psr_init_3D calls) and src/libbluray/register.c
+ * Copyright (C) 2009-2010  John Stebbins
+ * Copyright (C) 2010-2017  Petri Hintukainen <phintuka@users.sourceforge.net>
+ *
+ * Ported to TypeScript and modified for bluray-web, 2026.
+ *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ */
+
 import type { IndexBdmv } from '@seikou/bdmv/index-parser';
 import type { RegisterFile } from '../hdmv/registers';
 

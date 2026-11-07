@@ -1,3 +1,14 @@
+/*
+ * Derived from libbluray src/libbluray/bdnav/navigation.c (_fill_clip: the start packet);
+ * the rest is original.
+ * Copyright (C) 2009-2010  John Stebbins
+ * Copyright (C) 2010-2017  Petri Hintukainen <phintuka@users.sourceforge.net>
+ *
+ * Modified for bluray-web, 2026.
+ *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ */
+
 import { findEpAfter, findEpBefore, stcSpnRange, type Clpi, type EpEntry } from '@seikou/bdmv/clpi-parser';
 import { SOURCE_PACKET_SIZE, TS_PACKET_SIZE } from '@seikou/bdmv/demux/constants';
 import { DiscError, type ByteSource } from '@seikou/bdmv/byte-source';

@@ -4,11 +4,12 @@ Notices for server/
 The NAS disc server is distributed under the GNU Lesser General Public
 License, version 3 or later (LGPL-3.0-or-later); see LICENSE and COPYING.
 
-It bundles the packages @seikou/bdmv, @seikou/engine, @seikou/fansubs,
-@seikou/nas and @seikou/titles, and through them @seikou/ass and @seikou/pg.
+Its bundle (server/dist/server.mjs) contains code from @seikou/bdmv,
+@seikou/fansubs, @seikou/nas and @seikou/titles, the audio framing and LPCM
+decoder of @seikou/engine (decode/), and the script parser of @seikou/ass.
 Parts of them port or derive from third-party projects (libbluray, libudfread,
-libass, FFmpeg and others); those projects, their copyright holders and the
-derived files are listed in each package's NOTICE (packages/*/NOTICE).
+libass, FFmpeg); those projects, their copyright holders and the derived files
+are listed in each package's NOTICE (packages/<name>/NOTICE).
 
 Metadata sources
 ----------------

@@ -8,5 +8,5 @@
     "./default-font.ttf": "./src/default-font.ttf",
     "./*": "./src/*.ts"
   },
-  "files": ["src", "!src/**/*.test.ts", "LICENSE", "COPYING", "NOTICE"]
+  "files": ["src", "!src/**/*.test.ts", "LICENSE", "COPYING", "LICENSES", "NOTICE"]
 }

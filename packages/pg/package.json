@@ -7,7 +7,7 @@
     ".": "./src/index.ts",
     "./*": "./src/*.ts"
   },
-  "files": ["src", "!src/**/*.test.ts", "LICENSE", "COPYING", "NOTICE"],
+  "files": ["src", "!src/**/*.test.ts", "LICENSE", "COPYING", "LICENSES", "NOTICE"],
   "dependencies": {
     "@seikou/bdmv": "*"
   }

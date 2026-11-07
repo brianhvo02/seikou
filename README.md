@@ -106,7 +106,7 @@ In the repository, not shipped.
 
 ## License
 
-LGPL-3.0-or-later for everything that doesn't carry its own licence (see [LICENSE](LICENSE), and [COPYING](COPYING) for the GNU GPL it supplements). Files ported from libbluray, libudfread and FFmpeg stay LGPL-2.1-or-later, as their upstreams released them; their headers say so, and that licence lets the whole be distributed under version 3. Other third-party files keep their own licences (see Built on and the NOTICE files). Exceptions by directory:
+LGPL-3.0-or-later for everything that doesn't carry its own licence (see [LICENSE](LICENSE), and [COPYING](COPYING) for the GNU GPL it supplements). Files ported from libbluray, libudfread and FFmpeg stay LGPL-2.1-or-later, as their upstreams released them, and the libass ports are `LGPL-2.1-or-later AND ISC`; their headers say so. Files marked LGPL-2.1-or-later are under the LGPL 2.1 ([LICENSES/LGPL-2.1.txt](LICENSES/LGPL-2.1.txt)) or, at your option, any later version, which lets the whole be distributed under version 3. Other third-party files keep their own licences (see Built on and the NOTICE files). Exceptions by directory:
 
 - `src/bdj-classlib/`: GPLv2 with the Classpath Exception, with the Apache, SAX and ICU notices its [NOTICE](src/bdj-classlib/NOTICE) lists.
 - `src/wasm/freetype/`: the FreeType License.

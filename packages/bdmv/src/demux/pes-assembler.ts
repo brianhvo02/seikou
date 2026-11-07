@@ -1,3 +1,14 @@
+/*
+ * Derived from libbluray src/libbluray/decoders/m2ts_demux.c (PES completion by
+ * PES_packet_length); the rest is original.
+ * Copyright (C) 2009-2010  John Stebbins
+ * Copyright (C) 2010-2017  Petri Hintukainen <phintuka@users.sourceforge.net>
+ *
+ * Modified for bluray-web, 2026.
+ *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ */
+
 import type { TsPacket } from './ts-packet';
 
 export interface PesPacket {

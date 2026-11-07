@@ -1,3 +1,15 @@
+/*
+ * Ported from libbluray src/libbluray/bluray.c (the BD-J title parts: _play_bdj, _start_bdj,
+ * _stop_bdj via _play_hdmv, _try_play_title and _try_menu_call at UO restriction RELAXED, bd_set_rate's
+ * BDJ_EVENT_RATE, bd_mouse_select's and bd_user_input's BD-J branches); the rest is original.
+ * Copyright (C) 2009-2010  John Stebbins
+ * Copyright (C) 2010-2017  Petri Hintukainen <phintuka@users.sourceforge.net>
+ *
+ * Ported to TypeScript and modified for bluray-web, 2026.
+ *
+ * SPDX-License-Identifier: LGPL-2.1-or-later
+ */
+
 import { AudioWriter } from './audio/audio-writer';
 import { OUTPUT_SAMPLE_RATE, RingWriter, ringViews } from './audio/ring';
 import type { Mpls, PlayItem } from '@seikou/bdmv/mpls-parser';
