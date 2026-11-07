@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { encodeEpisodes, opusArgs, svtArgs, type EncodeOptions } from '../src/encode';
 import { Id } from '../src/mux/mkv-ids';
@@ -10,6 +10,7 @@ import { haveTools, toolPaths } from './helpers/tools';
 
 afterEach(() => {
   delete process.env.FAKE_ENC_EXIT;
+  delete process.env.FAKE_ENC_IVF;
 });
 
 it('builds encoder argument lists from the spec defaults', () => {
@@ -28,7 +29,7 @@ describe.skipIf(!haveTools)('end to end on disc1', () => {
     const t = parseMkv(readFileSync(paths[0]!));
     expect(findAll(t, Id.ChapterTimeStart).map(uintOf)).toEqual([0n, 2002000000n]);
     expect(countVideoBlocks(t)).toBe(96);
-    expect(floatOf(find(t, Id.Duration)!)).toBeCloseTo(4004, -1); // audio end includes the 6.5 ms Opus pre-skip, so allow 5 ms
+    expect(floatOf(find(t, Id.Duration)!)).toBeCloseTo(4006.5, 1); // audio end includes the 6.5 ms Opus pre-skip; the CodecDelay fix is deferred to Task 9
     expect(readdirSync(out).sort()).toEqual(['cache', 'ep-01.mkv', 'ep-02.mkv']);
   }, 600_000);
 
@@ -36,6 +37,8 @@ describe.skipIf(!haveTools)('end to end on disc1', () => {
     const out = mkdtempSync(join(tmpdir(), 'et-'));
     const opts = { ...base(out), episodes: '1-2' };
     process.env.FAKE_ENC_EXIT = '3';
+    // A valid IVF makes writeMkv create the file; the exit code then surfaces as a ChainError after the mux loop.
+    process.env.FAKE_ENC_IVF = resolve('fixtures/small.ivf');
     await expect(encodeEpisodes({ ...opts, tools: { ...toolPaths()!, svt: 'tests/fake-bin/SvtAv1EncApp' } }, () => {})).rejects.toMatchObject({ tool: 'SvtAv1EncApp', code: 3 });
     expect(existsSync(join(out, 'ep-01.mkv'))).toBe(false);
   }, 120_000);

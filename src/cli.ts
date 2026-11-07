@@ -5,7 +5,7 @@ import { parseArgs } from 'node:util';
 import { listPlaylists, loadPlaylist } from './disc/playlist';
 import { encodeEpisodes } from './encode';
 import { ChainError } from './pipeline/chain';
-import { EpisodeSpecError } from './plan/episodes';
+import { EpisodeSpecError, parseEpisodeSpec } from './plan/episodes';
 import { findTools, ToolsError } from './tools';
 
 class UsageError extends Error {}
@@ -29,8 +29,7 @@ function mmssmmm(ticks45: number): string {
   return `${pad(Math.floor(s / 60), 2)}:${pad(s % 60, 2)}.${pad(ms, 3)}`;
 }
 
-function intOption(value: string | undefined, name: string, fallback: number): number {
-  if (value === undefined) return fallback;
+function intOption(value: string, name: string): number {
   const n = Number(value);
   if (!Number.isInteger(n)) throw new UsageError(`--${name} must be an integer, got "${value}"`);
   return n;
@@ -77,9 +76,12 @@ async function run(argv: string[]): Promise<void> {
     const outDir = resolve(values.out);
     const cacheDir = join(outDir, '.cache', 'bestsource');
     const opusBitrate =
-      values['opus-bitrate'] === undefined ? undefined : intOption(values['opus-bitrate'], 'opus-bitrate', 0);
-    const crf = intOption(values.crf, 'crf', 25);
-    const preset = intOption(values.preset, 'preset', 4);
+      values['opus-bitrate'] === undefined ? undefined : intOption(values['opus-bitrate'], 'opus-bitrate');
+    const crf = values.crf === undefined ? 25 : intOption(values.crf, 'crf');
+    const preset = values.preset === undefined ? 4 : intOption(values.preset, 'preset');
+    // A bad episode spec is a usage error (exit 2) whether or not the tools are installed.
+    const playlist = await loadPlaylist(resolve(disc), values.playlist);
+    parseEpisodeSpec(values.episodes, playlist.chapters.length);
     const tools = findTools();
     await encodeEpisodes(
       {
@@ -129,7 +131,7 @@ export async function main(argv: string[]): Promise<number> {
       console.error(`${err.tool} failed (code ${String(err.code)}, signal ${String(err.signal)})\n${err.stderrTail}`);
       return 1;
     }
-    if (err instanceof Error && (err as NodeJS.ErrnoException).code === 'ERR_PARSE_ARGS_UNKNOWN_OPTION') {
+    if (err instanceof Error && (err as NodeJS.ErrnoException).code?.startsWith('ERR_PARSE_ARGS_') === true) {
       console.error(`${err.message}\n${USAGE}`);
       return 2;
     }

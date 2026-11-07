@@ -4,7 +4,12 @@ if [ -n "$FAKE_SLEEP" ]; then
   sleep "$FAKE_SLEEP" &
   wait
 fi
-cat
+if [ -n "$FAKE_ENC_IVF" ]; then
+  cat >/dev/null
+  cat "$FAKE_ENC_IVF"
+else
+  cat
+fi
 i=0
 while [ "$i" -lt "${FAKE_STDERR_LINES:-0}" ]; do echo "stderr line $i" >&2; i=$((i+1)); done
 echo "fake stderr line" >&2

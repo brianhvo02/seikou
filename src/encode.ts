@@ -60,6 +60,7 @@ const SETTLE_TIMEOUT_MS = 5000;
 
 /** After a failure, prefer the tool's own ChainError over a downstream parse error it caused. */
 function chainFailure(chains: Chain[]): Promise<ChainError | null> {
+  // A healthy chain is drained and its output discarded: the episode is failing anyway.
   // The failed reader's async iterator leaves a 'readable' listener behind, which makes resume() a no-op.
   for (const c of chains) {
     c.stream.removeAllListeners('readable');
@@ -102,7 +103,8 @@ export async function encodeEpisodes(
   const plans = planEpisodes(playlist, probes, specs, audioPid);
 
   await mkdir(o.outDir, { recursive: true });
-  await mkdir(o.cacheDir, { recursive: true });
+  const cacheDir = resolve(o.cacheDir);
+  await mkdir(cacheDir, { recursive: true });
 
   const outputs: string[] = [];
   for (const plan of plans) {
@@ -115,8 +117,8 @@ export async function encodeEpisodes(
     try {
       const videoScript = join(tmp, 'video.vpy');
       const audioScript = join(tmp, 'audio.vpy');
-      await writeFile(videoScript, buildVideoScript(plan, { cacheDir: o.cacheDir }));
-      await writeFile(audioScript, buildAudioScript(plan, { cacheDir: o.cacheDir }));
+      await writeFile(videoScript, buildVideoScript(plan, { cacheDir }));
+      await writeFile(audioScript, buildAudioScript(plan, { cacheDir }));
       const video = videoChain(o.tools, videoScript, svtArgs(o));
       chains.push(video);
       const audio = audioChain(o.tools, audioScript, opusArgs(plan.audio.channels, o.opusBitrate));
