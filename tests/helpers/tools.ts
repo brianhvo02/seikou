@@ -54,3 +54,5 @@ function bestSourceLoads(vspipe: string): boolean {
 const tools = toolPaths();
 
 export const haveTools: boolean = tools !== null && bestSourceLoads(tools.vspipe);
+
+export const haveFfprobe: boolean = findOnPath('ffprobe', process.env.ENCODING_TOOLS_FFPROBE) !== null;
