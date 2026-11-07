@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import { ByteReader, ParseError } from '../util/byte-reader';
+import { ByteReader, ParseError } from '@seikou/bdmv/byte-reader';
 
 /** pgs_segment_type_e */
 export const SegmentType = {

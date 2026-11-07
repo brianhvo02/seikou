@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { endSegment, odsSegment, pdsSegment } from '../../../tests/helpers/ig-builders';
-import { ByteReader } from '../util/byte-reader';
+import { ByteReader } from '@seikou/bdmv/byte-reader';
 import { SegmentJoiner, decodeObject, decodePalette } from './segments';
 
 describe('decodeObject', () => {

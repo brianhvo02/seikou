@@ -5,7 +5,7 @@ import { parseMovieObjects, type MovieObjects } from '../bdmv/mobj-parser';
 import { MarkType, parseMpls, type Mpls } from '../bdmv/mpls-parser';
 import { parseSoundBdmv, type SoundData } from '../bdmv/sound-parser';
 import { ALIGNED_UNIT_SIZE, SOURCE_PACKET_SIZE } from '../demux/constants';
-import { ParseError } from '../util/byte-reader';
+import { ParseError } from '@seikou/bdmv/byte-reader';
 import { ticks45ToUs } from '../util/time';
 import { DiscError, readWhole, type ByteSource } from './byte-source';
 import { chooseMainTitle, hasRepeatedSegments } from './main-title';

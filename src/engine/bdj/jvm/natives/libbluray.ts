@@ -16,7 +16,7 @@
 
 import { parseBdjo } from '../../../bdmv/bdjo-parser';
 import type { Bdjo, BdjoApp } from '../../../bdmv/bdjo-parser';
-import { ParseError } from '../../../util/byte-reader';
+import { ParseError } from '@seikou/bdmv/byte-reader';
 import type { BdjHost, PlaylistInfo, StreamInfo, TitleInfo, TraceEntry } from '../../host';
 import { Invoke, andThen } from '../interpreter';
 import type { NativeResult } from '../interpreter';

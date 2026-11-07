@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { INTERLACED_SPS, PROGRESSIVE_SPS, TEST_PPS, TEST_SPS, avcAu } from '../../../tests/helpers/h264-units';
-import { ParseError } from '../util/byte-reader';
+import { ParseError } from '@seikou/bdmv/byte-reader';
 import { analyzeAvc, avcCodecString, avcIsInterlaced, avcPpsId } from './h264';
 import { splitAnnexB } from './nal';
 

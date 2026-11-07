@@ -1,4 +1,4 @@
-import { ParseError } from '../util/byte-reader';
+import { ParseError } from '@seikou/bdmv/byte-reader';
 import type { AccessUnitInfo } from './h264';
 import { splitAnnexB, unescapeRbsp } from './nal';
 

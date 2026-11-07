@@ -4,6 +4,7 @@
   "license": "LGPL-2.1-or-later",
   "version": "0.1.0",
   "type": "module",
+  "workspaces": ["packages/*"],
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

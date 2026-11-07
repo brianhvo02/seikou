@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ParseError } from '../util/byte-reader';
+import { ParseError } from '@seikou/bdmv/byte-reader';
 import { analyzeHevc, hevcCodecString, hevcCodecStrings } from './hevc';
 
 // Escaped SPS prefixes (emulation-prevention bytes included, as on disc).

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildClpi } from '../../../tests/helpers/bdmv-builders';
-import { ParseError } from '../util/byte-reader';
+import { ParseError } from '@seikou/bdmv/byte-reader';
 import { findEpAfter, findEpBefore, parseClpi, stcSpnRange } from './clpi-parser';
 import { CodingType } from './stream-types';
 

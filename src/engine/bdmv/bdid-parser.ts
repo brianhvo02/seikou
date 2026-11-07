@@ -7,7 +7,7 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import { ByteReader, ParseError } from '../util/byte-reader';
+import { ByteReader, ParseError } from '@seikou/bdmv/byte-reader';
 import { checkVersion } from './version';
 
 /** CERTIFICATE/id.bdmv: the BD-J organisation and disc IDs as lower-case hex (str_print_hex). */

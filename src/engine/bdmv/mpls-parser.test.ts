@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildMpls } from '../../../tests/helpers/bdmv-builders';
-import { ParseError } from '../util/byte-reader';
+import { ParseError } from '@seikou/bdmv/byte-reader';
 import { MarkType, parseMpls } from './mpls-parser';
 import { CodingType } from './stream-types';
 

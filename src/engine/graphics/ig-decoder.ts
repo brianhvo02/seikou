@@ -9,7 +9,7 @@
 
 import { parseMobjCmd, type MobjCmd } from '../bdmv/mobj-parser';
 import { parseUoMaskTable, type UoMask } from '../hdmv/uo-mask';
-import { ByteReader, ParseError } from '../util/byte-reader';
+import { ByteReader, ParseError } from '@seikou/bdmv/byte-reader';
 import {
   SegmentJoiner, SegmentType, decodeCompositionDescriptor, decodeCompositionObject, decodeObject, decodePalette,
   decodeSequenceDescriptor, decodeVideoDescriptor, decodeWindow,

@@ -22,16 +22,16 @@ echo "Changed since ${base:0:7}:" >&2
 printf '%s\n' "$files" | sed 's/^/  /' >&2
 
 # Shared ground: dependencies, compiler settings, test helpers and this CI itself run every test job.
-FORCE='^(package\.json|package-lock\.json|tsconfig[^/]*\.json|tests/helpers/|\.github/workflows/ci\.yml|\.github/actions/|scripts/ci-)'
+FORCE='^(package\.json|packages/[^/]+/package\.json|package-lock\.json|tsconfig[^/]*\.json|tests/helpers/|\.github/workflows/ci\.yml|\.github/actions/|scripts/ci-)'
 PKG='package\.json|package-lock\.json'
 # Everything but Markdown (except docs/*.md, the /help pages), the owner's deploy files and the other workflows.
 UNIT_SKIP='(\.md$|^server/deploy/|^\.github/workflows/)'
 UNIT_KEEP='^docs/[^/]+\.md$'
-E2E='^(src/|server/|rendezvous/|fixtures/synthetic/|fixtures/shaders/|tests/e2e/|public/|vite/|vite\.config\.ts|playwright\.config\.ts|index\.html|probe\.html|docs/[^/]+\.md$)'
+E2E='^(src/|server/|rendezvous/|fixtures/synthetic/|fixtures/shaders/|tests/e2e/|public/|vite/|vite\.config\.ts|playwright\.config\.ts|index\.html|probe\.html|docs/[^/]+\.md$|packages/)'
 ASS='^(src/engine/ass/|src/engine/subs/|src/engine/memory-profile\.ts|fixtures/ass/|tests/ass-trace/|playwright\.ass\.config\.ts|vite/|vite\.config\.ts)'
-SITE="^(src/|public/|vite/|vite\.config\.ts|index\.html|probe\.html|docs/[^/]+\.md$|tsconfig[^/]*\.json|$PKG)"
+SITE="^(src/|public/|vite/|vite\.config\.ts|index\.html|probe\.html|docs/[^/]+\.md$|tsconfig[^/]*\.json|$PKG|packages/)"
 WORKER="^(rendezvous/|src/engine/disc/(cors-policy|nas-api|pairing-code)\.ts|tsconfig\.rendezvous\.json|$PKG)"
-IMAGE="^(server/|src/engine/(bdmv|decode|demux|disc|util)/|tsconfig\.server\.json|$PKG)"
+IMAGE="^(server/|src/engine/(bdmv|decode|demux|disc|util)/|tsconfig\.server\.json|$PKG|packages/)"
 
 has() { printf '%s\n' "$files" | grep -Eq "$1"; }
 # server/deploy/ is the owner's deploy (compose files, scripts): no test or image reads it.

@@ -61,7 +61,7 @@ import { decodeText, parseSrt } from './subs/srt';
 import { TextSubtitleRenderer, type TextRenderOptions } from './subs/text-renderer';
 import { episodeStarts, sortByName, TextSet, TextSetRenderer, type SetFile } from './subs/text-set';
 import { VideoPresenter } from './render/video-presenter';
-import { ParseError } from './util/byte-reader';
+import { ParseError } from '@seikou/bdmv/byte-reader';
 import { pts90ToUs, ticks45ToUs, usToTicks45 } from './util/time';
 
 const UO_MASKED_MESSAGE = "The disc doesn't allow this here.";
