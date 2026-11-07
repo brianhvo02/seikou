@@ -1,6 +1,15 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 
-/** Frame index of a clip time (45 kHz ticks) relative to the clip's first video PTS. */
+// Two clocks meet here. Playlist times (PlayItem IN_time/OUT_time, mark times) count 45 kHz ticks,
+// half the 90 kHz clock that PES timestamps use (ISO/IEC 13818-1 §2.4.3.7), so a 45 kHz tick is
+// doubled before it is compared with a 90 kHz PTS. Frames and samples are then counted from the
+// clip's first video PTS and rounded to the nearest whole frame or sample, so a cut lands on the
+// frame or sample closest to the requested time and the same time always gives the same index.
+
+/**
+ * Frame index of a clip time (45 kHz ticks) relative to the clip's first video PTS, rounded to the
+ * nearest frame. Negative when the time lies before the first frame.
+ */
 export function frameAt(t45: number, video: { firstPts90: number; fpsNum: number; fpsDen: number }): number {
   return Math.round(((t45 * 2 - video.firstPts90) * video.fpsNum) / (video.fpsDen * 90000));
 }
@@ -19,6 +28,7 @@ export function framesToNs(frames: number, video: { fpsNum: number; fpsDen: numb
   return (BigInt(frames) * BigInt(video.fpsDen) * 1_000_000_000n + num / 2n) / num;
 }
 
+/** Duration of one frame in nanoseconds, rounded to nearest. */
 export function frameDurationNs(video: { fpsNum: number; fpsDen: number }): bigint {
   return framesToNs(1, video);
 }

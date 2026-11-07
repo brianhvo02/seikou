@@ -4,21 +4,43 @@ import { basename, join } from 'node:path';
 import { parseClpi, type Clpi } from '@seikou/bdmv/clpi-parser';
 import { MarkType, parseMpls, type Mpls, type PlayListMark } from '@seikou/bdmv/mpls-parser';
 
+// A Blu-ray playlist is an MPLS file: a list of play items, each cutting a range out of one clip
+// (a .m2ts transport stream with a matching .clpi clip-info file), plus a table of playlist marks.
+// The Blu-ray specification is not public; the field layout followed here is libbluray's parser
+// (src/libbluray/bdnav/mpls_parse.c, `_parse_playitem` and `_parse_playlistmark`), which
+// `@seikou/bdmv` ports.
+
+/** One play item of a playlist: a time range of one clip, as the MPLS PlayItem structure gives it. */
 export interface PlaylistItem {
+  /** 0-based position in the playlist; marks refer to it as `play_item_ref`. */
   index: number;
+  /** Five-digit clip name (`00001`): the `.m2ts` in STREAM/ and the `.clpi` in CLIPINF/. */
   clipId: string;
+  /** Absolute path of the clip's transport stream. */
   m2tsPath: string;
+  /** The clip's parsed clip-info file: its streams and entry-point maps. */
   clpi: Clpi;
+  /** PlayItem `IN_time`: start of the played range, in 45 kHz ticks of clip time. */
   inTime45: number;
+  /** PlayItem `OUT_time`: end of the played range (exclusive), in 45 kHz ticks of clip time. */
   outTime45: number;
+  /** PID of the first main-path video stream in the item's STN table. */
   videoPid: number;
+  /** PIDs of the main-path audio streams, in STN order (the order players number them). */
   audioPids: number[];
+  /**
+   * PlayItem `connection_condition`: how this item joins the one before it. 1 is a plain
+   * (non-seamless) join; 5 and 6 are seamless joins, which libbluray treats alike (the item starts at the
+   * clip's first packet).
+   */
   connectionCondition: number;
 }
 
+/** A chapter: an ENTRY playlist mark that lies inside its play item. */
 export interface Chapter {
   /** 1-based. */
   index: number;
+  /** The play item the mark lies in (`play_item_ref`). */
   itemIndex: number;
   /** Clip time in 45 kHz ticks. */
   time45: number;
@@ -26,11 +48,16 @@ export interface Chapter {
   start45: number;
 }
 
+/** A loaded playlist: its play items, its chapters and its total length. */
 export interface Playlist {
+  /** Five-digit playlist name (`00000`), the MPLS file's name without extension. */
   id: string;
+  /** The disc folder exactly as the caller gave it. */
   discDir: string;
   items: PlaylistItem[];
+  /** In playlist order; the first always starts at playlist time 0. */
   chapters: Chapter[];
+  /** Sum of the items' played ranges, in 45 kHz ticks. */
   duration45: number;
 }
 
@@ -44,6 +71,11 @@ async function readMpls(discDir: string, playlistId: string): Promise<Mpls> {
   return parseMpls(new Uint8Array(bytes));
 }
 
+/**
+ * Lists the disc's playlists, sorted by id, each with its length (the sum of its play items'
+ * ranges, in 45 kHz ticks) and the clips it plays. Rejects when PLAYLIST/ is missing or an MPLS
+ * file does not parse.
+ */
 export async function listPlaylists(
   discDir: string,
 ): Promise<{ id: string; duration45: number; clipIds: string[] }[]> {
@@ -64,7 +96,13 @@ export async function listPlaylists(
   return result;
 }
 
-/** Chapters from ENTRY marks that fall inside their play item; pure. */
+/**
+ * Chapters from the playlist's marks; pure. Only ENTRY marks (mark_type 1, a chapter point; the
+ * other type, LINK, is a navigation hook) count, and only those whose time lies inside their play
+ * item's range, because a mark outside the range can never be reached. Marks are sorted and
+ * de-duplicated, and a chapter is added at playlist time 0 when the first mark is later, so every
+ * minute of the playlist belongs to some chapter.
+ */
 export function chaptersFromMarks(
   marks: readonly PlayListMark[],
   items: readonly PlaylistItem[],
@@ -100,6 +138,11 @@ export function chaptersFromMarks(
   return chapters.map((c, i) => ({ index: i + 1, ...c }));
 }
 
+/**
+ * Reads one playlist and the clip-info file of each of its play items. Only main-path streams are
+ * used (sub-path streams belong to other clips). Rejects when a play item has no main-path video
+ * stream, or when a file is missing or does not parse.
+ */
 export async function loadPlaylist(discDir: string, playlistId: string): Promise<Playlist> {
   const root = bdmvRoot(discDir);
   const mpls = await readMpls(discDir, playlistId);

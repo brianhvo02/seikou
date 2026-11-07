@@ -1,13 +1,22 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { BitReader } from './bit-reader';
 
+// AV1 (AV1 Bitstream & Decoding Process Specification, https://aomediacodec.github.io/av1-spec/)
+// is a sequence of OBUs (Open Bitstream Units). A temporal unit is all the OBUs of one time
+// instant, opened by a temporal delimiter; each IVF frame and each Matroska block holds one.
+// Section numbers below are that specification's.
+
+/** One OBU split out of a temporal unit. */
 export interface Obu {
+  /** `obu_type` (§6.2.2), one of `ObuType`. */
   type: number;
   /** OBU header bytes including the extension byte and the obu_size field, when present. */
   header: Uint8Array;
+  /** The OBU's payload, a view into the temporal unit (not a copy). */
   payload: Uint8Array;
 }
 
+/** The `obu_type` values (§6.2.2) the muxer cares about. */
 export const ObuType = {
   SEQUENCE_HEADER: 1,
   TEMPORAL_DELIMITER: 2,
@@ -19,7 +28,14 @@ export const ObuType = {
   PADDING: 15,
 } as const;
 
-/** Splits a temporal unit (Section 5 low-overhead format) into OBUs. */
+/**
+ * Splits a temporal unit in the low-overhead bitstream format (§5.2) into OBUs. Each OBU starts
+ * with a header byte (§5.3.2): forbidden bit, `obu_type` (4 bits), `obu_extension_flag`,
+ * `obu_has_size_field` and a reserved bit; an extension byte follows when the flag is set
+ * (§5.3.3), then `obu_size` as `leb128()` (§4.10.5) when `obu_has_size_field` is 1; an OBU
+ * without a size field runs to the end of the temporal unit. Throws RangeError when an OBU claims
+ * more bytes than remain.
+ */
 export function splitObus(temporalUnit: Uint8Array): Obu[] {
   const obus: Obu[] = [];
   let pos = 0;
@@ -51,20 +67,39 @@ export function splitObus(temporalUnit: Uint8Array): Obu[] {
   return obus;
 }
 
+/**
+ * The sequence header fields the `av1C` record and the key-frame test need. Names follow the
+ * specification's syntax elements; the `0` suffix means the first operating point.
+ */
 export interface SequenceHeaderInfo {
+  /** `seq_profile` (3 bits): 0 main, 1 high, 2 professional. */
   seqProfile: number;
+  /** `seq_level_idx` of operating point 0 (5 bits). */
   seqLevelIdx0: number;
+  /** `seq_tier` of operating point 0 (0 when the level is 7 or below, where no tier is coded). */
   seqTier0: number;
+  /** `high_bitdepth` (color_config, §5.5.2): more than 8 bits per sample. */
   highBitdepth: boolean;
+  /** `twelve_bit`: 12 bits per sample (only coded for profile 2 with high bit depth). */
   twelveBit: boolean;
+  /** `mono_chrome`: no chroma planes. */
   monoChrome: boolean;
+  /** `subsampling_x` and `subsampling_y`: 1 when chroma has half resolution in that direction. */
   subsamplingX: number;
   subsamplingY: number;
+  /** `chroma_sample_position` (2 bits): 0 unknown, 1 vertical, 2 colocated; only coded for 4:2:0. */
   chromaSamplePosition: number;
+  /** `reduced_still_picture_header`: the sequence is a single still picture with a shortened header. */
   reducedStillPictureHeader: boolean;
 }
 
-/** Parses sequence_header_obu() (AV1 spec 5.5.1) up to and including color_config() (5.5.2). */
+/**
+ * Parses `sequence_header_obu()` (§5.5.1) from an OBU payload, up to and including
+ * `color_config()` (§5.5.2); later fields are not needed. Fields it must step over (timing info
+ * §5.5.3, decoder model info §5.5.4, operating parameters §5.5.5, frame size and tool-enable flags)
+ * are read and discarded so the bit position stays right. Throws RangeError when the payload
+ * ends early.
+ */
 export function parseSequenceHeader(payload: Uint8Array): SequenceHeaderInfo {
   const r = new BitReader(payload);
   const seqProfile = r.f(3);
@@ -207,7 +242,14 @@ export function parseSequenceHeader(payload: Uint8Array): SequenceHeaderInfo {
   };
 }
 
-/** True when the first frame (header) OBU of the temporal unit is a shown or hidden key frame. */
+/**
+ * True when the temporal unit's first frame header or frame OBU is a key frame: its
+ * `uncompressed_header()` (§5.9.2) starts with `show_existing_frame` (1 bit; set means a frame
+ * shown again, never a key frame here) and then `frame_type` (2 bits; 0 is KEY_FRAME, §6.8.2).
+ * With a reduced still picture header the frame is always a key frame. A unit with no frame OBU
+ * is not one. The result matches the Matroska AV1 mapping's rule that a block flagged as a key
+ * frame must start with a KEY_FRAME frame OBU.
+ */
 export function isKeyframe(temporalUnit: Uint8Array, seq: SequenceHeaderInfo): boolean {
   const frameObu = splitObus(temporalUnit).find(
     (o) => o.type === ObuType.FRAME_HEADER || o.type === ObuType.FRAME,
@@ -219,7 +261,17 @@ export function isKeyframe(temporalUnit: Uint8Array, seq: SequenceHeaderInfo): b
   return r.f(2) === 0; // frame_type === KEY_FRAME
 }
 
-/** AV1CodecConfigurationRecord: 4 bytes followed by the sequence header OBU. */
+/**
+ * The `av1C` record (AV1CodecConfigurationRecord, AV1 Codec ISO Media File Format Binding §2.3.3),
+ * which the Matroska AV1 mapping stores as CodecPrivate: four bytes, then the sequence header OBU
+ * as configOBUs. Byte 0 is the marker bit (1) and version (1), 0x81. Byte 1 is `seq_profile`
+ * (3 bits) and `seq_level_idx_0` (5 bits). Byte 2 holds `seq_tier_0`, `high_bitdepth`,
+ * `twelve_bit`, `monochrome`, `chroma_subsampling_x`, `chroma_subsampling_y` and
+ * `chroma_sample_position` (2 bits). Byte 3 is 0: three reserved bits,
+ * `initial_presentation_delay_present` = 0 and four reserved bits (no presentation delay is
+ * signalled). The OBU is kept with its header and size field, as that mapping requires for
+ * every OBU in CodecPrivate except a last one without a size field.
+ */
 export function buildAv1C(seqObu: Obu, seq: SequenceHeaderInfo): Uint8Array {
   const out = new Uint8Array(4 + seqObu.header.length + seqObu.payload.length);
   out[0] = 0x81;

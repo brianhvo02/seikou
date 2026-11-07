@@ -11,34 +11,57 @@ import {
   type SequenceHeaderInfo,
 } from './av1';
 
+// IVF is the simple container SVT-AV1 writes to stdout. It has no formal specification; the layout
+// below is the one libaom's ivfenc/ivfdec tools use, all fields little-endian:
+//   file header, 32 bytes: "DKIF" (4), version (2, 0), header length (2, 32), fourcc (4, "AV01"),
+//     width (2), height (2), timebase denominator (4: the frame rate's numerator),
+//     timebase numerator (4: the frame rate's denominator), frame count (4), unused (4)
+//   per frame, 12 bytes of header: frame size in bytes (4), presentation timestamp (8), then the
+//     frame's data, which for AV1 is one temporal unit in the low-overhead format.
+
+/** The 32-byte IVF file header. */
 export interface IvfHeader {
   fourcc: string;
   width: number;
   height: number;
+  /** Frame rate as a fraction. */
   fpsNum: number;
   fpsDen: number;
+  /** Frame count the writer declared. An encoder writing to a pipe cannot go back to fix it, so it may be 0 or wrong; the packets are what count. */
   frameCount: number;
 }
 
+/** One temporal unit, ready to become a Matroska block. */
 export interface Av1Packet {
+  /** 0-based position in the stream; the frame's presentation time is derived from it and the frame rate. */
   index: number;
+  /** The temporal unit with its temporal delimiter OBU removed. */
   data: Uint8Array;
+  /** True when the unit starts with a key frame (see `isKeyframe`). */
   keyframe: boolean;
 }
 
+/** The first sequence header OBU found in the stream and what is derived from it. */
 export interface SequenceHeaderResult {
   obu: Obu;
   info: SequenceHeaderInfo;
+  /** The `av1C` record to store as CodecPrivate. */
   av1C: Uint8Array;
 }
 
+/** A parsed IVF stream. */
 export interface IvfStream {
   header: IvfHeader;
+  /** Single-use; reading it drives the underlying stream. */
   packets: AsyncIterable<Av1Packet>;
+  /** Resolves as soon as the first sequence header is read, without consuming `packets`; rejects if the stream has none. */
   sequenceHeader: Promise<SequenceHeaderResult>;
 }
 
-/** Matroska's AV1 mapping says temporal delimiter OBUs SHOULD be removed from block data. */
+/**
+ * Removes temporal delimiter OBUs from a temporal unit. The Matroska AV1 mapping says they
+ * SHOULD be removed from block data (a player puts one back when reconstructing the stream).
+ */
 export function stripTemporalDelimiters(temporalUnit: Uint8Array): Uint8Array {
   const obus = splitObus(temporalUnit);
   if (!obus.some((o) => o.type === ObuType.TEMPORAL_DELIMITER)) return temporalUnit;
@@ -56,6 +79,12 @@ export function stripTemporalDelimiters(temporalUnit: Uint8Array): Uint8Array {
 const IVF_HEADER_SIZE = 32;
 const IVF_FRAME_HEADER_SIZE = 12;
 
+/**
+ * Reads an IVF stream from `stream`: the file header, then a lazy packet iterator. Frames are read
+ * ahead only as far as the first sequence header, so `sequenceHeader` resolves early. Rejects on a
+ * bad signature, a truncated header or a stream that ends without a sequence header OBU; a
+ * truncated frame later makes `packets` throw. Zero-length frames are yielded as empty packets.
+ */
 export async function readIvf(stream: Readable): Promise<IvfStream> {
   const reader = new ChunkReader(stream, 'IVF');
   const raw = await reader.read(IVF_HEADER_SIZE);

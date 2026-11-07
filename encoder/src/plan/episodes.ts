@@ -3,14 +3,27 @@ import type { Playlist, PlaylistItem } from '../disc/playlist';
 import type { AudioProbe, ClipProbe, VideoProbe } from '../disc/probe';
 import { frameAt, framesToNs, sampleAt, videoMs } from './timing';
 
+// The planner turns chapter ranges into per-clip cuts. An episode is a run of chapters; because a
+// playlist can span several clips, an episode is a list of segments, one per clip it touches, each
+// a frame range of the video and a sample range of the audio. Frame and sample ranges are
+// half-open, and both are counted from the clip's first video frame (see `sampleAt`), so the
+// video and audio of one segment cover the same stretch of time.
+
 /** 1-based inclusive chapter indices; `to: null` runs to the last chapter. */
 export interface EpisodeSpec {
   from: number;
   to: number | null;
 }
 
+/** Thrown by `parseEpisodeSpec` for text that is not a valid, ascending, non-overlapping list of chapter ranges. */
 export class EpisodeSpecError extends Error {}
 
+/**
+ * Parses a comma-separated episode list such as `1-3,4-6,7-`: each token is one chapter (`4`), a
+ * range (`1-3`) or, last only, an open range (`7-`) that runs to the final chapter. Ranges must
+ * ascend and not overlap; gaps between them are allowed (those chapters belong to no episode).
+ * Throws `EpisodeSpecError` otherwise, naming the offending token.
+ */
 export function parseEpisodeSpec(text: string, chapterCount: number): EpisodeSpec[] {
   if (text.trim() === '') throw new EpisodeSpecError('Episode spec is empty');
   const tokens = text.split(',').map((t) => t.trim());
@@ -39,6 +52,7 @@ export function parseEpisodeSpec(text: string, chapterCount: number): EpisodeSpe
   return specs;
 }
 
+/** The part of one episode that lies in one clip. */
 export interface Segment {
   item: PlaylistItem;
   /** Half-open frame range in the clip. */
@@ -47,18 +61,28 @@ export interface Segment {
   audioSamples: [number, number];
 }
 
+/** A chapter inside an episode's own timeline (it starts at 0 with the episode). */
 export interface EpisodeChapter {
+  /** `Chapter 1`, `Chapter 2`, ... numbered within the episode. */
   title: string;
+  /** Start in nanoseconds from the episode's first frame, on the Matroska millisecond grid of the video blocks. */
   startNs: bigint;
 }
 
+/** Everything the encoder needs to cut and mux one episode. */
 export interface EpisodePlan {
+  /** 1-based position in the spec list. */
   index: number;
+  /** In playback order. Every clip of the episode has the same frame rate and sample rate. */
   segments: Segment[];
   chapters: EpisodeChapter[];
+  /** Total video frames over all segments. */
   frameCount: number;
+  /** `frameCount` frames at the video's rate; the length the MKV's segment duration is given. */
   durationNs: bigint;
+  /** Video attributes of the episode's first clip. */
   video: VideoProbe;
+  /** The chosen audio stream's attributes in the episode's first clip. */
   audio: AudioProbe;
 }
 
@@ -142,8 +166,12 @@ function planEpisode(
 }
 
 /**
- * An episode runs from its first chapter to the start of the chapter after its last
- * (or the end of the playlist). Chapters between ranges that no spec covers are skipped.
+ * Plans one episode per spec. An episode runs from its first chapter to the start of the chapter
+ * after its last (or the end of the playlist). Chapters between ranges that no spec covers are
+ * skipped. `probes` holds a probe for every clip the playlist plays, keyed by clip id, and
+ * `audioPid` selects the audio stream in each clip. Throws when a probe or the audio PID is
+ * missing, or when clips inside one episode differ in frame rate or sample rate (they could not
+ * be joined into one stream).
  */
 export function planEpisodes(
   playlist: Playlist,

@@ -3,7 +3,9 @@ import { accessSync, constants } from 'node:fs';
 import path from 'node:path';
 import type { ToolPaths } from './pipeline/chain';
 
+/** Thrown by `findTools` when one or more of the required programs cannot be found. */
 export class ToolsError extends Error {
+  /** Names of the missing programs (`vspipe`, `SvtAv1EncApp`, `opusenc`). */
   constructor(public missing: string[]) {
     super(
       `Missing required tools: ${missing.join(', ')}\n` +
@@ -32,6 +34,11 @@ function findOnPath(name: string, override: string | undefined, env: NodeJS.Proc
   return null;
 }
 
+/**
+ * Locates `vspipe`, `SvtAv1EncApp` and `opusenc`. Each is looked up on PATH, unless its override
+ * variable (`ENCODING_TOOLS_VSPIPE`, `ENCODING_TOOLS_SVT`, `ENCODING_TOOLS_OPUSENC`) names a path,
+ * which is then the only candidate. Throws `ToolsError` listing every missing tool.
+ */
 export function findTools(env: NodeJS.ProcessEnv = process.env): ToolPaths {
   const vspipe = findOnPath('vspipe', env.ENCODING_TOOLS_VSPIPE, env);
   const svt = findOnPath('SvtAv1EncApp', env.ENCODING_TOOLS_SVT, env);

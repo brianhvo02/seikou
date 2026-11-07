@@ -18,45 +18,86 @@ import type { Av1Packet } from './ivf';
 import { Id } from './mkv-ids';
 import type { OpusPacket } from './ogg';
 
+// File layout (RFC 9559 §6 describes the allowed orderings; §25.3.1 the layout a muxer is
+// recommended to produce): EBML header, then one Segment holding, in this order,
+//   SeekHead     index of where Info, Tracks, Chapters and Cues start (§5.1.1),
+//   Info         timestamp scale, duration, application names, title (§5.1.2),
+//   Tracks       one video and one audio TrackEntry (§5.1.4),
+//   Chapters     one edition with one ChapterAtom per chapter, when there are any (§5.1.7),
+//   Cluster ...  blocks of video and audio, each cluster starting at a video key frame (§5.1.3),
+//   Cues         one seek point per cluster, written last because their positions are only known
+//                once the clusters are (§5.1.5; §6.4 explains why Cues usually come last).
+// The Segment size, the SeekHead and the Info Duration are not known when writing starts, so the
+// writer leaves room (an 8-byte size field, a Void element of `SEEK_HEAD_SIZE` bytes, a duration
+// of 0) and overwrites them in place at the end. The Void keeps every later byte offset fixed:
+// the SeekHead is rewritten shorter than the reserve and the remainder becomes a new Void (RFC
+// 8794 §11.3.2).
+//
+// Timestamps: TimestampScale is 1,000,000, so every timestamp is a whole millisecond (RFC 9559
+// §11.1). Block timestamps are 16-bit signed millisecond offsets from their cluster's Timestamp
+// (§10.1, §11.2). Because each cluster opens with a key frame, offsets stay small.
+
+/** Video track settings. The MKV's video codec is always AV1 (`V_AV1`). */
 export interface VideoTrackInfo {
+  /** Coded picture size in pixels. */
   width: number;
   height: number;
+  /** Frame rate as a fraction; becomes DefaultDuration and fixes each frame's timestamp. */
   fpsNum: number;
   fpsDen: number;
+  /** The `av1C` record (see `buildAv1C`), stored as CodecPrivate. */
   codecPrivate: Uint8Array;
 }
 
+/** Audio track settings. The MKV's audio codec is always Opus (`A_OPUS`). */
 export interface AudioTrackInfo {
   channels: number;
+  /** Written as SamplingFrequency in Hz; the encode passes 48000, the rate Opus decodes at (the encoder's input rate lives only in the OpusHead). */
   sampleRate: number;
+  /** The complete OpusHead packet, stored as CodecPrivate. */
   codecPrivate: Uint8Array;
+  /** The Opus pre-skip as nanoseconds (RFC 9559 §5.1.4.1.25). */
   codecDelayNs: bigint;
+  /** Nanoseconds a decoder must decode after a seek (80 ms for Opus, RFC 7845 §4.6). */
   seekPreRollNs: bigint;
+  /** ISO 639-2 language code of the track, `und` when unknown. */
   language: string;
 }
 
+/** One chapter on the MKV's timeline. */
 export interface MkvChapter {
   title: string;
+  /** Start in nanoseconds from the first video frame. */
   startNs: bigint;
 }
 
+/** What `writeMkv` muxes. */
 export interface MkvInput {
+  /** Segment title. */
   title?: string;
   video: VideoTrackInfo;
   audio: AudioTrackInfo;
+  /** Video packets, one temporal unit per shown frame, in presentation order (AV1 temporal units already are). The first must be a key frame. Packet i gets timestamp `videoMs(i)`. */
   videoPackets: AsyncIterable<Av1Packet>;
+  /** Audio packets in order; each is stamped from its 48 kHz sample position. */
   audioPackets: AsyncIterable<OpusPacket>;
+  /** Resolves after `audioPackets` is consumed; its `discardPadding48` samples at the end of the last packet are marked as DiscardPadding. */
   audioEnd: Promise<{ discardPadding48: number }>;
+  /** May be empty, which writes no Chapters element. */
   chapters: MkvChapter[];
 }
 
+/** What `writeMkv` reports about the file it wrote. */
 export interface MkvResult {
+  /** The Segment duration: the later of the video's end and the audio's end (pre-skip and end padding excluded). */
   durationNs: bigint;
   videoPackets: number;
   audioPackets: number;
   clusters: number;
 }
 
+// Bytes reserved for the SeekHead: four Seek entries of under 25 bytes each plus the SeekHead header
+// fit well inside it, and the unused part is rewritten as a Void.
 const SEEK_HEAD_SIZE = 160;
 const APP_NAME = 'seikou-encode';
 const VIDEO_TRACK = 1;
@@ -90,6 +131,10 @@ class PositionalWriter {
   }
 }
 
+// Block header (RFC 9559 §10.1, §10.2): track number as an EBML variable-size integer (one byte
+// for tracks 1 to 126, `0x80 | track`), a signed 16-bit big-endian timestamp relative to the
+// cluster, and a flags byte (SimpleBlock: bit 0x80 is the key-frame flag; lacing bits are 0,
+// meaning one frame per block). The frame data follows.
 function blockPayload(track: number, relTs: number, flags: number, data: Uint8Array): Uint8Array {
   if (relTs < MIN_REL_TS || relTs > MAX_REL_TS) {
     throw new RangeError(`block timestamp ${relTs} ms does not fit the cluster's int16 range`);
@@ -191,6 +236,16 @@ class Lookahead<T> {
   }
 }
 
+/**
+ * Writes an MKV file at `path` from encoded packets, streaming: packets are consumed as they
+ * arrive and written cluster by cluster, so memory use is one cluster. Video and audio are
+ * interleaved by timestamp. The file is overwritten if it exists; on error it is left partial
+ * (the caller deletes it). Throws when there are no video packets, the first video packet is not
+ * a key frame, or a block's offset from its cluster does not fit 16 bits (a cluster longer than
+ * about 32 seconds). Audio blocks are SimpleBlocks (every Opus packet decodes independently, so
+ * each carries the key-frame flag), except a last packet that needs end trimming, which becomes a
+ * BlockGroup so it can carry DiscardPadding.
+ */
 export async function writeMkv(path: string, input: MkvInput): Promise<MkvResult> {
   const { video, audio } = input;
   const fh = await open(path, 'w');

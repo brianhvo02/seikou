@@ -11,29 +11,49 @@ import { audioChain, ChainError, videoChain, type Chain, type ToolPaths } from '
 import { buildAudioScript, buildVideoScript } from './pipeline/vpy';
 import { parseEpisodeSpec, planEpisodes } from './plan/episodes';
 
+/** Everything `encodeEpisodes` needs. */
 export interface EncodeOptions {
+  /** The decrypted disc folder, or its BDMV folder. */
   discDir: string;
+  /** Five-digit playlist id, for example `00000`. */
   playlistId: string;
+  /** Chapter ranges, one episode each, in the syntax `parseEpisodeSpec` takes (`1-3,4-6`). */
   episodes: string;
+  /** Created if missing. Existing files of the same name are overwritten. */
   outDir: string;
   /** `{n}` is replaced by the episode index zero-padded to 2. Default 'episode-{n}'. */
   namePattern: string;
+  /** SVT-AV1 constant rate factor; lower is higher quality and larger. */
   crf: number;
+  /** SVT-AV1 preset; lower is slower and more efficient. */
   preset: number;
+  /** Appended last to SVT-AV1's arguments, so they override the defaults. */
   extraSvtArgs: string[];
+  /** Opus bitrate in kb/s; by default 160 for stereo or less and 320 above. */
   opusBitrate?: number;
+  /** Where BestSource keeps its index files; created if missing and reused between runs. */
   cacheDir: string;
   tools: ToolPaths;
+  /** Written to the MKV's Info element as the segment title. */
   title?: string;
 }
 
+/** Progress notification passed to the callback of `encodeEpisodes`. */
 export interface EncodeEvent {
   kind: 'episode-start' | 'episode-done' | 'log';
+  /** 1-based episode number. */
   episode: number;
   message: string;
+  /** The episode's output file, for `episode-start` and `episode-done`. */
   path?: string;
 }
 
+/**
+ * SVT-AV1 command-line arguments for one encode: the quality knobs from `o`, the encoder's
+ * defaults for anime, and `o.extraSvtArgs` last. Colour is tagged as BT.709 limited range
+ * (primaries, transfer and matrix 1, range 0) because Blu-ray video is, and `--keyint -2` lets
+ * SVT-AV1 pick the key-frame interval (about five seconds).
+ */
 export function svtArgs(o: Pick<EncodeOptions, 'crf' | 'preset' | 'extraSvtArgs'>): string[] {
   return [
     '--preset', String(o.preset),
@@ -61,6 +81,10 @@ export function svtArgs(o: Pick<EncodeOptions, 'crf' | 'preset' | 'extraSvtArgs'
   ];
 }
 
+/**
+ * opusenc arguments: bitrate in kb/s (the default depends on the channel count) and
+ * `--ignorelength`, which makes opusenc read a WAV stream of unknown length from a pipe.
+ */
 export function opusArgs(channels: number, bitrate?: number): string[] {
   return ['--bitrate', String(bitrate ?? (channels <= 2 ? 160 : 320)), '--ignorelength'];
 }
@@ -97,6 +121,15 @@ function chainFailure(chains: Chain[]): Promise<ChainError | null> {
   });
 }
 
+/**
+ * Cuts and encodes each requested episode of a playlist into `<outDir>/<name>.mkv`, one at a time,
+ * and returns the output paths. Video and audio are encoded through pipes (see `pipeline/chain`)
+ * and muxed as they arrive, so no intermediate files are written beyond two small scripts in a
+ * temporary folder. Uses the first audio stream of the playlist. On failure the episode's
+ * partial file is deleted and the error thrown is the failing tool's `ChainError` when there is
+ * one (a downstream parse error is usually its symptom); episodes already finished are kept.
+ * Throws `EpisodeSpecError` for a bad episode list.
+ */
 export async function encodeEpisodes(
   o: EncodeOptions,
   onEvent: (e: EncodeEvent) => void,

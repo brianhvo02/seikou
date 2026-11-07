@@ -110,6 +110,11 @@ async function run(argv: string[]): Promise<void> {
   throw new UsageError(`unknown command "${command ?? ''}"`);
 }
 
+/**
+ * Runs the command line and returns the process exit code: 0 success, 1 encode failure, 2 usage
+ * error or bad episode list, 3 required tools missing. Output goes to stdout and stderr; nothing
+ * is thrown.
+ */
 export async function main(argv: string[]): Promise<number> {
   try {
     await run(argv);

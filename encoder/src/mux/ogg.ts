@@ -2,31 +2,62 @@
 import type { Readable } from 'node:stream';
 import { ChunkReader } from './chunk-reader';
 
+// Opus in Ogg. An Ogg stream (RFC 3533) is a series of pages; a page has a 27-byte header and a
+// body (§6), and a packet may span pages. The page header is: capture pattern "OggS" (4),
+// stream structure version (1, 0), header-type flags (1: 0x01 continued packet, 0x02 first page,
+// 0x04 last page), granule position (8, little-endian), bitstream serial number (4), page
+// sequence number (4), CRC checksum (4), segment count (1), then that many segment sizes (the
+// lacing values, 1 byte each). A packet is the run of segments up to one shorter than 255 bytes.
+// Opus's use of Ogg is RFC 7845: the first packet is the OpusHead identification header (§5.1),
+// the second is OpusTags (§5.2), the rest are audio packets whose pages carry a granule position
+// counting 48 kHz samples (§4).
+//
+// OpusHead (§5.1), 19 bytes plus an optional channel mapping table: "OpusHead" (8), version (1,
+// high nibble must be 0), channel count (1), pre-skip (2, little-endian: samples at 48 kHz the
+// decoder produces before real audio starts, §4.2), input sample rate (4, informational),
+// output gain (2, signed Q7.8 dB), channel mapping family (1).
+
+/** The identification header (RFC 7845 §5.1) of an Opus stream. */
 export interface OpusHead {
   channels: number;
+  /** Samples at 48 kHz to discard at the start of decoded output. */
   preSkip: number;
+  /** Sample rate of the encoder's input in Hz; informational only, Opus always decodes at 48000. */
   inputSampleRate: number;
+  /** Gain to apply on playback, in units of 1/256 dB. */
   outputGain: number;
+  /** Channel mapping family: 0 is mono or stereo, 1 is the Vorbis channel order for up to 8 channels. */
   mappingFamily: number;
   /** The complete OpusHead packet, written verbatim as CodecPrivate. */
   raw: Uint8Array;
 }
 
+/** One Opus packet and where it sits on the stream's 48 kHz sample axis. */
 export interface OpusPacket {
   data: Uint8Array;
   /** Cumulative from 0 over packets; pre-skip is not subtracted. */
   pts48: number;
+  /** Samples at 48 kHz the packet decodes to, from its TOC byte (see `opusPacketDuration`). */
   durationSamples: number;
 }
 
+/** How the stream ends, known only after the last packet. */
 export interface OggOpusEnd {
+  /** Sum of all packets' durations, in 48 kHz samples. */
   totalSamples: number;
+  /** Granule position of the last page that completed a packet. */
   lastGranule: number;
+  /**
+   * Samples at the end of the last packet to discard (RFC 7845 §4.4 end trimming): the decoded
+   * total, minus the final granule position, and never negative.
+   */
   discardPadding48: number;
 }
 
+/** A parsed Ogg Opus stream. */
 export interface OggOpusStream {
   head: OpusHead;
+  /** Single-use; reading it drives the underlying stream. */
   packets: AsyncIterable<OpusPacket>;
   /** Settles only after `packets` has been fully consumed. */
   end: Promise<OggOpusEnd>;
@@ -37,7 +68,14 @@ const OGG_PAGE_HEADER_SIZE = 27;
 const OPUS_HEAD_MIN_SIZE = 19;
 const NO_GRANULE = 0xffffffffffffffffn;
 
-/** Duration in 48 kHz samples of one Opus packet (RFC 6716 section 3.1). */
+/**
+ * Duration in 48 kHz samples of one Opus packet, from its TOC byte (RFC 6716 §3.1). The byte's top
+ * five bits are `config`, which gives the coding mode and the frame size: configs 0 to 11 (SILK)
+ * use 10, 20, 40 or 60 ms, 12 to 15 (hybrid) 10 or 20 ms, 16 to 31 (CELT) 2.5, 5, 10 or 20 ms. Its
+ * low two bits are the frame count code `c`: 0 is one frame, 1 and 2 are two frames, 3 means the
+ * frame count is in the next byte (low 6 bits, §3.2). Throws on an empty packet, a missing count
+ * byte, zero frames, or a total over 120 ms (the format's maximum).
+ */
 export function opusPacketDuration(packet: Uint8Array): number {
   if (packet.length < 1) throw new Error('Opus: empty packet');
   const toc = packet[0]!;
@@ -160,6 +198,13 @@ function concat(parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
+/**
+ * Reads an Ogg Opus stream from `stream`: parses OpusHead and OpusTags, then yields audio packets
+ * lazily with their sample positions. Only the first logical stream is read (pages of other
+ * serial numbers are skipped) and page CRCs are not verified. Rejects when the first packet is
+ * not an OpusHead (or its version is unsupported) or the second is not OpusTags; `packets` and
+ * `end` fail on malformed pages, truncated data or a granule position beyond 2^53.
+ */
 export async function readOggOpus(stream: Readable): Promise<OggOpusStream> {
   const reader = new ChunkReader(stream, 'Ogg');
   const source = readPackets(reader);

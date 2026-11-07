@@ -3,12 +3,19 @@ import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import type { Readable } from 'node:stream';
 
+// Video and audio travel through two-process pipelines with no intermediate files: `vspipe` runs
+// a VapourSynth script and writes raw frames (Y4M) or samples (WAV) to its stdout, which is piped
+// into the encoder's stdin (SvtAv1EncApp or opusenc); the encoder's stdout is what the muxer reads.
+
+/** Absolute paths (or bare names found on PATH) of the three external tools. */
 export interface ToolPaths {
   vspipe: string;
+  /** SvtAv1EncApp, the SVT-AV1 command-line encoder. */
   svt: string;
   opusenc: string;
 }
 
+/** A tool in a chain exited with an error or could not start; carries the tool's last stderr output. */
 export class ChainError extends Error {
   constructor(
     public tool: string,
@@ -24,11 +31,17 @@ export class ChainError extends Error {
   }
 }
 
+/**
+ * A running two-process pipeline. Failure of either process kills the other and rejects `done`;
+ * success needs both processes to exit with code 0 and `stream` to end.
+ */
 export interface Chain {
   /** Last process's stdout. It ends cleanly even on failure, so consumers must await `done` to learn the outcome.
    * `done` cannot settle successfully until the consumer drains this stream. */
   stream: Readable;
+  /** Settles once both processes are finished: resolves on success, rejects with a `ChainError` (or the abort reason). */
   done: Promise<void>;
+  /** Stops both processes and rejects `done` with `reason`, unless it has already settled. */
   abort(reason: Error): void;
 }
 
@@ -135,6 +148,10 @@ function runChain(first: Stage, second: Stage): Chain {
   };
 }
 
+/**
+ * `vspipe script.vpy - -c y4m | SvtAv1EncApp -i stdin -b stdout <svtArgs>`: the script's video as
+ * a Y4M stream (YUV4MPEG2) into SVT-AV1, whose stdout is an IVF stream of AV1 packets.
+ */
 export function videoChain(tools: ToolPaths, scriptPath: string, svtArgs: string[]): Chain {
   return runChain(
     { name: 'vspipe', cmd: tools.vspipe, args: [scriptPath, '-', '-c', 'y4m'] },
@@ -142,6 +159,10 @@ export function videoChain(tools: ToolPaths, scriptPath: string, svtArgs: string
   );
 }
 
+/**
+ * `vspipe script.vpy - -c wav | opusenc <opusArgs> - -`: the script's audio as WAV into opusenc,
+ * whose stdout is an Ogg Opus stream.
+ */
 export function audioChain(tools: ToolPaths, scriptPath: string, opusArgs: string[]): Chain {
   return runChain(
     { name: 'vspipe', cmd: tools.vspipe, args: [scriptPath, '-', '-c', 'wav'] },
