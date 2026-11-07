@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -24,20 +25,22 @@ function planWithSegments(specs: SegSpec[]): EpisodePlan {
   return { index: 1, segments } as unknown as EpisodePlan;
 }
 
+const prefix = (p: string): string => `/c/${createHash('sha1').update(path.resolve(p)).digest('hex').slice(0, 12)}`;
+
 describe('vpy script generation', () => {
   it('emits the video script for a two-segment episode', () => {
     const s = buildVideoScript(planWithSegments([['/d/00001.m2ts', 0, 96], ['/d/00002.m2ts', 0, 48]]), { cacheDir: '/c' });
     expect(s).toBe([
       'import vapoursynth as vs', 'core = vs.core', 'parts = []',
-      "c = core.bs.VideoSource(r'/d/00001.m2ts', cachepath=r'/c')", 'parts.append(c[0:96])',
-      "c = core.bs.VideoSource(r'/d/00002.m2ts', cachepath=r'/c')", 'parts.append(c[0:48])',
+      `c = core.bs.VideoSource(r'/d/00001.m2ts', cachepath=r'${prefix('/d/00001.m2ts')}', cachemode=4)`, 'parts.append(c[0:96])',
+      `c = core.bs.VideoSource(r'/d/00002.m2ts', cachepath=r'${prefix('/d/00002.m2ts')}', cachemode=4)`, 'parts.append(c[0:48])',
       'clip = parts[0]', 'for p in parts[1:]:', '    clip = clip + p',
       'clip = core.resize.Point(clip, format=vs.YUV420P10)', 'clip.set_output(0)', ''].join('\n'));
   });
 
   it('emits the audio script with sample slices', () => {
     expect(buildAudioScript(planWithSegments([['/d/00001.m2ts', [0, 96], [0, 192000]]]), { cacheDir: '/c' }))
-      .toContain("c = core.bs.AudioSource(r'/d/00001.m2ts', track=-1, cachepath=r'/c')\nparts.append(c[0:192000])");
+      .toContain(`c = core.bs.AudioSource(r'/d/00001.m2ts', track=-1, cachepath=r'${prefix('/d/00001.m2ts')}', cachemode=4)\nparts.append(c[0:192000])`);
   });
 
   it('rejects paths a raw string cannot hold', () => {
@@ -73,9 +76,7 @@ describe.skipIf(!haveTools)('with vspipe', () => {
     expect(info).toMatch(/Format Name: YUV420P10/);
   }, 120000);
 
-  // The fixture's LPCM audio (stream type 0x80, no HDMV registration descriptor) is misdetected as mp3 by
-  // libavformat, so BestSource cannot index it here ("Indexing of ... track #0 failed").
-  it.skip('reports 192000 samples for disc1 episode 1', async () => {
+  it('reports 192000 samples for disc1 episode 1', async () => {
     expect(await vspipeInfo(buildAudioScript)).toMatch(/Samples: 192000\b/);
   }, 120000);
 });
