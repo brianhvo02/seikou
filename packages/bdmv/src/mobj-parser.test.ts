@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { asm, buildMovieObjects, encodeCmd, imm, psr, reg } from '../../../tests/helpers/hdmv-builders';
 import { CmpOpt, InsnGroup, SetOpt, SetSub, parseMobjCmd, parseMovieObjects } from './mobj-parser';
-import { ParseError } from '@seikou/bdmv/byte-reader';
+import { ParseError } from './byte-reader';
 
 describe('parseMobjCmd', () => {
   it('decodes the bit fields of a SET/MOVE with an immediate source', () => {

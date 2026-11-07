@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
-import { ByteReader } from '@seikou/bdmv/byte-reader';
+import { ByteReader } from './byte-reader';
 import * as bdmv from '@seikou/bdmv';
 import { CodingType, parseMpls } from '@seikou/bdmv';
 

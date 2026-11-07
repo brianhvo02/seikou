@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildSoundBdmv } from '../../../tests/helpers/bdmv-builders';
-import { ParseError } from '@seikou/bdmv/byte-reader';
+import { ParseError } from './byte-reader';
 import { parseSoundBdmv } from './sound-parser';
 
 describe('parseSoundBdmv', () => {

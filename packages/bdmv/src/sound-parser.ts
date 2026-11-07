@@ -7,7 +7,7 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import { ByteReader, ParseError } from '@seikou/bdmv/byte-reader';
+import { ByteReader, ParseError } from './byte-reader';
 import { checkVersion } from './version';
 
 export interface SoundClip {

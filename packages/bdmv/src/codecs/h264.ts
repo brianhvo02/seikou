@@ -1,4 +1,4 @@
-import { ParseError } from '@seikou/bdmv/byte-reader';
+import { ParseError } from '../byte-reader';
 import { joinAnnexB, splitAnnexB, unescapeRbsp } from './nal';
 
 export interface AccessUnitInfo {

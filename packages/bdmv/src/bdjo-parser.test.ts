@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { buildBdjo } from '../../../tests/helpers/bdjo-builder';
-import { ParseError } from '@seikou/bdmv/byte-reader';
+import { ParseError } from './byte-reader';
 import { parseBdjo } from './bdjo-parser';
 
 describe('parseBdjo', () => {

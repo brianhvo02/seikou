@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ParseError } from '@seikou/bdmv/byte-reader';
+import { ParseError } from './byte-reader';
 import { parseBdid } from './bdid-parser';
 
 function idBdmv(version = '0300'): Uint8Array {
