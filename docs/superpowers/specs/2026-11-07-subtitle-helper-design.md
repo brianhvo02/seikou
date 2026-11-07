@@ -125,6 +125,10 @@ One JSON record per disc and playlist, stored under the app's data directory (`~
 
 Array order in `tracks` and `metadata.audio` is the MKV track order; the first of each kind is the default track. Fetched tracks and fonts live in the app cache keyed by release; the record points at them. A missing cache entry at encode time is an error that names the release, not a silent encode without subtitles.
 
+## 7a. Where the encoder lives (decided 2026-11-07)
+
+After the Seikou packages branch merges, the encoding app moves into the Seikou repository as a top-level `encoder/` directory, beside `server/` and `rendezvous/`, with its own tsconfig project; its tests join Seikou's unit project and skip when the encoding tools are absent. Its milestone 1 history comes across with `git subtree add`. It then imports `@seikou/*` packages as workspace dependencies, so the `vendor/seikou` symlink and the `file:` links in section 5.1 no longer apply, and publishing to a registry is no longer needed. The command keeps the name `seikou-encode`. Seikou itself moves to LGPL-3.0-or-later in the packages branch, so the encoder and Seikou share one licence; ported files keep their upstream LGPL-2.1-or-later headers and `src/bdj-classlib/` stays GPL-2.0-only with the Classpath Exception.
+
 ## 7. Milestones (replacing the parent spec's 2 to 5)
 
 1. **Seikou packages** (Seikou repo). Workspaces; extract the six packages; Seikou's app and server import them; BD-J becomes an optional provider; CI green. Its own plan.
