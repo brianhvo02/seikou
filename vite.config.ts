@@ -78,7 +78,14 @@ export default defineConfig({
         // The encoder's tests drive SVT-AV1, opusenc and VapourSynth when they are installed (and skip where they are not,
         // as on CI); a real encode of the synthetic disc can take far longer than the unit default, hence the long timeout.
         extends: true,
-        test: { name: 'encoder', include: ['encoder/tests/**/*.test.ts'], testTimeout: 120_000, sequence: { groupOrder: 0 } },
+        // The helper page's tests (encoder/web) run here too; its component tests pick jsdom per file with a
+        // `// @vitest-environment jsdom` comment, as the unit project's do.
+        test: {
+          name: 'encoder',
+          include: ['encoder/tests/**/*.test.ts', 'encoder/web/src/**/*.test.{ts,tsx}'],
+          testTimeout: 120_000,
+          sequence: { groupOrder: 0 },
+        },
       },
       {
         // The developer's real discs (they skip where fixtures/local is absent, as on CI). Their replays run against wall-time

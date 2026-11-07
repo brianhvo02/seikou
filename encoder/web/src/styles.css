@@ -1,0 +1,310 @@
+/* SPDX-License-Identifier: LGPL-3.0-or-later */
+/*
+ * The helper's look: dark only, one typeface (Instrument Sans, whose width axis condenses the disc's name), one
+ * accent for the chosen item and the alignment marks, amber kept for the nudge. Left aligned, one column under the
+ * step bar, 16 px side gutters, down to 375 px wide.
+ */
+
+:root {
+  color-scheme: dark;
+  --base: #0f1b2d;
+  --panel: #17273d;
+  --ink: #e9eff7;
+  --muted: #8fa1bc;
+  --accent: #4d9bff;
+  --amber: #f0b45b;
+  /* derived from the palette: rules between areas, and text of controls that cannot be used yet */
+  --rule: #253a58;
+  --dim: #5d6f8a;
+  --danger: #ff8a7a;
+  --gutter: 16px;
+  --column: 44rem;
+  --font: 'Instrument Sans Variable', system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--base);
+  color: var(--ink);
+}
+
+body {
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* times and counts line up in columns */
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.error {
+  color: var(--danger);
+}
+
+/* the header: disc name, then the step bar with Details and Save on the same line where they fit */
+.top {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--base);
+  border-bottom: 1px solid var(--rule);
+  padding: 20px var(--gutter) 0;
+}
+
+.top > * {
+  max-width: var(--column);
+}
+
+.disc h1 {
+  font-size: 30px;
+  line-height: 1.1;
+  font-weight: 620;
+  font-stretch: 78%;
+  letter-spacing: -0.005em;
+  /* disc folder names are often one long word joined by underscores */
+  overflow-wrap: anywhere;
+}
+
+.disc p {
+  margin-top: 4px;
+}
+
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 24px;
+  margin-top: 18px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  padding-bottom: 10px;
+}
+
+.save-status {
+  padding-bottom: 10px;
+  font-size: 14px;
+}
+
+/* the step bar: three steps on one rail; the segment under the step on screen is lit */
+.step-bar ol {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step-bar li {
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.step-bar li.current {
+  border-bottom-color: var(--accent);
+}
+
+.step-bar button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 14px 6px 0;
+  margin-right: 6px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-weight: 520;
+  cursor: pointer;
+}
+
+.step-bar button:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.step-bar button:disabled {
+  color: var(--dim);
+  cursor: default;
+}
+
+.step-bar [aria-current='step'] {
+  color: var(--ink);
+}
+
+.step-number {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+[aria-current='step'] .step-number {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--base);
+}
+
+/* buttons: one primary action per screen, everything else quiet */
+button.primary,
+button.quiet {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 6px;
+  font-weight: 560;
+  cursor: pointer;
+}
+
+button.primary {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--base);
+}
+
+button.primary:hover:not(:disabled) {
+  background: #6aaeff;
+}
+
+button.quiet {
+  border: 1px solid var(--rule);
+  background: var(--panel);
+}
+
+button.quiet:hover:not(:disabled) {
+  border-color: var(--muted);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* the column under the header */
+.content {
+  max-width: calc(var(--column) + 2 * var(--gutter));
+  padding: 28px var(--gutter) 64px;
+}
+
+.content h2 {
+  font-size: 20px;
+  line-height: 1.2;
+  font-weight: 600;
+  font-stretch: 88%;
+  margin-bottom: 6px;
+}
+
+.content p {
+  max-width: 38rem;
+}
+
+/* the Details sheet: over the page from the right, the whole width on a phone */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgb(5 10 18 / 0.6);
+}
+
+.sheet {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(30rem, 100%);
+  overflow-y: auto;
+  padding: 20px var(--gutter) 40px;
+  background: var(--panel);
+  border-left: 1px solid var(--rule);
+  animation: sheet-in 160ms ease-out;
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.sheet-head h2 {
+  font-size: 20px;
+  font-weight: 600;
+  font-stretch: 88%;
+}
+
+.episode-titles {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+}
+
+.episode-titles li {
+  padding: 8px 0;
+  border-top: 1px solid var(--rule);
+  overflow-wrap: anywhere;
+}
+
+@keyframes sheet-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sheet {
+    animation: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .disc h1 {
+    font-size: 24px;
+  }
+
+  .step-bar button {
+    padding-right: 8px;
+    margin-right: 2px;
+  }
+
+  .actions {
+    width: 100%;
+  }
+
+  .actions .primary {
+    flex: 1;
+  }
+}

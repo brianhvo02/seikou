@@ -13,6 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "seikou-encode": "tsx encoder/src/cli.ts",
+    "encoder:web:build": "vite build --config encoder/web/vite.config.ts",
+    "encoder:web:dev": "vite --config encoder/web/vite.config.ts",
     "licence-check": "bash scripts/licence-check.sh",
     "package-smoke": "bash scripts/package-smoke.sh",
     "test:e2e": "playwright test",
