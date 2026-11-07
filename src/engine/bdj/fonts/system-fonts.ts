@@ -2,7 +2,7 @@
  * Original code for bluray-web: the fonts BD-J finds under java.home. libbluray's java.awt.BDFontMetrics maps the JRE
  * logical font names (serif, sansserif, monospaced, dialog, dialoginput, default, in four styles) to Lucida files under
  * java.home/lib/fonts/. bluray-web does not ship them: like the libbluray BD-J harness (tools/bdj-trace/Dockerfile,
- * README.md "Fonts"), every one of those files is the bundled fallback font, src/engine/ass/default-font.ttf (DejaVu
+ * README.md "Fonts"), every one of those files is the bundled fallback font, packages/ass/src/default-font.ttf (DejaVu
  * Sans), so text draws the same on both sides. The font is fetched the first time one of the files is read.
  *
  * Copyright (C) 2026  bluray-web contributors
@@ -32,7 +32,7 @@ export const JRE_FONT_FILES: readonly string[] = [
 export const DEFAULT_FONT_PATH = '/jdk/lib/fonts/default-font.ttf';
 
 /**
- * The size of src/engine/ass/default-font.ttf, so the files exist with their size before the font is fetched
+ * The size of packages/ass/src/default-font.ttf, so the files exist with their size before the font is fetched
  * (java.io.File.length() of them is right). system-fonts.test.ts checks it against the file.
  */
 export const DEFAULT_FONT_SIZE = 757_076;

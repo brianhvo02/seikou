@@ -2,7 +2,7 @@
 # Decides which CI jobs a change needs (ci.yml's `changes` job). Usage: ci-changes.sh <base commit or empty> [head]
 # Prints key=true|false lines for $GITHUB_OUTPUT: unit, e2e, ass (the test jobs) and site, worker, image (the deploys).
 # With no base, or a base this clone doesn't have (a force push), everything is true. The groups are coarse on purpose:
-# the server bundles src/engine/{bdmv,decode,demux,disc,util} and the ASS page src/engine/ass and memory-profile.ts
+# the server bundles src/engine/{bdmv,decode,demux,disc,util} and the ASS page packages/ass and memory-profile.ts
 # (checked with esbuild's metafile); a dependency that slips past them is caught by the weekly full run.
 set -euo pipefail
 base="${1:-}"
@@ -28,7 +28,7 @@ PKG='package\.json|package-lock\.json'
 UNIT_SKIP='(\.md$|^server/deploy/|^\.github/workflows/)'
 UNIT_KEEP='^docs/[^/]+\.md$'
 E2E='^(src/|server/|rendezvous/|fixtures/synthetic/|fixtures/shaders/|tests/e2e/|public/|vite/|vite\.config\.ts|playwright\.config\.ts|index\.html|probe\.html|docs/[^/]+\.md$|packages/)'
-ASS='^(src/engine/ass/|src/engine/subs/|src/engine/memory-profile\.ts|fixtures/ass/|tests/ass-trace/|playwright\.ass\.config\.ts|vite/|vite\.config\.ts)'
+ASS='^(packages/ass/|src/engine/subs/|src/engine/memory-profile\.ts|fixtures/ass/|tests/ass-trace/|playwright\.ass\.config\.ts|vite/|vite\.config\.ts)'
 SITE="^(src/|public/|vite/|vite\.config\.ts|index\.html|probe\.html|docs/[^/]+\.md$|tsconfig[^/]*\.json|$PKG|packages/)"
 WORKER="^(rendezvous/|packages/nas/|tsconfig\.rendezvous\.json|$PKG)"
 IMAGE="^(server/|src/engine/(bdmv|decode|demux|disc|util)/|tsconfig\.server\.json|$PKG|packages/)"

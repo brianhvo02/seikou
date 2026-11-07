@@ -2,14 +2,9 @@ import type { ShownStill } from '../bdj/background';
 import { PLANE_HEIGHT, PLANE_WIDTH, type GraphicsPlaneReader } from '../bdj/graphics-plane';
 import type { OverlayPlane } from '@seikou/pg';
 import type { ShaderStage } from '../shaders/stage';
-import type { TextRenderOptions } from '../subs/text-renderer';
+import type { Rect, TextRenderOptions, TextRendererLike } from '@seikou/ass/host-types';
 
-export interface Rect {
-  readonly x: number;
-  readonly y: number;
-  readonly width: number;
-  readonly height: number;
-}
+export type { Rect, TextRendererLike };
 
 export function fitRect(srcW: number, srcH: number, dstW: number, dstH: number): Rect {
   if (!(srcW > 0 && srcH > 0 && dstW > 0 && dstH > 0)) return { x: 0, y: 0, width: 0, height: 0 };
@@ -51,16 +46,6 @@ export interface CompositorLike {
   bdjBytes?(): number;
   /** Shades every video frame drawn from now on with the stage's set (null: draw frames as they are). */
   setShaderStage?(stage: ShaderStage | null): void;
-}
-
-/** A text subtitle renderer (SRT or ASS) as the player and compositor use it. */
-export interface TextRendererLike {
-  /** Draws inside `videoRect`; returns how many cues or events were drawn. */
-  render(ctx: OffscreenCanvasRenderingContext2D, timeUs: number, videoRect: Rect, opts: TextRenderOptions): number;
-  /** Whether a render at `timeUs` would differ from the last one. */
-  changed(timeUs: number, opts: TextRenderOptions): boolean;
-  /** Whether anything shows at `timeUs`. */
-  visible(timeUs: number, opts: TextRenderOptions): boolean;
 }
 
 /** A plane's pixels at plane size, updated from its dirty rects. */

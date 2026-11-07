@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseAss } from '../../src/engine/ass/parse';
+import { parseAss } from '@seikou/ass/parse';
 import { sampleTimes } from './times';
 
 const script = (...events: string[]) => parseAss(`[Script Info]\nScriptType: v4.00+\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n${events.join('\n')}\n`);

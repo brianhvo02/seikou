@@ -111,7 +111,7 @@ LGPL-2.1-or-later for everything that doesn't carry its own licence (see [LICENS
 - `src/bdj-classlib/`: GPLv2 with the Classpath Exception, with the Apache, SAX and ICU notices its [NOTICE](src/bdj-classlib/NOTICE) lists.
 - `src/wasm/freetype/`: the FreeType License.
 - `src/ui/anime4k/` and `fixtures/shaders/anime4k/`: MIT (Anime4K).
-- `src/engine/ass/default-font.ttf` and `fixtures/ass/fonts/`: the DejaVu licence.
+- `packages/ass/src/default-font.ttf` and `fixtures/ass/fonts/`: the DejaVu licence.
 - `fixtures/bdj-fonts/` and `fixtures/synthetic/disc-bdj-menu/` (Source Sans 3): SIL Open Font License 1.1.
 - `server/data/discdb-index.json`: MIT (TheDiscDB data).
 - `public/tmdb-logo.svg`: TMDB's logo, used for attribution only.

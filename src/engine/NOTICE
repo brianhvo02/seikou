@@ -71,43 +71,10 @@ libbluray (https://www.videolan.org/developers/libbluray.html), LGPL-2.1-or-late
                           /persistent/<org>/<app> and /buda/<org>/<disc> directories), BDJXletContext.java
                           (getXletProperty: dvb.org.id, dvb.app.id), bdj/bdj.c (_bdj_init's disc ID) and
                           bluray.c (bdj_disc_id from bdid_get); bdjo_get's backup BDJO
-  subs/srt.ts and subs/text-renderer.ts (SubRip subtitles) are original
+  subs/srt.ts, subs/text-renderer.ts (SubRip subtitles) and subs/text-set.ts are original
   implementations; they contain no libbluray or FFmpeg code.
 
-libass 0.17.5 (https://github.com/libass/libass, commit 4a05d81), ISC License
-  Copyright (C) 2006-2016 libass contributors
-
-  Permission to use, copy, modify, and/or distribute this software for any
-  purpose with or without fee is hereby granted, provided that the above
-  copyright notice and this permission notice appear in all copies.
-
-  THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
-  WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
-  MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
-  ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-  WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
-  ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
-  OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
-
-  Derived files (each lists the ported functions in its header):
-    ass/types.ts          from libass/ass_types.h
-    ass/cstr.ts           from libass/ass_utils.h, ass_utils.c, ass_strtod.c, ass_string.h
-    ass/parse.ts          from libass/ass.c, ass_utils.c, ass_utils.h (script parsing, [Fonts] decoding)
-    ass/font-tables.ts    from libass/ass_fontselect.c (get_font_info), ass_font.c (weight, style, metrics)
-    ass/fonts.ts          from libass/ass_fontselect.c (matching, fallback), ass_font.c (faces, synthetic styles, size)
-    ass/state.ts          from libass/ass_render.h, ass_render.c (render context), ass_parse.c (ass_update_font)
-    ass/tags.ts           from libass/ass_parse.c (override tags, animation, fades)
-    ass/events.ts         from libass/ass_render.h (GlyphInfo), ass_render.c, ass_parse.c (karaoke)
-    ass/drawing.ts        from libass/ass_drawing.c
-    ass/layout.ts         from libass/ass_render.c (layout, wrapping, alignment), ass_shaper.c (runs), ass_font.c
-    ass/transform.ts      from libass/ass_render.c (calc_transform_matrix, calculate_rotation_params)
-    ass/collisions.ts     from libass/ass_render.c (fix_collisions)
-    ass/frame.ts          from libass/ass_render.c (ass_render_frame, event boxes, device positions)
-    ass/raster.ts         from libass/ass_render.c (filters, quantize_transform positions, composition, clips),
-                          ass_bitmap.c (ass_fix_outline), ass_font.c (emboldening, italic, decorations)
-  ass/gsub.ts, ass/measure.ts, ass/warp.ts, ass/renderer.ts, ass/trace.ts,
-  ass/trace-format.ts and subs/text-set.ts are original implementations; they contain no libass,
-  libbluray or FFmpeg code.
+The ASS renderer and its bundled DejaVu font are in packages/ass/ (see its NOTICE).
 
 libplacebo (https://code.videolan.org/videolan/libplacebo), LGPL-2.1-or-later:
 semantics followed, not ported
@@ -126,10 +93,6 @@ Anime4K (https://github.com/bloc97/Anime4K, commit 7684e95), MIT License
   src/ui/anime4k/shaders/ (README there; LICENSE in src/ui/anime4k/).
   fixtures/shaders/anime4k/ holds unmodified copies of its shaders, with its
   LICENSE next to them.
-
-DejaVu fonts 2.37 (https://dejavu-fonts.github.io), Bitstream Vera / DejaVu licence
-  ass/default-font.ttf is DejaVu Sans, unmodified; its licence is in
-  ass/LICENSE-DejaVu.txt.
 
 FFmpeg (https://ffmpeg.org), LGPL-2.1-or-later
   Copyright (c) 2009, 2013 Christian Schmidt (libavcodec/pcm-bluray.c)

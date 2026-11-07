@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - 'tools/bdj-trace/**'
-      - 'src/engine/ass/default-font.ttf'
+      - 'packages/ass/src/default-font.ttf'
       - 'scripts/make-bdj-disc.ts'
       - 'scripts/make-bdj-mixed-disc.ts'
       - 'scripts/make-bdj-menu-disc.ts'
@@ -24,7 +24,7 @@ on:
   pull_request:
     paths:
       - 'tools/bdj-trace/**'
-      - 'src/engine/ass/default-font.ttf'
+      - 'packages/ass/src/default-font.ttf'
       - 'scripts/make-bdj-disc.ts'
       - 'scripts/make-bdj-mixed-disc.ts'
       - 'scripts/make-bdj-menu-disc.ts'

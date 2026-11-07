@@ -7,20 +7,18 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import type { Rect, TextRendererLike } from '../render/compositor';
-import type { TextRenderOptions } from '../subs/text-renderer';
+import type { AssRendererLimits, Rect, TextRendererLike, TextRenderOptions } from './host-types';
 import type { AssFonts } from './fonts';
 import { FrameBuilder, type FrameEvent } from './frame';
 import type { GlyphMeasurer } from './measure';
 import { renderEvent, type CachedLayers, type RasterContext, type RenderedEvent, type RunMasks } from './raster';
 import type { RenderSettings } from './state';
 import type { Mat3 } from './transform';
-import type { MemoryProfile } from '../memory-profile';
 import { YCbCr, type AssTrack, type YCbCrMatrix } from './types';
 
 export interface AssRenderStats { readonly events: number; readonly animated: number; readonly renderMs: number; readonly overBudget: number; readonly renders: number }
 
-export type AssRendererLimits = Pick<MemoryProfile, 'assEventCacheBytes' | 'assLayerCacheBytes' | 'assMaskCacheBytes' | 'maxTextSupersampling'>;
+export type { AssRendererLimits };
 
 export interface AssRendererDeps {
   readonly measurer: GlyphMeasurer;

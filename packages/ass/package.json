@@ -1,0 +1,12 @@
+{
+  "name": "@seikou/ass",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "LGPL-2.1-or-later",
+  "exports": {
+    ".": "./src/index.ts",
+    "./default-font.ttf": "./src/default-font.ttf",
+    "./*": "./src/*.ts"
+  },
+  "files": ["src", "LICENSE", "NOTICE"]
+}

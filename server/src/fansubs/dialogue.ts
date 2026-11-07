@@ -1,5 +1,5 @@
 /** The spans of an ASS script that are spoken dialogue, not signs, songs or typesetting. Pure; original code. */
-import { parseAss } from '../../../src/engine/ass/parse';
+import { parseAss } from '@seikou/ass/parse';
 
 const NON_DIALOGUE_TOKEN = /^(signs?|songs?|op|ed|opening|ending|kara(oke)?|titles?|inserts?|notes?|tl|lyrics?|romaji|kanji)\d*$/i;
 const POSITIONED = /\\(?:pos|move)\s*\(/;

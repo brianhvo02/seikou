@@ -1,14 +1,14 @@
 /** The ASS trace page: lays out (and later draws) a script with our port, in Chrome, as the libass harness does. */
-import { readFontFile } from '../../../src/engine/ass/font-tables';
-import { AssFonts, createFontFaceLoader } from '../../../src/engine/ass/fonts';
-import { FrameBuilder } from '../../../src/engine/ass/frame';
-import { createCanvasMeasurer } from '../../../src/engine/ass/measure';
-import { AssRenderer } from '../../../src/engine/ass/renderer';
+import { readFontFile } from '@seikou/ass/font-tables';
+import { AssFonts, createFontFaceLoader } from '@seikou/ass/fonts';
+import { FrameBuilder } from '@seikou/ass/frame';
+import { createCanvasMeasurer } from '@seikou/ass/measure';
+import { AssRenderer } from '@seikou/ass/renderer';
 import { MEMORY_PROFILES } from '../../../src/engine/memory-profile';
-import { drawWarped } from '../../../src/engine/ass/warp';
-import { parseAss } from '../../../src/engine/ass/parse';
-import type { RenderSettings } from '../../../src/engine/ass/state';
-import { frameToTrace } from '../../../src/engine/ass/trace';
+import { drawWarped } from '@seikou/ass/warp';
+import { parseAss } from '@seikou/ass/parse';
+import type { RenderSettings } from '@seikou/ass/state';
+import { frameToTrace } from '@seikou/ass/trace';
 import { formatTrace } from '../format';
 import { comparePixels } from '../pixels';
 import type { AssSessionPage, AssTracePage, FrameResult } from './types';

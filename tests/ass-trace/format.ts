@@ -1,7 +1,7 @@
-/** The trace's types live with the renderer that writes it (src/engine/ass/trace.ts). */
-import type { TraceClip, TraceEvent, TraceRun } from '../../src/engine/ass/trace-format';
+/** The trace's types live with the renderer that writes it (packages/ass/src/trace.ts). */
+import type { TraceClip, TraceEvent, TraceRun } from '@seikou/ass/trace-format';
 
-export type { TraceClip, TraceEvent, TraceGlyph, TraceRun } from '../../src/engine/ass/trace-format';
+export type { TraceClip, TraceEvent, TraceGlyph, TraceRun } from '@seikou/ass/trace-format';
 
 export function parseTrace(jsonl: string): TraceEvent[] {
   return jsonl.split('\n').filter((l) => l.trim() !== '').map((l) => JSON.parse(l) as TraceEvent);

@@ -34,7 +34,7 @@ interface Golden {
 
 // From the system FreeType libbluray links in the BD-J harness: tools/bdj-trace/freetype-golden.sh
 const golden = JSON.parse(new TextDecoder().decode(read('../../../../tests/bdj/fonts/freetype-golden.json'))) as Golden;
-const font = read('../../ass/default-font.ttf');
+const font = read('../../../../packages/ass/src/default-font.ttf');
 const base64 = (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64');
 
 describe('freetype.wasm against the libbluray harness FreeType', () => {

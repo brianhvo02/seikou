@@ -382,8 +382,8 @@ describe('BD-J font natives without FreeType', () => {
 });
 
 describe('system fonts', () => {
-  it('DEFAULT_FONT_SIZE is the size of src/engine/ass/default-font.ttf', () => {
-    expect(file('../../../ass/default-font.ttf').length).toBe(DEFAULT_FONT_SIZE);
+  it('DEFAULT_FONT_SIZE is the size of packages/ass/src/default-font.ttf', () => {
+    expect(file('../../../../../packages/ass/src/default-font.ttf').length).toBe(DEFAULT_FONT_SIZE);
   });
 
   it('remembers a failed fetch: later reads fail at once with the same error', async () => {

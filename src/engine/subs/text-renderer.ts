@@ -6,17 +6,10 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import type { Rect } from '../render/compositor';
+import type { Rect, TextRenderOptions } from '@seikou/ass/host-types';
 import { activeCues, type StyledRun, type TextCue } from './srt';
 
-export interface TextRenderOptions {
-  /** Added to every cue's times (a positive offset shows cues later). */
-  readonly offsetUs: number;
-  /** Font size factor, 0.5–2. */
-  readonly scale: number;
-  /** The video's storage size (its coded picture), which ASS layout can depend on; null when unknown. */
-  readonly storage?: { readonly width: number; readonly height: number } | null;
-}
+export type { TextRenderOptions };
 
 const FONT_SIZE = 0.055; // of the video height
 const LINE_HEIGHT = 1.2;

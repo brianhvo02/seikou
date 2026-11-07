@@ -30,7 +30,7 @@ describe('archives', () => {
   it('fontsIn7z lists only fonts', async () => {
     const fonts = await fontsIn7z(fixture('pack.7z'));
     expect(fonts.map((f) => f.name)).toEqual(['Default.ttf']);
-    const original = readFileSync(new URL('../../../src/engine/ass/default-font.ttf', import.meta.url));
+    const original = readFileSync(new URL('../../../packages/ass/src/default-font.ttf', import.meta.url));
     expect(fonts[0]!.data.equals(original)).toBe(true);
   });
 
@@ -41,7 +41,7 @@ describe('archives', () => {
   });
 
   it('fontsIn7z finds mixed-case extensions in subfolders', async () => {
-    const font = readFileSync(new URL('../../../src/engine/ass/default-font.ttf', import.meta.url));
+    const font = readFileSync(new URL('../../../packages/ass/src/default-font.ttf', import.meta.url));
     const pack = await makePack({ 'A.TTF': font, 'd/b.Otf': font, 'd/c.ttf': font, 'd/notes.txt': Buffer.from('x') });
     const fonts = await fontsIn7z(pack);
     expect(fonts.map((f) => f.name).sort()).toEqual(['A.TTF', 'b.Otf', 'c.ttf']);

@@ -53,7 +53,7 @@ export interface BdjRuntimeDeps {
   readonly extraIntrinsics?: (table: NativeTable) => void;
   readonly log: (line: string) => void;
   /**
-   * Text: FreeType for the font natives and the bundled fallback font (src/engine/ass/default-font.ttf) as the JRE's
+   * Text: FreeType for the font natives and the bundled fallback font (packages/ass/src/default-font.ttf) as the JRE's
    * font files, both fetched when text first needs them. Without it, BD-J runs as libbluray built without FreeType.
    */
   readonly fonts?: BdjFontSources;
@@ -75,7 +75,7 @@ export interface BdjMemoryBudgets {
 
 export interface BdjFontSources {
   readonly loadFreeType: () => Promise<FreeType>;
-  /** The bytes of src/engine/ass/default-font.ttf. */
+  /** The bytes of packages/ass/src/default-font.ttf. */
   readonly loadDefaultFont: () => Promise<Uint8Array>;
 }
 

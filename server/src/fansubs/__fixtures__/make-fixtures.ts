@@ -28,5 +28,5 @@ async function make(name: string, files: Record<string, Uint8Array>, args: strin
 await make('track.ass.xz', { 'track.ass': Buffer.from(ASS) }, ['-txz']);
 await make('pack.7z', {
   'track.ass': Buffer.from(ASS),
-  'Default.ttf': readFileSync(new URL('../../../../src/engine/ass/default-font.ttf', import.meta.url)),
+  'Default.ttf': readFileSync(new URL('../../../../packages/ass/src/default-font.ttf', import.meta.url)),
 }, ['-t7z']);

@@ -1,13 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import type { Rect } from '../render/compositor';
+import type { AssRendererLimits, Rect } from './host-types';
 import { readFontFile } from './font-tables';
 import { AssFonts } from './fonts';
 import { FrameBuilder } from './frame';
 import { createFixedMeasurer } from './measure';
 import { parseAss } from './parse';
 import type { RenderedEvent } from './raster';
-import { MEMORY_PROFILES } from '../memory-profile';
 import { AssRenderer, convertColor } from './renderer';
 import { YCbCr } from './types';
 
@@ -31,6 +30,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 ${events.join('\n')}
 `);
 const ev = (from: string, to: string, text: string) => `Dialogue: 0,${from},${to},Default,,0,0,0,,${text}`;
+const MB = 1024 * 1024;
+const DESKTOP_LIMITS: AssRendererLimits = { assEventCacheBytes: 128 * MB, assLayerCacheBytes: 128 * MB, assMaskCacheBytes: 64 * MB, maxTextSupersampling: 8 };
 const RECT: Rect = { x: 0, y: 60, width: 1920, height: 1080 };
 const OPTS = { offsetUs: 0, scale: 1, storage: null };
 
@@ -48,7 +49,7 @@ function renderer(track = script([ev('0:00:01.00', '0:00:03.00', 'static'), ev('
     nowMs: () => 0,
     Path2D: class {} as unknown as typeof Path2D,
     colorMatrix,
-    limits: MEMORY_PROFILES.desktop,
+    limits: DESKTOP_LIMITS,
     canvasFilter: true,
     renderEvent: (_rc, e): RenderedEvent => { rendered.push(e.index); return { canvas, x: 0, y: 0 }; },
   });

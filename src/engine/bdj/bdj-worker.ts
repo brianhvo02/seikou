@@ -160,7 +160,7 @@ export interface BdjWorkerOptions {
    * needed, not at boot: the entry fetches src/wasm/freetype/freetype.wasm. Calls share one load.
    */
   readonly loadFreeType?: () => Promise<FreeType>;
-  /** The bundled fallback font (src/engine/ass/default-font.ttf), the JRE font files' bytes; fetched when first read. */
+  /** The bundled fallback font (packages/ass/src/default-font.ttf), the JRE font files' bytes; fetched when first read. */
   readonly loadDefaultFont?: () => Promise<Uint8Array>;
   /** Reads a NAS disc's files; the worker's fetch by default. */
   readonly fetch?: typeof fetch;
