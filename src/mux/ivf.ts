@@ -38,6 +38,21 @@ export interface IvfStream {
   sequenceHeader: Promise<SequenceHeaderResult>;
 }
 
+/** Matroska's AV1 mapping says temporal delimiter OBUs SHOULD be removed from block data. */
+export function stripTemporalDelimiters(temporalUnit: Uint8Array): Uint8Array {
+  const obus = splitObus(temporalUnit);
+  if (!obus.some((o) => o.type === ObuType.TEMPORAL_DELIMITER)) return temporalUnit;
+  const kept = obus.filter((o) => o.type !== ObuType.TEMPORAL_DELIMITER);
+  const out = new Uint8Array(kept.reduce((n, o) => n + o.header.length + o.payload.length, 0));
+  let pos = 0;
+  for (const o of kept) {
+    out.set(o.header, pos);
+    out.set(o.payload, pos + o.header.length);
+    pos += o.header.length + o.payload.length;
+  }
+  return out;
+}
+
 const IVF_HEADER_SIZE = 32;
 const IVF_FRAME_HEADER_SIZE = 12;
 
@@ -103,13 +118,15 @@ export async function readIvf(stream: Readable): Promise<IvfStream> {
   async function* packets(): AsyncGenerator<Av1Packet> {
     let index = 0;
     const seq = await scan;
-    for (const frame of held.splice(0)) {
-      yield { index: index++, data: frame, keyframe: isKeyframe(frame, seq.info) };
-    }
+    const packet = (frame: Uint8Array): Av1Packet => {
+      const data = stripTemporalDelimiters(frame);
+      return { index: index++, data, keyframe: isKeyframe(data, seq.info) };
+    };
+    for (const frame of held.splice(0)) yield packet(frame);
     for (;;) {
       const frame = await nextFrame();
       if (frame === null) return;
-      yield { index: index++, data: frame, keyframe: isKeyframe(frame, seq.info) };
+      yield packet(frame);
     }
   }
 

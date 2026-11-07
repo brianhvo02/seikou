@@ -51,8 +51,8 @@ describe('parseEpisodeSpec', () => {
 describe('planEpisodes', () => {
   it('plans two episodes of one clip each on disc1', () => {
     const plans = planEpisodes(p, probes, parseEpisodeSpec('1-2,3-4', 4), 4352);
-    expect(plans.map((e) => e.segments.map((s) => [s.item.clipId, s.videoFrames, s.audioSamples, s.audioOffsetNs])))
-      .toEqual([[['00001', [0, 96], [0, 192000], 0n]], [['00002', [0, 96], [0, 192000], 0n]]]);
+    expect(plans.map((e) => e.segments.map((s) => [s.item.clipId, s.videoFrames, s.audioSamples])))
+      .toEqual([[['00001', [0, 96], [0, 192000]]], [['00002', [0, 96], [0, 192000]]]]);
     expect(plans[0].chapters).toEqual([{ title: 'Chapter 1', startNs: 0n }, { title: 'Chapter 2', startNs: 2002000000n }]);
     expect(plans[0].frameCount).toBe(96);
     expect(plans[0].durationNs).toBe(4004000000n);
@@ -66,19 +66,26 @@ describe('planEpisodes', () => {
     expect(plans[0].chapters.map((c) => c.startNs)).toEqual([0n, 2002000000n, 4004000000n]);
   });
 
-  it('turns audio starting 20 ms after video into an audio offset, not a trim', () => {
-    const late = { ...probe00001, audio: [{ ...probe00001.audio[0], firstPts90: 901800 }] };
-    const [ep] = planEpisodes(p, new Map([['00001', late], ['00002', probe00002]]), parseEpisodeSpec('1-2', 4), 4352);
-    expect(ep.segments[0].audioSamples).toEqual([0, 191040]);
-    expect(ep.segments[0].audioOffsetNs).toBe(20000000n);
-    const early = { ...probe00001, audio: [{ ...probe00001.audio[0], firstPts90: 898200 }] };
-    const [ep2] = planEpisodes(p, new Map([['00001', early], ['00002', probe00002]]), parseEpisodeSpec('1-2', 4), 4352);
-    expect(ep2.segments[0].audioSamples).toEqual([960, 192960]);
-    expect(ep2.segments[0].audioOffsetNs).toBe(0n);
+  it('counts audio samples from the video start whether the audio starts late or early', () => {
+    // BestSource (adjustdelay=-1) already aligns audio sample 0 to the first video frame.
+    for (const firstPts90 of [901800, 898200]) {
+      const shifted = { ...probe00001, audio: [{ ...probe00001.audio[0], firstPts90 }] };
+      const [ep] = planEpisodes(p, new Map([['00001', shifted], ['00002', probe00002]]), parseEpisodeSpec('1-2', 4), 4352);
+      expect(ep.segments[0].audioSamples).toEqual([0, 192000]);
+      expect(Object.keys(ep.segments[0]).sort()).toEqual(['audioSamples', 'item', 'videoFrames']);
+    }
   });
 
-  it('rounds a mark to the nearest frame', () => {
-    expect(plansFor('1-', [450000, 451000])[0].chapters[1].startNs).toBe(41708333n);
+  it('skips chapters between ranges that no spec covers', () => {
+    const plans = planEpisodes(p, probes, parseEpisodeSpec('1-2,4-', 4), 4352);
+    expect(plans.map((e) => e.segments.map((s) => [s.item.index, s.videoFrames]))).toEqual([[[0, [0, 96]]], [[1, [48, 96]]]]);
+    expect(plans[0].chapters.map((c) => c.startNs)).toEqual([0n, 2002000000n]);
+    expect(plans[1].chapters.map((c) => c.startNs)).toEqual([0n]);
+  });
+
+  it('rounds a mark to the nearest frame and puts the chapter on the millisecond block grid', () => {
+    // 1000 ticks at 45 kHz = 22.2 ms rounds to frame 1 (41.708 ms), whose block timestamp is 42 ms.
+    expect(plansFor('1-', [450000, 451000])[0].chapters[1].startNs).toBe(42000000n);
   });
 
   it('throws naming the clip and PID when the audio PID is missing', () => {

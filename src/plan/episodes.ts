@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import type { Playlist, PlaylistItem } from '../disc/playlist';
 import type { AudioProbe, ClipProbe, VideoProbe } from '../disc/probe';
-import { frameAt, framesToNs, sampleAt } from './timing';
+import { frameAt, framesToNs, sampleAt, videoMs } from './timing';
 
 /** 1-based inclusive chapter indices; `to: null` runs to the last chapter. */
 export interface EpisodeSpec {
@@ -43,9 +43,8 @@ export interface Segment {
   item: PlaylistItem;
   /** Half-open frame range in the clip. */
   videoFrames: [number, number];
-  /** Half-open sample range in the clip. */
+  /** Half-open sample range in the clip, counted from the clip's first video frame (BestSource's alignment). */
   audioSamples: [number, number];
-  audioOffsetNs: bigint;
 }
 
 export interface EpisodeChapter {
@@ -107,15 +106,16 @@ function planEpisode(
       const lo = Math.max(item.inTime45, startPlaylist45 - itemStart45 + item.inTime45);
       const hi = Math.min(item.outTime45, endPlaylist45 - itemStart45 + item.inTime45);
       const frameEnd = frameAt(item.outTime45, probe.video);
-      const sampleEnd = sampleAt(item.outTime45, itemAudio);
+      // BestSource pads or trims the audio so sample 0 is the first video frame, so samples count from
+      // the video's first PTS, not the audio's.
+      const audioOrigin = { firstPts90: probe.video.firstPts90, sampleRate: itemAudio.sampleRate };
+      const sampleEnd = sampleAt(item.outTime45, audioOrigin);
       const clampFrame = (t: number): number => Math.min(Math.max(frameAt(t, probe.video), 0), frameEnd);
-      const clampSample = (t: number): number => Math.min(Math.max(sampleAt(t, itemAudio), 0), sampleEnd);
-      const lead90 = segments.length === 0 ? Math.max(0, itemAudio.firstPts90 - lo * 2) : 0;
+      const clampSample = (t: number): number => Math.min(Math.max(sampleAt(t, audioOrigin), 0), sampleEnd);
       segments.push({
         item,
         videoFrames: [clampFrame(lo), clampFrame(hi)],
         audioSamples: [clampSample(lo), clampSample(hi)],
-        audioOffsetNs: (BigInt(lead90) * 1_000_000_000n) / 90000n,
       });
     }
     itemStart45 = itemEnd45;
@@ -135,7 +135,8 @@ function planEpisode(
       }
       framesBefore += s.videoFrames[1] - s.videoFrames[0];
     }
-    chapters.push({ title: `Chapter ${chapters.length + 1}`, startNs: framesToNs(framesBefore, video) });
+    // On the millisecond grid of the video blocks, so a chapter never lands between two frames' timestamps.
+    chapters.push({ title: `Chapter ${chapters.length + 1}`, startNs: BigInt(videoMs(framesBefore, video)) * 1_000_000n });
   }
   return { index, segments, chapters, frameCount, durationNs: framesToNs(frameCount, video), video, audio };
 }

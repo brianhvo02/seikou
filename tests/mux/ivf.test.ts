@@ -2,6 +2,7 @@
 import { createReadStream } from 'node:fs';
 import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
+import { splitObus } from '../../src/mux/av1';
 import { readIvf } from '../../src/mux/ivf';
 
 async function collectAll<T>(iter: AsyncIterable<T>): Promise<T[]> {
@@ -17,6 +18,14 @@ describe('readIvf', () => {
     const packets = await collectAll(ivf.packets);
     expect(packets.map((p) => p.index)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
     expect(packets.filter((p) => p.keyframe).map((p) => p.index)).toEqual([0, 4, 8]);
+  });
+
+  it('strips temporal delimiter OBUs from packet data', async () => {
+    const packets = await collectAll((await readIvf(createReadStream('fixtures/small.ivf'))).packets);
+    for (const p of packets) {
+      expect((p.data[0]! >> 3) & 0x0f).not.toBe(2);
+      expect(splitObus(p.data).map((o) => o.type)).not.toContain(2);
+    }
   });
 
   it('yields the same packets when the stream arrives in 1-byte chunks', async () => {

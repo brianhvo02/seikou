@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { open, type FileHandle } from 'node:fs/promises';
-import { frameDurationNs, framesToNs } from '../plan/timing';
+import { frameDurationNs, framesToNs, videoMs } from '../plan/timing';
 import {
   ascii,
   binary,
@@ -33,7 +33,6 @@ export interface AudioTrackInfo {
   codecPrivate: Uint8Array;
   codecDelayNs: bigint;
   seekPreRollNs: bigint;
-  startOffsetNs: bigint;
   language: string;
 }
 
@@ -103,12 +102,8 @@ function blockPayload(track: number, relTs: number, flags: number, data: Uint8Ar
   return concat([head, data]);
 }
 
-function videoMs(index: number, v: VideoTrackInfo): number {
-  return Math.round((index * v.fpsDen * 1000) / v.fpsNum);
-}
-
-function audioMs(pts48: number, a: AudioTrackInfo): number {
-  return Math.round(pts48 / 48 + Number(a.startOffsetNs) / 1e6);
+function audioMs(pts48: number): number {
+  return Math.round(pts48 / 48);
 }
 
 function trackEntries(input: MkvInput): Uint8Array {
@@ -263,7 +258,7 @@ export async function writeMkv(path: string, input: MkvInput): Promise<MkvResult
     while (vCur.done !== true || aLook.current !== null) {
       const v = vCur.done === true ? null : vCur.value;
       const a = aLook.current;
-      const useVideo = v !== null && (a === null || cluster === null || videoMs(v.index, video) <= audioMs(a.pts48, audio));
+      const useVideo = v !== null && (a === null || cluster === null || videoMs(v.index, video) <= audioMs(a.pts48));
       if (useVideo) {
         const ms = videoMs(v.index, video);
         if (v.keyframe) {
@@ -281,7 +276,7 @@ export async function writeMkv(path: string, input: MkvInput): Promise<MkvResult
         vCur = await vIter.next();
       } else {
         if (a === null || cluster === null) throw new Error('no video packets to anchor the audio to');
-        const ms = audioMs(a.pts48, audio);
+        const ms = audioMs(a.pts48);
         let discard = 0;
         if (aLook.currentIsLast) discard = (await input.audioEnd).discardPadding48;
         if (discard > 0) {
@@ -293,7 +288,8 @@ export async function writeMkv(path: string, input: MkvInput): Promise<MkvResult
           addToCluster(cluster, binary(Id.SimpleBlock, blockPayload(AUDIO_TRACK, ms - cluster.timestamp, 0x80, a.data)));
         }
         const endSamples = a.pts48 + a.durationSamples - Math.max(discard, 0);
-        lastAudioEndNs = (BigInt(endSamples) * 1_000_000_000n) / 48000n + audio.startOffsetNs;
+        // Playback drops the first CodecDelay of decoded audio (the Opus pre-skip), so it is not part of the duration.
+        lastAudioEndNs = (BigInt(endSamples) * 1_000_000_000n) / 48000n - audio.codecDelayNs;
         audioCount++;
         await aLook.advance();
       }

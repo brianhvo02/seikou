@@ -55,4 +55,7 @@ const tools = toolPaths();
 
 export const haveTools: boolean = tools !== null && bestSourceLoads(tools.vspipe);
 
-export const haveFfprobe: boolean = findOnPath('ffprobe', process.env.ENCODING_TOOLS_FFPROBE) !== null;
+/** Resolved ffprobe path (test oracle only), or null when absent. */
+export const ffprobePath: string | null = findOnPath('ffprobe', process.env.ENCODING_TOOLS_FFPROBE);
+
+export const haveFfprobe: boolean = ffprobePath !== null;

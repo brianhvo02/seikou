@@ -39,7 +39,6 @@ describe('writeMkv', () => {
         codecPrivate: ogg.head.raw,
         codecDelayNs: (BigInt(ogg.head.preSkip) * 1_000_000_000n) / 48000n,
         seekPreRollNs: 80_000_000n,
-        startOffsetNs: 0n,
         language: 'und',
       },
       videoPackets: ivf.packets,
@@ -71,6 +70,7 @@ describe('writeMkv', () => {
     for (const cluster of findAll(t, Id.Cluster)) expect(firstBlockIsVideoKeyframe(cluster)).toBe(true);
     expect(countVideoBlocks(t)).toBe(10);
     expect(floatOf(find(t, Id.Duration))).toBeCloseTo(Number(r.durationNs) / 1e6, 3);
+    expect(floatOf(find(t, Id.Duration))).toBeCloseTo(500, 1); // audio end minus the Opus pre-skip (CodecDelay)
     expect(find(t, Id.Segment).size).toBe(statSync(out).size - segmentDataStart(t));
     expect(findAll(t, Id.DiscardPadding)).toHaveLength((await ogg.end).discardPadding48 > 0 ? 1 : 0);
   });

@@ -5,9 +5,12 @@ export function frameAt(t45: number, video: { firstPts90: number; fpsNum: number
   return Math.round(((t45 * 2 - video.firstPts90) * video.fpsNum) / (video.fpsDen * 90000));
 }
 
-/** Sample index of a clip time (45 kHz ticks) relative to the clip's first audio PTS. */
-export function sampleAt(t45: number, audio: { firstPts90: number; sampleRate: number }): number {
-  return Math.round(((t45 * 2 - audio.firstPts90) * audio.sampleRate) / 90000);
+/**
+ * Sample index of a clip time (45 kHz ticks) relative to `origin.firstPts90`. The planner passes the
+ * clip's first VIDEO PTS: BestSource (adjustdelay=-1) aligns audio sample 0 with the first video frame.
+ */
+export function sampleAt(t45: number, origin: { firstPts90: number; sampleRate: number }): number {
+  return Math.round(((t45 * 2 - origin.firstPts90) * origin.sampleRate) / 90000);
 }
 
 /** Duration of `frames` frames in nanoseconds, rounded to nearest. */
@@ -18,4 +21,9 @@ export function framesToNs(frames: number, video: { fpsNum: number; fpsDen: numb
 
 export function frameDurationNs(video: { fpsNum: number; fpsDen: number }): bigint {
   return framesToNs(1, video);
+}
+
+/** Matroska millisecond timestamp of video frame `frame`; block timestamps and chapter starts share this grid. */
+export function videoMs(frame: number, video: { fpsNum: number; fpsDen: number }): number {
+  return Math.round((frame * video.fpsDen * 1000) / video.fpsNum);
 }

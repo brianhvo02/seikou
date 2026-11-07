@@ -143,7 +143,6 @@ export async function encodeEpisodes(
           codecPrivate: ogg.head.raw,
           codecDelayNs: (BigInt(ogg.head.preSkip) * 1_000_000_000n) / 48000n,
           seekPreRollNs: 80_000_000n,
-          startOffsetNs: plan.segments[0]!.audioOffsetNs,
           language: 'und',
         },
         videoPackets: ivf.packets,
