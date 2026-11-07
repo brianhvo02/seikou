@@ -5,7 +5,9 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net';
 import { extname, join, sep } from 'node:path';
 import { discRoutes, prepareDisc } from './disc-routes';
+import { fansubRoutes } from './fansub-routes';
 import { httpError, sendFile, type HelperContext, type RouteTable } from './http';
+import { titleRoutes } from './title-routes';
 
 export type { HelperContext, HelperSources, Route, RouteTable } from './http';
 
@@ -15,7 +17,7 @@ export type { HelperContext, HelperSources, Route, RouteTable } from './http';
 // 127.0.0.1 (DNS rebinding) from reading the answers.
 
 /** Every route the API answers, in match order. */
-const ROUTES: RouteTable = [...discRoutes];
+const ROUTES: RouteTable = [...discRoutes, ...titleRoutes, ...fansubRoutes];
 
 /**
  * Cross-origin isolation on every answer: the page needs SharedArrayBuffer for the engine, and the API's answers are

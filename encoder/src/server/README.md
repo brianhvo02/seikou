@@ -32,7 +32,18 @@ The server listens on `127.0.0.1` only, so nothing else on the network can reach
 | GET, HEAD | `/api/discs/<discKey>/files/<path>` | the file, whole (200) or one `Range` (206); 416 past the end; 404 `not-found` for a missing file |
 | GET | `/api/playlists` | `[{ id, duration45, clipIds }]`, every playlist of the disc |
 | GET | `/api/episodes` | `{ episodes: [{ index, startUs, durationUs, chapters: [{ startUs }] }], audio: [{ pid, codingType, language }], pgCount }`; audio and PG streams of the first play item, from the playlist's STN table; 422 `bad-episode-spec` or `no-audio` |
+| GET | `/api/titles/search?q=` | `{ candidates: TitleHit[] }` from AniList in its order (`alId`, `title`, `nativeTitle`, `year`, `format`, `episodes`, `poster`); 400 `empty-query` for a blank `q` |
+| GET | `/api/titles/<alId>/episodes` | `{ titles: { [episode]: title } }`, empty when AniList has none |
+| GET | `/api/fansubs/seadex?anilist=<id>` | `{ notes, comparison, url, releases }`: public releases in `rankReleases` order, private-tracker ones after, each with `toshoId` and `unavailable` (`null`, `private-tracker` or `not-on-tosho`) |
+| GET | `/api/fansubs/search?q=` | Anime Tosho releases `[{ toshoId, title, date }]` |
+| POST | `/api/fansubs/fetch?offset=` | body `{ toshoId }`; the cached release plus `match: { rows, unmatched }` against episodes 1 to N of the spec, `offset` default 0 |
+| PUT | `/api/uploads/<batch>/<name>` | one raw file of an upload batch (`batch`: 16 lower-case hex digits; `name`: a plain file name); 413 `too-large` with `Connection: close` over 50 MB |
+| POST | `/api/uploads/<batch>/commit?offset=` | the batch as a local release, answered as fetch is; the batch folder is removed; 422 `upload-rejected` or `bad-encoding` |
+| GET | `/api/releases/<key>?offset=` | a cached release plus `match`; 404 `not-found` |
+| GET | `/api/releases/<key>/fonts/<name>` | the font's bytes |
 | GET, HEAD | anything else | a file of the page's folder (`/` is `index.html`), no token needed |
+
+There is no automatic lookup of the show from the disc: the AniList id is whatever the user searched for and picked. A failing or throttled upstream answers 503 `source-unavailable` with the failing `source` (`anilist`, `seadex` or `tosho`); an Anime Tosho release that does not exist answers 404 `not-on-tosho`. Uploads wait in `<data>/uploads/<batch>/` until commit.
 
 A `<discKey>` other than the run's answers 404 `disc-changed`, which the engine reports as a changed disc.
 
@@ -41,4 +52,6 @@ A `<discKey>` other than the run's answers 404 `disc-changed`, which the engine 
 - `server.ts`: the listener, the Host, path and token checks, routing and the page's files.
 - `http.ts`: the context and route types and the answer helpers.
 - `disc-routes.ts`: the session, the NAS disc API, playlists and episode times.
+- `title-routes.ts`: the AniList search and episode titles.
+- `fansub-routes.ts`: SeaDex, Anime Tosho, uploads and cached releases (one `ReleaseCache` per run, kept beside the context).
 - Tests: `encoder/tests/server/`.
