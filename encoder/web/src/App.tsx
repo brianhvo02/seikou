@@ -5,6 +5,7 @@ import type { EpisodesAnswer, SessionInfo } from './api-types';
 import { canEnter, initialState, reduce, toRecord, type HelperAction, type HelperState, type Step } from './helper-model';
 import { defaultMetadata } from './metadata/metadata-model';
 import { STEP_NAMES, StepBar } from './StepBar';
+import { MatchStep } from './steps/MatchStep';
 import { ReleaseStep } from './steps/ReleaseStep';
 
 /** What the page needs: the backend client, made by the entry point from the run's token. */
@@ -165,6 +166,8 @@ export function App({ api }: AppProps) {
           </p>
         ) : state.step === 1 && loaded ? (
           <ReleaseStep api={api} state={state} dispatch={dispatch} />
+        ) : state.step === 2 && loaded ? (
+          <MatchStep api={api} state={state} dispatch={dispatch} />
         ) : (
           <section aria-labelledby="step-heading">
             <h2 id="step-heading">{STEP_NAMES[state.step]}</h2>

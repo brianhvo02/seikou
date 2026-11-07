@@ -493,3 +493,112 @@ input::placeholder {
 .step-next {
   margin-top: 8px;
 }
+
+/* step 2: one ruled row per episode, the file and its tracks beside the episode, stacked at phone width */
+.match-rows,
+.match-unmatched ul,
+.match-tracks {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.match-rows {
+  margin-top: 14px;
+  max-width: var(--column);
+}
+
+.match-rows > li {
+  border-top: 1px solid var(--rule);
+}
+
+.match-row {
+  display: grid;
+  grid-template-columns: minmax(0, 13rem) minmax(0, 1fr);
+  gap: 8px 20px;
+  margin: 0;
+  padding: 14px 0;
+  border: 0;
+  min-width: 0;
+}
+
+.match-episode {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.match-number {
+  color: var(--muted);
+  min-width: 1.5em;
+}
+
+.match-title {
+  font-weight: 560;
+  overflow-wrap: anywhere;
+}
+
+.match-body {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.match-body select {
+  min-height: 40px;
+  padding: 0 10px;
+  max-width: 100%;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+}
+
+.match-tracks {
+  display: grid;
+  gap: 6px;
+}
+
+.check {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  cursor: pointer;
+}
+
+.check input {
+  accent-color: var(--accent);
+  margin: 0;
+  align-self: center;
+}
+
+.check:has(input:disabled) {
+  color: var(--dim);
+  cursor: default;
+}
+
+.match-none {
+  color: var(--muted);
+}
+
+.match-unmatched {
+  margin-top: 24px;
+  max-width: var(--column);
+}
+
+.match-unmatched ul {
+  margin-top: 8px;
+}
+
+.match-unmatched li {
+  padding: 4px 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 480px) {
+  .match-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

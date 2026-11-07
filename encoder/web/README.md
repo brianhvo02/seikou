@@ -18,6 +18,7 @@ The page the user works in to choose fansub subtitles for a disc's episodes befo
 - `createApi(base, token, fetch?)` in `api.ts`: one method per route (`session`, `episodes`, `searchTitles`, `episodeTitles`, `seadex`, `searchTosho`, `fetchRelease`, `upload`, `release`, `align`, `subtitleUrl`, `fontUrl`, `record`, `saveRecord`). Failures reject with `ApiError { status, code, message, details }`; `status` 0 with `code: 'network'` means the backend did not answer.
 - `helper-model.ts`: `HelperState`, `HelperAction`, `initialState`, `reduce`, `canEnter`, `toRecord`, `fromRecord`.
 - `metadata/metadata-model.ts`: `MetadataDraft`, `defaultMetadata`, `languageCode`, `languageName`, `defaultTrackName`, `defaultTitle`, `defaultTrack`.
+- `MatchStep({ api, state, dispatch })` in `steps/`: step 2. One row per disc episode (AniList title from `episodeTitles`, else "Episode n"): a select of the row's candidate files and every file no row lists, the file's tracks as checkboxes, "No subtitles"; "Not matched" lists files no episode uses. `match-model.ts` holds the pure file lists.
 - `App({ api })`: the page shell; `StepBar` the three steps.
 - `ReleaseStep({ api, state, dispatch })` in `steps/`: step 1. AniList search (only on submit), the picked show, the episode offset, SeaDex releases for that show (asked only once a show is picked), an Anime Tosho search and the user's own files; `releaseSummary` in `release-model.ts` counts what a fetched release holds.
 
@@ -38,6 +39,7 @@ Dark only. One typeface, Instrument Sans (its width axis condenses the disc's na
 - `App.tsx`: the header, step bar, Details sheet, save, and the step on screen.
 - `StepBar.tsx`: the steps.
 - `steps/ReleaseStep.tsx`, `steps/release-model.ts`: step 1 and its pure helpers.
+- `steps/MatchStep.tsx`, `steps/match-model.ts`: step 2 and its pure helpers.
 - `api.ts`, `api-types.ts`: the client and the wire shapes.
 - `helper-model.ts`: state, reducer, record conversion.
 - `metadata/metadata-model.ts`: the metadata draft and its defaults.
