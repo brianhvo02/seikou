@@ -38,7 +38,7 @@ Anti-goals (a failure even if it works):
 
 The helper is one page with a step bar. Episodes are the ones the user grouped from chapters (M1's episode spec), so the helper opens after a disc and playlist are chosen and the episode ranges set.
 
-Step 1, pick a release. The page shows the show's title and cover from AniList, found through the disc catalogue (TheDiscDB fingerprint to AniList id) with a search box as fallback. Below it, the releases SeaDex lists for the show, best first, each with SeaDex's notes (why best, which groups, dual audio, unmuxed) and a link that opens the SeaDex page. A search box queries Anime Tosho by text for anything else. "Add your own files" accepts `.ass`, `.ssa`, `.srt` and font files. Picking a release fetches its subtitle tracks and fonts from Anime Tosho (no video) and shows what came back: tracks per episode, languages, font count.
+Step 1, pick a release. The page starts with an AniList search bar: the user types a query, picks the anime from the results (cover, title, year, format, episode count), and the page then shows that show's title and cover and asks SeaDex for its AniList id. Nothing is looked up automatically from the disc (amended 2026-11-07 at the user's request: the show is always the user's pick). Below it, the releases SeaDex lists for the show, best first, each with SeaDex's notes (why best, which groups, dual audio, unmuxed) and a link that opens the SeaDex page. A search box queries Anime Tosho by text for anything else. "Add your own files" accepts `.ass`, `.ssa`, `.srt` and font files. Picking a release fetches its subtitle tracks and fonts from Anime Tosho (no video) and shows what came back: tracks per episode, languages, font count.
 
 Step 2, match episodes. A table: one row per disc episode (number and AniList title), one cell per candidate track from the release, matched by episode number. The user corrects a match, picks between full and signs tracks when a release has both, or marks an episode "no subtitles". Unmatched release files are listed so nothing is lost silently.
 
@@ -95,7 +95,7 @@ A local HTTP server, started by `npm run cli -- serve` (and later by the UI job 
 
 - `GET /disc/<id>/files/<path>` with range support, serving a registered BDMV folder. Disc ids come from `@seikou/bdmv`'s disc key.
 - `GET /disc/<id>/playlists` and `GET /disc/<id>/episodes?playlist=&spec=`: the M1 playlist model and episode plan as JSON.
-- `GET /titles/lookup?disc=` and `GET /titles/search?q=`: `@seikou/titles`.
+- `GET /titles/search?q=`: AniList through `@seikou/titles` (no automatic lookup by disc).
 - `GET /fansubs/seadex?anilist=`, `GET /fansubs/search?q=`, `POST /fansubs/fetch` (release id → tracks and fonts into the app's cache), `POST /fansubs/upload` (user's own files), `POST /fansubs/align` (episode plan, track → shift and split): `@seikou/fansubs`.
 - `GET`/`PUT /subtitles/<disc>/<playlist>`: the saved record (section 6).
 - The page itself and its assets.
