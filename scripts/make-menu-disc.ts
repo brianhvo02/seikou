@@ -1,4 +1,4 @@
-import { CodingType } from '../src/engine/bdmv/stream-types';
+import { CodingType } from '@seikou/bdmv/stream-types';
 import { buildSoundBdmv } from '../tests/helpers/bdmv-builders';
 import { asm, buildMovieObjects, imm } from '../tests/helpers/hdmv-builders';
 import { endSegment, icsSegment, odsSegment, pdsSegment, type IcsSpec } from '../tests/helpers/ig-builders';

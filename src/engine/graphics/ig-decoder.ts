@@ -7,7 +7,7 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import { parseMobjCmd, type MobjCmd } from '../bdmv/mobj-parser';
+import { parseMobjCmd, type MobjCmd } from '@seikou/bdmv/mobj-parser';
 import { parseUoMaskTable, type UoMask } from '../hdmv/uo-mask';
 import { ByteReader, ParseError } from '@seikou/bdmv/byte-reader';
 import {

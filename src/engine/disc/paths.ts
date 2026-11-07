@@ -1,4 +1,4 @@
-import { DiscError } from './byte-source';
+import { DiscError } from '@seikou/bdmv/byte-source';
 
 /**
  * Maps picked files (relative paths as reported by the picker) to disc-relative upper-case paths,

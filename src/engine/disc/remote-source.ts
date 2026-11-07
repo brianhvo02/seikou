@@ -6,7 +6,7 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import { DiscError, type ByteSource } from './byte-source';
+import { DiscError, type ByteSource } from '@seikou/bdmv/byte-source';
 import type { DiscManifest } from './nas-api';
 
 /** Byte ranges of the disc's files (HttpTransport). Paths are the manifest's. */

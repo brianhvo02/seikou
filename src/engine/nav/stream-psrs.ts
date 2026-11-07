@@ -9,7 +9,7 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import type { StreamEntry } from '../bdmv/mpls-parser';
+import type { StreamEntry } from '@seikou/bdmv/mpls-parser';
 import type { RegisterFile } from '../hdmv/registers';
 
 /** str_to_uint32(s, 3) */

@@ -10,7 +10,7 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import type { PlayItem } from '../bdmv/mpls-parser';
+import type { PlayItem } from '@seikou/bdmv/mpls-parser';
 import { OverlayPlane, type OverlayOp } from '../graphics/overlay-plane';
 import { PgSegmentDecoder, type PgDisplaySet } from '../graphics/pg-decoder';
 import { PgRenderer } from '../graphics/pg-renderer';

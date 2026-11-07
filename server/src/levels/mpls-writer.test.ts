@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseMpls } from '../../../src/engine/bdmv/mpls-parser';
+import { parseMpls } from '@seikou/bdmv/mpls-parser';
 import { buildMpls } from '../../../tests/helpers/bdmv-builders';
 import type { PlayItemSpec } from '../../../tests/helpers/bdmv-builders';
 import { rewriteMpls } from './mpls-writer';

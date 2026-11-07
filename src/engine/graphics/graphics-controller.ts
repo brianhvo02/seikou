@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import type { MobjCmd } from '../bdmv/mobj-parser';
+import type { MobjCmd } from '@seikou/bdmv/mobj-parser';
 import { EMPTY_UO_MASK, type UoMask } from '../hdmv/uo-mask';
 import { PSR, type PsrEvent, type RegisterFile } from '../hdmv/registers';
 import { compositionObjectOp } from './composition';

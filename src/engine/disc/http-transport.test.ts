@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fakeNas, FAKE_NAS_BASE } from '../../../tests/helpers/fake-nas';
-import { DiscError } from './byte-source';
+import { DiscError } from '@seikou/bdmv/byte-source';
 import { createByteSource } from './disc-spec';
 import { HttpTransport, RemoteDiscError, TokenRelay } from './http-transport';
 

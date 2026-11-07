@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseClpi } from '../../../src/engine/bdmv/clpi-parser';
+import { parseClpi } from '@seikou/bdmv/clpi-parser';
 import { buildClpi } from '../../../tests/helpers/bdmv-builders';
 import { rewriteClpi } from './clpi-writer';
 import type { IntervalPlan } from './levels';

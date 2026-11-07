@@ -1,5 +1,5 @@
 import { OUTPUT_SAMPLE_RATE } from '../audio/ring';
-import { CodingType, codingName } from '../bdmv/stream-types';
+import { CodingType, codingName } from '@seikou/bdmv/stream-types';
 import { AudioFramer, type FramerKind } from './audio-frames';
 import { UnsupportedCodecError } from './decoder';
 import { decodeLpcm, type PcmChunk } from './lpcm';

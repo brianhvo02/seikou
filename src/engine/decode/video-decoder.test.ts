@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { INTERLACED_SPS, PROGRESSIVE_SPS, TEST_PPS, avcAu } from '../../../tests/helpers/h264-units';
-import { CodingType } from '../bdmv/stream-types';
+import { CodingType } from '@seikou/bdmv/stream-types';
 import { DecoderError, UnsupportedCodecError } from './decoder';
 import { WebCodecsVideoDecoder, type VideoCodecApi, type VideoDecoderLike } from './video-decoder';
 

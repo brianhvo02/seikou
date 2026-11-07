@@ -1,4 +1,4 @@
-import { CodingType } from '../src/engine/bdmv/stream-types';
+import { CodingType } from '@seikou/bdmv/stream-types';
 import { asm, buildMovieObjects, imm } from '../tests/helpers/hdmv-builders';
 import { clearSegments, subtitleSegments } from '../tests/helpers/pg-builders';
 import { CLIP_START_PTS, buildSyntheticDisc, type SyntheticPgStream } from '../tests/helpers/synthetic-disc';

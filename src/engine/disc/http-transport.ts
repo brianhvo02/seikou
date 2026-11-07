@@ -6,7 +6,7 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import { DiscError, type DiscErrorCode } from './byte-source';
+import { DiscError, type DiscErrorCode } from '@seikou/bdmv/byte-source';
 import type { RangeTransport } from './remote-source';
 
 export const DISC_CHANGED_MESSAGE = 'This disc changed on the NAS. Open its folder again.';

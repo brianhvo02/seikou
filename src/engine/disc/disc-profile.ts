@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
-import type { IndexBdmv } from '../bdmv/index-parser';
+import type { IndexBdmv } from '@seikou/bdmv/index-parser';
 import type { RegisterFile } from '../hdmv/registers';
 
 /** _fill_disc_info: a UHD (0300) index switches to the Profile 6 settings, a 3D one (02xx with content) to Profile 5. */

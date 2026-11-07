@@ -3,7 +3,7 @@ import { buildSoundBdmv } from '../../../tests/helpers/bdmv-builders';
 import { buildMovieObjects } from '../../../tests/helpers/hdmv-builders';
 import { buildSyntheticDisc, discEntries, syntheticClip } from '../../../tests/helpers/synthetic-disc';
 import { createRing, renderQuantum, ringViews } from '../audio/ring';
-import { CodingType } from '../bdmv/stream-types';
+import { CodingType } from '@seikou/bdmv/stream-types';
 import { createAudioDecoderFactory } from '../decode/audio-decoder';
 import type { VideoCodecApi, VideoDecoderLike } from '../decode/video-decoder';
 import { FileSource } from '../disc/file-source';

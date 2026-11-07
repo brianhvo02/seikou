@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DiscError } from './byte-source';
+import { DiscError } from '@seikou/bdmv/byte-source';
 import { normalizeDiscPaths } from './paths';
 
 const blob = new Blob(['x']);

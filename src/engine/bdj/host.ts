@@ -12,7 +12,7 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import type { Clpi } from '../bdmv/clpi-parser';
+import type { Clpi } from '@seikou/bdmv/clpi-parser';
 import { applyDiscProfile } from '../disc/disc-profile';
 import type { DiscModel } from '../disc/open-disc';
 import { streamPath } from '../disc/open-disc';

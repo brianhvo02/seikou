@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { asm } from '../../../tests/helpers/hdmv-builders';
 import { endSegment, icsSegment, odsSegment, pdsSegment, type IcsSpec } from '../../../tests/helpers/ig-builders';
-import { parseMobjCmd } from '../bdmv/mobj-parser';
+import { parseMobjCmd } from '@seikou/bdmv/mobj-parser';
 import { IgSegmentDecoder, type IgDisplaySet } from './ig-decoder';
 
 function feed(d: IgSegmentDecoder, segs: Uint8Array[], pts = 1000): IgDisplaySet | null {

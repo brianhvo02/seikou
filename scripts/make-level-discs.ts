@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
-import { CodingType } from '../src/engine/bdmv/stream-types';
+import { CodingType } from '@seikou/bdmv/stream-types';
 import { clearSegments, subtitleSegments } from '../tests/helpers/pg-builders';
 import { CLIP_START_PTS, buildSyntheticDisc, type SyntheticAudioStream, type SyntheticPgStream } from '../tests/helpers/synthetic-disc';
 import { encodeAudio, framed, truehdUnits } from './audio-units';

@@ -9,8 +9,8 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import { MarkType, type Mpls, type StnTable, type StreamEntry } from '../bdmv/mpls-parser';
-import { CodingType } from '../bdmv/stream-types';
+import { MarkType, type Mpls, type StnTable, type StreamEntry } from '@seikou/bdmv/mpls-parser';
+import { CodingType } from '@seikou/bdmv/stream-types';
 
 export interface MainTitleCandidate {
   readonly id: string;

@@ -1,10 +1,33 @@
 import { describe, expect, it } from 'vitest';
-import { muxM2ts, type MuxUnit } from '../../../tests/helpers/ts-muxer';
-import { FileSource } from '../disc/file-source';
+import { muxM2ts, type MuxUnit } from '../../../../tests/helpers/ts-muxer';
+import type { ByteSource } from '../byte-source';
 import { M2tsReader, type M2tsReaderOptions } from './m2ts-reader';
 import type { PesPacket } from './pes-assembler';
 
 const PATH = 'BDMV/STREAM/00001.M2TS';
+
+/** One in-memory file as a ByteSource. */
+class FileSource implements ByteSource {
+  constructor(private readonly files: ReadonlyMap<string, Blob>) {}
+  exists(path: string): boolean {
+    return this.files.has(path);
+  }
+  size(path: string): number {
+    return this.get(path).size;
+  }
+  list(): string[] {
+    return [];
+  }
+  async read(path: string, offset: number, length: number, signal?: AbortSignal): Promise<Uint8Array> {
+    signal?.throwIfAborted();
+    return new Uint8Array(await this.get(path).slice(offset, offset + length).arrayBuffer());
+  }
+  private get(path: string): Blob {
+    const blob = this.files.get(path);
+    if (!blob) throw new Error(`missing ${path}`);
+    return blob;
+  }
+}
 const VIDEO = 0x1011;
 const AUDIO = 0x1100;
 

@@ -9,9 +9,9 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import type { IndexObject } from '../bdmv/index-parser';
-import { BranchSub, InsnGroup, PlayOpt, type MovieObject } from '../bdmv/mobj-parser';
-import type { Mpls, StreamEntry } from '../bdmv/mpls-parser';
+import type { IndexObject } from '@seikou/bdmv/index-parser';
+import { BranchSub, InsnGroup, PlayOpt, type MovieObject } from '@seikou/bdmv/mobj-parser';
+import type { Mpls, StreamEntry } from '@seikou/bdmv/mpls-parser';
 import type { DiscModel } from '../disc/open-disc';
 import { BdVk, GraphicsController, GcStatus, type GcCtrl as GraphicsCtrl } from '../graphics/graphics-controller';
 import { IgSegmentDecoder, type IgDisplaySet } from '../graphics/ig-decoder';

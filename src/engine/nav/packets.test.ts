@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { Clpi } from '../bdmv/clpi-parser';
-import type { PlayItem, PlayListMark } from '../bdmv/mpls-parser';
+import type { Clpi } from '@seikou/bdmv/clpi-parser';
+import type { PlayItem, PlayListMark } from '@seikou/bdmv/mpls-parser';
 import { itemPackets, markTitlePkt, nextPlaymark } from './packets';
 
 const IN = 524_280;

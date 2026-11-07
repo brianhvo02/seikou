@@ -7,7 +7,7 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import { CodingType } from '../bdmv/stream-types';
+import { CodingType } from '@seikou/bdmv/stream-types';
 import { UnsupportedCodecError } from './decoder';
 
 export interface LpcmHeader {

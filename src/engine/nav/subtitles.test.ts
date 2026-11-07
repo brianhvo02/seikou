@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildMpls } from '../../../tests/helpers/bdmv-builders';
 import { clearSegments, endSegment, pcsSegment, pdsSegment, odsSegment, subtitleSegments, wdsSegment } from '../../../tests/helpers/pg-builders';
-import { parseMpls, type PlayItem } from '../bdmv/mpls-parser';
+import { parseMpls, type PlayItem } from '@seikou/bdmv/mpls-parser';
 import type { UoOp } from '../hdmv/uo-mask';
 import { PSR, RegisterFile } from '../hdmv/registers';
 import { OverlayPlane } from '../graphics/overlay-plane';

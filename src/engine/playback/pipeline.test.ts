@@ -3,10 +3,10 @@ import { CLIP_START_PTS, VIDEO_PID, buildSyntheticDisc, lpcmStream, syntheticCli
 import { endSegment, odsSegment, simpleMenuSegments } from '../../../tests/helpers/ig-builders';
 import { subtitleSegments } from '../../../tests/helpers/pg-builders';
 import { buildClpi, buildIndex, buildMpls } from '../../../tests/helpers/bdmv-builders';
-import { parseClpi } from '../bdmv/clpi-parser';
-import { parseMpls } from '../bdmv/mpls-parser';
-import { CodingType } from '../bdmv/stream-types';
-import { DiscError, readWhole } from '../disc/byte-source';
+import { parseClpi } from '@seikou/bdmv/clpi-parser';
+import { parseMpls } from '@seikou/bdmv/mpls-parser';
+import { CodingType } from '@seikou/bdmv/stream-types';
+import { DiscError, readWhole } from '@seikou/bdmv/byte-source';
 import { loadClips } from '../disc/open-disc';
 import { Timeline } from '../nav/timeline';
 import { PlaybackPipeline, type PipelineAudioUnit, type PipelineConfig, type PipelineUnit } from './pipeline';

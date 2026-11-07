@@ -9,8 +9,8 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import type { Clpi } from '../bdmv/clpi-parser';
-import type { PlayItem, PlayListMark } from '../bdmv/mpls-parser';
+import type { Clpi } from '@seikou/bdmv/clpi-parser';
+import type { PlayItem, PlayListMark } from '@seikou/bdmv/mpls-parser';
 
 /**
  * clpi_lookup_spn without the STC refinement: `before` gives the packet of the last EP map entry at or before the time

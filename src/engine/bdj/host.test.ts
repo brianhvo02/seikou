@@ -1,10 +1,10 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { fixtureDiscFiles } from '../../../tests/helpers/fixture-disc';
 import { syntheticSource } from '../../../tests/helpers/synthetic-disc';
-import type { Clpi } from '../bdmv/clpi-parser';
+import type { Clpi } from '@seikou/bdmv/clpi-parser';
 import { loadClips, openDisc } from '../disc/open-disc';
 import type { DiscModel } from '../disc/open-disc';
-import { parseIndex } from '../bdmv/index-parser';
+import { parseIndex } from '@seikou/bdmv/index-parser';
 import { RegisterFile } from '../hdmv/registers';
 import { buildIndex } from '../../../tests/helpers/bdmv-builders';
 import { applyDiscProfile } from '../disc/disc-profile';

@@ -14,8 +14,8 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import { parseBdjo } from '../../../bdmv/bdjo-parser';
-import type { Bdjo, BdjoApp } from '../../../bdmv/bdjo-parser';
+import { parseBdjo } from '@seikou/bdmv/bdjo-parser';
+import type { Bdjo, BdjoApp } from '@seikou/bdmv/bdjo-parser';
 import { ParseError } from '@seikou/bdmv/byte-reader';
 import type { BdjHost, PlaylistInfo, StreamInfo, TitleInfo, TraceEntry } from '../../host';
 import { Invoke, andThen } from '../interpreter';

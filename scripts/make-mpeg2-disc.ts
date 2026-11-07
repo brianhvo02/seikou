@@ -1,4 +1,4 @@
-import { CodingType } from '../src/engine/bdmv/stream-types';
+import { CodingType } from '@seikou/bdmv/stream-types';
 import { asm, buildMovieObjects, imm } from '../tests/helpers/hdmv-builders';
 import { simpleMenuSegments } from '../tests/helpers/ig-builders';
 import { clearSegments, subtitleSegments } from '../tests/helpers/pg-builders';

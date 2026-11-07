@@ -1,7 +1,7 @@
 import type { MemoryProfileName } from './memory-profile';
 import type { JvmMemoryStats } from './bdj/jvm/jvm';
 import type { ClockMode } from './clock/master-clock';
-import type { DiscErrorCode } from './disc/byte-source';
+import type { DiscErrorCode } from '@seikou/bdmv/byte-source';
 import type { DiscSpec, RemoteDiscSpec } from './disc/disc-spec';
 import type { RemoteFailure } from './disc/http-transport';
 import type { PlaylistSummary } from './disc/open-disc';

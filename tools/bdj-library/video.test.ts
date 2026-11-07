@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { TraceEntry } from '../../src/engine/bdj/host';
-import type { Mpls, PlayItem, SubPath } from '../../src/engine/bdmv/mpls-parser';
+import type { Mpls, PlayItem, SubPath } from '@seikou/bdmv/mpls-parser';
 import type { RunRecord } from './classify';
 import { markReal, menuPlaylists, parseVideoManifest, planVideo, playlistClips, VIDEO_CAP_BYTES } from './video';
 

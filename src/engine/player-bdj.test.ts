@@ -18,7 +18,7 @@ import { SharedRegisterView } from './bdj/shared-registers';
 import type { DiscSpec, RemoteDiscSpec } from './disc/disc-spec';
 import type { PlayerSettings } from './disc/player-settings';
 import { serveFetch } from './disc/port-fetch';
-import { CodingType } from './bdmv/stream-types';
+import { CodingType } from '@seikou/bdmv/stream-types';
 import { createAudioDecoderFactory } from './decode/audio-decoder';
 import { Player } from './player';
 import { MEMORY_PROFILES, type MemoryProfileName } from './memory-profile';

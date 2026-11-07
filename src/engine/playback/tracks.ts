@@ -1,5 +1,5 @@
-import type { StnTable } from '../bdmv/mpls-parser';
-import { codingName } from '../bdmv/stream-types';
+import type { StnTable } from '@seikou/bdmv/mpls-parser';
+import { codingName } from '@seikou/bdmv/stream-types';
 import type { AudioTrack, ChannelsLabel } from '../protocol';
 import { PLAYABLE_AUDIO } from './stream-selection';
 

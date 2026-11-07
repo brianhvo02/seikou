@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { loadNodeAudioWasm } from '../../../tests/helpers/audio-wasm';
 import { lpcmPayload } from '../../../tests/helpers/synthetic-disc';
-import { CodingType } from '../bdmv/stream-types';
+import { CodingType } from '@seikou/bdmv/stream-types';
 import { AudioFramer } from './audio-frames';
 import { FramedWasmDecoder, createAudioDecoderFactory } from './audio-decoder';
 import { UnsupportedCodecError } from './decoder';

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildMpls, type MarkSpec, type PlayItemSpec, type StreamSpec } from '../../../tests/helpers/bdmv-builders';
-import { parseMpls, type Mpls } from '../bdmv/mpls-parser';
-import { CodingType } from '../bdmv/stream-types';
+import { parseMpls, type Mpls } from '@seikou/bdmv/mpls-parser';
+import { CodingType } from '@seikou/bdmv/stream-types';
 import { chooseMainTitle, hasRepeatedSegments, samePlaylist } from './main-title';
 
 const MIN = 60 * 45_000; // one minute in 45 kHz ticks

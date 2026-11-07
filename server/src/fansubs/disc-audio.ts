@@ -1,11 +1,11 @@
 import { spawn } from 'node:child_process';
 import { setPriority } from 'node:os';
 import type { Readable } from 'node:stream';
-import { findEpAfter, findEpBefore, parseClpi, stcSpnRange, type Clpi } from '../../../src/engine/bdmv/clpi-parser';
-import { parseMpls, type PlayItem } from '../../../src/engine/bdmv/mpls-parser';
-import { CodingType } from '../../../src/engine/bdmv/stream-types';
-import { PesAssembler, readTimestamp } from '../../../src/engine/demux/pes-assembler';
-import { parseSourcePacket } from '../../../src/engine/demux/ts-packet';
+import { findEpAfter, findEpBefore, parseClpi, stcSpnRange, type Clpi } from '@seikou/bdmv/clpi-parser';
+import { parseMpls, type PlayItem } from '@seikou/bdmv/mpls-parser';
+import { CodingType } from '@seikou/bdmv/stream-types';
+import { PesAssembler, readTimestamp } from '@seikou/bdmv/demux/pes-assembler';
+import { parseSourcePacket } from '@seikou/bdmv/demux/ts-packet';
 import type { LevelDiscSource } from '../levels/level-discs';
 import { Semaphore } from './semaphore';
 

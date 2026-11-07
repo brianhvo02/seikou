@@ -10,7 +10,7 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import type { Clpi } from '../bdmv/clpi-parser';
+import type { Clpi } from '@seikou/bdmv/clpi-parser';
 import type { DiscModel } from '../disc/open-disc';
 import type { ScreenRect } from './background';
 import { playlistInfo, titleInfos } from './disc-info';

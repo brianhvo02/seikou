@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { PlayItem, StreamEntry } from '../bdmv/mpls-parser';
-import { CodingType } from '../bdmv/stream-types';
+import type { PlayItem, StreamEntry } from '@seikou/bdmv/mpls-parser';
+import { CodingType } from '@seikou/bdmv/stream-types';
 import { audioEntryFor, chooseStreams, igEntryFor } from './stream-selection';
 
 const entry = (pid: number, codingType: number, subPath = false): StreamEntry => ({ pid, codingType, format: 0, rate: 0, lang: 'eng', subPath, streamType: subPath ? 2 : 1, charCode: 0, subPathId: 0, subClipId: 0 });

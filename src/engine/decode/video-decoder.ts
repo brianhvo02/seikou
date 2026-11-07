@@ -1,7 +1,7 @@
-import { CodingType, codingName } from '../bdmv/stream-types';
+import { CodingType, codingName } from '@seikou/bdmv/stream-types';
 import { DecoderError, UnsupportedCodecError, type Decoder, type StreamConfig } from './decoder';
-import { analyzeAvc, avcCodecString, avcIsInterlaced, avcPpsId, type AccessUnitInfo } from './h264';
-import { analyzeHevc, hevcCodecStrings } from './hevc';
+import { analyzeAvc, avcCodecString, avcIsInterlaced, avcPpsId, type AccessUnitInfo } from '@seikou/bdmv/codecs/h264';
+import { analyzeHevc, hevcCodecStrings } from '@seikou/bdmv/codecs/hevc';
 
 export interface VideoUnit {
   readonly data: Uint8Array;

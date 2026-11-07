@@ -1,5 +1,5 @@
-import type { PlayItem, StnTable, StreamEntry } from '../bdmv/mpls-parser';
-import { CodingType } from '../bdmv/stream-types';
+import type { PlayItem, StnTable, StreamEntry } from '@seikou/bdmv/mpls-parser';
+import { CodingType } from '@seikou/bdmv/stream-types';
 
 /** Audio coding types this build can decode (TrueHD through its AC-3 core, DTS-HD through its DTS core). */
 export const PLAYABLE_AUDIO: ReadonlySet<number> = new Set([

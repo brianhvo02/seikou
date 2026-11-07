@@ -5,11 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { afterAll, describe, expect, it } from 'vitest';
-import { parseClpi } from '../../../src/engine/bdmv/clpi-parser';
-import { CodingType } from '../../../src/engine/bdmv/stream-types';
-import { analyzeAvc, avcIsInterlaced } from '../../../src/engine/decode/h264';
-import { PesAssembler, readTimestamp, type PesPacket } from '../../../src/engine/demux/pes-assembler';
-import { parseSourcePacket } from '../../../src/engine/demux/ts-packet';
+import { parseClpi } from '@seikou/bdmv/clpi-parser';
+import { CodingType } from '@seikou/bdmv/stream-types';
+import { analyzeAvc, avcIsInterlaced } from '@seikou/bdmv/codecs/h264';
+import { PesAssembler, readTimestamp, type PesPacket } from '@seikou/bdmv/demux/pes-assembler';
+import { parseSourcePacket } from '@seikou/bdmv/demux/ts-packet';
 import { CLIP_START_PTS, buildSyntheticDisc } from '../../../tests/helpers/synthetic-disc';
 import { KeptStreams, PesCoreFilter } from './audio-core';
 import {

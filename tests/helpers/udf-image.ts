@@ -1,4 +1,4 @@
-import type { UdfRead } from '../../src/engine/disc/udf';
+import type { UdfRead } from '@seikou/bdmv/udf';
 
 /*
  * A UDF 2.50 image built in memory: a metadata partition (with its mirror) in a type 1 partition that starts past

@@ -9,8 +9,8 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import type { IndexObject } from '../bdmv/index-parser';
-import { MarkType, type Mpls } from '../bdmv/mpls-parser';
+import type { IndexObject } from '@seikou/bdmv/index-parser';
+import { MarkType, type Mpls } from '@seikou/bdmv/mpls-parser';
 import type { DiscModel } from '../disc/open-disc';
 import { PSR, type RegisterFile } from '../hdmv/registers';
 import { lookupSpn, type ItemPackets } from './packets';

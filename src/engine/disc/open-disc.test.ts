@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildClpi, buildIndex, buildMpls, buildSoundBdmv } from '../../../tests/helpers/bdmv-builders';
 import { asm, buildMovieObjects } from '../../../tests/helpers/hdmv-builders';
-import { CodingType } from '../bdmv/stream-types';
-import { DiscError } from './byte-source';
+import { CodingType } from '@seikou/bdmv/stream-types';
+import { DiscError } from '@seikou/bdmv/byte-source';
 import { FileSource } from './file-source';
 import { checkStreamReadable, loadClips, openDisc, readBdid } from './open-disc';
 import { normalizeDiscPaths } from './paths';

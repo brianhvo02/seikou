@@ -1,9 +1,9 @@
-import { findEpAfter, findEpBefore, stcSpnRange, type Clpi, type EpEntry } from '../bdmv/clpi-parser';
-import { SOURCE_PACKET_SIZE, TS_PACKET_SIZE } from '../demux/constants';
-import { DiscError, type ByteSource } from '../disc/byte-source';
+import { findEpAfter, findEpBefore, stcSpnRange, type Clpi, type EpEntry } from '@seikou/bdmv/clpi-parser';
+import { SOURCE_PACKET_SIZE, TS_PACKET_SIZE } from '@seikou/bdmv/demux/constants';
+import { DiscError, type ByteSource } from '@seikou/bdmv/byte-source';
 import { clipInfoPath, streamPath } from '../disc/open-disc';
-import { M2tsReader, type DemuxStats } from '../demux/m2ts-reader';
-import type { PlayItem } from '../bdmv/mpls-parser';
+import { M2tsReader, type DemuxStats } from '@seikou/bdmv/demux/m2ts-reader';
+import type { PlayItem } from '@seikou/bdmv/mpls-parser';
 import type { Timeline } from '../nav/timeline';
 import { audioEntryFor, igEntryFor } from './stream-selection';
 

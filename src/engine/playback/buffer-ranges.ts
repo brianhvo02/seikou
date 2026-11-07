@@ -9,9 +9,9 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import { findEpAfter, findEpBefore, stcSpnRange, type Clpi } from '../bdmv/clpi-parser';
-import type { Mpls } from '../bdmv/mpls-parser';
-import { ALIGNED_UNIT_SIZE, SOURCE_PACKET_SIZE } from '../demux/constants';
+import { findEpAfter, findEpBefore, stcSpnRange, type Clpi } from '@seikou/bdmv/clpi-parser';
+import type { Mpls } from '@seikou/bdmv/mpls-parser';
+import { ALIGNED_UNIT_SIZE, SOURCE_PACKET_SIZE } from '@seikou/bdmv/demux/constants';
 import { streamPath } from '../disc/open-disc';
 import { Timeline } from '../nav/timeline';
 

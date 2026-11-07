@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { FileSource } from '../../src/engine/disc/file-source';
 import { openDisc, streamPath } from '../../src/engine/disc/open-disc';
 import { normalizeDiscPaths } from '../../src/engine/disc/paths';
-import { M2tsReader } from '../../src/engine/demux/m2ts-reader';
+import { M2tsReader } from '@seikou/bdmv/demux/m2ts-reader';
 import { PgSegmentDecoder } from '../../src/engine/graphics/pg-decoder';
 import { Timeline } from '../../src/engine/nav/timeline';
 import { directoryEntries } from './file-blob';

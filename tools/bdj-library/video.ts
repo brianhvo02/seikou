@@ -2,7 +2,7 @@
  * Real menu video for the library check (Ruling R4; tools/bdj-library/README.md, Real menu video): which clips a disc's
  * menu needs, whether they fit the cap, and the record of which clips are real. No disc, file or process access.
  */
-import type { Mpls } from '../../src/engine/bdmv/mpls-parser';
+import type { Mpls } from '@seikou/bdmv/mpls-parser';
 import type { RunRecord } from './classify';
 
 /** A clip id as it names STREAM/<id>.m2ts: five digits, nothing that could make a path. */

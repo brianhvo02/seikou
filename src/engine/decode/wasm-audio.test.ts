@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { CodingType } from '../bdmv/stream-types';
+import { CodingType } from '@seikou/bdmv/stream-types';
 import { AudioFramer } from './audio-frames';
 import { loadNodeAudioWasm } from '../../../tests/helpers/audio-wasm';
 import { AudioFrameError, WasmCodec, loadAudioWasm, WasmFrameDecoder, type AudioWasm } from './wasm-audio';

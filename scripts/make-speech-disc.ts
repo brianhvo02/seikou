@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { CodingType } from '../src/engine/bdmv/stream-types';
+import { CodingType } from '@seikou/bdmv/stream-types';
 import { CLIP_START_PTS, buildSyntheticDisc } from '../tests/helpers/synthetic-disc';
 import { SPEECH_BURSTS, SPEECH_CLIP_SPLIT_S, SPEECH_DISC_SECONDS } from '../tests/helpers/speech-bursts';
 import { framed } from './audio-units';

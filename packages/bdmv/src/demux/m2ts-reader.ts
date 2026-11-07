@@ -1,4 +1,4 @@
-import type { ByteSource } from '../disc/byte-source';
+import type { ByteSource } from '../byte-source';
 import { PACKETS_PER_ALIGNED_UNIT, SOURCE_PACKET_SIZE } from './constants';
 import { PesAssembler, type PesPacket } from './pes-assembler';
 import { parseSourcePacket } from './ts-packet';

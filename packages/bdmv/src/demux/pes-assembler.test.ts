@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { muxM2ts, type MuxUnit } from '../../../tests/helpers/ts-muxer';
+import { muxM2ts, type MuxUnit } from '../../../../tests/helpers/ts-muxer';
 import { PesAssembler, type PesPacket } from './pes-assembler';
 import { parseSourcePacket, type TsPacket } from './ts-packet';
 

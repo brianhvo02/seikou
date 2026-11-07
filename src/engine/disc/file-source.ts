@@ -1,4 +1,4 @@
-import { DiscError, type ByteSource } from './byte-source';
+import { DiscError, type ByteSource } from '@seikou/bdmv/byte-source';
 
 /** ByteSource over picked files. Blob.slice() reads only the requested range from disk. */
 export class FileSource implements ByteSource {

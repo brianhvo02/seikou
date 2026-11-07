@@ -2,8 +2,8 @@ import { createReadStream } from 'node:fs';
 import { open, stat } from 'node:fs/promises';
 import { Readable } from 'node:stream';
 import type { DiscEntry } from '../../src/engine/disc/nas-api';
-import { UdfError, UdfImage, readUdf, udfPieces } from '../../src/engine/disc/udf';
-import type { UdfExtent, UdfFile, UdfRead } from '../../src/engine/disc/udf';
+import { UdfError, UdfImage, readUdf, udfPieces } from '@seikou/bdmv/udf';
+import type { UdfExtent, UdfFile, UdfRead } from '@seikou/bdmv/udf';
 import { discId } from './disc-id';
 
 /**

@@ -10,7 +10,7 @@
 import {
   BranchSub, CmpOpt, GotoOpt, InsnGroup, JumpOpt, PlayOpt, SetOpt, SetSub, SetSystemOpt,
   type MobjCmd, type MovieObject, type MovieObjects,
-} from '../bdmv/mobj-parser';
+} from '@seikou/bdmv/mobj-parser';
 import { PSR, type RegisterFile } from './registers';
 
 /** hdmv_event_e */

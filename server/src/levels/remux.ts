@@ -1,6 +1,6 @@
-import { NULL_PID, SOURCE_PACKET_SIZE } from '../../../src/engine/demux/constants';
-import { readTimestamp } from '../../../src/engine/demux/pes-assembler';
-import { parseSourcePacket } from '../../../src/engine/demux/ts-packet';
+import { NULL_PID, SOURCE_PACKET_SIZE } from '@seikou/bdmv/demux/constants';
+import { readTimestamp } from '@seikou/bdmv/demux/pes-assembler';
+import { parseSourcePacket } from '@seikou/bdmv/demux/ts-packet';
 import { mpegCrc32, type KeptPacket, type KeptStreams } from './audio-core';
 import type { IntervalPlan } from './levels';
 

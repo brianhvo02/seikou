@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { muxM2ts } from '../../../tests/helpers/ts-muxer';
+import { muxM2ts } from '../../../../tests/helpers/ts-muxer';
 import { parseSourcePacket } from './ts-packet';
 
 describe('parseSourcePacket', () => {

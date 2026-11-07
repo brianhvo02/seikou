@@ -13,8 +13,8 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import type { Mpls } from '../bdmv/mpls-parser';
-import type { SoundData } from '../bdmv/sound-parser';
+import type { Mpls } from '@seikou/bdmv/mpls-parser';
+import type { SoundData } from '@seikou/bdmv/sound-parser';
 import type { DiscModel } from '../disc/open-disc';
 import { PSR, type RegisterFile } from '../hdmv/registers';
 import { EMPTY_UO_MASK, combineUoMasks, parseUoMaskTable, uoMaskBits, type UoMask, type UoOp } from '../hdmv/uo-mask';

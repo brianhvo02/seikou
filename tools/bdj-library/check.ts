@@ -17,8 +17,8 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { TraceEntry } from '../../src/engine/bdj/host';
-import { parseMpls } from '../../src/engine/bdmv/mpls-parser';
-import { codingName } from '../../src/engine/bdmv/stream-types';
+import { parseMpls } from '@seikou/bdmv/mpls-parser';
+import { codingName } from '@seikou/bdmv/stream-types';
 import { CONTROL_CALLS } from '../../tests/bdj/format';
 import { parseKeyScript } from '../../tests/bdj/key-script';
 import { replayPlayerBdj, type PlayerBdjReplay } from '../../tests/bdj/replay-player';

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { PlayItem } from '../bdmv/mpls-parser';
-import { MarkType } from '../bdmv/mpls-parser';
+import type { PlayItem } from '@seikou/bdmv/mpls-parser';
+import { MarkType } from '@seikou/bdmv/mpls-parser';
 import { PTS_WRAP } from '../util/time';
 import { Timeline } from './timeline';
 

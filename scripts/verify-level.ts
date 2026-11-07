@@ -23,8 +23,8 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { webcrypto } from 'node:crypto';
 import { once } from 'node:events';
 import { parseArgs } from 'node:util';
-import { parseClpi, type Clpi, type EpMap } from '../src/engine/bdmv/clpi-parser';
-import { CodingType, isAudioCoding, isVideoCoding } from '../src/engine/bdmv/stream-types';
+import { parseClpi, type Clpi, type EpMap } from '@seikou/bdmv/clpi-parser';
+import { CodingType, isAudioCoding, isVideoCoding } from '@seikou/bdmv/stream-types';
 import type { DiscManifest, LibraryListing } from '../src/engine/disc/nas-api';
 
 const READ_BYTES = 2 * 1024 * 1024;

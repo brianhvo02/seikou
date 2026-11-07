@@ -1,4 +1,4 @@
-import { CodingType } from '../bdmv/stream-types';
+import { CodingType } from '@seikou/bdmv/stream-types';
 import type { AudioUnit } from './audio-decoder';
 import { UnsupportedCodecError } from './decoder';
 

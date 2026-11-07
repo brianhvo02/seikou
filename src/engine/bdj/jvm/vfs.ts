@@ -6,7 +6,7 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import type { ByteSource } from '../../disc/byte-source';
+import type { ByteSource } from '@seikou/bdmv/byte-source';
 import type { ZipArchive } from './zip';
 
 export interface VfsStat {

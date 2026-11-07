@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DiscError } from './byte-source';
+import { DiscError } from '@seikou/bdmv/byte-source';
 import { FileSource } from './file-source';
 
 function source(): FileSource {

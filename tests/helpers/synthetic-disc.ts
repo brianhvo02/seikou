@@ -1,4 +1,4 @@
-import { CodingType } from '../../src/engine/bdmv/stream-types';
+import { CodingType } from '@seikou/bdmv/stream-types';
 import { FileSource } from '../../src/engine/disc/file-source';
 import { normalizeDiscPaths } from '../../src/engine/disc/paths';
 import { buildClpi, buildIndex, buildMpls, type MarkSpec, type StreamSpec } from './bdmv-builders';

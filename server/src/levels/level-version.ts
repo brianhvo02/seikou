@@ -1,8 +1,8 @@
 import type { spawn as nodeSpawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { parseClpi, type Clpi } from '../../../src/engine/bdmv/clpi-parser';
-import { parseMpls, type Mpls, type PlayItem } from '../../../src/engine/bdmv/mpls-parser';
-import { CodingType } from '../../../src/engine/bdmv/stream-types';
+import { parseClpi, type Clpi } from '@seikou/bdmv/clpi-parser';
+import { parseMpls, type Mpls, type PlayItem } from '@seikou/bdmv/mpls-parser';
+import { CodingType } from '@seikou/bdmv/stream-types';
 import type { DiscManifest } from '../../../src/engine/disc/nas-api';
 import type { EncoderCodec } from './capacity';
 import type { ClipRunPlan } from './clip-run';

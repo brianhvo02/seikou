@@ -1,9 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import type { Clpi } from '../../../src/engine/bdmv/clpi-parser';
-import { parseClpi } from '../../../src/engine/bdmv/clpi-parser';
-import type { PlayItem, StreamEntry } from '../../../src/engine/bdmv/mpls-parser';
+import type { Clpi } from '@seikou/bdmv/clpi-parser';
+import { parseClpi } from '@seikou/bdmv/clpi-parser';
+import type { PlayItem, StreamEntry } from '@seikou/bdmv/mpls-parser';
 import { BUDGET_VERSION, LEVELS, MIN_INTERVAL_45, coreCoding, graphicsRoom, keptAudioFor, levelDefFor, levelsFor, mapSpn, planClip, videoAttrsFor } from './levels';
 
 const FIXTURES = join(import.meta.dirname, '../../../fixtures/synthetic');

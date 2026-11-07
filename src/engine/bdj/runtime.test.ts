@@ -5,7 +5,7 @@ import { fixtureDiscFiles } from '../../../tests/helpers/fixture-disc';
 import { VirtualClock, assembleClass, storedZip } from '../../../tests/helpers/jvm-asm';
 import type { AsmMethod } from '../../../tests/helpers/jvm-asm';
 import { syntheticSource } from '../../../tests/helpers/synthetic-disc';
-import type { Clpi } from '../bdmv/clpi-parser';
+import type { Clpi } from '@seikou/bdmv/clpi-parser';
 import type { FileSource } from '../disc/file-source';
 import { loadClips, openDisc } from '../disc/open-disc';
 import type { DiscModel } from '../disc/open-disc';

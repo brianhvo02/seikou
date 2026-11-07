@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import { MarkType, type PlayItem, type PlayListMark } from '../bdmv/mpls-parser';
+import { MarkType, type PlayItem, type PlayListMark } from '@seikou/bdmv/mpls-parser';
 import { pts90ToUs, ptsDelta90, ticks45ToUs, usToTicks45 } from '../util/time';
 
 export interface TimelineItem {

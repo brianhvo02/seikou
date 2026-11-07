@@ -10,9 +10,9 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import type { Clpi } from '../bdmv/clpi-parser';
-import type { IndexObject } from '../bdmv/index-parser';
-import type { StreamEntry } from '../bdmv/mpls-parser';
+import type { Clpi } from '@seikou/bdmv/clpi-parser';
+import type { IndexObject } from '@seikou/bdmv/index-parser';
+import type { StreamEntry } from '@seikou/bdmv/mpls-parser';
 import type { DiscModel } from '../disc/open-disc';
 import type { PlaylistInfo, StreamInfo, TitleInfo } from './host';
 

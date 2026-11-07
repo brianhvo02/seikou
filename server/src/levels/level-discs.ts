@@ -2,7 +2,7 @@ import { createReadStream } from 'node:fs';
 import { open, readFile, stat } from 'node:fs/promises';
 import type { Readable } from 'node:stream';
 import type { DiscEntry, DiscManifest } from '../../../src/engine/disc/nas-api';
-import type { UdfFile } from '../../../src/engine/disc/udf';
+import type { UdfFile } from '@seikou/bdmv/udf';
 import { IsoTrees, isoFileStream, isoUnchanged, readIsoFiles } from '../iso';
 import type { Library } from '../library';
 import { buildIsoManifest, buildManifest, discUnchanged, resolveDiscFile, resolveIsoFile } from '../manifest';

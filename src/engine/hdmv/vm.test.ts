@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { asm, buildMovieObjects, imm, psr, reg } from '../../../tests/helpers/hdmv-builders';
-import { parseMovieObjects } from '../bdmv/mobj-parser';
+import { parseMovieObjects } from '@seikou/bdmv/mobj-parser';
 import { RegisterFile } from './registers';
 import { HdmvEventType, HdmvVm, type HdmvEvent } from './vm';
 

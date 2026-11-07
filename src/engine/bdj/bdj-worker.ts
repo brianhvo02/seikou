@@ -6,13 +6,13 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import type { Clpi } from '../bdmv/clpi-parser';
+import type { Clpi } from '@seikou/bdmv/clpi-parser';
 import { BDJ_REMOTE_CHUNK_BYTES, BDJ_REMOTE_IN_FLIGHT, createByteSource } from '../disc/disc-spec';
 import { portFetch } from '../disc/port-fetch';
 import { TokenRelay } from '../disc/http-transport';
 import { clipInfoPath, loadClips, openDisc } from '../disc/open-disc';
 import type { DiscModel } from '../disc/open-disc';
-import type { ByteSource } from '../disc/byte-source';
+import type { ByteSource } from '@seikou/bdmv/byte-source';
 import { RemoteSource } from '../disc/remote-source';
 import { BdjError } from './errors';
 import type { FreeType } from './fonts/freetype';
