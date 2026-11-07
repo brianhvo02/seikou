@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LGPL-2.1-or-later
+// SPDX-License-Identifier: LGPL-3.0-or-later
 import type { IndexBdmv } from '@seikou/bdmv/index-parser';
 import type { RegisterFile } from '../hdmv/registers';
 

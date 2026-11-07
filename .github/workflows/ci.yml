@@ -67,6 +67,7 @@ jobs:
       - run: npm ci
       # The NAS encoder's tests run ffmpeg with libx264 (server/src/levels/encoder.test.ts).
       - uses: ./.github/actions/setup-ffmpeg
+      - run: npm run licence-check
       - run: npm run typecheck
       - run: npm test
 

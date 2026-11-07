@@ -2,7 +2,7 @@
 
 `CLAUDE.md` at the repository root is the full developer reference: the architecture, every command, the constraints (licensing, supported browsers, test fixtures) and the specs under `docs/superpowers/specs/`. Read it first. This page keeps the everyday commands and notes.
 
-The engine in `packages/engine/` (and BD-J in `src/bdj/`) is derived from libbluray and licensed LGPL-2.1 (see `packages/engine/LICENSE`). Some other directories have their own licences: see the top-level `LICENSE` and the License section of the README.
+Seikou's own code is licensed LGPL-3.0-or-later (see the top-level `LICENSE` and `COPYING`). Files ported from libbluray, libudfread and FFmpeg keep LGPL-2.1-or-later, as their headers say. Some directories have their own licences: see the License section of the README. `npm run licence-check` checks the headers and every `package.json`.
 
 ## Run and build
 

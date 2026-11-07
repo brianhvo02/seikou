@@ -3,7 +3,7 @@
  * user shaders (WIDTH, HEIGHT, WHEN). Semantics follow libplacebo's
  * eval_shexpr in src/shaders/custom_mpv.c.
  *
- * SPDX-License-Identifier: LGPL-2.1-or-later
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 /** Size lookup for `NAME.w`/`.width`/`.h`/`.height`; undefined = unknown texture. */

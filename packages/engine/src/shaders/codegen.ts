@@ -4,7 +4,7 @@
  * emits in bind_pass_tex and hook_hook (src/shaders/custom_mpv.c), spec
  * section 3.4.
  *
- * SPDX-License-Identifier: LGPL-2.1-or-later
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 import type { ShaderPass } from './parse';

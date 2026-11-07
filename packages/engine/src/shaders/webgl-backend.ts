@@ -3,7 +3,7 @@
  * Pass execution follows libplacebo's semantics (src/renderer.c,
  * src/shaders/custom_mpv.c), spec sections 3 and 5.
  *
- * SPDX-License-Identifier: LGPL-2.1-or-later
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 import { fragmentSource, VERTEX_SHADER } from './codegen';

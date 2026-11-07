@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LGPL-2.1-or-later
+// SPDX-License-Identifier: LGPL-3.0-or-later
 import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import { M2tsReader } from '@seikou/bdmv/demux/m2ts-reader';

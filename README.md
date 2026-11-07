@@ -8,7 +8,7 @@
 [![BD-J trace](https://github.com/brianhvo02/seikou/actions/workflows/bdj-trace.yml/badge.svg?branch=main)](https://github.com/brianhvo02/seikou/actions/workflows/bdj-trace.yml)
 [![BD-J class library](https://github.com/brianhvo02/seikou/actions/workflows/bdj-classlib.yml/badge.svg?branch=main)](https://github.com/brianhvo02/seikou/actions/workflows/bdj-classlib.yml)
 [![ASS trace](https://github.com/brianhvo02/seikou/actions/workflows/ass-trace.yml/badge.svg?branch=main)](https://github.com/brianhvo02/seikou/actions/workflows/ass-trace.yml)
-[![License: LGPL-2.1-or-later](https://img.shields.io/badge/license-LGPL--2.1--or--later-blue)](LICENSE)
+[![License: LGPL-3.0-or-later](https://img.shields.io/badge/license-LGPL--3.0--or--later-blue)](LICENSE)
 [![Try it](https://img.shields.io/badge/try%20it-bluray.pages.dev-brightgreen)](https://bluray.pages.dev)
 
 Seikou (青光, "blue light": a pun on Blu-ray) is a Blu-ray player that runs in your browser. It plays decrypted disc folders with their menus (HDMV and BD-J), subtitles and audio tracks, on desktop and on phones. Nothing is uploaded: the disc is read on your device, and an optional server on your own NAS can stream a whole library to it.
@@ -106,7 +106,7 @@ In the repository, not shipped.
 
 ## License
 
-LGPL-2.1-or-later for everything that doesn't carry its own licence (see [LICENSE](LICENSE)). Third-party files keep theirs (see Built on and the NOTICE files). Exceptions by directory:
+LGPL-3.0-or-later for everything that doesn't carry its own licence (see [LICENSE](LICENSE), and [COPYING](COPYING) for the GNU GPL it supplements). Files ported from libbluray, libudfread and FFmpeg stay LGPL-2.1-or-later, as their upstreams released them; their headers say so, and that licence lets the whole be distributed under version 3. Other third-party files keep their own licences (see Built on and the NOTICE files). Exceptions by directory:
 
 - `src/bdj-classlib/`: GPLv2 with the Classpath Exception, with the Apache, SAX and ICU notices its [NOTICE](src/bdj-classlib/NOTICE) lists.
 - `src/wasm/freetype/`: the FreeType License.

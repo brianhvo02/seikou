@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LGPL-2.1-or-later
+// SPDX-License-Identifier: LGPL-3.0-or-later
 // The compositor drawing BD-J's graphics plane (moved out of the engine package's render/compositor.test.ts: the plane is
 // BD-J's, and the engine package names no BD-J module).
 import { afterEach, describe, expect, it, vi } from 'vitest';

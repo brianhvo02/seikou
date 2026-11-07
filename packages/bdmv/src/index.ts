@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LGPL-2.1-or-later
+// SPDX-License-Identifier: LGPL-3.0-or-later
 export * from './byte-reader';
 export * from './byte-source';
 export * from './stream-types';

@@ -2,7 +2,7 @@ Notices for server/
 ===================
 
 The NAS disc server is distributed under the GNU Lesser General Public
-License, version 2.1 or later (LGPL-2.1-or-later); see LICENSE.
+License, version 3 or later (LGPL-3.0-or-later); see LICENSE and COPYING.
 
 It imports code from src/engine/, which ports or derives from third-party
 projects (libbluray and others). Those projects, their copyright holders and
@@ -78,7 +78,7 @@ lists the versions).
 ffmpeg and ffprobe run as separate processes, spawned by the server
 (server/src/levels/encoder.ts, server/src/levels/backend-check.ts) and fed
 through pipes and command-line arguments. The server neither links nor bundles
-any of their code, so its own licence (LGPL-2.1-or-later, above) is unaffected.
+any of their code, so its own licence (LGPL-3.0-or-later, above) is unaffected.
 
 WebRTC (server/src/rtc/)
 ------------------------

@@ -3,7 +3,7 @@
  * passes. Hook semantics follow libplacebo's hook_hook and lookup_tex in
  * src/shaders/custom_mpv.c (spec section 3.2-3.3).
  *
- * SPDX-License-Identifier: LGPL-2.1-or-later
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 import type { ShaderPass } from './parse';

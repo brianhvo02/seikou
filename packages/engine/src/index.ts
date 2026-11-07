@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LGPL-2.1-or-later
+// SPDX-License-Identifier: LGPL-3.0-or-later
 // @seikou/engine: the browser Blu-ray player engine (its worker) and the page-side controller that drives it.
 // Named exports only: @seikou/pg and @seikou/ass each have their own Rect.
 

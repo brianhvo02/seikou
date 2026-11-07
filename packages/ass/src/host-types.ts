@@ -2,7 +2,7 @@
  * The types the ASS renderer shares with its host: the rectangle it draws in, the text renderer contract the
  * compositor calls, and the memory limits the renderer reads.
  *
- * SPDX-License-Identifier: LGPL-2.1-or-later
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 export interface Rect {

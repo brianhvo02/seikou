@@ -1,7 +1,7 @@
 {
   "name": "seikou",
   "private": true,
-  "license": "LGPL-2.1-or-later",
+  "license": "LGPL-3.0-or-later",
   "version": "0.1.0",
   "type": "module",
   "workspaces": ["packages/*"],
@@ -12,6 +12,7 @@
     "typecheck": "tsc -b",
     "test": "vitest run",
     "test:watch": "vitest",
+    "licence-check": "bash scripts/licence-check.sh",
     "test:e2e": "playwright test",
     "test:ass": "playwright test -c playwright.ass.config.ts",
     "wasm:build": "packages/engine/wasm/audio/build.sh && src/wasm/freetype/build.sh",

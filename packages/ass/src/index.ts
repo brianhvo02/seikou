@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: LGPL-2.1-or-later
+// SPDX-License-Identifier: LGPL-3.0-or-later
 export * from './types';
 export { parseAss, looksLikeAss, lookupStyle } from './parse';
 export { AssRenderer, type AssRendererDeps, type AssRenderStats } from './renderer';

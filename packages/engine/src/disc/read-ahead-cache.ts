@@ -4,7 +4,7 @@
  *
  * Copyright (C) 2026  bluray-web contributors
  *
- * SPDX-License-Identifier: LGPL-2.1-or-later
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 /** The cache's folder in the origin's private file system; one folder per disc below it. */
