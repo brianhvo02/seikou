@@ -1,6 +1,16 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { readFileSync } from 'node:fs';
-import { parseSync } from 'rolldown/utils';
+
+// TypeScript 7 exposes no compiler API, so the checker parses with rolldown's parser (oxc).
+// rolldown arrives transitively with vite; it is not a declared dependency of this repository.
+// It is imported dynamically so that a missing module fails with a message that says so.
+type ParseSync = typeof import('rolldown/utils').parseSync;
+const parseSync: ParseSync = await import('rolldown/utils').then(
+  (m) => m.parseSync,
+  (cause: unknown) => {
+    throw new Error('doc-check needs rolldown, which comes with vite (run npm install); it could not be loaded', { cause });
+  },
+);
 
 /** One exported declaration that has no doc comment. */
 export interface UndocumentedExport {
