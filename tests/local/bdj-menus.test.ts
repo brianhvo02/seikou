@@ -1,8 +1,8 @@
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import type { JvmMemoryStats } from '../../src/engine/bdj/jvm/jvm';
-import { MEMORY_PROFILES, type MemoryProfileName } from '../../src/engine/memory-profile';
+import type { JvmMemoryStats } from '../../src/bdj/jvm/jvm';
+import { MEMORY_PROFILES, type MemoryProfileName } from '@seikou/engine/memory-profile';
 import { replaySettled } from '../bdj/settled';
 
 /**

@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { parseClpi } from '../src/engine/bdmv/clpi-parser';
-import { parseMpls } from '../src/engine/bdmv/mpls-parser';
-import { CodingType } from '../src/engine/bdmv/stream-types';
+import { parseClpi } from '@seikou/bdmv/clpi-parser';
+import { parseMpls } from '@seikou/bdmv/mpls-parser';
+import { CodingType } from '@seikou/bdmv/stream-types';
 
 const read = (disc: string, path: string): Uint8Array => new Uint8Array(readFileSync(`fixtures/synthetic/${disc}/BDMV/${path}`));
 

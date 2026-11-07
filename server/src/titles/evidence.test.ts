@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { DiscEntry } from '../../../src/engine/disc/nas-api';
+import type { DiscEntry } from '@seikou/nas/nas-api';
 import { buildIndex, buildMpls } from '../../../tests/helpers/bdmv-builders';
 import { IsoTrees } from '../iso';
 import { catalogueNumbers, readFolderEvidence, readIsoEvidence } from './evidence';

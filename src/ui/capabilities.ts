@@ -1,4 +1,4 @@
-import { bdjMissing } from '../engine/bdj/requirements';
+import { bdjMissing } from '../bdj/requirements';
 
 export interface CapabilityReport {
   readonly core: { readonly ok: boolean; readonly missing: readonly string[] };

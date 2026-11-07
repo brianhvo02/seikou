@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
-import type { FansubTitleState } from '../../engine/disc/nas-api';
+import type { FansubTitleState } from '@seikou/nas/nas-api';
 import { forgetFansubDeletion, fansubsDeletedHere, runButtonLabel, seasonLine } from './fansub-model';
 import { subtitleErrorMessage } from './subtitle-model';
 import { NasHttpError, type NasClient } from './nas-client';

@@ -1,4 +1,4 @@
-import type { CodeLookup, CodeRoutes, EcPublicJwk } from '../../src/engine/disc/nas-api';
+import type { CodeLookup, CodeRoutes, EcPublicJwk } from '@seikou/nas/nas-api';
 import { ECDSA_KEY, ECDSA_SIGN, MAX_CODE_AHEAD_MS, codeHashOf, fromBase64url, isNasId, nasIdOf, signedMessage, unregisterMessage } from './protocol';
 
 /** The part of a Durable Object's storage API the registry uses (the KV-style API, on SQLite-backed storage). */

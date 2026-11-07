@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { MusicKind, TitleMusic, TitleSummary } from '../../engine/disc/nas-api';
+import type { MusicKind, TitleMusic, TitleSummary } from '@seikou/nas/nas-api';
 import { artistChoice, artistCount, artistIndex, artistNames, collagePosters, artistSections, groupArtists, releaseName, releaseYear, searchArtists } from './artist-model';
 import { englishKey, kanaRow } from './title-index';
 import { displayName } from './title-model';

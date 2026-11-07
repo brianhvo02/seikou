@@ -1,4 +1,4 @@
-import type { VideoCodecApi, VideoDecoderLike } from '../../src/engine/decode/video-decoder';
+import type { VideoCodecApi, VideoDecoderLike } from '@seikou/engine/decode/video-decoder';
 
 /** A VideoDecoder that outputs a 320×180 frame for every chunk at once, without decoding anything. */
 export class FakeVideoDecoder implements VideoDecoderLike {

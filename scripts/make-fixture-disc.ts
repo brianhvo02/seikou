@@ -1,4 +1,4 @@
-import { CodingType } from '../src/engine/bdmv/stream-types';
+import { CodingType } from '@seikou/bdmv/stream-types';
 import { CLIP_START_PTS, buildSyntheticDisc, type SyntheticClipSpec } from '../tests/helpers/synthetic-disc';
 import { writeFixture } from './fixture-dir';
 import { encodeTestVideo } from './x264';

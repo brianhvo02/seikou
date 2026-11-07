@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { StoredSubtitle } from '../../engine/disc/nas-api';
-import type { DiscManifest, SeasonDetail, SubtitleCreate } from '../../engine/disc/nas-api';
-import { CodingType } from '../../engine/bdmv/stream-types';
+import type { StoredSubtitle } from '@seikou/nas/nas-api';
+import type { DiscManifest, SeasonDetail, SubtitleCreate } from '@seikou/nas/nas-api';
+import { CodingType } from '@seikou/bdmv/stream-types';
 import { buildMpls } from '../../../tests/helpers/bdmv-builders';
 import { NasHttpError } from './nas-client';
 import {

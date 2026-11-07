@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactElement } from 'react';
-import type { DiscRef } from '../../engine/disc/nas-api';
+import type { DiscRef } from '@seikou/nas/nas-api';
 import { NasHttpError, type NasClient } from './nas-client';
 import { DiscCard } from './UnsortedScreen';
 import { nameLang } from '../name-lang';

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { DiscPlaces, PlaybackPlace } from '../engine/disc/nas-api';
-import type { PlaceState, TextFileInfo } from '../engine/protocol';
-import { INITIAL_SNAPSHOT, type PlayerSnapshot } from '../player/player-controller';
+import type { DiscPlaces, PlaybackPlace } from '@seikou/nas/nas-api';
+import type { PlaceState, TextFileInfo } from '@seikou/engine/protocol';
+import { INITIAL_SNAPSHOT, type PlayerSnapshot } from '@seikou/engine/controller/player-controller';
 import { NasHttpError } from './nas/nas-client';
 import { PlaceSaver, type PlaceTarget } from './place-saver';
 import { MAX_SEND_ATTEMPTS, MAX_TEXT_FILE_BYTES, placeKey, type OutboxEntry, type PlaceStore, type StoredTextFile } from './place-store';

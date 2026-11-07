@@ -3,7 +3,7 @@
 # bdj/native/java_awt_BDFontMetrics.c and java_awt_BDGraphics.c objects of the harness image's libbluray build, on its
 # system FreeType) return and draw for the bundled fallback font, opened through the JRE font path the harness links to
 # it (LucidaSansRegular.ttf), and for a font a disc could ship (fixtures/ass/fonts/DejaVuSerif.ttf). text_golden.c
-# drives them through a fake JNIEnv. The Vitest test src/engine/bdj/jvm/natives/fonts.test.ts compares bluray-web's
+# drives them through a fake JNIEnv. The Vitest test src/bdj/jvm/natives/fonts.test.ts compares bluray-web's
 # natives with it exactly. Needs the harness image: npm run bdj-trace:build.
 set -euo pipefail
 

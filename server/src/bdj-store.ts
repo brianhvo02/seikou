@@ -4,7 +4,7 @@ import {
   utimesSync,
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { isCode, lockFile, syncDir, writeSynced } from './atomic-json';
+import { isCode, lockFile, syncDir, writeSynced } from '@seikou/titles/atomic-json';
 import { EMPTY_TAR, listTar, TarError } from './tar';
 
 export const SCOPE_LIMIT_BYTES = 16 * 1024 * 1024;

@@ -1,4 +1,4 @@
-import type { PlaybackState } from '../engine/protocol';
+import type { PlaybackState } from '@seikou/engine/protocol';
 
 /**
  * Whether to offer the waiting service worker's new version. A reload would stop playback,

@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import type { MenuKey } from '../engine/protocol';
+import type { MenuKey } from '@seikou/engine/protocol';
 
 interface RemotePadProps {
   onKey(key: MenuKey): void;

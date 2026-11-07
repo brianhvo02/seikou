@@ -3,9 +3,9 @@ name: WASM
 on:
   push:
     branches: [main]
-    paths: ['src/wasm/**']
+    paths: ['src/wasm/**', 'packages/engine/wasm/**']
   pull_request:
-    paths: ['src/wasm/**']
+    paths: ['src/wasm/**', 'packages/engine/wasm/**']
 
 jobs:
   reproducible:
@@ -15,8 +15,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        module: [audio, freetype]
+        include:
+          - module: audio
+            dir: packages/engine/wasm/audio
+          - module: freetype
+            dir: src/wasm/freetype
     steps:
       - uses: actions/checkout@v4
-      - run: src/wasm/${{ matrix.module }}/build.sh
-      - run: git diff --exit-code src/wasm/${{ matrix.module }}/
+      - run: ${{ matrix.dir }}/build.sh
+      - run: git diff --exit-code ${{ matrix.dir }}/

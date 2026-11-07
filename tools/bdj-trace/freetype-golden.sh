@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Regenerates tests/bdj/fonts/freetype-golden.json: glyphs, advances, metrics and kerning of the bundled font
-# (src/engine/ass/default-font.ttf) from the system FreeType that libbluray links in the BD-J harness image, made with
+# (packages/ass/src/default-font.ttf) from the system FreeType that libbluray links in the BD-J harness image, made with
 # the calls libbluray's BD-J text natives make (freetype_golden.c). The Vitest test freetype.test.ts compares
 # src/wasm/freetype/freetype.wasm with it byte for byte. Needs the harness image: npm run bdj-trace:build.
 set -euo pipefail
@@ -14,7 +14,7 @@ OUT="$ROOT/tests/bdj/fonts/freetype-golden.json"
 mkdir -p "$(dirname "$OUT")"
 docker run --rm --network none --platform "$PLATFORM" \
   -v "$HERE/freetype_golden.c:/src/freetype_golden.c:ro" \
-  -v "$ROOT/src/engine/ass/default-font.ttf:/fonts/default-font.ttf:ro" \
+  -v "$ROOT/packages/ass/src/default-font.ttf:/fonts/default-font.ttf:ro" \
   "$IMAGE" sh -c 'gcc -O1 -Wall -Wextra -Werror -o /tmp/freetype_golden /src/freetype_golden.c $(pkg-config --cflags --libs freetype2) \
     && echo "libfreetype6 $(dpkg-query -W -f "\${Version}" libfreetype6)" >&2 \
     && /tmp/freetype_golden /fonts/default-font.ttf' > "$OUT.tmp"

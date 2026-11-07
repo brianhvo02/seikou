@@ -2,8 +2,7 @@ Notices for rendezvous/
 =======================
 
 The pairing-code rendezvous Worker is distributed under the GNU Lesser General
-Public License, version 2.1 or later (LGPL-2.1-or-later); see LICENSE.
+Public License, version 3 or later (LGPL-3.0-or-later); see LICENSE and COPYING.
 
-It bundles code from src/engine/, which ports or derives from third-party
-projects (libbluray and others). Those projects, their copyright holders and
-the derived files are listed in src/engine/NOTICE.
+It bundles parts of @seikou/nas (packages/nas, see its NOTICE), which is
+original Seikou code.

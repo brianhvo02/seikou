@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { ToshoReleaseFiles, ToshoSearchResult } from '../engine/disc/nas-api';
-import type { SubtitlesState } from '../player/player-controller';
+import type { ToshoReleaseFiles, ToshoSearchResult } from '@seikou/nas/nas-api';
+import type { SubtitlesState } from '@seikou/engine/controller/player-controller';
 import { SubtitleMenu } from './SubtitleMenu';
 import type { ToshoSearch } from './ToshoSearch';
 import { LINING_UP } from './nas/tosho-search-model';

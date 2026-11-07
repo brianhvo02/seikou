@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { opendir, rename, stat, writeFile } from 'node:fs/promises';
 import type { Dir } from 'node:fs';
 import { join } from 'node:path';
-import type { DiscEntry, FolderEntry } from '../../src/engine/disc/nas-api';
+import type { DiscEntry, FolderEntry } from '@seikou/nas/nas-api';
 import { discId } from './disc-id';
 import { isoDiscTree, readIsoTree } from './iso';
 import { readFolderEvidence, readIsoEvidence } from './titles/evidence';

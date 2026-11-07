@@ -1,20 +1,21 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { createRing, renderQuantum, ringViews } from '../../src/engine/audio/ring';
+import { createRing, renderQuantum, ringViews } from '@seikou/engine/audio/ring';
 import { registerClassLibraryIntrinsics } from '../../src/bdj-classlib/intrinsics/index';
-import { runBdjWorker, type BdjPort, type BdjWorkerHandle } from '../../src/engine/bdj/bdj-worker';
-import { GraphicsPlaneReader, GraphicsPlaneWriter, planeHash } from '../../src/engine/bdj/graphics-plane';
-import type { TraceEntry } from '../../src/engine/bdj/host';
-import type { ClassLibrarySource } from '../../src/engine/bdj/runtime';
-import { MemoryBdjStore, type BdjStore } from '../../src/engine/bdj/store/bdj-store';
-import type { WorkerLike } from '../../src/engine/bdj/session';
-import type { BdjCallName, BdjWireValue, FromBdj, ToBdj } from '../../src/engine/bdj/worker-protocol';
-import { createAudioDecoderFactory } from '../../src/engine/decode/audio-decoder';
-import { Player } from '../../src/engine/player';
-import type { CompositorLike } from '../../src/engine/render/compositor';
-import type { DecodeImage } from '../../src/engine/bdj/background';
-import type { EngineEvent } from '../../src/engine/protocol';
-import type { MemoryProfileName } from '../../src/engine/memory-profile';
+import { runBdjWorker, type BdjPort, type BdjWorkerHandle } from '../../src/bdj/bdj-worker';
+import { GraphicsPlaneReader, GraphicsPlaneWriter, planeHash } from '../../src/bdj/graphics-plane';
+import type { TraceEntry } from '../../src/bdj/host';
+import type { ClassLibrarySource } from '../../src/bdj/runtime';
+import { seikouBdjProvider } from '../../src/bdj/provider';
+import { MemoryBdjStore, type BdjStore } from '../../src/bdj/store/bdj-store';
+import type { WorkerLike } from '../../src/bdj/session';
+import type { BdjCallName, BdjWireValue, FromBdj, ToBdj } from '../../src/bdj/worker-protocol';
+import { createAudioDecoderFactory } from '@seikou/engine/decode/audio-decoder';
+import { Player } from '@seikou/engine/player';
+import type { CompositorLike } from '@seikou/engine/render/compositor';
+import type { DecodeImage } from '../../src/bdj/background';
+import type { EngineEvent } from '@seikou/engine/protocol';
+import type { MemoryProfileName } from '@seikou/engine/memory-profile';
 import { fakeVideoCodecApi } from '../helpers/fake-video-decoder';
 import { directoryEntries } from '../helpers/file-blob';
 import { HARNESS_SETTINGS } from './replay';
@@ -178,7 +179,7 @@ export async function replayPlayerBdj(
     tailMs?: number;
     /** The player's compositor (default: one that draws nothing). */
     compositor?: CompositorLike;
-    /** PlayerDeps.decodeImage, for background stills (default: none, so none are shown). */
+    /** The BD-J provider's decodeImage, for background stills (default: none, so none are shown). */
     decodeImage?: DecodeImage;
     /** A key script to replay (key-script.ts), with the plane hashed at every flush. */
     script?: readonly KeyStep[];
@@ -253,19 +254,22 @@ export async function replayPlayerBdj(
     requestFrame: () => undefined,
     createAudioDecoder: createAudioDecoderFactory(() => Promise.reject(new Error('no wasm in the replay'))),
     createCompositor: () => opts.compositor ?? { resize: () => undefined, drawVideo: () => undefined },
-    ...(opts.decodeImage ? { decodeImage: opts.decodeImage } : {}),
     // the replay has its own timeout; the first-playlist timer would measure the virtual clock's real-time steps
     setTimer: () => () => undefined,
-    createBdjWorker: () =>
-      inProcessWorker(
-        onToBdj,
-        onFromBdj,
-        (h) => {
-          lastWorker = h;
-        },
-        store,
-      ),
-    loadClassLibrary: async () => classes,
+    bdj: seikouBdjProvider({
+      missing: [],
+      createWorker: () =>
+        inProcessWorker(
+          onToBdj,
+          onFromBdj,
+          (h) => {
+            lastWorker = h;
+          },
+          store,
+        ),
+      loadClassLibrary: async () => classes,
+      ...(opts.decodeImage ? { decodeImage: opts.decodeImage } : {}),
+    }),
     bdjLog: opts.log ? (line) => opts.log!(line) : undefined,
     playerSettings: HARNESS_SETTINGS,
   });

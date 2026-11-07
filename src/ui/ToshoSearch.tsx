@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
-import type { ToshoReleaseFiles, ToshoSearchResult } from '../engine/disc/nas-api';
+import type { ToshoReleaseFiles, ToshoSearchResult } from '@seikou/nas/nas-api';
 import { fileLabel, LINING_UP, releaseDate, releaseLabel, sortTracks, trackLabel, type ToshoFile, type ToshoTrack } from './nas/tosho-search-model';
 
 /** What the Subtitles menu's Anime Tosho search needs from the player (a NAS disc's), spec §9. */

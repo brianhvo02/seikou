@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FansubSource, StoredSubtitle } from '../../src/engine/disc/nas-api';
+import type { FansubSource, StoredSubtitle } from '@seikou/nas/nas-api';
 import { BadNameError, EmptyBodyError, SubtitleStore, TooLargeError, type SubtitleMeta } from './subtitle-store';
 
 // Counts the store's disk reads, so a test can say a listing or a budget check never walks the folders.

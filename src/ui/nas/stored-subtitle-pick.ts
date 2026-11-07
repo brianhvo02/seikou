@@ -1,6 +1,6 @@
-import type { FansubPick, FansubPickRequest, StoredSubtitle } from '../../engine/disc/nas-api';
-import { pickedSubtitles } from '../../player/drop-files';
-import type { PlayerController, PlayerSnapshot } from '../../player/player-controller';
+import type { FansubPick, FansubPickRequest, StoredSubtitle } from '@seikou/nas/nas-api';
+import { pickedSubtitles } from '@seikou/engine/controller/drop-files';
+import type { PlayerController, PlayerSnapshot } from '@seikou/engine/controller/player-controller';
 import type { PlaceSaver } from '../place-saver';
 import { TEXT_WAIT_MS } from '../place-apply';
 import type { NasClient } from './nas-client';

@@ -4,9 +4,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { afterAll, describe, expect, it, vi } from 'vitest';
+import { episodeAudio, type AudioWindow } from '@seikou/fansubs/disc-audio';
 import { SPEECH_BURSTS } from '../../../tests/helpers/speech-bursts';
 import { folderDiscSource, type LevelDiscSource } from '../levels/level-discs';
-import { ALIGN_FFMPEG, episodeAudio, windowsFor, type AudioWindow } from './disc-audio';
+import { ALIGN_FFMPEG, ffmpegAudioDecoder } from './ffmpeg-decoder';
 
 const priorities = vi.hoisted(() => [] as [number, number][]);
 vi.mock('node:os', async (importOriginal) => {
@@ -18,6 +19,7 @@ const hasAc3 = spawnSync('ffmpeg', ['-hide_banner', '-decoders'], { encoding: 'u
 /** CI installs ffmpeg: there, a missing AC-3 decoder fails these tests instead of skipping them. */
 const runFfmpegTests = hasAc3 || Boolean(process.env.CI);
 
+const ffmpeg = ffmpegAudioDecoder('ffmpeg');
 const disc = folderDiscSource(join(import.meta.dirname, '../../../fixtures/synthetic/disc-speech'), { id: 'speech', name: 'Speech' });
 
 /** The share of the window's 10 ms frames that are loud (RMS above -35 dBFS) exactly where a burst is, give or take 20 ms. */
@@ -63,7 +65,7 @@ describe.skipIf(!runFfmpegTests)('episodeAudio', () => {
     const releases: (() => void)[] = [];
     const held = [0, 1].map(() => ALIGN_FFMPEG.run(() => new Promise<void>((r) => { releases.push(r); })));
     priorities.length = 0;
-    const work = episodeAudio(disc, '00000', [{ fromMs: 20_000, toMs: 25_000 }], 'ffmpeg');
+    const work = episodeAudio(disc, '00000', [{ fromMs: 20_000, toMs: 25_000 }], ffmpeg);
     await new Promise((r) => setTimeout(r, 100));
     expect(ALIGN_FFMPEG.queued).toBe(1);
     expect(priorities).toEqual([]);
@@ -76,7 +78,7 @@ describe.skipIf(!runFfmpegTests)('episodeAudio', () => {
   });
 
   it("a window's loud samples sit on the bursts", async () => {
-    const [w] = await episodeAudio(disc, '00000', [{ fromMs: 20_000, toMs: 50_000 }], 'ffmpeg');
+    const [w] = await episodeAudio(disc, '00000', [{ fromMs: 20_000, toMs: 50_000 }], ffmpeg);
     expect(w.startMs).toBe(20_000);
     expect(w.pcm.length).toBe(30_000 * 16);
     const { frames, share } = agreement(w);
@@ -85,20 +87,20 @@ describe.skipIf(!runFfmpegTests)('episodeAudio', () => {
   });
 
   it('a window across the clip boundary', async () => {
-    const [w] = await episodeAudio(disc, '00000', [{ fromMs: 85_000, toMs: 100_000 }], 'ffmpeg');
+    const [w] = await episodeAudio(disc, '00000', [{ fromMs: 85_000, toMs: 100_000 }], ffmpeg);
     expect(w.pcm.length).toBe(15_000 * 16);
     expect(agreement(w).share).toBeGreaterThanOrEqual(0.95);
   });
 
   it('places samples within 10 ms of their playlist time, in both clips', async () => {
     for (const window of [{ fromMs: 20_000, toMs: 50_000 }, { fromMs: 90_000, toMs: 140_000 }]) {
-      const [w] = await episodeAudio(disc, '00000', [window], 'ffmpeg');
+      const [w] = await episodeAudio(disc, '00000', [window], ffmpeg);
       expect(Math.abs(bestShiftMs(w))).toBeLessThanOrEqual(10);
     }
   });
 
   it('the whole episode', async () => {
-    const [w] = await episodeAudio(disc, '00000', 'whole', 'ffmpeg');
+    const [w] = await episodeAudio(disc, '00000', 'whole', ffmpeg);
     expect(w.startMs).toBe(0);
     expect(w.pcm.length).toBe(150_000 * 16);
     expect(agreement(w).share).toBeGreaterThanOrEqual(0.95);
@@ -147,11 +149,11 @@ describe.skipIf(!runFfmpegTests)('episodeAudio failures', () => {
   const window = [{ fromMs: 20_000, toMs: 50_000 }];
 
   it('rejects, without hanging, when ffmpeg exits before reading its input', async () => {
-    await expect(episodeAudio(disc, '00000', window, script('exit1.sh', 'exit 1'))).rejects.toThrow(/ffmpeg exited 1/);
+    await expect(episodeAudio(disc, '00000', window, ffmpegAudioDecoder(script('exit1.sh', 'exit 1')))).rejects.toThrow(/ffmpeg exited 1/);
   });
 
   it('rejects when ffmpeg cannot be started', async () => {
-    await expect(episodeAudio(disc, '00000', window, join(scratch, 'no-such-ffmpeg'))).rejects.toThrow();
+    await expect(episodeAudio(disc, '00000', window, ffmpegAudioDecoder(join(scratch, 'no-such-ffmpeg')))).rejects.toThrow();
   });
 
   it('rejects when the audio stream is not on the clip', async () => {
@@ -163,14 +165,14 @@ describe.skipIf(!runFfmpegTests)('episodeAudio failures', () => {
       for (let i = 0; i + 1 < copy.length; i++) if (copy[i] === 0x11 && copy[i + 1] === 0x00) copy[i + 1] = 0x77;
       return copy;
     } };
-    await expect(episodeAudio(source, '00000', window, 'ffmpeg')).rejects.toThrow(/ffmpeg exited|no audio PES/);
+    await expect(episodeAudio(source, '00000', window, ffmpeg)).rejects.toThrow(/ffmpeg exited|no audio PES/);
   });
 
   it('kills ffmpeg and rejects when aborted mid-window', async () => {
     const pidFile = join(scratch, 'pid');
     const slow = script('slow.sh', `echo $$ > ${pidFile}\nsleep 30`);
     const controller = new AbortController();
-    const run = episodeAudio(disc, '00000', window, slow, controller.signal);
+    const run = episodeAudio(disc, '00000', window, ffmpegAudioDecoder(slow), controller.signal);
     await new Promise((resolve) => setTimeout(resolve, 300));
     controller.abort();
     await expect(run).rejects.toThrow();
@@ -183,14 +185,14 @@ describe.skipIf(!runFfmpegTests)('episodeAudio failures', () => {
   it('refuses a window whose audio lost frames, instead of shifting what follows', async () => {
     // About 0.2 s of audio packets are gone from the middle of the window.
     const lossy = withoutAudio(5000, 5030);
-    await expect(episodeAudio(lossy, '00000', [{ fromMs: 20_000, toMs: 60_000 }], 'ffmpeg')).rejects.toThrow(/damaged or lost/);
+    await expect(episodeAudio(lossy, '00000', [{ fromMs: 20_000, toMs: 60_000 }], ffmpeg)).rejects.toThrow(/damaged or lost/);
     // The same window of the whole disc decodes.
-    await expect(episodeAudio(disc, '00000', [{ fromMs: 20_000, toMs: 60_000 }], 'ffmpeg')).resolves.toHaveLength(1);
+    await expect(episodeAudio(disc, '00000', [{ fromMs: 20_000, toMs: 60_000 }], ffmpeg)).resolves.toHaveLength(1);
   });
 
   it('decodes the AC-3 core of a TrueHD stream, placed by its PTS', async () => {
     const truehd = folderDiscSource(join(import.meta.dirname, '../../../fixtures/synthetic/disc3'), { id: 'd3', name: 'Audio' });
-    const [w] = await episodeAudio(truehd, '00000', [{ fromMs: 2_000, toMs: 8_000 }], 'ffmpeg', undefined, { audioIndex: 2 });
+    const [w] = await episodeAudio(truehd, '00000', [{ fromMs: 2_000, toMs: 8_000 }], ffmpeg, undefined, { audioIndex: 2 });
     expect(w.startMs).toBe(2_000);
     expect(w.pcm.length).toBe(6_000 * 16);
     let peak = 0;
@@ -198,32 +200,5 @@ describe.skipIf(!runFfmpegTests)('episodeAudio failures', () => {
     expect(peak).toBeGreaterThan(3000);
     const head = w.pcm.subarray(0, 160);
     expect(head.some((v) => Math.abs(v) > 100)).toBe(true); // sound from the first 10 ms: no leading silence from a late sync
-  });
-});
-
-describe('windowsFor', () => {
-  it('takes the whole of an episode under three minutes', () => {
-    expect(windowsFor(150_000)).toEqual([{ fromMs: 0, toMs: 150_000 }]);
-  });
-
-  it('takes the whole of an episode under three and a half minutes', () => {
-    expect(windowsFor(209_000)).toEqual([{ fromMs: 0, toMs: 209_000 }]);
-  });
-
-  it('spreads six minutes-long windows over a full episode', () => {
-    const ws = windowsFor(1_440_000);
-    expect(ws).toHaveLength(6);
-    for (const w of ws) expect(w.toMs - w.fromMs).toBe(60_000);
-    expect(ws[0].fromMs).toBe(90_000);
-    expect(ws[5].toMs).toBe(1_350_000);
-  });
-
-  it('takes fewer and shorter windows of a short episode', () => {
-    const ws = windowsFor(300_000);
-    expect(ws.length).toBeLessThan(6);
-    for (const w of ws) expect(w.toMs - w.fromMs).toBeGreaterThanOrEqual(30_000);
-    expect(ws[0].fromMs).toBe(90_000);
-    expect(ws[ws.length - 1].toMs).toBeLessThanOrEqual(210_000);
-    for (const w of ws) expect(w.toMs - w.fromMs).toBeLessThanOrEqual(60_000);
   });
 });

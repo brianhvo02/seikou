@@ -9,8 +9,8 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { discDbKind, indexDisc, mergeIndex } from '../server/src/titles/discdb';
-import type { DiscDbHit, DiscDbIndex } from '../server/src/titles/discdb';
+import { discDbKind, indexDisc, mergeIndex } from '@seikou/titles/discdb';
+import type { DiscDbHit, DiscDbIndex } from '@seikou/titles/discdb';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const REPO_URL = 'https://github.com/TheDiscDb/data';

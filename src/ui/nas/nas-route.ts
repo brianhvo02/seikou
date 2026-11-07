@@ -1,4 +1,4 @@
-import type { TitleKind } from '../../engine/disc/nas-api';
+import type { TitleKind } from '@seikou/nas/nas-api';
 
 export type NasRoute =
   | { kind: 'library'; shelf: TitleKind | null; q: string }

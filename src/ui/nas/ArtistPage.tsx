@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
-import type { TitleDetail, TitleSummary } from '../../engine/disc/nas-api';
+import type { TitleDetail, TitleSummary } from '@seikou/nas/nas-api';
 import { artistCount, artistSections, releaseName, releaseYear, type ArtistGroup } from './artist-model';
 import { ArtistCollage } from './ArtistGrid';
 import type { NasClient } from './nas-client';

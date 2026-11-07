@@ -1,5 +1,5 @@
 /** The subtitle menu's start picker: where a file of the set can start, and how a start is labelled. */
-import type { Chapter } from '../engine/nav/timeline';
+import type { Chapter } from '@seikou/engine/nav/timeline';
 
 export interface StartChoice { readonly label: string; readonly startUs: number | null }
 

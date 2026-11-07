@@ -1,5 +1,5 @@
 import type { IncomingMessage } from 'node:http';
-import { LockHeldError } from '../atomic-json';
+import { LockHeldError } from '@seikou/titles/atomic-json';
 import type { Auth } from '../auth';
 import { parseScope, StoreError } from '../bdj-store';
 import type { BdjStore } from '../bdj-store';

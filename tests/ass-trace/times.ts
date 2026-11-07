@@ -1,7 +1,7 @@
 /** Which times of a real-world script the local ASS gate compares, and the local fixtures themselves. */
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AssTrack } from '../../src/engine/ass/types';
+import type { AssTrack } from '@seikou/ass/types';
 
 const FRAME_MS = 41;
 const BUSIEST = 10;

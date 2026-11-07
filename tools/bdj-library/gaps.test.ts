@@ -1,11 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { Jvm } from '../../src/engine/bdj/jvm/jvm';
-import type { JObject } from '../../src/engine/bdj/jvm/values';
-import { byteArray } from '../../src/engine/bdj/jvm/natives/util';
-import { Vfs } from '../../src/engine/bdj/jvm/vfs';
-import { ZipArchive } from '../../src/engine/bdj/jvm/zip';
+import { Jvm } from '../../src/bdj/jvm/jvm';
+import type { JObject } from '../../src/bdj/jvm/values';
+import { byteArray } from '../../src/bdj/jvm/natives/util';
+import { Vfs } from '../../src/bdj/jvm/vfs';
+import { ZipArchive } from '../../src/bdj/jvm/zip';
 import { assembleClass } from '../../tests/helpers/jvm-asm';
 import { gapExempt } from './classify';
 import { trackGaps, type GapTracker } from './gaps';

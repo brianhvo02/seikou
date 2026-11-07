@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from 'react';
-import type { StoredSubtitle } from '../engine/disc/nas-api';
-import type { UoOp } from '../engine/hdmv/uo-mask';
-import type { Chapter } from '../engine/nav/timeline';
-import type { SubtitleChoice } from '../engine/protocol';
-import { languageName } from '../player/language';
-import { formatSubtitleOffset, MAX_SUBTITLE_SCALE, MIN_SUBTITLE_SCALE, type SubtitlesState } from '../player/player-controller';
-import { FONT_EXTENSIONS, SUBTITLE_EXTENSIONS } from '../player/drop-files';
+import type { StoredSubtitle } from '@seikou/nas/nas-api';
+import type { UoOp } from '@seikou/engine/hdmv/uo-mask';
+import type { Chapter } from '@seikou/engine/nav/timeline';
+import type { SubtitleChoice } from '@seikou/engine/protocol';
+import { languageName } from '@seikou/engine/controller/language';
+import { formatSubtitleOffset, MAX_SUBTITLE_SCALE, MIN_SUBTITLE_SCALE, type SubtitlesState } from '@seikou/engine/controller/player-controller';
+import { FONT_EXTENSIONS, SUBTITLE_EXTENSIONS } from '@seikou/engine/controller/drop-files';
 import { startChoices, startLabel } from './subtitle-starts';
 import { ToshoSearchView, type ToshoSearch } from './ToshoSearch';
 

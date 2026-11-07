@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactElement } from 'react';
-import { discKeyOf } from '../../engine/disc/disc-key';
-import { DISC_CHANGED_MESSAGE } from '../../engine/disc/http-transport';
-import type { ContinueItem, DiscEntry, DiscManifest, DiscPlaces, LevelAt, LevelId, LevelInfo } from '../../engine/disc/nas-api';
-import type { BufferRequest, StartPoint } from '../../engine/protocol';
-import type { PlayerController } from '../../player/player-controller';
+import { discKeyOf } from '@seikou/nas/disc-key';
+import { DISC_CHANGED_MESSAGE } from '@seikou/engine/disc/http-transport';
+import type { ContinueItem, DiscEntry, DiscManifest, DiscPlaces, LevelAt, LevelId, LevelInfo } from '@seikou/nas/nas-api';
+import type { BufferRequest, StartPoint } from '@seikou/engine/protocol';
+import type { PlayerController } from '@seikou/engine/controller/player-controller';
 import { BUFFER_FAILED_COPY, bufferPlan, playlistFacts, readAheadCacheBytes, storageRoom, tooBigCopy, waitCopy, watchBufferFailure, type BufferPlan } from './buffer-model';
 import { discBadges, discFacts, formatSize, mainPlaylist, mainPlaylistId, openFailed, playlistOf, preflightLines, type DiscFacts } from './library-model';
 import { nasDiscSpec } from './disc-spec';

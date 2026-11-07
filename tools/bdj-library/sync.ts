@@ -18,8 +18,8 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { createWriteStream, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { indexUsesBdj, parseIndex } from '../../src/engine/bdmv/index-parser';
-import { parseMpls } from '../../src/engine/bdmv/mpls-parser';
+import { indexUsesBdj, parseIndex } from '@seikou/bdmv/index-parser';
+import { parseMpls } from '@seikou/bdmv/mpls-parser';
 import { discId, libraryDir, type DiscVerdict, type RunRecord } from './classify';
 import { isClipId, markReal, menuPlaylists, parseVideoManifest, planVideo, playlistClips, type ClipSize } from './video';
 

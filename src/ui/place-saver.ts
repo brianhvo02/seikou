@@ -1,7 +1,7 @@
-import type { DiscPlaces, PlaceFansub, PlaceSettings, PlaybackPlace } from '../engine/disc/nas-api';
-import type { PlaceState } from '../engine/protocol';
-import { isFontName, pickedSubtitles, splitPick } from '../player/drop-files';
-import type { PlayerSnapshot } from '../player/player-controller';
+import type { DiscPlaces, PlaceFansub, PlaceSettings, PlaybackPlace } from '@seikou/nas/nas-api';
+import type { PlaceState } from '@seikou/engine/protocol';
+import { isFontName, pickedSubtitles, splitPick } from '@seikou/engine/controller/drop-files';
+import type { PlayerSnapshot } from '@seikou/engine/controller/player-controller';
 import { NasHttpError, type NasClient } from './nas/nas-client';
 import { buildPlace, PLACE_MIN_DURATION_US, qualifies, type StoredSubtitleNote } from './place-model';
 import { pairingKey } from './nas/nas-store';

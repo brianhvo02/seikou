@@ -1,4 +1,4 @@
-import type { MemoryProfileName } from '../engine/memory-profile';
+import type { MemoryProfileName } from '@seikou/engine/memory-profile';
 
 export interface MemoryProfileEnv {
   readonly search: string;

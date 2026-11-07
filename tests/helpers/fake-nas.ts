@@ -1,5 +1,5 @@
-import type { RemoteDiscSpec } from '../../src/engine/disc/disc-spec';
-import type { DiscManifest } from '../../src/engine/disc/nas-api';
+import type { RemoteDiscSpec } from '@seikou/engine/disc/disc-spec';
+import type { DiscManifest } from '@seikou/nas/nas-api';
 
 /** The NAS server's inlining rule (server/src/manifest.ts). */
 const INLINED = /^(BDMV\/(INDEX\.BDMV|MOVIEOBJECT\.BDMV|PLAYLIST\/[^/]+\.MPLS|CLIPINF\/[^/]+\.CLPI|AUXDATA\/SOUND\.BDMV|BDJO\/[^/]+\.BDJO)|CERTIFICATE\/ID\.BDMV)$/;

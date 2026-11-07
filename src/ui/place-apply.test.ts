@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { FansubPick, FansubPickRequest, PlaceFansub, PlaceSettings, StoredSubtitle, ToshoReleaseFiles } from '../engine/disc/nas-api';
+import type { FansubPick, FansubPickRequest, PlaceFansub, PlaceSettings, StoredSubtitle, ToshoReleaseFiles } from '@seikou/nas/nas-api';
 import { NasHttpError } from './nas/nas-client';
 import { PICK_FAILED } from './nas/tosho-search-model';
-import type { SubtitleChoice, TextFileInfo } from '../engine/protocol';
-import { INITIAL_SNAPSHOT, type PlayerSnapshot } from '../player/player-controller';
+import type { SubtitleChoice, TextFileInfo } from '@seikou/engine/protocol';
+import { INITIAL_SNAPSHOT, type PlayerSnapshot } from '@seikou/engine/controller/player-controller';
 import { filesToAdd, LaunchSettingsApplier, STORED_FETCH_TIMEOUT_MS, TEXT_WAIT_MS } from './place-apply';
 import type { LaunchSettings } from './place-saver';
 import type { StoredTextFile } from './place-store';

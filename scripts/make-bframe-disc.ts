@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { CodingType } from '../src/engine/bdmv/stream-types';
-import { analyzeAvc } from '../src/engine/decode/h264';
-import { SOURCE_PACKET_SIZE } from '../src/engine/demux/constants';
-import { PesAssembler, type PesPacket } from '../src/engine/demux/pes-assembler';
-import { parseSourcePacket } from '../src/engine/demux/ts-packet';
+import { CodingType } from '@seikou/bdmv/stream-types';
+import { analyzeAvc } from '@seikou/bdmv/codecs/h264';
+import { SOURCE_PACKET_SIZE } from '@seikou/bdmv/demux/constants';
+import { PesAssembler, type PesPacket } from '@seikou/bdmv/demux/pes-assembler';
+import { parseSourcePacket } from '@seikou/bdmv/demux/ts-packet';
 import { CLIP_START_PTS, buildSyntheticDisc } from '../tests/helpers/synthetic-disc';
 import { writeFixture } from './fixture-dir';
 

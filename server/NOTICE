@@ -2,11 +2,14 @@ Notices for server/
 ===================
 
 The NAS disc server is distributed under the GNU Lesser General Public
-License, version 2.1 or later (LGPL-2.1-or-later); see LICENSE.
+License, version 3 or later (LGPL-3.0-or-later); see LICENSE and COPYING.
 
-It imports code from src/engine/, which ports or derives from third-party
-projects (libbluray and others). Those projects, their copyright holders and
-the derived files are listed in src/engine/NOTICE.
+Its bundle (server/dist/server.mjs) contains code from @seikou/bdmv,
+@seikou/fansubs, @seikou/nas and @seikou/titles, the audio framing and LPCM
+decoder of @seikou/engine (decode/), and the script parser of @seikou/ass.
+Parts of them port or derive from third-party projects (libbluray, libudfread,
+libass, FFmpeg); those projects, their copyright holders and the derived files
+are listed in each package's NOTICE (packages/<name>/NOTICE).
 
 Metadata sources
 ----------------
@@ -36,14 +39,14 @@ MIT License:
   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
   SOFTWARE.
 
-TMDB (server/src/titles/tmdb.ts):
+TMDB (packages/titles/src/tmdb.ts):
 This product uses the TMDB API but is not endorsed or certified by TMDB.
 The app shows this notice in its NAS settings with TMDB's logo, public/tmdb-logo.svg:
 TMDB's "Primary short (blue)" logo, unmodified, from
 https://www.themoviedb.org/about/logos-attribution, used for attribution only,
 as that page provides it for applications that use TMDB's data.
 
-AniList (server/src/titles/anilist.ts): the AniList API is free for
+AniList (packages/titles/src/anilist.ts): the AniList API is free for
 non-commercial use under its terms (https://docs.anilist.co/guide/terms-of-use),
 which forbid hoarding or mass collection of its data and using it as a backup or
 storage service; requests are paced to 30 per minute, the limit AniList
@@ -78,7 +81,7 @@ lists the versions).
 ffmpeg and ffprobe run as separate processes, spawned by the server
 (server/src/levels/encoder.ts, server/src/levels/backend-check.ts) and fed
 through pipes and command-line arguments. The server neither links nor bundles
-any of their code, so its own licence (LGPL-2.1-or-later, above) is unaffected.
+any of their code, so its own licence (LGPL-3.0-or-later, above) is unaffected.
 
 WebRTC (server/src/rtc/)
 ------------------------
@@ -257,7 +260,7 @@ under the Apache License, Version 2.0:
 
   END OF TERMS AND CONDITIONS
 
-7-Zip WASM (server/src/fansubs/archive.ts, server/dist/7zz.wasm)
+7-Zip WASM (packages/fansubs/src/archive.ts, server/dist/7zz.wasm)
 ----------------------------------------------------------------
 
 The server unpacks Anime Tosho's .xz subtitle tracks and 7z font packs with

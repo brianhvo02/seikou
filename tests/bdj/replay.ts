@@ -1,14 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { directoryEntries } from '../helpers/file-blob';
-import { normalizeDiscPaths } from '../../src/engine/disc/paths';
-import { FileSource } from '../../src/engine/disc/file-source';
-import { loadClips, openDisc, readBdid } from '../../src/engine/disc/open-disc';
-import { RecordingHost } from '../../src/engine/bdj/host';
-import { applyPlayerSettings, type PlayerSettings } from '../../src/engine/disc/player-settings';
-import type { RegisterFile } from '../../src/engine/hdmv/registers';
-import type { BdjHost, TraceEntry } from '../../src/engine/bdj/host';
-import { BdjRuntime } from '../../src/engine/bdj/runtime';
+import { normalizeDiscPaths } from '@seikou/engine/disc/paths';
+import { FileSource } from '@seikou/engine/disc/file-source';
+import { loadClips, openDisc, readBdid } from '@seikou/engine/disc/open-disc';
+import { RecordingHost } from '../../src/bdj/host';
+import { applyPlayerSettings, type PlayerSettings } from '@seikou/engine/disc/player-settings';
+import type { RegisterFile } from '@seikou/engine/hdmv/registers';
+import type { BdjHost, TraceEntry } from '../../src/bdj/host';
+import { BdjRuntime } from '../../src/bdj/runtime';
 import { testBdjFonts } from '../helpers/bdj-fonts';
 
 const FIRST_PLAY = 0xffff;

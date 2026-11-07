@@ -1,4 +1,4 @@
-import { CodingType } from '../src/engine/bdmv/stream-types';
+import { CodingType } from '@seikou/bdmv/stream-types';
 import { CLIP_START_PTS, buildSyntheticDisc, lpcmPayload, type SyntheticAudioStream } from '../tests/helpers/synthetic-disc';
 import { encodeAudio, framed, truehdUnits } from './audio-units';
 import { writeFixture } from './fixture-dir';

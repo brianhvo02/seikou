@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
-import { parseIndex } from '../../src/engine/bdmv/index-parser';
+import { parseIndex } from '@seikou/bdmv/index-parser';
 import { scanPg } from '../helpers/pg-scan';
 import { bdjStartup, collectWindows, expectInSync, telemetry, type BdjStartupSample } from './telemetry';
 import { CHROME_ONLY, setFolder, skipWithoutH264 } from './support';

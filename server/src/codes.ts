@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { PAIRING_ALPHABET, PAIRING_CODE_LENGTH, formatCode, normalizeCode } from '../../src/engine/disc/pairing-code';
+import { PAIRING_ALPHABET, PAIRING_CODE_LENGTH, formatCode, normalizeCode } from '@seikou/nas/pairing-code';
 
 export { PAIRING_ALPHABET, formatCode, normalizeCode };
 

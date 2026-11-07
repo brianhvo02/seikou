@@ -1,4 +1,4 @@
-import type { MemoryProfileName } from '../engine/memory-profile';
+import type { MemoryProfileName } from '@seikou/engine/memory-profile';
 import { chooseMemoryProfile } from './memory-profile';
 
 export interface VideoCaps {

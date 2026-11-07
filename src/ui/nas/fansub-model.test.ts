@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { FansubAlignment, FansubTitleState, StoredSubtitle } from '../../engine/disc/nas-api';
+import type { FansubAlignment, FansubTitleState, StoredSubtitle } from '@seikou/nas/nas-api';
 import { episodeMark, runButtonLabel, seasonLine, trackChip } from './fansub-model';
 
 const at = (y: number, m: number, d: number, h: number, min = 0): number => new Date(y, m - 1, d, h, min).getTime();

@@ -65,7 +65,7 @@ export function ownerDiscs(project: (typeof PROJECTS)[number]): { series: [strin
 }
 
 /**
- * The production CORS policy (src/engine/disc/cors-policy.ts) allows the preview on localhost:4173 only. When the
+ * The production CORS policy (packages/nas/src/cors-policy.ts) allows the preview on localhost:4173 only. When the
  * preview runs on another port (E2E_PORT, a second checkout), the stand-ins below present the page's origin to the NAS
  * server and the rendezvous Worker as 4173's, and the allowed origin they answer back as the page's: a test-only
  * translation, so the deployed policy stays as it is. With E2E_PORT unset or 4173 nothing is rewritten.

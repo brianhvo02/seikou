@@ -1,7 +1,7 @@
-import type { Clpi, EpMap } from '../../../src/engine/bdmv/clpi-parser';
-import type { PlayItem } from '../../../src/engine/bdmv/mpls-parser';
-import type { LevelId } from '../../../src/engine/disc/nas-api';
-import { CodingType, isVideoCoding } from '../../../src/engine/bdmv/stream-types';
+import type { Clpi, EpMap } from '@seikou/bdmv/clpi-parser';
+import type { PlayItem } from '@seikou/bdmv/mpls-parser';
+import type { LevelId } from '@seikou/nas/nas-api';
+import { CodingType, isVideoCoding } from '@seikou/bdmv/stream-types';
 
 export type { LevelId };
 

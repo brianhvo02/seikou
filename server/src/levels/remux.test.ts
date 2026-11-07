@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseClpi } from '../../../src/engine/bdmv/clpi-parser';
-import { CodingType } from '../../../src/engine/bdmv/stream-types';
-import { PesAssembler, type PesPacket } from '../../../src/engine/demux/pes-assembler';
-import { parseSourcePacket } from '../../../src/engine/demux/ts-packet';
+import { parseClpi } from '@seikou/bdmv/clpi-parser';
+import { CodingType } from '@seikou/bdmv/stream-types';
+import { PesAssembler, type PesPacket } from '@seikou/bdmv/demux/pes-assembler';
+import { parseSourcePacket } from '@seikou/bdmv/demux/ts-packet';
 import { KeptStreams, PesCoreFilter, mpegCrc32, pmtFor, type KeptPacket } from './audio-core';
 import { LEVELS, planClip, type IntervalPlan } from './levels';
 import { IntervalCollector, PCR_PERIOD_27, atsOf, remuxInterval, shedGraphics, type EncodedPes, type IntervalSource, type RemuxInput } from './remux';

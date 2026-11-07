@@ -1,4 +1,4 @@
-import type { TraceEntry } from '../../src/engine/bdj/host';
+import type { TraceEntry } from '../../src/bdj/host';
 
 export type { TraceEntry };
 

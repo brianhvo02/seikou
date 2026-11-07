@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { ECDSA_KEY, ECDSA_SIGN, base64url, iceServersOf, nasIdOf, signedMessage, turnRequestMessage, unregisterMessage } from '../../rendezvous/src/protocol';
 import type { IceServerInfo } from '../../rendezvous/src/protocol';
-import type { EcPublicJwk } from '../../src/engine/disc/nas-api';
+import type { EcPublicJwk } from '@seikou/nas/nas-api';
 import type { CodeRegistrar } from './codes';
 import { createOnce } from './store';
 

@@ -1,0 +1,3 @@
+# @seikou/titles
+
+Naming a disc library: `parseName` and `parseMusicFolder` read titles, seasons and catalogue numbers from folder names; clients for AniList, TMDB, Discogs and MusicBrainz (`createAniList`, `createTmdb`, `createDiscogs`, `createMusicBrainz`) look them up, paced by `Pacer`; `loadDiscDb` and `indexDisc` match discs against TheDiscDB's index; and `matchDiscs`, `buildCatalogue`, `guessEpisodes` and `continueWatching` turn the results into the library a player shows. It runs in Node and is used by Seikou's NAS server. A consumer provides the `fetch` each client uses and the API key or token a source needs.

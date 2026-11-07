@@ -1,10 +1,10 @@
 /** Recorded SeaDex and Anime Tosho answers from a folder, for the E2E stand-in and service tests. Original code. */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { SeaDex, SeaDexEntry } from './seadex';
-import { TooLargeArchive } from './archive';
-import { NotFoundOnTosho, PACK_DOWNLOAD_BYTES } from './tosho';
-import type { Tosho, ToshoRelease } from './tosho';
+import type { SeaDex, SeaDexEntry } from '@seikou/fansubs/seadex';
+import { TooLargeArchive } from '@seikou/fansubs/archive';
+import { NotFoundOnTosho, PACK_DOWNLOAD_BYTES } from '@seikou/fansubs/tosho';
+import type { Tosho, ToshoRelease } from '@seikou/fansubs/tosho';
 
 /**
  * `<dir>/seadex.json` (alId to entry), `<dir>/tosho.json` (`{ releases }`) and downloads from `<dir>/files/<last path segment>`;

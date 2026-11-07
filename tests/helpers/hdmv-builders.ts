@@ -1,5 +1,5 @@
 import { ByteWriter } from './byte-writer';
-import { BranchSub, CmpOpt, GotoOpt, InsnGroup, JumpOpt, PlayOpt, SetOpt, SetSub, SetSystemOpt } from '../../src/engine/bdmv/mobj-parser';
+import { BranchSub, CmpOpt, GotoOpt, InsnGroup, JumpOpt, PlayOpt, SetOpt, SetSub, SetSystemOpt } from '@seikou/bdmv/mobj-parser';
 
 const OBJECTS_START = 40;
 

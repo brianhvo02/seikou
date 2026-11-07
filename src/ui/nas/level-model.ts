@@ -1,4 +1,4 @@
-import type { LevelAt, LevelId, LevelInfo, LevelReason, PlaceSettings } from '../../engine/disc/nas-api';
+import type { LevelAt, LevelId, LevelInfo, LevelReason, PlaceSettings } from '@seikou/nas/nas-api';
 import { RATE_MARGIN, bufferPlan } from './buffer-model';
 
 export const BUSY_COPY = 'The NAS is busy re-encoding for others. This will play at original quality.';

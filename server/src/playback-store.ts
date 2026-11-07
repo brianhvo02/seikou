@@ -1,8 +1,8 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseDiscKey } from '../../src/engine/disc/disc-key';
-import type { DiscPlaces, PlaceSettings, PlaybackPlace } from '../../src/engine/disc/nas-api';
-import { isCode, lockFile, replaceAtomically } from './atomic-json';
+import { parseDiscKey } from '@seikou/nas/disc-key';
+import type { DiscPlaces, PlaceSettings, PlaybackPlace } from '@seikou/nas/nas-api';
+import { isCode, lockFile, replaceAtomically } from '@seikou/titles/atomic-json';
 import { PERSON_RE } from './bdj-store';
 
 export const MAX_PLACES = 500;

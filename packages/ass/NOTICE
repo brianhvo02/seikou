@@ -1,0 +1,44 @@
+@seikou/ass
+Copyright (C) 2026  Seikou contributors
+Licensed under LGPL-3.0-or-later; see LICENSE and COPYING (the GNU GPL, which the LGPL supplements).
+
+Parts of this package are TypeScript ports of the project below, modified for Seikou (2026).
+host-types.ts and index.ts are original.
+
+libass 0.17.5 (https://github.com/libass/libass, commit 4a05d81), ISC License
+  Copyright (C) 2006-2016 libass contributors
+
+  Permission to use, copy, modify, and/or distribute this software for any
+  purpose with or without fee is hereby granted, provided that the above
+  copyright notice and this permission notice appear in all copies.
+
+  THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+  WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+  MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+  ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+  WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+  ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+  OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+  Derived files (each lists the ported functions in its header):
+    types.ts          from libass/ass_types.h
+    cstr.ts           from libass/ass_utils.h, ass_utils.c, ass_strtod.c, ass_string.h
+    parse.ts          from libass/ass.c, ass_utils.c, ass_utils.h (script parsing, [Fonts] decoding)
+    font-tables.ts    from libass/ass_fontselect.c (get_font_info), ass_font.c (weight, style, metrics)
+    fonts.ts          from libass/ass_fontselect.c (matching, fallback), ass_font.c (faces, synthetic styles, size)
+    state.ts          from libass/ass_render.h, ass_render.c (render context), ass_parse.c (ass_update_font)
+    tags.ts           from libass/ass_parse.c (override tags, animation, fades)
+    events.ts         from libass/ass_render.h (GlyphInfo), ass_render.c, ass_parse.c (karaoke)
+    drawing.ts        from libass/ass_drawing.c
+    layout.ts         from libass/ass_render.c (layout, wrapping, alignment), ass_shaper.c (runs), ass_font.c
+    transform.ts      from libass/ass_render.c (calc_transform_matrix, calculate_rotation_params)
+    collisions.ts     from libass/ass_render.c (fix_collisions)
+    frame.ts          from libass/ass_render.c (ass_render_frame, event boxes, device positions)
+    raster.ts         from libass/ass_render.c (filters, quantize_transform positions, composition, clips),
+                          ass_bitmap.c (ass_fix_outline), ass_font.c (emboldening, italic, decorations)
+  gsub.ts, measure.ts, warp.ts, renderer.ts, trace.ts and trace-format.ts are original implementations; they
+  contain no libass, libbluray or FFmpeg code.
+
+DejaVu fonts 2.37 (https://dejavu-fonts.github.io), Bitstream Vera / DejaVu licence
+  default-font.ttf is DejaVu Sans, unmodified; its licence is in
+  LICENSE-DejaVu.txt.

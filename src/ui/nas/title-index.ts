@@ -1,4 +1,4 @@
-import type { TitleSummary } from '../../engine/disc/nas-api';
+import type { TitleSummary } from '@seikou/nas/nas-api';
 import { displayName } from './title-model';
 
 /**

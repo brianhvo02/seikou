@@ -1,14 +1,14 @@
 import type { IncomingMessage } from 'node:http';
-import { parseDiscKey } from '../../../src/engine/disc/disc-key';
-import { LockHeldError } from '../atomic-json';
+import { parseDiscKey } from '@seikou/nas/disc-key';
+import { LockHeldError } from '@seikou/titles/atomic-json';
 import type { Auth } from '../auth';
 import { HttpError, json } from '../http';
 import type { Handler } from '../http';
 import { isPlaybackPlace, isPlaylistId, PLACE_LIMIT_BYTES } from '../playback-store';
 import type { PlaybackStore } from '../playback-store';
-import type { Catalogue } from '../titles/catalogue';
+import type { Catalogue } from '@seikou/titles/catalogue';
 import type { Library } from '../library';
-import { continueWatching, titleProgress } from '../titles/up-next';
+import { continueWatching, titleProgress } from '@seikou/titles/up-next';
 import { decodeSegment, requestDevice } from './titles';
 import type { TitleLibrary } from './titles';
 

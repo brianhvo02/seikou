@@ -1,6 +1,6 @@
-import type { PlaceFansub, PlaceSettings, PlaybackPlace, PlaceTextFile } from '../engine/disc/nas-api';
-import type { AudioTrack, PgTrack, PlaceState, StartPoint } from '../engine/protocol';
-import type { PlayerSnapshot } from '../player/player-controller';
+import type { PlaceFansub, PlaceSettings, PlaybackPlace, PlaceTextFile } from '@seikou/nas/nas-api';
+import type { AudioTrack, PgTrack, PlaceState, StartPoint } from '@seikou/engine/protocol';
+import type { PlayerSnapshot } from '@seikou/engine/controller/player-controller';
 import { formatTime } from './format';
 
 /** Spec §6.2: a playlist of this length or more makes a place. */

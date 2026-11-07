@@ -1,5 +1,5 @@
 import { useState, type FormEvent, type ReactElement } from 'react';
-import { normalizeCode } from '../../engine/disc/pairing-code';
+import { normalizeCode } from '@seikou/nas/pairing-code';
 import { NAS_MESSAGES, defaultDeviceName, groupCodeInput, type NasClient } from './nas-client';
 import { allowedPairUrl, foreignHosts, isLoopbackHost, type PairLink } from './pair-link';
 

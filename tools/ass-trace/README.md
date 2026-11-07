@@ -1,6 +1,6 @@
 # libass trace harness
 
-Reference output for the native ASS renderer (`src/engine/ass/`, milestone 4b): libass 0.17.5
+Reference output for the native ASS renderer (`packages/ass/src/`, milestone 4b): libass 0.17.5
 (`4a05d81`), patched by `trace.patch` to print its layout, built in Docker with FreeType, HarfBuzz and
 FriBidi from Ubuntu 24.04 (pinned by digest), without fontconfig or libunibreak.
 

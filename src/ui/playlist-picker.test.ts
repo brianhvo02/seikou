@@ -30,4 +30,12 @@ describe('PlaylistPicker', () => {
     );
     expect(html).toContain("This disc uses BD-J menus, which this browser can&#x27;t run: it lacks workers started from workers.");
   });
+
+  it('says the player has no BD-J (not that the browser lacks something) when the engine has no BD-J runtime', () => {
+    const html = renderToStaticMarkup(
+      createElement(PlaylistPicker, { playlists: [], usesBdj: true, bdjSupported: false, bdjMissing: ['BD-J runtime'], titles, onPick: () => undefined, onCloseDisc: () => undefined }),
+    );
+    expect(html).toContain('This disc uses BD-J menus, which this player does not include.');
+    expect(html).not.toContain('browser');
+  });
 });

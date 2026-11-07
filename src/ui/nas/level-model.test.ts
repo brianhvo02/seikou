@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { LevelId, LevelInfo, LevelReason } from '../../engine/disc/nas-api';
+import type { LevelId, LevelInfo, LevelReason } from '@seikou/nas/nas-api';
 import { bufferPlan } from './buffer-model';
 import {
   BUSY_COPY,

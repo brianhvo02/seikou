@@ -4,7 +4,7 @@ import type { Auth, Device } from '../auth';
 import { HttpError, json } from '../http';
 import type { Handler, Response } from '../http';
 import type { RelayState } from '../rtc/relay';
-import type { OwnerStore } from '../titles/owner-store';
+import type { OwnerStore } from '@seikou/titles/owner-store';
 import type { TitleService } from '../titles/service';
 import { bearerToken } from './admin';
 

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from 'react';
 import type { ShaderModel, ShaderModelState } from './shader-model';
 import { missingLabel } from './shader-sets';
-import type { PlayerSnapshot } from '../player/player-controller';
+import type { PlayerSnapshot } from '@seikou/engine/controller/player-controller';
 
 /** Shown when the engine reports no usable WebGL2 render targets (same text as the engine's UNAVAILABLE). */
 const UNAVAILABLE_TEXT = 'Not available on this device';

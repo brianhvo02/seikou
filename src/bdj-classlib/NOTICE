@@ -35,5 +35,5 @@ Corresponding source:   Ubuntu source package openjdk-8 8u504-ga-1ubuntu1~24.04.
 Apt snapshot:           20261015T000000Z (ubuntu 24.04)
 
 libbluray-j2se.jar and libbluray-awt-j2se.jar are libbluray's BD-J Java stack, LGPL-2.1-or-later (the license
-text is in src/engine/LICENSE), built from libbluray commit 448f896,
+text is in LICENSE), built from libbluray commit 448f896,
 https://code.videolan.org/videolan/libbluray (source: https://code.videolan.org/videolan/libbluray/-/tree/448f896).

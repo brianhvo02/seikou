@@ -4,9 +4,9 @@
  * as the interpreter unwinds it, so a lookup that dies in platform code (Ruling R13) can be told from a gap the disc
  * meets. Patches Jvm.prototype.fillInStackTrace and sets the interpreter's unwind observer until stop().
  */
-import { setUnwindObserver } from '../../src/engine/bdj/jvm/interpreter';
-import { Jvm } from '../../src/engine/bdj/jvm/jvm';
-import type { JObject } from '../../src/engine/bdj/jvm/values';
+import { setUnwindObserver } from '../../src/bdj/jvm/interpreter';
+import { Jvm } from '../../src/bdj/jvm/jvm';
+import type { JObject } from '../../src/bdj/jvm/values';
 import { gapExempt, gapOf, type UnwindStep } from './classify';
 
 /** Throwables that mean a gap in the class library (Task 2's work): a class, a native or a platform method missing. */

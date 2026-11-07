@@ -3,7 +3,7 @@
  * connection, and if not, how long to wait and how many bytes to hold ahead first.
  */
 
-import { CACHE_DIR, SEGMENT_BYTES } from '../../engine/disc/read-ahead-cache';
+import { CACHE_DIR, SEGMENT_BYTES } from '@seikou/engine/disc/read-ahead-cache';
 
 /** The title's average rate is raised by this margin before it is compared with the connection. */
 export const RATE_MARGIN = 1.1;

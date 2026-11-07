@@ -43,9 +43,9 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { MenuKey } from '../../src/engine/protocol';
-import { readTar } from '../../src/engine/bdj/store/tar';
-import type { DiscEntry, LibraryListing } from '../../src/engine/disc/nas-api';
+import type { MenuKey } from '@seikou/engine/protocol';
+import { readTar } from '../../src/bdj/store/tar';
+import type { DiscEntry, LibraryListing } from '@seikou/nas/nas-api';
 import { parseKeyScript, type KeyStep } from '../../tests/bdj/key-script';
 import { BAND_POINT, environment, openRemote, Page, remoteOpsFor, startTargetDriver, type GateDriver, type RemoteOps } from './gate';
 import { PageReloadedError, write } from './session';

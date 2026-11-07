@@ -1,6 +1,6 @@
-import { CodingType } from '../../src/engine/bdmv/stream-types';
-import { FileSource } from '../../src/engine/disc/file-source';
-import { normalizeDiscPaths } from '../../src/engine/disc/paths';
+import { CodingType } from '@seikou/bdmv/stream-types';
+import { FileSource } from '@seikou/engine/disc/file-source';
+import { normalizeDiscPaths } from '@seikou/engine/disc/paths';
 import { buildClpi, buildIndex, buildMpls, type MarkSpec, type StreamSpec } from './bdmv-builders';
 import { avcAu } from './h264-units';
 import { muxM2ts, type MuxUnit } from './ts-muxer';

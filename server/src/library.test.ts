@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import * as udf from '../../src/engine/disc/udf';
+import * as udf from '@seikou/bdmv/udf';
 import { discId } from './disc-id';
 import { createServer } from './http';
 import { Library, SETTLE_MS, nextNightly } from './library';

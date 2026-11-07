@@ -4,11 +4,11 @@ import { setPriority } from 'node:os';
 import { createReadStream } from 'node:fs';
 import { open } from 'node:fs/promises';
 import type { Readable } from 'node:stream';
-import { CodingType } from '../../../src/engine/bdmv/stream-types';
-import { analyzeAvc } from '../../../src/engine/decode/h264';
-import { analyzeHevc } from '../../../src/engine/decode/hevc';
-import { readTimestamp } from '../../../src/engine/demux/pes-assembler';
-import { parseSourcePacket } from '../../../src/engine/demux/ts-packet';
+import { CodingType } from '@seikou/bdmv/stream-types';
+import { analyzeAvc } from '@seikou/bdmv/codecs/h264';
+import { analyzeHevc } from '@seikou/bdmv/codecs/hevc';
+import { readTimestamp } from '@seikou/bdmv/demux/pes-assembler';
+import { parseSourcePacket } from '@seikou/bdmv/demux/ts-packet';
 import { SOURCE_PACKET_BYTES, VIDEO_FLOOR_BPS, type IntervalPlan, type LevelDef } from './levels';
 import type { EncodedPes } from './remux';
 

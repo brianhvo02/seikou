@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { parseName } from '../../server/src/titles/parse-name';
+import { parseName } from '@seikou/titles/parse-name';
 
 /** The developer's real library listing, one disc path per line (gitignored; never commit it). */
 const LISTING = fileURLToPath(new URL('../../fixtures/local/library-paths.txt', import.meta.url));

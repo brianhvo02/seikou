@@ -6,19 +6,20 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { FansubAlignment, FansubPick, FansubPickRequest } from '../../../src/engine/disc/nas-api';
-import { isCode, replaceAtomically } from '../atomic-json';
+import type { FansubAlignment, FansubPick, FansubPickRequest } from '@seikou/nas/nas-api';
+import { isCode, replaceAtomically } from '@seikou/titles/atomic-json';
+import type { AudioDecoder } from '@seikou/fansubs/audio-decoder';
 import type { LevelDiscSource } from '../levels/level-discs';
-import { align } from './align';
-import { fontsIn7z } from './archive';
-import { languageTag, normalizeLanguage } from './choose';
+import { align } from '@seikou/fansubs/align';
+import { fontsIn7z } from '@seikou/fansubs/archive';
+import { languageTag, normalizeLanguage } from '@seikou/fansubs/choose';
 import type { FansubDiscs } from './disc-lookup';
-import type { FetchCache } from './fetch-cache';
-import { PickStore } from './pick-store';
-import { retime } from './retime';
-import { NotFoundOnTosho, PACK_DOWNLOAD_BYTES } from './tosho';
-import type { Tosho, ToshoRelease, ToshoTrack } from './tosho';
-import { fetchTrack, languageName, mostDialogue } from './tracks';
+import type { FetchCache } from '@seikou/fansubs/fetch-cache';
+import { PickStore } from '@seikou/fansubs/pick-store';
+import { retime } from '@seikou/fansubs/retime';
+import { NotFoundOnTosho, PACK_DOWNLOAD_BYTES } from '@seikou/fansubs/tosho';
+import type { Tosho, ToshoRelease, ToshoTrack } from '@seikou/fansubs/tosho';
+import { fetchTrack, languageName, mostDialogue } from '@seikou/fansubs/tracks';
 
 const SWEEP_EVERY_MS = 3_600_000;
 const HOUR_MS = 3_600_000;
@@ -48,7 +49,7 @@ export interface FansubPicksOptions {
   readonly cache: FetchCache;
   readonly discs: (discId: string) => Promise<LevelDiscSource | null>;
   readonly lookup: FansubDiscs;
-  readonly ffmpegPath: string;
+  readonly decoder: AudioDecoder;
   /** `FANSUB_PICKS_BYTES`: what the picks may hold in all, 2 GB by default. */
   readonly maxBytes?: number;
   readonly now?: () => number;
@@ -193,7 +194,7 @@ export class FansubPicks {
     for (const discId of lookup.discIds(req.discKey)) {
       const durationMs = lookup.durationMs(discId, req.playlistId);
       const disc = durationMs === null ? null : await this.opts.discs(discId);
-      if (disc && durationMs !== null) return align(disc, req.playlistId, durationMs, main, this.opts.ffmpegPath, undefined, { log: this.log });
+      if (disc && durationMs !== null) return align(disc, req.playlistId, durationMs, main, this.opts.decoder, undefined, { log: this.log });
     }
     return UNSURE;
   }

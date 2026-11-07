@@ -1,6 +1,6 @@
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { describe, expect, it } from 'vitest';
-import type { PlaceSettings, PlaybackPlace } from '../engine/disc/nas-api';
+import type { PlaceSettings, PlaybackPlace } from '@seikou/nas/nas-api';
 import { idbPlaceStore, MAX_SEND_ATTEMPTS, MAX_TEXT_FILE_BYTES, MAX_TEXT_FILES_BYTES } from './place-store';
 
 const KEY = `f.${'A'.repeat(32)}`;

@@ -6,8 +6,8 @@
  * page's own origin only.
  */
 
-import type { RemoteDiscSpec } from '../engine/disc/disc-spec';
-import type { DiscManifest, LibraryListing } from '../engine/disc/nas-api';
+import type { RemoteDiscSpec } from '@seikou/engine/disc/disc-spec';
+import type { DiscManifest, LibraryListing } from '@seikou/nas/nas-api';
 
 export interface ServerLink {
   readonly token: string;

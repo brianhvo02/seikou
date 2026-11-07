@@ -2,8 +2,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { open } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { FansubSource, StoredSubtitle } from '../../src/engine/disc/nas-api';
-import { isCode, lockFile, replaceAtomically, syncDir, writeSynced } from './atomic-json';
+import type { FansubSource, StoredSubtitle } from '@seikou/nas/nas-api';
+import { isCode, lockFile, replaceAtomically, syncDir, writeSynced } from '@seikou/titles/atomic-json';
 import { SubtitleIndex } from './subtitle-index';
 
 export const SUBTITLE_LIMIT_BYTES = 5 * 1024 * 1024;

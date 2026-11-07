@@ -1,4 +1,4 @@
-import type { OwnerChoice, TitleSummary, UnsortedReason, UnsortedSuggestion } from '../../engine/disc/nas-api';
+import type { OwnerChoice, TitleSummary, UnsortedReason, UnsortedSuggestion } from '@seikou/nas/nas-api';
 import { NasHttpError, type SkippedDisc } from './nas-client';
 
 /** The owner screens' words and choices (spec §9): Unsorted, its search, and filing a disc. Original code. */

@@ -7,7 +7,7 @@
  * to that NAS's `Signalling` object, after a per-client attempt limit the registry keeps.
  * The relay: the NAS asks for TURN credentials (`POST /turn`, signed, server to server; `turn.ts`).
  */
-import { PREFLIGHT_MAX_AGE, corsHeaders } from '../../src/engine/disc/cors-policy';
+import { PREFLIGHT_MAX_AGE, corsHeaders } from '@seikou/nas/cors-policy';
 import { boundedBody } from './body';
 import { INTERNAL, REGISTRY_NAME, json } from './code-registry';
 import { isNasId, nasIdOf } from './protocol';

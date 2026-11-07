@@ -1,0 +1,37 @@
+@seikou/bdmv
+Copyright (C) 2026  Seikou contributors
+Licensed under LGPL-3.0-or-later; see LICENSE and COPYING (the GNU GPL, which the LGPL supplements).
+
+Parts of this package are TypeScript ports of, or derive from, the following
+projects. They are modified for bluray-web (2026) and distributed under the
+GNU Lesser General Public License, version 2.1 or later (LGPL-2.1-or-later).
+
+libbluray (https://www.videolan.org/developers/libbluray.html), LGPL-2.1-or-later
+  Copyright (C) 2009-2010  John Stebbins
+  Copyright (C) 2010-2017  Petri Hintukainen <phintuka@users.sourceforge.net>
+  Derived files:
+    mpls-parser.ts   from src/libbluray/bdnav/mpls_parse.c (including _parse_subpath, _parse_subplayitem, the STN subpath_id/subclip_id, char_code and the PiP PG, secondary audio and secondary video entries)
+    clpi-parser.ts   from src/libbluray/bdnav/clpi_parse.c
+    index-parser.ts  from src/libbluray/bdnav/index_parse.c
+    mobj-parser.ts   from src/libbluray/hdmv/mobj_parse.c
+    bdjo-parser.ts   from src/libbluray/bdj/bdjo_parse.c
+    version.ts      from src/libbluray/bdnav/bdmv_parse.c (bdmv_parse_header)
+    sound-parser.ts  from src/libbluray/bdnav/sound_parse.c
+    bdid-parser.ts   from src/libbluray/bdnav/bdid_parse.c (_bdid_parse)
+    demux/pes-assembler.ts derived from src/libbluray/decoders/m2ts_demux.c (PES completion by PES_packet_length)
+  byte-reader.ts is an original implementation modelled on libbluray's
+  bitstream reader; it contains no libbluray code.
+
+libudfread (https://code.videolan.org/videolan/libudfread), LGPL-2.1-or-later
+  Commit 139a2194525f2745b98a98e4d8fa627d07440176 (the contrib/libudfread submodule libbluray 448f896 pins;
+  cloned into .cache/libudfread).
+  Copyright (C) 2014-2015 VLC authors and VideoLAN
+  Author: Petri Hintukainen <phintuka@users.sourceforge.net>
+  Derived file:
+    udf.ts                from src/ecma167.c and ecma167.h (descriptor tag, extent, short/long/extended allocation
+                          descriptors, partition and logical volume descriptors, file identifier, file entry, extended
+                          file entry, allocation extent) and src/udfread.c (_cs0_to_mutf8 as CS0 to string,
+                          _probe_volume, _read_avdp at block 256 only, _search_vds, _read_vds,
+                          _validate_logical_volume, _map_metadata_partition, _parse_udf_partition_maps,
+                          _read_metadata_blocks, _read_file_entry, _parse_dir, _read_dir, _read_root_dir, _find_file,
+                          and _file_lba / udfread_read_blocks as extents in the image)

@@ -1,5 +1,5 @@
 import { useId, useMemo, useState, type ReactElement } from 'react';
-import type { FansubTitleState, TitleDetail } from '../../engine/disc/nas-api';
+import type { FansubTitleState, TitleDetail } from '@seikou/nas/nas-api';
 import { FansubEpisodePanel } from './FansubEpisodePanel';
 import { FansubLine } from './FansubLine';
 import type { NasClient } from './nas-client';

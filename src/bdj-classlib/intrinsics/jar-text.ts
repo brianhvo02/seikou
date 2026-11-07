@@ -17,12 +17,12 @@
  * SPDX-License-Identifier: GPL-2.0-only WITH Classpath-exception-2.0
  */
 
-import type { JClass } from '../../engine/bdj/jvm/loader';
-import type { Jvm } from '../../engine/bdj/jvm/jvm';
-import type { JArray, JObject, JValue } from '../../engine/bdj/jvm/values';
-import { DECLINE, monitorFree, perClass, slotOf } from '../../engine/bdj/jvm/natives/intrinsics/common';
-import { mulAdd } from '../../engine/bdj/jvm/natives/intrinsics/crypto';
-import type { IntrinsicFn, LoopHook, LoopHookFn } from '../../engine/bdj/jvm/natives/intrinsics/common';
+import type { JClass } from '../../bdj/jvm/loader';
+import type { Jvm } from '../../bdj/jvm/jvm';
+import type { JArray, JObject, JValue } from '../../bdj/jvm/values';
+import { DECLINE, monitorFree, perClass, slotOf } from '../../bdj/jvm/natives/intrinsics/common';
+import { mulAdd } from '../../bdj/jvm/natives/intrinsics/crypto';
+import type { IntrinsicFn, LoopHook, LoopHookFn } from '../../bdj/jvm/natives/intrinsics/common';
 
 const stringValue = perClass((cls) => slotOf(cls, 'value', '[C'));
 

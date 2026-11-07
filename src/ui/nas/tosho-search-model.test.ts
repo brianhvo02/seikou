@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ToshoSearchResult } from '../../engine/disc/nas-api';
+import type { ToshoSearchResult } from '@seikou/nas/nas-api';
 import { defaultQuery, fileLabel, placeTrackName, releaseDate, releaseLabel, sameTrack, sortTracks, trackLabel } from './tosho-search-model';
 
 const release = (seadex: ToshoSearchResult['seadex']): ToshoSearchResult => ({ id: 1, title: '[GroupA] Starfall Wanderer (BD 1080p)', date: 1_700_000_000, seadex });

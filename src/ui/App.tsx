@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useState, useSyncExternalStore, type ReactElement } from 'react';
-import { createController } from '../player/create-controller';
-import type { PlayerController } from '../player/player-controller';
-import { PlatformSession } from '../player/platform-session';
+import { createController } from '@seikou/engine/controller/create-controller';
+import type { PlayerController } from '@seikou/engine/controller/player-controller';
+import { PlatformSession } from '@seikou/engine/controller/platform-session';
 import { parseHelpPath } from './help/help-pages';
 import { HelpLoadBoundary } from './help/HelpLoadBoundary';
 import { LandingScreen } from './LandingScreen';
@@ -16,6 +16,7 @@ import { placeMinDurationUs } from './place-model';
 import { idbPlaceStore } from './place-store';
 import { PlayerScreen } from './PlayerScreen';
 import { TOUCH_LOG, TouchLog } from './TouchLog';
+import { chooseMemoryProfile } from './memory-profile';
 import { bundledAnime4k } from './bundled-shaders';
 import { idbShaderLibrary } from './shader-library';
 import { ShaderModel } from './shader-model';
@@ -28,8 +29,28 @@ const HelpScreen = lazy(() => import('./help/HelpScreen').then((m) => ({ default
 let sharedController: PlayerController | null = null;
 
 function getController(): PlayerController {
-  sharedController ??= createController();
+  sharedController ??= createAppController();
   return sharedController;
+}
+
+function createAppController(): PlayerController {
+  const params = new URLSearchParams(location.search);
+  // Test-only (E2E): ?bdjfail=1, ?nonestedworkers=1, ?nodecoder=1 and ?telemetry=1 go to the engine worker as flags in
+  // its name (@seikou/engine/worker-main engineWorkerTestFlags, src/engine-worker.ts): an unreadable class library, no
+  // workers started from workers, no video decoder configuration supported, the BD-J plane's hash in telemetry.
+  const flags = ['bdjfail', 'nonestedworkers', 'nodecoder', 'telemetry'].filter((f) => params.has(f));
+  const name = flags.length > 0 ? `bluray-engine:${flags.join(',')}` : 'bluray-engine';
+  return createController({
+    // (the options stay an object literal with a literal type: Vite reads it to bundle the worker as a module)
+    worker: () => new Worker(new URL('../engine-worker.ts', import.meta.url), { type: 'module', name }),
+    profile: chooseMemoryProfile({
+      search: location.search,
+      coarsePointer: matchMedia('(pointer: coarse)').matches,
+      maxTouchPoints: navigator.maxTouchPoints,
+      platform: navigator.platform,
+    }),
+    exposeTelemetry: params.has('telemetry'),
+  });
 }
 
 let sharedNas: NasClient | null = null;

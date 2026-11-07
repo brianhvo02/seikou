@@ -1,4 +1,4 @@
-import { CodingType } from '../src/engine/bdmv/stream-types';
+import { CodingType } from '@seikou/bdmv/stream-types';
 import { asm, buildMovieObjects, imm, psr, reg } from '../tests/helpers/hdmv-builders';
 import { CLIP_START_PTS, buildSyntheticDisc, syntheticClip } from '../tests/helpers/synthetic-disc';
 import { writeFixture } from './fixture-dir';

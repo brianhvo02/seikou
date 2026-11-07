@@ -1,5 +1,5 @@
-import type { TitleMusic, TitleSummary } from '../../engine/disc/nas-api';
-import { normalizeTitle, titleMatches } from '../../engine/disc/title-text';
+import type { TitleMusic, TitleSummary } from '@seikou/nas/nas-api';
+import { normalizeTitle, titleMatches } from '@seikou/nas/title-text';
 import { japaneseOrder } from './title-index';
 
 /**

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactElement } from 'react';
-import type { DiscEntry } from '../../engine/disc/nas-api';
-import type { PlayerController } from '../../player/player-controller';
+import type { DiscEntry } from '@seikou/nas/nas-api';
+import type { PlayerController } from '@seikou/engine/controller/player-controller';
 import { breadcrumbs, discBadges, folderMemory, formatSize, sortRows, type DiscFacts, type LibraryRow } from './library-model';
 import { AdminScreen } from './AdminScreen';
 import { NasHttpError, type NasClient } from './nas-client';

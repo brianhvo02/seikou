@@ -2,8 +2,8 @@
  * The rendezvous protocol's shared pieces, used by the Worker and by the NAS's client
  * (`server/src/rendezvous-client.ts`). WebCrypto only, so both runtimes run the same code.
  */
-import { normalizeCode } from '../../src/engine/disc/pairing-code';
-import type { CodeRegistration, EcPublicJwk } from '../../src/engine/disc/nas-api';
+import { normalizeCode } from '@seikou/nas/pairing-code';
+import type { CodeRegistration, EcPublicJwk } from '@seikou/nas/nas-api';
 
 export const ECDSA_KEY = { name: 'ECDSA', namedCurve: 'P-256' } as const;
 export const ECDSA_SIGN = { name: 'ECDSA', hash: 'SHA-256' } as const;

@@ -1,14 +1,14 @@
 /*
  * Writes a clip information file (.clpi) for a quality level. The structure follows how libbluray
- * reads it (src/libbluray/bdnav/clpi_parse.c, extdata_parse.c) and how src/engine/bdmv/clpi-parser.ts
+ * reads it (src/libbluray/bdnav/clpi_parse.c, extdata_parse.c) and how packages/bdmv/src/clpi-parser.ts
  * ports that; sections this rewrite doesn't touch are copied byte for byte.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import { parseClpi } from '../../../src/engine/bdmv/clpi-parser';
-import type { EpEntry } from '../../../src/engine/bdmv/clpi-parser';
-import { CodingType } from '../../../src/engine/bdmv/stream-types';
+import { parseClpi } from '@seikou/bdmv/clpi-parser';
+import type { EpEntry } from '@seikou/bdmv/clpi-parser';
+import { CodingType } from '@seikou/bdmv/stream-types';
 import type { IntervalPlan, KeptAudio, LevelDef } from './levels';
 import { AUDIO_RATE_48K, SOURCE_PACKET_BYTES, coreCoding, mapSpn, mapSpnDown, maxBudgetRate } from './levels';
 import { BeWriter, readU16, readU32, rebuildSections, sectionBytes, writeU32 } from './sections';

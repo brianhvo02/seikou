@@ -4,19 +4,20 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import SevenZip from '7z-wasm';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { DiscSlot, EpisodeRef, StoredSubtitle, TitleDetail, TitleSummary } from '../../../src/engine/disc/nas-api';
+import type { DiscSlot, EpisodeRef, StoredSubtitle, TitleDetail, TitleSummary } from '@seikou/nas/nas-api';
 import { SPEECH_BURSTS } from '../../../tests/helpers/speech-bursts';
 import { DiscActivity } from '../disc-activity';
 import { folderDiscSource } from '../levels/level-discs';
 import { FANSUB_LIMIT_BYTES, SubtitleStore } from '../subtitle-store';
-import type { Catalogue } from '../titles/catalogue';
-import { SourceUnavailable } from '../titles/sources';
-import { FetchCache } from './fetch-cache';
+import type { Catalogue } from '@seikou/titles/catalogue';
+import { SourceUnavailable } from '@seikou/titles/sources';
+import { FetchCache } from '@seikou/fansubs/fetch-cache';
+import { ffmpegAudioDecoder } from './ffmpeg-decoder';
 import { fixtureFansubSources } from './fixture-sources';
-import type { SeaDexEntry } from './seadex';
+import type { SeaDexEntry } from '@seikou/fansubs/seadex';
 import { FansubService } from './service';
 import { FansubState } from './state';
-import type { Tosho, ToshoRelease } from './tosho';
+import type { Tosho, ToshoRelease } from '@seikou/fansubs/tosho';
 
 const hasAc3 = spawnSync('ffmpeg', ['-hide_banner', '-decoders'], { encoding: 'utf8' }).stdout?.includes(' ac3 ') ?? false;
 /** CI installs ffmpeg: there, a missing AC-3 decoder fails these tests instead of skipping them. */
@@ -132,7 +133,7 @@ const standardFiles = (): Record<string, Buffer> => ({
   '201-0.ass.xz': fullXz, '201-1.ass.xz': signsXz,
   '202-0.ass.xz': fullXz, '202-1.ass.xz': signsXz,
   // GroupA's file has its font pack; GroupB's have none.
-  'pack-101.7z': readFileSync(new URL('./__fixtures__/pack.7z', import.meta.url)),
+  'pack-101.7z': readFileSync(new URL('../../../packages/fansubs/src/__fixtures__/pack.7z', import.meta.url)),
 });
 
 beforeEach(() => {
@@ -180,7 +181,7 @@ function setup(over: { tosho?: (t: Tosho) => Tosho; titles?: readonly string[]; 
     discKey: (id) => `d.${id}`,
     // Without a duration nothing is lined up: the tests that don't look at the alignment skip ffmpeg.
     durationMs: () => (over.align ? 150_000 : null),
-    ffmpegPath: 'ffmpeg', activity, encoding: () => false, now, log: over.log ?? (() => {}),
+    decoder: ffmpegAudioDecoder('ffmpeg'), activity, encoding: () => false, now, log: over.log ?? (() => {}),
     ...(over.realSleep ? {} : { sleep: over.sleep ?? (async (ms: number) => { sleeps.push(ms); clock.t += ms; }) }),
     ...(over.windowEnd ? { windowEnd: over.windowEnd } : {}),
   });

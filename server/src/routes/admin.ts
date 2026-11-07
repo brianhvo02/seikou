@@ -1,4 +1,4 @@
-import type { OwnerChoice, TitleKind } from '../../../src/engine/disc/nas-api';
+import type { OwnerChoice, TitleKind } from '@seikou/nas/nas-api';
 import { AuthConflict, AuthNotFound } from '../auth';
 import type { Auth, Device, Person, PersonRef } from '../auth';
 import type { BdjStore } from '../bdj-store';
@@ -12,9 +12,9 @@ import { LEVEL_LABELS } from '../levels/level-service';
 import type { LevelService } from '../levels/level-service';
 import type { RelayState } from '../rtc/relay';
 import type { DiscEvidence } from '../titles/evidence';
-import { groupKey } from '../titles/match';
-import { parseName } from '../titles/parse-name';
-import { SourceUnavailable } from '../titles/sources';
+import { groupKey } from '@seikou/titles/match';
+import { parseName } from '@seikou/titles/parse-name';
+import { SourceUnavailable } from '@seikou/titles/sources';
 import type { TitleLibrary } from './titles';
 
 export interface AdminOptions {

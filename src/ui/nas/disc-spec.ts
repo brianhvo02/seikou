@@ -1,6 +1,6 @@
-import type { RemoteDiscSpec } from '../../engine/disc/disc-spec';
-import type { DiscManifest, LevelAt } from '../../engine/disc/nas-api';
-import { serveFetch } from '../../engine/disc/port-fetch';
+import type { RemoteDiscSpec } from '@seikou/engine/disc/disc-spec';
+import type { DiscManifest, LevelAt } from '@seikou/nas/nas-api';
+import { serveFetch } from '@seikou/engine/disc/port-fetch';
 
 /** A NAS disc for the engine, and what to call once it is closed. */
 export interface NasDiscOpen {

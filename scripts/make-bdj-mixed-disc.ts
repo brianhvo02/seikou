@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { CodingType } from '../src/engine/bdmv/stream-types';
+import { CodingType } from '@seikou/bdmv/stream-types';
 import { buildBdjo } from '../tests/helpers/bdjo-builder';
 import { asm, buildMovieObjects, imm } from '../tests/helpers/hdmv-builders';
 import { buildSyntheticDisc, syntheticClip } from '../tests/helpers/synthetic-disc';

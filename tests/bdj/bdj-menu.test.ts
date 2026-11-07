@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { ShownStill } from '../../src/engine/bdj/background';
-import { createGraphicsPlane, planeHash } from '../../src/engine/bdj/graphics-plane';
-import type { CompositorLike } from '../../src/engine/render/compositor';
+import type { ShownStill } from '../../src/bdj/background';
+import { createGraphicsPlane, planeHash } from '../../src/bdj/graphics-plane';
+import type { CompositorLike } from '@seikou/engine/render/compositor';
 import type { replayPlayerBdj } from './replay-player';
 import { replaySettled } from './settled';
 

@@ -14,7 +14,7 @@
  * SPDX-License-Identifier: GPL-2.0-only WITH Classpath-exception-2.0
  */
 
-import type { NativeTable } from '../../engine/bdj/jvm/natives/index';
+import type { NativeTable } from '../../bdj/jvm/natives/index';
 import { colorModelIntrinsics, directRGB } from './color-model';
 import { jarTextIntrinsics, jarTextLoopHooks } from './jar-text';
 import { pngLoopHooks } from './png-rows';

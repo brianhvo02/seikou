@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { AudioFramer } from '../src/engine/decode/audio-frames';
+import { AudioFramer } from '@seikou/engine/decode/audio-frames';
 import { CLIP_START_PTS } from '../tests/helpers/synthetic-disc';
 
 const TICKS_PER_SAMPLE = 90_000 / 48_000;

@@ -1,4 +1,4 @@
-import type { DiscPlaces, PlaybackPlace } from '../engine/disc/nas-api';
+import type { DiscPlaces, PlaybackPlace } from '@seikou/nas/nas-api';
 import { STORES, withStore } from './db';
 
 /** A subtitle (or font) file the user added to a disc, kept on this device so a resume here can add it again. */

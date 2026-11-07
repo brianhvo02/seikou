@@ -5,8 +5,8 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
-import { readTar } from '../../src/engine/bdj/store/tar';
-import { normalizeCode } from '../../src/engine/disc/pairing-code';
+import { readTar } from '../../src/bdj/store/tar';
+import { normalizeCode } from '@seikou/nas/pairing-code';
 import { createDiscHandler, servedDiscBase } from '../../tools/disc-server/server';
 import { settlesOn } from './bdj-support';
 import { NAS_E2E_DIR, NAS_ENV, NAS_PORT, SERVER } from './nas-server';
@@ -73,7 +73,7 @@ interface StoredFile {
 }
 
 /**
- * A scope's record in the page's IndexedDB (database bdj-store, src/engine/bdj/store/idb-store.ts): its files and when
+ * A scope's record in the page's IndexedDB (database bdj-store, src/bdj/store/idb-store.ts): its files and when
  * it was saved; null when there is none. Never creates the database (an upgrade is aborted), so the engine's own open
  * still makes it with its object store.
  */

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
-import type { ShaderSetData } from '../engine/protocol';
+import type { ShaderSetData } from '@seikou/engine/protocol';
 import type { ShaderSetDef } from './shader-sets';
 import type { ShaderLibrary, StoredShaderFile } from './shader-library';
 import { ShaderModel } from './shader-model';

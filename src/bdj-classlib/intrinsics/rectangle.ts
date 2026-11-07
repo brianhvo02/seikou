@@ -14,9 +14,9 @@
  * SPDX-License-Identifier: GPL-2.0-only WITH Classpath-exception-2.0
  */
 
-import type { JObject } from '../../engine/bdj/jvm/values';
-import { perClass, slotOf } from '../../engine/bdj/jvm/natives/intrinsics/common';
-import type { Span } from '../../engine/bdj/jvm/natives/intrinsics/common';
+import type { JObject } from '../../bdj/jvm/values';
+import { perClass, slotOf } from '../../bdj/jvm/natives/intrinsics/common';
+import type { Span } from '../../bdj/jvm/natives/intrinsics/common';
 
 /** java.awt.Rectangle's fields; null for a subclass, whose intersection could be overridden. */
 const rectangleSlots = perClass((cls) =>

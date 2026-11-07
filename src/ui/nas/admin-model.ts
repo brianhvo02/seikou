@@ -1,4 +1,4 @@
-import type { EncodingNow, TitleSummary } from '../../engine/disc/nas-api';
+import type { EncodingNow, TitleSummary } from '@seikou/nas/nas-api';
 import { displayName } from './title-model';
 import type { NasClient, NasCode, NasTitleStatus } from './nas-client';
 import { codeTarget, lastSeen } from './people-model';

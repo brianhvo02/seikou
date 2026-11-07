@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import type { DiscManifest } from '../../src/engine/disc/nas-api';
+import type { DiscManifest } from '@seikou/nas/nas-api';
 import { buildUdf250 } from '../../tests/helpers/udf-image';
 import { appHandlers } from './app';
 import type { Auth } from './auth';

@@ -1,9 +1,9 @@
-import { CodingType } from '../../../src/engine/bdmv/stream-types';
-import { AudioFramer, type AudioFrame } from '../../../src/engine/decode/audio-frames';
-import { parseLpcmHeader } from '../../../src/engine/decode/lpcm';
-import { SOURCE_PACKET_SIZE } from '../../../src/engine/demux/constants';
-import { PesAssembler, type PesPacket } from '../../../src/engine/demux/pes-assembler';
-import { parseSourcePacket } from '../../../src/engine/demux/ts-packet';
+import { CodingType } from '@seikou/bdmv/stream-types';
+import { AudioFramer, type AudioFrame } from '@seikou/engine/decode/audio-frames';
+import { parseLpcmHeader } from '@seikou/engine/decode/lpcm';
+import { SOURCE_PACKET_SIZE } from '@seikou/bdmv/demux/constants';
+import { PesAssembler, type PesPacket } from '@seikou/bdmv/demux/pes-assembler';
+import { parseSourcePacket } from '@seikou/bdmv/demux/ts-packet';
 import { coreCoding } from './levels';
 
 /** PES stream_id_extension of the AC-3 substream inside a Blu-ray TrueHD PID, and of the TrueHD (MLP) units. */

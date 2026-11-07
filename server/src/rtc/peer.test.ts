@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { RTCPeerConnection } from 'werift';
 import type { RTCDataChannel } from 'werift';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { WireClient } from '../../../src/engine/disc/rtc-wire';
+import { WireClient } from '@seikou/nas/rtc-wire';
 import { appHandlers } from '../app';
 import { Auth } from '../auth';
 import { BdjStore } from '../bdj-store';

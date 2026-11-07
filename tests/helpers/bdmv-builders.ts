@@ -1,4 +1,4 @@
-import { CodingType, isAudioCoding, isVideoCoding } from '../../src/engine/bdmv/stream-types';
+import { CodingType, isAudioCoding, isVideoCoding } from '@seikou/bdmv/stream-types';
 import { ByteWriter } from './byte-writer';
 
 export type IndexObjectSpec =

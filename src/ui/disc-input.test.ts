@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { collectFromDirectoryHandle, collectFromFileList, discFromDataTransfer } from './disc-input';
 import { readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { normalizeDiscPaths } from '../engine/disc/paths';
+import { normalizeDiscPaths } from '@seikou/engine/disc/paths';
 
 function file(name: string, relative = ''): File {
   const f = new File(['x'], name);

@@ -1,0 +1,11 @@
+{
+  "name": "@seikou/nas",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "LGPL-3.0-or-later",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "files": ["src", "!src/**/*.test.ts", "!src/**/__fixtures__", "LICENSE", "COPYING", "NOTICE"]
+}

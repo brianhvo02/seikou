@@ -19,7 +19,7 @@ import { isIP } from 'node:net';
 import { networkInterfaces } from 'node:os';
 import { basename, extname, join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { DiscEntry, LibraryListing } from '../../src/engine/disc/nas-api';
+import type { DiscEntry, LibraryListing } from '@seikou/nas/nas-api';
 // The NAS server's own manifest, file resolution and range parsing: the dev server answers exactly as the NAS does.
 import { buildManifest, largestClip, resolveDiscFile } from '../../server/src/manifest';
 import { parseRange } from '../../server/src/ranges';

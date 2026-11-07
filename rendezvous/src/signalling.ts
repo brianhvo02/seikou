@@ -29,7 +29,7 @@ import {
   signalAuthMessage,
 } from './protocol';
 import type { DeviceSignalForNas, NasSignalForDevice, SignalChallenge, SignalHello } from './protocol';
-import type { EcPublicJwk } from '../../src/engine/disc/nas-api';
+import type { EcPublicJwk } from '@seikou/nas/nas-api';
 
 /** The part of a server-side `WebSocket` the object uses. */
 export interface SignalSocket {

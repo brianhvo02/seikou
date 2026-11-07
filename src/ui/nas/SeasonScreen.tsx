@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from 'react';
-import type { DiscRef, DiscSlot, EpisodeRef, FansubTitleState, PlaylistProgress, SeasonDetail, StoredSubtitle } from '../../engine/disc/nas-api';
+import type { DiscRef, DiscSlot, EpisodeRef, FansubTitleState, PlaylistProgress, SeasonDetail, StoredSubtitle } from '@seikou/nas/nas-api';
 import { FansubEpisodePanel } from './FansubEpisodePanel';
 import { FansubLine } from './FansubLine';
 import { episodeMark, trackChip } from './fansub-model';

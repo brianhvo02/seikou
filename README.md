@@ -8,7 +8,7 @@
 [![BD-J trace](https://github.com/brianhvo02/seikou/actions/workflows/bdj-trace.yml/badge.svg?branch=main)](https://github.com/brianhvo02/seikou/actions/workflows/bdj-trace.yml)
 [![BD-J class library](https://github.com/brianhvo02/seikou/actions/workflows/bdj-classlib.yml/badge.svg?branch=main)](https://github.com/brianhvo02/seikou/actions/workflows/bdj-classlib.yml)
 [![ASS trace](https://github.com/brianhvo02/seikou/actions/workflows/ass-trace.yml/badge.svg?branch=main)](https://github.com/brianhvo02/seikou/actions/workflows/ass-trace.yml)
-[![License: LGPL-2.1-or-later](https://img.shields.io/badge/license-LGPL--2.1--or--later-blue)](LICENSE)
+[![License: LGPL-3.0-or-later](https://img.shields.io/badge/license-LGPL--3.0--or--later-blue)](LICENSE)
 [![Try it](https://img.shields.io/badge/try%20it-bluray.pages.dev-brightgreen)](https://bluray.pages.dev)
 
 Seikou (青光, "blue light": a pun on Blu-ray) is a Blu-ray player that runs in your browser. It plays decrypted disc folders with their menus (HDMV and BD-J), subtitles and audio tracks, on desktop and on phones. Nothing is uploaded: the disc is read on your device, and an optional server on your own NAS can stream a whole library to it.
@@ -47,7 +47,7 @@ Seikou stands on a lot of other work. Each entry links to the project and, where
 
 ### Ported from
 
-Code this project translates to TypeScript (the files are listed in [src/engine/NOTICE](src/engine/NOTICE)).
+Code this project translates to TypeScript (the files are listed in the NOTICE files of [packages/bdmv](packages/bdmv/NOTICE), [packages/pg](packages/pg/NOTICE), [packages/ass](packages/ass/NOTICE) and [packages/engine](packages/engine/NOTICE), and in [src/bdj/NOTICE](src/bdj/NOTICE)).
 
 - [libbluray](https://www.videolan.org/developers/libbluray.html), LGPL-2.1-or-later: the C library's disc parsing, navigation, HDMV virtual machine, menus, and BD-J glue and natives.
 - [libudfread](https://code.videolan.org/videolan/libudfread), LGPL-2.1-or-later: the UDF reader for ISO discs.
@@ -106,12 +106,12 @@ In the repository, not shipped.
 
 ## License
 
-LGPL-2.1-or-later for everything that doesn't carry its own licence (see [LICENSE](LICENSE)). Third-party files keep theirs (see Built on and the NOTICE files). Exceptions by directory:
+LGPL-3.0-or-later for everything that doesn't carry its own licence (see [LICENSE](LICENSE), and [COPYING](COPYING) for the GNU GPL it supplements). Files ported from libbluray, libudfread and FFmpeg stay LGPL-2.1-or-later, as their upstreams released them, and the libass ports are `LGPL-2.1-or-later AND ISC`; their headers say so. Files marked LGPL-2.1-or-later are under the LGPL 2.1 ([LICENSES/LGPL-2.1.txt](LICENSES/LGPL-2.1.txt)) or, at your option, any later version, which lets the whole be distributed under version 3. Other third-party files keep their own licences (see Built on and the NOTICE files). Exceptions by directory:
 
 - `src/bdj-classlib/`: GPLv2 with the Classpath Exception, with the Apache, SAX and ICU notices its [NOTICE](src/bdj-classlib/NOTICE) lists.
 - `src/wasm/freetype/`: the FreeType License.
 - `src/ui/anime4k/` and `fixtures/shaders/anime4k/`: MIT (Anime4K).
-- `src/engine/ass/default-font.ttf` and `fixtures/ass/fonts/`: the DejaVu licence.
+- `packages/ass/src/default-font.ttf` and `fixtures/ass/fonts/`: the DejaVu licence.
 - `fixtures/bdj-fonts/` and `fixtures/synthetic/disc-bdj-menu/` (Source Sans 3): SIL Open Font License 1.1.
 - `server/data/discdb-index.json`: MIT (TheDiscDB data).
 - `public/tmdb-logo.svg`: TMDB's logo, used for attribution only.

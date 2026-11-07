@@ -1,7 +1,7 @@
 import { relayLimitMessage } from '../relay-model';
-import { NAS_LOST_MESSAGE } from '../../../engine/disc/http-transport';
-import { WireClient } from '../../../engine/disc/rtc-wire';
-import type { WireChannel } from '../../../engine/disc/rtc-wire';
+import { NAS_LOST_MESSAGE } from '@seikou/engine/disc/http-transport';
+import { WireClient } from '@seikou/nas/rtc-wire';
+import type { WireChannel } from '@seikou/nas/rtc-wire';
 import { iceServersOf } from '../../../../rendezvous/src/protocol';
 import type { TurnRefusal } from '../../../../rendezvous/src/protocol';
 import { SignallingClient } from './signalling-client';

@@ -2,7 +2,7 @@ import { closeSync, ftruncateSync, mkdtempSync, openSync, rmSync, writeSync } fr
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
-import * as udf from '../../src/engine/disc/udf';
+import * as udf from '@seikou/bdmv/udf';
 import { buildUdf250, le, patchMetadata } from '../../tests/helpers/udf-image';
 import { IsoTrees, isoFileStream } from './iso';
 

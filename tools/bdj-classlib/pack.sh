@@ -177,6 +177,6 @@ SNAPSHOT=20261015T000000Z
   echo "Apt snapshot:           $SNAPSHOT (ubuntu 24.04)"
   echo
   echo "libbluray-j2se.jar and libbluray-awt-j2se.jar are libbluray's BD-J Java stack, LGPL-2.1-or-later (the license"
-  echo "text is in src/engine/LICENSE), built from libbluray commit 448f896,"
+  echo "text is in LICENSE), built from libbluray commit 448f896,"
   echo "https://code.videolan.org/videolan/libbluray (source: https://code.videolan.org/videolan/libbluray/-/tree/448f896)."
 } > $OUT/NOTICE

@@ -7,26 +7,27 @@ import SevenZip from '7z-wasm';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type {
   DiscSlot, EpisodeRef, FansubPick, FansubTitleState, StoredSubtitle, TitleDetail, TitleSummary, ToshoReleaseFiles, ToshoSearchResult,
-} from '../../../src/engine/disc/nas-api';
+} from '@seikou/nas/nas-api';
 import { SPEECH_BURSTS } from '../../../tests/helpers/speech-bursts';
 import { appHandlers } from '../app';
 import { Auth } from '../auth';
 import { BdjStore } from '../bdj-store';
 import { DiscActivity } from '../disc-activity';
 import { libraryFansubDiscs } from '../fansubs/disc-lookup';
-import { FetchCache } from '../fansubs/fetch-cache';
+import { FetchCache } from '@seikou/fansubs/fetch-cache';
+import { ffmpegAudioDecoder } from '../fansubs/ffmpeg-decoder';
 import { fixtureFansubSources } from '../fansubs/fixture-sources';
 import { FansubPicks } from '../fansubs/picks';
-import type { SeaDexEntry } from '../fansubs/seadex';
+import type { SeaDexEntry } from '@seikou/fansubs/seadex';
 import { FansubService } from '../fansubs/service';
 import { FansubState } from '../fansubs/state';
-import type { ToshoRelease } from '../fansubs/tosho';
+import type { ToshoRelease } from '@seikou/fansubs/tosho';
 import { createServer } from '../http';
 import { folderDiscSource } from '../levels/level-discs';
 import type { Library } from '../library';
 import { Store } from '../store';
 import { SubtitleStore } from '../subtitle-store';
-import type { Catalogue } from '../titles/catalogue';
+import type { Catalogue } from '@seikou/titles/catalogue';
 import type { DiscEvidence } from '../titles/evidence';
 import type { TitleLibrary } from './titles';
 
@@ -140,7 +141,7 @@ beforeEach(async () => {
     writeFileSync(join(fix, 'files', `${id}-0.ass.xz`), fullXz);
     writeFileSync(join(fix, 'files', `${id}-1.ass.xz`), signsXz);
   }
-  writeFileSync(join(fix, 'files', 'pack-101.7z'), readFileSync(new URL('../fansubs/__fixtures__/pack.7z', import.meta.url)));
+  writeFileSync(join(fix, 'files', 'pack-101.7z'), readFileSync(new URL('../../../packages/fansubs/src/__fixtures__/pack.7z', import.meta.url)));
 
   auth = new Auth(new Store(data), Date.now);
   gate = 'everyone';
@@ -159,9 +160,9 @@ beforeEach(async () => {
     store, state, seadex, tosho: held, cache, titles: { catalogue: () => catalogue }, discs, discKey: lookup.discKey,
     // runs here line nothing up (no ffmpeg); the picks do, through the library's playlists
     durationMs: () => null,
-    ffmpegPath: 'ffmpeg', activity: new DiscActivity(), encoding: () => false, log: () => {},
+    decoder: ffmpegAudioDecoder('ffmpeg'), activity: new DiscActivity(), encoding: () => false, log: () => {},
   });
-  const picks = new FansubPicks({ dataDir: data, tosho, cache, discs, lookup, ffmpegPath: 'ffmpeg', log: () => {} });
+  const picks = new FansubPicks({ dataDir: data, tosho, cache, discs, lookup, decoder: ffmpegAudioDecoder('ffmpeg'), log: () => {} });
   const server = createServer(appHandlers({
     auth, library, bdjStore: new BdjStore(data), subtitleStore: store, publicBase: 'https://nas.example/bluray/api/', titles,
     fansubs: { service, state, seadex, tosho, picks, lookup },

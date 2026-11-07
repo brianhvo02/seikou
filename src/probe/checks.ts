@@ -1,4 +1,4 @@
-import type { RemoteDiscSpec } from '../engine/disc/disc-spec';
+import type { RemoteDiscSpec } from '@seikou/engine/disc/disc-spec';
 
 export interface ProbeResult {
   readonly name: string;

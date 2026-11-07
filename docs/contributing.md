@@ -2,7 +2,11 @@
 
 `CLAUDE.md` at the repository root is the full developer reference: the architecture, every command, the constraints (licensing, supported browsers, test fixtures) and the specs under `docs/superpowers/specs/`. Read it first. This page keeps the everyday commands and notes.
 
-The engine in `src/engine/` is derived from libbluray and licensed LGPL-2.1 (see `src/engine/LICENSE`). Some other directories have their own licences: see the top-level `LICENSE` and the License section of the README.
+Seikou's own code is licensed LGPL-3.0-or-later (see the top-level `LICENSE` and `COPYING`). Files ported from libbluray, libudfread, FFmpeg and libass keep LGPL-2.1-or-later (the libass ports `AND ISC`), as their headers say; that text is `LICENSES/LGPL-2.1.txt`. Some directories have their own licences: see the License section of the README. `npm run licence-check` checks the headers against the NOTICE files and every `package.json`.
+
+## Where code lives
+
+The app is in `src/`: the React UI in `src/ui/`, BD-J in `src/bdj/`, and the engine worker's entry in `src/engine-worker.ts`, which hands BD-J to the engine. The code that is not specific to the app lives in seven npm workspace packages under `packages/`, imported as `@seikou/<name>`: `bdmv` (the disc format's parsers and the M2TS demuxer), `pg` (PG subtitles), `ass` (the ASS renderer), `engine` (the player engine and its page-side controller), `nas` (the NAS wire contract), `titles` (naming the library and looking up metadata) and `fansubs` (finding and timing fansub subtitles). Each has a one-paragraph README and its own NOTICE. The NAS server is in `server/` and the pairing Worker in `rendezvous/`. The commands below cover the packages along with the app; `npm run package-smoke` installs the packages into a temporary project, as a project outside this repo would, typechecks every barrel with a strict `tsc`, and builds a page with them.
 
 ## Run and build
 
@@ -24,7 +28,7 @@ The engine in `src/engine/` is derived from libbluray and licensed LGPL-2.1 (see
 ## Fixtures and generated files
 
 - `npm run fixture:synthetic` regenerates `fixtures/synthetic/`. It needs `ffmpeg` on PATH with libx264 (the video fixtures), its mpeg2video encoder (`disc-mpeg2-menu`) and its ac3, eac3, dca and truehd encoders (the audio fixtures and `disc3`), and Docker for `disc1.iso`. Their bytes depend on the host ffmpeg version (currently 9.0.2). `fixtures/synthetic/disc3` is the four-codec audio disc (LPCM, AC-3 5.1, TrueHD with an AC-3 core, DTS).
-- `npm run wasm:build` rebuilds `src/wasm/audio/audio.wasm` (FFmpeg n9.0.2 AC-3, E-AC-3 and DTS decoders plus `shim.c`) and `src/wasm/freetype/freetype.wasm` (FreeType 2.13.2 with Ubuntu's patches, for BD-J text) in Docker (`wasm:build:audio` / `wasm:build:freetype` build one). It needs Docker. The builds are reproducible, and `.github/workflows/wasm.yml` checks that the committed `.wasm` files match. `npm run bdj-trace:freetype-golden` regenerates `tests/bdj/fonts/freetype-golden.json` from the BD-J harness image's system FreeType.
+- `npm run wasm:build` rebuilds `packages/engine/wasm/audio/audio.wasm` (FFmpeg n9.0.2 AC-3, E-AC-3 and DTS decoders plus `shim.c`) and `src/wasm/freetype/freetype.wasm` (FreeType 2.13.2 with Ubuntu's patches, for BD-J text) in Docker (`wasm:build:audio` / `wasm:build:freetype` build one). It needs Docker. The builds are reproducible, and `.github/workflows/wasm.yml` checks that the committed `.wasm` files match. `npm run bdj-trace:freetype-golden` regenerates `tests/bdj/fonts/freetype-golden.json` from the BD-J harness image's system FreeType.
 - `scripts/fetch-libbluray.sh` clones libbluray at the commit the engine is ported from into `.cache/libbluray` (gitignored), the reference for every ported function.
 - The libbluray trace harness (`tools/vm-trace/`, Docker): `npm run vm-trace:build` builds patched libbluray and the harness, `npm run vm-trace:golden` regenerates `tests/vm-trace/golden/` from it (never edit those by hand), and `npm run vm-trace -- <disc> <script> [--dump-pages]` runs libbluray and our replay live and prints the first divergence. `npm test` replays the golden traces without Docker.
 

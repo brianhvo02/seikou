@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 import { ECDSA_KEY, ECDSA_SIGN, SIGNAL_PING_MESSAGE, SIGNAL_PONG_MESSAGE, fromBase64url, nasIdOf, signalAuthMessage } from '../../../rendezvous/src/protocol';
-import type { EcPublicJwk } from '../../../src/engine/disc/nas-api';
+import type { EcPublicJwk } from '@seikou/nas/nas-api';
 import { RendezvousClient } from '../rendezvous-client';
 import { backoffDelay, SignallingClient } from './signalling-client';
 import type { SignalPeers, WebSocketLike } from './signalling-client';

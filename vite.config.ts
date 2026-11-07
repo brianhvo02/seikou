@@ -70,7 +70,7 @@ export default defineConfig({
         extends: true,
         test: {
           name: 'unit',
-          include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'tests/*.test.ts', 'tests/vm-trace/**/*.test.ts', 'tests/ass-trace/**/*.test.ts', 'tests/bdj/**/*.test.ts', 'tools/**/*.test.ts', 'server/**/*.test.ts', 'rendezvous/**/*.test.ts', 'vite/**/*.test.ts'],
+          include: ['src/**/*.test.ts', 'src/**/*.test.tsx', 'tests/*.test.ts', 'tests/vm-trace/**/*.test.ts', 'tests/ass-trace/**/*.test.ts', 'tests/bdj/**/*.test.ts', 'tools/**/*.test.ts', 'server/**/*.test.ts', 'rendezvous/**/*.test.ts', 'vite/**/*.test.ts', 'packages/**/*.test.ts'],
           sequence: { groupOrder: 0 },
         },
       },

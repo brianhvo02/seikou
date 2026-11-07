@@ -1,4 +1,4 @@
-import type { MenuKey } from '../../src/engine/protocol';
+import type { MenuKey } from '@seikou/engine/protocol';
 
 /**
  * A step of a bdj-trace key script (tools/bdj-trace/README.md, Key scripts): the `.keys` syntax of tests/vm-trace, with

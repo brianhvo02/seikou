@@ -1,5 +1,5 @@
-import { validateShaderFile } from '../engine/shaders/parse';
-import type { ShaderSetData } from '../engine/protocol';
+import { validateShaderFile } from '@seikou/engine/shaders/parse';
+import type { ShaderSetData } from '@seikou/engine/protocol';
 import type { BundledShaders } from './bundled-shaders';
 import type { ShaderLibrary, StoredShaderFile } from './shader-library';
 import { importedName, parseInputConf, resolveSets, type SetEntry, type ShaderSetDef } from './shader-sets';

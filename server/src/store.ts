@@ -1,7 +1,7 @@
 import { createHmac, randomBytes } from 'node:crypto';
 import { linkSync, mkdirSync, readFileSync, statSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { isCode, lockFile, replaceAtomically, syncDir, writeSynced } from './atomic-json';
+import { isCode, lockFile, replaceAtomically, syncDir, writeSynced } from '@seikou/titles/atomic-json';
 import type { DeviceRoute, PairingCode, Person, StoredDevice } from './auth';
 
 export interface AuthData {

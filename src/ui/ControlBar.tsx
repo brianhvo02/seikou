@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type ReactElement } from 'react';
-import type { UoOp } from '../engine/hdmv/uo-mask';
-import type { Chapter } from '../engine/nav/timeline';
-import type { PlayerController, PlayerSnapshot } from '../player/player-controller';
+import type { UoOp } from '@seikou/engine/hdmv/uo-mask';
+import type { Chapter } from '@seikou/engine/nav/timeline';
+import type { PlayerController, PlayerSnapshot } from '@seikou/engine/controller/player-controller';
 import { AudioMenu, type LevelAudio } from './AudioMenu';
-import type { LevelId } from '../engine/disc/nas-api';
+import type { LevelId } from '@seikou/nas/nas-api';
 import type { LevelState } from './nas/level-session';
 import { QualityMenu } from './QualityMenu';
 import { ShaderMenu } from './ShaderMenu';

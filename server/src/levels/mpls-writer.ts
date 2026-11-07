@@ -1,13 +1,13 @@
 /*
  * Writes a playlist (.mpls) for a quality level. The structure follows how libbluray reads it
  * (src/libbluray/bdnav/mpls_parse.c: _parse_playlist, _parse_playitem, _parse_stn, _parse_stream)
- * and how src/engine/bdmv/mpls-parser.ts ports that; everything but the STN tables is copied
+ * and how packages/bdmv/src/mpls-parser.ts ports that; everything but the STN tables is copied
  * byte for byte.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import { parseMpls, type PlayItem } from '../../../src/engine/bdmv/mpls-parser';
+import { parseMpls, type PlayItem } from '@seikou/bdmv/mpls-parser';
 import { setAudioCoding, setVideoAttrs } from './clpi-writer';
 import type { KeptAudio } from './levels';
 import { coreCoding, keptAudioFor } from './levels';

@@ -108,7 +108,7 @@ static void event_cb(uint32_t event, uint32_t param)
 }
 
 /*
- * ---- overlays: Y,Cr,Cb,T planes with the semantics and hash of src/engine/graphics/overlay-plane.ts ----
+ * ---- overlays: Y,Cr,Cb,T planes with the semantics and hash of packages/pg/src/overlay-plane.ts ----
  * IG is immediate. PG is buffered: draw and wipe change pg_back, BD_OVERLAY_FLUSH copies it to pg_plane (the
  * visible plane), and INIT, CLOSE and CLEAR reset both.
  */

@@ -1,5 +1,5 @@
-import type { DiscSlot, EpisodeRef, SeasonDetail, TitleDetail, TitleKind, TitleSummary } from '../../engine/disc/nas-api';
-import { normalizeTitle, titleMatches } from '../../engine/disc/title-text';
+import type { DiscSlot, EpisodeRef, SeasonDetail, TitleDetail, TitleKind, TitleSummary } from '@seikou/nas/nas-api';
+import { normalizeTitle, titleMatches } from '@seikou/nas/title-text';
 
 /** The library's view of the NAS's titles: search, shelves and the labels the title screens show. Original code. */
 

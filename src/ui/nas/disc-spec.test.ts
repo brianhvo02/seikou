@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { portFetch } from '../../engine/disc/port-fetch';
+import { portFetch } from '@seikou/engine/disc/port-fetch';
 import { levelQuery, nasDiscSpec } from './disc-spec';
 
 const manifest = { discId: 'd1', name: 'Disc', files: [], inline: {} };

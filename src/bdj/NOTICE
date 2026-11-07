@@ -1,0 +1,126 @@
+Third-party code notices for src/bdj (BD-J, the engine's optional provider)
+==========================================================================
+
+Parts of BD-J are TypeScript ports of, or derive from, the following
+projects. They are modified for bluray-web (2026) and distributed under the
+GNU Lesser General Public License, version 2.1 or later (LGPL-2.1-or-later),
+except where a licence below says otherwise. Derived-file paths are relative to src/.
+The rest of src/bdj is original Seikou code under LGPL-3.0-or-later, like the
+rest of the app (see LICENSE and COPYING at the root).
+
+libbluray (https://www.videolan.org/developers/libbluray.html), LGPL-2.1-or-later
+  Copyright (C) 2009-2010  John Stebbins
+  Copyright (C) 2010-2017  Petri Hintukainen <phintuka@users.sourceforge.net>
+  Derived files:
+    bdj/host.ts           from src/libbluray/bluray.c (RecordingHost: bdpriv_play_playlist_at, bdpriv_play_title_internal
+                          and _play_title, bdpriv_seek, bdpriv_reg_read, bdpriv_reg_write, bdpriv_get_uo_mask,
+                          bdpriv_set_bdj_uo_mask, bdpriv_sound_effect, bdpriv_set_virtual_package, bd_select_angle,
+                          bd_tell_time)
+    bdj/disc-info.ts      from src/libbluray/bluray.c (_fill_disc_info, bd_get_playlist_info, _get_mpls_info,
+                          _fill_title_info, _copy_streams) and bdnav/navigation.c (nav_title_open, _extrapolate_title,
+                          _fill_mark, nav_clip_lookup_aspect)
+    bdj/worker-host.ts    from src/libbluray/bluray.c (the natives answered in the BD-J worker: bdpriv_reg_read,
+                          bdpriv_get_uo_mask, bd_tell_time, bd_get_disc_info, bd_get_playlist_info) and
+                          bdj/native/org_videolan_Libbluray.c (getAacsDataN)
+    bdj/graphics-plane.ts from src/libbluray/bdj/native/org_videolan_Libbluray.c
+                          (Java_org_videolan_Libbluray_updateGraphicN, _updateGraphic), bluray.c (bdpriv_bdj_osd_cb,
+                          bdpriv_lock_osd_buffer, bdpriv_unlock_osd_buffer) and the ARGB overlay commands of
+                          decoders/overlay.h (BD_ARGB_OVERLAY_INIT, DRAW, FLUSH, CLOSE; BD_ARGB_BUFFER)
+    bdj/jvm/natives/libbluray.ts from src/libbluray/bdj/native/org_videolan_Libbluray.c, bdjo.c, util.c,
+                          org_videolan_Logger.c, bdj/bdjo_parse.c (bdjo_get), disc/disc.c
+                          (disc_cache_bdrom_file, disc_open_dir) and file/file.c (file_mkdirs)
+    bdj/jvm/natives/fonts.ts from src/libbluray/bdj/native/java_awt_BDFontMetrics.c (initN, destroyN,
+                          unloadFontConfigN, resolveFontN, getFontFamilyAndStyleN, loadFontN, destroyFontN,
+                          charWidthN, stringWidthN, charsWidthN) and java_awt_BDGraphics.c (drawStringN)
+    bdj/runtime.ts        from src/libbluray/bdj/bdj.c (bdj_open, _create_jvm properties, _bdj_init,
+                          bdj_process_event, bdj_close) and bluray.c (_start_bdj, _stop_bdj)
+    bdj/events.ts         from src/libbluray/bluray.c (_process_psr_write_event, _process_psr_change_event, BD-J event sites)
+    bdj/player-host.ts    from src/libbluray/bluray.c (bdpriv_*, _open_playlist, bd_set_rate, _play_title, _update_uo_mask,
+                          _close_playlist, _seek_internal, bd_get_sound_effect, bd_select_angle, _bd_set_virtual_package)
+    bdj/input.ts          from src/libbluray/bluray.c (bd_user_input's BD-J branch, _get_key_uo_index,
+                          bd_mouse_select's BD-J branch) and keys.h; its bounded event queue and ignored-tap
+                          watch are original
+    bdj/jvm/natives/intrinsics/graphics.ts from src/libbluray/bdj/java/java/awt/BDGraphicsBase.java (drawSpanN,
+                          applyComposite, alphaBlend), Area.java (add) and BDRootWindow.java (isBackBufferClear)
+    bdj/jvm/natives/intrinsics/image.ts from src/libbluray/bdj/java/java/awt/BDImageConsumer.java (setPixels)
+    bdj/jvm/natives/havi.ts from src/libbluray/bdj/java/org/havi/ui/HStillImageBackgroundConfiguration.java
+                          (displayImage's fields; the still itself is shown where libbluray leaves it unimplemented),
+                          HBackgroundImage.java and java/awt/BDToolkitBase.java (createImage(String): where the
+                          still's file is named)
+    bdj/store/scopes.ts   from src/libbluray/bdj/java/org/videolan/BDJAppProxy.java (createStorage: the
+                          /persistent/<org>/<app> and /buda/<org>/<disc> directories), BDJXletContext.java
+                          (getXletProperty: dvb.org.id, dvb.app.id), bdj/bdj.c (_bdj_init's disc ID) and
+                          bluray.c (bdj_disc_id from bdid_get); bdjo_get's backup BDJO
+
+FreeType (https://freetype.org), FreeType License (FTL)
+  Portions of this software are copyright © 2023 The FreeType Project
+  (www.freetype.org). All rights reserved.
+  freetype.wasm (src/wasm/freetype/), which bdj/fonts/freetype.ts loads for
+  BD-J text, is built from FreeType 2.13.2 as Ubuntu 24.04 ships it, used
+  under the FreeType License (FreeType is dual FTL / GPLv2). The licence text
+  is src/wasm/freetype/FTL.TXT; src/wasm/freetype/NOTICE has the exact source
+  and build. bdj/fonts/freetype.ts and src/wasm/freetype/shim.c are original
+  code that makes the FreeType calls of libbluray's
+  src/libbluray/bdj/native/java_awt_BDFontMetrics.c and java_awt_BDGraphics.c.
+
+DoppioJVM (https://github.com/plasma-umass/doppio), MIT
+  Commit 41f41fbae16f23d2791471e150eeb50ad1247eb8 (cloned into .cache/doppio).
+  Derived functions:
+    bdj/jvm/natives/unsafe.ts      from src/natives/sun_misc.ts (sun_misc_Unsafe: field offsets as slots, array
+                                   offsets as indices, staticFieldBase objects, malloc'd memory blocks)
+    bdj/jvm/natives/strictmath.ts  from src/natives/java_lang.ts (java_lang_StrictMath: the mapping of the
+                                   functions other than exp and IEEEremainder onto JS Math)
+    bdj/jvm/natives/invoke.ts      from src/ConstantPool.ts (InvokeDynamic.constructCallSiteObject and its static
+                                   arguments, MethodHandle.resolve, MethodReference.resolveMemberName: linkage through
+                                   MethodHandleNatives.linkCallSite, linkMethodHandleConstant and linkMethod with an
+                                   appendix), src/util.ts (createMethodType), src/ClassData.ts and src/methods.ts
+                                   (signature-polymorphic lookup), src/opcodes.ts (invokebasic, linktospecial,
+                                   linktovirtual) and src/natives/java_lang.ts (java_lang_invoke_MethodHandleNatives:
+                                   getConstant, getMembers, getMemberVMInfo, the field offsets and staticFieldBase,
+                                   setCallSiteTargetNormal; java_lang_invoke_MethodHandle: invoke and invokeExact
+                                   called reflectively)
+  Copyright (c) 2012, 2013, 2014, 2015 John Vilk, CJ Carey, Jez Ng, and Jonny Leahey.
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy of
+  this software and associated documentation files (the "Software"), to deal in
+  the Software without restriction, including without limitation the rights to
+  use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+  of the Software, and to permit persons to whom the Software is furnished to do
+  so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+
+fdlibm 5.3 (the C library behind the JDK's StrictMath)
+  Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
+  Developed at SunSoft, a Sun Microsystems, Inc. business.
+  Permission to use, copy, modify, and distribute this software is freely
+  granted, provided that this notice is preserved.
+  Derived functions:
+    bdj/jvm/natives/strictmath.ts  fdlibmExp, from e_exp.c (__ieee754_exp)
+                                   fdlibmRemainder, from e_remainder.c (__ieee754_remainder)
+  The rest of bdj/jvm/ (interpreter, loader, heap, threads, VFS and the other
+  natives, except natives/libbluray.ts and the libbluray-derived intrinsics
+  above) is original code. The engine's intrinsics for class-library methods
+  are reimplementations of specified behaviour: SHA-1 compression
+  (natives/intrinsics/crypto.ts), BigInteger.implMulAdd's word
+  multiply-accumulate (crypto.ts), PNGImageDecoder.update_crc
+  (the PNG specification's CRC-32, png.ts), the java.lang.String methods,
+  StringBuilder.append(String), Integer.parseInt, Character.digit and the UTF-8
+  decoder's ASCII copy (strings.ts), Math.min/max, Arrays.copyOfRange and
+  new String(char[], int, int) (lang.ts), Arrays.fill (arrays.ts) and
+  IndexColorModel.getRGB's palette lookup (color-model.ts). Intrinsics that
+  derive from OpenJDK's code (DirectColorModel.getRGB, Rectangle.intersection,
+  PNGImageDecoder.produceImage's row loop, the jar and manifest scanning of
+  jar-text.ts) are not part of the engine: they
+  live with the class library in src/bdj-classlib/intrinsics/, under GPLv2
+  with the Classpath Exception, and a JVM gets them only through
+  JvmOptions.extraIntrinsics (the BD-J worker's entry passes them).

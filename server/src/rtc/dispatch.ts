@@ -1,7 +1,7 @@
 import type { IncomingMessage } from 'node:http';
 import { Readable } from 'node:stream';
-import { WireServer } from '../../../src/engine/disc/rtc-wire';
-import type { WireChannel, WireRequest, WireResponse } from '../../../src/engine/disc/rtc-wire';
+import { WireServer } from '@seikou/nas/rtc-wire';
+import type { WireChannel, WireRequest, WireResponse } from '@seikou/nas/rtc-wire';
 import type { Auth } from '../auth';
 import { handle, json, markChannelRequest, responseHeaders } from '../http';
 import type { Handler, Response } from '../http';

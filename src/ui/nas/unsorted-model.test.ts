@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { TitleSummary, UnsortedReason } from '../../engine/disc/nas-api';
+import type { TitleSummary, UnsortedReason } from '@seikou/nas/nas-api';
 import { NasHttpError } from './nas-client';
 import {
   REASON_TEXT,

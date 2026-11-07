@@ -1,8 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
-import type { FansubTitleState } from '../../../src/engine/disc/nas-api';
-import { isCode, lockFile, replaceAtomically } from '../atomic-json';
+import type { FansubTitleState } from '@seikou/nas/nas-api';
+import { isCode, lockFile, replaceAtomically } from '@seikou/titles/atomic-json';
 
 const THIRTY_DAYS_MS = 30 * 86_400_000;
 
