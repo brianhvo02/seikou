@@ -56,7 +56,5 @@ function atomicsWaits(g: Bag, sab: boolean, inWorker: boolean): boolean {
   }
 }
 
-/** The notice for a disc (or title) whose BD-J this browser cannot run: what it lacks, and what to do instead. */
-export function bdjUnsupportedMessage(missing: readonly string[], what: 'disc' | 'title' = 'disc'): string {
-  return `This ${what} uses BD-J (Java) menus, which this browser can't run: it lacks ${missing.join(', ')}. Choose a playlist to play.`;
-}
+/** The notice for a disc (or title) whose BD-J this browser cannot run (the engine's, bdj-provider.ts). */
+export { bdjUnsupportedMessage } from '../bdj-provider';

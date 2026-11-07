@@ -6,6 +6,7 @@ import { runBdjWorker, type BdjPort, type BdjWorkerHandle } from '../../src/engi
 import { GraphicsPlaneReader, GraphicsPlaneWriter, planeHash } from '../../src/engine/bdj/graphics-plane';
 import type { TraceEntry } from '../../src/engine/bdj/host';
 import type { ClassLibrarySource } from '../../src/engine/bdj/runtime';
+import { seikouBdjProvider } from '../../src/engine/bdj/provider';
 import { MemoryBdjStore, type BdjStore } from '../../src/engine/bdj/store/bdj-store';
 import type { WorkerLike } from '../../src/engine/bdj/session';
 import type { BdjCallName, BdjWireValue, FromBdj, ToBdj } from '../../src/engine/bdj/worker-protocol';
@@ -178,7 +179,7 @@ export async function replayPlayerBdj(
     tailMs?: number;
     /** The player's compositor (default: one that draws nothing). */
     compositor?: CompositorLike;
-    /** PlayerDeps.decodeImage, for background stills (default: none, so none are shown). */
+    /** The BD-J provider's decodeImage, for background stills (default: none, so none are shown). */
     decodeImage?: DecodeImage;
     /** A key script to replay (key-script.ts), with the plane hashed at every flush. */
     script?: readonly KeyStep[];
@@ -253,19 +254,22 @@ export async function replayPlayerBdj(
     requestFrame: () => undefined,
     createAudioDecoder: createAudioDecoderFactory(() => Promise.reject(new Error('no wasm in the replay'))),
     createCompositor: () => opts.compositor ?? { resize: () => undefined, drawVideo: () => undefined },
-    ...(opts.decodeImage ? { decodeImage: opts.decodeImage } : {}),
     // the replay has its own timeout; the first-playlist timer would measure the virtual clock's real-time steps
     setTimer: () => () => undefined,
-    createBdjWorker: () =>
-      inProcessWorker(
-        onToBdj,
-        onFromBdj,
-        (h) => {
-          lastWorker = h;
-        },
-        store,
-      ),
-    loadClassLibrary: async () => classes,
+    bdj: seikouBdjProvider({
+      missing: [],
+      createWorker: () =>
+        inProcessWorker(
+          onToBdj,
+          onFromBdj,
+          (h) => {
+            lastWorker = h;
+          },
+          store,
+        ),
+      loadClassLibrary: async () => classes,
+      ...(opts.decodeImage ? { decodeImage: opts.decodeImage } : {}),
+    }),
     bdjLog: opts.log ? (line) => opts.log!(line) : undefined,
     playerSettings: HARNESS_SETTINGS,
   });

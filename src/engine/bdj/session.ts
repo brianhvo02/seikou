@@ -8,62 +8,10 @@
  */
 
 import type { DiscSpec } from '../disc/disc-spec';
-import type { ScreenRect } from './background';
-import type { PlayerBdjHost } from './player-host';
-import type { Coalesce } from './input';
-import type { BdjMemoryBudgets, ClassLibrarySource } from './runtime';
-import type { StatusBlockWriter } from './status-block';
-import type { StorageLoss } from './store/bdj-store';
+import type { BdjSessionDeps, BdjSessionLike, ClassLibrarySource, Coalesce } from '../bdj-types';
 import { bootTransfer, type BdjCallName, type BdjFailureCode, type BdjWireValue, type FromBdj, type ToBdj } from './worker-protocol';
 
-export type { BdjFailureCode } from './worker-protocol';
-
-export interface WorkerLike {
-  /** `transfer`: a boot message's fetch port (bootTransfer). */
-  postMessage(message: ToBdj, transfer?: Transferable[]): void;
-  onmessage: ((event: MessageEvent<FromBdj>) => void) | null;
-  onerror?: ((event: ErrorEvent) => void) | null;
-  terminate(): void;
-}
-
-export interface BdjSessionDeps {
-  readonly worker: WorkerLike;
-  readonly host: Pick<PlayerBdjHost, 'handle'>;
-  /** The register file's shared buffer (RegisterFile({ shared })). */
-  readonly regs: SharedArrayBuffer;
-  readonly status: StatusBlockWriter;
-  /** The graphics plane's shared buffer (createGraphicsPlane). */
-  readonly plane: SharedArrayBuffer;
-  /** bd_tell_time's position in 45 kHz ticks, published before selectPlaylist and seek reply. */
-  readonly time45: () => bigint;
-  readonly onFailed: (code: BdjFailureCode, message: string) => void;
-  readonly onLog?: (line: string, error: boolean) => void;
-  /** A background still Java asked to show (null: none). */
-  readonly onBackground?: (image: Uint8Array | null, rect: ScreenRect) => void;
-  /**
-   * What the disc saves won't last (the worker's `storageLost`, ruling R32): the player shows the `bdj-storage` notice.
-   * Never called once the session has stopped.
-   */
-  readonly onStorageLost?: (reason: StorageLoss) => void;
-  /** The worker's NAS reads got a 401: a fresh token is wanted (setToken delivers it). */
-  readonly onTokenNeeded?: () => void;
-  readonly nowMs: () => number;
-  /**
-   * The wall clock the start-up timeout is counted on (default Date.now): it goes on while the host sleeps, which is
-   * how a sleep shows (ruling R22).
-   */
-  readonly wallMs?: () => number;
-  readonly setTimer: (ms: number, fn: () => void) => () => void;
-  /** How long after boot (or the first start) Java has to select a playlist, show a menu or show a background still. */
-  readonly selectTimeoutMs?: number;
-  /** The page is hidden as the session starts (setHidden changes it): the start-up timeout waits for it to be shown. */
-  readonly hidden?: boolean;
-  /** The memory profile's BD-J budgets, for the boot message. */
-  readonly memory?: BdjMemoryBudgets;
-  /** Asks the worker for its memory stats every this many ms (telemetry), which arrive here. */
-  readonly memoryStatsMs?: number;
-  readonly onMemory?: (stats: Extract<FromBdj, { type: 'memory' }>) => void;
-}
+export type { BdjFailureCode, BdjSessionDeps, WorkerLike } from '../bdj-types';
 
 /**
  * The start-up timeout: a BD-J title that has neither selected a playlist nor shown anything (a visible plane, a
@@ -97,7 +45,7 @@ export const DUMP_WAIT_MS = 1_000;
 /** At a stop with unsaved storage changes, how long the worker has to save them before it is terminated. */
 export const STOP_SAVE_WAIT_MS = 3_000;
 
-export class BdjSession {
+export class BdjSession implements BdjSessionLike {
   private stopped = false;
   private bootDone: (() => void) | null = null;
   private startedAt: number | null = null;

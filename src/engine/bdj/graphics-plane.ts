@@ -13,9 +13,12 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-/** The plane's fixed size: the largest BD-J graphics configuration. A smaller plane keeps its pixels at the top left. */
-export const PLANE_WIDTH = 1920;
-export const PLANE_HEIGHT = 1080;
+import { PLANE_HEIGHT, PLANE_WIDTH } from '../bdj-provider';
+import type { GraphicsPlaneReaderLike, PlaneRect } from '../bdj-types';
+export type { PlaneRect } from '../bdj-types';
+
+/** The plane's fixed size (bdj-provider.ts): the largest BD-J graphics configuration. A smaller plane keeps its pixels at the top left. */
+export { PLANE_HEIGHT, PLANE_WIDTH };
 
 /*
  * Layout: HEADER_WORDS Int32 words, then PLANE_WIDTH * PLANE_HEIGHT Int32 ARGB words (0xAARRGGBB, not premultiplied),
@@ -38,13 +41,6 @@ const PIXELS = PLANE_WIDTH * PLANE_HEIGHT;
 
 /** The reader never waits for the writer's lock (the render path must not block): it tries again at the next frame. */
 const READER_LOCK_MS = 0;
-
-export interface PlaneRect {
-  readonly x: number;
-  readonly y: number;
-  readonly width: number;
-  readonly height: number;
-}
 
 export function createGraphicsPlane(): SharedArrayBuffer {
   const buffer = new SharedArrayBuffer(HEADER_BYTES + PIXELS * 4);
@@ -230,7 +226,7 @@ export function updateGraphic(
 }
 
 /** The engine worker's side. */
-export class GraphicsPlaneReader extends PlaneViews {
+export class GraphicsPlaneReader extends PlaneViews implements GraphicsPlaneReaderLike {
   private copied = -1;
 
   /**

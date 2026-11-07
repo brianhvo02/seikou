@@ -15,6 +15,8 @@
 
 import { BdVk } from '../graphics/graphics-controller';
 import type { UoOp } from '../hdmv/uo-mask';
+import type { InputLatencyLike, KeyUoContext, BdjInput, Coalesce, TapReactionDeps, InputLatencyStats, TapReactionWatchLike } from '../bdj-types';
+export type { KeyUoContext, BdjInput, Coalesce, TapReactionDeps, InputLatencyStats } from '../bdj-types';
 
 /** bdj.h BDJ_EVENT_VK_KEY and BDJ_EVENT_MOUSE (runtime.ts BdjEvent, not imported: runtime.ts uses this module). */
 export const BDJ_EVENT_VK_KEY = 16;
@@ -51,13 +53,6 @@ export function bdjMouseParam(x: number, y: number): number {
   return (((x & 0xffff) << 16) | (y & 0xffff)) >>> 0;
 }
 
-export interface KeyUoContext {
-  /** bd->uo_restriction_level (UoRestriction). */
-  readonly level: number;
-  /** bd->gc_status & GC_STATUS_POPUP. */
-  readonly popupShown: boolean;
-}
-
 /** _get_key_uo_index's key_uo_map: the operation and the lowest level that enforces it. */
 const KEY_UO: ReadonlyMap<number, { readonly op: UoOp; readonly minLevel: number }> = new Map([
   [BdVk.ROOT_MENU, { op: 'menuCall', minLevel: UoRestriction.SAFE }],
@@ -85,18 +80,6 @@ export function getKeyUoOp(keyId: number, ctx: KeyUoContext): UoOp | null {
   return entry.op;
 }
 
-export type BdjInput =
-  /** bd_menu_call: the root menu key, typed. */
-  | { readonly kind: 'menuCall' }
-  /** The root menu key pressed or released only: nothing happens. */
-  | { readonly kind: 'none' }
-  /**
-   * BDJ_EVENT_VK_KEY with `param`. `uoMasked` is what bd_user_input computes from _get_key_uo_index and _is_uo_masked;
-   * under a BD-J title libbluray does not act on it (only its HDMV branch refuses masked keys), and neither does the
-   * player.
-   */
-  | { readonly kind: 'event'; readonly ev: number; readonly param: number; readonly uoMasked: boolean };
-
 /** bd_user_input under title_type bdj, for `key` (a BD_VK_* code, optionally OR'd with BD_VK_KEY_* flags). */
 export function bdjUserInput(key: number, ctx: KeyUoContext & { readonly isUoMasked: (op: UoOp) => boolean }): BdjInput {
   if (vkKey(key) === BdVk.ROOT_MENU) return keyTyped(key) ? { kind: 'menuCall' } : { kind: 'none' };
@@ -106,12 +89,6 @@ export function bdjUserInput(key: number, ctx: KeyUoContext & { readonly isUoMas
 }
 
 // ---- the bounded event queue (original code) ----
-
-/**
- * How a queued event may merge with an earlier one once the queue is full: a held key's auto-repeat (`repeat`) or a
- * pointer move (`move`). Other events are never merged or dropped.
- */
-export type Coalesce = 'repeat' | 'move';
 
 export interface QueuedBdjEvent {
   readonly ev: number;
@@ -148,22 +125,11 @@ export function enqueueBdjEvent(queue: QueuedBdjEvent[], e: QueuedBdjEvent, cap 
 
 // ---- the ignored-tap rule (original code) ----
 
-export interface TapReactionDeps {
-  readonly setTimer: (ms: number, fn: () => void) => () => void;
-  /**
-   * A count that changes whenever the disc reacts: a plane publication (flush, init, close), a control call or register
-   * write from Java, a background still. Only its changes matter.
-   */
-  readonly activity: () => number;
-  /** A tap got no reaction within the window; `notice` is true for the first such tap of the current menu. */
-  readonly ignored: (notice: boolean) => void;
-}
-
 /**
  * The 5d spec's ignored-tap rule (§4.2): a tap forwarded to a BD-J menu that brings no reaction within the window is
  * reported; the notice goes with the first such tap of a menu only (a menu lasts from the plane turning visible).
  */
-export class TapReactionWatch {
+export class TapReactionWatch implements TapReactionWatchLike {
   private noticed = false;
   private cancelTimer: (() => void) | null = null;
 
@@ -200,13 +166,6 @@ export class TapReactionWatch {
 
 // ---- the responsiveness measure (original code) ----
 
-/** Input latency so far: the last and the largest, in ms, and how many inputs were answered. */
-export interface InputLatencyStats {
-  readonly last: number;
-  readonly max: number;
-  readonly count: number;
-}
-
 /** An input whose plane change has not been presented after this long changed nothing: it is dropped, uncounted. */
 export const INPUT_LATENCY_EXPIRY_MS = 5_000;
 const MAX_PENDING_INPUTS = 32;
@@ -216,7 +175,7 @@ const MAX_PENDING_INPUTS = 32;
  * contains a plane change published after it. BD-J has no notion of which flush answers which input, so the first
  * plane publication presented after an input answers it (and every input before it).
  */
-export class InputLatency {
+export class InputLatency implements InputLatencyLike {
   private readonly pending: Array<{ readonly atMs: number; readonly version: number }> = [];
   private last = 0;
   private max = 0;

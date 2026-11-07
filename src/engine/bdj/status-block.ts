@@ -7,6 +7,8 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
+import type { StatusBlockWriterLike } from '../bdj-types';
+
 const TIME45 = 0;
 const UO_MASK = 1;
 const BIGINT_WORDS = 2;
@@ -23,7 +25,7 @@ class StatusBlockViews {
   }
 }
 
-export class StatusBlockWriter extends StatusBlockViews {
+export class StatusBlockWriter extends StatusBlockViews implements StatusBlockWriterLike {
   /** bd_tell_time's out_time: the title time of the current packet, in 45 kHz ticks. */
   setTime45(t: bigint): void {
     Atomics.store(this.longs, TIME45, BigInt.asIntN(64, t));

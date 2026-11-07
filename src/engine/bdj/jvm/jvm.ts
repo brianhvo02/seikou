@@ -20,6 +20,8 @@ import { openZipStats } from './natives/zip';
 import { JavaThrowable } from './values';
 import type { JArray, JObject, JValue } from './values';
 import type { Vfs } from './vfs';
+import type { JvmMemoryStats } from '../../bdj-types';
+export type { JvmMemoryStats } from '../../bdj-types';
 
 export interface JvmOptions {
   readonly bootJars: readonly Uint8Array[];
@@ -43,25 +45,6 @@ export interface JvmOptions {
   readonly classBytesBudget?: number;
   /** The VM's own diagnostics (not Java's output). */
   readonly warn?: (line: string) => void;
-}
-
-/** What the JVM keeps outside its Java heap, in bytes (memory budgets, 5d spec §4.5). */
-export interface JvmMemoryStats {
-  /** The boot class path's jars. */
-  readonly bootJarBytes: number;
-  /** Classes defined from class files. */
-  readonly classes: number;
-  /** Bytes of their class files the classes keep (code, annotations). */
-  readonly classFileBytes: number;
-  /** Zips Java has open (ZipFile objects of one unchanged file share one), and the archive bytes only they keep. */
-  readonly zipHandles: number;
-  readonly zipBytes: number;
-  /** Files on the memory mounts (/tmp/, /persistent/, /buda/), their allocations and their lengths (what the limit counts). */
-  readonly vfsFiles: number;
-  readonly vfsBytes: number;
-  readonly vfsUsedBytes: number;
-  /** /jdk/lib/ files read from rt-bdj.jar. */
-  readonly jdkFileBytes: number;
 }
 
 /** A Throwable's stack, innermost first, kept in its nativeData. */

@@ -1,5 +1,5 @@
-import type { ShownStill } from '../bdj/background';
-import { PLANE_HEIGHT, PLANE_WIDTH, type GraphicsPlaneReader } from '../bdj/graphics-plane';
+import { PLANE_HEIGHT, PLANE_WIDTH } from '../bdj-provider';
+import type { GraphicsPlaneReaderLike, ShownStill } from '../bdj-types';
 import type { OverlayPlane } from '@seikou/pg';
 import type { ShaderStage } from '../shaders/stage';
 import type { Rect, TextRenderOptions, TextRendererLike } from '@seikou/ass/host-types';
@@ -39,7 +39,7 @@ export interface CompositorLike {
    * rectangle as IG is. Copies only what was published since the last draw (what the BD-J worker publishes while the
    * copy waits stays pending for the next draw).
    */
-  drawBdj?(plane: GraphicsPlaneReader): void;
+  drawBdj?(plane: GraphicsPlaneReaderLike): void;
   /** Forgets the BD-J plane (BD-J stopped): nothing of it is drawn again. */
   clearBdj?(): void;
   /** Bytes the compositor's copy of the BD-J plane takes (canvas and ImageData); 0 while it has none. */
@@ -56,7 +56,7 @@ interface BdjCanvas {
   readonly canvas: OffscreenCanvas;
   readonly ctx: OffscreenCanvasRenderingContext2D;
   readonly image: ImageData;
-  plane: GraphicsPlaneReader | null;
+  plane: GraphicsPlaneReaderLike | null;
 }
 
 /**
@@ -131,7 +131,7 @@ export class Compositor implements CompositorLike {
     this.ig = this.drawPlane(this.ig, plane);
   }
 
-  drawBdj(plane: GraphicsPlaneReader): void {
+  drawBdj(plane: GraphicsPlaneReaderLike): void {
     let b = this.bdj;
     if (!b) {
       const canvas = this.createCanvas(PLANE_WIDTH, PLANE_HEIGHT);

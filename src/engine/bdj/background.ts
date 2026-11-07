@@ -8,34 +8,8 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-/** An HScreenRectangle: part of the screen in normalised coordinates (0 to 1). */
-export interface ScreenRect {
-  readonly x: number;
-  readonly y: number;
-  readonly width: number;
-  readonly height: number;
-}
-
-/** A still that is shown: the decoded image and where on the screen it goes. */
-export interface ShownStill {
-  readonly image: ImageBitmap;
-  readonly rect: ScreenRect;
-}
-
-/** Decodes an encoded image (PNG, JPEG, GIF); createImageBitmap in production. */
-export type DecodeImage = (bytes: Uint8Array) => Promise<ImageBitmap>;
-
-export interface BackgroundStillDeps {
-  readonly decode: DecodeImage;
-  /** The still to draw from now on (null: none); called before the previous one is closed. */
-  readonly onChange: (still: ShownStill | null) => void;
-  readonly onError?: (message: string) => void;
-  /**
-   * Bytes the decoded stills may take (the memory profile's bdjDecodedImageBytes; default none): a larger still is not
-   * shown, and the shown one goes before a replacement decodes if both would not fit.
-   */
-  readonly maxDecodedBytes?: () => number;
-}
+import type { BackgroundStillLike, ScreenRect, ShownStill, BackgroundStillDeps } from '../bdj-types';
+export type { ScreenRect, ShownStill, DecodeImage, BackgroundStillDeps } from '../bdj-types';
 
 /** Decoded RGBA bytes of an image of this size. */
 const decodedBytes = (width: number, height: number): number => width * height * 4;
@@ -77,7 +51,7 @@ const finite = (v: number, fallback: number): number => (Number.isFinite(v) ? v 
  * as soon as a newer still replaces it or the background is cleared. A decode that finishes after a newer still or a
  * clear is closed at once and never shown.
  */
-export class BackgroundStill {
+export class BackgroundStill implements BackgroundStillLike {
   private generation = 0;
   private shown: ShownStill | null = null;
   /** The decoded size of the still being decoded, as its header declares it (0: none, or not known). */

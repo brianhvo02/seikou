@@ -10,8 +10,8 @@
 
 import { PSR, type RegisterFile } from '../hdmv/registers';
 import { BdjEvent } from './runtime';
-
-export type BdjEventSink = (ev: number, param: number) => void;
+import type { BdjEventSink, BdjPlaybackEvents } from '../bdj-types';
+export type { BdjEventSink, BdjPlaybackEvents } from '../bdj-types';
 
 const PSR_SECONDARY_AUDIO_VIDEO = PSR.SECONDARY_AUDIO_VIDEO;
 
@@ -37,19 +37,6 @@ export function bindBdjPsrEvents(regs: RegisterFile, sink: BdjEventSink): () => 
       default: break;
     }
   });
-}
-
-export interface BdjPlaybackEvents {
-  /** bd_read_ext: BDJ_EVENT_END_OF_PLAYLIST with PSR_PLAYLIST. */
-  readonly endOfPlaylist: (playlist: number) => void;
-  /** _playmark_reached: BDJ_EVENT_MARK with the mark index. */
-  readonly markReached: (mark: number) => void;
-  /** _seek_internal: BDJ_EVENT_SEEK with the media time (45 kHz, playlist-relative). */
-  readonly seeked: (mediaTime45: number) => void;
-  /** bd_set_rate: BDJ_EVENT_RATE (BLURAY_RATE_PAUSED 0, BLURAY_RATE_NORMAL 90000). */
-  readonly rate: (rate: number) => void;
-  /** BDJ_EVENT_UO_MASKED with the UO mask index. */
-  readonly uoMasked: (uoIndex: number) => void;
 }
 
 export function bdjPlaybackEvents(sink: BdjEventSink): BdjPlaybackEvents {

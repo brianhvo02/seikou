@@ -16,7 +16,7 @@
 import type { Mpls } from '@seikou/bdmv/mpls-parser';
 import type { SoundData } from '@seikou/bdmv/sound-parser';
 import type { DiscModel } from '../disc/open-disc';
-import { PSR, type RegisterFile } from '../hdmv/registers';
+import { PSR } from '../hdmv/registers';
 import { EMPTY_UO_MASK, combineUoMasks, parseUoMaskTable, uoMaskBits, type UoMask, type UoOp } from '../hdmv/uo-mask';
 import type { PlayAt } from '../nav/navigator';
 import { itemPackets, type ItemPackets } from '../nav/packets';
@@ -25,24 +25,13 @@ import {
   type PlaybackPsrContext, type TitleType,
 } from '../nav/playback-psrs';
 import { Timeline } from '../nav/timeline';
-import type { BdjPlaybackListener, BdjPlaybackPort } from '../player';
+import type { BdjPlaybackListener } from '../player';
 import { ticks45ToUs } from '../util/time';
 import { TITLE_FIRST_PLAY, firstPlayInfo, titleOf } from './disc-info';
-import { bindBdjPsrEvents, type BdjEventSink, type BdjPlaybackEvents } from './events';
+import { bindBdjPsrEvents } from './events';
 import type { BdjWireValue, BdjCallName } from './worker-protocol';
-
-export interface PlayerBdjHostDeps {
-  readonly port: BdjPlaybackPort;
-  readonly regs: RegisterFile;
-  readonly disc: DiscModel;
-  readonly events: BdjPlaybackEvents;
-  /** When given, the PSR events of `regs` (bindBdjPsrEvents) go here until dispose(). */
-  readonly psrEvents?: BdjEventSink;
-  startTitle(title: number): void;
-  playHdmvTitle(title: number): boolean;
-  /** bd->uo_mask changed (bdpriv_get_uo_mask's bits); called before the call that changed it returns. */
-  uoMaskChanged(bits: bigint): void;
-}
+import type { PlayerBdjHostDeps, PlayerBdjHostLike } from '../bdj-types';
+export type { PlayerBdjHostDeps } from '../bdj-types';
 
 type SeekStep = { readonly kind: 'item'; readonly item: number } | { readonly kind: 'mark'; readonly mark: number } | { readonly kind: 'time'; readonly t45: number };
 
@@ -64,7 +53,7 @@ const num = (v: BdjWireValue | undefined): number => Number(v ?? 0);
 const long = (v: BdjWireValue | undefined): bigint => BigInt(String(v ?? 0));
 
 /** The engine side of Java's playback calls (BdjCallName), carried out by the real player. */
-export class PlayerBdjHost {
+export class PlayerBdjHost implements PlayerBdjHostLike {
   private titleType: TitleType = 'bdj';
   /** bd->title: the open playlist, kept after its end until it is closed. */
   private playlist: Mpls | null = null;

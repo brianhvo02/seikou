@@ -1,17 +1,22 @@
 import { AudioWriter } from './audio/audio-writer';
 import { OUTPUT_SAMPLE_RATE, RingWriter, ringViews } from './audio/ring';
 import type { Mpls, PlayItem } from '@seikou/bdmv/mpls-parser';
-import { BackgroundStill, type DecodeImage } from './bdj/background';
-import { bdjPlaybackEvents, type BdjPlaybackEvents } from './bdj/events';
-import { PlayerBdjHost } from './bdj/player-host';
-import type { BdjMemoryBudgets, ClassLibrarySource } from './bdj/runtime';
-import { EarlyBdjWorker } from './bdj/early-worker';
-import { GraphicsPlaneReader, createGraphicsPlane } from './bdj/graphics-plane';
-import { bdjUnsupportedMessage } from './bdj/requirements';
-import { BDJ_EVENT_MOUSE, InputLatency, TapReactionWatch, UoRestriction, bdjMouseParam, bdjUserInput } from './bdj/input';
-import { BdjSession, type BdjFailureCode, type WorkerLike } from './bdj/session';
-import { REGISTER_WORDS } from './bdj/shared-registers';
-import { StatusBlockWriter, createStatusBlock } from './bdj/status-block';
+import { BDJ_RUNTIME, bdjUnsupportedMessage, type BdjProvider } from './bdj-provider';
+import type {
+  BackgroundStillLike,
+  BdjFailureCode,
+  BdjMemoryBudgets,
+  BdjPlaybackEvents,
+  BdjSessionLike,
+  ClassLibrarySource,
+  EarlyBdjWorkerLike,
+  FromBdj,
+  GraphicsPlaneReaderLike,
+  InputLatencyLike,
+  PlayerBdjHostLike,
+  StatusBlockWriterLike,
+  TapReactionWatchLike,
+} from './bdj-types';
 import { indexUsesBdj, type IndexBdmv } from '@seikou/bdmv/index-parser';
 import { codingName, isVideoCoding } from '@seikou/bdmv/stream-types';
 import { MasterClock } from './clock/master-clock';
@@ -53,7 +58,6 @@ import { MEMORY_PROFILES, type MemoryProfile, type MemoryProfileName } from './m
 import type { Mat3 } from '@seikou/ass/transform';
 import type { AssTrack } from '@seikou/ass/types';
 import { BDJ_STORAGE_MESSAGE, NO_PICTURE_MESSAGE, type AudioTrack, type BufferRequest, type BdjMemoryTelemetry, type EngineCommand, type EngineEvent, type FileData, type MenuKey, type NoticeCode, type PlaceState, type PlaybackState, type ShaderSetData, type StartPoint, type SubtitleChoice } from './protocol';
-import type { FromBdj } from './bdj/worker-protocol';
 import type { CompositorLike, TextRendererLike } from './render/compositor';
 import { ShaderStage } from './shaders/stage';
 import { UNAVAILABLE, type ShaderBackend } from './shaders/webgl-backend';
@@ -65,6 +69,8 @@ import { ParseError } from '@seikou/bdmv/byte-reader';
 import { pts90ToUs, ticks45ToUs, usToTicks45 } from './util/time';
 
 const UO_MASKED_MESSAGE = "The disc doesn't allow this here.";
+/** bdjMissing without a BD-J provider. */
+const NO_BDJ_RUNTIME: readonly string[] = [BDJ_RUNTIME];
 const NO_SUBTITLES_MESSAGE = 'this file has no subtitles we can read';
 const SOME_SUBTITLES_MESSAGE = 'Some lines of this file could not be read';
 const PLACE_FILES_MESSAGE = "Place each subtitle file at its episode's start in the subtitle menu";
@@ -92,15 +98,11 @@ export interface PlayerDeps {
   readonly createAssDeps?: () => Promise<AssDeps>;
   /** The GPU backend for video shaders, or why there is none; created once, when the first set is chosen. */
   readonly createShaderBackend?: (events: { lost(): void; restored(): void }) => ShaderBackend | string;
-  /** A new BD-J worker (bdj/bdj-worker.ts) for each BD-J session. */
-  readonly createBdjWorker?: () => WorkerLike;
   /**
-   * What this browser lacks to run BD-J (bdj/requirements.ts bdjMissing on the engine worker's global): when any is
-   * missing, BD-J discs and titles open to the picker with a notice naming it.
+   * BD-J (bdj-provider.ts): its worker, class library, host and session. Without it, BD-J discs and titles open to the
+   * picker with a notice naming the missing BD-J runtime, as when the provider says the browser lacks something.
    */
-  readonly bdjMissing?: readonly string[];
-  /** The BD-J class library jars; fetched once, as soon as a BD-J disc is opened. */
-  readonly loadClassLibrary?: () => Promise<ClassLibrarySource>;
+  readonly bdj?: BdjProvider;
   /** One-shot timer, cancelled by the returned function (the BD-J first-playlist timeout); setTimeout by default. */
   readonly setTimer?: (ms: number, fn: () => void) => () => void;
   /** The wall clock the BD-J start-up timeout counts on, through a host sleep (ruling R22); Date.now by default. */
@@ -118,8 +120,6 @@ export interface PlayerDeps {
   readonly planeHashTelemetry?: boolean;
   /** Test-only (?telemetry=1): telemetry carries BD-J's memory (bdjMemory), which the BD-J worker reports every 5 s. */
   readonly memoryTelemetry?: boolean;
-  /** Decodes a BD-J background still (createImageBitmap); without it, background stills are not shown. */
-  readonly decodeImage?: DecodeImage;
   /** Reads a NAS disc's files (HttpTransport); the global fetch by default. */
   readonly fetch?: typeof fetch;
   /** A NAS disc's range request size (REMOTE_CHUNK_BYTES) and read-ahead budget (the memory profile's) when set. */
@@ -257,10 +257,10 @@ export interface BdjPlaybackPort {
 
 /** A BD-J First Play's worker started while the disc opens, with the registers and status block its boot carries. */
 interface EarlyBdj {
-  readonly worker: EarlyBdjWorker;
+  readonly worker: EarlyBdjWorkerLike;
   readonly regs: RegisterFile;
-  readonly status: StatusBlockWriter;
-  readonly plane: GraphicsPlaneReader;
+  readonly status: StatusBlockWriterLike;
+  readonly plane: GraphicsPlaneReaderLike;
   readonly disc: BdjDisc;
 }
 
@@ -278,14 +278,16 @@ interface BdjDisc {
  * picked, an HDMV title, the disc closed) or fails; title changes inside BD-J reuse it.
  */
 interface BdjTitle {
-  readonly session: BdjSession;
-  readonly host: PlayerBdjHost;
+  /** The provider the title runs on (PlayerDeps.bdj). */
+  readonly provider: BdjProvider;
+  readonly session: BdjSessionLike;
+  readonly host: PlayerBdjHostLike;
   readonly events: BdjPlaybackEvents;
   /** The title registers, shared with the BD-J worker (the navigator's, when HDMV handed over). */
   readonly regs: RegisterFile;
-  readonly status: StatusBlockWriter;
+  readonly status: StatusBlockWriterLike;
   /** The graphics plane Java draws into (one per worker: a terminated worker can never write into the next one's). */
-  readonly plane: GraphicsPlaneReader;
+  readonly plane: GraphicsPlaneReaderLike;
   /** Cuts the title off from the player: its port, events and callbacks do nothing afterwards. */
   readonly end: () => void;
   /** The title to start once the worker has booted; null once booted. */
@@ -296,7 +298,7 @@ interface BdjTitle {
   /** How the worker reads the disc: its fetch port and that port's relay, on the port route. */
   readonly disc: BdjDisc;
   /** Taps forwarded to Java, waiting for a reaction (the ignored-tap rule). */
-  readonly taps: TapReactionWatch;
+  readonly taps: TapReactionWatchLike;
   /** The BD-J worker's last memory report (memoryTelemetry). */
   memory: Extract<FromBdj, { type: 'memory' }> | null;
 }
@@ -450,7 +452,7 @@ export class Player {
   /** The open disc's bdj-storage notice has been sent (ruling R32: once per disc open, whatever BD-J sessions it runs). */
   private bdjStorageNotice = false;
   /** telemetry bdjPlane.hash: the plane and its version at the last telemetry, and the hash of a settled version. */
-  private planeSeen: { plane: GraphicsPlaneReader; version: number; hash: string | null } | null = null;
+  private planeSeen: { plane: GraphicsPlaneReaderLike; version: number; hash: string | null } | null = null;
   /** A BD-J First Play's worker, booting while the disc opens, until enterBdj adopts it. */
   private earlyBdj: EarlyBdj | null = null;
   /**
@@ -462,7 +464,7 @@ export class Player {
   private openedAtMs = 0;
   private bdjStartup: { bootMs: number | null; firstPlaylistMs: number | null; firstFrameMs: number | null } | null = null;
   /** Keys and taps sent to BD-J menus, until their plane change is presented (telemetry `bdj.inputLatencyMs`). */
-  private bdjLatency = new InputLatency();
+  private bdjLatency: InputLatencyLike | null;
   private unsubscribePg: (() => void) | null = null;
   /** The PG track list last sent in a 'subtitles' event ('' forces the next one). */
   private sentPgTracks = '';
@@ -481,22 +483,26 @@ export class Player {
   private shadersDirty = false;
   /** The video under the BD-J plane was redrawn without it (no playlist): the next paint draws the plane again. */
   private bdjDirty = false;
-  /** The BD-J title's background still, under the video; cleared with the BD-J plane (stopBdj). */
-  private readonly background: BackgroundStill;
+  /** The BD-J title's background still, under the video; cleared with the BD-J plane (stopBdj). None without BD-J. */
+  private readonly background: BackgroundStillLike | null;
   /** The background still changed: the next paint redraws the video over it. */
   private backgroundDirty = false;
 
   constructor(private readonly deps: PlayerDeps) {
     this.clock = new MasterClock(deps.nowMs);
-    this.background = new BackgroundStill({
-      decode: deps.decodeImage ?? (() => Promise.reject(new Error('this player has no image decoder'))),
-      onChange: (still) => {
-        this.compositor?.setBackground?.(still);
-        this.backgroundDirty = true;
-      },
-      onError: (message) => this.deps.bdjLog?.(message, true),
-      maxDecodedBytes: () => this.memory.bdjDecodedImageBytes,
-    });
+    const bdj = deps.bdj;
+    this.bdjLatency = bdj?.input.createInputLatency() ?? null;
+    this.background = bdj
+      ? bdj.createBackgroundStill({
+          decode: bdj.decodeImage ?? (() => Promise.reject(new Error('this player has no image decoder'))),
+          onChange: (still) => {
+            this.compositor?.setBackground?.(still);
+            this.backgroundDirty = true;
+          },
+          onError: (message) => this.deps.bdjLog?.(message, true),
+          maxDecodedBytes: () => this.memory.bdjDecodedImageBytes,
+        })
+      : null;
   }
 
   /**
@@ -587,7 +593,7 @@ export class Player {
         case 'attachCanvas':
           this.compositor = this.deps.createCompositor(cmd.canvas);
           if (this.shaderStage) this.compositor.setShaderStage?.(this.shaderStage);
-          if (this.background.current) this.compositor.setBackground?.(this.background.current);
+          if (this.background?.current) this.compositor.setBackground?.(this.background.current);
           this.startRenderLoop();
           break;
         case 'attachAudio':
@@ -790,7 +796,7 @@ export class Player {
       this.compositor?.drawBdj?.(bdj);
       // this frame shows what its copy took, which may be a flush that landed after bdjChanged was computed: Java
       // flushes on the BD-J worker's thread (a copy that waited for the writer took nothing, and answers nothing)
-      if (bdj.copiedVersion() !== copied) this.bdjLatency.presented(this.deps.nowMs(), bdj.copiedVersion());
+      if (bdj.copiedVersion() !== copied) this.bdjLatency?.presented(this.deps.nowMs(), bdj.copiedVersion());
     }
   }
 
@@ -851,7 +857,7 @@ export class Player {
   private async openDisc(spec: DiscSpec, bufferFirst: BufferRequest | undefined, hold: OpenHold | null, start: StartPoint | null): Promise<void> {
     this.openedAtMs = this.deps.nowMs();
     this.bdjStartup = null;
-    this.bdjLatency = new InputLatency();
+    this.bdjLatency = this.deps.bdj?.input.createInputLatency() ?? null;
     this.bdjTapsIgnored = 0;
     this.noPictureNotice = 'unsent';
     this.missingAudioLogged = new Set();
@@ -892,7 +898,7 @@ export class Player {
     this.bindPg(this.pgRegs);
     this.resetTextSubtitles();
     this.emitSubtitles();
-    this.deps.emit({ type: 'titles', playlists: disc.summaries, usesBdj: disc.usesBdj, bdjSupported: this.bdjSupported, bdjMissing: this.deps.bdjMissing ?? [], warnings: disc.warnings });
+    this.deps.emit({ type: 'titles', playlists: disc.summaries, usesBdj: disc.usesBdj, bdjSupported: this.bdjSupported, bdjMissing: this.bdjMissing, warnings: disc.warnings });
     if (disc.movieObjects) this.emitIndexTitles(disc);
     if (disc.sounds) this.deps.emit({ type: 'soundEffects', clips: disc.sounds.clips.map((c) => ({ channels: c.channels, samples: c.samples })) });
     if (disc.usesBdj && !this.bdjSupported) this.notice('bdj', this.bdjUnsupported('disc'));
@@ -1272,17 +1278,24 @@ export class Player {
     return disc.port ? { ...boot, fetchPort: disc.port } : boot;
   }
 
-  private get bdjSupported(): boolean {
-    return this.deps.createBdjWorker !== undefined && this.deps.loadClassLibrary !== undefined && (this.deps.bdjMissing?.length ?? 0) === 0;
+  /** The BD-J provider when BD-J can run here: there is one, and the browser lacks nothing it needs. */
+  private get supportedBdj(): BdjProvider | null {
+    const bdj = this.deps.bdj;
+    return bdj && bdj.missing.length === 0 ? bdj : null;
   }
 
-  /** The notice when BD-J cannot run: what the browser lacks, or (a build without BD-J) that it is not supported. */
+  private get bdjSupported(): boolean {
+    return this.supportedBdj !== null;
+  }
+
+  /** What BD-J lacks here: what the provider says the browser lacks, or (no provider) the BD-J runtime itself. */
+  private get bdjMissing(): readonly string[] {
+    return this.deps.bdj?.missing ?? NO_BDJ_RUNTIME;
+  }
+
+  /** The notice when BD-J cannot run: what it lacks (bdjMissing). */
   private bdjUnsupported(what: 'disc' | 'title'): string {
-    const missing = this.deps.bdjMissing ?? [];
-    if (missing.length > 0) return bdjUnsupportedMessage(missing, what);
-    return what === 'disc'
-      ? 'This disc uses BD-J (Java) menus, which are not supported. Choose a playlist to play.'
-      : 'This title uses BD-J (Java), which is not supported. Choose a playlist to play.';
+    return bdjUnsupportedMessage(this.bdjMissing, what);
   }
 
   /** _fill_disc_info's profile switch (bd_open). */
@@ -1301,7 +1314,8 @@ export class Player {
 
   /** The registers of the disc's program (HDMV or BD-J), shared with a BD-J worker when the disc can run BD-J. */
   private newProgramRegs(index: IndexBdmv, usesBdj: boolean): RegisterFile {
-    const shared = usesBdj && this.bdjSupported ? new SharedArrayBuffer(REGISTER_WORDS * 4) : undefined;
+    const bdj = usesBdj ? this.supportedBdj : null;
+    const shared = bdj ? new SharedArrayBuffer(bdj.REGISTER_WORDS * 4) : undefined;
     const regs = new RegisterFile(shared ? { shared } : {});
     this.initRegs(regs, index);
     if (usesBdj) this.applyBdjSettings(regs);
@@ -1319,20 +1333,20 @@ export class Player {
     if (!index || !indexUsesBdj(index)) return null;
     this.loadClassLibrary();
     const library = this.bdjClassLibrary;
-    const createWorker = this.deps.createBdjWorker;
-    if (index.firstPlay.kind !== 'bdj' || !library || !createWorker) return null;
+    const bdj = this.deps.bdj;
+    if (index.firstPlay.kind !== 'bdj' || !library || !bdj) return null;
     const early: EarlyBdj = {
-      worker: new EarlyBdjWorker(createWorker()),
+      worker: bdj.createEarlyWorker(bdj.createWorker()),
       regs: this.newProgramRegs(index, true),
-      status: new StatusBlockWriter(createStatusBlock()),
-      plane: new GraphicsPlaneReader(createGraphicsPlane()),
+      status: bdj.createStatusBlock(),
+      plane: bdj.createGraphicsPlane(),
       disc: this.bdjDisc(),
     };
     this.earlyBdj = early;
     void (async () => {
       try {
         const [classLibrary, bdid] = await Promise.all([library, readBdid(source), this.bdjSaving]);
-        // once adopted, the session sends the same boot itself (EarlyBdjWorker passes only the first)
+        // once adopted, the session sends the same boot itself (the early worker passes only the first)
         if (this.earlyBdj !== early) return;
         early.worker.boot({
           type: 'boot',
@@ -1361,7 +1375,7 @@ export class Player {
       jvm: entry.memory?.jvm ?? null,
       freeType: entry.memory?.freeType ?? null,
       planeBytes: entry.plane.buffer.byteLength,
-      stillBytes: this.background.decodedBytes,
+      stillBytes: this.background?.decodedBytes ?? 0,
       compositorBytes: this.compositor?.bdjBytes?.() ?? 0,
     };
   }
@@ -1389,15 +1403,15 @@ export class Player {
    */
   private enterBdj(title: number, regs: RegisterFile | null, early: EarlyBdj | null = null): void {
     const { disc, source } = this;
-    const createWorker = this.deps.createBdjWorker;
+    const bdj = this.deps.bdj;
     this.loadClassLibrary();
     const library = this.bdjClassLibrary;
-    if (!disc || !source || !createWorker || !library) return;
+    if (!disc || !source || !bdj || !library) return;
     if (early && this.earlyBdj !== early) early = null; // dropped meanwhile
     this.earlyBdj = null;
     const programRegs = early?.regs ?? (regs?.shared ? regs : this.newProgramRegs(disc.index, disc.usesBdj));
-    const status = early?.status ?? new StatusBlockWriter(createStatusBlock());
-    const plane = early?.plane ?? new GraphicsPlaneReader(createGraphicsPlane());
+    const status = early?.status ?? bdj.createStatusBlock();
+    const plane = early?.plane ?? bdj.createGraphicsPlane();
     // an early worker's boot (sent or still to come) and the session's carry the same disc: only one reaches the worker
     const bdjDisc = early?.disc ?? this.bdjDisc();
     let entry: BdjTitle | null = null;
@@ -1406,8 +1420,8 @@ export class Player {
     const sink = (ev: number, param: number): void => {
       if (live()) entry?.session.event(ev, param);
     };
-    const events = bdjPlaybackEvents(sink);
-    const host: PlayerBdjHost = new PlayerBdjHost({
+    const events = bdj.playbackEvents(sink);
+    const host: PlayerBdjHostLike = bdj.createPlayerHost({
       port: this.bdjPort(live),
       regs: programRegs,
       disc,
@@ -1422,8 +1436,8 @@ export class Player {
         if (live()) this.emitBdjUoMask(host);
       },
     });
-    const session = new BdjSession({
-      worker: early?.worker ?? createWorker(),
+    const session = bdj.createSession({
+      worker: early?.worker ?? bdj.createWorker(),
       host,
       regs: programRegs.shared!,
       status,
@@ -1435,8 +1449,8 @@ export class Player {
       onLog: this.deps.bdjLog,
       onBackground: (image, rect) => {
         if (!live()) return;
-        if (image && this.deps.decodeImage) this.background.show(image, rect);
-        else this.background.clear();
+        if (image && bdj.decodeImage) this.background?.show(image, rect);
+        else this.background?.clear();
       },
       onTokenNeeded: () => {
         if (live()) this.deps.emit({ type: 'remoteTokenNeeded' });
@@ -1460,7 +1474,7 @@ export class Player {
           }
         : {}),
     });
-    const taps = new TapReactionWatch({
+    const taps = bdj.input.createTapReactionWatch({
       setTimer: this.deps.setTimer ?? defaultSetTimer,
       // a plane publication (flush, init, close) or anything Java sent: a call (playback, registers, titles) or a still
       activity: () => plane.version() + session.activity,
@@ -1471,7 +1485,7 @@ export class Player {
         if (notice) this.notice('bdj-tap-ignored', BDJ_TAP_IGNORED_MESSAGE);
       },
     });
-    entry = { session, host, events, regs: programRegs, status, plane, end: () => void (ended = true), pendingTitle: null, booted: false, menuVisible: false, disc: bdjDisc, taps, memory: null };
+    entry = { provider: bdj, session, host, events, regs: programRegs, status, plane, end: () => void (ended = true), pendingTitle: null, booted: false, menuVisible: false, disc: bdjDisc, taps, memory: null };
     this.bdjStartup ??= { bootMs: null, firstPlaylistMs: null, firstFrameMs: null };
     this.bdj = entry;
     this.bindPg(programRegs);
@@ -1548,7 +1562,7 @@ export class Player {
     entry.host.dispose();
     entry.end();
     entry.taps.cancel();
-    this.bdjLatency.clearPending();
+    this.bdjLatency?.clearPending();
     this.bdj = null;
     this.planeSeen = null;
     this.releaseBdjStill();
@@ -1557,7 +1571,7 @@ export class Player {
     this.bdjSaving = Promise.all([this.bdjSaving, saved]).then(() => undefined);
     entry.disc.stop();
     // the menu goes at once (Review Focus 2): nothing of the plane or the background still is drawn again
-    this.background.clear();
+    this.background?.clear();
     this.backgroundDirty = false; // repainted here
     this.compositor?.clearBdj?.();
     this.repaint();
@@ -1568,7 +1582,7 @@ export class Player {
   }
 
   /** The UI hears only of the operations checked under a BD-J title. */
-  private emitBdjUoMask(host: PlayerBdjHost): void {
+  private emitBdjUoMask(host: PlayerBdjHostLike): void {
     this.deps.emit({ type: 'uoMask', masked: [...host.uoMask].filter((op) => op in UO_INDEX) });
   }
 
@@ -1580,8 +1594,9 @@ export class Player {
 
   /** Starts fetching the jars while the rest of the disc opens; a failed load is retried with the next BD-J disc. */
   private loadClassLibrary(): void {
-    if (this.bdjClassLibrary || !this.deps.loadClassLibrary) return;
-    const loading = this.deps.loadClassLibrary();
+    const bdj = this.deps.bdj;
+    if (this.bdjClassLibrary || !bdj) return;
+    const loading = bdj.loadClassLibrary();
     this.bdjClassLibrary = loading;
     loading.catch(() => {
       if (this.bdjClassLibrary === loading) this.bdjClassLibrary = null;
@@ -1695,9 +1710,10 @@ export class Player {
    * checks neither for BD-J titles at UO restriction RELAXED).
    */
   private bdjUserInput(entry: BdjTitle, vk: number, repeat: boolean): void {
+    const { bdjUserInput, UoRestriction } = entry.provider.input;
     const input = bdjUserInput(vk, { level: UoRestriction.RELAXED, popupShown: false, isUoMasked: (op) => entry.host.isUoMasked(op) });
     // a held key's repeats are not new presses; the first answer times the press
-    if (input.kind !== 'none' && !repeat) this.bdjLatency.input(this.deps.nowMs(), entry.plane.version());
+    if (input.kind !== 'none' && !repeat) this.bdjLatency?.input(this.deps.nowMs(), entry.plane.version());
     if (input.kind === 'menuCall') this.bdjPlayTitle(entry, 0);
     else if (input.kind === 'event') entry.session.event(input.ev, input.param, repeat ? 'repeat' : undefined);
   }
@@ -1721,6 +1737,7 @@ export class Player {
     const entry = this.bdj;
     if (entry) {
       // bd_mouse_select → BDJ_EVENT_MOUSE; a click is then bd_user_input(BD_VK_MOUSE_ACTIVATE)
+      const { BDJ_EVENT_MOUSE, bdjMouseParam } = entry.provider.input;
       entry.session.event(BDJ_EVENT_MOUSE, bdjMouseParam(px, py), kind === 'move' ? 'move' : undefined);
       if (kind === 'move') return;
       this.bdjUserInput(entry, BdVk.MOUSE_ACTIVATE, false);
@@ -3089,7 +3106,7 @@ export class Player {
         textFile: this.textOn ? this.textTrack?.renderer.fileAt(this.clock.nowUs())?.file ?? null : null,
         ass: this.assStats(),
         shader: this.shaderStage?.stats ?? null,
-        bdj: this.bdjStartup ? { ...this.bdjStartup, inputLatencyMs: this.bdjLatency.stats } : null,
+        bdj: this.bdjStartup ? { ...this.bdjStartup, inputLatencyMs: this.bdjLatency?.stats ?? null } : null,
         ...(this.deps.memoryTelemetry ? { bdjMemory: this.bdjMemory() } : {}),
         bdjPlane: this.bdj ? { flushes: this.bdj.plane.flushCount(), tapsIgnored: this.bdjTapsIgnored, ...(this.deps.planeHashTelemetry ? { hash: this.settledPlaneHash(this.bdj.plane) } : {}) } : null,
       },
@@ -3100,7 +3117,7 @@ export class Player {
    * The plane's hash once no flush, init or close has changed it since the last telemetry; null while it changes (or
    * while the writer holds it: tried again at the next telemetry). Hashed once per settled version.
    */
-  private settledPlaneHash(plane: GraphicsPlaneReader): string | null {
+  private settledPlaneHash(plane: GraphicsPlaneReaderLike): string | null {
     const version = plane.version();
     const seen = this.planeSeen;
     if (!seen || seen.plane !== plane || seen.version !== version) {

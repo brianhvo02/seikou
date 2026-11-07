@@ -15,6 +15,7 @@ import { DUMP_WAIT_MS, type WorkerLike } from './bdj/session';
 import type { FromBdj, ToBdj } from './bdj/worker-protocol';
 import type { DecodeImage } from './bdj/background';
 import { SharedRegisterView } from './bdj/shared-registers';
+import { seikouBdjProvider } from './bdj/provider';
 import type { DiscSpec, RemoteDiscSpec } from './disc/disc-spec';
 import type { PlayerSettings } from './disc/player-settings';
 import { serveFetch } from './disc/port-fetch';
@@ -138,35 +139,37 @@ async function harness(files: Map<string, Uint8Array<ArrayBuffer>>, opts: Harnes
     createCompositor: () => opts.compositor ?? { resize: () => undefined, drawVideo: () => undefined },
     setTimer: opts.setTimer ?? (() => () => undefined),
     ...(opts.wallMs ? { wallMs: opts.wallMs } : {}),
-    createBdjWorker: () => {
-      workers++;
-      if (opts.worker) return opts.worker;
-      const { port1, port2 } = new MessageChannel();
-      runBdjWorker(port2 as unknown as Parameters<typeof runBdjWorker>[0], workerFetch ? { fetch: workerFetch } : {});
-      toEngine = port2;
-      const worker: WorkerLike = {
-        postMessage: (m: ToBdj, transfer: Transferable[] = []) => {
-          sent.push(m);
-          port1.postMessage(m, transfer as never);
-        },
-        set onmessage(fn: ((e: MessageEvent<FromBdj>) => void) | null) {
-          port1.onmessage = fn as ((e: MessageEvent) => void) | null;
-        },
-        get onmessage() {
-          return port1.onmessage as ((e: MessageEvent<FromBdj>) => void) | null;
-        },
-        terminate: () => {
-          terminated = true;
-          port1.close();
-          port2.close();
-        },
-      };
-      return worker;
-    },
-    loadClassLibrary: async () => classes,
+    bdj: seikouBdjProvider({
+      missing: opts.bdjMissing ?? [],
+      createWorker: () => {
+        workers++;
+        if (opts.worker) return opts.worker;
+        const { port1, port2 } = new MessageChannel();
+        runBdjWorker(port2 as unknown as Parameters<typeof runBdjWorker>[0], workerFetch ? { fetch: workerFetch } : {});
+        toEngine = port2;
+        const worker: WorkerLike = {
+          postMessage: (m: ToBdj, transfer: Transferable[] = []) => {
+            sent.push(m);
+            port1.postMessage(m, transfer as never);
+          },
+          set onmessage(fn: ((e: MessageEvent<FromBdj>) => void) | null) {
+            port1.onmessage = fn as ((e: MessageEvent) => void) | null;
+          },
+          get onmessage() {
+            return port1.onmessage as ((e: MessageEvent<FromBdj>) => void) | null;
+          },
+          terminate: () => {
+            terminated = true;
+            port1.close();
+            port2.close();
+          },
+        };
+        return worker;
+      },
+      loadClassLibrary: async () => classes,
+      ...(opts.decodeImage ? { decodeImage: opts.decodeImage } : {}),
+    }),
     ...(opts.playerSettings ? { playerSettings: opts.playerSettings } : {}),
-    ...(opts.decodeImage ? { decodeImage: opts.decodeImage } : {}),
-    ...(opts.bdjMissing ? { bdjMissing: opts.bdjMissing } : {}),
     ...(opts.planeHashTelemetry ? { planeHashTelemetry: true } : {}),
     ...(opts.memoryTelemetry ? { memoryTelemetry: true } : {}),
     ...(workerFetch ? { fetch: workerFetch } : {}),
@@ -460,8 +463,7 @@ describe('Player with BD-J titles (in-process BD-J worker)', () => {
       createAudioDecoder: createAudioDecoderFactory(() => Promise.reject(new Error('no wasm'))),
       createCompositor: () => ({ resize: () => undefined, drawVideo: () => undefined }),
       setTimer: () => () => undefined,
-      createBdjWorker: () => recording,
-      loadClassLibrary: async () => CLASSES,
+      bdj: seikouBdjProvider({ missing: [], createWorker: () => recording, loadClassLibrary: async () => CLASSES }),
     });
     players.push(player);
     await player.handle({ type: 'open', disc: { kind: 'files', entries: discEntries(bdjDisc()) } });
@@ -484,8 +486,7 @@ describe('Player with BD-J titles (in-process BD-J worker)', () => {
       createAudioDecoder: createAudioDecoderFactory(() => Promise.reject(new Error('no wasm'))),
       createCompositor: () => ({ resize: () => undefined, drawVideo: () => undefined }),
       setTimer: () => () => undefined,
-      createBdjWorker: () => workers[created++]!.worker,
-      loadClassLibrary: async () => CLASSES,
+      bdj: seikouBdjProvider({ missing: [], createWorker: () => workers[created++]!.worker, loadClassLibrary: async () => CLASSES }),
     });
     players.push(player);
     const [first, second] = workers as [ReturnType<typeof handWorker>, ReturnType<typeof handWorker>];

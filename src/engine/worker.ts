@@ -7,7 +7,7 @@ import { readFontFile } from '@seikou/ass/font-tables';
 import { createFontFaceLoader } from '@seikou/ass/fonts';
 import { createCanvasMeasurer } from '@seikou/ass/measure';
 import { drawWarped } from '@seikou/ass/warp';
-import { bdjMissing } from './bdj/requirements';
+import { bdjMissing, seikouBdjProvider } from './bdj/provider';
 import { createAudioDecoderFactory } from './decode/audio-decoder';
 import { loadAudioWasm } from './decode/wasm-audio';
 import { browserVideoCodecApi } from './decode/video-decoder';
@@ -72,22 +72,23 @@ const player = new Player({
   createShaderBackend: (events) => createWebGlBackend((w, h) => new OffscreenCanvas(w, h), events),
   // Commands run one at a time, so a stalled download would block every later one: give up and report it instead.
   createAudioDecoder: createAudioDecoderFactory(() => loadAudioWasm(fetch(audioWasmUrl, { signal: AbortSignal.timeout(ASSET_FETCH_TIMEOUT_MS) }))),
-  bdjMissing: bdjMissingHere,
   planeHashTelemetry: testFlags.has('telemetry'),
   memoryTelemetry: testFlags.has('telemetry'),
-  createBdjWorker: () => new Worker(new URL('./bdj/bdj-worker-entry.ts', import.meta.url), { type: 'module' }),
-  loadClassLibrary: async () => {
-    const [rt, libbluray, libblurayAwt] = await Promise.all([fetchBytes(rtJarUrl), fetchBytes(libblurayJarUrl), fetchBytes(libblurayAwtJarUrl)]);
-    return { rt, libbluray: brokenClassLibrary ? new Uint8Array(0) : libbluray, libblurayAwt };
-  },
+  bdj: seikouBdjProvider({
+    missing: bdjMissingHere,
+    loadClassLibrary: async () => {
+      const [rt, libbluray, libblurayAwt] = await Promise.all([fetchBytes(rtJarUrl), fetchBytes(libblurayJarUrl), fetchBytes(libblurayAwtJarUrl)]);
+      return { rt, libbluray: brokenClassLibrary ? new Uint8Array(0) : libbluray, libblurayAwt };
+    },
+    // BD-J background stills: the browser sniffs the format (PNG, JPEG, GIF) from the bytes
+    decodeImage: (bytes) => createImageBitmap(new Blob([new Uint8Array(bytes)])),
+  }),
   // buffer first: a NAS disc's on-disk read-ahead cache, written through sync access handles (dedicated workers only)
   ...(readAheadCacheSupported() ? { readAheadCacheRoot: () => navigator.storage.getDirectory() } : {}),
   // bd_set_player_setting_str as a player application sets it: the browser's language and region
   playerSettings: playerSettingsForLocale(navigator.language),
   bdjLog: (line, error) => (error ? console.warn : console.debug)(`[BD-J] ${line}`),
   log: (line) => console.info(`[engine] ${line}`),
-  // BD-J background stills: the browser sniffs the format (PNG, JPEG, GIF) from the bytes
-  decodeImage: (bytes) => createImageBitmap(new Blob([new Uint8Array(bytes)])),
   // ASS: fonts in the worker's FontFaceSet, DejaVu Sans as the default font (libass's fallback in our harness)
   createAssDeps: async () => {
     const response = await fetch(defaultFontUrl, { signal: AbortSignal.timeout(ASSET_FETCH_TIMEOUT_MS) });

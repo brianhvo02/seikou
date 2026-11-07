@@ -30,12 +30,8 @@ import { JavaThrowable } from './jvm/values';
 import type { JObject, JValue } from './jvm/values';
 import { Vfs, type VfsChange } from './jvm/vfs';
 import { ZipArchive } from './jvm/zip';
-
-export interface ClassLibrarySource {
-  readonly rt: Uint8Array;
-  readonly libbluray: Uint8Array;
-  readonly libblurayAwt: Uint8Array;
-}
+import type { ClassLibrarySource, BdjMemoryBudgets } from '../bdj-types';
+export type { ClassLibrarySource, BdjMemoryBudgets } from '../bdj-types';
 
 export interface BdjRuntimeDeps {
   /** The disc, with its normalised file list (FileSource.paths()) for the VFS. */
@@ -63,14 +59,6 @@ export interface BdjRuntimeDeps {
   readonly onVfsChange?: (path: string, change: VfsChange, to?: string) => void;
   /** A write refused for room, by the memory budget or a scope's quota (VfsOptions.onFull). */
   readonly onVfsFull?: (path: string) => void;
-}
-
-/** The memory profile's budgets the BD-J worker applies (memory-profile.ts, bdjClassCacheBytes and bdjVfsCacheBytes). */
-export interface BdjMemoryBudgets {
-  /** Class-file bytes the classes keep: going over is logged once. */
-  readonly classBytes: number;
-  /** The memory mounts' capacity: a write beyond it fails as on a full disk. */
-  readonly vfsBytes: number;
 }
 
 export interface BdjFontSources {

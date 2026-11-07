@@ -7,7 +7,7 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import type { WorkerLike } from './session';
+import type { BdjBootMessage, EarlyBdjWorkerLike, WorkerLike } from '../bdj-types';
 import { bootTransfer, type FromBdj, type ToBdj } from './worker-protocol';
 
 type Held = { readonly message: MessageEvent<FromBdj> } | { readonly error: ErrorEvent };
@@ -17,7 +17,7 @@ type Held = { readonly message: MessageEvent<FromBdj> } | { readonly error: Erro
  * worker (the session's own, once it adopts the worker, is the same message and is dropped). What the worker sends is
  * held until the session has asked for the boot, so it hears 'booted' after it starts waiting for it.
  */
-export class EarlyBdjWorker implements WorkerLike {
+export class EarlyBdjWorker implements EarlyBdjWorkerLike {
   onmessage: ((event: MessageEvent<FromBdj>) => void) | null = null;
   onerror: ((event: ErrorEvent) => void) | null = null;
   private bootSent = false;
@@ -30,7 +30,7 @@ export class EarlyBdjWorker implements WorkerLike {
   }
 
   /** The early boot message; false when a boot has already gone out. */
-  boot(message: Extract<ToBdj, { type: 'boot' }>): boolean {
+  boot(message: BdjBootMessage): boolean {
     if (this.bootSent) return false;
     this.bootSent = true;
     this.inner.postMessage(message, bootTransfer(message));

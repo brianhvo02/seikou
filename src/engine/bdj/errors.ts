@@ -6,7 +6,8 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-export type BdjErrorCode = 'class-not-found' | 'unsatisfied-link' | 'verify' | 'internal';
+import type { BdjErrorCode } from '../bdj-types';
+export type { BdjErrorCode } from '../bdj-types';
 
 export class BdjError extends Error {
   constructor(
