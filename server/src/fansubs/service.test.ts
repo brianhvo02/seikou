@@ -13,7 +13,7 @@ import type { Catalogue } from '@seikou/titles/catalogue';
 import { SourceUnavailable } from '@seikou/titles/sources';
 import { FetchCache } from '@seikou/fansubs/fetch-cache';
 import { ffmpegAudioDecoder } from './ffmpeg-decoder';
-import { fixtureFansubSources } from './fixture-sources';
+import { fixtureFansubSources } from '@seikou/fansubs/fixture-sources';
 import type { SeaDexEntry } from '@seikou/fansubs/seadex';
 import { FansubService } from './service';
 import { FansubState } from './state';
@@ -80,7 +80,7 @@ const file = (id: number, name: string, language = 'eng'): ToshoRelease['files']
 
 const SEADEX: Record<string, SeaDexEntry> = {
   900001: {
-    alId: 900001, incomplete: false,
+    alId: 900001, incomplete: false, notes: '', comparison: '',
     releases: [
       { tracker: 'Nyaa', infoHash: HASH_A, isBest: true, dualAudio: false, group: 'GroupA', tags: [], files: [] },
       { tracker: 'Nyaa', infoHash: HASH_B, isBest: false, dualAudio: false, group: 'GroupB', tags: ['WEB'], files: [] },

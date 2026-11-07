@@ -1,6 +1,6 @@
 /**
  * Regenerates the NAS E2E stand-in's recorded SeaDex and Anime Tosho answers (`FANSUB_FIXTURE`, read by
- * server/src/fansubs/fixture-sources.ts): `npx tsx tests/e2e/fixtures/fansubs/make-fixtures.ts`. Everything is made up:
+ * packages/fansubs/src/fixture-sources.ts): `npx tsx tests/e2e/fixtures/fansubs/make-fixtures.ts`. Everything is made up:
  * Starfall Wanderer is anilist:900001 in nas-metadata.json, its one episode disc1's 4-second playlist 00001, so the
  * tracks' lines fall inside those 4 seconds. GroupA's release is SeaDex's best and has a font pack; GroupB's is its WEB
  * release, with a Spanish track too and no fonts.

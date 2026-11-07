@@ -13,8 +13,9 @@ export { assertNoDecodeGap, demuxAudioPid, episodeAudio, windowsFor } from './di
 export type { AudioWindow, TimeWindow, Write } from './disc-audio';
 export type { AudioDecodeInput, AudioDecoder } from './audio-decoder';
 export type { FansubClipSource, FansubDiscSource } from './disc-source';
-export { align, alignWhole, alignWindows } from './align';
-export type { AlignInput, AlignOptions, WindowOffset } from './align';
+export { align, alignAudio, alignWhole, alignWindows } from './align';
+export type { AlignInput, AlignOptions, PlaylistAudioReader, WindowOffset } from './align';
+export { fixtureFansubSources } from './fixture-sources';
 export { retime } from './retime';
 export { Semaphore } from './semaphore';
 export { PickStore } from './pick-store';

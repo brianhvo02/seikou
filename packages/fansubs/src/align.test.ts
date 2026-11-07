@@ -4,7 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { buildSyntheticDisc, syntheticClip } from '../../../tests/helpers/synthetic-disc';
 import { script } from '../../../tests/helpers/fansub-script';
 import { SPEECH_BURSTS } from '../../../tests/helpers/speech-bursts';
-import { align, alignWhole, alignWindows, decide } from './align';
+import { align, alignAudio, alignWhole, alignWindows, decide } from './align';
+import type { PlaylistAudioReader } from './align';
 import type { AudioDecoder } from './audio-decoder';
 import { demuxAudioPid, type AudioWindow } from './disc-audio';
 import type { FansubDiscSource } from './disc-source';
@@ -158,5 +159,29 @@ describe('align through an injected decoder', () => {
     const controller = new AbortController();
     controller.abort();
     await expect(align(disc, '00000', DURATION_MS, script(SPEECH_BURSTS), burstsDecoder, controller.signal)).rejects.toThrow();
+  });
+});
+
+describe('alignAudio', () => {
+  const HOST_MS = 120_000;
+  const full = noiseWindow(0, HOST_MS / 1000, SPEECH_BURSTS);
+  /** A host's reader over one synthetic recording: the first span's start to the last span's end. */
+  const reader: PlaylistAudioReader = async (spans) => {
+    if (spans === 'whole') return full;
+    const fromMs = spans[0]!.fromMs;
+    const toMs = spans[spans.length - 1]!.toMs;
+    return { startMs: fromMs, pcm: full.pcm.slice(fromMs * 16, Math.min(full.pcm.length, toMs * 16)) };
+  };
+
+  it('finds the offset from a host reader', async () => {
+    const result = await alignAudio(reader, HOST_MS, script(SPEECH_BURSTS, () => -1200));
+    expect(result).toMatchObject({ kind: 'offset' });
+    if (result.kind !== 'offset') return;
+    expect(Math.abs(result.offsetMs - 1200)).toBeLessThanOrEqual(20);
+  });
+
+  it("passes a reader's spawn error on", async () => {
+    const broken: PlaylistAudioReader = async () => { throw Object.assign(new Error('spawn vspipe ENOENT'), { code: 'ENOENT', syscall: 'spawn vspipe' }); };
+    await expect(alignAudio(broken, HOST_MS, script(SPEECH_BURSTS))).rejects.toMatchObject({ syscall: 'spawn vspipe' });
   });
 });

@@ -72,4 +72,13 @@ describe('SeaDex', () => {
     const fetchFn = (async () => new Response('<html>', { status: 200 })) as unknown as typeof fetch;
     await expect(createSeaDex(fetchFn, new Pacer(100, 1000), 'ua', BASE).entry(1)).rejects.toBeInstanceOf(SourceUnavailable);
   });
+
+  it('entry carries notes and comparison', async () => {
+    const item = { alID: 1, notes: 'Best video; GroupB for signs', comparison: 'https://slow.pics/c/x', expand: { trs: [] } };
+    const fetchFn = (async () => json({ items: [item] })) as unknown as typeof fetch;
+    const entry = await createSeaDex(fetchFn, new Pacer(100, 1000), 'ua', BASE).entry(1);
+    expect(entry).toMatchObject({ notes: 'Best video; GroupB for signs', comparison: 'https://slow.pics/c/x' });
+    const bare = (async () => json({ items: [{ alID: 2, expand: { trs: [] } }] })) as unknown as typeof fetch;
+    expect(await createSeaDex(bare, new Pacer(100, 1000), 'ua', BASE).entry(2)).toMatchObject({ notes: '', comparison: '' });
+  });
 });

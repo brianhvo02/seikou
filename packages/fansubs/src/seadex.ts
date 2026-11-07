@@ -17,6 +17,10 @@ export interface SeaDexRelease {
 export interface SeaDexEntry {
   readonly alId: number;
   readonly incomplete: boolean;
+  /** The curators' free-text notes on the entry (which group is best for what); empty when SeaDex has none. */
+  readonly notes: string;
+  /** A link to the curators' video comparison; empty when SeaDex has none. */
+  readonly comparison: string;
   readonly releases: readonly SeaDexRelease[];
 }
 
@@ -37,6 +41,8 @@ interface RawTorrent {
 interface RawEntry {
   readonly alID: number;
   readonly incomplete?: boolean | null;
+  readonly notes?: string | null;
+  readonly comparison?: string | null;
   readonly expand?: { readonly trs?: readonly RawTorrent[] | null } | null;
 }
 
@@ -80,7 +86,7 @@ export function createSeaDex(fetch: typeof globalThis.fetch, pacer: Pacer, userA
         if (!Array.isArray(body?.items)) throw new SourceUnavailable('seadex: unexpected response');
         const item = body.items[0];
         if (!item) return null;
-        return { alId: item.alID, incomplete: item.incomplete === true, releases: (item.expand?.trs ?? []).map(toRelease) };
+        return { alId: item.alID, incomplete: item.incomplete === true, notes: item.notes ?? '', comparison: item.comparison ?? '', releases: (item.expand?.trs ?? []).map(toRelease) };
       }, opts),
   };
 }

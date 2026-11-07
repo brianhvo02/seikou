@@ -23,7 +23,7 @@ const cand = (rank: Candidate['rank'], files: ToshoFile[]): Candidate => ({
 describe('rankReleases', () => {
   it('orders best, web, other and drops private releases', () => {
     const entry: SeaDexEntry = {
-      alId: 1, incomplete: false,
+      alId: 1, incomplete: false, notes: '', comparison: '',
       releases: [
         sx({ group: 'other1' }),
         sx({ group: 'private', infoHash: null, isBest: true }),

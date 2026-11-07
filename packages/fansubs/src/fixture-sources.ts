@@ -1,17 +1,21 @@
 /** Recorded SeaDex and Anime Tosho answers from a folder, for the E2E stand-in and service tests. Original code. */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { SeaDex, SeaDexEntry } from '@seikou/fansubs/seadex';
-import { TooLargeArchive } from '@seikou/fansubs/archive';
-import { NotFoundOnTosho, PACK_DOWNLOAD_BYTES } from '@seikou/fansubs/tosho';
-import type { Tosho, ToshoRelease } from '@seikou/fansubs/tosho';
+import type { SeaDex, SeaDexEntry } from './seadex';
+import { TooLargeArchive } from './archive';
+import { NotFoundOnTosho, PACK_DOWNLOAD_BYTES } from './tosho';
+import type { Tosho, ToshoRelease } from './tosho';
 
 /**
- * `<dir>/seadex.json` (alId to entry), `<dir>/tosho.json` (`{ releases }`) and downloads from `<dir>/files/<last path segment>`;
- * a file's font pack is `<dir>/files/pack-<file id>.7z`.
+ * Recorded SeaDex and Anime Tosho answers read from a folder, standing in for the network in tests.
+ * `<dir>/seadex.json` (alId to entry; `notes` and `comparison` may be missing and read as empty, as the live client's do),
+ * `<dir>/tosho.json` (`{ releases }`) and downloads from `<dir>/files/<last path segment>`;
+ * a file's font pack is `<dir>/files/pack-<file id>.7z`. Throws when `seadex.json` or `tosho.json` is missing or invalid.
  */
 export function fixtureFansubSources(dir: string): { seadex: SeaDex; tosho: Tosho } {
-  const seadexEntries = JSON.parse(readFileSync(join(dir, 'seadex.json'), 'utf8')) as Record<string, SeaDexEntry>;
+  const recorded = JSON.parse(readFileSync(join(dir, 'seadex.json'), 'utf8')) as Record<string, Partial<SeaDexEntry>>;
+  const seadexEntries: Record<string, SeaDexEntry> = {};
+  for (const [id, e] of Object.entries(recorded)) seadexEntries[id] = { notes: '', comparison: '', ...e } as SeaDexEntry;
   const releases = (JSON.parse(readFileSync(join(dir, 'tosho.json'), 'utf8')) as { releases: ToshoRelease[] }).releases;
   return {
     seadex: { entry: async (alId) => seadexEntries[String(alId)] ?? null },

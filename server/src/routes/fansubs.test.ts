@@ -16,7 +16,7 @@ import { DiscActivity } from '../disc-activity';
 import { libraryFansubDiscs } from '../fansubs/disc-lookup';
 import { FetchCache } from '@seikou/fansubs/fetch-cache';
 import { ffmpegAudioDecoder } from '../fansubs/ffmpeg-decoder';
-import { fixtureFansubSources } from '../fansubs/fixture-sources';
+import { fixtureFansubSources } from '@seikou/fansubs/fixture-sources';
 import { FansubPicks } from '../fansubs/picks';
 import type { SeaDexEntry } from '@seikou/fansubs/seadex';
 import { FansubService } from '../fansubs/service';
@@ -88,7 +88,7 @@ const file = (id: number, name: string): ToshoRelease['files'][number] => ({
 });
 const SEADEX: Record<string, SeaDexEntry> = {
   900001: {
-    alId: 900001, incomplete: false,
+    alId: 900001, incomplete: false, notes: '', comparison: '',
     releases: [
       { tracker: 'Nyaa', infoHash: HASH_A, isBest: true, dualAudio: false, group: 'GroupA', tags: [], files: [] },
       { tracker: 'Nyaa', infoHash: HASH_B, isBest: false, dualAudio: false, group: 'GroupB', tags: ['WEB'], files: [] },

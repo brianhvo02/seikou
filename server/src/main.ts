@@ -13,7 +13,7 @@ import { DiscActivity } from './disc-activity';
 import { libraryFansubDiscs } from './fansubs/disc-lookup';
 import { ffmpegAudioDecoder } from './fansubs/ffmpeg-decoder';
 import { FetchCache } from '@seikou/fansubs/fetch-cache';
-import { fixtureFansubSources } from './fansubs/fixture-sources';
+import { fixtureFansubSources } from '@seikou/fansubs/fixture-sources';
 import { FansubPicks } from './fansubs/picks';
 import { createSeaDex } from '@seikou/fansubs/seadex';
 import type { SeaDex } from '@seikou/fansubs/seadex';

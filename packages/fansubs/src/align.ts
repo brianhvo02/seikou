@@ -416,26 +416,33 @@ export interface AlignOptions {
   readonly windows?: readonly TimeWindow[];
   /** Where a skipped window is reported; `console.warn` by default. */
   readonly log?: (message: string) => void;
+  /** What a log line calls the episode (the playlist id for `align`). */
+  readonly label?: string;
 }
 
 const describeSpan = (spans: readonly TimeWindow[] | 'whole'): string =>
   spans === 'whole' ? 'the whole episode' : spans.map((s) => `${s.fromMs}-${s.toMs} ms`).join(', ');
 
 /**
+ * Gives the 16 kHz mono PCM of an episode: one window covering the given spans, with `startMs` the first span's start
+ * (for `'whole'`, the whole episode with `startMs` 0). It throws for audio it could not read; `alignAudio` skips such a
+ * window, except for an abort or a failure to start a tool (an error whose `syscall` begins with `spawn`), which it passes on.
+ */
+export type PlaylistAudioReader = (spans: readonly TimeWindow[] | 'whole', signal?: AbortSignal) => Promise<AudioWindow>;
+
+/**
  * The windows' audio, or null (logged) when they could not be read. An abort rejects, and so does a decoder that can't
  * be started: that is no bad window but a broken setup, which would otherwise read as `low-confidence` on every episode.
  */
 async function read(
-  disc: FansubDiscSource,
+  reader: PlaylistAudioReader,
   playlistId: string,
   spans: readonly TimeWindow[] | 'whole',
-  decode: AudioDecoder,
   log: (message: string) => void,
   signal?: AbortSignal,
 ): Promise<AudioWindow | null> {
   try {
-    const [w] = await episodeAudio(disc, playlistId, spans, decode, signal);
-    return w ?? null;
+    return await reader(spans, signal);
   } catch (err) {
     if (signal?.aborted) throw err;
     const syscall = (err as NodeJS.ErrnoException).syscall;
@@ -458,6 +465,7 @@ function usable(w: Masked, dialogue: readonly Span[]): boolean {
  * Lines a track (`ass`) up with a playlist's audio: sampled windows first, and the whole episode when they disagree
  * (an episode short enough to be one window is read whole at once, and cut into 30 s stretches to compare).
  * A window that can't be read, or whose speech mask went quiet, is skipped; too few left is `low-confidence`.
+ * The disc is read and decoded through `decode`.
  */
 export async function align(
   disc: FansubDiscSource,
@@ -468,6 +476,27 @@ export async function align(
   signal?: AbortSignal,
   options: AlignOptions = {},
 ): Promise<FansubAlignment> {
+  const reader: PlaylistAudioReader = async (spans, s) => {
+    const [w] = await episodeAudio(disc, playlistId, spans, decode, s);
+    if (!w) throw new Error('no audio read');
+    return w;
+  };
+  return alignAudio(reader, durationMs, ass, signal, { ...options, label: playlistId });
+}
+
+/**
+ * The same line-up as `align`, over PCM the host decodes itself through `read` (for a host that decodes with a tool
+ * that reads files, not byte streams). `durationMs` is the episode's length. The result is `none` rather than a guess
+ * when unsure; it rejects on an abort or when `read` fails to start a tool.
+ */
+export async function alignAudio(
+  readAudio: PlaylistAudioReader,
+  durationMs: number,
+  ass: string,
+  signal?: AbortSignal,
+  options: AlignOptions = {},
+): Promise<FansubAlignment> {
+  const playlistId = options.label ?? 'episode';
   const dialogue = dialogueIntervals(ass);
   if (dialogue.length < MIN_INTERVALS || spanMs(dialogue) < MIN_DIALOGUE_MS) return NO_SPEECH;
   signal?.throwIfAborted();
@@ -475,7 +504,7 @@ export async function align(
   const log = options.log ?? ((message: string) => console.warn(message));
 
   if (spans.length === 1 && spans[0]!.fromMs <= 0 && spans[0]!.toMs >= durationMs) {
-    const whole = await read(disc, playlistId, 'whole', decode, log, signal);
+    const whole = await read(readAudio, playlistId, 'whole', log, signal);
     if (!whole) return LOW;
     if (!usable(masked(whole), dialogue)) {
       log(`fansub align: playlist ${playlistId}: the whole episode's speech mask is quiet under the dialogue`);
@@ -488,7 +517,7 @@ export async function align(
 
   const windows: Masked[] = [];
   for (const span of spans) {
-    const w = await read(disc, playlistId, [span], decode, log, signal);
+    const w = await read(readAudio, playlistId, [span], log, signal);
     if (!w) continue;
     const m = masked(w);
     if (usable(m, dialogue)) windows.push(m);
@@ -497,7 +526,7 @@ export async function align(
   if (windows.length < Math.min(MIN_USABLE_WINDOWS, spans.length)) return LOW;
   const sampled = windowsAligned(windows, dialogue, 60_000);
   if (sampled.agree) return sampled.reliable.length ? agreedVerdict(sampled.curves, sampled.mid) : LOW;
-  const whole = await read(disc, playlistId, 'whole', decode, log, signal);
+  const whole = await read(readAudio, playlistId, 'whole', log, signal);
   if (!whole) return LOW;
   return alignWhole({ windows: [whole], dialogue }, sampled.perWindow);
 }
