@@ -52,6 +52,13 @@ Save. The helper writes one record per disc and playlist (section 6). The CLI an
 
 ## 4. Constraints
 
+Documentation standard (decided 2026-11-07; Seikou's own packages get the same pass after this project). The encoder is meant to be read as a reference, so every plan for it includes these as requirements, and reviews check them:
+- Every exported function, class, interface, type and constant has a doc comment saying what it is for and anything a caller must know (units, ownership, failure behaviour). Exported interface fields carry one when the name alone does not say it.
+- Code that implements a format or protocol (Matroska elements, AV1 OBUs, Ogg pages, MPLS/CLPI fields, PES timestamps, VapourSynth script semantics) names what each field or step means and cites the specification section it follows.
+- Comments explain why, in their own words. They never point at private planning history (rulings, task numbers, milestone labels, spec section numbers of internal documents); where a decision record is worth reading, link the file and still state the reason inline.
+- Each top-level area (`disc/`, `plan/`, `pipeline/`, `mux/`, the backend, the helper page) has a short README: the concepts first, then the API, then where to look in the code.
+- The milestone 1 code already in the repository is brought up to this standard as the first task of the next encoder plan, before new code builds on it.
+
 - Everything from the parent spec holds: LGPL-3.0-or-later for the app, no ffmpeg, tools as subprocesses, decrypted discs only, AV1 + Opus, no Apple-specific renditions.
 - Seikou code stays LGPL-2.1-or-later in its packages; the app imports them. Nothing GPL is linked.
 - The helper runs locally in the user's browser against the app's own backend. No account, no cloud. Anime Tosho, SeaDex and AniList are called from the backend, with Seikou's existing fetch cache and rate limits.
