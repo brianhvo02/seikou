@@ -1,0 +1,56 @@
+{
+  "900101": {
+    "alId": 900101,
+    "incomplete": false,
+    "notes": "GroupA for video and full subs; GroupB has the better signs.",
+    "comparison": "",
+    "releases": [
+      {
+        "tracker": "Nyaa",
+        "infoHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "isBest": true,
+        "dualAudio": false,
+        "group": "GroupA",
+        "tags": [],
+        "files": [
+          {
+            "name": "[GroupA] Lantern Harbor - 01 (BD 1080p).mkv",
+            "length": 1000
+          },
+          {
+            "name": "[GroupA] Lantern Harbor - 02 (BD 1080p).mkv",
+            "length": 1000
+          }
+        ]
+      },
+      {
+        "tracker": "Nyaa",
+        "infoHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "isBest": false,
+        "dualAudio": false,
+        "group": "GroupB",
+        "tags": [],
+        "files": [
+          {
+            "name": "[GroupB] Lantern Harbor - 01 (BD 1080p).mkv",
+            "length": 1000
+          }
+        ]
+      },
+      {
+        "tracker": "PrivateTracker",
+        "infoHash": null,
+        "isBest": false,
+        "dualAudio": true,
+        "group": "GroupC",
+        "tags": [],
+        "files": [
+          {
+            "name": "[GroupC] Lantern Harbor - 01 (BD 1080p).mkv",
+            "length": 1000
+          }
+        ]
+      }
+    ]
+  }
+}

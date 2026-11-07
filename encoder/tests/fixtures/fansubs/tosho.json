@@ -1,0 +1,81 @@
+{
+  "releases": [
+    {
+      "id": 7001,
+      "title": "[GroupA] Lantern Harbor (BD 1080p)",
+      "infoHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "status": "complete",
+      "isSeadex": true,
+      "date": 1700000000,
+      "files": [
+        {
+          "id": 7101,
+          "name": "[GroupA] Lantern Harbor - 01 (BD 1080p).mkv",
+          "size": 1000,
+          "tracks": [
+            {
+              "track": 0,
+              "language": "eng",
+              "name": "Full",
+              "format": "ASS",
+              "url": "https://storage.animetosho.net/attach/0/7101-0.ass.xz",
+              "isDefault": true,
+              "forced": false
+            },
+            {
+              "track": 1,
+              "language": "eng",
+              "name": "Signs",
+              "format": "ASS",
+              "url": "https://storage.animetosho.net/attach/0/7101-1.ass.xz",
+              "isDefault": false,
+              "forced": false
+            }
+          ]
+        },
+        {
+          "id": 7102,
+          "name": "[GroupA] Lantern Harbor - 02 (BD 1080p).mkv",
+          "size": 1000,
+          "tracks": [
+            {
+              "track": 0,
+              "language": "eng",
+              "name": "Full",
+              "format": "ASS",
+              "url": "https://storage.animetosho.net/attach/0/7102-0.ass.xz",
+              "isDefault": true,
+              "forced": false
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 7002,
+      "title": "[GroupB] Lantern Harbor (BD 1080p)",
+      "infoHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "status": "complete",
+      "isSeadex": true,
+      "date": 1600000000,
+      "files": [
+        {
+          "id": 7201,
+          "name": "[GroupB] Lantern Harbor - 01 (BD 1080p).mkv",
+          "size": 1000,
+          "tracks": [
+            {
+              "track": 0,
+              "language": "eng",
+              "name": "Full",
+              "format": "ASS",
+              "url": "https://storage.animetosho.net/attach/0/7201-0.ass.xz",
+              "isDefault": true,
+              "forced": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

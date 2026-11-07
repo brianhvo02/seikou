@@ -1,0 +1,31 @@
+{
+  "entries": [
+    {
+      "source": "anilist",
+      "id": "anilist:900101",
+      "kind": "series",
+      "format": "TV",
+      "names": {
+        "english": "Lantern Harbor",
+        "romaji": "Tomoshibi no Minato",
+        "native": "灯の港",
+        "synonyms": []
+      },
+      "animation": true,
+      "year": 2024,
+      "startDate": 20240105,
+      "episodes": 2,
+      "runtimeMin": 24,
+      "seasons": [],
+      "relations": [],
+      "poster": null,
+      "banner": null
+    }
+  ],
+  "episodes": {
+    "900101": {
+      "1": "Arrival",
+      "2": "The Lighthouse"
+    }
+  }
+}
