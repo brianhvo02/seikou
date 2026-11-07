@@ -3,15 +3,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { normalizeStrict, normalizeTitle } from '@seikou/nas/title-text';
-import { ArtCache } from './art';
+import { ArtCache } from '@seikou/titles/art';
 import type { DiscEvidence } from './evidence';
-import { OwnerStore } from './owner-store';
-import { MATCH_RULES_VERSION } from './match';
-import type { FolderCover } from './catalogue';
-import type { MusicRelease, MusicSource } from './music-sources';
+import { OwnerStore } from '@seikou/titles/owner-store';
+import { MATCH_RULES_VERSION } from '@seikou/titles/match';
+import type { FolderCover } from '@seikou/titles/catalogue';
+import type { MusicRelease, MusicSource } from '@seikou/titles/music-sources';
 import { downloadRootNames, fixtureSources, loadDiscDbOrNone, releaseFolderOf, TitleService } from './service';
-import { SourceUnavailable } from './sources';
-import type { Entry, EntryNames, MetadataSource } from './sources';
+import { SourceUnavailable } from '@seikou/titles/sources';
+import type { Entry, EntryNames, MetadataSource } from '@seikou/titles/sources';
 
 // Every title and path here is made up (ruling R4).
 

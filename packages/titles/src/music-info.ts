@@ -4,7 +4,7 @@
  */
 import { normalizeTitle } from '@seikou/nas/title-text';
 import type { MusicKind, TitleMusic } from '@seikou/nas/nas-api';
-import type { DiscEvidence } from './evidence';
+import type { DiscEvidence } from './disc-evidence';
 import { hasConcertWord, parseMusicFolder } from './music-name';
 import { VARIOUS_ARTISTS_MBID, type MusicArtist, type MusicRelease } from './music-sources';
 

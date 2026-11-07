@@ -2,7 +2,7 @@ import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import type { StoredSubtitle, SubtitleAttachment } from '@seikou/nas/nas-api';
 import { parseDiscKey } from '@seikou/nas/disc-key';
-import { LockHeldError } from '../atomic-json';
+import { LockHeldError } from '@seikou/titles/atomic-json';
 import type { Auth } from '../auth';
 import { BodyTooLargeError, bodyStream, json, readJson } from '../http';
 import type { Handler, Response } from '../http';

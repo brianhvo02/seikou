@@ -26,7 +26,7 @@ import { folderDiscSource } from '../levels/level-discs';
 import type { Library } from '../library';
 import { Store } from '../store';
 import { SubtitleStore } from '../subtitle-store';
-import type { Catalogue } from '../titles/catalogue';
+import type { Catalogue } from '@seikou/titles/catalogue';
 import type { DiscEvidence } from '../titles/evidence';
 import type { TitleLibrary } from './titles';
 

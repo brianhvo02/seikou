@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Pacer, RateLimited } from '../titles/pacer';
+import { Pacer, RateLimited } from '@seikou/titles/pacer';
 import { TooLargeArchive } from './archive';
 import { NotFoundOnTosho, createTosho } from './tosho';
 

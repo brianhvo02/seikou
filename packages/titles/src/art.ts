@@ -6,7 +6,7 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { open, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { isCode, replaceAtomically } from '../atomic-json';
+import { isCode, replaceAtomically } from './atomic-json';
 
 const DEFAULT_BUDGET = 500 * 1024 * 1024;
 const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;

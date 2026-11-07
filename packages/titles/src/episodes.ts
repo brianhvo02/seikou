@@ -3,7 +3,7 @@
  * meaning no Episodes tab, whenever it is unsure (ruling T7d). Original code.
  */
 import type { EpisodeRef } from '@seikou/nas/nas-api';
-import type { DiscEvidence } from './evidence';
+import type { DiscEvidence } from './disc-evidence';
 
 type Playlist = DiscEvidence['playlists'][number];
 

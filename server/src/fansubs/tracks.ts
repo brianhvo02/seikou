@@ -1,5 +1,5 @@
 /** Fetching a track and naming it, shared by the fansub runs and the viewers' picks. Original code. */
-import type { PacedOptions } from '../titles/pacer';
+import type { PacedOptions } from '@seikou/titles/pacer';
 import { unxz } from './archive';
 import { normalizeLanguage } from './choose';
 import { dialogueIntervals } from './dialogue';

@@ -1,7 +1,7 @@
 /** SeaDex client (https://seadex.moe, a PocketBase API). Pace it with a few calls a second. Original code. */
-import { RateLimited } from '../titles/pacer';
-import type { PacedOptions, Pacer } from '../titles/pacer';
-import { retryAfterMs, SourceUnavailable } from '../titles/sources';
+import { RateLimited } from '@seikou/titles/pacer';
+import type { PacedOptions, Pacer } from '@seikou/titles/pacer';
+import { retryAfterMs, SourceUnavailable } from '@seikou/titles/sources';
 
 export interface SeaDexRelease {
   readonly tracker: string;

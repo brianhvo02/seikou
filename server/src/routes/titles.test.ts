@@ -12,14 +12,14 @@ import { createServer } from '../http';
 import { Library } from '../library';
 import { RelayState } from '../rtc/relay';
 import { Store } from '../store';
-import { ArtCache } from '../titles/art';
-import { artIdOf } from '../titles/catalogue';
-import type { FolderCover } from '../titles/catalogue';
+import { ArtCache } from '@seikou/titles/art';
+import { artIdOf } from '@seikou/titles/catalogue';
+import type { FolderCover } from '@seikou/titles/catalogue';
 import type { DiscEvidence } from '../titles/evidence';
-import { OwnerStore } from '../titles/owner-store';
+import { OwnerStore } from '@seikou/titles/owner-store';
 import { TitleService } from '../titles/service';
-import { SourceUnavailable } from '../titles/sources';
-import type { Entry, EntryNames, MetadataSource } from '../titles/sources';
+import { SourceUnavailable } from '@seikou/titles/sources';
+import type { Entry, EntryNames, MetadataSource } from '@seikou/titles/sources';
 
 // Every title and path here is made up (ruling R4).
 

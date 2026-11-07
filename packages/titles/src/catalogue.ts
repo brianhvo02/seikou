@@ -10,7 +10,7 @@ import type {
 } from '@seikou/nas/nas-api';
 import type { DiscDbHit } from './discdb';
 import { guessEpisodes } from './episodes';
-import type { DiscEvidence } from './evidence';
+import type { DiscEvidence } from './disc-evidence';
 import { groupKey, musicRelease } from './match';
 import type { DiscMatch } from './match';
 import { artistKey, musicInfo, VARIOUS_ID } from './music-info';

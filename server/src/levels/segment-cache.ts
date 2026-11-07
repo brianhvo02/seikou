@@ -1,6 +1,6 @@
 import { link, mkdir, open, readFile, readdir, rmdir, stat, unlink, utimes, type FileHandle } from 'node:fs/promises';
 import { dirname, join, relative, sep } from 'node:path';
-import { isCode } from '../atomic-json';
+import { isCode } from '@seikou/titles/atomic-json';
 
 const PART_RE = /^[A-Za-z0-9_.-]{1,128}$/;
 const SEGMENT_SUFFIX = '.seg';

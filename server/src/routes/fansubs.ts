@@ -18,8 +18,8 @@ import type { Tosho, ToshoFile, ToshoRelease } from '../fansubs/tosho';
 import { titleUnits } from '../fansubs/units';
 import { json, readJson } from '../http';
 import type { Handler, Response } from '../http';
-import { RateLimited } from '../titles/pacer';
-import { SourceUnavailable } from '../titles/sources';
+import { RateLimited } from '@seikou/titles/pacer';
+import { SourceUnavailable } from '@seikou/titles/sources';
 import { decodeSegment, requestDevice } from './titles';
 import type { TitleLibrary } from './titles';
 

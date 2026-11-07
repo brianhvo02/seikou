@@ -22,7 +22,7 @@ import { x264Backend, type EncoderBackend } from '../levels/encoder';
 import { LevelService, libraryDiscSources, viewingIdOf } from '../levels/level-service';
 import { SegmentCache } from '../levels/segment-cache';
 import type { TitleService } from '../titles/service';
-import type { OwnerStore } from '../titles/owner-store';
+import type { OwnerStore } from '@seikou/titles/owner-store';
 import { BUSY_COPY, BUSY_TRY_LATER_COPY, MAX_LEVEL_READ_BYTES, discRoutes, type LevelRouteService } from './discs';
 
 const SYNTHETIC = join(import.meta.dirname, '../../../fixtures/synthetic');

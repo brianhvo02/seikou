@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { lockFile, replaceAtomically, syncDir, writeSynced } from '../atomic-json';
+import { lockFile, replaceAtomically, syncDir, writeSynced } from '@seikou/titles/atomic-json';
 
 interface Entry {
   size: number;

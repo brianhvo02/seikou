@@ -1,5 +1,5 @@
 /** What a title's SeaDex entries cover on the owner's discs: its AniList seasons and its movie. Pure; original code. */
-import type { Catalogue } from '../titles/catalogue';
+import type { Catalogue } from '@seikou/titles/catalogue';
 
 /** One episode of a unit: a season's episode, or a movie's one. */
 export interface UnitEpisode {

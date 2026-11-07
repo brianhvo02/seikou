@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { TURN_MAX_SKEW_MS, turnProofMessage } from '../../../rendezvous/src/protocol';
 import type { IceServerInfo, TurnRefusal } from '../../../rendezvous/src/protocol';
-import { isCode, replaceAtomically } from '../atomic-json';
+import { isCode, replaceAtomically } from '@seikou/titles/atomic-json';
 import type { Auth } from '../auth';
 
 /** Cloudflare's free relay allowance a month (1,000 GB, shared by TURN and its SFU; checked 2026-10-19). */

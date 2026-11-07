@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeTitle } from '@seikou/nas/title-text';
 import type { DiscDbHit } from './discdb';
-import type { DiscEvidence } from './evidence';
+import type { DiscEvidence } from './disc-evidence';
 import { groupKey, matchDiscs } from './match';
 import type { DiscMatch, MatchContext } from './match';
 import { SourceUnavailable } from './sources';

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { DiscEvidence } from './evidence';
+import type { DiscEvidence } from './disc-evidence';
 import { guessEpisodes } from './episodes';
 
 type Playlist = DiscEvidence['playlists'][number];

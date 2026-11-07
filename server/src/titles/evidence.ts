@@ -4,20 +4,12 @@ import { contentHash } from '@seikou/nas/content-hash';
 import { streamsOf } from '@seikou/nas/disc-key';
 import type { DiscEntry } from '@seikou/nas/nas-api';
 import type { UdfFile } from '@seikou/bdmv/udf';
+import type { DiscEvidence } from '@seikou/titles/disc-evidence';
 import { readIsoFiles } from '../iso';
 import { listFiles } from '../manifest';
 import type { ListDir } from '../manifest';
 
-/** What a disc's files and path say about it, read once per new or changed disc for the title matcher. */
-export interface DiscEvidence {
-  readonly discId: string;
-  readonly path: string; // root-relative, as DiscEntry.path
-  readonly fingerprint: string | null; // contentHash
-  readonly discTitles: readonly { readonly lang: string; readonly name: string }[]; // bdmt di:name per language
-  readonly segments: readonly string[]; // folder names from below the root down to the disc folder or ISO file name
-  readonly catalogueNumbers: readonly string[];
-  readonly playlists: readonly { readonly id: string; readonly durationS: number; readonly chapters: number; readonly clips: readonly string[] }[];
-}
+export type { DiscEvidence };
 
 const STREAM = /^BDMV\/STREAM\/([^/]+\.M2TS)$/;
 const PLAYLIST = /^BDMV\/PLAYLIST\/([^/]+)\.MPLS$/;

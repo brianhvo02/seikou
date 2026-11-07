@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { Pacer } from '../titles/pacer';
-import { SourceUnavailable } from '../titles/sources';
+import { Pacer } from '@seikou/titles/pacer';
+import { SourceUnavailable } from '@seikou/titles/sources';
 import { createSeaDex } from './seadex';
 
 const BASE = 'https://seadex.example';

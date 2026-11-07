@@ -1,8 +1,8 @@
 /** Anime Tosho client: the JSON feed (https://feed.animetosho.net/json) and the storage downloads. Original code. */
-import { RateLimited } from '../titles/pacer';
+import { RateLimited } from '@seikou/titles/pacer';
 import { TooLargeArchive } from './archive';
-import type { PacedOptions, Pacer } from '../titles/pacer';
-import { retryAfterMs, SourceUnavailable } from '../titles/sources';
+import type { PacedOptions, Pacer } from '@seikou/titles/pacer';
+import { retryAfterMs, SourceUnavailable } from '@seikou/titles/sources';
 
 /** The most a track's .xz download may be. */
 export const TRACK_DOWNLOAD_BYTES = 64 * 1024 * 1024;

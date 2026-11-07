@@ -6,7 +6,7 @@
 import type { UnsortedReason } from '@seikou/nas/nas-api';
 import { normalizeStrict, normalizeTitle } from '@seikou/nas/title-text';
 import type { DiscDbHit } from './discdb';
-import type { DiscEvidence } from './evidence';
+import type { DiscEvidence } from './disc-evidence';
 import { isTagWord, parseName } from './parse-name';
 import type { ParsedName } from './parse-name';
 import { SourceUnavailable } from './sources';

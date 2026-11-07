@@ -3,7 +3,7 @@ import type { OwnerChoice, OwnTitle } from '@seikou/nas/nas-api';
 import { artIdOf, buildCatalogue } from './catalogue';
 import type { Catalogue, FolderCover } from './catalogue';
 import type { DiscDbHit } from './discdb';
-import type { DiscEvidence } from './evidence';
+import type { DiscEvidence } from './disc-evidence';
 import type { DiscMatch } from './match';
 import type { MusicArtist, MusicRelease } from './music-sources';
 import type { OwnerSnapshot } from './owner-store';
