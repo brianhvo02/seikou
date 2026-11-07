@@ -80,7 +80,7 @@ Bundled GPL tools, if any are ever added, ship with their license text and a mir
 1. **Pipeline prototype (CLI).** Playlist model, episode plan, VapourSynth script generation, the piped encode, IVF/Ogg readers, the Matroska writer with chapters, an end-to-end test on a synthetic disc. Plan: `docs/superpowers/plans/2026-11-06-m1-pipeline-prototype.md`.
 2. **Subtitles and packaging.** PGS passthrough into the MKV and `.sup` extraction with Seikou's demuxer, ASS + fonts as attachments, the static web directory (WebM remux, WebVTT chapters). Multi-channel audio and audio track selection by PID.
 3. **Seikou packages.** `@seikou/bdmv` extraction in the Seikou repo; this repo switches from the path alias to the package.
-4. **Web UI and job runner.** Disc browser, chapter grouping, encode queue, logs and progress, settings profiles (SilentAperture-style test-encode helper).
+4. **Web UI and job runner.** Disc browser, chapter grouping with a preview (the playlist plays in `@seikou/engine`, each chapter mark can be jumped to, and chapters are grouped into episodes while watching; added 2026-11-07), encode queue, logs and progress, settings profiles (SilentAperture-style test-encode helper).
 5. **Player.** WebM playback, JASSUB, `@seikou/pg` for PGS, WebVTT chapters; Safari AV1-in-WebM check.
 6. **Delivery.** Manifest, first-run bootstrapper with `uv`, Docker image.
 

@@ -141,7 +141,7 @@ After the Seikou packages branch merges, the encoding app moves into the Seikou 
 1. **Seikou packages** (Seikou repo). Workspaces; extract the six packages; Seikou's app and server import them; BD-J becomes an optional provider; CI green. Its own plan.
 2. **Backend and helper** (this repo). The server, the helper page with its three steps and the metadata panel, the saved record, engine playback with ASS. Its own plan.
 3. **Encoder integration and packaging** (this repo). ASS and fonts and metadata into the MKV, PGS passthrough, every audio stream the user left ticked in the metadata panel (all ticked by default; one Opus chain per stream, with the playlist PID mapped to BestSource's track index through the stream order `@seikou/bdmv` reads from the clip's PMT; 5.1 at 320 kb/s as the parent spec says), the static web directory (WebM remux, `.sup`, ASS and fonts, WebVTT chapters). Its own plan. (Multi-channel audio and PID selection were in the parent spec's milestone 2 and belong here; designer's call to include every stream by default.)
-4. Web UI for jobs (unchanged).
+4. Web UI for jobs (unchanged, except: chapter grouping includes a preview, added 2026-11-07 at the user's request: the playlist plays in `@seikou/engine` as in the helper, the chapter list shows each mark's time, a click jumps there, and the user groups chapters into episodes while watching, instead of reading chapter times from `plan`).
 5. Player (unchanged, now reusing `@seikou/engine`'s subtitle rendering where the WebM path cannot).
 6. Delivery (unchanged).
 
