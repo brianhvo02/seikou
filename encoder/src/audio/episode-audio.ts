@@ -30,6 +30,25 @@ function concat(parts: Int16Array[]): Int16Array {
   return out;
 }
 
+/**
+ * Throws when the decode is shorter than the episode by more than one video frame: a WAV whose
+ * declared size was cut short (a 32-bit size wraps above 4 GiB) would otherwise pass for a short
+ * episode and misplace every subtitle near its end. The episode's length is the planned audio
+ * sample count, which is what the script outputs; `durationNs` counts whole video frames and can
+ * differ from it by part of a frame. A longer decode is left alone.
+ */
+function checkLength(plan: EpisodePlan, actual16k: number): void {
+  const sourceSamples = plan.segments.reduce((n, s) => n + (s.audioSamples[1] - s.audioSamples[0]), 0);
+  const expected16k = Math.ceil((sourceSamples * 16_000) / plan.audio.sampleRate);
+  const frame16k = Math.ceil((16_000 * plan.video.fpsDen) / plan.video.fpsNum);
+  if (expected16k - actual16k > frame16k) {
+    throw new Error(
+      `Episode ${plan.index} audio decoded to ${actual16k} samples at 16 kHz, expected ${expected16k} (the episode's length); ` +
+        'the WAV from vspipe ended early',
+    );
+  }
+}
+
 /** Runs `vspipe -c wav <script> -` and downsamples its stdout as it arrives. */
 function runVspipe(vspipe: string, script: string, signal: AbortSignal | undefined): Promise<Int16Array> {
   return new Promise<Int16Array>((resolvePcm, reject) => {
@@ -65,6 +84,13 @@ function runVspipe(vspipe: string, script: string, signal: AbortSignal | undefin
       const parts: Int16Array[] = [];
       for await (const planar of wav.frames) parts.push(down.push(planar));
       parts.push(down.flush());
+      // The reader stops at the declared data size, but vspipe may write past it (a trailing chunk, or
+      // a size that overflowed 32 bits); unread output would fill the pipe and block vspipe for good.
+      // The finished reader's async iterator leaves a 'readable' listener behind, which makes resume()
+      // a no-op, so drop it first. Destroying the stream instead would fail vspipe with a broken pipe.
+      const out = proc.stdout as Readable;
+      out.removeAllListeners('readable');
+      out.resume();
       return concat(parts);
     };
 
@@ -95,7 +121,8 @@ function runVspipe(vspipe: string, script: string, signal: AbortSignal | undefin
  * folder that is removed afterwards; BestSource's index files go under `cacheDir` (created if
  * missing) and are reused. Rejects with a `ChainError` carrying vspipe's last stderr output when it
  * exits with an error or cannot start, with `RangeError` when the source rate is not a multiple of
- * 16 kHz, and with the signal's reason (vspipe stopped) when `signal` aborts.
+ * 16 kHz, with an `Error` naming both lengths when the decode is shorter than the planned audio by
+ * more than one video frame, and with the signal's reason (vspipe stopped) when `signal` aborts.
  */
 export async function decodeEpisodeAudio16k(
   plan: EpisodePlan,
@@ -110,7 +137,9 @@ export async function decodeEpisodeAudio16k(
   try {
     const script = join(dir, 'speech.vpy');
     await writeFile(script, buildSpeechAudioScript(plan, { cacheDir: cache }));
-    return await runVspipe(tools.vspipe, script, signal);
+    const pcm = await runVspipe(tools.vspipe, script, signal);
+    checkLength(plan, pcm.length);
+    return pcm;
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

@@ -1,0 +1,4 @@
+#!/bin/sh
+# Stands in for `vspipe -c wav <script> -`: writes the file named by FAKE_WAV to stdout, whatever the script.
+cat "$FAKE_WAV"
+exit "${FAKE_VSPIPE_EXIT:-0}"

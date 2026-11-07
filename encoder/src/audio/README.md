@@ -12,7 +12,7 @@ Fansub tracks are lined up with a disc by comparing where their dialogue falls w
 
 ## API
 
-- `decodeEpisodeAudio16k(plan, { vspipe }, cacheDir, signal?)` returns the episode as an `Int16Array` at 16 kHz. The script lives in a temporary folder removed afterwards; a vspipe failure rejects with a `ChainError` carrying its stderr tail; an abort stops vspipe and rejects with the signal's reason.
+- `decodeEpisodeAudio16k(plan, { vspipe }, cacheDir, signal?)` returns the episode as an `Int16Array` at 16 kHz. The script lives in a temporary folder removed afterwards; a vspipe failure rejects with a `ChainError` carrying its stderr tail; a decode shorter than the planned audio by more than one video frame (a WAV size cut short) rejects naming both lengths; an abort stops vspipe and rejects with the signal's reason. Output vspipe writes past the WAV's declared size is drained, so vspipe never blocks on a full pipe.
 - `episodeReader(pcm16k)` returns a `PlaylistAudioReader` for `alignAudio`: `'whole'` gives the PCM from 0 ms, spans give one window from the first span's start to the last span's end, zero outside the spans.
 - `readWav(stream)` returns `{ format, frames }`, `frames` being planar `Float32Array` chunks in [-1, 1).
 - `new Downsampler16k(sourceRate)`, then `push(planar)` and one `flush()`, each returning the 16 kHz samples completed.

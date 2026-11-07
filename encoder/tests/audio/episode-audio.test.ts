@@ -2,7 +2,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SPEECH_BURSTS } from '../../../tests/helpers/speech-bursts';
 import { decodeEpisodeAudio16k, episodeReader } from '../../src/audio/episode-audio';
 import { loadPlaylist } from '../../src/disc/playlist';
@@ -61,6 +61,58 @@ describe('episodeReader', () => {
     const ac = new AbortController();
     ac.abort(new Error('stop'));
     await expect(episodeReader(ramp)('whole', ac.signal)).rejects.toThrow('stop');
+  });
+});
+
+/** A 16 kHz mono 16-bit WAV whose header declares `declaredFrames` (null: streamed) and which holds `frames` frames, then `extraBytes` more. */
+function wavFile(dir: string, frames: number, declaredFrames: number | null, extraBytes = 0): string {
+  const head = Buffer.alloc(44);
+  head.write('RIFF', 0, 'latin1');
+  head.writeUInt32LE(0xffffffff, 4);
+  head.write('WAVEfmt ', 8, 'latin1');
+  head.writeUInt32LE(16, 16);
+  head.writeUInt16LE(1, 20);
+  head.writeUInt16LE(1, 22);
+  head.writeUInt32LE(16000, 24);
+  head.writeUInt32LE(32000, 28);
+  head.writeUInt16LE(2, 32);
+  head.writeUInt16LE(16, 34);
+  head.write('data', 36, 'latin1');
+  head.writeUInt32LE(declaredFrames === null ? 0xffffffff : declaredFrames * 2, 40);
+  const file = path.join(dir, 'fake.wav');
+  fs.writeFileSync(file, Buffer.concat([head, Buffer.alloc(frames * 2), Buffer.alloc(extraBytes)]));
+  return file;
+}
+
+describe('decodeEpisodeAudio16k with a stand-in vspipe', () => {
+  const fakeVspipe = { vspipe: fx('tests/fake-bin/vspipe-wav') };
+  let dir = '';
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'episode-audio-fake-'));
+  });
+  afterEach(() => {
+    delete process.env.FAKE_WAV;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('settles when vspipe writes past the declared data size (it is drained, not left blocked on a full pipe)', async () => {
+    const plan = await speechPlan('1-3');
+    process.env.FAKE_WAV = wavFile(dir, 90 * 16000, 90 * 16000, 4 << 20);
+    const pcm = await decodeEpisodeAudio16k(plan, fakeVspipe, dir);
+    expect(pcm).toHaveLength(90 * 16000);
+  }, 15_000);
+
+  it('throws naming both lengths when the decode is shorter than the episode', async () => {
+    const plan = await speechPlan('1-3');
+    process.env.FAKE_WAV = wavFile(dir, 80 * 16000, null);
+    await expect(decodeEpisodeAudio16k(plan, fakeVspipe, dir)).rejects.toThrow(/1280000.*1440000|1440000.*1280000/);
+  });
+
+  it('accepts a decode short by less than one video frame', async () => {
+    const plan = await speechPlan('1-3');
+    // One frame at 24 fps is 666.7 samples at 16 kHz.
+    process.env.FAKE_WAV = wavFile(dir, 90 * 16000 - 600, null);
+    expect(await decodeEpisodeAudio16k(plan, fakeVspipe, dir)).toHaveLength(90 * 16000 - 600);
   });
 });
 
