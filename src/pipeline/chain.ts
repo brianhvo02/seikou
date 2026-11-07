@@ -25,6 +25,8 @@ export class ChainError extends Error {
 }
 
 export interface Chain {
+  /** Last process's stdout. It ends cleanly even on failure, so consumers must await `done` to learn the outcome.
+   * `done` cannot settle successfully until the consumer drains this stream. */
   stream: Readable;
   done: Promise<void>;
   abort(reason: Error): void;
@@ -62,6 +64,10 @@ function runChain(first: Stage, second: Stage): Chain {
     rejectDone = rej;
   });
 
+  // Mark handled so a rejection before the caller attaches does not raise unhandledRejection;
+  // callers awaiting `done` still observe it.
+  done.catch(() => {});
+
   const killAll = (): void => {
     for (const p of procs) if (p.exitCode === null && p.signalCode === null) p.kill('SIGTERM');
   };
@@ -94,7 +100,18 @@ function runChain(first: Stage, second: Stage): Chain {
     });
     p.on('exit', (code, signal) => {
       if (code !== 0) {
-        fail(new ChainError(names[i], code, signal, tails[i].toString('utf8')));
+        // stdio may not be drained at 'exit'; wait for stderr to finish (bounded) so the tail is complete.
+        const stderr = p.stderr as Readable;
+        const finish = (): void => fail(new ChainError(names[i], code, signal, tails[i].toString('utf8')));
+        if (stderr.destroyed || stderr.readableEnded) {
+          finish();
+          return;
+        }
+        const timer = setTimeout(finish, 500);
+        stderr.once('close', () => {
+          clearTimeout(timer);
+          finish();
+        });
         return;
       }
       exited[i] = true;

@@ -17,6 +17,7 @@ afterEach(() => {
   delete process.env.FAKE_VSPIPE_EXIT;
   delete process.env.FAKE_ENC_EXIT;
   delete process.env.FAKE_SLEEP;
+  delete process.env.FAKE_STDERR_LINES;
 });
 
 describe('chains with fake binaries', () => {
@@ -31,6 +32,25 @@ describe('chains with fake binaries', () => {
     const c = videoChain(fake, 'tests/fixtures/hello.vpy', []);
     c.stream.resume();
     await expect(c.done).rejects.toMatchObject({ tool: 'SvtAv1EncApp', code: 3, stderrTail: expect.stringContaining('fake stderr line') });
+  });
+
+  it('keeps the final stderr lines of a failing encoder', async () => {
+    process.env.FAKE_ENC_EXIT = '3';
+    process.env.FAKE_STDERR_LINES = '200';
+    for (let n = 0; n < 5; n++) {
+      const c = videoChain(fake, 'tests/fixtures/hello.vpy', []);
+      c.stream.resume();
+      const err = await c.done.then(() => null, (e: unknown) => e as { stderrTail: string });
+      expect(err?.stderrTail).toContain('stderr line 199\nfake stderr line');
+    }
+  });
+
+  it('rejects done without unhandled rejection when the stream is awaited first', async () => {
+    process.env.FAKE_ENC_EXIT = '3';
+    const c = videoChain(fake, 'tests/fixtures/hello.vpy', []);
+    await collect(c.stream);
+    await new Promise((r) => setTimeout(r, 50));
+    await expect(c.done).rejects.toMatchObject({ tool: 'SvtAv1EncApp' });
   });
 
   it('rejects when vspipe fails even if the encoder exited 0', async () => {
