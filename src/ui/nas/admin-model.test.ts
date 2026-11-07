@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { TMDB_ATTRIBUTION, codeListed, codePollEnd, countdown, countdownTickMs, deleteTitleQuestion, encodingLine, encodingStatus, gateSwitchOn, lastSeen, matchingStatus, newCode, ownTitleKind, ownTitles, withGate, type AdminApi } from './admin-model';
-import type { TitleSummary } from '../../engine/disc/nas-api';
+import type { TitleSummary } from '@seikou/nas/nas-api';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;

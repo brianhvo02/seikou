@@ -1,5 +1,5 @@
 /** Shifts an ASS script's event times, touching only the Start and End fields of its Dialogue lines. Pure; original code. */
-import type { FansubAlignment } from '../../../src/engine/disc/nas-api';
+import type { FansubAlignment } from '@seikou/nas/nas-api';
 
 const TIME = /^(\d+):(\d{1,2}):(\d{1,2})(?:\.(\d{1,3}))?$/;
 

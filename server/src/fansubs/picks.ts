@@ -6,7 +6,7 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { FansubAlignment, FansubPick, FansubPickRequest } from '../../../src/engine/disc/nas-api';
+import type { FansubAlignment, FansubPick, FansubPickRequest } from '@seikou/nas/nas-api';
 import { isCode, replaceAtomically } from '../atomic-json';
 import type { LevelDiscSource } from '../levels/level-discs';
 import { align } from './align';

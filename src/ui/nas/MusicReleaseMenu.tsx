@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from 'react';
-import type { DiscRef, TitleDetail, TitleSummary } from '../../engine/disc/nas-api';
+import type { DiscRef, TitleDetail, TitleSummary } from '@seikou/nas/nas-api';
 import { artistChoice, releaseName, VARIOUS_ID, VARIOUS_NAME } from './artist-model';
 import { filingDisc } from './FileDifferently';
 import type { NasClient } from './nas-client';

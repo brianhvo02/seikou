@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { DiscEntry, DiscManifest, FolderEntry } from '../../engine/disc/nas-api';
+import type { DiscEntry, DiscManifest, FolderEntry } from '@seikou/nas/nas-api';
 import { fakeNas } from '../../../tests/helpers/fake-nas';
 import { fixtureDiscFiles } from '../../../tests/helpers/fixture-disc';
 import { breadcrumbs, discBadges, discFacts, folderMemory, formatSize, mainPlaylist, openFailed, playlistOf, preflightLines, sortRows } from './library-model';

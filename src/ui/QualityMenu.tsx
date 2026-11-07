@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from 'react';
-import type { LevelId, LevelInfo } from '../engine/disc/nas-api';
+import type { LevelId, LevelInfo } from '@seikou/nas/nas-api';
 import { REASON_COPY, levelRateMbps } from './nas/level-model';
 import type { LevelState } from './nas/level-session';
 

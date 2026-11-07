@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { ContinueItem, DiscPlaces, PlaceSettings, PlaybackPlace } from '../../engine/disc/nas-api';
+import type { ContinueItem, DiscPlaces, PlaceSettings, PlaybackPlace } from '@seikou/nas/nas-api';
 import { carriedSettings, continueCard, episodeProgress, resumeOffer, startOver, UNTITLED_DISC, within } from './resume-model';
 
 const settings: PlaceSettings = {

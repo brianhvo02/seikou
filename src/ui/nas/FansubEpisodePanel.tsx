@@ -1,5 +1,5 @@
 import { useState, type ReactElement } from 'react';
-import type { FansubEpisodeMark, StoredSubtitle } from '../../engine/disc/nas-api';
+import type { FansubEpisodeMark, StoredSubtitle } from '@seikou/nas/nas-api';
 import { episodeMark, trackChip } from './fansub-model';
 import type { NasClient } from './nas-client';
 import { formatOffset, languageTag, subtitleErrorMessage, type SubtitleTarget } from './subtitle-model';

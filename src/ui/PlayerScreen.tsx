@@ -21,7 +21,7 @@ import { classifyTap, controlsMayIdle, controlsShown, DOUBLE_TAP_MS, idleAfterTa
 import { PlaylistPicker } from './PlaylistPicker';
 import { RemotePad } from './RemotePad';
 import type { MenuKey } from '../engine/protocol';
-import type { FansubPick, FansubPickRequest, LevelId, StoredSubtitle } from '../engine/disc/nas-api';
+import type { FansubPick, FansubPickRequest, LevelId, StoredSubtitle } from '@seikou/nas/nas-api';
 import { replacesTextSet, StoredSubtitlePicker } from './nas/stored-subtitle-pick';
 import { forPlaylist, STORED_LIST_TIMEOUT_MS } from './nas/subtitle-model';
 import { defaultQuery, type FansubOrigin, type ToshoTrack } from './nas/tosho-search-model';

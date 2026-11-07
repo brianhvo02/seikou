@@ -7,8 +7,8 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { TitleSummary } from '../../../src/engine/disc/nas-api';
-import { normalizeTitle } from '../../../src/engine/disc/title-text';
+import type { TitleSummary } from '@seikou/nas/nas-api';
+import { normalizeTitle } from '@seikou/nas/title-text';
 import { isCode, replaceAtomically } from '../atomic-json';
 import type { LibraryRoot } from '../config';
 import type { Library } from '../library';

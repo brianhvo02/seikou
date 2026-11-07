@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { normalizeStrict, normalizeTitle } from '../../../src/engine/disc/title-text';
+import { normalizeStrict, normalizeTitle } from '@seikou/nas/title-text';
 import { ArtCache } from './art';
 import type { DiscEvidence } from './evidence';
 import { OwnerStore } from './owner-store';

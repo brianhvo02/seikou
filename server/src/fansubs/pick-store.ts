@@ -7,7 +7,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { FansubPick } from '../../../src/engine/disc/nas-api';
+import type { FansubPick } from '@seikou/nas/nas-api';
 import { isCode, replaceAtomically } from '../atomic-json';
 
 const KEEP_MS = 30 * 86_400_000;

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactElement } from 'react';
-import type { ContinueItem } from '../../engine/disc/nas-api';
+import type { ContinueItem } from '@seikou/nas/nas-api';
 import type { NasClient } from './nas-client';
 import type { NasHistory } from './nas-history';
 import { Poster } from './Poster';

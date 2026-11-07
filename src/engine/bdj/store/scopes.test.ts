@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { fixtureDiscFiles } from '../../../../tests/helpers/fixture-disc';
 import { syntheticSource } from '../../../../tests/helpers/synthetic-disc';
-import type { DiscManifest } from '../../disc/nas-api';
+import type { DiscManifest } from '@seikou/nas/nas-api';
 import { NO_DISC_ID, discFingerprint, discScopes, javaDiscId, orgDirName, readBdjos, scopesFor, storeSource } from './scopes';
 
 const HEX32 = /^[0-9a-f]{32}$/;

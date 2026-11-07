@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import type { PlaybackPlace } from '../../engine/disc/nas-api';
+import type { PlaybackPlace } from '@seikou/nas/nas-api';
 import { promptLines } from '../place-model';
 import { DISC_CHANGED_COPY } from './resume-model';
 

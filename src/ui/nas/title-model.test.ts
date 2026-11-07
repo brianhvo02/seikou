@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { DiscSlot, SeasonDetail, TitleDetail, TitleKind, TitleNames, TitleSummary } from '../../engine/disc/nas-api';
+import type { DiscSlot, SeasonDetail, TitleDetail, TitleKind, TitleNames, TitleSummary } from '@seikou/nas/nas-api';
 import { copiesLabel, discHeading, displayName, emptyLibraryText, episodeMeta, initials, recentlyAdded, searchTitles, seasonCounts, seasonLabel, secondaryName, shelf, titleMeta } from './title-model';
 
 // Every title here is made up (ruling R4).

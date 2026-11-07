@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useState, type ReactElement } from 'react';
-import type { DiscManifest, StoredSubtitle } from '../../engine/disc/nas-api';
-import { discKeyOf } from '../../engine/disc/disc-key';
+import type { DiscManifest, StoredSubtitle } from '@seikou/nas/nas-api';
+import { discKeyOf } from '@seikou/nas/disc-key';
 import type { NasClient } from './nas-client';
 import { LANGUAGES, formatOffset, languageTag, subtitleErrorMessage, type SubtitleTarget } from './subtitle-model';
 import { rememberFansubDeletion } from './fansub-model';

@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactElement } from 'react';
-import type { EncodingNow } from '../../engine/disc/nas-api';
+import type { EncodingNow } from '@seikou/nas/nas-api';
 import { encodingLine, encodingStatus } from './admin-model';
 import type { NasClient } from './nas-client';
 

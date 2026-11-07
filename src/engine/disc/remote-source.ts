@@ -7,7 +7,7 @@
  */
 
 import { DiscError, type ByteSource } from '@seikou/bdmv/byte-source';
-import type { DiscManifest } from './nas-api';
+import type { DiscManifest } from '@seikou/nas/nas-api';
 
 /** Byte ranges of the disc's files (HttpTransport). Paths are the manifest's. */
 export interface RangeTransport {

@@ -1,4 +1,4 @@
-import type { PlaceFansub, PlaceSettings, PlaybackPlace, PlaceTextFile } from '../engine/disc/nas-api';
+import type { PlaceFansub, PlaceSettings, PlaybackPlace, PlaceTextFile } from '@seikou/nas/nas-api';
 import type { AudioTrack, PgTrack, PlaceState, StartPoint } from '../engine/protocol';
 import type { PlayerSnapshot } from '../player/player-controller';
 import { formatTime } from './format';

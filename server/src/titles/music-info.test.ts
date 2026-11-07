@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeTitle } from '../../../src/engine/disc/title-text';
+import { normalizeTitle } from '@seikou/nas/title-text';
 import type { DiscEvidence } from './evidence';
 import { artistKey, musicInfo, VARIOUS_ID } from './music-info';
 import { VARIOUS_ARTISTS_MBID, type MusicArtist, type MusicRelease } from './music-sources';

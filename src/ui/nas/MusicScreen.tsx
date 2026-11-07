@@ -1,5 +1,5 @@
 import { useEffect, type ReactElement } from 'react';
-import type { TitleSummary } from '../../engine/disc/nas-api';
+import type { TitleSummary } from '@seikou/nas/nas-api';
 import type { ArtistGroup } from './artist-model';
 import { ArtistGrid } from './ArtistGrid';
 import { ArtistPage, type MusicOwner } from './ArtistPage';

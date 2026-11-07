@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { DiscPlaces, PlaybackPlace } from '../engine/disc/nas-api';
+import type { DiscPlaces, PlaybackPlace } from '@seikou/nas/nas-api';
 import type { PlaceState, TextFileInfo } from '../engine/protocol';
 import { INITIAL_SNAPSHOT, type PlayerSnapshot } from '../player/player-controller';
 import { NasHttpError } from './nas/nas-client';

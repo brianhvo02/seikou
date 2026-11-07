@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from 'react';
-import type { StoredSubtitle } from '../engine/disc/nas-api';
+import type { StoredSubtitle } from '@seikou/nas/nas-api';
 import type { UoOp } from '../engine/hdmv/uo-mask';
 import type { Chapter } from '../engine/nav/timeline';
 import type { SubtitleChoice } from '../engine/protocol';

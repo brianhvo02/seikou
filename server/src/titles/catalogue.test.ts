@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { OwnerChoice, OwnTitle } from '../../../src/engine/disc/nas-api';
+import type { OwnerChoice, OwnTitle } from '@seikou/nas/nas-api';
 import { artIdOf, buildCatalogue } from './catalogue';
 import type { Catalogue, FolderCover } from './catalogue';
 import type { DiscDbHit } from './discdb';

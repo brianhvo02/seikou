@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import SevenZip from '7z-wasm';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { DiscSlot, EpisodeRef, StoredSubtitle, TitleDetail, TitleSummary } from '../../../src/engine/disc/nas-api';
+import type { DiscSlot, EpisodeRef, StoredSubtitle, TitleDetail, TitleSummary } from '@seikou/nas/nas-api';
 import { SPEECH_BURSTS } from '../../../tests/helpers/speech-bursts';
 import { DiscActivity } from '../disc-activity';
 import { folderDiscSource } from '../levels/level-discs';

@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { parseClpi, type Clpi } from '@seikou/bdmv/clpi-parser';
 import { parseMpls, type Mpls, type PlayItem } from '@seikou/bdmv/mpls-parser';
 import { CodingType } from '@seikou/bdmv/stream-types';
-import type { DiscManifest } from '../../../src/engine/disc/nas-api';
+import type { DiscManifest } from '@seikou/nas/nas-api';
 import type { EncoderCodec } from './capacity';
 import type { ClipRunPlan } from './clip-run';
 import { fallbackAudioBps } from './audio-core';

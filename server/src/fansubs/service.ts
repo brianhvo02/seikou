@@ -6,7 +6,7 @@
 import { readFileSync } from 'node:fs';
 import type {
   FansubAlignment, FansubEpisodeMark, FansubSeasonLine, FansubSource, FansubTitleState, StoredSubtitle, SubtitleAttachment,
-} from '../../../src/engine/disc/nas-api';
+} from '@seikou/nas/nas-api';
 import type { DiscActivity } from '../disc-activity';
 import type { LevelDiscSource } from '../levels/level-discs';
 import type { SubtitleStore } from '../subtitle-store';

@@ -14,7 +14,7 @@
  * https://rtc.live.cloudflare.com/v1/turn/keys/<key id>/credentials/generate-ice-servers` with
  * `Authorization: Bearer <API token>` and `{"ttl": <seconds>}`, answering 201 with `{"iceServers": [...]}`.
  */
-import type { EcPublicJwk } from '../../src/engine/disc/nas-api';
+import type { EcPublicJwk } from '@seikou/nas/nas-api';
 import { boundedBody } from './body';
 import { INTERNAL, REGISTRY_NAME, json } from './code-registry';
 import type { RegistryNamespace } from './index';

@@ -1,4 +1,4 @@
-import type { OwnerChoice, TitleKind } from '../../../src/engine/disc/nas-api';
+import type { OwnerChoice, TitleKind } from '@seikou/nas/nas-api';
 import { AuthConflict, AuthNotFound } from '../auth';
 import type { Auth, Device, Person, PersonRef } from '../auth';
 import type { BdjStore } from '../bdj-store';

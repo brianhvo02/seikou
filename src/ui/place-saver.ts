@@ -1,4 +1,4 @@
-import type { DiscPlaces, PlaceFansub, PlaceSettings, PlaybackPlace } from '../engine/disc/nas-api';
+import type { DiscPlaces, PlaceFansub, PlaceSettings, PlaybackPlace } from '@seikou/nas/nas-api';
 import type { PlaceState } from '../engine/protocol';
 import { isFontName, pickedSubtitles, splitPick } from '../player/drop-files';
 import type { PlayerSnapshot } from '../player/player-controller';

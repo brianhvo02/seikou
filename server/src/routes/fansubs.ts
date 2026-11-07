@@ -1,7 +1,7 @@
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
-import type { FansubPickRequest, FansubTitleState, SeaDexRank, StoredSubtitle, ToshoReleaseFiles, ToshoSearchResult } from '../../../src/engine/disc/nas-api';
-import { parseDiscKey } from '../../../src/engine/disc/disc-key';
+import type { FansubPickRequest, FansubTitleState, SeaDexRank, StoredSubtitle, ToshoReleaseFiles, ToshoSearchResult } from '@seikou/nas/nas-api';
+import { parseDiscKey } from '@seikou/nas/disc-key';
 import type { Auth } from '../auth';
 import { TooLargeArchive } from '../fansubs/archive';
 import { rankReleases } from '../fansubs/choose';

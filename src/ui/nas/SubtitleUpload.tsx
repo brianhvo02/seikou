@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactElement } from 'react';
-import type { DiscManifest, StoredSubtitle, SubtitleFor } from '../../engine/disc/nas-api';
+import type { DiscManifest, StoredSubtitle, SubtitleFor } from '@seikou/nas/nas-api';
 import { formatTime } from '../format';
 import type { NasClient } from './nas-client';
 import { LANGUAGES, editPatch, offsetFrom, playlistChoices, subtitleErrorMessage, uploadSubtitle, validateUpload, type PlaylistChoice, type SubtitleTarget } from './subtitle-model';

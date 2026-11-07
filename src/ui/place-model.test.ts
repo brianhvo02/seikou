@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PlaceSettings, PlaybackPlace } from '../engine/disc/nas-api';
+import type { PlaceSettings, PlaybackPlace } from '@seikou/nas/nas-api';
 import type { AudioTrack } from '../engine/protocol';
 import type { PlayerSnapshot } from '../player/player-controller';
 import { buildPlace, isFinished, placeMinDurationUs, promptLines, qualifies, resumeStart, settingsForUpNext } from './place-model';

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactElement } from 'react';
-import type { OwnerChoice, TitleKind, TitleSummary, UnsortedItem, UnsortedReason, UnsortedSuggestion } from '../../engine/disc/nas-api';
+import type { OwnerChoice, TitleKind, TitleSummary, UnsortedItem, UnsortedReason, UnsortedSuggestion } from '@seikou/nas/nas-api';
 import type { NasClient, SkippedDisc } from './nas-client';
 import { Poster } from './Poster';
 import { displayName } from './title-model';

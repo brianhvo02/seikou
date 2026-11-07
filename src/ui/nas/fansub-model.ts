@@ -1,4 +1,4 @@
-import type { FansubEpisodeMark, FansubTitleState, SeaDexRank, StoredSubtitle } from '../../engine/disc/nas-api';
+import type { FansubEpisodeMark, FansubTitleState, SeaDexRank, StoredSubtitle } from '@seikou/nas/nas-api';
 
 export type MarkTone = 'ok' | 'warn' | 'bad';
 

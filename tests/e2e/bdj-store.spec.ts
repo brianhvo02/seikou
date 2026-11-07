@@ -6,7 +6,7 @@ import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { readTar } from '../../src/engine/bdj/store/tar';
-import { normalizeCode } from '../../src/engine/disc/pairing-code';
+import { normalizeCode } from '@seikou/nas/pairing-code';
 import { createDiscHandler, servedDiscBase } from '../../tools/disc-server/server';
 import { settlesOn } from './bdj-support';
 import { NAS_E2E_DIR, NAS_ENV, NAS_PORT, SERVER } from './nas-server';

@@ -1,5 +1,5 @@
 import type { spawn as nodeSpawn } from 'node:child_process';
-import type { DiscManifest, LevelId, LevelInfo, LevelReason } from '../../../src/engine/disc/nas-api';
+import type { DiscManifest, LevelId, LevelInfo, LevelReason } from '@seikou/nas/nas-api';
 import type { Capacity, EncoderCodec } from './capacity';
 import { ClipRunner, RetryLater, realClock, type Clock } from './clip-run';
 import type { ClipInput, EncoderBackend, ScanInfo } from './encoder';

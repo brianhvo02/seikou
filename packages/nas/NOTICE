@@ -1,0 +1,14 @@
+@seikou/nas
+Copyright (C) the Seikou authors.
+Licensed under LGPL-2.1-or-later; see LICENSE.
+
+All files in this package are original Seikou code, not ports of other projects.
+
+TheDiscDB (https://github.com/TheDiscDb/web), Apache License 2.0:
+algorithm followed, no code copied
+  content-hash.ts computes TheDiscDB's ContentHash as
+  code/TheDiscDb.Core/DiscHash/HashingExtensions.cs (CalculateHash: MD5 over
+  each file size as an int64 little-endian, uppercase hex) does, over the files
+  in the order of code/TheDiscDb/GraphQL/Contribute/Mutations/HashDisc.cs
+  (OrderBy name). Its MD5 is original code written from RFC 1321. The test
+  vectors come from TheDiscDb/data (https://github.com/TheDiscDb/data, MIT).

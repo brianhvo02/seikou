@@ -2,7 +2,7 @@
  * The episode guess from playlists (spec §8): episode-length playlists, numbered in disc order. It answers null,
  * meaning no Episodes tab, whenever it is unsure (ruling T7d). Original code.
  */
-import type { EpisodeRef } from '../../../src/engine/disc/nas-api';
+import type { EpisodeRef } from '@seikou/nas/nas-api';
 import type { DiscEvidence } from './evidence';
 
 type Playlist = DiscEvidence['playlists'][number];

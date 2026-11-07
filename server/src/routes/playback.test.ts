@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { PlaybackPlace } from '../../../src/engine/disc/nas-api';
+import type { PlaybackPlace } from '@seikou/nas/nas-api';
 import { appHandlers } from '../app';
 import { lockFile } from '../atomic-json';
 import { Auth } from '../auth';

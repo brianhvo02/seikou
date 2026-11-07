@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { FansubPick, FansubPickRequest, PlaceFansub, StoredSubtitle } from '../../engine/disc/nas-api';
+import type { FansubPick, FansubPickRequest, PlaceFansub, StoredSubtitle } from '@seikou/nas/nas-api';
 import { NasHttpError } from './nas-client';
 import { EPISODE_CHANGED, PICK_FAILED } from './tosho-search-model';
 import type { SubtitleChoice, TextFileInfo } from '../../engine/protocol';

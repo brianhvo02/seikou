@@ -2,8 +2,8 @@
  * The pure decision for one music release: its artist (grouping id, headline name, native name), kind, date, title and
  * concert name, from the folder name, the disc's evidence, a source lookup and the owner's choices. Original code.
  */
-import { normalizeTitle } from '../../../src/engine/disc/title-text';
-import type { MusicKind, TitleMusic } from '../../../src/engine/disc/nas-api';
+import { normalizeTitle } from '@seikou/nas/title-text';
+import type { MusicKind, TitleMusic } from '@seikou/nas/nas-api';
 import type { DiscEvidence } from './evidence';
 import { hasConcertWord, parseMusicFolder } from './music-name';
 import { VARIOUS_ARTISTS_MBID, type MusicArtist, type MusicRelease } from './music-sources';

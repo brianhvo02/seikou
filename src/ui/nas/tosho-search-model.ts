@@ -1,4 +1,4 @@
-import type { ToshoReleaseFiles, ToshoSearchResult } from '../../engine/disc/nas-api';
+import type { ToshoReleaseFiles, ToshoSearchResult } from '@seikou/nas/nas-api';
 import { languageName } from '../../player/language';
 
 /** Spec §9's notice when a pick can't be fetched, lined up or loaded; the text set stays as it was. */

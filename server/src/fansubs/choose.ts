@@ -1,5 +1,5 @@
 /** Ranks a SeaDex entry's releases and picks, per episode, the first with ASS/SSA subtitles in the wanted languages. Pure; original code. */
-import type { SeaDexRank } from '../../../src/engine/disc/nas-api';
+import type { SeaDexRank } from '@seikou/nas/nas-api';
 import { episodeOfFile, fileVersion, mainFile, seasonEpisode } from './episode-files';
 import type { SeaDexEntry, SeaDexRelease } from './seadex';
 import type { ToshoFile, ToshoRelease, ToshoTrack } from './tosho';

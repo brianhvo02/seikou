@@ -1,7 +1,7 @@
 import { RTCPeerConnection } from 'werift';
 import type { PeerConfig, RTCDataChannel } from 'werift';
 import { SIGNAL_DEVICE_LIFETIME_MS } from '../../../rendezvous/src/protocol';
-import type { WireChannel } from '../../../src/engine/disc/rtc-wire';
+import type { WireChannel } from '@seikou/nas/rtc-wire';
 import type { Auth, DeviceRoute } from '../auth';
 import type { Handler } from '../http';
 import { serveChannel } from './dispatch';

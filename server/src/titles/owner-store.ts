@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import type { OwnerChoice, OwnTitle, TitleKind } from '../../../src/engine/disc/nas-api';
+import type { OwnerChoice, OwnTitle, TitleKind } from '@seikou/nas/nas-api';
 import { isCode, lockFile, replaceAtomically } from '../atomic-json';
 
 export interface OwnerSnapshot {

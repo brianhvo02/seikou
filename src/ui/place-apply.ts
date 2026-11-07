@@ -1,4 +1,4 @@
-import type { FansubPick, FansubPickRequest, PlaceFansub, PlaceTextFile, StoredSubtitle } from '../engine/disc/nas-api';
+import type { FansubPick, FansubPickRequest, PlaceFansub, PlaceTextFile, StoredSubtitle } from '@seikou/nas/nas-api';
 import type { PgTrack, SubtitleChoice } from '../engine/protocol';
 import type { PlayerController, PlayerSnapshot } from '../player/player-controller';
 import { isFontName } from '../player/drop-files';

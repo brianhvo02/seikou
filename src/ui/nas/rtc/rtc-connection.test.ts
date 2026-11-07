@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FakeRtcWorld, bodyText } from '../../../../tests/helpers/rtc-fakes';
 import type { FakeRtcOptions } from '../../../../tests/helpers/rtc-fakes';
 import { NAS_LOST_MESSAGE } from '../../../engine/disc/http-transport';
-import type { WireRequest, WireResponse } from '../../../engine/disc/rtc-wire';
+import type { WireRequest, WireResponse } from '@seikou/nas/rtc-wire';
 import { RTC_BASE, RTC_UNREACHABLE, RtcConnection, RtcUnreachable, STUN_URL, relayLimitMessage, signallingUrlOf } from './rtc-connection';
 
 const NAS_ID = 'n'.repeat(43);

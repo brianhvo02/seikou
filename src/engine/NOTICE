@@ -132,15 +132,6 @@ Anime4K (https://github.com/bloc97/Anime4K, commit 7684e95), MIT License
   fixtures/shaders/anime4k/ holds unmodified copies of its shaders, with its
   LICENSE next to them.
 
-TheDiscDB (https://github.com/TheDiscDb/web), Apache License 2.0:
-algorithm followed, no code copied
-  disc/content-hash.ts computes TheDiscDB's ContentHash as
-  code/TheDiscDb.Core/DiscHash/HashingExtensions.cs (CalculateHash: MD5 over
-  each file size as an int64 little-endian, uppercase hex) does, over the files
-  in the order of code/TheDiscDb/GraphQL/Contribute/Mutations/HashDisc.cs
-  (OrderBy name). Its MD5 is original code written from RFC 1321. The test
-  vectors come from TheDiscDb/data (https://github.com/TheDiscDb/data, MIT).
-
 DejaVu fonts 2.37 (https://dejavu-fonts.github.io), Bitstream Vera / DejaVu licence
   ass/default-font.ttf is DejaVu Sans, unmodified; its licence is in
   ass/LICENSE-DejaVu.txt.

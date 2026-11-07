@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it, vi } from 'vitest';
 import { createDiscHandler, discApiBase, findDiscs } from '../../../tools/disc-server/server';
 import { BDJ_REMOTE_CHUNK_BYTES, BDJ_REMOTE_IN_FLIGHT } from '../disc/disc-spec';
-import type { DiscManifest } from '../disc/nas-api';
+import type { DiscManifest } from '@seikou/nas/nas-api';
 import { IDBFactory } from 'fake-indexeddb';
 import { listTar } from '../../../server/src/tar';
 import { FAKE_NAS_BASE, fakeNas } from '../../../tests/helpers/fake-nas';

@@ -3,8 +3,8 @@
  * NAS behind them: the socket answers offers and TURN requests the way the rendezvous Worker and the NAS do, and a
  * peer that connects opens its `api` channel onto a WireServer.
  */
-import { WireServer } from '../../src/engine/disc/rtc-wire';
-import type { WireChannel, WireRequest, WireResponse } from '../../src/engine/disc/rtc-wire';
+import { WireServer } from '@seikou/nas/rtc-wire';
+import type { WireChannel, WireRequest, WireResponse } from '@seikou/nas/rtc-wire';
 
 /** The NAS's end of a data channel. */
 class NasEnd implements WireChannel {

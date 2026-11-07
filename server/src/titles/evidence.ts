@@ -1,8 +1,8 @@
 import { readFile, stat } from 'node:fs/promises';
 import { MarkType, parseMpls } from '@seikou/bdmv/mpls-parser';
-import { contentHash } from '../../../src/engine/disc/content-hash';
-import { streamsOf } from '../../../src/engine/disc/disc-key';
-import type { DiscEntry } from '../../../src/engine/disc/nas-api';
+import { contentHash } from '@seikou/nas/content-hash';
+import { streamsOf } from '@seikou/nas/disc-key';
+import type { DiscEntry } from '@seikou/nas/nas-api';
 import type { UdfFile } from '@seikou/bdmv/udf';
 import { readIsoFiles } from '../iso';
 import { listFiles } from '../manifest';

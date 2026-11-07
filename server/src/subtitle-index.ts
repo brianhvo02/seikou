@@ -1,4 +1,4 @@
-import type { StoredSubtitle } from '../../src/engine/disc/nas-api';
+import type { StoredSubtitle } from '@seikou/nas/nas-api';
 
 /**
  * The subtitle store's metas in memory, so a listing or a budget check never walks the disk: each upload by id,

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { FansubPick } from '../../../src/engine/disc/nas-api';
+import type { FansubPick } from '@seikou/nas/nas-api';
 import { PickStore, PickTooLarge } from './pick-store';
 
 let dir: string;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { DiscSlot, EpisodeRef, PlaybackPlace, SeasonDetail, TitleDetail, TitleKind, TitleSummary } from '../../../src/engine/disc/nas-api';
+import type { DiscSlot, EpisodeRef, PlaybackPlace, SeasonDetail, TitleDetail, TitleKind, TitleSummary } from '@seikou/nas/nas-api';
 import type { Catalogue } from './catalogue';
 import { continueWatching, titleProgress } from './up-next';
 

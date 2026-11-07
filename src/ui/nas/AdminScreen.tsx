@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactElement } from 'react';
-import type { TitleSummary } from '../../engine/disc/nas-api';
+import type { TitleSummary } from '@seikou/nas/nas-api';
 import { TMDB_ATTRIBUTION, codeListed, codePollEnd, countdown, countdownTickMs, deleteTitleQuestion, gateSwitchOn, matchingStatus, newCode, ownTitleKind, ownTitles, withGate } from './admin-model';
 import { NasHttpError, type NasClient, type NasPerson, type NasTitleStatus } from './nas-client';
 import { FansubLanguages } from './FansubLanguages';

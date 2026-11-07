@@ -9,7 +9,7 @@ import { PassThrough } from 'node:stream';
 import { afterEach, beforeAll, afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { parseClpi } from '@seikou/bdmv/clpi-parser';
 import { CodingType } from '@seikou/bdmv/stream-types';
-import type { DiscManifest } from '../../../src/engine/disc/nas-api';
+import type { DiscManifest } from '@seikou/nas/nas-api';
 import { appHandlers } from '../app';
 import type { Auth } from '../auth';
 import { BdjStore } from '../bdj-store';

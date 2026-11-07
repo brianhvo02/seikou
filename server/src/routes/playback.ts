@@ -1,5 +1,5 @@
 import type { IncomingMessage } from 'node:http';
-import { parseDiscKey } from '../../../src/engine/disc/disc-key';
+import { parseDiscKey } from '@seikou/nas/disc-key';
 import { LockHeldError } from '../atomic-json';
 import type { Auth } from '../auth';
 import { HttpError, json } from '../http';

@@ -3,7 +3,7 @@
  * speech mask finds it. Never a confident wrong answer: when unsure the result is `none`, and the owner sets the episode
  * by hand. Original code.
  */
-import type { FansubAlignment } from '../../../src/engine/disc/nas-api';
+import type { FansubAlignment } from '@seikou/nas/nas-api';
 import type { LevelDiscSource } from '../levels/level-discs';
 import { dialogueIntervals } from './dialogue';
 import { episodeAudio, windowsFor, type AudioWindow, type TimeWindow } from './disc-audio';

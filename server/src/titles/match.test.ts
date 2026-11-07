@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeTitle } from '../../../src/engine/disc/title-text';
+import { normalizeTitle } from '@seikou/nas/title-text';
 import type { DiscDbHit } from './discdb';
 import type { DiscEvidence } from './evidence';
 import { groupKey, matchDiscs } from './match';

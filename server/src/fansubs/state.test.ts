@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { FansubTitleState } from '../../../src/engine/disc/nas-api';
+import type { FansubTitleState } from '@seikou/nas/nas-api';
 import { FansubState } from './state';
 
 const DAY = 86_400_000;

@@ -1,5 +1,5 @@
-import type { ContinueItem, DiscManifest, DiscPlaces, PlaceSettings, PlaybackPlace, PlaylistProgress } from '../../engine/disc/nas-api';
-import { isShortPlace } from '../../engine/disc/place-rules';
+import type { ContinueItem, DiscManifest, DiscPlaces, PlaceSettings, PlaybackPlace, PlaylistProgress } from '@seikou/nas/nas-api';
+import { isShortPlace } from '@seikou/nas/place-rules';
 import type { StartPoint } from '../../engine/protocol';
 import { resumeStart } from '../place-model';
 import { playlistOf } from './library-model';

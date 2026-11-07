@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { LevelInfo } from '../engine/disc/nas-api';
+import type { LevelInfo } from '@seikou/nas/nas-api';
 import type { LevelState } from './nas/level-session';
 import { levelItemLabel, levelMenuItems } from './QualityMenu';
 

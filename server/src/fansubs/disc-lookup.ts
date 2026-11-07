@@ -1,5 +1,5 @@
 /** Disc keys and playlist lengths from the library's evidence, for the fansub runs, picks and routes. Original code. */
-import { parseDiscKey } from '../../../src/engine/disc/disc-key';
+import { parseDiscKey } from '@seikou/nas/disc-key';
 import type { Library } from '../library';
 import type { DiscEvidence } from '../titles/evidence';
 

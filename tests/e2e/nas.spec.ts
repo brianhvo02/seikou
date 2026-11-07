@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page, type Route } from '@playwright/test';
 import { CHANGED_FOLDER, NAS_E2E_DIR, NAS_ENV, NAS_PORT, NAS_SERVER_KEY, OWNER_SERIES, PROJECTS, RENDEZVOUS_PORT, RENDEZVOUS_URL, SERVER, ownerDiscs, ownerStray, restoreChangedDisc } from './nas-server';
-import { discKeyOf } from '../../src/engine/disc/disc-key';
-import { normalizeCode } from '../../src/engine/disc/pairing-code';
+import { discKeyOf } from '@seikou/nas/disc-key';
+import { normalizeCode } from '@seikou/nas/pairing-code';
 import { skipWithoutH264 } from './support';
 import { telemetry } from './telemetry';
 

@@ -2,8 +2,8 @@
  * Continue watching and per-title progress, worked out from a person's places and the live catalogue (resume spec
  * §6.4 and §6.6). Pure: the catalogue, the places and the disc lookups come in as arguments. Original code.
  */
-import type { ContinueItem, EpisodeRef, PlaybackPlace, PlaylistProgress, TitleDetail, TitleSummary } from '../../../src/engine/disc/nas-api';
-import { isShortPlace } from '../../../src/engine/disc/place-rules';
+import type { ContinueItem, EpisodeRef, PlaybackPlace, PlaylistProgress, TitleDetail, TitleSummary } from '@seikou/nas/nas-api';
+import { isShortPlace } from '@seikou/nas/place-rules';
 import type { Catalogue } from './catalogue';
 
 export type { ContinueItem, PlaylistProgress };

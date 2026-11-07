@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { FansubTitleState, SeasonDetail, StoredSubtitle } from '../../engine/disc/nas-api';
+import type { FansubTitleState, SeasonDetail, StoredSubtitle } from '@seikou/nas/nas-api';
 import type { NasClient } from './nas-client';
 import { SeasonScreen } from './SeasonScreen';
 

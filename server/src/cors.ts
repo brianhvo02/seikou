@@ -1,4 +1,4 @@
-import { PREFLIGHT_MAX_AGE, corsHeaders } from '../../src/engine/disc/cors-policy';
+import { PREFLIGHT_MAX_AGE, corsHeaders } from '@seikou/nas/cors-policy';
 
 export { corsHeaders };
 

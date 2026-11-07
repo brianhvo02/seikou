@@ -11,7 +11,7 @@ import { parseMpls } from '@seikou/bdmv/mpls-parser';
 import { CodingType } from '@seikou/bdmv/stream-types';
 import { analyzeAvc } from '@seikou/bdmv/codecs/h264';
 import type { ByteSource } from '@seikou/bdmv/byte-source';
-import type { DiscManifest } from '../../../src/engine/disc/nas-api';
+import type { DiscManifest } from '@seikou/nas/nas-api';
 import { M2tsReader } from '@seikou/bdmv/demux/m2ts-reader';
 import { PesAssembler, readTimestamp, type PesPacket } from '@seikou/bdmv/demux/pes-assembler';
 import { parseSourcePacket } from '@seikou/bdmv/demux/ts-packet';

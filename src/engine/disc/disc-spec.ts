@@ -8,7 +8,7 @@
 
 import { FileSource } from './file-source';
 import { HttpTransport } from './http-transport';
-import type { DiscManifest } from './nas-api';
+import type { DiscManifest } from '@seikou/nas/nas-api';
 import { normalizeDiscPaths } from './paths';
 import { RemoteSource } from './remote-source';
 

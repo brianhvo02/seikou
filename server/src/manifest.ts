@@ -1,7 +1,7 @@
 import { readFile, readdir, stat } from 'node:fs/promises';
 import type { Dirent } from 'node:fs';
 import { join } from 'node:path';
-import type { DiscEntry, DiscManifest } from '../../src/engine/disc/nas-api';
+import type { DiscEntry, DiscManifest } from '@seikou/nas/nas-api';
 import type { UdfFile } from '@seikou/bdmv/udf';
 import { discId } from './disc-id';
 import { readIsoFiles } from './iso';

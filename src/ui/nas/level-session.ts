@@ -1,5 +1,5 @@
 import { parseMpls } from '@seikou/bdmv/mpls-parser';
-import type { DiscManifest, LevelAt, LevelInfo } from '../../engine/disc/nas-api';
+import type { DiscManifest, LevelAt, LevelInfo } from '@seikou/nas/nas-api';
 import { audioTracks } from '../../engine/playback/tracks';
 import type { PlayerController } from '../../player/player-controller';
 import { trackLabel } from '../../player/language';

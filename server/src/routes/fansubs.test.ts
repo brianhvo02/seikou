@@ -7,7 +7,7 @@ import SevenZip from '7z-wasm';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type {
   DiscSlot, EpisodeRef, FansubPick, FansubTitleState, StoredSubtitle, TitleDetail, TitleSummary, ToshoReleaseFiles, ToshoSearchResult,
-} from '../../../src/engine/disc/nas-api';
+} from '@seikou/nas/nas-api';
 import { SPEECH_BURSTS } from '../../../tests/helpers/speech-bursts';
 import { appHandlers } from '../app';
 import { Auth } from '../auth';

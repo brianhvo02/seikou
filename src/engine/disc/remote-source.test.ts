@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DiscError } from '@seikou/bdmv/byte-source';
-import type { DiscManifest } from './nas-api';
+import type { DiscManifest } from '@seikou/nas/nas-api';
 import { RemoteSource, type RangeTransport } from './remote-source';
 
 const MiB = 1024 * 1024;

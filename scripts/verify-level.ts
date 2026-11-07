@@ -25,7 +25,7 @@ import { once } from 'node:events';
 import { parseArgs } from 'node:util';
 import { parseClpi, type Clpi, type EpMap } from '@seikou/bdmv/clpi-parser';
 import { CodingType, isAudioCoding, isVideoCoding } from '@seikou/bdmv/stream-types';
-import type { DiscManifest, LibraryListing } from '../src/engine/disc/nas-api';
+import type { DiscManifest, LibraryListing } from '@seikou/nas/nas-api';
 
 const READ_BYTES = 2 * 1024 * 1024;
 const SOURCE_PACKET = 192;

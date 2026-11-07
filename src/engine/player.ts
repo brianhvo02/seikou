@@ -30,7 +30,7 @@ import type { FileSource } from './disc/file-source';
 import { RemoteDiscError, TokenRelay } from './disc/http-transport';
 import { checkStreamReadable, loadClips, openDisc, peekIndex, playlistPath, readBdid, streamPath, type DiscModel } from './disc/open-disc';
 import { CacheFill } from './disc/cache-fill';
-import type { DiscManifest } from './disc/nas-api';
+import type { DiscManifest } from '@seikou/nas/nas-api';
 import { ReadAheadCache, SEGMENT_BYTES } from './disc/read-ahead-cache';
 import { RemoteSource } from './disc/remote-source';
 import { BdVk } from './graphics/graphics-controller';

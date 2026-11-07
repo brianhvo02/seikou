@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import type {
   DiscRef, DiscSlot, EpisodeRef, OwnerChoice, OwnTitle, SeasonDetail, TitleDetail, TitleKind, TitleMusic, TitleNames, TitleSummary, UnsortedItem, UnsortedReason,
   UnsortedSuggestion,
-} from '../../../src/engine/disc/nas-api';
+} from '@seikou/nas/nas-api';
 import type { DiscDbHit } from './discdb';
 import { guessEpisodes } from './episodes';
 import type { DiscEvidence } from './evidence';

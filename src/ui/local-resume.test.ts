@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { DiscPlaces, PlaybackPlace } from '../engine/disc/nas-api';
+import type { DiscPlaces, PlaybackPlace } from '@seikou/nas/nas-api';
 import { askOrOpen, localKeyOf, recentResumeLabel } from './local-resume';
 
 const place = (over: Partial<PlaybackPlace> = {}): PlaybackPlace => ({

@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { OwnerChoice } from '../../../src/engine/disc/nas-api';
+import type { OwnerChoice } from '@seikou/nas/nas-api';
 import { OwnerStore } from './owner-store';
 
 let dir: string;

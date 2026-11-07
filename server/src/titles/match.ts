@@ -3,8 +3,8 @@
  * disc is filed only when the four acceptance rules hold. Everything else goes to Unsorted with a reason, because a
  * confident wrong match is worse than Unsorted. Original code.
  */
-import type { UnsortedReason } from '../../../src/engine/disc/nas-api';
-import { normalizeStrict, normalizeTitle } from '../../../src/engine/disc/title-text';
+import type { UnsortedReason } from '@seikou/nas/nas-api';
+import { normalizeStrict, normalizeTitle } from '@seikou/nas/title-text';
 import type { DiscDbHit } from './discdb';
 import type { DiscEvidence } from './evidence';
 import { isTagWord, parseName } from './parse-name';

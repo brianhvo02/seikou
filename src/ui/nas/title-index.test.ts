@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { TitleNames, TitleSummary } from '../../engine/disc/nas-api';
+import type { TitleNames, TitleSummary } from '@seikou/nas/nas-api';
 import { englishKey, firstOfEach, japaneseOrder, kanaRow, reading, romajiToKana } from './title-index';
 
 // Every title here is made up (ruling R4).

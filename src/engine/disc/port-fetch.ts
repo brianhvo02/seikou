@@ -7,7 +7,7 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
-import { isNullBodyStatus } from './rtc-wire';
+import { isNullBodyStatus } from '@seikou/nas/rtc-wire';
 
 type ToServer =
   | { t: 'req'; id: number; url: string; method: string; headers: Array<[string, string]>; body: ArrayBuffer | null }
