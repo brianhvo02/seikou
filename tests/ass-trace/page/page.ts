@@ -4,7 +4,7 @@ import { AssFonts, createFontFaceLoader } from '@seikou/ass/fonts';
 import { FrameBuilder } from '@seikou/ass/frame';
 import { createCanvasMeasurer } from '@seikou/ass/measure';
 import { AssRenderer } from '@seikou/ass/renderer';
-import { MEMORY_PROFILES } from '../../../src/engine/memory-profile';
+import { MEMORY_PROFILES } from '@seikou/engine/memory-profile';
 import { drawWarped } from '@seikou/ass/warp';
 import { parseAss } from '@seikou/ass/parse';
 import type { RenderSettings } from '@seikou/ass/state';

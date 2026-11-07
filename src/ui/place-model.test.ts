@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PlaceSettings, PlaybackPlace } from '@seikou/nas/nas-api';
-import type { AudioTrack } from '../engine/protocol';
-import type { PlayerSnapshot } from '../player/player-controller';
+import type { AudioTrack } from '@seikou/engine/protocol';
+import type { PlayerSnapshot } from '@seikou/engine/controller/player-controller';
 import { buildPlace, isFinished, placeMinDurationUs, promptLines, qualifies, resumeStart, settingsForUpNext } from './place-model';
 
 const S = 1e6;

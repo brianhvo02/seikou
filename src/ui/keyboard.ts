@@ -1,5 +1,5 @@
-import type { UoOp } from '../engine/hdmv/uo-mask';
-import type { MenuKey } from '../engine/protocol';
+import type { UoOp } from '@seikou/engine/hdmv/uo-mask';
+import type { MenuKey } from '@seikou/engine/protocol';
 
 export type KeyAction =
   | { readonly type: 'togglePlay' }

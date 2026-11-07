@@ -3,7 +3,7 @@
  * runs, and karaoke timing once glyphs are placed.
  *
  * Ported from libass 0.17.5 (ass_render.h): GlyphInfo; (ass_render.c): parse_events, fix_glyph_scaling,
- * split_style_runs; (ass_parse.c): ass_process_karaoke_effects. libass is ISC-licensed; see src/engine/NOTICE.
+ * split_style_runs; (ass_parse.c): ass_process_karaoke_effects. libass is ISC-licensed; see packages/ass/NOTICE.
  * Modified for bluray-web, 2026.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later AND ISC

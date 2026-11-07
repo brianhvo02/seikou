@@ -3,7 +3,7 @@
  * apply the \p scale and \pbo, as libass's do.
  *
  * Ported from libass 0.17.5 (ass_drawing.c): get_point, add_3_points, add_many_points, add_root_node,
- * drawing_tokenize, drawing_add_curve, ass_drawing_parse. libass is ISC-licensed; see src/engine/NOTICE.
+ * drawing_tokenize, drawing_add_curve, ass_drawing_parse. libass is ISC-licensed; see packages/ass/NOTICE.
  * Modified for bluray-web, 2026.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later AND ISC

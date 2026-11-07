@@ -1,7 +1,7 @@
 /*
  * The parsed script: ASS_Track, ASS_Style and ASS_Event of libass, same fields and units.
  *
- * Ported from libass 0.17.5 (ass_types.h). libass is ISC-licensed; see src/engine/NOTICE.
+ * Ported from libass 0.17.5 (ass_types.h). libass is ISC-licensed; see packages/ass/NOTICE.
  * Modified for bluray-web, 2026.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later AND ISC

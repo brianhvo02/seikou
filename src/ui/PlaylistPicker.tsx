@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
-import type { PlaylistSummary } from '../engine/disc/open-disc';
-import type { IndexTitles } from '../player/player-controller';
+import { BDJ_RUNTIME } from '@seikou/engine/bdj-provider';
+import type { PlaylistSummary } from '@seikou/engine/disc/open-disc';
+import type { IndexTitles } from '@seikou/engine/controller/player-controller';
 import { formatTime } from './format';
 
 interface PlaylistPickerProps {
@@ -47,7 +48,9 @@ export function PlaylistPicker({ playlists, usesBdj, bdjSupported = false, bdjMi
         )}
         {usesBdj && !bdjSupported && (
           <p className="hint" data-testid="bdj-unsupported">
-            {bdjMissing.length > 0
+            {bdjMissing.length === 1 && bdjMissing[0] === BDJ_RUNTIME
+              ? 'This disc uses BD-J menus, which this player does not include. Choose a playlist; the likely main feature is marked.'
+              : bdjMissing.length > 0
               ? `This disc uses BD-J menus, which this browser can't run: it lacks ${bdjMissing.join(', ')}. Choose a playlist; the likely main feature is marked.`
               : "This disc uses BD-J menus, which aren't supported. Choose a playlist; the likely main feature is marked."}
           </p>

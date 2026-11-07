@@ -8,7 +8,7 @@ test('explains when the folder is not a Blu-ray disc', async ({ page }) => {
 });
 
 test('shows a video decoder that fails to configure inside the playlist picker', async ({ page }) => {
-  // ?nodecoder=1: the browser supports no video decoder configuration (engine/worker.ts), so H.264 fails to configure
+  // ?nodecoder=1: the browser supports no video decoder configuration (@seikou/engine/worker-main), so H.264 fails to configure
   await page.goto('/?nodecoder=1');
   await setFolder(page.getByTestId('folder-input'), 'fixtures/synthetic/disc1');
   await page.getByTestId('playlist-00000').click();

@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createByteSource } from '../../src/engine/disc/disc-spec';
+import { createByteSource } from '@seikou/engine/disc/disc-spec';
 import type { DiscManifest, LibraryListing } from '@seikou/nas/nas-api';
-import { openDisc } from '../../src/engine/disc/open-disc';
+import { openDisc } from '@seikou/engine/disc/open-disc';
 import { corsAllowed, createDiscHandler, discApiBase, findDiscs, isLocalAddress, parseRange } from './server';
 
 const TOKEN = 'test-token-0123456789';

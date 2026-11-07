@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildMpls } from '../../../tests/helpers/bdmv-builders';
 import type { DiscManifest, LevelAt } from '@seikou/nas/nas-api';
-import type { RemoteDiscSpec } from '../../engine/disc/disc-spec';
-import type { PlayerController } from '../../player/player-controller';
+import type { RemoteDiscSpec } from '@seikou/engine/disc/disc-spec';
+import type { PlayerController } from '@seikou/engine/controller/player-controller';
 import { LevelSession, launchManifest } from './level-session';
 import { NasBusyError } from './nas-client';
 import type { NasClient } from './nas-client';

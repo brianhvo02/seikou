@@ -40,7 +40,7 @@ import { createServer, type Server } from 'node:http';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes } from 'node:crypto';
-import type { MenuKey } from '../../src/engine/protocol';
+import type { MenuKey } from '@seikou/engine/protocol';
 import { parseKeyScript, type KeyStep } from '../../tests/bdj/key-script';
 import { createDiscHandler, servedDiscBase } from '../disc-server/server';
 import { ensureAppium, parseMs, resolveDevice, safariCaps } from './run';

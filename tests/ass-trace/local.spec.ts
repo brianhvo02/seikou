@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { parseAss } from '@seikou/ass/parse';
-import { decodeText } from '../../src/engine/subs/srt';
+import { decodeText } from '@seikou/engine/subs/srt';
 import { compareTraces, formatDiffs } from './compare';
 import { readTimes } from './fixtures';
 import { parseTrace, type TraceEvent } from './format';

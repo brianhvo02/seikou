@@ -1,4 +1,4 @@
-import type { RemoteDiscSpec } from '../../src/engine/disc/disc-spec';
+import type { RemoteDiscSpec } from '@seikou/engine/disc/disc-spec';
 import type { DiscManifest } from '@seikou/nas/nas-api';
 
 /** The NAS server's inlining rule (server/src/manifest.ts). */

@@ -13,7 +13,7 @@ import { serveChannel } from '../../../server/src/rtc/dispatch';
 import { codeHashOf, fromBase64url, turnProofMessage } from '../../../rendezvous/src/protocol';
 import { FakeRtcWorld } from '../../../tests/helpers/rtc-fakes';
 import type { FakeRtcOptions } from '../../../tests/helpers/rtc-fakes';
-import { NAS_LOST_MESSAGE } from '../../engine/disc/http-transport';
+import { NAS_LOST_MESSAGE } from '@seikou/engine/disc/http-transport';
 import { RTC_UNREACHABLE, RtcConnection } from './rtc/rtc-connection';
 import type { RtcLink, RtcOpenOptions } from './rtc/rtc-connection';
 import type { Library } from '../../../server/src/library';

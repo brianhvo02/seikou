@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MemoryDirectory } from '../../../tests/helpers/memory-fs';
-import { ReadAheadCache } from '../../engine/disc/read-ahead-cache';
+import { ReadAheadCache } from '@seikou/engine/disc/read-ahead-cache';
 import { BUFFER_FAILED_COPY, CACHE_SLACK_BYTES, bufferPlan, playlistFacts, readAheadCacheBytes, storageRoom, waitCopy, watchBufferFailure } from './buffer-model';
 
 /** A 7200 s film averaging 30 Mbps: 27 GB, which the plan needs at 33 Mbps (the average plus 10%). */

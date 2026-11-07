@@ -15,9 +15,9 @@
  * SPDX-License-Identifier: GPL-2.0-only WITH Classpath-exception-2.0
  */
 
-import type { JArray, JObject } from '../../engine/bdj/jvm/values';
-import { DECLINE, f2i, perClass, slotOf } from '../../engine/bdj/jvm/natives/intrinsics/common';
-import type { IntrinsicFn } from '../../engine/bdj/jvm/natives/intrinsics/common';
+import type { JArray, JObject } from '../../bdj/jvm/values';
+import { DECLINE, f2i, perClass, slotOf } from '../../bdj/jvm/natives/intrinsics/common';
+import type { IntrinsicFn } from '../../bdj/jvm/natives/intrinsics/common';
 
 const slots = perClass((cls) => ({
   isSRGB: slotOf(cls, 'is_sRGB', 'Z'),

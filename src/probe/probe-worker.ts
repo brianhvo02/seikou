@@ -3,7 +3,7 @@ import { parseClpi } from '@seikou/bdmv/clpi-parser';
 import { CodingType } from '@seikou/bdmv/stream-types';
 import { analyzeHevc, hevcCodecString } from '@seikou/bdmv/codecs/hevc';
 import type { ByteSource } from '@seikou/bdmv/byte-source';
-import { createByteSource } from '../engine/disc/disc-spec';
+import { createByteSource } from '@seikou/engine/disc/disc-spec';
 import { M2tsReader } from '@seikou/bdmv/demux/m2ts-reader';
 import type { WorkerInput, WorkerProbe } from './checks';
 

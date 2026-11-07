@@ -1,5 +1,5 @@
 import type { DiscManifest, DiscSlot, EpisodeRef, SeasonDetail, StoredSubtitle, SubtitleCreate, SubtitleFor, SubtitlePatch } from '@seikou/nas/nas-api';
-import { Timeline, type Chapter } from '../../engine/nav/timeline';
+import { Timeline, type Chapter } from '@seikou/engine/nav/timeline';
 import { mainPlaylistId, playlistOf } from './library-model';
 import { NasHttpError, type NasClient } from './nas-client';
 import { discHeading } from './title-model';

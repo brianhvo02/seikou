@@ -1,7 +1,7 @@
 import type { FansubPick, FansubPickRequest, PlaceFansub, PlaceTextFile, StoredSubtitle } from '@seikou/nas/nas-api';
-import type { PgTrack, SubtitleChoice } from '../engine/protocol';
-import type { PlayerController, PlayerSnapshot } from '../player/player-controller';
-import { isFontName } from '../player/drop-files';
+import type { PgTrack, SubtitleChoice } from '@seikou/engine/protocol';
+import type { PlayerController, PlayerSnapshot } from '@seikou/engine/controller/player-controller';
+import { isFontName } from '@seikou/engine/controller/drop-files';
 import { settingsForUpNext } from './place-model';
 import type { PlaceSaver } from './place-saver';
 import type { StoredTextFile } from './place-store';

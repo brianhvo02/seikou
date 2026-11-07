@@ -1,4 +1,4 @@
-import { createByteSource } from '../engine/disc/disc-spec';
+import { createByteSource } from '@seikou/engine/disc/disc-spec';
 import { serverDiscSpec, serverLinkFromLocation } from '../ui/disc-server';
 import { runChecks, type ProbeDisc, type ProbeEnv, type ProbeFile, type ProbeResult, type WorkerInput, type WorkerProbe } from './checks';
 

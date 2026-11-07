@@ -3,7 +3,7 @@
  *
  * Ported from libass 0.17.5 (ass_render.h): RenderContext; (ass_render.c): handle_selective_style_overrides
  * (with overrides disabled), ass_layout_res, init_font_scale, ass_reset_render_context, init_render_context;
- * (ass_parse.c): ass_update_font. libass is ISC-licensed; see src/engine/NOTICE. Modified for bluray-web, 2026.
+ * (ass_parse.c): ass_update_font. libass is ISC-licensed; see packages/ass/NOTICE. Modified for bluray-web, 2026.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later AND ISC
  */

@@ -6,7 +6,7 @@
  * set_style_alpha, process_style, format_line_compare, custom_format_line_compatibility, process_styles_line,
  * parse_script_type, process_info_line, event_format_fallback, detect_legacy_conv_subs, process_events_line,
  * decode_chars, decode_font, process_fonts_line, process_line, process_text, parse_memory, ass_lazy_track_init;
- * (ass_utils.c, ass_utils.h): ass_lookup_style, numpad2align. libass is ISC-licensed; see src/engine/NOTICE.
+ * (ass_utils.c, ass_utils.h): ass_lookup_style, numpad2align. libass is ISC-licensed; see packages/ass/NOTICE.
  * Modified for bluray-web, 2026.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later AND ISC

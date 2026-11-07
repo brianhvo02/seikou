@@ -1,5 +1,5 @@
 import type { ToshoReleaseFiles, ToshoSearchResult } from '@seikou/nas/nas-api';
-import { languageName } from '../../player/language';
+import { languageName } from '@seikou/engine/controller/language';
 
 /** Spec §9's notice when a pick can't be fetched, lined up or loaded; the text set stays as it was. */
 export const PICK_FAILED = "Couldn't load the subtitles from Anime Tosho.";

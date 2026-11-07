@@ -1,14 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { Jvm } from '../../src/engine/bdj/jvm/jvm';
-import { Vfs } from '../../src/engine/bdj/jvm/vfs';
-import { ZipArchive } from '../../src/engine/bdj/jvm/zip';
-import type { JArray, JObject, JValue } from '../../src/engine/bdj/jvm/values';
+import { Jvm } from '../../src/bdj/jvm/jvm';
+import { Vfs } from '../../src/bdj/jvm/vfs';
+import { ZipArchive } from '../../src/bdj/jvm/zip';
+import type { JArray, JObject, JValue } from '../../src/bdj/jvm/values';
 import { assembleClass, storedZip } from '../helpers/jvm-asm';
 import type { AsmMethod } from '../helpers/jvm-asm';
 import { syntheticSource } from '../helpers/synthetic-disc';
-import { byteArray } from '../../src/engine/bdj/jvm/natives/util';
+import { byteArray } from '../../src/bdj/jvm/natives/util';
 import { deflateSync, gzipSync } from 'node:zlib';
 
 const file = (rel: string): Uint8Array => readFileSync(fileURLToPath(new URL(rel, import.meta.url)));

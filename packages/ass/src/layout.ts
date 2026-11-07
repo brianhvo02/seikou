@@ -11,7 +11,7 @@
  * ass_render_event; (ass_shaper.c): is_harfbuzz_ignorable, ass_shaper_skip_characters, ass_shaper_find_runs,
  * the run walk of shape_harfbuzz and shape_harfbuzz_process_run; (ass_font.c): ass_font_get_asc_desc,
  * the bounding-box effects of ass_glyph_embolden, ass_glyph_italicize and ass_get_glyph_outline.
- * libass is ISC-licensed; see src/engine/NOTICE. Modified for bluray-web, 2026.
+ * libass is ISC-licensed; see packages/ass/NOTICE. Modified for bluray-web, 2026.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later AND ISC
  */

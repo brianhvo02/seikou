@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import type { TraceEntry } from '../../src/engine/bdj/host';
+import type { TraceEntry } from '../../src/bdj/host';
 import { parseKeyScript } from '../../tests/bdj/key-script';
 import { libRunArgs } from './lib-run';
 import { classify, countedGaps, discId, EMPTY_PLANE_HASH, gapOf, missingClassesFromLog, parseLibblurayRun, progress, type RunRecord, type RunStep } from './classify';

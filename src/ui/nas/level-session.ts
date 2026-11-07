@@ -1,8 +1,8 @@
 import { parseMpls } from '@seikou/bdmv/mpls-parser';
 import type { DiscManifest, LevelAt, LevelInfo } from '@seikou/nas/nas-api';
-import { audioTracks } from '../../engine/playback/tracks';
-import type { PlayerController } from '../../player/player-controller';
-import { trackLabel } from '../../player/language';
+import { audioTracks } from '@seikou/engine/playback/tracks';
+import type { PlayerController } from '@seikou/engine/controller/player-controller';
+import { trackLabel } from '@seikou/engine/controller/language';
 import { levelQuery } from './disc-spec';
 import { NasBusyError } from './nas-client';
 import type { NasClient } from './nas-client';

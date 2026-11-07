@@ -1,4 +1,4 @@
-import { fitRect } from '../engine/render/compositor';
+import { fitRect } from '@seikou/engine/render/compositor';
 
 export const MENU_WIDTH = 1920;
 export const MENU_HEIGHT = 1080;

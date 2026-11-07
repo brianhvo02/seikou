@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from 'react';
-import type { AudioTrack } from '../engine/protocol';
-import { trackLabel } from '../player/language';
+import type { AudioTrack } from '@seikou/engine/protocol';
+import { trackLabel } from '@seikou/engine/controller/language';
 import type { OriginalAudioTrack } from './nas/level-session';
 
 /** At a re-encoded level the menu lists the original disc's tracks, and a pick switches the level's audio. */

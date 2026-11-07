@@ -14,9 +14,9 @@
  * SPDX-License-Identifier: GPL-2.0-only WITH Classpath-exception-2.0
  */
 
-import type { JArray, JObject, JValue } from '../../engine/bdj/jvm/values';
-import { DECLINE, perClass, slotOf } from '../../engine/bdj/jvm/natives/intrinsics/common';
-import type { LoopHook, LoopHookFn } from '../../engine/bdj/jvm/natives/intrinsics/common';
+import type { JArray, JObject, JValue } from '../../bdj/jvm/values';
+import { DECLINE, perClass, slotOf } from '../../bdj/jvm/natives/intrinsics/common';
+import type { LoopHook, LoopHookFn } from '../../bdj/jvm/natives/intrinsics/common';
 
 const decoderSlots = perClass((cls) => ({
   width: slotOf(cls, 'width', 'I'),

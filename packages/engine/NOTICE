@@ -1,0 +1,70 @@
+@seikou/engine
+Copyright (C) the Seikou authors.
+Licensed under LGPL-2.1-or-later; see LICENSE.
+
+Parts of this package are TypeScript ports of, or derive from, the following
+projects. They are modified for bluray-web (2026) and distributed under the
+GNU Lesser General Public License, version 2.1 or later (LGPL-2.1-or-later).
+Derived-file paths are relative to this package's src/.
+
+libbluray (https://www.videolan.org/developers/libbluray.html), LGPL-2.1-or-later
+  Copyright (C) 2009-2010  John Stebbins
+  Copyright (C) 2010-2017  Petri Hintukainen <phintuka@users.sourceforge.net>
+  Derived files:
+    hdmv/registers.ts     from src/libbluray/register.c
+    hdmv/uo-mask.ts       from src/libbluray/bdnav/uo_mask.c, uo_mask.h, uo_mask_table.h
+    hdmv/vm.ts            from src/libbluray/hdmv/hdmv_vm.c
+    nav/timeline.ts      derived from libbluray navigation time math
+    nav/packets.ts       derived from libbluray navigation.c (_fill_clip, _fill_mark), clpi_parse.c (clpi_lookup_spn) and bluray.c (_find_next_playmark)
+    nav/navigator.ts      from src/libbluray/bluray.c (HDMV title and navigation parts, _find_ig_stream, _preload_ig_subpath, _preload_subpaths, _init_ig_stream, bd_user_input, bd_mouse_select)
+    nav/subtitles.ts      from src/libbluray/bluray.c (_find_pg_stream, _init_pg_stream, _select_pg_textst_stream, PSR2 events)
+    nav/stream-psrs.ts    from src/libbluray/bluray.c (_update_stream_psr_by_lang)
+    nav/playback-psrs.ts  from src/libbluray/bluray.c (_update_playlist_psrs, _update_clip_psrs, _update_time_psr,
+                          _update_chapter_psr, _is_interactive_title) and bdnav/navigation.c (nav_clip_time_search,
+                          nav_chapter_get_current), moved out of nav/navigator.ts
+    playback/pipeline.ts  derived from src/libbluray/bdnav/navigation.c (_fill_clip start packet)
+    playback/buffer-ranges.ts derived from src/libbluray/bdnav/navigation.c (_fill_clip start packet), as playback/pipeline.ts
+    graphics/ig-decoder.ts from src/libbluray/decoders/ig_decode.c, ig.h, graphics_processor.c (IG display set decoding)
+    graphics/graphics-controller.ts from src/libbluray/decoders/graphics_controller.c, graphics_controller.h, keys.h (IG paths)
+    disc/main-title.ts    from src/libbluray/bdnav/navigation.c (_filter_repeats, _pl_cmp, _pl_guess_main_title)
+    disc/disc-profile.ts  from src/libbluray/bluray.c (_fill_disc_info: the psr_init_UHD and psr_init_3D calls) and register.c
+    disc/player-settings.ts from src/libbluray/bluray.c (bd_set_player_setting_str, bd_set_player_setting) and
+                          src/util/strutl.c (str_to_uint32)
+    player.ts (BD-J titles) from src/libbluray/bluray.c (_play_bdj, _start_bdj, _stop_bdj via _play_hdmv,
+                          _try_play_title and _try_menu_call at UO restriction RELAXED, bd_set_rate's BDJ_EVENT_RATE,
+                          bd_mouse_select's and bd_user_input's BD-J branches)
+    hdmv/uo-mask.ts uoMaskBits from src/libbluray/bluray.c (bdpriv_get_uo_mask)
+  subs/srt.ts, subs/text-renderer.ts (SubRip subtitles) and subs/text-set.ts are original
+  implementations; they contain no libbluray or FFmpeg code.
+  bdj-provider.ts, bdj-types.ts, index.ts, worker.ts, worker-main.ts and controller/ are original.
+
+The ASS renderer and its bundled DejaVu font are in @seikou/ass (packages/ass, see its NOTICE). BD-J
+(the JVM, libbluray's BD-J glue and natives) is not part of this package: the app provides it, see
+src/bdj/NOTICE.
+
+libplacebo (https://code.videolan.org/videolan/libplacebo), LGPL-2.1-or-later:
+semantics followed, not ported
+  The mpv user shader support in shaders/ is original code written from
+  libplacebo's behaviour; it contains no libplacebo code. It follows:
+    shaders/rpn.ts        src/shaders/custom_mpv.c (WIDTH/HEIGHT/WHEN RPN evaluation)
+    shaders/parse.ts      src/shaders/custom_mpv.c (hook block directives)
+    shaders/plan.ts       src/shaders/custom_mpv.c (hook_hook, lookup_tex), src/renderer.c (hook stages)
+    shaders/codegen.ts    src/shaders/custom_mpv.c (bind_pass_tex texture macros, HOOKED aliases)
+
+Anime4K (https://github.com/bloc97/Anime4K, commit 7684e95), MIT License
+  Copyright (c) 2019 bloc97
+  The built-in Anime4K mode lists are copied from md/Template/GLSL_*/input.conf.
+  The app ships unmodified copies of the 14 shaders those lists name, from
+  release v4.0.1 (commit 4029bf7, identical to them at 7684e95), in
+  src/ui/anime4k/shaders/ (README there; LICENSE in src/ui/anime4k/).
+  fixtures/shaders/anime4k/ holds unmodified copies of its shaders, with its
+  LICENSE next to them.
+
+FFmpeg (https://ffmpeg.org), LGPL-2.1-or-later
+  Copyright (c) 2009, 2013 Christian Schmidt (libavcodec/pcm-bluray.c)
+  Derived file:
+    decode/lpcm.ts        channel layout table, from libavcodec/pcm-bluray.c
+
+FFmpeg decoders (wasm/audio/), LGPL-2.1-or-later
+  audio.wasm is built from FFmpeg n9.0.2 (ac3, eac3, dca decoders) and wasm/audio/shim.c.
+  See wasm/audio/NOTICE for the exact source and build.

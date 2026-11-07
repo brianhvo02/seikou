@@ -1,0 +1,23 @@
+{
+  "name": "@seikou/engine",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "LGPL-2.1-or-later",
+  "exports": {
+    ".": "./src/index.ts",
+    "./audio.wasm": "./wasm/audio/audio.wasm",
+    "./*": "./src/*.ts"
+  },
+  "files": [
+    "src",
+    "wasm",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "dependencies": {
+    "@seikou/ass": "*",
+    "@seikou/bdmv": "*",
+    "@seikou/nas": "*",
+    "@seikou/pg": "*"
+  }
+}

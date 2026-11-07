@@ -2,7 +2,7 @@ import type { CodeLookup, ContinueItem, DiscEntry, DiscManifest, DiscPlaces, Dis
 import { PAIRING_CODE_LENGTH, formatCode, normalizeCode } from '@seikou/nas/pairing-code';
 import type { NasPairing, NasStore } from './nas-store';
 import { codeHashOf, isNasId, turnProofMessage } from '../../../rendezvous/src/protocol';
-import { NAS_LOST_MESSAGE } from '../../engine/disc/http-transport';
+import { NAS_LOST_MESSAGE } from '@seikou/engine/disc/http-transport';
 import { RTC_BASE, RTC_UNREACHABLE, RtcConnection } from './rtc/rtc-connection';
 import type { DeviceProof, RtcLink, RtcOpenOptions } from './rtc/rtc-connection';
 import { chooseRoute, chooseWebRtc, routeKey } from './route-choice';

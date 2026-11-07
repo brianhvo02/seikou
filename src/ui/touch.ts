@@ -1,5 +1,5 @@
-import type { PlaybackState } from '../engine/protocol';
-import { fitRect } from '../engine/render/compositor';
+import type { PlaybackState } from '@seikou/engine/protocol';
+import { fitRect } from '@seikou/engine/render/compositor';
 import { MENU_HEIGHT, MENU_WIDTH } from './pointer';
 
 /** A touch tap on the video: where it landed horizontally and when. */

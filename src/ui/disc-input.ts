@@ -1,4 +1,4 @@
-import { walkEntries, type EntryLike } from './entry-walk';
+import { walkEntries, type EntryLike } from '@seikou/engine/controller/entry-walk';
 
 export type DiscEntries = Array<[string, File]>;
 

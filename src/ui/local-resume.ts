@@ -1,6 +1,6 @@
 import type { DiscPlaces } from '@seikou/nas/nas-api';
 import { discKeyOf } from '@seikou/nas/disc-key';
-import { normalizeDiscPaths } from '../engine/disc/paths';
+import { normalizeDiscPaths } from '@seikou/engine/disc/paths';
 import { promptLines } from './place-model';
 import { resumeOffer, within, type ResumeOffer } from './nas/resume-model';
 

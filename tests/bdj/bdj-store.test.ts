@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MemoryBdjStore } from '../../src/engine/bdj/store/bdj-store';
+import { MemoryBdjStore } from '../../src/bdj/store/bdj-store';
 import { replaySettled } from './settled';
 
 const DISC = new URL('../../fixtures/synthetic/disc-bdj-store', import.meta.url);

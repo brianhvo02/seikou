@@ -16,7 +16,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { TraceEntry } from '../../src/engine/bdj/host';
+import type { TraceEntry } from '../../src/bdj/host';
 import { parseMpls } from '@seikou/bdmv/mpls-parser';
 import { codingName } from '@seikou/bdmv/stream-types';
 import { CONTROL_CALLS } from '../../tests/bdj/format';

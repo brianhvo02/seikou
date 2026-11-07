@@ -2,7 +2,7 @@
 
 `CLAUDE.md` at the repository root is the full developer reference: the architecture, every command, the constraints (licensing, supported browsers, test fixtures) and the specs under `docs/superpowers/specs/`. Read it first. This page keeps the everyday commands and notes.
 
-The engine in `src/engine/` is derived from libbluray and licensed LGPL-2.1 (see `src/engine/LICENSE`). Some other directories have their own licences: see the top-level `LICENSE` and the License section of the README.
+The engine in `packages/engine/` (and BD-J in `src/bdj/`) is derived from libbluray and licensed LGPL-2.1 (see `packages/engine/LICENSE`). Some other directories have their own licences: see the top-level `LICENSE` and the License section of the README.
 
 ## Run and build
 
@@ -24,7 +24,7 @@ The engine in `src/engine/` is derived from libbluray and licensed LGPL-2.1 (see
 ## Fixtures and generated files
 
 - `npm run fixture:synthetic` regenerates `fixtures/synthetic/`. It needs `ffmpeg` on PATH with libx264 (the video fixtures), its mpeg2video encoder (`disc-mpeg2-menu`) and its ac3, eac3, dca and truehd encoders (the audio fixtures and `disc3`), and Docker for `disc1.iso`. Their bytes depend on the host ffmpeg version (currently 9.0.2). `fixtures/synthetic/disc3` is the four-codec audio disc (LPCM, AC-3 5.1, TrueHD with an AC-3 core, DTS).
-- `npm run wasm:build` rebuilds `src/wasm/audio/audio.wasm` (FFmpeg n9.0.2 AC-3, E-AC-3 and DTS decoders plus `shim.c`) and `src/wasm/freetype/freetype.wasm` (FreeType 2.13.2 with Ubuntu's patches, for BD-J text) in Docker (`wasm:build:audio` / `wasm:build:freetype` build one). It needs Docker. The builds are reproducible, and `.github/workflows/wasm.yml` checks that the committed `.wasm` files match. `npm run bdj-trace:freetype-golden` regenerates `tests/bdj/fonts/freetype-golden.json` from the BD-J harness image's system FreeType.
+- `npm run wasm:build` rebuilds `packages/engine/wasm/audio/audio.wasm` (FFmpeg n9.0.2 AC-3, E-AC-3 and DTS decoders plus `shim.c`) and `src/wasm/freetype/freetype.wasm` (FreeType 2.13.2 with Ubuntu's patches, for BD-J text) in Docker (`wasm:build:audio` / `wasm:build:freetype` build one). It needs Docker. The builds are reproducible, and `.github/workflows/wasm.yml` checks that the committed `.wasm` files match. `npm run bdj-trace:freetype-golden` regenerates `tests/bdj/fonts/freetype-golden.json` from the BD-J harness image's system FreeType.
 - `scripts/fetch-libbluray.sh` clones libbluray at the commit the engine is ported from into `.cache/libbluray` (gitignored), the reference for every ported function.
 - The libbluray trace harness (`tools/vm-trace/`, Docker): `npm run vm-trace:build` builds patched libbluray and the harness, `npm run vm-trace:golden` regenerates `tests/vm-trace/golden/` from it (never edit those by hand), and `npm run vm-trace -- <disc> <script> [--dump-pages]` runs libbluray and our replay live and prints the first divergence. `npm test` replays the golden traces without Docker.
 

@@ -18,7 +18,7 @@ import { basename, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { compareBdjTraces } from './compare';
 import { parseKeyScript, parseScriptOptions, type SettledStep } from './key-script';
-import type { EngineEvent } from '../../src/engine/protocol';
+import type { EngineEvent } from '@seikou/engine/protocol';
 import { diffSettled, parseSettledGolden, TAIL_MS, untilGolden } from './settled';
 import { CONTROL_CALLS, parseBdjTrace } from './format';
 import type { TraceEntry } from './format';

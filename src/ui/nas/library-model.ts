@@ -2,8 +2,8 @@ import { parseClpi } from '@seikou/bdmv/clpi-parser';
 import { parseMpls, type Mpls } from '@seikou/bdmv/mpls-parser';
 import { CodingType, isVideoCoding } from '@seikou/bdmv/stream-types';
 import type { DiscEntry, DiscManifest, FolderEntry } from '@seikou/nas/nas-api';
-import { chooseMainTitle, type MainTitleCandidate } from '../../engine/disc/main-title';
-import { clipInfoPath, streamPath } from '../../engine/disc/open-disc';
+import { chooseMainTitle, type MainTitleCandidate } from '@seikou/engine/disc/main-title';
+import { clipInfoPath, streamPath } from '@seikou/engine/disc/open-disc';
 
 export interface Crumb {
   readonly label: string;

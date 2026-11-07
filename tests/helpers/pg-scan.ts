@@ -1,11 +1,11 @@
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { FileSource } from '../../src/engine/disc/file-source';
-import { openDisc, streamPath } from '../../src/engine/disc/open-disc';
-import { normalizeDiscPaths } from '../../src/engine/disc/paths';
+import { FileSource } from '@seikou/engine/disc/file-source';
+import { openDisc, streamPath } from '@seikou/engine/disc/open-disc';
+import { normalizeDiscPaths } from '@seikou/engine/disc/paths';
 import { M2tsReader } from '@seikou/bdmv/demux/m2ts-reader';
 import { PgSegmentDecoder } from '@seikou/pg';
-import { Timeline } from '../../src/engine/nav/timeline';
+import { Timeline } from '@seikou/engine/nav/timeline';
 import { directoryEntries } from './file-blob';
 
 /** Where a playlist's PG streams have something to show. */

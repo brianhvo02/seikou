@@ -1,11 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { Jvm } from '../../src/engine/bdj/jvm/jvm';
-import { Vfs } from '../../src/engine/bdj/jvm/vfs';
-import { ZipArchive } from '../../src/engine/bdj/jvm/zip';
-import type { JObject } from '../../src/engine/bdj/jvm/values';
-import { NativeTable, registerBootstrapNatives, registerJdkNatives, registerSchedulerNatives } from '../../src/engine/bdj/jvm/natives/index';
+import { Jvm } from '../../src/bdj/jvm/jvm';
+import { Vfs } from '../../src/bdj/jvm/vfs';
+import { ZipArchive } from '../../src/bdj/jvm/zip';
+import type { JObject } from '../../src/bdj/jvm/values';
+import { NativeTable, registerBootstrapNatives, registerJdkNatives, registerSchedulerNatives } from '../../src/bdj/jvm/natives/index';
 import { assembleClass } from '../helpers/jvm-asm';
 import type { Const } from '../helpers/jvm-asm';
 

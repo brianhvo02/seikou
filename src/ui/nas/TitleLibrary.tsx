@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import type { SeasonDetail, TitleDetail, TitleKind, TitleSummary } from '@seikou/nas/nas-api';
-import type { PlayerController } from '../../player/player-controller';
+import type { PlayerController } from '@seikou/engine/controller/player-controller';
 import { AdminScreen } from './AdminScreen';
 import { artistIndex, artistNames, groupArtists, searchArtists, type ArtistGroup } from './artist-model';
 import type { MusicOwner } from './ArtistPage';
