@@ -1,0 +1,3 @@
+# @seikou/fansubs
+
+Finding and timing fansub subtitles for a disc: `createSeaDex` and `createTosho` find a title's best releases, `choosePerEpisode` picks one subtitle file per episode, `fetchTrack` and `fontsIn7z` download it with its fonts, `episodeAudio` reads the disc's dialogue audio, and `align` and `retime` shift the subtitles until their dialogue lines up with the disc's. It runs in Node and is used by Seikou's NAS server. A consumer provides the `fetch` the clients use, the disc to read (`FansubDiscSource`) and an `AudioDecoder` that turns a clip's audio stream into 16 kHz PCM; the package runs no decoder of its own, so the server supplies one backed by ffmpeg (`ffmpegAudioDecoder` in `server/src/fansubs/ffmpeg-decoder.ts`).

@@ -4,6 +4,10 @@
 
 Seikou's own code is licensed LGPL-3.0-or-later (see the top-level `LICENSE` and `COPYING`). Files ported from libbluray, libudfread and FFmpeg keep LGPL-2.1-or-later, as their headers say. Some directories have their own licences: see the License section of the README. `npm run licence-check` checks the headers and every `package.json`.
 
+## Where code lives
+
+The app is in `src/`: the React UI in `src/ui/`, BD-J in `src/bdj/`, and the engine worker's entry in `src/engine-worker.ts`, which hands BD-J to the engine. The code that is not specific to the app lives in seven npm workspace packages under `packages/`, imported as `@seikou/<name>`: `bdmv` (the disc format's parsers and the M2TS demuxer), `pg` (PG subtitles), `ass` (the ASS renderer), `engine` (the player engine and its page-side controller), `nas` (the NAS wire contract), `titles` (naming the library and looking up metadata) and `fansubs` (finding and timing fansub subtitles). Each has a one-paragraph README and its own NOTICE. The NAS server is in `server/` and the pairing Worker in `rendezvous/`. The commands below cover the packages along with the app; `npm run package-smoke` installs the packages into a temporary project, as a project outside this repo would, and builds a page with them.
+
 ## Run and build
 
 - `npm run dev`: dev server (cross-origin isolated).

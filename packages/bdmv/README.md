@@ -1,0 +1,3 @@
+# @seikou/bdmv
+
+The Blu-ray disc format, read without a player: parsers for `index.bdmv` (`parseIndex`), playlists (`parseMpls`), clip information (`parseClpi`), movie objects (`parseMovieObjects`), BD-J objects (`parseBdjo`), `sound.bdmv` (`parseSoundBdmv`) and the disc ID (`parseBdid`); a UDF reader for ISO images (`readUdf`, `UdfImage`); the M2TS demuxer (`M2tsReader`, `parseSourcePacket`, `PesAssembler`); and the H.264 and HEVC parameter-set readers that name a WebCodecs codec (`avcCodecString`, `hevcCodecString`). It exists so a browser player, a server and the tests can all read a disc with the same code, and it takes its input as bytes or a `ByteSource`, so it runs in a page, a worker or Node and needs nothing provided by its consumer.

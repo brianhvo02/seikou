@@ -70,6 +70,8 @@ jobs:
       - run: npm run licence-check
       - run: npm run typecheck
       - run: npm test
+      # the packages as an outside project installs them: file: dependencies, tsx parsing and a Vite build
+      - run: npm run package-smoke
 
   # One runner per browser project: sharing one 4-vCPU runner with the other browsers starved WebKit (software-rendered,
   # no GPU), whose playback clock and page then fell seconds behind the tests' waits.

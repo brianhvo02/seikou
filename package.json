@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "licence-check": "bash scripts/licence-check.sh",
+    "package-smoke": "bash scripts/package-smoke.sh",
     "test:e2e": "playwright test",
     "test:ass": "playwright test -c playwright.ass.config.ts",
     "wasm:build": "packages/engine/wasm/audio/build.sh && src/wasm/freetype/build.sh",

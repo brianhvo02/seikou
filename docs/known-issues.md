@@ -565,6 +565,15 @@ Fill in from `probe.html` on each device.
 - **Fansubs: the `mobile-chromium` Playwright project doesn't run `tests/e2e/nas.spec.ts`,** so the player search's phone layout was checked by hand once.
 - **Local fonts (`queryLocalFonts`) were dropped** by the owner's choice (the API is Chrome and Edge only); fonts come from Anime Tosho, the subtitle store, or are added by hand.
 
+## Packages
+
+- **The packages in `packages/` are source-only and unpublished.** Each ships its TypeScript sources, not built
+  JavaScript or declaration files, and none is on npm, so another project consumes them as `file:` dependencies on a
+  checkout (`npm install file:<repo>/packages/engine`, plus the `@seikou` packages it depends on, since `"*"` cannot
+  resolve from the registry) and compiles them with its own TypeScript or Vite. `npm run package-smoke` does exactly
+  that in a temporary project. *Revisit if* a project outside this repo needs them from a registry: that needs a build
+  step to JavaScript and `.d.ts`, real version ranges between the packages, and publishing.
+
 ## Resolved (for reference)
 
 - **Resolved: Music shelf: library-wide search didn't match a looked-up title (2026-10-22).** `searchNames` (`src/ui/nas/title-model.ts`) now reads a release's title, concert name and artist names as well as the folder-derived ones.
@@ -597,7 +606,7 @@ Fill in from `probe.html` on each device.
 - **M4b review fixes (2026-10-15).** The cached coloured layers left the shadow offset out of their key, so two runs
   differing only in `\shad`/`\xshad` (or a `\t` on the shadow distance) drew the shadow at the first one's offset;
   the static event cache was bounded by count only (64 full-frame drawings could hold ~530 MB) and is now also
-  bounded to 128 MiB; the controller imported its file sorting from `src/ui` (moved to `src/player/drop-files.ts`);
+  bounded to 128 MiB; the controller imported its file sorting from `src/ui` (moved to `packages/engine/src/controller/drop-files.ts`);
   subtitle rows were keyed by file name, which collides for same-named files from different folders.
 - **ASS rendering differences from Chrome's canvas, found by the TSURUNE gate.** Canvases created with
   `willReadFrequently` (CPU) approximate `blur()` with box passes: deviations under 0.8 px do nothing and larger ones

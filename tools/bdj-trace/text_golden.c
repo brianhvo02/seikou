@@ -1,5 +1,5 @@
 /*
- * Golden values for bluray-web's BD-J font and text natives (src/engine/bdj/jvm/natives/fonts.ts), made by libbluray's
+ * Golden values for bluray-web's BD-J font and text natives (src/bdj/jvm/natives/fonts.ts), made by libbluray's
  * own natives: this program links the harness image's compiled bdj/native/java_awt_BDFontMetrics.c and
  * java_awt_BDGraphics.c objects (from the libbluray build in /src/libbluray/build, the same code libbluray.so
  * carries, against the same system FreeType) and calls them through their JNINativeMethod tables with a small fake

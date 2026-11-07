@@ -47,7 +47,7 @@ Seikou stands on a lot of other work. Each entry links to the project and, where
 
 ### Ported from
 
-Code this project translates to TypeScript (the files are listed in [packages/engine/NOTICE](packages/engine/NOTICE), [src/bdj/NOTICE](src/bdj/NOTICE) and the other packages' NOTICE files).
+Code this project translates to TypeScript (the files are listed in the NOTICE files of [packages/bdmv](packages/bdmv/NOTICE), [packages/pg](packages/pg/NOTICE), [packages/ass](packages/ass/NOTICE) and [packages/engine](packages/engine/NOTICE), and in [src/bdj/NOTICE](src/bdj/NOTICE)).
 
 - [libbluray](https://www.videolan.org/developers/libbluray.html), LGPL-2.1-or-later: the C library's disc parsing, navigation, HDMV virtual machine, menus, and BD-J glue and natives.
 - [libudfread](https://code.videolan.org/videolan/libudfread), LGPL-2.1-or-later: the UDF reader for ISO discs.

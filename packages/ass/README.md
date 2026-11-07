@@ -1,0 +1,3 @@
+# @seikou/ass
+
+An ASS/SSA subtitle renderer ported from libass 0.17.5, drawing with Canvas2D in a page or a worker: `parseAss` reads a script (its `[Fonts]` section included), `AssFonts` and `readFontFile` match and load fonts from their sfnt tables, `createCanvasMeasurer` measures text with the browser, and `AssRenderer` lays out and draws each frame's events onto a canvas. The package also ships DejaVu Sans as `@seikou/ass/default-font.ttf`, the fallback face when a script's fonts are missing. A consumer provides, through `AssRendererDeps`, a canvas factory, a glyph measurer, a clock and the memory limits the caches keep to, and registers the fonts it has with `AssFonts`.
