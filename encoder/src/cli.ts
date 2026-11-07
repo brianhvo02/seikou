@@ -11,8 +11,8 @@ import { findTools, ToolsError } from './tools';
 class UsageError extends Error {}
 
 const USAGE = `Usage:
-  encoding-tools plan <disc> [--playlist ID]
-  encoding-tools encode <disc> --playlist ID --episodes SPEC --out DIR
+  seikou-encode plan <disc> [--playlist ID]
+  seikou-encode encode <disc> --playlist ID --episodes SPEC --out DIR
       [--name PATTERN] [--crf N] [--preset N] [--svt-args "..."] [--opus-bitrate N] [--title T]`;
 
 const pad = (n: number, w: number): string => String(n).padStart(w, '0');

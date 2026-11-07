@@ -4,10 +4,11 @@ import { describe, expect, it } from 'vitest';
 import { parseSequenceHeader, splitObus, ObuType } from '../../src/mux/av1';
 import { BitReader } from '../../src/mux/bit-reader';
 import { readIvf } from '../../src/mux/ivf';
+import { fx } from '../paths';
 
 describe('av1', () => {
   it('parses the sequence header and builds av1C', async () => {
-    const { info, av1C } = await (await readIvf(createReadStream('fixtures/small.ivf')))
+    const { info, av1C } = await (await readIvf(createReadStream(fx('fixtures/small.ivf'))))
       .sequenceHeader;
     expect(info).toMatchObject({
       seqProfile: 0,

@@ -12,6 +12,7 @@ import { parseEpisodeSpec, planEpisodes } from '../../src/plan/episodes';
 import type { EpisodePlan, Segment } from '../../src/plan/episodes';
 import { buildAudioScript, buildVideoScript } from '../../src/pipeline/vpy';
 import { haveTools, toolPaths } from '../helpers/tools';
+import { fx } from '../paths';
 
 type SegSpec = [string, number, number] | [string, [number, number], [number, number]];
 
@@ -62,7 +63,7 @@ describe.skipIf(!haveTools)('with vspipe', () => {
   type Build = (plan: EpisodePlan, opts: { cacheDir: string }) => string;
 
   async function vspipeInfo(build: Build, tweak: (plan: EpisodePlan) => EpisodePlan = (x) => x): Promise<string> {
-    const playlist = await loadPlaylist(path.resolve('fixtures/disc1'), '00000');
+    const playlist = await loadPlaylist(fx('fixtures/disc1'), '00000');
     const probes = new Map([
       ['00001', await probeClip(playlist.items[0])],
       ['00002', await probeClip(playlist.items[1])],

@@ -3,6 +3,7 @@ import { createReadStream, readFileSync } from 'node:fs';
 import { Readable } from 'node:stream';
 import { describe, expect, it } from 'vitest';
 import { opusPacketDuration, readOggOpus } from '../../src/mux/ogg';
+import { fx } from '../paths';
 
 async function collectAll<T>(iter: AsyncIterable<T>): Promise<T[]> {
   const out: T[] = [];
@@ -67,7 +68,7 @@ describe('opusPacketDuration', () => {
 
 describe('readOggOpus', () => {
   it('reads tone.opus: head, packets, end trimming', async () => {
-    const ogg = await readOggOpus(createReadStream('fixtures/tone.opus'));
+    const ogg = await readOggOpus(createReadStream(fx('fixtures/tone.opus')));
     expect(ogg.head.channels).toBe(2);
     expect(ogg.head.preSkip).toBeGreaterThan(0);
     expect(ogg.head.raw).toHaveLength(19);
@@ -82,7 +83,7 @@ describe('readOggOpus', () => {
   });
 
   it('yields the same result from 1-byte chunks', async () => {
-    const file = readFileSync('fixtures/tone.opus');
+    const file = readFileSync(fx('fixtures/tone.opus'));
     const ref = await readOggOpus(Readable.from([file]));
     const refPackets = await collectAll(ref.packets);
     const ogg = await readOggOpus(Readable.from(Array.from(file, (b) => Buffer.from([b]))));

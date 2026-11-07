@@ -20,6 +20,7 @@ import {
   uintOf,
 } from '../helpers/ebml-reader';
 import { haveFfprobe } from '../helpers/tools';
+import { fx } from '../paths';
 
 describe('writeMkv', () => {
   const dir = mkdtempSync(join(tmpdir(), 'encoding-tools-mkv-'));
@@ -28,9 +29,9 @@ describe('writeMkv', () => {
   let ogg: OggOpusStream;
 
   beforeAll(async () => {
-    const ivf = await readIvf(createReadStream('fixtures/small.ivf'));
+    const ivf = await readIvf(createReadStream(fx('fixtures/small.ivf')));
     const seq = await ivf.sequenceHeader;
-    ogg = await readOggOpus(createReadStream('fixtures/tone.opus'));
+    ogg = await readOggOpus(createReadStream(fx('fixtures/tone.opus')));
     r = await writeMkv(out, {
       video: { width: 64, height: 64, fpsNum: 24000, fpsDen: 1001, codecPrivate: seq.av1C },
       audio: {

@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { loadPlaylist, type Playlist } from '../../src/disc/playlist';
 import { probeClip, type ClipProbe } from '../../src/disc/probe';
 import { EpisodeSpecError, parseEpisodeSpec, planEpisodes } from '../../src/plan/episodes';
+import { fx } from '../paths';
 
 let p: Playlist;
 let probe00001: ClipProbe;
@@ -10,7 +11,7 @@ let probe00002: ClipProbe;
 let probes: Map<string, ClipProbe>;
 
 beforeAll(async () => {
-  p = await loadPlaylist('fixtures/disc1', '00000');
+  p = await loadPlaylist(fx('fixtures/disc1'), '00000');
   probe00001 = await probeClip(p.items[0]);
   probe00002 = await probeClip(p.items[1]);
   probes = new Map([
@@ -22,7 +23,7 @@ beforeAll(async () => {
 function plansFor(spec: string, chapterTimes45: number[]) {
   const playlist = {
     id: '00000',
-    discDir: 'fixtures/disc1',
+    discDir: fx('fixtures/disc1'),
     items: [
       { index: 0, clipId: '00001', inTime45: 450000, outTime45: 630000, videoPid: 4113, audioPids: [4352] },
     ],

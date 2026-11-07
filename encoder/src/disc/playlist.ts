@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { readdir, readFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { parseClpi, type Clpi } from 'seikou/engine/bdmv/clpi-parser';
-import { MarkType, parseMpls, type Mpls, type PlayListMark } from 'seikou/engine/bdmv/mpls-parser';
+import { parseClpi, type Clpi } from '@seikou/bdmv/clpi-parser';
+import { MarkType, parseMpls, type Mpls, type PlayListMark } from '@seikou/bdmv/mpls-parser';
 
 export interface PlaylistItem {
   index: number;

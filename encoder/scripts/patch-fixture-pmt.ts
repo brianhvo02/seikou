@@ -9,7 +9,6 @@ import path from 'node:path';
 
 const PACKET = 192;
 const HEADER = 4;
-const TS = 188;
 const PMT_PID = 0x1000;
 const VIDEO_PID = 0x1011;
 const AUDIO_PID = 0x1100;

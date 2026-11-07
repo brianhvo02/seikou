@@ -11,7 +11,6 @@ import {
   sint,
   uint,
   utf8,
-  vint,
   vintFixed8,
   voidElement,
 } from './ebml';
@@ -59,7 +58,7 @@ export interface MkvResult {
 }
 
 const SEEK_HEAD_SIZE = 160;
-const APP_NAME = 'encoding-tools';
+const APP_NAME = 'seikou-encode';
 const VIDEO_TRACK = 1;
 const AUDIO_TRACK = 2;
 const MAX_REL_TS = 32767;

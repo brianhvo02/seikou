@@ -2,7 +2,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join, resolve } from 'node:path';
+import { basename, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { encodeEpisodes, opusArgs, svtArgs, type EncodeOptions } from '../src/encode';
 import { Id } from '../src/mux/mkv-ids';
@@ -10,6 +10,7 @@ import { countVideoBlocks, find, findAll, floatOf, parseMkv, uintOf } from './he
 import { loadPlaylist } from '../src/disc/playlist';
 import { probeClip } from '../src/disc/probe';
 import { ffprobePath, haveFfprobe, haveTools, toolPaths } from './helpers/tools';
+import { fx } from './paths';
 
 interface ProbedStream {
   codec_name: string;
@@ -49,7 +50,7 @@ it('builds encoder argument lists from the spec defaults', () => {
 });
 
 describe.skipIf(!haveTools)('end to end on disc1', () => {
-  const base = (out: string): EncodeOptions => ({ discDir: 'fixtures/disc1', playlistId: '00000', episodes: '1-2,3-4', outDir: out, namePattern: 'ep-{n}', crf: 40, preset: 8, extraSvtArgs: [], cacheDir: join(out, 'cache'), tools: toolPaths()! });
+  const base = (out: string): EncodeOptions => ({ discDir: fx('fixtures/disc1'), playlistId: '00000', episodes: '1-2,3-4', outDir: out, namePattern: 'ep-{n}', crf: 40, preset: 8, extraSvtArgs: [], cacheDir: join(out, 'cache'), tools: toolPaths()! });
 
   it('encodes two episodes with chapters and no leftover files', async () => {
     const out = mkdtempSync(join(tmpdir(), 'et-'));
@@ -79,12 +80,12 @@ describe.skipIf(!haveTools)('end to end on disc1', () => {
   }, 600_000);
 
   it.skipIf(!haveFfprobe)('lets BestSource pad late-starting audio instead of offsetting it in the MKV', async () => {
-    const playlist = await loadPlaylist(resolve('fixtures/disc1-late'), '00000');
+    const playlist = await loadPlaylist(fx('fixtures/disc1-late'), '00000');
     const probe = await probeClip(playlist.items[0]!);
     expect(probe.video.firstPts90).toBe(900000);
     expect(probe.audio[0]!.firstPts90).toBe(901800);
     const out = mkdtempSync(join(tmpdir(), 'et-'));
-    const [p] = await encodeEpisodes({ ...base(out), discDir: 'fixtures/disc1-late', episodes: '1-2' }, () => {});
+    const [p] = await encodeEpisodes({ ...base(out), discDir: fx('fixtures/disc1-late'), episodes: '1-2' }, () => {});
     const s = probeStreams(p!);
     expect(Number(s.opus!.start_time)).toBe(0);
     expect(Math.abs(s.av1!.duration - 4.004)).toBeLessThanOrEqual(0.002);
@@ -96,8 +97,8 @@ describe.skipIf(!haveTools)('end to end on disc1', () => {
     const opts = { ...base(out), episodes: '1-2' };
     process.env.FAKE_ENC_EXIT = '3';
     // A valid IVF makes writeMkv create the file; the exit code then surfaces as a ChainError after the mux loop.
-    process.env.FAKE_ENC_IVF = resolve('fixtures/small.ivf');
-    await expect(encodeEpisodes({ ...opts, tools: { ...toolPaths()!, svt: 'tests/fake-bin/SvtAv1EncApp' } }, () => {})).rejects.toMatchObject({ tool: 'SvtAv1EncApp', code: 3 });
+    process.env.FAKE_ENC_IVF = fx('fixtures/small.ivf');
+    await expect(encodeEpisodes({ ...opts, tools: { ...toolPaths()!, svt: fx('tests/fake-bin/SvtAv1EncApp') } }, () => {})).rejects.toMatchObject({ tool: 'SvtAv1EncApp', code: 3 });
     expect(existsSync(join(out, 'ep-01.mkv'))).toBe(false);
   }, 120_000);
 });

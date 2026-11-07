@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { expect, it } from 'vitest';
-import type { PlayListMark } from 'seikou/engine/bdmv/mpls-parser';
+import type { PlayListMark } from '@seikou/bdmv/mpls-parser';
 import { bdmvRoot, chaptersFromMarks, listPlaylists, loadPlaylist, type PlaylistItem } from '../../src/disc/playlist';
+import { fx } from '../paths';
 
-const disc = 'fixtures/disc1';
+const disc = fx('fixtures/disc1');
 
 it('loads playlist 00000 with two items and four chapters', async () => {
   const p = await loadPlaylist(disc, '00000');
@@ -22,7 +23,7 @@ it('loads playlist 00000 with two items and four chapters', async () => {
 });
 
 it('accepts the BDMV folder itself and lists playlists', async () => {
-  expect(bdmvRoot('fixtures/disc1/BDMV')).toBe(bdmvRoot('fixtures/disc1'));
+  expect(bdmvRoot(fx('fixtures/disc1/BDMV'))).toBe(bdmvRoot(fx('fixtures/disc1')));
   const list = await listPlaylists(disc);
   expect(list.map((l) => [l.id, l.duration45, l.clipIds])).toEqual([
     ['00000', 360000, ['00001', '00002']],

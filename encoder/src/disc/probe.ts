@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { open } from 'node:fs/promises';
-import type { ProgramStream } from 'seikou/engine/bdmv/clpi-parser';
-import { PesAssembler } from 'seikou/engine/demux/pes-assembler';
-import { parseSourcePacket } from 'seikou/engine/demux/ts-packet';
+import type { ProgramStream } from '@seikou/bdmv/clpi-parser';
+import { PesAssembler } from '@seikou/bdmv/demux/pes-assembler';
+import { parseSourcePacket } from '@seikou/bdmv/demux/ts-packet';
 import type { PlaylistItem } from './playlist';
 import { audioChannels, audioRate, videoFormat, videoRate } from './stream-codes';
 
