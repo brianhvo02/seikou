@@ -1,0 +1,133 @@
+// SPDX-License-Identifier: LGPL-3.0-or-later
+import { spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
+import type { Readable } from 'node:stream';
+
+export interface ToolPaths {
+  vspipe: string;
+  svt: string;
+  opusenc: string;
+}
+
+export class ChainError extends Error {
+  constructor(
+    public tool: string,
+    public code: number | null,
+    public signal: NodeJS.Signals | null,
+    public stderrTail: string,
+  ) {
+    super(
+      `${tool} failed (${signal !== null ? `signal ${signal}` : `exit code ${String(code)}`})` +
+        (stderrTail !== '' ? `: ${stderrTail.trim()}` : ''),
+    );
+    this.name = 'ChainError';
+  }
+}
+
+export interface Chain {
+  stream: Readable;
+  done: Promise<void>;
+  abort(reason: Error): void;
+}
+
+const STDERR_TAIL_BYTES = 4096;
+
+interface Stage {
+  name: string;
+  cmd: string;
+  args: string[];
+}
+
+function runChain(first: Stage, second: Stage): Chain {
+  const p1: ChildProcess = spawn(first.cmd, first.args, { stdio: ['ignore', 'pipe', 'pipe'] });
+  const p2: ChildProcess = spawn(second.cmd, second.args, { stdio: ['pipe', 'pipe', 'pipe'] });
+  const procs = [p1, p2];
+  const names = [first.name, second.name];
+  const tails: Buffer[] = [Buffer.alloc(0), Buffer.alloc(0)];
+
+  const out1 = p1.stdout as Readable;
+  const in2 = p2.stdin as NodeJS.WritableStream;
+  const stream = p2.stdout as Readable;
+
+  // The second process may die before consuming everything; the exit codes report the real failure.
+  out1.on('error', () => {});
+  in2.on('error', () => {});
+  out1.pipe(in2);
+
+  let settled = false;
+  let resolveDone!: () => void;
+  let rejectDone!: (e: Error) => void;
+  const done = new Promise<void>((res, rej) => {
+    resolveDone = res;
+    rejectDone = rej;
+  });
+
+  const killAll = (): void => {
+    for (const p of procs) if (p.exitCode === null && p.signalCode === null) p.kill('SIGTERM');
+  };
+  const fail = (err: Error): void => {
+    if (settled) return;
+    settled = true;
+    killAll();
+    rejectDone(err);
+  };
+
+  procs.forEach((p, i) => {
+    (p.stderr as Readable).on('data', (d: Buffer) => {
+      const all = Buffer.concat([tails[i], d]);
+      tails[i] = all.length > STDERR_TAIL_BYTES ? all.subarray(all.length - STDERR_TAIL_BYTES) : all;
+    });
+  });
+
+  const exited = [false, false];
+  let streamEnded = false;
+  const check = (): void => {
+    if (!settled && exited[0] && exited[1] && streamEnded) {
+      settled = true;
+      resolveDone();
+    }
+  };
+
+  procs.forEach((p, i) => {
+    p.on('error', (e: Error) => {
+      fail(new ChainError(names[i], null, null, `${e.message}\n${tails[i].toString('utf8')}`));
+    });
+    p.on('exit', (code, signal) => {
+      if (code !== 0) {
+        fail(new ChainError(names[i], code, signal, tails[i].toString('utf8')));
+        return;
+      }
+      exited[i] = true;
+      check();
+    });
+  });
+
+  const onEnd = (): void => {
+    streamEnded = true;
+    check();
+  };
+  stream.on('end', onEnd);
+  stream.on('close', onEnd);
+
+  return {
+    stream,
+    done,
+    abort(reason: Error): void {
+      fail(reason);
+    },
+  };
+}
+
+export function videoChain(tools: ToolPaths, scriptPath: string, svtArgs: string[]): Chain {
+  return runChain(
+    { name: 'vspipe', cmd: tools.vspipe, args: [scriptPath, '-', '-c', 'y4m'] },
+    { name: 'SvtAv1EncApp', cmd: tools.svt, args: ['-i', 'stdin', '-b', 'stdout', ...svtArgs] },
+  );
+}
+
+export function audioChain(tools: ToolPaths, scriptPath: string, opusArgs: string[]): Chain {
+  return runChain(
+    { name: 'vspipe', cmd: tools.vspipe, args: [scriptPath, '-', '-c', 'wav'] },
+    { name: 'opusenc', cmd: tools.opusenc, args: [...opusArgs, '-', '-'] },
+  );
+}

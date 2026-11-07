@@ -1,0 +1,5 @@
+#!/bin/sh
+[ -n "$FAKE_SLEEP" ] && sleep "$FAKE_SLEEP"
+cat
+echo "fake stderr line" >&2
+exit "${FAKE_ENC_EXIT:-0}"

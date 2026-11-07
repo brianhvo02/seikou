@@ -1,0 +1,3 @@
+#!/bin/sh
+cat "$1"
+exit "${FAKE_VSPIPE_EXIT:-0}"

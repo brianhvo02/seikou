@@ -3,8 +3,9 @@ import { execFileSync } from 'node:child_process';
 import { accessSync, constants, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import type { ToolPaths } from '../../src/pipeline/chain';
 
-export type ToolPaths = { vspipe: string; svt: string; opusenc: string };
+export type { ToolPaths };
 
 function findOnPath(name: string, override: string | undefined): string | null {
   const candidates =
