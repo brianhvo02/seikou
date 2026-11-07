@@ -74,9 +74,17 @@ function toEntry(m: Media): Entry {
   };
 }
 
-export function createAniList(fetch: typeof globalThis.fetch, pacer: Pacer): MetadataSource {
-  /** Runs one query; null on 404 (an unknown id). */
-  const query = (q: string, variables: Record<string, unknown>, paced: PacedOptions = {}): Promise<unknown> =>
+type QueryFn = (q: string, variables: Record<string, unknown>, paced?: PacedOptions) => Promise<unknown>;
+
+/**
+ * Builds the paced GraphQL request both AniList clients share. The returned
+ * function resolves to the response's `data` member, or null on a 404 or an
+ * empty answer; it throws `RateLimited` on 429 and `SourceUnavailable` on a
+ * network error, another HTTP failure, an unreadable body or a GraphQL error
+ * with no data.
+ */
+function anilistQuery(fetch: typeof globalThis.fetch, pacer: Pacer): QueryFn {
+  return (q, variables, paced = {}) =>
     pacer.run(async () => {
       let res: Response;
       try {
@@ -105,7 +113,11 @@ export function createAniList(fetch: typeof globalThis.fetch, pacer: Pacer): Met
       if ((body.data === null || body.data === undefined) && body.errors !== undefined) throw new SourceUnavailable('anilist: query failed');
       return body.data ?? null;
     }, paced);
+}
 
+/** AniList as a `MetadataSource` (search and entry by `anilist:<id>`), paced by `pacer`. */
+export function createAniList(fetch: typeof globalThis.fetch, pacer: Pacer): MetadataSource {
+  const query = anilistQuery(fetch, pacer);
   return {
     async search(search, opts = {}) {
       const variables: Record<string, unknown> = { search, type: 'ANIME' };
@@ -122,6 +134,44 @@ export function createAniList(fetch: typeof globalThis.fetch, pacer: Pacer): Met
       if (!m) return null;
       const data = (await query(ENTRY, { id: Number(m[1]), type: 'ANIME' })) as { Media?: Media | null } | null;
       return data?.Media ? toEntry(data.Media) : null;
+    },
+  };
+}
+
+const EPISODES = `query ($id: Int, $type: MediaType) {
+  Media(id: $id, type: $type) { streamingEpisodes { title } }
+}`;
+
+/** A streaming episode title such as "Episode 3 - The Lighthouse": number, separator, name. */
+const EPISODE_TITLE = /^Episode (\d+)\s*[-–:]\s*(.+)$/;
+
+/**
+ * Episode titles of one AniList show. AniList's ordinary Media data has none,
+ * so this reads the streaming service's episode list instead.
+ */
+export interface AniListEpisodes {
+  /**
+   * Titles by episode number for the AniList media `alId`. Entries that don't
+   * look like "Episode <n> - <name>" are skipped. The map is empty for an
+   * unknown id or a show with no streaming episodes (older shows), and the
+   * caller then names episodes itself. Throws `RateLimited` or
+   * `SourceUnavailable` as the entry client does.
+   */
+  titles(alId: number, opts?: PacedOptions): Promise<ReadonlyMap<number, string>>;
+}
+
+/** Builds the episode-title client; share `pacer` with other AniList clients so one rate limit holds. */
+export function createAniListEpisodes(fetch: typeof globalThis.fetch, pacer: Pacer): AniListEpisodes {
+  const query = anilistQuery(fetch, pacer);
+  return {
+    async titles(alId, opts = {}) {
+      const data = (await query(EPISODES, { id: alId, type: 'ANIME' }, opts)) as { Media?: { streamingEpisodes?: readonly { title?: string | null }[] | null } | null } | null;
+      const found = new Map<number, string>();
+      for (const e of data?.Media?.streamingEpisodes ?? []) {
+        const m = e.title ? EPISODE_TITLE.exec(e.title) : null;
+        if (m) found.set(Number(m[1]), m[2]!.trim());
+      }
+      return new Map([...found].sort((a, b) => a[0] - b[0]));
     },
   };
 }

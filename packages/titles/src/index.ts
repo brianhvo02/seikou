@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 export type { DiscEvidence } from './disc-evidence';
 
-export { createAniList } from './anilist';
+export { createAniList, createAniListEpisodes } from './anilist';
+export type { AniListEpisodes } from './anilist';
 export { createTmdb } from './tmdb';
 export { createDiscogs } from './discogs';
 export { createMusicBrainz } from './musicbrainz';

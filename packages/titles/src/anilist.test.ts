@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { createAniList } from './anilist';
+import { createAniList, createAniListEpisodes } from './anilist';
 import { Pacer } from './pacer';
 import { SourceUnavailable } from './sources';
 
@@ -125,5 +125,38 @@ describe('createAniList', () => {
     await expect(down.search('x')).rejects.toBeInstanceOf(SourceUnavailable);
     const broken = createAniList(fakeFetch(() => json({}, 502)).fetch, pacer());
     await expect(broken.search('x')).rejects.toBeInstanceOf(SourceUnavailable);
+  });
+});
+
+describe('createAniListEpisodes', () => {
+  it('anilist episode titles parse the streaming list', async () => {
+    const { fetch, calls } = fakeFetch(() =>
+      json({ data: { Media: { streamingEpisodes: [{ title: 'Episode 2 - The Lighthouse' }, { title: 'Episode 1 - Arrival' }, { title: 'Recap' }] } } }),
+    );
+    const titles = await createAniListEpisodes(fetch, pacer()).titles(900101);
+    expect(titles.size).toBe(2);
+    expect(titles.get(1)).toBe('Arrival');
+    expect(titles.get(2)).toBe('The Lighthouse');
+    const body = JSON.parse(String(calls[0]!.init?.body)) as { query: string; variables: Record<string, unknown> };
+    expect(body.query).toContain('streamingEpisodes');
+    expect(body.variables).toMatchObject({ id: 900101 });
+  });
+
+  it('accepts en dash and colon separators', async () => {
+    const { fetch } = fakeFetch(() => json({ data: { Media: { streamingEpisodes: [{ title: 'Episode 3 – Tides' }, { title: 'Episode 4: Embers' }] } } }));
+    const titles = await createAniListEpisodes(fetch, pacer()).titles(1);
+    expect([...titles]).toEqual([[3, 'Tides'], [4, 'Embers']]);
+  });
+
+  it('null Media gives an empty map', async () => {
+    const { fetch } = fakeFetch(() => json({ data: { Media: null } }));
+    expect((await createAniListEpisodes(fetch, pacer()).titles(1)).size).toBe(0);
+    const none = fakeFetch(() => json({ data: { Media: { streamingEpisodes: null } } }));
+    expect((await createAniListEpisodes(none.fetch, pacer()).titles(1)).size).toBe(0);
+  });
+
+  it('HTTP 500 throws SourceUnavailable', async () => {
+    const { fetch } = fakeFetch(() => json({}, 500));
+    await expect(createAniListEpisodes(fetch, pacer()).titles(1)).rejects.toBeInstanceOf(SourceUnavailable);
   });
 });
