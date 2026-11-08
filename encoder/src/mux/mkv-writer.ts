@@ -119,6 +119,8 @@ export interface SubtitleBlock {
  */
 export type MkvSubtitleTrack = TrackLabel & {
   codecId: 'S_TEXT/ASS' | 'S_HDMV/PGS';
+  /** When true, FlagForced 1 is written (RFC 9559 §5.1.4.1.6): a track a player may show even with subtitles off, such as one with only signs and songs. Otherwise the element is left out (its default is 0). */
+  isForced?: boolean;
   /** Stored as CodecPrivate when given. */
   codecPrivate?: Uint8Array;
   /** Sorted by `timeMs` (equal times keep their order); `writeMkv` throws otherwise. */
@@ -143,15 +145,32 @@ export interface MkvChapter {
 }
 
 /**
+ * One video packet to mux: an AV1 temporal unit, timed by its index and the frame rate unless
+ * `timeMs` gives its timestamp directly (a remux copies the source's timestamps this way).
+ */
+export type MkvVideoPacket = Av1Packet & {
+  /** Whole milliseconds from the Segment's start, in place of `videoMs(index)`. */
+  timeMs?: number;
+};
+
+/**
  * What `writeMkv` muxes. Track numbers follow this order: the video is track 1, the audio tracks
  * come next in array order, then the subtitle tracks in array order.
  */
 export interface MkvInput {
+  /**
+   * The EBML DocType (RFC 8794 §11.2.6), `matroska` by default. `webm` follows the WebM container
+   * guidelines: no subtitle tracks and no attachments (`writeMkv` throws when given any), and
+   * chapters without EditionUID, EditionFlagDefault or ChapterFlagEnabled, which WebM does not
+   * list. The Opus elements WebM's table predates (CodecDelay, SeekPreRoll, DiscardPadding) are kept,
+   * since the Matroska Opus mapping needs them and WebM players read them.
+   */
+  docType?: 'matroska' | 'webm';
   /** Segment title. */
   title?: string;
   video: VideoTrackInfo & TrackLabel;
-  /** Video packets, one temporal unit per shown frame, in presentation order (AV1 temporal units already are). The first must be a key frame. Packet i gets timestamp `videoMs(i)`. */
-  videoPackets: AsyncIterable<Av1Packet>;
+  /** Video packets, one temporal unit per shown frame, in presentation order (AV1 temporal units already are). The first must be a key frame. Packet i gets timestamp `videoMs(i)`, or its own `timeMs`. */
+  videoPackets: AsyncIterable<MkvVideoPacket>;
   /** Any number of Opus tracks, none included. Every track's packets are read concurrently with the video's. */
   audio: MkvAudioTrack[];
   /** Any number of subtitle tracks, none included. */
@@ -164,7 +183,7 @@ export interface MkvInput {
 
 /** What `writeMkv` reports about the file it wrote. */
 export interface MkvResult {
-  /** The Segment duration: the latest of the video's end and each audio track's end (pre-skip and end padding excluded). Subtitle blocks do not extend it. */
+  /** The Segment duration: the latest of the video's end (the last frame's time plus one frame) and each audio track's end (pre-skip and end padding excluded). Subtitle blocks do not extend it. */
   durationNs: bigint;
   videoPackets: number;
   /** Packets written per audio track, in input order. */
@@ -277,6 +296,7 @@ function trackEntries(input: MkvInput): Uint8Array {
         uint(Id.TrackUID, subtitleTrackNumber(input, j)),
         uint(Id.TrackType, TRACK_TYPE_SUBTITLE),
         ...labelElements(sub),
+        ...(sub.isForced === true ? [uint(Id.FlagForced, 1)] : []),
         uint(Id.FlagLacing, 0),
         ascii(Id.CodecID, sub.codecId),
         ...(sub.codecPrivate !== undefined ? [binary(Id.CodecPrivate, sub.codecPrivate)] : []),
@@ -310,16 +330,16 @@ function attachmentsElement(files: readonly MkvAttachment[]): Uint8Array {
   );
 }
 
-function chaptersElement(chapters: readonly MkvChapter[]): Uint8Array {
+// WebM lists neither EditionUID, EditionFlagDefault nor ChapterFlagEnabled, so `webm` leaves them out.
+function chaptersElement(chapters: readonly MkvChapter[], webm: boolean): Uint8Array {
   return master(Id.Chapters, [
     master(Id.EditionEntry, [
-      uint(Id.EditionUID, 1),
-      uint(Id.EditionFlagDefault, 1),
+      ...(webm ? [] : [uint(Id.EditionUID, 1), uint(Id.EditionFlagDefault, 1)]),
       ...chapters.map((c, i) =>
         master(Id.ChapterAtom, [
           uint(Id.ChapterUID, i + 1),
           uint(Id.ChapterTimeStart, c.startNs),
-          uint(Id.ChapterFlagEnabled, 1),
+          ...(webm ? [] : [uint(Id.ChapterFlagEnabled, 1)]),
           master(Id.ChapterDisplay, [utf8(Id.ChapString, c.title), ascii(Id.ChapLanguage, 'und')]),
         ]),
       ),
@@ -327,13 +347,13 @@ function chaptersElement(chapters: readonly MkvChapter[]): Uint8Array {
   ]);
 }
 
-function ebmlHeader(): Uint8Array {
+function ebmlHeader(docType: 'matroska' | 'webm'): Uint8Array {
   return master(Id.EBML, [
     uint(Id.EBMLVersion, 1),
     uint(Id.EBMLReadVersion, 1),
     uint(Id.EBMLMaxIDLength, 4),
     uint(Id.EBMLMaxSizeLength, 8),
-    ascii(Id.DocType, 'matroska'),
+    ascii(Id.DocType, docType),
     uint(Id.DocTypeVersion, 4),
     uint(Id.DocTypeReadVersion, 2),
   ]);
@@ -454,16 +474,21 @@ interface SubtitleState {
  * The file is overwritten if it exists; on error it is left partial (the caller deletes it).
  * Throws before opening the file when a subtitle block's time is negative or not a whole number
  * of milliseconds (RangeError: the caller drops or clamps events before the first video frame) or
- * a track's blocks are out of time order; throws while writing when there are no video packets or
- * the first video packet is not a key frame.
+ * a track's blocks are out of time order, and when a `webm` input has subtitle tracks or
+ * attachments; throws while writing when there are no video packets or the first video packet is
+ * not a key frame.
  */
 export async function writeMkv(path: string, input: MkvInput): Promise<MkvResult> {
   const { video } = input;
+  const docType = input.docType ?? 'matroska';
+  if (docType === 'webm' && (input.subtitles.length > 0 || input.attachments.length > 0)) {
+    throw new Error('a WebM file carries no subtitle tracks and no attachments');
+  }
   checkSubtitleBlocks(input.subtitles);
   const fh = await open(path, 'w');
   try {
     const w = new PositionalWriter(fh);
-    await w.append(ebmlHeader());
+    await w.append(ebmlHeader(docType));
     await w.append(idBytes(Id.Segment));
     const segmentSizePos = w.pos;
     await w.append(vintFixed8(0));
@@ -498,14 +523,15 @@ export async function writeMkv(path: string, input: MkvInput): Promise<MkvResult
     let chaptersPos: number | null = null;
     if (input.chapters.length > 0) {
       chaptersPos = w.pos - base;
-      await w.append(chaptersElement(input.chapters));
+      await w.append(chaptersElement(input.chapters, docType === 'webm'));
     }
 
     const cues: CueEntry[] = [];
     let cluster: OpenCluster | null = null;
     let clusters = 0;
     let videoCount = 0;
-    let lastVideoIndex = -1;
+    let videoEndNs = 0n;
+    const frameNs = frameDurationNs(video);
 
     const closeCluster = async (): Promise<void> => {
       if (cluster === null) return;
@@ -552,7 +578,7 @@ export async function writeMkv(path: string, input: MkvInput): Promise<MkvResult
       let bestMs = Infinity;
       let pick: { kind: 'video' } | { kind: 'audio'; a: AudioState } | { kind: 'sub'; s: SubtitleState } | null = null;
       if (v !== null) {
-        bestMs = videoMs(v.index, video);
+        bestMs = v.timeMs ?? videoMs(v.index, video);
         pick = { kind: 'video' };
       }
       // Until the first key frame opens a cluster, only video can be written.
@@ -583,7 +609,8 @@ export async function writeMkv(path: string, input: MkvInput): Promise<MkvResult
         const flags = p.keyframe ? 0x80 : 0x00;
         addToCluster(c, binary(Id.SimpleBlock, blockPayload(VIDEO_TRACK, bestMs - c.timestamp, flags, p.data)));
         videoCount++;
-        lastVideoIndex = Math.max(lastVideoIndex, p.index);
+        const endNs = p.timeMs !== undefined ? BigInt(p.timeMs) * 1_000_000n + frameNs : framesToNs(p.index + 1, video);
+        if (endNs > videoEndNs) videoEndNs = endNs;
         vCur = await vIter.next();
       } else if (pick.kind === 'audio') {
         const a = pick.a;
@@ -630,7 +657,7 @@ export async function writeMkv(path: string, input: MkvInput): Promise<MkvResult
     const cuesPos = w.pos - base;
     await w.append(cuesElement(cues));
 
-    let durationNs = framesToNs(lastVideoIndex + 1, video);
+    let durationNs = videoEndNs;
     for (const a of audios) if (a.endNs > durationNs) durationNs = a.endNs;
 
     // Patches: Segment size, SeekHead, Duration.

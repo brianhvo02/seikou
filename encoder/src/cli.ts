@@ -7,6 +7,10 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { listPlaylists, loadPlaylist } from './disc/playlist';
 import { encodeEpisodes } from './encode';
+import { MkvReadError } from './mux/mkv-reader';
+import { packageEpisode, PackageError } from './package/package';
+import { SupError } from './package/sup';
+import { WebmError } from './package/webm';
 import { loadEncodeRecord, MissingSubtitleFilesError, NoAudioChosenError, RecordMismatchError } from './subs/encode-record';
 import { ChainError } from './pipeline/chain';
 import { EpisodeSpecError, parseEpisodeSpec } from './plan/episodes';
@@ -26,6 +30,7 @@ const USAGE = `Usage:
   seikou-encode encode <disc> --playlist ID --episodes SPEC --out DIR
       [--name PATTERN] [--crf N] [--preset N] [--svt-args "..."] [--opus-bitrate N] [--title T] [--cache DIR]
       [--no-subtitles] [--no-pgs] [--web DIR]
+  seikou-encode package <episode.mkv> --out DIR
   seikou-encode serve <disc> --playlist ID --episodes SPEC [--port N] [--no-open]`;
 
 const pad = (n: number, w: number): string => String(n).padStart(w, '0');
@@ -144,6 +149,14 @@ async function run(argv: string[]): Promise<void> {
     },
   });
   const [command, disc] = positionals;
+  if (command === 'package') {
+    if (disc === undefined || positionals.length > 2) throw new UsageError('expected: package <episode.mkv> --out DIR');
+    if (values.out === undefined) throw new UsageError('--out is required');
+    const outDir = resolve(values.out);
+    await packageEpisode(resolve(disc), outDir);
+    console.log(`Packaged ${disc} into ${outDir}`);
+    return;
+  }
   if (disc === undefined || positionals.length > 2) throw new UsageError('expected: <command> <disc>');
 
   if (command === 'plan') {
@@ -220,7 +233,8 @@ async function run(argv: string[]): Promise<void> {
 }
 
 /**
- * Runs the command line and returns the process exit code: 0 success, 1 encode failure, 2 usage
+ * Runs the command line and returns the process exit code: 0 success, 1 encode or packaging failure (`package` on a
+ * file that is not a readable Matroska file with an AV1 track, too), 2 usage
  * error, bad episode list or a saved record that does not fit the encode (another playlist or episode list, or an
  * episode with no audio stream ticked), 3 required tools missing (or, for `serve`, the helper page not built). Output goes to stdout and stderr; nothing
  * is thrown.
@@ -241,6 +255,10 @@ export async function main(argv: string[]): Promise<number> {
     if (err instanceof RecordMismatchError || err instanceof NoAudioChosenError) {
       console.error(err.message);
       return 2;
+    }
+    if (err instanceof MkvReadError || err instanceof WebmError || err instanceof PackageError || err instanceof SupError) {
+      console.error(`Packaging failed: ${err.message}`);
+      return 1;
     }
     if (err instanceof MissingSubtitleFilesError) {
       console.error(err.message);

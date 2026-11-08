@@ -18,7 +18,7 @@ export const Id = {
   EBMLMaxIDLength: 0x42f2,
   /** RFC 8794 §11.2.5: longest element size field in the file, in bytes (8). */
   EBMLMaxSizeLength: 0x42f3,
-  /** RFC 8794 §11.2.6: the document type, the string `matroska` here. */
+  /** RFC 8794 §11.2.6: the document type: `matroska`, or `webm` for a WebM file. */
   DocType: 0x4282,
   /** RFC 8794 §11.2.7: version of the document type the file was written to (Matroska version 4 added CodecDelay and DiscardPadding). */
   DocTypeVersion: 0x4287,
@@ -58,6 +58,8 @@ export const Id = {
   TrackType: 0x83,
   /** RFC 9559 §5.1.4.1.5: 1 when a player may pick the track automatically, 0 when it may not. Its default is 1, so the writer always writes it. */
   FlagDefault: 0x88,
+  /** RFC 9559 §5.1.4.1.6: 1 marks a subtitle track a player may pick even when subtitles are off, such as one that only translates signs and songs. Its default is 0. */
+  FlagForced: 0x55aa,
   /** RFC 9559 §5.1.4.1.12: 0 promises that no block of the track uses lacing (one frame per block). */
   FlagLacing: 0x9c,
   /** RFC 9559 §5.1.4.1.18: a human-readable name for the track, UTF-8. */
@@ -119,6 +121,8 @@ export const Id = {
    * enabled. The writer sets it to 1, which is also what a reader assumes when it is absent.
    */
   ChapterFlagEnabled: 0x4598,
+  /** RFC 9559 §5.1.7.1.4.5: 1 hides the chapter from a player's chapter list. The writer never sets it; the reader skips such chapters. */
+  ChapterFlagHidden: 0x98,
   /** RFC 9559 §5.1.7.1.4.9: master element holding one chapter title in one language. */
   ChapterDisplay: 0x80,
   /** RFC 9559 §5.1.7.1.4.10: the chapter title, UTF-8. */
@@ -137,6 +141,8 @@ export const Id = {
   Block: 0xa1,
   /** RFC 9559 §5.1.3.5.3: how long the block lasts, in track ticks (milliseconds here); subtitle events carry their length in it. */
   BlockDuration: 0x9b,
+  /** RFC 9559 §5.1.3.5.5: the timestamp of a block this one depends on; a Block inside a BlockGroup without one is a key frame. The writer never writes it. */
+  ReferenceBlock: 0xfb,
   /** RFC 9559 §5.1.3.5.7: nanoseconds of padding at the end of the block that a player drops. */
   DiscardPadding: 0x75a2,
   /** RFC 9559 §5.1.5: master element holding the seek index. */

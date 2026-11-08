@@ -99,6 +99,32 @@ describe.skipIf(!haveTools)('end to end on disc1', () => {
     expect(Math.abs(s.opus!.duration - s.av1!.duration)).toBeLessThanOrEqual(0.02);
   }, 600_000);
 
+  it('encode --web writes the directory for each episode', async () => {
+    const out = mkdtempSync(join(tmpdir(), 'et-'));
+    const webDir = join(out, 'web');
+    const events: EncodeEvent[] = [];
+    const paths = await encodeEpisodes({ ...base(out), webDir }, (e) => events.push(e));
+    expect(paths.map((p) => basename(p))).toEqual(['ep-01.mkv', 'ep-02.mkv']);
+    expect(readdirSync(webDir).sort()).toEqual(['ep-01', 'ep-02']);
+    for (const [i, name] of ['ep-01', 'ep-02'].entries()) {
+      const dir = join(webDir, name);
+      expect(readdirSync(dir).sort()).toEqual(['chapters.vtt', 'episode.json', 'video.webm']);
+      const manifest = JSON.parse(readFileSync(join(dir, 'episode.json'), 'utf8')) as { video: { file: string; width: number }; audio: unknown[]; chapters: string };
+      expect(manifest.video.file).toBe('video.webm');
+      expect(manifest.audio).toHaveLength(1);
+      const webm = parseMkv(readFileSync(join(dir, 'video.webm')));
+      expect(stringOf(find(webm, Id.DocType))).toBe('webm');
+      expect(countVideoBlocks(webm)).toBe(countVideoBlocks(parseMkv(readFileSync(paths[i]!))));
+      expect(readFileSync(join(dir, 'chapters.vtt'), 'utf8').match(/-->/g)).toHaveLength(2);
+      if (haveFfprobe) {
+        const s = probeStreams(join(dir, 'video.webm'));
+        expect(Object.keys(s).sort()).toEqual(['av1', 'opus']);
+        expect(Math.abs(s.opus!.duration - s.av1!.duration)).toBeLessThanOrEqual(0.02);
+      }
+    }
+    expect(events.filter((e) => e.kind === 'log' && e.message.startsWith('Packaged'))).toHaveLength(2);
+  }, 600_000);
+
   it('deletes the partial file when an audio encoder fails', async () => {
     const out = mkdtempSync(join(tmpdir(), 'et-'));
     process.env.FAKE_ENC_EXIT = '3';

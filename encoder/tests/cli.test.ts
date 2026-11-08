@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { bestsourceCacheDir } from '../src/cli';
 import { discKeyOfFolder } from '../src/disc/disc-key';
 import { RecordStore } from '../src/subs/record';
+import { writeEpisodeMkv } from './package/episode-mkv';
 import { fx } from './paths';
 
 it('plan prints the chapter table of disc1', () => {
@@ -167,4 +168,29 @@ describe('bestsourceCacheDir', () => {
     expect(bestsourceCacheDir(undefined, { SEIKOU_ENCODE_DATA: '/data/x' })).toBe('/data/x/bestsource');
     expect(bestsourceCacheDir('rel', {})).toBe(resolve('rel'));
   });
+});
+
+describe('package', () => {
+  it('packages an episode MKV into the --out directory and exits 0', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'et-pkg-'));
+    const mkv = join(dir, 'ep-01.mkv');
+    await writeEpisodeMkv(mkv);
+    const text = execFileSync('npx', ['tsx', fx('src/cli.ts'), 'package', mkv, '--out', join(dir, 'web')]).toString();
+    expect(text).toContain(join(dir, 'web'));
+    expect(readdirSync(join(dir, 'web')).sort()).toEqual(['chapters.vtt', 'episode.json', 'fonts', 'pgs', 'subs', 'video.webm']);
+  }, 60_000);
+
+  it('exits 1 on a file that is not Matroska and leaves no directory', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'et-pkg-'));
+    const bad = join(dir, 'bad.mkv');
+    writeFileSync(bad, 'not a Matroska file');
+    expect(() => execFileSync('npx', ['tsx', fx('src/cli.ts'), 'package', bad, '--out', join(dir, 'web')], { stdio: 'pipe' })).toThrowError(
+      expect.objectContaining({ status: 1 }),
+    );
+    expect(existsSync(join(dir, 'web'))).toBe(false);
+  }, 60_000);
+
+  it('exits 2 without --out', () => {
+    expect(() => execFileSync('npx', ['tsx', fx('src/cli.ts'), 'package', '/tmp/x.mkv'], { stdio: 'pipe' })).toThrowError(expect.objectContaining({ status: 2 }));
+  }, 60_000);
 });

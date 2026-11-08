@@ -1,6 +1,6 @@
 # Encoder (`seikou-encode`)
 
-Cuts a decrypted Blu-ray playlist into episodes and encodes them to AV1 + Opus MKVs, streaming video and audio through pipes (VapourSynth, SVT-AV1, opusenc) instead of writing intermediate files.
+Cuts a decrypted Blu-ray playlist into episodes and encodes them to AV1 + Opus MKVs, streaming video and audio through pipes (VapourSynth, SVT-AV1, opusenc) instead of writing intermediate files, and packages an episode MKV as a static directory for a web player.
 
 ## Requirements
 
@@ -19,11 +19,17 @@ npm run seikou-encode -- plan encoder/fixtures/disc1 --playlist 00000
 # Encode episodes (chapter ranges) from a playlist
 npm run seikou-encode -- encode encoder/fixtures/disc1 --playlist 00000 --episodes "1-2,3-4" --out out
 
+# Encode and also package each episode for the web player
+npm run seikou-encode -- encode encoder/fixtures/disc1 --playlist 00000 --episodes "1-2,3-4" --out out --web web
+
+# Package an episode MKV that is already encoded
+npm run seikou-encode -- package out/episode-01.mkv --out web/episode-01
+
 # Start the subtitle helper for a playlist and an episode list
 npm run seikou-encode -- serve encoder/fixtures/disc1 --playlist 00000 --episodes "1-2,3-4"
 ```
 
-`--episodes` is a comma-separated list of ascending, non-overlapping chapter ranges, one episode each. Options: `--name PATTERN` (default `episode-{n}`, `{n}` is the episode number padded to 2 digits), `--crf N` (25), `--preset N` (4), `--svt-args "..."` (extra SVT-AV1 arguments), `--opus-bitrate N` (for every audio stream; by default 160 for mono or stereo, 320 otherwise), `--title T` (the MKV's title when the record names none for the episode), `--cache DIR` (where BestSource keeps its index files; default `bestsource/` in the data directory below), `--no-subtitles` (ignore the helper's saved record: no ASS tracks, fonts, titles or names, and every audio stream goes in) and `--no-pgs` (leave the disc's PG streams out). Packaging for the web player (`--web`) is coming.
+`--episodes` is a comma-separated list of ascending, non-overlapping chapter ranges, one episode each. Options: `--name PATTERN` (default `episode-{n}`, `{n}` is the episode number padded to 2 digits), `--crf N` (25), `--preset N` (4), `--svt-args "..."` (extra SVT-AV1 arguments), `--opus-bitrate N` (for every audio stream; by default 160 for mono or stereo, 320 otherwise), `--title T` (the MKV's title when the record names none for the episode), `--cache DIR` (where BestSource keeps its index files; default `bestsource/` in the data directory below), `--no-subtitles` (ignore the helper's saved record: no ASS tracks, fonts, titles or names, and every audio stream goes in) and `--no-pgs` (leave the disc's PG streams out) and `--web DIR` (package each episode into `DIR/<name>/` as soon as its MKV is complete; see below).
 
 `encode` reads the record the helper saved for the disc and playlist from the data directory. It must have been saved for the same playlist and `--episodes` list, or the command stops with exit code 2 and says so (re-save it in the helper, or pass `--no-subtitles`). If the record has no entry for one of the episodes of `--episodes`, it stops the same way (exit code 2) naming the episode. If the record ticks no audio stream for an episode, it stops with exit code 2 naming the episode. If subtitle or font files the record names are gone from the data directory, it stops with exit code 1 naming the release. With no saved record it encodes without the helper's subtitle choices.
 
@@ -45,6 +51,36 @@ out/
   episode-01.mkv
   episode-02.mkv
 ```
+
+### Packaging for the web player
+
+`package <episode.mkv> --out DIR` reads an episode MKV and writes `DIR` (replacing it if it exists) as a static directory a browser player can serve; `encode --web WEB` does the same for each episode into `WEB/<name>/` right after its MKV is written. Nothing is re-encoded:
+
+```
+WEB/episode-01/
+  video.webm             the AV1 track and every Opus track, with chapters (WebM: no subtitles or attachments)
+  subs/1-eng-full.ass    each ASS track as a script, <n>-<language>-<kind>; kind is signs for a signs-and-songs track, else full
+  fonts/<file>           the MKV's font attachments
+  pgs/1-jpn.sup          each disc PGS track as a .sup file, <n>-<language>
+  chapters.vtt           the chapters as WebVTT cues
+  episode.json           the manifest
+```
+
+`episode.json` names every file (paths relative to the directory) and what the player needs to label them:
+
+```json
+{
+  "title": "Lantern Harbor - 01",
+  "video": { "file": "video.webm", "width": 1920, "height": 1080 },
+  "audio": [{ "index": 0, "name": "Japanese", "language": "jpn", "default": true }],
+  "subtitles": [{ "file": "subs/1-eng-full.ass", "name": "English", "language": "eng", "default": true }],
+  "pgs": [{ "file": "pgs/1-jpn.sup", "name": "Japanese (disc)", "language": "jpn" }],
+  "fonts": ["fonts/LanternSans.ttf"],
+  "chapters": "chapters.vtt"
+}
+```
+
+`title` is the MKV's title, else its file name. `audio[].index` is the track's position among the WebM's audio tracks. All times count from the episode's first video frame. The directory is written under a temporary name and moved into place when complete, so a failure leaves no partial directory. `package` exits 1 on a file that is not Matroska, a truncated one, or one with no AV1 track. A packaging failure during `encode --web` stops the run but keeps that episode's MKV, which `package` can then be run on.
 
 `serve` checks the episode list against the playlist, starts the helper on 127.0.0.1 and prints `Helper: http://127.0.0.1:<port>/?t=<token>`, the address of the page with this run's secret token. It opens that address in your browser (`open` on macOS, `xdg-open` elsewhere) unless `--no-open` is given, and runs until Ctrl-C. `--port N` picks the port (default: any free one). The helper needs the built page in `encoder/web/dist` (`npm run encoder:web:build`; `SEIKOU_ENCODE_WEB_DIR` points at another folder). Without `vspipe` the helper still starts, and says line-up is unavailable.
 
@@ -68,7 +104,7 @@ The encoder keeps what it learns and downloads in one directory: saved subtitle 
 
 `SEIKOU_ENCODE_FIXTURE=<folder>` makes `serve` read SeaDex, Anime Tosho and AniList answers and AniList covers from recorded files in that folder (`seadex.json`, `tosho.json`, `anilist.json`, `files/`, `covers/`) instead of the network. It is for tests; `encoder/tests/fixtures/fansubs/` is an example with made-up titles.
 
-Exit codes: 0 success, 1 encode failure, 2 usage error, bad episode spec, a saved record that does not match the encode (including one with no entry for an episode) or that ticks no audio stream for an episode, 3 required tools missing (for `serve`, the helper page not built).
+Exit codes: 0 success, 1 encode or packaging failure, 2 usage error, bad episode spec, a saved record that does not match the encode (including one with no entry for an episode) or that ticks no audio stream for an episode, 3 required tools missing (for `serve`, the helper page not built).
 
 ## Where it sits in Seikou
 
@@ -81,7 +117,8 @@ Each area of `encoder/src/` has a README with its concepts, its API and where to
 - [`src/disc/`](src/disc/README.md): playlists, chapters and clip probes from a disc folder.
 - [`src/plan/`](src/plan/README.md): chapter ranges to frame and sample cuts.
 - [`src/pipeline/`](src/pipeline/README.md): VapourSynth scripts and the vspipe-to-encoder chains.
-- [`src/mux/`](src/mux/README.md): IVF and Ogg Opus readers and the Matroska writer.
+- [`src/mux/`](src/mux/README.md): IVF and Ogg Opus readers, the Matroska writer and reader.
+- [`src/package/`](src/package/README.md): an episode MKV as a static web directory.
 - [`src/audio/`](src/audio/README.md): an episode's audio as 16 kHz mono for subtitle alignment.
 - [`src/subs/`](src/subs/README.md): the data directory, fetched releases and the saved subtitle record.
 - [`src/server/`](src/server/README.md): the subtitle helper's local backend.

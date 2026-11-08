@@ -7,6 +7,7 @@ import { loadPlaylist } from './disc/playlist';
 import { readPlaylistPmts } from './disc/pmt';
 import { probeClip, type ClipProbe } from './disc/probe';
 import { writeMkv } from './mux/mkv-writer';
+import { packageEpisode } from './package/package';
 import { readIvf } from './mux/ivf';
 import { readOggOpus } from './mux/ogg';
 import { audioChain, ChainError, videoChain, type Chain, type ToolPaths } from './pipeline/chain';
@@ -55,7 +56,11 @@ export interface EncodeOptions {
   record?: SubtitleRecord | null;
   /** Leave the disc's PG subtitle streams out of the MKV. */
   noPgs: boolean;
-  /** When set, each finished episode is also packaged for the web player into a folder of its name under this directory. */
+  /**
+   * When set, each episode is packaged for the web player (`packageEpisode`) into `<webDir>/<name>/`
+   * as soon as its MKV is complete. A packaging failure stops the run with the MKV kept and no
+   * partial directory left.
+   */
   webDir?: string;
 }
 
@@ -164,7 +169,8 @@ function chainFailure(chains: Chain[]): Promise<ChainError | WavGuardError | nul
  * are stopped, the episode's partial file is deleted and the error thrown is the chain's own
  * (`ChainError` from a tool, `WavGuardError` when a decoded stream's channels or rate differ from the
  * playlist's) when there is one, since a downstream parse error is usually its symptom; episodes
- * already finished are kept. Throws `EpisodeSpecError` for a bad episode list, and, before any tool starts, `NoAudioChosenError` when the record leaves an episode with no audio stream, and any
+ * already finished are kept. With `webDir`, each complete MKV is then packaged into `<webDir>/<name>/`
+ * (`packageEpisode`, followed by a `log` event); its errors stop the run, the MKV kept. Throws `EpisodeSpecError` for a bad episode list, and, before any tool starts, `NoAudioChosenError` when the record leaves an episode with no audio stream, and any
  * error from reading or decoding a subtitle track of any episode.
  */
 export async function encodeEpisodes(
@@ -286,6 +292,12 @@ export async function encodeEpisodes(
       throw toolError ?? err;
     }
     await rm(tmp, { recursive: true, force: true });
+    if (o.webDir !== undefined) {
+      // The MKV is complete and kept even when packaging fails: `package` can be run on it again.
+      const webPath = join(o.webDir, name);
+      await packageEpisode(outPath, webPath);
+      onEvent({ kind: 'log', episode: plan.index, message: `Packaged episode ${plan.index} into ${webPath}` });
+    }
     outputs.push(outPath);
     onEvent({ kind: 'episode-done', episode: plan.index, message: `Finished episode ${plan.index}`, path: outPath });
   }

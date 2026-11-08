@@ -141,9 +141,10 @@ describe('episodeSubtitleTracks', () => {
       track({ file: 'releases/tosho-77/f1-t3.ass', name: 'Signs & Songs', kind: 'signs', language: 'eng' }),
     ]);
     const { tracks } = await episodeSubtitleTracks(r, 1, 1_440_000, dir);
-    expect(tracks.map((t) => ({ name: t.name, language: t.language, isDefault: t.isDefault, codecId: t.codecId }))).toEqual([
-      { name: 'English (Starfall Subs)', language: 'eng', isDefault: true, codecId: 'S_TEXT/ASS' },
-      { name: 'Signs & Songs', language: 'eng', isDefault: false, codecId: 'S_TEXT/ASS' },
+    expect(tracks.map((t) => ({ name: t.name, language: t.language, isDefault: t.isDefault, isForced: t.isForced, codecId: t.codecId }))).toEqual([
+      { name: 'English (Starfall Subs)', language: 'eng', isDefault: true, isForced: false, codecId: 'S_TEXT/ASS' },
+      // A signs track is forced, which is how its kind reaches the packaged file names.
+      { name: 'Signs & Songs', language: 'eng', isDefault: false, isForced: true, codecId: 'S_TEXT/ASS' },
     ]);
     expect(dec.decode(tracks[0]!.codecPrivate)).toContain('[V4+ Styles]');
   });

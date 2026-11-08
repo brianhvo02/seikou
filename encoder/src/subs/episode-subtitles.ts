@@ -50,6 +50,7 @@ export interface EpisodeSubtitles {
  * `trackAlignment(track)` (the split part chosen by the event's start in the script, the times clamped at 0 and
  * rounded to centiseconds), then `nudgeMs` is added in milliseconds with no further rounding, and only then are
  * `assToMatroska`'s drop and clamp rules applied. The first track is the default; none is when nothing is ticked.
+ * A `signs` track is marked forced (FlagForced), which is how the MKV keeps a track's kind for packaging.
  *
  * Attachments: the record's `fonts`, each with its media type from `FONT_MEDIA_TYPES` and its file name from the
  * cached release named by `record.release.id` (the first name the release lists for that pooled file), else the
@@ -71,7 +72,7 @@ export async function episodeSubtitleTracks(
   for (const t of episode.tracks.filter((track) => track.included)) {
     const aligned = retime(decodeSubtitleText(await readFile(join(dataDir, t.file))), trackAlignment(t));
     const { codecPrivate, blocks } = assToMatroska(aligned, durationMs, () => t.nudgeMs);
-    tracks.push({ codecId: 'S_TEXT/ASS', name: t.name, language: t.language, isDefault: tracks.length === 0, codecPrivate, blocks });
+    tracks.push({ codecId: 'S_TEXT/ASS', name: t.name, language: t.language, isDefault: tracks.length === 0, isForced: t.kind === 'signs', codecPrivate, blocks });
   }
   if (tracks.length === 0) return { tracks, attachments: [] };
 
