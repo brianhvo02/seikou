@@ -344,9 +344,14 @@ export class EncodeIndex {
   async remove(id: string): Promise<void> {
     const entry = this.get(id);
     if (!entry) return;
-    await rm(entry.path, { force: true });
+    // the index first: a failed save keeps both the entry and its file
     const files = new Map(this.files);
     files.delete(posix(relative(this.opts.dir, entry.path)));
     this.commit(files);
+    try {
+      await rm(entry.path, { force: true });
+    } catch (err) {
+      this.opts.log(`encodes: removed ${id} from the index but not its file: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 }

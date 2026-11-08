@@ -11,6 +11,7 @@ import { loadConfig } from './config';
 import type { Config } from './config';
 import { DiscActivity } from './disc-activity';
 import { EncodeIndex } from './encodes/index-store';
+import { UploadStore } from './encodes/uploads';
 import { libraryFansubDiscs } from './fansubs/disc-lookup';
 import { ffmpegAudioDecoder } from './fansubs/ffmpeg-decoder';
 import { FetchCache } from '@seikou/fansubs/fetch-cache';
@@ -244,11 +245,13 @@ async function serve(config: Config): Promise<void> {
     void titles.runNow().then(() => (nightly ? fansubs.startNightly() : undefined)).catch((err: unknown) => console.error('fansub pass failed', err));
   });
   const encodes = config.encodesDir === null ? undefined : new EncodeIndex({ dir: config.encodesDir, dataDir: config.dataDir, log: console.log });
-  const handlers = appHandlers({ auth, library, ...(encodes ? { encodes } : {}), bdjStore: new BdjStore(config.dataDir), playbackStore: new PlaybackStore(config.dataDir), subtitleStore, publicBase: config.publicBase, appUrl: config.appUrl, ...(config.rendezvousUrl !== undefined ? { rendezvousUrl: config.rendezvousUrl } : {}), registrar: rendezvous, trustProxy, titles: { service: titles, owner }, relay, nasId, isoTrees, ...(levels ? { levels } : {}), activity, fansubs: { service: fansubs, state: fansubState, seadex, tosho, picks, lookup } });
+  const encodeUploads = encodes && config.encodesDir !== null ? new UploadStore({ dir: config.encodesDir, index: encodes, log: console.log }) : undefined;
+  const handlers = appHandlers({ auth, library, ...(encodes ? { encodes } : {}), ...(encodeUploads ? { encodeUploads } : {}), bdjStore: new BdjStore(config.dataDir), playbackStore: new PlaybackStore(config.dataDir), subtitleStore, publicBase: config.publicBase, appUrl: config.appUrl, ...(config.rendezvousUrl !== undefined ? { rendezvousUrl: config.rendezvousUrl } : {}), registrar: rendezvous, trustProxy, titles: { service: titles, owner }, relay, nasId, isoTrees, ...(levels ? { levels } : {}), activity, fansubs: { service: fansubs, state: fansubState, seadex, tosho, picks, lookup } });
   const server = createServer(handlers);
   const stopRtc = rendezvous && config.rendezvousUrl !== undefined ? startRtc(config, config.rendezvousUrl, rendezvous, handlers, auth, relay) : async () => {};
 
   let encodesTimer: NodeJS.Timeout | undefined;
+  let sweepTimer: NodeJS.Timeout | undefined;
   const scheduleScans = (): void => {
     const run = (): void => {
       library.scan().catch((err: unknown) => console.error('library scan failed', err));
@@ -275,11 +278,21 @@ async function serve(config: Config): Promise<void> {
       encodesTimer = setInterval(rescan, 10 * 60_000);
       encodesTimer.unref();
     }
+    if (encodeUploads) {
+      // stale uploads (untouched for 24 h): at start, then every hour
+      const sweep = (): void => {
+        encodeUploads.sweep().catch((err: unknown) => console.error('encodes upload sweep failed', err));
+      };
+      sweep();
+      sweepTimer = setInterval(sweep, 60 * 60_000);
+      sweepTimer.unref();
+    }
   });
 
   for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     process.on(signal, () => {
       if (encodesTimer) clearInterval(encodesTimer);
+      if (sweepTimer) clearInterval(sweepTimer);
       encodes?.close();
       titles.close();
       fansubs.close();

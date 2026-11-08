@@ -18,6 +18,7 @@ import type { DiscActivity } from './disc-activity';
 import { discRoutes } from './routes/discs';
 import { encodeRoutes } from './routes/encodes';
 import type { EncodeIndex } from './encodes/index-store';
+import type { UploadStore } from './encodes/uploads';
 import { libraryRoute } from './routes/library';
 import { pairRoutes } from './routes/pair';
 import type { RelayState } from './rtc/relay';
@@ -56,6 +57,8 @@ export interface AppOptions {
   encodes?: EncodeIndex;
   /** How long an encodes request waits for the first scan before 503 (default 30 s; tests shorten it). */
   encodesWaitMs?: number;
+  /** The owner's resumable uploads into the encodes folder. */
+  encodeUploads?: UploadStore;
   /** The parsed ISO trees, shared with the quality levels' disc sources. */
   isoTrees?: IsoTrees;
   /** Told of every disc file read, so background work can wait while someone watches. */
@@ -88,7 +91,7 @@ export function appHandlers(opts: AppOptions): Handler[] {
     }),
     libraryRoute(opts.library),
     ...(opts.titles ? [titleRoutes(auth, opts.titles, opts.relay, opts.nasId ?? null, opts.levels !== undefined)] : []),
-    encodeRoutes(opts.auth, opts.encodes, opts.titles, opts.encodesWaitMs),
+    encodeRoutes(opts.auth, opts.encodes, opts.titles, opts.encodesWaitMs, opts.encodeUploads),
     discRoutes(opts.library, opts.levels && { service: opts.levels, auth }, opts.isoTrees, opts.activity),
   ];
 }
