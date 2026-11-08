@@ -65,6 +65,14 @@ describe('loadEncodeRecord', () => {
     expect(await ask('1-2', true)).toBeNull();
   });
 
+  it('refuses a record with no entry for one of the encode episodes, naming it', async () => {
+    await new RecordStore(dataDir).write(await recordFor({ episodeSpec: '1-2,3-4' }));
+    const err = await ask('1-2,3-4').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(RecordMismatchError);
+    expect((err as Error).message).toBe('The saved subtitle choices hold no entry for episode 2 of 1-2,3-4. Re-save them in the helper or pass --no-subtitles.');
+    expect(await ask('1-2,3-4', true)).toBeNull();
+  });
+
   it('--no-subtitles ignores a mismatched record', async () => {
     await new RecordStore(dataDir).write(await recordFor({ episodeSpec: '1-3,4-5' }));
     expect(await ask('1-4', true)).toBeNull();

@@ -57,6 +57,29 @@ describe('encode with a saved record', () => {
     expect(() => execFileSync('npx', [...encodeArgs('1-2'), '--no-subtitles'], { stdio: 'pipe', env })).toThrowError(expect.objectContaining({ status: 3 }));
   }, 60_000);
 
+  it('encode with a record that lacks an episode exits 2 naming it, even with a tool missing', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'et-rec-'));
+    const { key, label } = await discKeyOfFolder(fx('fixtures/disc1'));
+    await new RecordStore(dataDir).write({
+      disc: { key, label },
+      playlist: '00000',
+      episodeSpec: '1-2,3-4',
+      anilist: null,
+      release: null,
+      fonts: [],
+      episodes: [{ index: 1, title: 'Starfall Wanderer 1', tracks: [], metadata: { title: 'Starfall Wanderer 1', video: { name: '', language: 'und' }, audio: [{ pid: 0x1100, name: '', language: 'eng', included: true }], chapters: [] } }],
+      savedAt: '2026-11-07T10:00:00Z',
+    });
+    let err: { status?: number; stderr?: Buffer } = {};
+    try {
+      execFileSync('npx', encodeArgs('1-2,3-4'), { stdio: 'pipe', env: { ...noSvt, SEIKOU_ENCODE_DATA: dataDir } });
+    } catch (e) {
+      err = e as typeof err;
+    }
+    expect(err.status).toBe(2);
+    expect(String(err.stderr)).toContain('no entry for episode 2');
+  }, 60_000);
+
   it('encode with an episode that has no audio ticked exits 2 naming it, even with a tool missing', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'et-rec-'));
     const { key, label } = await discKeyOfFolder(fx('fixtures/disc1'));

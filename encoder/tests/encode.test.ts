@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -330,4 +330,25 @@ it('follows the record it is given and does not read the saved one again', async
   const opts: EncodeOptions = { discDir, playlistId: '00000', episodes: '1-', outDir: join(out, 'mkv'), namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], cacheDir: join(out, 'cache'), tools: missing, dataDir: join(out, 'data'), noSubtitles: false, noPgs: true, record: null };
   const err = await encodeEpisodes(opts, () => {}).catch((e: unknown) => e);
   expect(err).not.toBeInstanceOf(NoAudioChosenError);
+});
+
+it('reads every episode\'s subtitle files before any tool starts', async () => {
+  const out = mkdtempSync(join(tmpdir(), 'et-'));
+  const discDir = fx('fixtures/disc1');
+  const dataDir = join(out, 'data');
+  mkdirSync(join(dataDir, 'cache'), { recursive: true });
+  writeFileSync(join(dataDir, 'cache/ep1.ass'), '[Script Info]\nScriptType: v4.00+\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:00.10,0:00:00.50,Default,,0,0,0,,Hi\n');
+  const { key, label } = await discKeyOfFolder(discDir);
+  const episode = (index: number, file: string): SubtitleRecord['episodes'][number] => ({
+    index,
+    title: `Episode ${index}`,
+    tracks: [{ file, kind: 'full', language: 'eng', name: 'English', shiftMs: 0, nudgeMs: 0, split: null, included: true }],
+    metadata: { title: `Episode ${index}`, video: { name: '', language: 'und' }, audio: [{ pid: 0x1100, name: '', language: 'eng', included: true }], chapters: [] },
+  });
+  const record: SubtitleRecord = { disc: { key, label }, playlist: '00000', episodeSpec: '1-2,3-4', anilist: null, release: null, fonts: [], episodes: [episode(1, 'cache/ep1.ass'), episode(2, 'cache/gone.ass')], savedAt: '2026-11-07T00:00:00Z' };
+  const missing = { vspipe: '/nonexistent/vspipe', svt: '/nonexistent/SvtAv1EncApp', opusenc: '/nonexistent/opusenc' };
+  const opts: EncodeOptions = { discDir, playlistId: '00000', episodes: '1-2,3-4', outDir: join(out, 'mkv'), namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], cacheDir: join(out, 'cache'), tools: missing, dataDir, noSubtitles: false, noPgs: true, record };
+  // The tools are missing, so reaching the first encode would fail with a spawn error instead.
+  await expect(encodeEpisodes(opts, () => {})).rejects.toMatchObject({ code: 'ENOENT', path: expect.stringContaining('gone.ass') });
+  expect(existsSync(join(out, 'mkv'))).toBe(false);
 });

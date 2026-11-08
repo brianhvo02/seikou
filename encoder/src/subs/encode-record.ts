@@ -29,7 +29,8 @@ export class MissingSubtitleFilesError extends Error {
 /**
  * Loads the helper's saved record for the disc in `discDir` and `playlistId`, for the encode to follow. Returns null
  * when `noSubtitles` is set (the record is not even read) or no record was saved. Throws `RecordMismatchError` when the
- * record's playlist or episode list differs from this encode's, `NoAudioChosenError` naming the first episode whose
+ * record's playlist or episode list differs from this encode's, or it has no entry for one of the encode's episodes
+ * (indexes 1 to the number of ranges in `episodeSpec`; the message names the first missing one), `NoAudioChosenError` naming the first episode whose
  * audio list ticks no stream, and `MissingSubtitleFilesError` when any file it names is gone from `dataDir`. An unreadable or invalid record throws the store's `RecordError`.
  */
 export async function loadEncodeRecord(o: {
@@ -48,6 +49,14 @@ export async function loadEncodeRecord(o: {
     throw new RecordMismatchError(
       `The saved subtitle choices are for playlist ${record.playlist} episodes ${record.episodeSpec}; this encode asks for ${o.playlistId} episodes ${o.episodeSpec}. Re-save them in the helper or pass --no-subtitles.`,
     );
+  }
+  const count = o.episodeSpec.split(',').filter((t) => t.trim() !== '').length;
+  for (let index = 1; index <= count; index++) {
+    if (!record.episodes.some((e) => e.index === index)) {
+      throw new RecordMismatchError(
+        `The saved subtitle choices hold no entry for episode ${index} of ${o.episodeSpec}. Re-save them in the helper or pass --no-subtitles.`,
+      );
+    }
   }
   const silent = record.episodes.find((e) => !e.metadata.audio.some((a) => a.included));
   if (silent !== undefined) throw new NoAudioChosenError(silent.index);

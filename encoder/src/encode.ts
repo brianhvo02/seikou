@@ -164,8 +164,8 @@ function chainFailure(chains: Chain[]): Promise<ChainError | WavGuardError | nul
  * are stopped, the episode's partial file is deleted and the error thrown is the chain's own
  * (`ChainError` from a tool, `WavGuardError` when a decoded stream's channels or rate differ from the
  * playlist's) when there is one, since a downstream parse error is usually its symptom; episodes
- * already finished are kept. Throws `EpisodeSpecError` for a bad episode list, and `NoAudioChosenError`, before
- * any tool starts, when the record leaves an episode with no audio stream.
+ * already finished are kept. Throws `EpisodeSpecError` for a bad episode list, and, before any tool starts, `NoAudioChosenError` when the record leaves an episode with no audio stream, and any
+ * error from reading or decoding a subtitle track of any episode.
  */
 export async function encodeEpisodes(
   o: EncodeOptions,
@@ -200,6 +200,12 @@ export async function encodeEpisodes(
     return { plan: { ...plan!, index }, audio, metadata };
   });
 
+  // Every episode's subtitles are built before the first encode, so an unreadable or undecodable track fails now and not after hours of encoding.
+  const subtitles = new Map<number, Awaited<ReturnType<typeof episodeSubtitleTracks>>>();
+  if (record !== null) {
+    for (const { plan } of episodes) subtitles.set(plan.index, await episodeSubtitleTracks(record, plan.index, Number(plan.durationNs / 1_000_000n), o.dataDir));
+  }
+
   await mkdir(o.outDir, { recursive: true });
   const cacheDir = resolve(o.cacheDir);
   await mkdir(cacheDir, { recursive: true });
@@ -212,7 +218,7 @@ export async function encodeEpisodes(
 
     // Read before any tool starts: the PG streams come straight from the disc and need no cleanup when they fail.
     // ASS tracks come first, then the disc's PGS tracks.
-    const ass = record === null ? { tracks: [], attachments: [] } : await episodeSubtitleTracks(record, plan.index, Number(plan.durationNs / 1_000_000n), o.dataDir);
+    const ass = subtitles.get(plan.index) ?? { tracks: [], attachments: [] };
     const pgs = o.noPgs ? [] : await episodePgsTracks(plan, playlist, (message) => onEvent({ kind: 'log', episode: plan.index, message }));
     const tmp = await mkdtemp(join(tmpdir(), 'encoding-tools-'));
     const chains: Chain[] = [];
