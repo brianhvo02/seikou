@@ -173,13 +173,21 @@ describe.skipIf(!runFfmpegTests)('episodeAudio failures', () => {
     const slow = script('slow.sh', `echo $$ > ${pidFile}\nsleep 30`);
     const controller = new AbortController();
     const run = episodeAudio(disc, '00000', window, ffmpegAudioDecoder(slow), controller.signal);
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    // Waits for the stand-in to be running, not for a fixed time: under a full test run it can take longer to start.
+    const pidOf = (): number => Number(spawnSync('cat', [pidFile], { encoding: 'utf8' }).stdout);
+    await expect.poll(pidOf, { timeout: 10_000 }).toBeGreaterThan(0);
+    const pid = pidOf();
     controller.abort();
     await expect(run).rejects.toThrow();
-    const pid = Number(spawnSync('cat', [pidFile], { encoding: 'utf8' }).stdout);
-    expect(pid).toBeGreaterThan(0);
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    expect(() => process.kill(pid, 0)).toThrow();
+    const alive = (): boolean => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    await expect.poll(alive, { timeout: 5_000 }).toBe(false);
   });
 
   it('refuses a window whose audio lost frames, instead of shifting what follows', async () => {
