@@ -58,12 +58,26 @@ export async function menuPoint(page: Page, x: number, y: number): Promise<{ x: 
  * the listener is in place; the call then hangs until the test times out (CI run 39082456589: the disc played to its
  * end while setInputFiles was still pending). Playwright 1.65 attaches its listener first; this does the same from
  * outside, so the event is seen whether or not Playwright's call ever returns. Drop it once Playwright is at 1.65.
+ *
+ * Chrome 157 suppresses the file chooser of a window smaller than 400x300 ("File chooser dialog was suppressed because
+ * the top-level window size is smaller than the minimum required size"), and Playwright sets a folder in Chromium
+ * through that chooser, so at a 390x844 viewport nothing is set and no event fires (CI run 42464130005, Linux; macOS
+ * Chrome 157 lets 390 wide through). The viewport is widened to at least 400x300 while the folder is set and put back
+ * after, before the page has done more than start opening the disc.
  */
 export async function setFolder(target: Locator | ElementHandle, folder: string): Promise<void> {
   const input = 'elementHandle' in target ? await target.elementHandle() : target;
+  const page = 'elementHandle' in target ? target.page() : (await target.ownerFrame())?.page();
+  const viewport = page?.viewportSize() ?? null;
+  const restore = page && viewport && (viewport.width < MIN_CHOOSER_WINDOW.width || viewport.height < MIN_CHOOSER_WINDOW.height)
+    ? () => page.setViewportSize(viewport)
+    : null;
   const fired = await input.evaluateHandle((el) => ({
     promise: new Promise<void>((resolve) => el.addEventListener('input', () => resolve(), { once: true })),
   }));
+  if (page && viewport && restore) {
+    await page.setViewportSize({ width: Math.max(viewport.width, MIN_CHOOSER_WINDOW.width), height: Math.max(viewport.height, MIN_CHOOSER_WINDOW.height) });
+  }
   try {
     const set = input.setInputFiles(folder);
     set.catch(() => undefined); // left pending when Playwright missed the event: it settles when the page closes
@@ -72,5 +86,9 @@ export async function setFolder(target: Locator | ElementHandle, folder: string)
     await Promise.race([set, event]);
   } finally {
     await fired.dispose();
+    if (restore) await restore();
   }
 }
+
+/** The smallest window Chrome (157 and later) shows a file chooser in. */
+const MIN_CHOOSER_WINDOW = { width: 400, height: 300 } as const;
