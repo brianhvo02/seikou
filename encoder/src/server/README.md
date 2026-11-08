@@ -4,7 +4,7 @@ The subtitle helper is a web page that runs on the user's own machine. This back
 
 ## Concepts
 
-- **Context.** `HelperContext` holds everything a run serves: the disc folder, the playlist id, the episode list as typed, the data directory, the run's token, the page's folder, the external tools (or null when they are missing) and the outside sources (SeaDex, Anime Tosho, AniList). Tests pass recorded sources.
+- **Context.** `HelperContext` holds everything a run serves: the disc folder, the playlist id, the episode list as typed, the data directory, the run's token, the page's folder, the external tools (or null when they are missing) and the outside sources (SeaDex, Anime Tosho, AniList and its cover images). Tests pass recorded sources.
 - **Disc key.** The disc is named by `discKeyOf(id16, manifest.files)` from `@seikou/nas/disc-key`, where `id16` is the first 16 hex digits of the SHA-256 of the disc folder's real path. A disc with streams gets its content fingerprint (`f.<hex>`), so the same disc keeps its key in another folder; the key names the saved record.
 - **The NAS disc API.** The manifest (every file under BDMV and CERTIFICATE, upper-case, with the small metadata files inlined) and range reads are answered by Seikou's own NAS modules (`server/src/manifest.ts` and `server/src/ranges.ts`), so the engine's `RemoteSource` and `HttpTransport` open the disc unchanged. File paths are matched in any case.
 - **Playlist time.** Episode times are microseconds from the playlist's start. An episode starts at its first frame (its first chapter's mark rounded to the nearest frame, `firstFramePlaylistUs`), the zero of the encode, the alignment and the retimed track; its length is its whole frames at the video's rate, as the encoder will cut it (the planner, `planEpisodes`, reads the start of each clip once per run for its first timestamps).
@@ -16,6 +16,7 @@ The server listens on `127.0.0.1` only, so nothing else on the network can reach
 - **A token per run.** Each run gets a fresh random token (`ctx.token`, made by whoever starts the server); every `/api/` request must carry it as `Authorization: Bearer <token>` or `?t=<token>` (the engine's file reads use the query, so they need no preflight). Without it: 401 `unauthorized`. Tokens are compared in constant time.
 - **The Host header.** Every request, page or API, must name `127.0.0.1:<port>` or `localhost:<port>`; anything else answers 403 `bad-host`. This stops DNS rebinding, where a page re-points its own host name at 127.0.0.1 to read the answers as same-origin.
 - **Paths.** A path with an empty, `.` or `..` segment (also percent-encoded), or one that decodes to a slash, backslash or NUL, answers 400 `bad-path`. Disc files are found by listing each directory under BDMV or CERTIFICATE, never by joining the request's path, and page files must resolve inside the page's folder.
+- **Covers.** The page is cross-origin isolated, and AniList's image host sends no `Cross-Origin-Resource-Policy`, so the page cannot show its images; the backend passes each cover on from its own origin (`covers.ts`), fetching only URLs AniList gave it in this run's searches, kept per run by AniList id.
 - **No CORS.** No answer carries `Access-Control-Allow-Origin`, so another origin cannot read the API even with the token.
 - **Isolation.** Every answer carries `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp` and `Cross-Origin-Resource-Policy: same-origin` (the engine needs `SharedArrayBuffer`); API answers carry `Cache-Control: no-store`.
 
@@ -32,8 +33,9 @@ The server listens on `127.0.0.1` only, so nothing else on the network can reach
 | GET, HEAD | `/api/discs/<discKey>/files/<path>` | the file, whole (200) or one `Range` (206); 416 past the end; 404 `not-found` for a missing file |
 | GET | `/api/playlists` | `[{ id, duration45, clipIds }]`, every playlist of the disc |
 | GET | `/api/episodes` | `{ episodes: [{ index, startUs, durationUs, chapters: [{ startUs }] }], audio: [{ pid, codingType, language }], pgCount }`; audio and PG streams of the first play item, from the playlist's STN table; 422 `bad-episode-spec` or `no-audio` |
-| GET | `/api/titles/search?q=` | `{ candidates: TitleHit[] }` from AniList in its order (`alId`, `title`, `nativeTitle`, `year`, `format`, `episodes`, `poster`); 400 `empty-query` for a blank `q` |
+| GET | `/api/titles/search?q=` | `{ candidates: TitleHit[] }` from AniList in its order (`alId`, `title`, `nativeTitle`, `year`, `format`, `episodes`, `poster`); `poster` is the path of the cover route below, or null; 400 `empty-query` for a blank `q` |
 | GET | `/api/titles/<alId>/episodes` | `{ titles: { [episode]: title } }`, empty when AniList has none |
+| GET | `/api/titles/<alId>/cover` | the show's cover image with its own content type (PNG, JPEG, GIF, WebP or AVIF), fetched from the URL a search of this run got from AniList for that id (never a URL the client sends; at most 5 MB, 10 s); 404 `not-found` when no search gave a cover for it, 502 `bad-cover` for an answer that is not such an image or is larger, 503 `source-unavailable` (`anilist`) when the image host fails |
 | GET | `/api/fansubs/seadex?anilist=<id>` | `{ notes, comparison, url, releases }`: public releases in `rankReleases` order, private-tracker ones after, each with `toshoId` and `unavailable` (`null`, `private-tracker` or `not-on-tosho`) |
 | GET | `/api/fansubs/search?q=` | Anime Tosho releases `[{ toshoId, title, date }]` |
 | POST | `/api/fansubs/fetch?offset=` | body `{ toshoId }`; the cached release plus `match: { rows, unmatched }` against episodes 1 to N of the run's episode plan (the one `/api/episodes` answers from; its 422s too), `offset` default 0 |
@@ -58,7 +60,8 @@ A `<discKey>` other than the run's answers 404 `disc-changed`, which the engine 
 - `server.ts`: the listener, the Host, path and token checks, routing and the page's files.
 - `http.ts`: the context and route types and the answer helpers.
 - `disc-routes.ts`: the session, the NAS disc API, playlists and episode times.
-- `title-routes.ts`: the AniList search and episode titles.
+- `title-routes.ts`: the AniList search, episode titles and covers.
+- `covers.ts`: fetching a cover (`createCoverSource`: https only, a size cap, a timeout, image types only).
 - `fansub-routes.ts`: SeaDex, Anime Tosho, uploads and cached releases (one `ReleaseCache` per run, kept beside the context, `releaseCacheOf`).
 - `align-routes.ts`: lining an episode up against the disc's audio, and the retimed track. The episode plan comes from `episodePlans` in `disc-routes.ts`, the same one `GET /api/episodes` answers from.
 - `record-routes.ts`: reading and saving the subtitle record (`RecordStore` in `subs/record.ts` does the files).

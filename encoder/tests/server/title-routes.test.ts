@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { SourceUnavailable } from '@seikou/titles/sources';
+import { BadCover } from '../../src/server/covers';
 import { jsonOf, startRouteFixture, type RouteFixture } from './route-fixture';
 
 let fixture: RouteFixture;
@@ -14,8 +16,45 @@ describe('title routes', () => {
     expect(reply.status).toBe(200);
     const { candidates } = jsonOf<{ candidates: Record<string, unknown>[] }>(reply);
     expect(candidates).toEqual([
-      { alId: 900101, title: 'Lantern Harbor', nativeTitle: '灯の港', year: 2024, format: 'TV', episodes: 2, poster: null },
+      { alId: 900101, title: 'Lantern Harbor', nativeTitle: '灯の港', year: 2024, format: 'TV', episodes: 2, poster: '/api/titles/900101/cover' },
     ]);
+  });
+
+  it('serves a searched show\'s cover from its own origin', async () => {
+    await fixture.send('/api/titles/search?q=lantern');
+    const reply = await fixture.send('/api/titles/900101/cover');
+    expect(reply.status).toBe(200);
+    expect(reply.headers['content-type']).toBe('image/png');
+    expect(reply.headers['cross-origin-resource-policy']).toBe('same-origin');
+    expect(reply.headers['x-content-type-options']).toBe('nosniff');
+    expect(reply.body.subarray(1, 4).toString('latin1')).toBe('PNG');
+  });
+
+  it('answers 404 for a cover no search gave', async () => {
+    const reply = await fixture.send('/api/titles/42/cover');
+    expect(reply.status).toBe(404);
+    expect(jsonOf<{ error: string }>(reply).error).toBe('not-found');
+  });
+
+  it('answers 502 bad-cover and 503 for covers the image host will not give', async () => {
+    const own = await startRouteFixture({ covers: { get: async () => Promise.reject(new BadCover('not an image')) } });
+    try {
+      await own.send('/api/titles/search?q=lantern');
+      const bad = await own.send('/api/titles/900101/cover');
+      expect(bad.status).toBe(502);
+      expect(jsonOf<{ error: string }>(bad).error).toBe('bad-cover');
+    } finally {
+      await own.stop();
+    }
+    const down = await startRouteFixture({ covers: { get: async () => Promise.reject(new SourceUnavailable('down')) } });
+    try {
+      await down.send('/api/titles/search?q=lantern');
+      const reply = await down.send('/api/titles/900101/cover');
+      expect(reply.status).toBe(503);
+      expect(jsonOf<unknown>(reply)).toEqual({ error: 'source-unavailable', source: 'anilist' });
+    } finally {
+      await down.stop();
+    }
   });
 
   it('an empty query answers 400', async () => {

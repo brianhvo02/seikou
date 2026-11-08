@@ -13,6 +13,10 @@ it('fixture sources come from SEIKOU_ENCODE_FIXTURE and never touch the network'
   expect(await sources.seadex.entry(900101)).not.toBeNull();
   expect((await sources.anilist.search('lantern', {})).length).toBeGreaterThan(0);
   expect((await sources.episodes.titles(900101)).size).toBeGreaterThan(0);
+  const [entry] = await sources.anilist.search('lantern', {});
+  const cover = await sources.covers.get(entry!.poster!.large, new AbortController().signal);
+  expect(cover.contentType).toBe('image/png');
+  expect(cover.bytes.length).toBeGreaterThan(0);
   expect(fetch).not.toHaveBeenCalled();
 });
 

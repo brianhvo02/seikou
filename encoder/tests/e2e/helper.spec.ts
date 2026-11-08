@@ -64,6 +64,15 @@ test('pick a show and a release, match, line up, nudge, name a track, save and r
   await search.press('Enter');
   const show = page.getByRole('button', { name: /Lantern Harbor/ });
   await expect(show).toBeVisible();
+  // the cover comes through the backend, since the isolated page may not load AniList's image host
+  const cover = show.locator('img.cover');
+  await expect(cover).toHaveAttribute('src', /\/api\/titles\/900101\/cover\?t=/);
+  const loadedWidth = () =>
+    cover.evaluate((img) => {
+      const image = img as unknown as { complete: boolean; naturalWidth: number };
+      return image.complete ? image.naturalWidth : 0;
+    });
+  await expect.poll(loadedWidth).toBe(4);
   expect(seadexAsked).toEqual([]);
 
   const seadexAnswer = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/fansubs/seadex');

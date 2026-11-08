@@ -8,6 +8,7 @@
  * speech burst inside 0-90 s, each 1200 ms earlier than the burst, so aligning it to the disc must find +1200 ms; its
  * episode 2 track has only six lines, too few to align. GroupB's episode 1 has the same timing in another style.
  * The third SeaDex release is a private-tracker one with no info hash, so Anime Tosho has nothing for it.
+ * Lantern Harbor's poster is a 4x6 blue PNG in `covers/`, which `fixtureAniList` serves for the poster's URL.
  */
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import SevenZip from '7z-wasm';
@@ -124,13 +125,17 @@ const tosho = {
   ],
 };
 
+/** A 4x6 solid blue PNG: the recorded poster, served offline from `covers/` by its URL's file name. */
+const COVER = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAQAAAAGCAIAAABrW6giAAAAEElEQVR42mPQiDoBRwyUcgCoGh7xLGHZ+gAAAABJRU5ErkJggg==', 'base64');
+const COVER_URL = 'https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx900101-lantern.png';
+
 const anilist = {
   entries: [
     {
       source: 'anilist', id: 'anilist:900101', kind: 'series', format: 'TV',
       names: { english: 'Lantern Harbor', romaji: 'Tomoshibi no Minato', native: '灯の港', synonyms: [] },
       animation: true, year: 2024, startDate: 20240105, episodes: 2, runtimeMin: 24,
-      seasons: [], relations: [], poster: null, banner: null,
+      seasons: [], relations: [], poster: { small: COVER_URL, large: COVER_URL }, banner: null,
     },
   ],
   episodes: { 900101: { 1: 'Arrival', 2: 'The Lighthouse' } },
@@ -149,3 +154,7 @@ mkdirSync(out, { recursive: true });
 for (const [name, data] of Object.entries({ seadex, tosho, anilist })) writeFileSync(new URL(`${name}.json`, here), `${JSON.stringify(data, null, 2)}\n`);
 for (const [name, text] of Object.entries(TRACKS)) writeFileSync(new URL(`${name}.xz`, out), await archive(`${name}.xz`, { [name]: Buffer.from(text) }, ['-txz']));
 writeFileSync(new URL('pack-7101.7z', out), await archive('pack.7z', { [FONT]: font }, ['-t7z']));
+const covers = new URL('covers/', here);
+rmSync(covers, { recursive: true, force: true });
+mkdirSync(covers, { recursive: true });
+writeFileSync(new URL(new URL(COVER_URL).pathname.split('/').pop()!, covers), COVER);

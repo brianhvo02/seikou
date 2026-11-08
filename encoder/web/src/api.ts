@@ -42,7 +42,7 @@ export interface HelperApi {
   session(): Promise<SessionInfo>;
   /** The run's episodes in playlist time, the audio streams and the PG count. */
   episodes(): Promise<EpisodesAnswer>;
-  /** AniList's results for `q`, in AniList's order. */
+  /** AniList's results for `q`, in AniList's order, each `poster` a URL of the backend's cover route with the token. */
   searchTitles(q: string): Promise<TitleHit[]>;
   /** AniList's episode titles for a show, keyed by episode number; empty when it has none. */
   episodeTitles(alId: number): Promise<Record<number, string>>;
@@ -151,7 +151,11 @@ export function createApi(base: string, token: string, fetchImpl: FetchLike = (i
   return {
     session: () => request('GET', '/api/session'),
     episodes: () => request('GET', '/api/episodes'),
-    searchTitles: async (text) => (await request<{ candidates: TitleHit[] }>('GET', `/api/titles/search?${q({ q: text })}`)).candidates,
+    async searchTitles(text) {
+      const { candidates } = await request<{ candidates: TitleHit[] }>('GET', `/api/titles/search?${q({ q: text })}`);
+      // The backend names each cover by its own path; an <img> sends no Authorization header, so the token goes in ?t=.
+      return candidates.map((hit) => (hit.poster === null ? hit : { ...hit, poster: `${root}${hit.poster}?${q({ t: token })}` }));
+    },
     episodeTitles: async (alId) => (await request<{ titles: Record<number, string> }>('GET', `/api/titles/${alId}/episodes`)).titles,
     seadex: (alId) => request('GET', `/api/fansubs/seadex?${q({ anilist: alId })}`),
     searchTosho: (text) => request('GET', `/api/fansubs/search?${q({ q: text })}`),

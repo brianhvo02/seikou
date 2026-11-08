@@ -50,7 +50,7 @@ export async function startRouteFixture(sources: Partial<HelperSources> = {}, to
     token: TOKEN,
     webDir: null,
     tools,
-    sources: { seadex: fansubs.seadex, tosho: fansubs.tosho, anilist: anilist.source, episodes: anilist.episodes, ...sources },
+    sources: { seadex: fansubs.seadex, tosho: fansubs.tosho, anilist: anilist.source, episodes: anilist.episodes, covers: anilist.covers, ...sources },
   };
   const server = await startHelperServer(ctx);
   return {

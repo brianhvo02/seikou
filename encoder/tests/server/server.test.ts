@@ -63,7 +63,7 @@ beforeAll(async () => {
     token: TOKEN,
     webDir,
     tools: null,
-    sources: { seadex: fansubs.seadex, tosho: fansubs.tosho, anilist: anilist.source, episodes: anilist.episodes },
+    sources: { seadex: fansubs.seadex, tosho: fansubs.tosho, anilist: anilist.source, episodes: anilist.episodes, covers: anilist.covers },
   };
   server = await startHelperServer(ctx);
 });
@@ -247,7 +247,7 @@ describe('episode start times', () => {
       token: TOKEN,
       webDir: null,
       tools: null,
-      sources: { seadex: fansubs.seadex, tosho: fansubs.tosho, anilist: anilist.source, episodes: anilist.episodes },
+      sources: { seadex: fansubs.seadex, tosho: fansubs.tosho, anilist: anilist.source, episodes: anilist.episodes, covers: anilist.covers },
     });
     try {
       const reply = await fetch(`http://127.0.0.1:${own.port}/api/episodes`, { headers: auth });

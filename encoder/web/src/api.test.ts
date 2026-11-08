@@ -31,6 +31,12 @@ describe('createApi', () => {
     expect(calls[0]!.headers.Authorization).toBe('Bearer secret');
   });
 
+  it('turns a cover path into a URL of the backend with the token', async () => {
+    const { fetch } = recorder(() => ok({ candidates: [{ alId: 900101, poster: '/api/titles/900101/cover' }, { alId: 2, poster: null }] }));
+    const hits = await createApi('http://127.0.0.1:4195/', 'secret', fetch).searchTitles('lantern');
+    expect(hits.map((h) => h.poster)).toEqual(['http://127.0.0.1:4195/api/titles/900101/cover?t=secret', null]);
+  });
+
   it('posts a fetch with its offset and body', async () => {
     const { fetch, calls } = recorder(() => ok({ key: 'tosho-7' }));
     await createApi('', 'secret', fetch).fetchRelease(7, 2);

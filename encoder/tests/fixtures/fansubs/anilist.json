@@ -18,7 +18,10 @@
       "runtimeMin": 24,
       "seasons": [],
       "relations": [],
-      "poster": null,
+      "poster": {
+        "small": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx900101-lantern.png",
+        "large": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx900101-lantern.png"
+      },
       "banner": null
     }
   ],

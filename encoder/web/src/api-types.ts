@@ -71,7 +71,10 @@ export interface TitleHit {
   readonly format: string | null;
   /** The episode count; null while airing or unknown. */
   readonly episodes: number | null;
-  /** URL of the cover image; null when there is none. */
+  /**
+   * URL of the cover image, served by the backend from its own origin (the page is cross-origin isolated, and
+   * AniList's image host does not allow that); null when there is none.
+   */
   readonly poster: string | null;
 }
 

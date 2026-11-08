@@ -53,7 +53,7 @@ The encoder keeps what it learns and downloads in one directory: saved subtitle 
 
 ### Offline mode
 
-`SEIKOU_ENCODE_FIXTURE=<folder>` makes `serve` read SeaDex, Anime Tosho and AniList answers from recorded files in that folder (`seadex.json`, `tosho.json`, `anilist.json`, `files/`) instead of the network. It is for tests; `encoder/tests/fixtures/fansubs/` is an example with made-up titles.
+`SEIKOU_ENCODE_FIXTURE=<folder>` makes `serve` read SeaDex, Anime Tosho and AniList answers and AniList covers from recorded files in that folder (`seadex.json`, `tosho.json`, `anilist.json`, `files/`, `covers/`) instead of the network. It is for tests; `encoder/tests/fixtures/fansubs/` is an example with made-up titles.
 
 Exit codes: 0 success, 1 encode failure, 2 usage error or bad episode spec, 3 required tools missing (for `serve`, the helper page not built).
 

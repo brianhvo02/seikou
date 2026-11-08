@@ -25,5 +25,5 @@ Fansub releases and the user's own files supply subtitles; this area decides wha
 - `release-match.ts`: file-to-episode matching and track kinds.
 - `srt-to-ass.ts`: decoding and SRT conversion; the SRT format has no specification, so the parsing is tolerant by design (see the comment at the top).
 - `record.ts`: the record's types, validation and store (paths inside it are relative to the data directory); `app-data.ts`: where that directory is.
-- `release-cache.ts`: `ReleaseCache` downloads a release's tracks and fonts (or takes the user's own files) into `releases/<key>/`, with fonts pooled by content under `fonts/`; `release.json` is written last. `fixture-anilist.ts`: recorded AniList answers for tests and offline runs.
+- `release-cache.ts`: `ReleaseCache` downloads a release's tracks and fonts (or takes the user's own files) into `releases/<key>/`, with fonts pooled by content under `fonts/`; `release.json` is written last. `fixture-anilist.ts`: recorded AniList answers and cover images (`covers/`) for tests and offline runs.
 - Tests: `encoder/tests/subs/`.

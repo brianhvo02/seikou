@@ -20,6 +20,23 @@ export interface HelperSources {
   readonly anilist: MetadataSource;
   /** Episode titles by episode number (from 1) of an AniList id; empty when AniList has none. */
   readonly episodes: { titles(alId: number): Promise<ReadonlyMap<number, string>> };
+  /** Cover images by the URL AniList gave for them, which the backend passes on to the page from its own origin. */
+  readonly covers: CoverSource;
+}
+
+/** A cover image: its bytes and its `image/...` content type. */
+export interface CoverImage {
+  readonly contentType: string;
+  readonly bytes: Uint8Array;
+}
+
+/** Fetches cover images. */
+export interface CoverSource {
+  /**
+   * The image at `url`. Rejects with `SourceUnavailable` when the image host cannot be reached, answers an error or
+   * is too slow, and with `BadCover` when the answer is not a PNG, JPEG, GIF, WebP or AVIF image or is too large.
+   */
+  get(url: string, signal: AbortSignal): Promise<CoverImage>;
 }
 
 /** Everything one run of the helper serves: one disc, one playlist, one episode list. Fixed for the server's life. */
