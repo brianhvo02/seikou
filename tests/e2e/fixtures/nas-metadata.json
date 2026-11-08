@@ -83,5 +83,41 @@
       "poster": null,
       "banner": null
     }
+  ],
+  "Lantern Road": [
+    {
+      "source": "anilist",
+      "id": "anilist:990001",
+      "kind": "series",
+      "format": "TV",
+      "names": { "english": "Lantern Road", "romaji": "Tomoshibi no Michi", "native": "灯火の道", "synonyms": [] },
+      "animation": true,
+      "year": 2022,
+      "startDate": 20220401,
+      "episodes": 2,
+      "runtimeMin": 1,
+      "seasons": [],
+      "relations": [{ "type": "SEQUEL", "id": "anilist:990002", "format": "TV", "startDate": 20230401 }],
+      "poster": null,
+      "banner": null
+    }
+  ],
+  "Lantern Road Season 2": [
+    {
+      "source": "anilist",
+      "id": "anilist:990002",
+      "kind": "series",
+      "format": "TV",
+      "names": { "english": "Lantern Road Season 2", "romaji": "Tomoshibi no Michi 2", "native": "灯火の道 第2期", "synonyms": [] },
+      "animation": true,
+      "year": 2023,
+      "startDate": 20230401,
+      "episodes": 2,
+      "runtimeMin": 1,
+      "seasons": [],
+      "relations": [{ "type": "PREQUEL", "id": "anilist:990001", "format": "TV", "startDate": 20220401 }],
+      "poster": null,
+      "banner": null
+    }
   ]
 }
