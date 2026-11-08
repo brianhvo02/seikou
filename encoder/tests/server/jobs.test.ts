@@ -399,6 +399,52 @@ describe('the job runner', () => {
     expect(readFileSync(join(fx.dataDir, 'jobs.json'), 'utf8')).toBe('{ "jobs": [ broken');
   });
 
+  it('a damaged jobs.json is an error, not an empty queue, for the list and the stream', async () => {
+    writeFileSync(join(fx.dataDir, 'jobs.json'), '{ "jobs": [ broken');
+    await startJobRunner(fx.app, { ...deps(), log: () => {} }).ready;
+    for (const path of ['/api/jobs', '/api/jobs/events']) {
+      const res = await fx.send(path);
+      expect([path, res.status]).toEqual([path, 500]);
+      expect(jsonOf<{ error: string; message: string }>(res)).toMatchObject({ error: 'jobs-unreadable', message: expect.stringMatching(/jobs\.json/) });
+    }
+  });
+
+  it("an episode's first report and its closing 100% are never held back", async () => {
+    const runner = startJobRunner(fx.app, deps());
+    await runner.ready;
+    await runner.add(input());
+    const seen: JobProgress[] = [];
+    runner.events.on('progress', (p: JobProgress) => seen.push(p));
+    const first = await fake.next();
+    clock = 10_000;
+    first.onEvent({ kind: 'progress', episode: 1, message: '', framesDone: 10, frames: 100 });
+    clock += 200;
+    first.onEvent({ kind: 'progress', episode: 1, message: '', framesDone: 20, frames: 100 });
+    clock += 200;
+    // A throttled report, then the closing one at once: the closing one is sent.
+    FakeEncoder.complete(first);
+    expect(seen.map((p) => [p.episode, p.framesDone])).toEqual([[1, 10], [1, 100]]);
+    const second = await fake.next();
+    // The next episode's first report comes within the same second, and is sent.
+    clock += 100;
+    second.onEvent({ kind: 'progress', episode: 2, message: '', framesDone: 5, frames: 100 });
+    expect(seen.map((p) => [p.episode, p.framesDone])).toEqual([[1, 10], [1, 100], [2, 5]]);
+  });
+
+  it('a tool that fails while the runner stops leaves the job interrupted', async () => {
+    const runner = startJobRunner(fx.app, deps());
+    await runner.ready;
+    const job = await runner.add(input());
+    const call = await fake.next();
+    // Ctrl-C reached the encoder first: the encode fails with the tool's error before shutdown aborts it.
+    call.reject(new Error('SvtAv1EncApp exited with signal SIGINT'));
+    await runner.shutdown();
+    const stopped = runner.get(job.id)!;
+    expect(stopped.state).toBe('interrupted');
+    expect(stopped.error).toBeUndefined();
+    expect(stopped.episodes.map((e) => e.state)).toEqual(['queued', 'queued']);
+  });
+
   it('the command line is the equivalent encode command, quoted to paste', () => {
     const cli = jobCli({
       discDir: '/discs/Starfall Wanderer/DISC 1',

@@ -104,7 +104,7 @@ export interface JobInput {
   readonly noSubtitles?: unknown;
 }
 
-/** A progress report, sent at most once a second. */
+/** A progress report: at most one a second per episode, plus each episode's first and closing 100% reports. */
 export interface JobProgress {
   /** The job. */
   readonly jobId: string;
@@ -339,7 +339,7 @@ interface Current {
  * `<data>/jobs/<id>.log`.
  *
  * `events` emits `jobs` (the whole list, after every state change) and `progress` (a `JobProgress`, at most once a
- * second).
+ * second per episode, except that an episode's first report and its closing 100% report are always sent).
  */
 export class JobRunner {
   /** `jobs` (Job[]) and `progress` (JobProgress). */
@@ -354,7 +354,8 @@ export class JobRunner {
   private stopping = false;
   private active: Promise<void> | null = null;
   private current: Current | null = null;
-  private lastProgress = -Infinity;
+  /** When each episode's last progress report was sent, by `<jobId>:<episode>`. */
+  private readonly lastProgress = new Map<string, number>();
   /** When each running episode's encode started, by `<jobId>:<episode>`, for its speed. */
   private readonly episodeStarts = new Map<string, number>();
 
@@ -576,8 +577,9 @@ export class JobRunner {
    * tool exited, its partial file removed) and saved as `interrupted`, so it can be retried.
    */
   async shutdown(): Promise<void> {
-    await this.ready;
+    // Set before any await: a tool killed by the same Ctrl-C can fail the encode at any moment from now on.
     this.stopping = true;
+    await this.ready;
     if (this.current !== null) {
       this.current.controller.abort();
       await this.current.done;
@@ -590,6 +592,11 @@ export class JobRunner {
     const job = this.jobs.find((j) => j.id === id);
     if (job === undefined) throw new JobError(404, 'not-found', 'There is no such job.');
     return job;
+  }
+
+  /** The error every call answers while `jobs.json` cannot be read, or null when it can. */
+  get unreadableError(): JobError | null {
+    return this.writable ? null : this.unreadable();
   }
 
   private unreadable(): JobError {
@@ -758,7 +765,9 @@ export class JobRunner {
         for (const ep of job.episodes) this.settleStopped(job, ep, 'The job stopped before this episode was packaged.');
         await this.removePartials(job);
         job.finishedAt = this.iso();
-        if (controller.signal.aborted) {
+        // While the runner stops, any failure is the stop's doing: Ctrl-C reaches the tools too, and may fail them
+        // before the runner aborts the encode.
+        if (controller.signal.aborted || this.stopping) {
           job.state = this.stopping ? 'interrupted' : 'cancelled';
           this.appendLog(job, `State: ${job.state}.`);
         } else {
@@ -830,13 +839,14 @@ export class JobRunner {
         (e) => this.onEvent(job, e),
       );
     } catch (e) {
-      if (ep.state === 'running' && !ep.encoded && !signal.aborted) {
+      if (ep.state === 'running' && !ep.encoded && !signal.aborted && !this.stopping) {
         ep.state = 'failed';
         ep.error = message(e);
       }
       throw e;
     } finally {
       this.episodeStarts.delete(key);
+      this.lastProgress.delete(key);
     }
     // The encode resolved, so the episode is complete even if its closing events were not seen.
     if (ep.state === 'running') this.markDone(job, ep, this.mkvPath(job, ep));
@@ -926,8 +936,12 @@ export class JobRunner {
         }
       }
     }
-    if (now - this.lastProgress < PROGRESS_INTERVAL_MS) return;
-    this.lastProgress = now;
+    // Paced per episode; an episode's first report and its closing 100% always go out.
+    const complete = frames > 0 && framesDone >= frames;
+    const last = this.lastProgress.get(key);
+    if (last !== undefined && !complete && now - last < PROGRESS_INTERVAL_MS) return;
+    if (complete) this.lastProgress.delete(key);
+    else this.lastProgress.set(key, now);
     const elapsed = (now - this.episodeStarts.get(key)!) / 1000;
     const fps = elapsed > 0 ? framesDone / elapsed : null;
     const etaSeconds = fps !== null && fps > 0 ? Math.round((frames - framesDone) / fps) : null;

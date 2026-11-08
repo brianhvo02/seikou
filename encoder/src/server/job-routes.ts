@@ -74,6 +74,9 @@ async function bodyOf(req: IncomingMessage, res: ServerResponse): Promise<Record
 const jobEvents: Route = async (req, res, _match, app) => {
   const runner = jobRunnerOf(app);
   await runner.ready;
+  // Refused before the stream opens: an empty list would look like an empty queue.
+  const unreadable = runner.unreadableError;
+  if (unreadable !== null) return refuse(res, unreadable);
   res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
   const send = (event: string, data: unknown): void => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -128,10 +131,12 @@ const serveOutput: Route = async (req, res, match, app) => {
  *   DELETE /api/jobs/<id>            `{ deleted: true }` for a finished job; 409 `not-finished`
  *   GET /api/jobs/<id>/log?tail=N    the last N lines of the job's log as text (default and most 2000)
  *   GET /api/jobs/events             server-sent events: `jobs` with `{ jobs }` on connect and on every change, and
- *                                    `progress` with a `JobProgress` at most once a second
+ *                                    `progress` with a `JobProgress` (see `JobRunner`)
  *   GET|HEAD /api/outputs/<id>/<path>   a file under that job's output folder, whole or one range
  *
- * Refusals are `{ error, message, ... }` (see `JobRunner.add`); an unknown job answers 404 `not-found`.
+ * Refusals are `{ error, message, ... }` (see `JobRunner.add`); an unknown job answers 404 `not-found`. While
+ * `jobs.json` cannot be read, every job route, the list and the event stream included, answers 500 `jobs-unreadable`
+ * (the stream before it opens, so a browser's EventSource fails and does not reconnect), never an empty queue.
  */
 export const jobRoutes: RouteTable = [
   [
@@ -140,6 +145,8 @@ export const jobRoutes: RouteTable = [
     async (_req, res, _match, app) => {
       const runner = jobRunnerOf(app);
       await runner.ready;
+      const unreadable = runner.unreadableError;
+      if (unreadable !== null) return refuse(res, unreadable);
       json(res, 200, { jobs: runner.list() });
     },
   ],

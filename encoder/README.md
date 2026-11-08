@@ -118,7 +118,7 @@ Exit codes: 0 success, 1 encode or packaging failure, 2 usage error, bad episode
 - **Subtitles.** Queuing a job checks the saved subtitle record against the job's playlist and episode list and refuses a mismatch, unless the job encodes without subtitles; with no record, the job encodes without them, as `encode` does. The job reads the record when it runs and remembers when that record was saved.
 - **Episodes.** Each episode is encoded on its own and counts as done only once the queue saw it finish (with the web package, once packaged); a file found on disk never counts. Cancel stops every tool and removes the partial file. Retry (of a failed, interrupted or cancelled job) encodes only the episodes not done, and packages again, without encoding, an episode whose packaging failed; when the subtitle record was saved again since the job's first run, it encodes every episode, so one job never mixes two sets of subtitle choices.
 - **Test encodes** go first: a running job stops after the episode in progress, the test runs, and the job resumes at its next episode.
-- **Restart.** A job that was running when the app stopped is marked interrupted and its `.partial` files are removed; queued jobs stay queued. Ctrl-C stops the running job the same way, waiting for its tools to exit. A damaged `jobs.json` is never written over: the queue is empty and refuses new jobs until the file is fixed or removed.
+- **Restart.** A job that was running when the app stopped is marked interrupted and its `.partial` files are removed; queued jobs stay queued. Ctrl-C stops the running job the same way, waiting for its tools to exit. A damaged `jobs.json` is never written over: the queue answers with an error until the file is fixed or removed.
 
 ## Where it sits in Seikou
 
