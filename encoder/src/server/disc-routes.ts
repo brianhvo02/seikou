@@ -4,11 +4,11 @@ import { readFile, realpath, stat } from 'node:fs/promises';
 import type { ServerResponse } from 'node:http';
 import { basename, dirname, join } from 'node:path';
 import { parseMpls } from '@seikou/bdmv/mpls-parser';
-import { discKeyOf } from '@seikou/nas/disc-key';
 import type { DiscManifest } from '@seikou/nas/nas-api';
 // Seikou's NAS server builds manifests and resolves disc paths this way; the helper answers exactly as the NAS does,
 // so the engine opens the disc through the same RemoteSource.
 import { buildManifest, resolveDiscFile } from '../../../server/src/manifest';
+import { discKeyOfFolder } from '../disc/disc-key';
 import { bdmvRoot, listPlaylists, loadPlaylist } from '../disc/playlist';
 import { probeClip, type ClipProbe } from '../disc/probe';
 import { EpisodeSpecError, firstFramePlaylistUs, parseEpisodeSpec, planEpisodes, type EpisodePlan, type EpisodeSpec } from '../plan/episodes';
@@ -94,12 +94,11 @@ export class DiscRequestError extends Error {
 async function loadState(ctx: HelperContext): Promise<DiscState> {
   const given = await realpath(ctx.discDir);
   const root = basename(given).toUpperCase() === 'BDMV' ? dirname(given) : given;
-  const label = basename(root);
-  // Stable across runs: the same folder keeps its key, so a saved record finds its disc again.
+  const { key, label } = await discKeyOfFolder(root);
+  // The manifest's id is the folder's own hash, not the key, as the NAS gives manifests an id of their own.
   const id16 = createHash('sha256').update(root).digest('hex').slice(0, 16);
   const manifest = await buildManifest(root, { id: id16, name: label });
-  if (!manifest.files.some((f) => f.path === 'BDMV/INDEX.BDMV')) throw new Error(`${ctx.discDir} is not a Blu-ray folder (no BDMV/index.bdmv)`);
-  return { root, label, key: discKeyOf(id16, manifest.files), manifest, episodes: null };
+  return { root, label, key, manifest, episodes: null };
 }
 
 function stateOf(ctx: HelperContext): Promise<DiscState> {

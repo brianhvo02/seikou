@@ -23,7 +23,9 @@ npm run seikou-encode -- encode encoder/fixtures/disc1 --playlist 00000 --episod
 npm run seikou-encode -- serve encoder/fixtures/disc1 --playlist 00000 --episodes "1-2,3-4"
 ```
 
-`--episodes` is a comma-separated list of ascending, non-overlapping chapter ranges, one episode each. Options: `--name PATTERN` (default `episode-{n}`, `{n}` is the episode number padded to 2 digits), `--crf N` (25), `--preset N` (4), `--svt-args "..."` (extra SVT-AV1 arguments), `--opus-bitrate N` (160 for stereo, 320 otherwise), `--title T`, `--cache DIR` (where BestSource keeps its index files; default `bestsource/` in the data directory below).
+`--episodes` is a comma-separated list of ascending, non-overlapping chapter ranges, one episode each. Options: `--name PATTERN` (default `episode-{n}`, `{n}` is the episode number padded to 2 digits), `--crf N` (25), `--preset N` (4), `--svt-args "..."` (extra SVT-AV1 arguments), `--opus-bitrate N` (160 for stereo, 320 otherwise), `--title T`, `--cache DIR` (where BestSource keeps its index files; default `bestsource/` in the data directory below), `--no-subtitles` (ignore the helper's saved record), `--no-pgs` (leave the disc's PG streams out) and `--web DIR` (also package each episode for the web player).
+
+`encode` reads the record the helper saved for the disc and playlist from the data directory. It must have been saved for the same playlist and `--episodes` list, or the command stops with exit code 2 and says so (re-save it in the helper, or pass `--no-subtitles`). If subtitle or font files the record names are gone from the data directory, it stops with exit code 1 naming the release. With no saved record it encodes without the helper's subtitle choices.
 
 Output layout:
 
@@ -55,7 +57,7 @@ The encoder keeps what it learns and downloads in one directory: saved subtitle 
 
 `SEIKOU_ENCODE_FIXTURE=<folder>` makes `serve` read SeaDex, Anime Tosho and AniList answers and AniList covers from recorded files in that folder (`seadex.json`, `tosho.json`, `anilist.json`, `files/`, `covers/`) instead of the network. It is for tests; `encoder/tests/fixtures/fansubs/` is an example with made-up titles.
 
-Exit codes: 0 success, 1 encode failure, 2 usage error or bad episode spec, 3 required tools missing (for `serve`, the helper page not built).
+Exit codes: 0 success, 1 encode failure, 2 usage error, bad episode spec or a saved record that does not match the encode, 3 required tools missing (for `serve`, the helper page not built).
 
 ## Where it sits in Seikou
 

@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { bestsourceCacheDir } from '../src/cli';
+import { discKeyOfFolder } from '../src/disc/disc-key';
+import { RecordStore } from '../src/subs/record';
 import { fx } from './paths';
 
 it('plan prints the chapter table of disc1', () => {
@@ -27,6 +29,34 @@ it('exits 3 for a valid spec when a tool is missing', () => {
 it('rejects a bad episode spec with exit code 2', () => {
   expect(() => execFileSync('npx', ['tsx', fx('src/cli.ts'), 'encode', fx('fixtures/disc1'), '--playlist', '00000', '--episodes', '3-2', '--out', '/tmp/x'], { stdio: 'pipe' })).toThrowError(expect.objectContaining({ status: 2 }));
 }, 60_000);
+
+describe('encode with a saved record', () => {
+  it('encode with a mismatched record exits 2, even with a tool missing', async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), 'et-rec-'));
+    const { key, label } = await discKeyOfFolder(fx('fixtures/disc1'));
+    await new RecordStore(dataDir).write({
+      disc: { key, label },
+      playlist: '00000',
+      episodeSpec: '1-3,4-5',
+      anilist: null,
+      release: null,
+      fonts: [],
+      episodes: [],
+      savedAt: '2026-11-07T10:00:00Z',
+    });
+    const env = { ...noSvt, SEIKOU_ENCODE_DATA: dataDir };
+    let err: { status?: number; stderr?: Buffer } = {};
+    try {
+      execFileSync('npx', encodeArgs('1-2'), { stdio: 'pipe', env });
+    } catch (e) {
+      err = e as typeof err;
+    }
+    expect(err.status).toBe(2);
+    expect(String(err.stderr)).toContain('--no-subtitles');
+    // --no-subtitles skips the record, so the missing tool is what stops the encode.
+    expect(() => execFileSync('npx', [...encodeArgs('1-2'), '--no-subtitles'], { stdio: 'pipe', env })).toThrowError(expect.objectContaining({ status: 3 }));
+  }, 60_000);
+});
 
 describe('serve', () => {
   const emptyWeb = mkdtempSync(join(tmpdir(), 'et-web-'));

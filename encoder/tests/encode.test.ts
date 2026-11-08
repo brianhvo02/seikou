@@ -50,7 +50,7 @@ it('builds encoder argument lists from the spec defaults', () => {
 });
 
 describe.skipIf(!haveTools)('end to end on disc1', () => {
-  const base = (out: string): EncodeOptions => ({ discDir: fx('fixtures/disc1'), playlistId: '00000', episodes: '1-2,3-4', outDir: out, namePattern: 'ep-{n}', crf: 40, preset: 8, extraSvtArgs: [], cacheDir: join(out, 'cache'), tools: toolPaths()! });
+  const base = (out: string): EncodeOptions => ({ discDir: fx('fixtures/disc1'), playlistId: '00000', episodes: '1-2,3-4', outDir: out, namePattern: 'ep-{n}', crf: 40, preset: 8, extraSvtArgs: [], cacheDir: join(out, 'cache'), tools: toolPaths()!, dataDir: join(out, 'data'), noSubtitles: false, noPgs: false });
 
   it('encodes two episodes with chapters and no leftover files', async () => {
     const out = mkdtempSync(join(tmpdir(), 'et-'));

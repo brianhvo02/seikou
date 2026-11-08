@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { listPlaylists, loadPlaylist } from './disc/playlist';
 import { encodeEpisodes } from './encode';
+import { loadEncodeRecord, MissingSubtitleFilesError, RecordMismatchError } from './subs/encode-record';
 import { ChainError } from './pipeline/chain';
 import { EpisodeSpecError, parseEpisodeSpec } from './plan/episodes';
 import { startHelperServer } from './server/server';
@@ -24,6 +25,7 @@ const USAGE = `Usage:
   seikou-encode plan <disc> [--playlist ID]
   seikou-encode encode <disc> --playlist ID --episodes SPEC --out DIR
       [--name PATTERN] [--crf N] [--preset N] [--svt-args "..."] [--opus-bitrate N] [--title T] [--cache DIR]
+      [--no-subtitles] [--no-pgs] [--web DIR]
   seikou-encode serve <disc> --playlist ID --episodes SPEC [--port N] [--no-open]`;
 
 const pad = (n: number, w: number): string => String(n).padStart(w, '0');
@@ -136,6 +138,9 @@ async function run(argv: string[]): Promise<void> {
       cache: { type: 'string' },
       port: { type: 'string' },
       'no-open': { type: 'boolean' },
+      'no-subtitles': { type: 'boolean' },
+      'no-pgs': { type: 'boolean' },
+      web: { type: 'string' },
     },
   });
   const [command, disc] = positionals;
@@ -169,6 +174,10 @@ async function run(argv: string[]): Promise<void> {
     // A bad episode spec is a usage error (exit 2) whether or not the tools are installed.
     const playlist = await loadPlaylist(resolve(disc), values.playlist);
     parseEpisodeSpec(values.episodes, playlist.chapters.length);
+    // A saved record that does not fit this encode is a usage error too, whether or not the tools are installed.
+    const dataDir = appDataDir();
+    const noSubtitles = values['no-subtitles'] === true;
+    await loadEncodeRecord({ discDir: resolve(disc), playlistId: values.playlist, episodeSpec: values.episodes, dataDir, noSubtitles });
     const tools = findTools();
     await encodeEpisodes(
       {
@@ -184,6 +193,10 @@ async function run(argv: string[]): Promise<void> {
         cacheDir,
         tools,
         title: values.title,
+        dataDir,
+        noSubtitles,
+        noPgs: values['no-pgs'] === true,
+        webDir: values.web === undefined ? undefined : resolve(values.web),
       },
       (e) => {
         if (e.kind === 'episode-done') console.log(`Episode ${e.episode} done: ${e.path ?? ''}`);
@@ -222,6 +235,14 @@ export async function main(argv: string[]): Promise<number> {
     if (err instanceof EpisodeSpecError) {
       console.error(err.message);
       return 2;
+    }
+    if (err instanceof RecordMismatchError) {
+      console.error(err.message);
+      return 2;
+    }
+    if (err instanceof MissingSubtitleFilesError) {
+      console.error(err.message);
+      return 1;
     }
     if (err instanceof WebDirMissingError) {
       console.error(err.message);

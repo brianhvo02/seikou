@@ -9,6 +9,7 @@ import { readIvf } from './mux/ivf';
 import { readOggOpus } from './mux/ogg';
 import { audioChain, ChainError, videoChain, type Chain, type ToolPaths } from './pipeline/chain';
 import { buildAudioScript, buildVideoScript } from './pipeline/vpy';
+import { loadEncodeRecord } from './subs/encode-record';
 import { parseEpisodeSpec, planEpisodes } from './plan/episodes';
 
 /** Everything `encodeEpisodes` needs. */
@@ -36,6 +37,14 @@ export interface EncodeOptions {
   tools: ToolPaths;
   /** Written to the MKV's Info element as the segment title. */
   title?: string;
+  /** The app data directory, where the helper's saved subtitle records and fetched files live. */
+  dataDir: string;
+  /** Ignore the helper's saved record and encode without its subtitle choices. */
+  noSubtitles: boolean;
+  /** Leave the disc's PG subtitle streams out of the MKV. */
+  noPgs: boolean;
+  /** When set, each finished episode is also packaged for the web player into a folder of its name under this directory. */
+  webDir?: string;
 }
 
 /** Progress notification passed to the callback of `encodeEpisodes`. */
@@ -136,6 +145,15 @@ export async function encodeEpisodes(
 ): Promise<string[]> {
   const playlist = await loadPlaylist(resolve(o.discDir), o.playlistId);
   const specs = parseEpisodeSpec(o.episodes, playlist.chapters.length);
+  // The record is checked before anything is planned; later steps read the subtitle choices from it.
+  const record = await loadEncodeRecord({
+    discDir: resolve(o.discDir),
+    playlistId: o.playlistId,
+    episodeSpec: o.episodes,
+    dataDir: o.dataDir,
+    noSubtitles: o.noSubtitles,
+  });
+  void record;
   const probes = new Map<string, ClipProbe>();
   for (const item of playlist.items) {
     if (!probes.has(item.clipId)) probes.set(item.clipId, await probeClip(item));

@@ -14,6 +14,7 @@ This area turns a decrypted BDMV folder into the facts the planner needs: which 
 
 - `loadPlaylist(discDir, id)` returns a `Playlist`: items (`PlaylistItem`), chapters (`Chapter`) and the total length. `listPlaylists(discDir)` lists every playlist with its length and clips. `bdmvRoot(dir)` accepts a disc folder or its BDMV folder. `chaptersFromMarks` is the pure chapter rule.
 - `probeClip(item)` returns a `ClipProbe`: video frame size, rate, scan type and first PTS, and each audio stream's rate, channels and first PTS. Failures are `ProbeError`.
+- `discKeyOfFolder(discDir)` returns a disc's key (`f.<content fingerprint>`, or `d.<id>` with no streams) and its label (the folder's name); the helper's routes and `encode` use it to find a saved record.
 - `videoRate`, `videoFormat`, `audioRate` and `audioChannels` map CLPI codes and throw on a code the table lacks.
 
 ## Where to look
