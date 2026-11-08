@@ -162,8 +162,23 @@ button {
   cursor: pointer;
 }
 
-.step-bar button:hover:not(:disabled) {
+.step-bar button:hover:not(:disabled),
+.step-bar button:focus-visible:not(:disabled) {
   color: var(--ink);
+}
+
+/* a step that can be entered from where you are reads as a link: underlined name on hover and focus */
+.step-bar button:not(:disabled):not([aria-current='step']) .step-name {
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+  transition: text-decoration-color 120ms;
+}
+
+.step-bar button:hover:not(:disabled):not([aria-current='step']) .step-name,
+.step-bar button:focus-visible:not(:disabled):not([aria-current='step']) .step-name {
+  text-decoration-color: currentColor;
 }
 
 .step-bar button:disabled {
@@ -171,8 +186,11 @@ button {
   cursor: default;
 }
 
+/* the step you are on: ink, bold, nothing to click */
 .step-bar [aria-current='step'] {
   color: var(--ink);
+  font-weight: 640;
+  cursor: default;
 }
 
 .step-number {

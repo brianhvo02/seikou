@@ -317,12 +317,20 @@ describe('canEnter', () => {
     expect(canEnter(withRelease(), 2)).toBe(true);
   });
 
-  it('step 3 needs an episode with tracks or marked none', () => {
+  it('step 3 needs an episode whose chosen file has tracks', () => {
     const empty = { ...withRelease(), choices: {} };
     expect(canEnter(empty, 3)).toBe(false);
-    expect(canEnter({ ...empty, choices: { 1: { releaseKey: 'tosho-7', fileId: '11', trackIds: [] } } }, 3)).toBe(false);
-    expect(canEnter({ ...empty, choices: { 2: 'none' } }, 3)).toBe(true);
+    expect(canEnter({ ...empty, choices: { 2: 'none' } }, 3)).toBe(false);
+    expect(canEnter({ ...empty, choices: { 1: { releaseKey: 'tosho-9', fileId: '11', trackIds: ['t1'] } } }, 3)).toBe(false);
+    expect(canEnter({ ...empty, choices: { 1: { releaseKey: 'tosho-7', fileId: '11', trackIds: [] } } }, 3)).toBe(true);
     expect(canEnter(withRelease(), 3)).toBe(true);
+  });
+
+  it('removing the last release closes steps 2 and 3 and the state falls back to step 1', () => {
+    const emptied = reduce({ ...withRelease(), step: 3 }, { type: 'removeRelease', key: 'tosho-7' });
+    expect(canEnter(emptied, 2)).toBe(false);
+    expect(canEnter(emptied, 3)).toBe(false);
+    expect(emptied.step).toBe(1);
   });
 });
 

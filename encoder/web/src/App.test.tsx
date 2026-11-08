@@ -37,6 +37,14 @@ function fakeApi(overrides: Partial<HelperApi> = {}): HelperApi {
 }
 
 describe('App', () => {
+  it('records its step in the browser history without changing the address', async () => {
+    window.history.replaceState(null, '', '/?t=abc');
+    render(<App api={fakeApi()} />);
+    await screen.findByRole('heading', { level: 1, name: 'LANTERN_HARBOR_D1' });
+    expect(window.history.state).toEqual({ step: 1 });
+    expect(window.location.search).toBe('?t=abc');
+  });
+
   it("App renders the step bar with the session's disc label", async () => {
     render(<App api={fakeApi()} />);
     expect(await screen.findByRole('heading', { level: 1, name: 'LANTERN_HARBOR_D1' })).toBeTruthy();

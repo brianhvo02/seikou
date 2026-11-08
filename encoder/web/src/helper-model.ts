@@ -177,12 +177,12 @@ export function initialState(): HelperState {
 
 /**
  * Whether the user may go to `step`: step 1 always, step 2 once the pool holds a release, step 3 once at least one
- * episode has tracks chosen or is marked as having none.
+ * episode has a chosen file, from a pooled release, that has tracks to line up.
  */
 export function canEnter(state: HelperState, step: Step): boolean {
   if (step === 1) return true;
   if (step === 2) return state.releases.length > 0;
-  return Object.values(state.choices).some((c) => c === 'none' || c.trackIds.length > 0);
+  return Object.keys(state.choices).some((e) => (episodeFile(state, Number(e))?.file.tracks.length ?? 0) > 0);
 }
 
 /** The pooled release with key `key`, or null when the pool has none. */

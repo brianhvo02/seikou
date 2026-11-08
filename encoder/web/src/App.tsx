@@ -7,6 +7,7 @@ import { canEnter, initialState, metadataDefaults, reduce, type Step } from './h
 import { MetadataPanel } from './metadata/MetadataPanel';
 import { useController } from './player/use-controller';
 import { SaveBar } from './SaveBar';
+import { useStepHistory } from './step-history';
 import { STEP_NAMES, StepBar } from './StepBar';
 import { LineUpStep, type LineUpStepProps } from './steps/LineUpStep';
 import { MatchStep } from './steps/MatchStep';
@@ -86,6 +87,9 @@ export function App({ api }: AppProps) {
     dispatch({ type: 'fillDefaults', defaults: metadataDefaults(stateRef.current, loaded.episodes, titles) });
   }, [loaded, title, releases, choices, titles]);
 
+  const goTo = useCallback((step: Step) => dispatch({ type: 'goTo', step }), []);
+  useStepHistory(state.step, (s) => canEnter(stateRef.current, s), goTo);
+
   const session = loaded?.session;
   const count = session ? episodeCount(session.episodeSpec) : 0;
 
@@ -101,7 +105,7 @@ export function App({ api }: AppProps) {
           )}
         </div>
         <div className="bar">
-          <StepBar step={state.step} canEnter={(s) => canEnter(state, s)} onSelect={(s) => dispatch({ type: 'goTo', step: s })} />
+          <StepBar step={state.step} canEnter={(s) => canEnter(state, s)} onSelect={goTo} />
           <SaveBar api={api} state={state} dispatch={dispatch} session={loaded?.session ?? null} episodes={loaded?.episodes ?? null}>
             <button ref={detailsButton} type="button" className="quiet" disabled={!loaded} onClick={() => setDetailsOpen(true)}>
               Details
