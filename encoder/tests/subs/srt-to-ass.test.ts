@@ -24,6 +24,15 @@ describe('srtToAss', () => {
     expect(ass).not.toContain('{\\an8}');
     expect(ass).toContain(',,d');
   });
+
+  it('splits cues at a separator line holding only spaces or tabs', () => {
+    const ass = srtToAss('1\n00:00:01,000 --> 00:00:02,000\nA\n \n2\n00:00:03,000 --> 00:00:04,000\nB\n\t\n');
+    const dialogue = ass.split('\n').filter((l) => l.startsWith('Dialogue:'));
+    expect(dialogue).toEqual([
+      'Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,A',
+      'Dialogue: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,B',
+    ]);
+  });
 });
 
 describe('decodeSubtitleText', () => {

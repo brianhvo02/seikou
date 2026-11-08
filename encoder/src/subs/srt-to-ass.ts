@@ -72,10 +72,11 @@ function assText(lines: readonly string[]): string {
 /**
  * Converts SRT text to a complete ASS script: 1920x1080 play resolution and one `Default`
  * style in Arial (a missing font then falls back as players fall back for SRT), with one
- * `Dialogue` event per cue. Cues with no parseable time line are skipped.
+ * `Dialogue` event per cue. Cues are separated by lines that are blank after trimming, and
+ * cues with no parseable time line are skipped.
  */
 export function srtToAss(text: string): string {
-  const blocks = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n').split(/\n{2,}/);
+  const blocks = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n').split(/\n(?:[^\S\n]*\n)+/);
   const events: string[] = [];
   for (const block of blocks) {
     const lines = block.split('\n');
