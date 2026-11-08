@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
 import { readMkv, type ParsedMkv } from '../mux/mkv-reader';
 import type { MkvAttachment, SubtitleBlock } from '../mux/mkv-writer';
@@ -28,7 +28,10 @@ export interface EpisodeManifest {
   chapters: string;
 }
 
-/** Thrown when an MKV holds something packaging cannot turn into files, such as an `S_TEXT/ASS` block that is not a Matroska ASS event. */
+/**
+ * Thrown when an MKV holds something packaging cannot turn into files, such as an `S_TEXT/ASS` block
+ * that is not a Matroska ASS event, or when the output path holds something other than a package.
+ */
 export class PackageError extends Error {}
 
 const EVENT_FORMAT = 'Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text';
@@ -167,6 +170,25 @@ async function scanBlocks(
   return { blocks, counts, endMs };
 }
 
+/**
+ * Refuses an output path that packaging must not replace: anything but a missing path, an empty
+ * directory or a directory holding an `episode.json` (an earlier package of an episode).
+ */
+async function checkReplaceable(outDir: string): Promise<void> {
+  let isDirectory: boolean;
+  try {
+    isDirectory = (await lstat(outDir)).isDirectory();
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw err;
+  }
+  if (!isDirectory) throw new PackageError(`${outDir} exists and is not a directory; refusing to replace it`);
+  const entries = await readdir(outDir);
+  if (entries.length > 0 && !entries.includes('episode.json')) {
+    throw new PackageError(`${outDir} is not empty and holds no episode.json, so it is not a packaged episode; refusing to replace it`);
+  }
+}
+
 async function* iterate<T>(items: readonly T[]): AsyncGenerator<T> {
   yield* items;
 }
@@ -186,14 +208,17 @@ async function* iterate<T>(items: readonly T[]): AsyncGenerator<T> {
  *
  * Other tracks (another video codec, other audio or subtitle codecs) are left out. The MKV is read
  * twice, one cluster at a time; only the subtitle blocks are held in memory. The directory is built
- * beside `outDir` under a temporary name and moved into place when complete, replacing an existing
- * `outDir`; on any failure the temporary directory is removed, and a failure before the move leaves
- * an existing `outDir` as it was.
+ * beside `outDir` under a temporary name and moved into place when complete. An existing `outDir`
+ * is replaced only when it is an empty directory or holds an `episode.json` (an earlier package);
+ * anything else is refused with `PackageError` before anything is written. On any failure the
+ * temporary directory is removed, and a failure before the move leaves an existing `outDir` as it
+ * was.
  * Throws `NotMatroskaError` or `MkvReadError` (from `readMkv`) before anything is written,
  * `WebmError` when there is no AV1 track, `PackageError` or `SupError` for an unreadable subtitle
  * block, and any file system error.
  */
 export async function packageEpisode(mkvPath: string, outDir: string): Promise<EpisodeManifest> {
+  await checkReplaceable(outDir);
   const mkv = await readMkv(mkvPath);
   const { video, audio } = webmTracks(mkv);
   const ass = mkv.tracks.filter((t) => t.codecId === 'S_TEXT/ASS');
@@ -248,6 +273,7 @@ export async function packageEpisode(mkvPath: string, outDir: string): Promise<E
       chapters: 'chapters.vtt',
     };
     await writeFile(join(tmp, 'episode.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+    await checkReplaceable(outDir);
     await rm(outDir, { recursive: true, force: true });
     await rename(tmp, outDir);
     return manifest;

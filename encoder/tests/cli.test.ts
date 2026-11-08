@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -189,6 +189,29 @@ describe('package', () => {
     );
     expect(existsSync(join(dir, 'web'))).toBe(false);
   }, 60_000);
+
+  it('exits 1 for an --out directory holding something else, and leaves it; packaging again over a package works', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'et-pkg-'));
+    const mkv = join(dir, 'ep-01.mkv');
+    await writeEpisodeMkv(mkv);
+    const other = join(dir, 'other');
+    mkdirSync(other);
+    writeFileSync(join(other, 'notes.txt'), 'keep me');
+    let stderr = '';
+    try {
+      execFileSync('npx', ['tsx', fx('src/cli.ts'), 'package', mkv, '--out', other], { stdio: 'pipe' });
+      expect.unreachable('package should refuse');
+    } catch (err) {
+      expect(err).toMatchObject({ status: 1 });
+      stderr = String((err as { stderr: Buffer }).stderr);
+    }
+    expect(stderr).toContain(other);
+    expect(readFileSync(join(other, 'notes.txt'), 'utf8')).toBe('keep me');
+    const web = join(dir, 'web');
+    execFileSync('npx', ['tsx', fx('src/cli.ts'), 'package', mkv, '--out', web]);
+    execFileSync('npx', ['tsx', fx('src/cli.ts'), 'package', mkv, '--out', web]);
+    expect(readdirSync(web).sort()).toEqual(['chapters.vtt', 'episode.json', 'fonts', 'pgs', 'subs', 'video.webm']);
+  }, 120_000);
 
   it('exits 2 without --out', () => {
     expect(() => execFileSync('npx', ['tsx', fx('src/cli.ts'), 'package', '/tmp/x.mkv'], { stdio: 'pipe' })).toThrowError(expect.objectContaining({ status: 2 }));

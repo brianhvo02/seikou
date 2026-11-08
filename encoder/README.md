@@ -54,7 +54,7 @@ out/
 
 ### Packaging for the web player
 
-`package <episode.mkv> --out DIR` reads an episode MKV and writes `DIR` (replacing it if it exists) as a static directory a browser player can serve; `encode --web WEB` does the same for each episode into `WEB/<name>/` right after its MKV is written. Nothing is re-encoded:
+`package <episode.mkv> --out DIR` reads an episode MKV and writes `DIR` (replacing it only when it is empty or holds an earlier package's `episode.json`; anything else there is refused with exit 1) as a static directory a browser player can serve; `encode --web WEB` does the same for each episode into `WEB/<name>/` right after its MKV is written. Nothing is re-encoded:
 
 ```
 WEB/episode-01/

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Id } from '../../src/mux/mkv-ids';
 import { NotMatroskaError, readMkv } from '../../src/mux/mkv-reader';
-import { packageEpisode, safeName, type EpisodeManifest } from '../../src/package/package';
+import { packageEpisode, PackageError, safeName, type EpisodeManifest } from '../../src/package/package';
 import { blocksInOrder, find, findAll, parseMkv, stringOf, uintOf } from '../helpers/ebml-reader';
 import { ffprobePath, haveFfprobe } from '../helpers/tools';
 import { FONT, SCRIPT, writeEpisodeMkv } from './episode-mkv';
@@ -137,5 +137,30 @@ describe('packageEpisode', () => {
     await packageEpisode(mkv, web);
     expect(existsSync(join(web, 'stale.txt'))).toBe(false);
     expect(existsSync(join(web, 'episode.json'))).toBe(true);
+  });
+
+  it('refuses a directory that is not empty and holds no episode.json, and leaves it as it was', async () => {
+    const other = join(dir, 'photos');
+    mkdirSync(other);
+    writeFileSync(join(other, 'holiday.jpg'), 'keep me');
+    await expect(packageEpisode(mkv, other)).rejects.toThrow(PackageError);
+    await expect(packageEpisode(mkv, other)).rejects.toThrow(other);
+    expect(readdirSync(other)).toEqual(['holiday.jpg']);
+    expect(readFileSync(join(other, 'holiday.jpg'), 'utf8')).toBe('keep me');
+    expect(readdirSync(dir).filter((n) => n.includes('.partial-'))).toEqual([]);
+  });
+
+  it('refuses a path that is a file', async () => {
+    const file = join(dir, 'notes.txt');
+    writeFileSync(file, 'keep me');
+    await expect(packageEpisode(mkv, file)).rejects.toThrow(PackageError);
+    expect(readFileSync(file, 'utf8')).toBe('keep me');
+  });
+
+  it('packages into an empty directory', async () => {
+    const empty = join(dir, 'empty');
+    mkdirSync(empty);
+    await packageEpisode(mkv, empty);
+    expect(existsSync(join(empty, 'episode.json'))).toBe(true);
   });
 });
