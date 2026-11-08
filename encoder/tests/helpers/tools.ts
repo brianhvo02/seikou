@@ -62,4 +62,3 @@ export const haveFfprobe: boolean = ffprobePath !== null;
 
 /** Resolved ffmpeg path (test oracle only), or null when absent. */
 export const ffmpegPath: string | null = findOnPath('ffmpeg', process.env.ENCODING_TOOLS_FFMPEG);
-
