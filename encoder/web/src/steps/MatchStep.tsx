@@ -2,7 +2,7 @@
 import type { Dispatch } from 'react';
 import type { HelperApi } from '../api';
 import type { EpisodesAnswer } from '../api-types';
-import { candidatesFor, releaseOf, type FileCandidate, type HelperAction, type HelperState } from '../helper-model';
+import { candidatesFor, canEnter, releaseOf, type FileCandidate, type HelperAction, type HelperState } from '../helper-model';
 import { useEpisodeTitles } from '../episode-titles';
 import { languageName } from '../metadata/metadata-model';
 import { fileValue, parseFileValue, unusedFiles } from './match-model';
@@ -136,7 +136,9 @@ function EpisodeRow({ episode, state, number, title, dispatch }: {
 /**
  * Step 2: one row per disc episode, numbered as the release numbers it (the run's episode plus the episode offset),
  * with its AniList title for that number (or "Episode n"), the file it uses from any pooled release (`candidatesFor`),
- * that file's tracks as checkboxes and "No subtitles". Release files no episode uses are listed under "Not matched", per release. Back returns to step 1.
+ * that file's tracks as checkboxes and "No subtitles". Release files no episode uses are listed under "Not matched",
+ * per release. Back returns to step 1; Next opens step 3 once an episode has a file with tracks or "No subtitles", and
+ * a line under the buttons says so while none has.
  * Episode titles are asked of the backend once per show and shared with the page (`useEpisodeTitles`); if that
  * fails, the rows show "Episode n".
  */
@@ -144,6 +146,7 @@ export function MatchStep({ api, state, episodes, dispatch }: MatchStepProps) {
   const titles = useEpisodeTitles(api, state.title?.alId ?? null);
 
   const unused = unusedFiles(state);
+  const ready = canEnter(state, 3);
 
   return (
     <div className="match-step">
@@ -180,10 +183,15 @@ export function MatchStep({ api, state, episodes, dispatch }: MatchStepProps) {
         <button type="button" className="quiet" onClick={() => dispatch({ type: 'goTo', step: 1 })}>
           Back
         </button>
-        <button type="button" className="primary" onClick={() => dispatch({ type: 'goTo', step: 3 })}>
+        <button type="button" className="primary" disabled={!ready} aria-describedby={ready ? undefined : 'match-next-why'} onClick={() => dispatch({ type: 'goTo', step: 3 })}>
           Next
         </button>
       </div>
+      {!ready && (
+        <p id="match-next-why" className="muted step-why">
+          Choose a file with tracks, or No subtitles, for at least one episode.
+        </p>
+      )}
     </div>
   );
 }

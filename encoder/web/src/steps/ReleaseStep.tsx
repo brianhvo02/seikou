@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, type Dispatch, type FormEvent } from 'react';
 import type { HelperApi } from '../api';
 import type { ReleaseAnswer, SeaDexAnswer, SeaDexRelease, TitleHit, ToshoHit } from '../api-types';
-import { releaseOf, type HelperAction, type HelperState, type ReleaseSource } from '../helper-model';
+import { canEnter, releaseOf, type HelperAction, type HelperState, type ReleaseSource } from '../helper-model';
 import { anyEpisodeHasFile, errorText, plural, refetchNotice, releaseSummary, sourceText } from './release-model';
 
 /** What step 1 needs: the backend client, the page's state and the dispatcher that changes it. */
@@ -66,7 +66,8 @@ function Problem({ text }: { text: string | null }) {
  * fetches every pooled release again: the answers that arrive are added back in pool order and one last pass gives
  * the episodes still without a file the first matched one, and releases that could not be fetched are named beside
  * the offset and keep their old match. A pick fetched at an offset the user has changed meanwhile is fetched again at
- * the new one. "Next" opens step 2 once some episode has a file.
+ * the new one. "Next" opens step 2 once a release is pooled; when no pooled file matched an episode, a line under it
+ * says to pick the files on the Episodes step.
  */
 export function ReleaseStep({ api, state, dispatch }: ReleaseStepProps) {
   const { title, releases, episodeOffset } = state;
@@ -244,6 +245,9 @@ export function ReleaseStep({ api, state, dispatch }: ReleaseStepProps) {
   };
 
   const isChosen = (r: SeaDexRelease) => r.toshoId !== null && releaseOf(state, `tosho-${r.toshoId}`) !== null;
+
+  // files were pooled, but none fits an episode: they can still be picked by hand on step 2
+  const noneMatched = releases.length > 0 && !anyEpisodeHasFile(state);
 
   return (
     <div className="release-step">
@@ -423,9 +427,20 @@ export function ReleaseStep({ api, state, dispatch }: ReleaseStepProps) {
       <Problem text={fetchError} />
 
       <div className="step-next">
-        <button type="button" className="primary" disabled={!anyEpisodeHasFile(state) || fetching} onClick={() => dispatch({ type: 'goTo', step: 2 })}>
+        <button
+          type="button"
+          className="primary"
+          disabled={!canEnter(state, 2) || fetching}
+          aria-describedby={noneMatched ? 'release-next-hint' : undefined}
+          onClick={() => dispatch({ type: 'goTo', step: 2 })}
+        >
           Next
         </button>
+        {noneMatched && (
+          <p id="release-next-hint" className="muted step-why">
+            No file matched an episode; pick them on the Episodes step.
+          </p>
+        )}
       </div>
     </div>
   );

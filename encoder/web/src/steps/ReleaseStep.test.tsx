@@ -1,15 +1,22 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { useReducer } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { HelperApi } from '../api';
 import { ApiError } from '../api';
-import type { ReleaseAnswer, SeaDexAnswer, TitleHit } from '../api-types';
+import type { EpisodesAnswer, ReleaseAnswer, SeaDexAnswer, TitleHit } from '../api-types';
 import { initialState, reduce } from '../helper-model';
+import { MatchStep } from './MatchStep';
 import { ReleaseStep } from './ReleaseStep';
 
 afterEach(cleanup);
+
+/** The text of the elements `el`'s `aria-describedby` names, joined by spaces. */
+function description(el: HTMLElement): string {
+  const ids = el.getAttribute('aria-describedby')?.split(/\s+/).filter((id) => id !== '') ?? [];
+  return ids.map((id) => document.getElementById(id)?.textContent ?? '').join(' ');
+}
 
 const hit: TitleHit = { alId: 900101, title: 'Lantern Harbor', nativeTitle: 'ランタン港', year: 2021, format: 'TV', episodes: 12, poster: null };
 const seadexAnswer: SeaDexAnswer = {
@@ -94,6 +101,18 @@ function fakeApi(overrides: Partial<HelperApi> = {}): HelperApi {
 function Harness({ api }: { api: HelperApi }) {
   const [state, dispatch] = useReducer(reduce, initialState());
   return <ReleaseStep api={api} state={state} dispatch={dispatch} />;
+}
+
+const twoEpisodes: EpisodesAnswer = {
+  episodes: [1, 2].map((index) => ({ index, startUs: index * 1_000_000, durationUs: 1_000_000, chapters: [{ startUs: index * 1_000_000 }] })),
+  audio: [],
+  pgCount: 0,
+};
+
+/** Step 1, then step 2 once the state moves there. */
+function StepsHarness({ api }: { api: HelperApi }) {
+  const [state, dispatch] = useReducer(reduce, initialState());
+  return state.step === 1 ? <ReleaseStep api={api} state={state} dispatch={dispatch} /> : <MatchStep api={api} state={state} dispatch={dispatch} episodes={twoEpisodes} />;
 }
 
 async function searchAndPick(api: HelperApi) {
@@ -315,11 +334,44 @@ describe('ReleaseStep', () => {
     expect(fetchRelease).toHaveBeenLastCalledWith(11, 3);
   });
 
-  it('keeps Next off while no pooled release matches an episode', async () => {
+  it('keeps Next off until a release is pooled', async () => {
+    await searchAndPick(poolApi());
+    expect((screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('a pooled release that matches no episode can still move on, with a hint', async () => {
     const api = poolApi({ fetchRelease: vi.fn(async () => ({ ...answer, match: { rows: [{ episode: 1, fileId: null, candidates: [] }], unmatched: [] } })) });
     await searchAndPick(api);
     fireEvent.click(await screen.findByRole('button', { name: /^GroupA/ }));
     await screen.findByRole('region', { name: /Releases in use/i });
-    expect((screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled).toBe(true);
+    const next = screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement;
+    expect(next.disabled).toBe(false);
+    expect(description(next)).toBe('No file matched an episode; pick them on the Episodes step.');
+  });
+
+  it('own files with no episode number: step 1 can move on and step 2 lists them', async () => {
+    const own: ReleaseAnswer = {
+      key: 'own-1',
+      source: 'local',
+      label: 'Your files',
+      group: '',
+      files: [
+        { id: 'o1', name: 'harbor-opening.ass', tracks: [track('1', 'o/1/1.ass')] },
+        { id: 'o2', name: 'harbor-finale.ass', tracks: [track('1', 'o/2/1.ass')] },
+      ],
+      fonts: [],
+      match: { rows: [{ episode: 1, fileId: null, candidates: [] }, { episode: 2, fileId: null, candidates: [] }], unmatched: [] },
+    };
+    const api = fakeApi({ upload: vi.fn(async () => own) });
+    render(<StepsHarness api={api} />);
+    const input = screen.getByLabelText('Add your own files');
+    fireEvent.change(input, { target: { files: [new File(['x'], 'harbor-opening.ass'), new File(['y'], 'harbor-finale.ass')] } });
+    await screen.findByRole('region', { name: /Releases in use/i });
+    const next = screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement;
+    expect(next.disabled).toBe(false);
+    fireEvent.click(next);
+    const unmatched = await screen.findByRole('region', { name: 'Not matched' });
+    expect(within(unmatched).getByText('harbor-opening.ass')).toBeTruthy();
+    expect(within(unmatched).getByText('harbor-finale.ass')).toBeTruthy();
   });
 });

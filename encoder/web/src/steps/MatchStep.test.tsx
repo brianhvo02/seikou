@@ -11,6 +11,12 @@ import { MatchStep } from './MatchStep';
 
 afterEach(cleanup);
 
+/** The text of the elements `el`'s `aria-describedby` names, joined by spaces. */
+function description(el: HTMLElement): string {
+  const ids = el.getAttribute('aria-describedby')?.split(/\s+/).filter((id) => id !== '') ?? [];
+  return ids.map((id) => document.getElementById(id)?.textContent ?? '').join(' ');
+}
+
 const hit: TitleHit = { alId: 900101, title: 'Lantern Harbor', nativeTitle: null, year: 2021, format: 'TV', episodes: 3, poster: null };
 const track = (id: string, path: string, kind: CachedTrack['kind'], name: string): CachedTrack => ({ id, name, language: 'eng', path, kind, dialogueLines: 10 });
 const answer: ReleaseAnswer = {
@@ -203,5 +209,16 @@ describe('MatchStep', () => {
     expect(back.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(back);
     expect(dispatch).toHaveBeenCalledWith({ type: 'goTo', step: 1 });
+  });
+
+  it('keeps Next off, with the reason, until an episode has a file with tracks or No subtitles', () => {
+    const unmatched: ReleaseAnswer = { ...answer, match: { rows: [1, 2, 3].map((episode) => ({ episode, fileId: null, candidates: [] })), unmatched: [] } };
+    render(<Harness api={fakeApi({})} pool={[unmatched]} after={[{ type: 'goTo', step: 2 }]} />);
+    const next = screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement;
+    expect(next.disabled).toBe(true);
+    expect(description(next)).toBe('Choose a file with tracks, or No subtitles, for at least one episode.');
+    fireEvent.click(within(rowOf(3)).getByRole('checkbox', { name: 'No subtitles' }));
+    expect(next.disabled).toBe(false);
+    expect(description(next)).toBe('');
   });
 });

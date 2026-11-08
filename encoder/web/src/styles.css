@@ -521,6 +521,11 @@ input::placeholder {
   margin-top: 8px;
 }
 
+/* why a step's Next is off, or what to do after it: one line under the buttons */
+.step-why {
+  margin: 6px 0 0;
+}
+
 /* a step's Back and its primary action, side by side with Back on the left */
 .step-actions {
   display: flex;
