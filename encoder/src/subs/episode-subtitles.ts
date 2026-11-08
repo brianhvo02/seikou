@@ -36,7 +36,7 @@ export function trackAlignment(track: Pick<RecordTrack, 'shiftMs' | 'split'>): F
 export interface EpisodeSubtitles {
   /** `S_TEXT/ASS` tracks, in the record's order. */
   tracks: MkvSubtitleTrack[];
-  /** The release's fonts, in the record's order. */
+  /** The record's fonts, in the record's order. */
   attachments: MkvAttachment[];
 }
 
@@ -62,9 +62,11 @@ export function recordFontLoader(record: SubtitleRecord, dataDir: string): FontL
 }
 
 async function readRecordFonts(record: SubtitleRecord, dataDir: string): Promise<MkvAttachment[]> {
-  const release = record.release !== null ? await readCachedRelease(dataDir, record.release.id) : null;
   const names = new Map<string, string>();
-  for (const f of release?.fonts ?? []) if (!names.has(f.path)) names.set(f.path, f.name);
+  for (const r of record.releases) {
+    const release = await readCachedRelease(dataDir, r.id);
+    for (const f of release?.fonts ?? []) if (!names.has(f.path)) names.set(f.path, f.name);
+  }
   const attachments: MkvAttachment[] = [];
   for (const path of record.fonts) {
     attachments.push({

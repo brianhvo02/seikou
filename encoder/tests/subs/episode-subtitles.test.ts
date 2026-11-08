@@ -26,6 +26,7 @@ const SCRIPT = [
 
 function track(over: Partial<RecordTrack>): RecordTrack {
   return {
+    release: 'tosho-77',
     file: 'releases/tosho-77/f1-t1.ass',
     kind: 'full',
     language: 'eng',
@@ -44,7 +45,7 @@ function record(tracks: RecordTrack[], fonts: string[] = []): SubtitleRecord {
     playlist: '00001',
     episodeSpec: '1-2',
     anilist: null,
-    release: { source: 'tosho', id: 'tosho-77', group: 'Starfall Subs', label: '[Starfall Subs] Starfall Wanderer' },
+    releases: [{ source: 'tosho', id: 'tosho-77', group: 'Starfall Subs', label: '[Starfall Subs] Starfall Wanderer' }],
     fonts,
     episodes: [
       {
@@ -183,6 +184,21 @@ describe('episodeSubtitleTracks', () => {
       { name: 'Nebula.woff', mediaType: 'font/woff', data: [3, 3, 3] },
       { name: `${'4'.repeat(64)}.woff2`, mediaType: 'font/woff2', data: [4, 4, 4] },
     ]);
+  });
+
+  it('font names come from any release in the pool', async () => {
+    put('releases/tosho-77/f1-t1.ass', SCRIPT);
+    const [a, b] = [`fonts/${'a'.repeat(64)}.ttf`, `fonts/${'b'.repeat(64)}.ttf`];
+    put(a, new Uint8Array([1]));
+    put(b, new Uint8Array([2]));
+    const cached = (key: string, fonts: { name: string; path: string }[]): string =>
+      JSON.stringify({ key, source: 'local', label: key, group: '', files: [], fonts });
+    put('releases/tosho-77/release.json', cached('tosho-77', [{ name: 'First.ttf', path: a }]));
+    put('releases/local-0123456789abcdef/release.json', cached('local-0123456789abcdef', [{ name: 'Other.ttf', path: a }, { name: 'Second.ttf', path: b }]));
+    const rec = record([track({})], [a, b]);
+    rec.releases.push({ source: 'local', id: 'local-0123456789abcdef', group: '', label: 'own files' });
+    const { attachments } = await episodeSubtitleTracks(rec, 1, 1_440_000, dir);
+    expect(attachments.map((x) => x.name)).toEqual(['First.ttf', 'Second.ttf']);
   });
 
   it('fonts keep their pooled names when the release is not cached', async () => {

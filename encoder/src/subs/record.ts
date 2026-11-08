@@ -4,12 +4,15 @@ import { access, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { parseDiscKey } from '@seikou/nas/disc-key';
 import { replaceAtomically } from '@seikou/titles';
+import { readCachedRelease } from './release-cache';
 import type { TrackKind } from './release-match';
 
 /** One subtitle track of an episode. Array order in `RecordEpisode.tracks` is the MKV track order. */
 export interface RecordTrack {
   /** Path of the track's ASS file, relative to the data directory. */
   file: string;
+  /** The id of the track's release in `SubtitleRecord.releases`. */
+  release: string;
   /** Whether the track holds all dialogue or only signs and songs. */
   kind: TrackKind;
   /** ISO 639-2 three-letter language code. */
@@ -24,6 +27,18 @@ export interface RecordTrack {
   split: { fromMs: number; offsetMs: number }[] | null;
   /** The metadata panel's tick: false when the user unticked the track. */
   included: boolean;
+}
+
+/** A release the record's tracks came from, as picked in the helper. */
+export interface RecordRelease {
+  /** Where the release came from. */
+  source: 'seadex' | 'tosho' | 'local';
+  /** The release's cache key, such as `tosho-7001`; a track's `release` names it. */
+  id: string;
+  /** The release group; empty when none. */
+  group: string;
+  /** A name to show. */
+  label: string;
 }
 
 /** The container-level metadata the user edited for one episode. */
@@ -60,9 +75,9 @@ export interface SubtitleRecord {
   episodeSpec: string;
   /** The show picked on AniList, and how many episodes the release numbers ahead of the disc. */
   anilist: { id: number; title: string; episodeOffset: number } | null;
-  /** The chosen release; null when the user supplied no release. */
-  release: { source: 'seadex' | 'tosho' | 'local'; id: string; group: string; label: string } | null;
-  /** Font files used by the tracks. */
+  /** Every release the tracks came from, in the order they were added; empty when no track is saved. Ids are unique. */
+  releases: RecordRelease[];
+  /** Font files used by the tracks: the union of the fonts of every release in `releases`. */
   fonts: string[];
   /** The episodes, in `index` order of the user's choosing. */
   episodes: RecordEpisode[];
@@ -119,7 +134,21 @@ function relPath(v: unknown, path: string): string {
   return s;
 }
 
-function parseTrack(v: unknown, path: string): RecordTrack {
+function parseRelease(v: unknown, path: string): RecordRelease {
+  const r = obj(v, path);
+  const source = r.source;
+  if (source !== 'seadex' && source !== 'tosho' && source !== 'local') {
+    bad(`${path}.source`, 'expected "seadex", "tosho" or "local"');
+  }
+  return {
+    source: source as RecordRelease['source'],
+    id: str(r.id, `${path}.id`),
+    group: str(r.group, `${path}.group`),
+    label: str(r.label, `${path}.label`),
+  };
+}
+
+function parseTrack(v: unknown, path: string, release: string | undefined): RecordTrack {
   const o = obj(v, path);
   const kind = o.kind;
   if (kind !== 'full' && kind !== 'signs') bad(`${path}.kind`, 'expected "full" or "signs"');
@@ -134,6 +163,7 @@ function parseTrack(v: unknown, path: string): RecordTrack {
     });
   }
   return {
+    release: release ?? str(o.release, `${path}.release`),
     file: relPath(o.file, `${path}.file`),
     kind: kind as TrackKind,
     language: lang(o.language, `${path}.language`),
@@ -166,9 +196,10 @@ function parseMetadata(v: unknown, path: string): RecordMetadata {
 }
 
 /**
- * Validates parsed JSON as a record and returns it as a clean copy. Throws `RecordError` naming the JSON path
+ * Validates parsed JSON as a record and returns it as a clean copy, always in the current form: a record with the
+ * older single `release` field reads as a one-item `releases` (none for null) with that id on each track. Throws `RecordError` naming the JSON path
  * of the first bad field. Checks that languages are three lowercase letters, shifts are finite, episode
- * indexes are positive integers and unique, and every path is relative to the data directory without `..`.
+ * indexes are positive integers and unique, release ids are unique, every track names a release of the record, and every path is relative to the data directory without `..`.
  */
 export function parseRecord(json: unknown): SubtitleRecord {
   const o = obj(json, '$');
@@ -182,20 +213,16 @@ export function parseRecord(json: unknown): SubtitleRecord {
       episodeOffset: num(a.episodeOffset, 'anilist.episodeOffset'),
     };
   }
-  let release: SubtitleRecord['release'] = null;
-  if (o.release !== null) {
-    const r = obj(o.release, 'release');
-    const source = r.source;
-    if (source !== 'seadex' && source !== 'tosho' && source !== 'local') {
-      bad('release.source', 'expected "seadex", "tosho" or "local"');
-    }
-    release = {
-      source: source as 'seadex' | 'tosho' | 'local',
-      id: str(r.id, 'release.id'),
-      group: str(r.group, 'release.group'),
-      label: str(r.label, 'release.label'),
-    };
-  }
+  // A record from before the pool has one `release` (or null) and tracks that name none.
+  const legacy = o.releases === undefined && o.release !== undefined;
+  const releases: RecordRelease[] = legacy
+    ? o.release === null ? [] : [parseRelease(o.release, 'release')]
+    : arr(o.releases, 'releases').map((r, i) => parseRelease(r, `releases[${i}]`));
+  const ids = new Set<string>();
+  releases.forEach((r, i) => {
+    if (ids.has(r.id)) bad(`releases[${i}].id`, `release ${r.id} appears twice`);
+    ids.add(r.id);
+  });
   const seen = new Set<number>();
   const episodes = arr(o.episodes, 'episodes').map((e, i): RecordEpisode => {
     const p = `episodes[${i}]`;
@@ -207,7 +234,12 @@ export function parseRecord(json: unknown): SubtitleRecord {
     return {
       index,
       title: str(eo.title, `${p}.title`),
-      tracks: arr(eo.tracks, `${p}.tracks`).map((t, j) => parseTrack(t, `${p}.tracks[${j}]`)),
+      tracks: arr(eo.tracks, `${p}.tracks`).map((t, j) => {
+        const tp = `${p}.tracks[${j}]`;
+        const track = parseTrack(t, tp, legacy ? releases[0]?.id ?? '' : undefined);
+        if (!ids.has(track.release)) bad(`${tp}.release`, 'expected the id of a release in releases');
+        return track;
+      }),
       metadata: parseMetadata(eo.metadata, `${p}.metadata`),
     };
   });
@@ -216,14 +248,14 @@ export function parseRecord(json: unknown): SubtitleRecord {
     playlist: playlistId(o.playlist, 'playlist'),
     episodeSpec: str(o.episodeSpec, 'episodeSpec'),
     anilist,
-    release,
+    releases,
     fonts: arr(o.fonts, 'fonts').map((f, i) => relPath(f, `fonts[${i}]`)),
     episodes,
     savedAt: str(o.savedAt, 'savedAt'),
   };
 }
 
-/** Group name `missingFiles` uses for files of a record that names no release. */
+/** Group name `missingFiles` uses for fonts of a record that names no release. */
 export const OWN_FILES_LABEL = 'your own files';
 
 /** Reads and writes records under `<dataDir>/subtitles/<discKey>/<playlist>.json`. */
@@ -265,20 +297,55 @@ export class RecordStore {
   }
 
   /**
-   * Lists the record's fonts and track files that are no longer under the data directory, grouped under
-   * the release's label. A record with `release: null` groups them under "your own files". Empty when
-   * nothing is missing.
+   * Lists the record's fonts and track files that are no longer under the data directory, one entry per release
+   * (by its label, in the record's order) that has some. A missing track file is listed under its track's release.
+   * A missing font is listed under every release whose cached `release.json` lists it, or under all of the
+   * record's releases when none does. A record with no releases groups its files under "your own files". Empty
+   * when nothing is missing.
    */
   async missingFiles(record: SubtitleRecord): Promise<{ release: string; files: string[] }[]> {
-    const wanted = [...record.fonts, ...record.episodes.flatMap((e) => e.tracks.map((t) => t.file))];
-    const missing: string[] = [];
-    for (const file of new Set(wanted)) {
+    const isMissing = async (file: string): Promise<boolean> => {
       try {
         await access(join(this.dataDir, file));
+        return false;
       } catch {
-        missing.push(file);
+        return true;
+      }
+    };
+    const groups = new Map<string, Set<string>>();
+    const add = (release: string, file: string): void => {
+      const set = groups.get(release) ?? new Set<string>();
+      set.add(file);
+      groups.set(release, set);
+    };
+    const missingFonts = [];
+    for (const font of new Set(record.fonts)) if (await isMissing(font)) missingFonts.push(font);
+    if (missingFonts.length > 0) {
+      const listed = new Map<string, Set<string>>();
+      for (const r of record.releases) {
+        const cached = await readCachedRelease(this.dataDir, r.id);
+        listed.set(r.id, new Set(cached?.fonts.map((f) => f.path)));
+      }
+      for (const font of missingFonts) {
+        const owners = record.releases.filter((r) => listed.get(r.id)?.has(font));
+        for (const r of owners.length > 0 ? owners : record.releases) add(r.id, font);
+        if (record.releases.length === 0) add('', font);
       }
     }
-    return missing.length === 0 ? [] : [{ release: record.release?.label ?? OWN_FILES_LABEL, files: missing }];
+    const checked = new Map<string, boolean>();
+    for (const e of record.episodes) {
+      for (const t of e.tracks) {
+        if (!checked.has(t.file)) checked.set(t.file, await isMissing(t.file));
+        if (checked.get(t.file)) add(t.release, t.file);
+      }
+    }
+    const out: { release: string; files: string[] }[] = [];
+    for (const r of record.releases) {
+      const files = groups.get(r.id);
+      if (files) out.push({ release: r.label, files: [...files] });
+    }
+    const own = groups.get('');
+    if (own) out.push({ release: OWN_FILES_LABEL, files: [...own] });
+    return out;
   }
 }

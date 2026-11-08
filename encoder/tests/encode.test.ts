@@ -184,7 +184,7 @@ describe.skipIf(!haveTools)('end to end on disc3', () => {
       playlist: '00000',
       episodeSpec: '1-',
       anilist: null,
-      release: null,
+      releases: [],
       fonts: [],
       episodes: [
         {
@@ -226,7 +226,7 @@ it('refuses, before any tool starts, an episode whose ticked audio streams are a
     playlist: '00000',
     episodeSpec: '1-',
     anilist: null,
-    release: null,
+    releases: [],
     fonts: [],
     episodes: [
       {
@@ -267,13 +267,13 @@ describe.skipIf(!haveTools)('end to end on disc-speech with a saved record', () 
     const { key, label } = await discKeyOfFolder(discDir);
     const audio = [{ pid: 0x1100, name: 'Original', language: 'jpn', included: true }];
     const tracksOf = (file: typeof ep1, shiftMs: number, nudgeMs: number): SubtitleRecord['episodes'][number]['tracks'] =>
-      file!.tracks.map((t) => ({ file: t.path, kind: t.kind, language: 'eng', name: t.kind === 'full' ? 'English (GroupA)' : 'Signs (GroupA)', shiftMs, nudgeMs, split: null, included: true }));
+      file!.tracks.map((t) => ({ release: release.key, file: t.path, kind: t.kind, language: 'eng', name: t.kind === 'full' ? 'English (GroupA)' : 'Signs (GroupA)', shiftMs, nudgeMs, split: null, included: true }));
     await new RecordStore(dataDir).write({
       disc: { key, label },
       playlist: '00000',
       episodeSpec: '1-3,4-5',
       anilist: null,
-      release: { source: 'tosho', id: release.key, group: release.group, label: release.label },
+      releases: [{ source: 'tosho', id: release.key, group: release.group, label: release.label }],
       fonts: release.fonts.map((f) => f.path),
       episodes: [
         { index: 1, title: 'Arrival', tracks: tracksOf(ep1, 1200, 42), metadata: { title: 'Lantern Harbor - 01 - Arrival', video: { name: 'Lantern Harbor', language: 'jpn' }, audio, chapters: ['Cold open', '', 'Closing'] } },
@@ -347,7 +347,7 @@ it('follows the record it is given and does not read the saved one again', async
     playlist: '00000',
     episodeSpec: '1-',
     anilist: null,
-    release: null,
+    releases: [],
     fonts: [],
     episodes: [{ index: 1, title: 'x', tracks: [], metadata: { title: 'x', video: { name: '', language: 'jpn' }, audio: [{ pid: 0x1100, name: 'A', language: 'jpn', included: false }], chapters: [] } }],
     savedAt: '2026-11-07T00:00:00Z',
@@ -368,10 +368,10 @@ it('reads every episode\'s subtitle files before any tool starts', async () => {
   const episode = (index: number, file: string): SubtitleRecord['episodes'][number] => ({
     index,
     title: `Episode ${index}`,
-    tracks: [{ file, kind: 'full', language: 'eng', name: 'English', shiftMs: 0, nudgeMs: 0, split: null, included: true }],
+    tracks: [{ release: 'local-0', file, kind: 'full', language: 'eng', name: 'English', shiftMs: 0, nudgeMs: 0, split: null, included: true }],
     metadata: { title: `Episode ${index}`, video: { name: '', language: 'und' }, audio: [{ pid: 0x1100, name: '', language: 'eng', included: true }], chapters: [] },
   });
-  const record: SubtitleRecord = { disc: { key, label }, playlist: '00000', episodeSpec: '1-2,3-4', anilist: null, release: null, fonts: [], episodes: [episode(1, 'cache/ep1.ass'), episode(2, 'cache/gone.ass')], savedAt: '2026-11-07T00:00:00Z' };
+  const record: SubtitleRecord = { disc: { key, label }, playlist: '00000', episodeSpec: '1-2,3-4', anilist: null, releases: [{ source: 'local', id: 'local-0', group: '', label: 'own files' }], fonts: [], episodes: [episode(1, 'cache/ep1.ass'), episode(2, 'cache/gone.ass')], savedAt: '2026-11-07T00:00:00Z' };
   const missing = { vspipe: '/nonexistent/vspipe', svt: '/nonexistent/SvtAv1EncApp', opusenc: '/nonexistent/opusenc' };
   const opts: EncodeOptions = { discDir, playlistId: '00000', episodes: '1-2,3-4', outDir: join(out, 'mkv'), namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], cacheDir: join(out, 'cache'), tools: missing, dataDir, noSubtitles: false, noPgs: true, record };
   // The tools are missing, so reaching the first encode would fail with a spawn error instead.

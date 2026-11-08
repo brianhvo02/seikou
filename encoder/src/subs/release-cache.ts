@@ -88,7 +88,7 @@ async function writeAtomically(file: string, data: string | Uint8Array): Promise
 /**
  * Reads the release stored under `key` in the data directory `dataDir` without a `ReleaseCache` (which needs the
  * download clients), for readers such as the encode. Null when none is stored, when its `release.json` cannot be
- * read, or when the key is not one the cache makes (so no key can leave `releases/`). A record's `release.id` is
+ * read, or when the key is not one the cache makes (so no key can leave `releases/`). A record's release id is
  * such a key.
  */
 export async function readCachedRelease(dataDir: string, key: string): Promise<CachedRelease | null> {

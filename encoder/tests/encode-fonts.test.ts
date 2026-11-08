@@ -32,10 +32,10 @@ it("reads the record's fonts once for all its episodes", async () => {
     const episode = (index: number): SubtitleRecord['episodes'][number] => ({
       index,
       title: `Episode ${index}`,
-      tracks: [{ file: 'cache/ep.ass', kind: 'full', language: 'eng', name: 'English', shiftMs: 0, nudgeMs: 0, split: null, included: true }],
+      tracks: [{ release: 'local-0', file: 'cache/ep.ass', kind: 'full', language: 'eng', name: 'English', shiftMs: 0, nudgeMs: 0, split: null, included: true }],
       metadata: { title: `Episode ${index}`, video: { name: '', language: 'und' }, audio: [{ pid: 0x1100, name: '', language: 'eng', included: true }], chapters: [] },
     });
-    const record: SubtitleRecord = { disc: { key, label }, playlist: '00000', episodeSpec: '1-2,3-4', anilist: null, release: null, fonts: [font], episodes: [episode(1), episode(2)], savedAt: '2026-11-07T00:00:00Z' };
+    const record: SubtitleRecord = { disc: { key, label }, playlist: '00000', episodeSpec: '1-2,3-4', anilist: null, releases: [{ source: 'local', id: 'local-0', group: '', label: 'own files' }], fonts: [font], episodes: [episode(1), episode(2)], savedAt: '2026-11-07T00:00:00Z' };
     const missing = { vspipe: '/nonexistent/vspipe', svt: '/nonexistent/SvtAv1EncApp', opusenc: '/nonexistent/opusenc' };
     const opts: EncodeOptions = { discDir, playlistId: '00000', episodes: '1-2,3-4', outDir: join(out, 'mkv'), namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], cacheDir: join(out, 'cache'), tools: missing, dataDir, noSubtitles: false, noPgs: true, record };
     vi.mocked(readFile).mockClear();

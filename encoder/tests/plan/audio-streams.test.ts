@@ -26,7 +26,7 @@ function recordWith(audio: RecordMetadata['audio'], index = 2): SubtitleRecord {
     playlist: '00000',
     episodeSpec: '1,2',
     anilist: null,
-    release: null,
+    releases: [],
     fonts: [],
     episodes: [episode(1, []), episode(index, audio)],
     savedAt: '2026-11-07T00:00:00Z',

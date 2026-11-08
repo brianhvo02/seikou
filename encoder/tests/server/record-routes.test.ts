@@ -25,13 +25,13 @@ describe('record routes', () => {
     playlist: '00000',
     episodeSpec: '1-3,4-5',
     anilist: null,
-    release: { source: 'tosho', id: 'tosho-7001', group: 'GroupA', label: 'GroupA release' },
+    releases: [{ source: 'tosho', id: 'tosho-7001', group: 'GroupA', label: 'GroupA release' }],
     fonts: ['fonts/a.ttf'],
     episodes: [
       {
         index: 1,
         title: 'One',
-        tracks: [{ file: 'tracks/one.ass', kind: 'full', language: 'eng', name: 'English', shiftMs: 0, nudgeMs: 0, split: null, included: true }],
+        tracks: [{ release: 'tosho-7001', file: 'tracks/one.ass', kind: 'full', language: 'eng', name: 'English', shiftMs: 0, nudgeMs: 0, split: null, included: true }],
         metadata: { title: 'One', video: { name: 'v', language: 'jpn' }, audio: [], chapters: [] },
       },
     ],
@@ -93,6 +93,17 @@ describe('record routes', () => {
     rmSync(join(fixture.dataDir, 'tracks/one.ass'));
     const got = jsonOf<GetAnswer>(await fixture.send('/api/record'));
     expect(got.missing).toEqual([{ release: 'GroupA release', files: ['tracks/one.ass'] }]);
+  });
+
+  it('round-trips a two-release record', async () => {
+    const two = record();
+    two.releases.push({ source: 'local', id: 'local-0123456789abcdef', group: '', label: 'own files' });
+    const t = two.episodes[0]!.tracks[0]!;
+    two.episodes.push({ ...two.episodes[0]!, index: 2, tracks: [{ ...t, release: 'local-0123456789abcdef', file: 'tracks/two.ass' }] });
+    const stored = jsonOf<SubtitleRecord>(await put(two));
+    expect(stored.releases.map((r) => r.id)).toEqual(['tosho-7001', 'local-0123456789abcdef']);
+    expect(stored.episodes.map((e) => e.tracks[0]!.release)).toEqual(['tosho-7001', 'local-0123456789abcdef']);
+    expect(jsonOf<GetAnswer>(await fixture.send('/api/record')).record).toEqual(stored);
   });
 
   it('an unreadable record file answers null with an error, and saving overwrites it', async () => {

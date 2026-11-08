@@ -17,14 +17,14 @@ async function recordFor(over: Partial<SubtitleRecord>): Promise<SubtitleRecord>
     playlist: '00000',
     episodeSpec: '1-2',
     anilist: null,
-    release: { source: 'local', id: 'r1', group: 'GroupA', label: 'GroupA batch' },
+    releases: [{ source: 'local', id: 'r1', group: 'GroupA', label: 'GroupA batch' }],
     fonts: [],
     episodes: [
       {
         index: 1,
         title: 'Harbor',
         tracks: [
-          { file: 'cache/r1/ep1.ass', kind: 'full', language: 'eng', name: 'GroupA', shiftMs: 0, nudgeMs: 0, split: null, included: true },
+          { release: 'r1', file: 'cache/r1/ep1.ass', kind: 'full', language: 'eng', name: 'GroupA', shiftMs: 0, nudgeMs: 0, split: null, included: true },
         ],
         metadata: { title: 'Harbor', video: { name: '', language: 'und' }, audio: [{ pid: 0x1100, name: '', language: 'jpn', included: true }], chapters: [] },
       },
