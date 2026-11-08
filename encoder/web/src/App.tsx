@@ -4,7 +4,9 @@ import type { HelperApi } from './api';
 import type { EpisodesAnswer, SessionInfo } from './api-types';
 import { canEnter, initialState, reduce, toRecord, type HelperAction, type HelperState, type Step } from './helper-model';
 import { defaultMetadata } from './metadata/metadata-model';
+import { useController } from './player/use-controller';
 import { STEP_NAMES, StepBar } from './StepBar';
+import { LineUpStep, type LineUpStepProps } from './steps/LineUpStep';
 import { MatchStep } from './steps/MatchStep';
 import { ReleaseStep } from './steps/ReleaseStep';
 
@@ -75,6 +77,12 @@ function DetailsPanel({ state, onClose }: { state: HelperState; onClose: () => v
       </aside>
     </div>
   );
+}
+
+/** Step 3 with the page's engine, which is made only once the step is first shown. */
+function LineUpScreen(props: Omit<LineUpStepProps, 'controller'>) {
+  const controller = useController();
+  return <LineUpStep {...props} controller={controller} />;
 }
 
 /**
@@ -168,6 +176,8 @@ export function App({ api }: AppProps) {
           <ReleaseStep api={api} state={state} dispatch={dispatch} />
         ) : state.step === 2 && loaded ? (
           <MatchStep api={api} state={state} dispatch={dispatch} />
+        ) : state.step === 3 && loaded ? (
+          <LineUpScreen api={api} state={state} dispatch={dispatch} session={loaded.session} episodes={loaded.episodes} />
         ) : (
           <section aria-labelledby="step-heading">
             <h2 id="step-heading">{STEP_NAMES[state.step]}</h2>

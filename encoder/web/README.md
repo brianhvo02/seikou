@@ -11,7 +11,9 @@ The page the user works in to choose fansub subtitles for a disc's episodes befo
 - **Metadata draft.** `MetadataDraft` (`metadata/metadata-model.ts`) holds per episode the record's metadata fields plus the subtitle tracks' order, names, languages and ticks, and the set of field paths the user edited. `defaultMetadata` fills the defaults: title `<Show> - <nn> - <episode title>`, unnamed `und` video, audio named after its stream-table language (`jpn` is `Japanese`), subtitles named `<group> full` or `<group> signs`, chapters `Chapter n`.
 - **The record.** `toRecord` writes the state as the backend's `SubtitleRecord` (an offset as `shiftMs`, a split as `split` with `shiftMs` 0, anything else as 0 and null). `fromRecord(record, release)` restores it once the record's release has been asked for again; without the release the show, timings and metadata come back but no choices. The record keeps no alignment confidence, and an episode saved with no shift, split or nudge is lined up again.
 - **Wire types.** `api-types.ts` declares every answer shape itself, because `encoder/src` and `@seikou/fansubs` need Node. Only types from `@seikou/nas/nas-api` (such as `FansubAlignment`) are imported.
-- **Token.** Read from `?t=` by `main.tsx` and kept only in the `HelperApi` object; requests send it as `Authorization: Bearer`, and URLs the engine fetches itself (subtitles, fonts) carry it as `?t=`.
+- **Token.** Read from `?t=` by `main.tsx` and kept only in the `HelperApi` object; requests send it as `Authorization: Bearer`, and URLs the page or the engine fetch directly (subtitles, fonts, disc files) carry it as `?t=`.
+- **The engine.** Step 3 plays the disc in `@seikou/engine`, read from the backend's NAS-compatible disc API exactly as Seikou reads a NAS disc (`HelperApi.remoteDisc` gives the `RemoteDiscSpec`: an absolute base, the token and the manifest). There is one controller per page (`useController`), made when step 3 first shows; `showAt` opens the disc at a playlist time the first time (direct playback, no disc menus) and seeks after that. Browsers start audio only from a user action, so the player starts the engine's audio on the first press.
+- **Line-up and preview.** One timing per episode: the backend lines up the episode's track with the most dialogue and answers `trackId`, and the found shift (or split) and the user's nudge apply to every track of the episode. The preview fetches the chosen track already retimed by the backend (`subtitleUrl` with the alignment; the release's own timing for `none` or `original`), so it is byte for byte what the encode muxes, loads it with the release's fonts as `File`s (`loadSubtitleFiles`), places it at the episode's start (`setSubtitleStart(0, startUs)`, which makes its cue times episode-relative) and, on a new episode, goes to the first dialogue line. The nudge is only ever the engine file's offset: whenever the engine reports the file at another offset (a fresh load, a key press), the step sets it from the difference with `shiftSubtitleFile`. One track shows at a time, with a switch when the episode has several.
 
 ## API
 
@@ -19,6 +21,9 @@ The page the user works in to choose fansub subtitles for a disc's episodes befo
 - `helper-model.ts`: `HelperState`, `HelperAction`, `initialState`, `reduce`, `canEnter`, `toRecord`, `fromRecord`.
 - `metadata/metadata-model.ts`: `MetadataDraft`, `defaultMetadata`, `languageCode`, `languageName`, `defaultTrackName`, `defaultTitle`, `defaultTrack`.
 - `MatchStep({ api, state, dispatch })` in `steps/`: step 2. One row per disc episode (AniList title from `episodeTitles`, else "Episode n"): a select of the row's candidate files and every file no row lists, the file's tracks as checkboxes, "No subtitles"; "Not matched" lists files no episode uses. `match-model.ts` holds the pure file lists.
+- `LineUpStep({ api, state, dispatch, session, episodes, controller })` in `steps/`: step 3. Per episode: `align` (a spinner, then the result in words), the preview, the alignment strip, the nudge (`[` `]` 42 ms, `{` `}` 10 ms, and buttons), the track switch, and "Accept, next episode", "Use original timing" (fetches the track at the release's timing, nudge kept) and "Skip" (no subtitles). Without VapourSynth (`toolsReady: false` or a `tools-missing` answer) it says so and previews at the release's own timing. `lineup-model.ts` holds the words, formats, key map and the next-episode rule.
+- `player/use-controller.ts`: `useController()` (the page's controller), `showAt(controller, api, session, timeUs)` and `PlayerLike`, the part of `PlayerController` the page uses (tests pass a stand-in). `player/Player.tsx`: `Player({ controller, episode })`, the canvas, play and pause, a seek bar over the episode's range and its time.
+- `strip/strip-geometry.ts`: `stripLanes(input)` (speech in the top lane where it is, dialogue lines in the bottom lane moved by `shiftAt(alignment, fromMs)` plus the nudge, clipped to the view and scaled to pixels). `strip/AlignmentStrip.tsx` draws it on a canvas, 15 s either side of the playhead.
 - `App({ api })`: the page shell; `StepBar` the three steps.
 - `ReleaseStep({ api, state, dispatch })` in `steps/`: step 1. AniList search (only on submit), the picked show, the episode offset, SeaDex releases for that show (asked only once a show is picked), an Anime Tosho search and the user's own files; `releaseSummary` in `release-model.ts` counts what a fetched release holds.
 
@@ -31,7 +36,7 @@ The page the user works in to choose fansub subtitles for a disc's episodes befo
 
 ## Look
 
-Dark only. One typeface, Instrument Sans (its width axis condenses the disc's name and headings), tabular numerals for times and counts (`.num`). Colours are tokens on `:root` in `styles.css`: base `#0F1B2D`, panel `#17273D`, ink `#E9EFF7`, muted `#8FA1BC`, accent `#4D9BFF` for the chosen item and alignment marks, amber `#F0B45B` only for the nudge. Left aligned, 16 px side gutters, usable at 375 px. No uppercase labels; the step bar is the only numbered thing.
+Dark only. The alignment strip is the one memorable element: both lanes in the accent (speech solid, subtitle lines outlined over a faint fill), a tick each second, the playhead in ink; the nudge's value beside it is the only amber on the page. One typeface, Instrument Sans (its width axis condenses the disc's name and headings), tabular numerals for times and counts (`.num`). Colours are tokens on `:root` in `styles.css`: base `#0F1B2D`, panel `#17273D`, ink `#E9EFF7`, muted `#8FA1BC`, accent `#4D9BFF` for the chosen item and alignment marks, amber `#F0B45B` only for the nudge. Left aligned, 16 px side gutters, usable at 375 px. No uppercase labels; the step bar is the only numbered thing.
 
 ## Where to look
 
@@ -40,6 +45,9 @@ Dark only. One typeface, Instrument Sans (its width axis condenses the disc's na
 - `StepBar.tsx`: the steps.
 - `steps/ReleaseStep.tsx`, `steps/release-model.ts`: step 1 and its pure helpers.
 - `steps/MatchStep.tsx`, `steps/match-model.ts`: step 2 and its pure helpers.
+- `steps/LineUpStep.tsx`, `steps/lineup-model.ts`: step 3 and its pure helpers.
+- `player/`: the engine's controller for the page and the preview player.
+- `strip/`: the alignment strip and its geometry.
 - `api.ts`, `api-types.ts`: the client and the wire shapes.
 - `helper-model.ts`: state, reducer, record conversion.
 - `metadata/metadata-model.ts`: the metadata draft and its defaults.

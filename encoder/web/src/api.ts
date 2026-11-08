@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 /** The helper page's client for its local backend: one typed method per route, every request carrying the run's token. */
+import type { RemoteDiscSpec } from '@seikou/engine';
+import type { DiscManifest } from '@seikou/nas/nas-api';
 import type {
   AlignAnswer,
   EpisodesAnswer,
@@ -64,6 +66,12 @@ export interface HelperApi {
   record(): Promise<RecordAnswer>;
   /** Saves the record; answers it as stored, with `savedAt` set by the server. */
   saveRecord(record: SubtitleRecord): Promise<SubtitleRecord>;
+  /**
+   * The disc as Seikou's engine opens it from the backend's NAS-compatible disc API: its manifest, an absolute base
+   * URL (the engine reads from its worker, which resolves nothing against the page) and the run's token, which the
+   * engine sends as `?t=` on every file read.
+   */
+  remoteDisc(discKey: string): Promise<RemoteDiscSpec>;
 }
 
 /** The `fetch` the client uses; tests pass their own. */
@@ -165,5 +173,10 @@ export function createApi(base: string, token: string, fetchImpl: FetchLike = (i
     fontUrl: (release, name) => `${root}/api/releases/${enc(release)}/fonts/${enc(name)}?${q({ t: token })}`,
     record: () => request('GET', '/api/record'),
     saveRecord: (record) => request('PUT', '/api/record', record),
+    async remoteDisc(discKey) {
+      const manifest = await request<DiscManifest>('GET', `/api/discs/${enc(discKey)}/manifest`);
+      const base = new URL(`${root}/api/discs/${enc(discKey)}/`, root === '' ? location.href : undefined).href;
+      return { kind: 'remote', base, token, manifest };
+    },
   };
 }

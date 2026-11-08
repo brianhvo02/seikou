@@ -59,6 +59,7 @@ function fakeApi(overrides: Partial<HelperApi> = {}): HelperApi {
     fontUrl: () => '',
     record: notCalled,
     saveRecord: notCalled,
+    remoteDisc: notCalled,
     ...overrides,
   };
 }

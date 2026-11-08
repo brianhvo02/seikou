@@ -50,6 +50,7 @@ function fakeApi(titles: Record<number, string>): HelperApi {
     fontUrl: () => '',
     record: notCalled,
     saveRecord: notCalled,
+    remoteDisc: notCalled,
   };
 }
 

@@ -62,6 +62,14 @@ describe('createApi', () => {
     expect(api.fontUrl('tosho-7', 'Harbor Sans.ttf')).toBe('/api/releases/tosho-7/fonts/Harbor%20Sans.ttf?t=secret');
   });
 
+  it("describes the disc for the engine: an absolute base, the token and the manifest", async () => {
+    const manifest = { discId: 'x', name: 'HARBOR_1', files: [], inline: {} };
+    const { fetch, calls } = recorder(() => ok(manifest));
+    const spec = await createApi('http://127.0.0.1:4195', 'secret', fetch).remoteDisc('f.ab/c');
+    expect(calls[0]!.url).toBe('http://127.0.0.1:4195/api/discs/f.ab%2Fc/manifest');
+    expect(spec).toEqual({ kind: 'remote', base: 'http://127.0.0.1:4195/api/discs/f.ab%2Fc/', token: 'secret', manifest });
+  });
+
   it('encodes timing as unpadded base64url JSON', () => {
     const text = base64UrlJson({ kind: 'split', parts: [{ fromMs: 0, offsetMs: -500 }], confidence: 0.5 });
     expect(text).toMatch(/^[A-Za-z0-9_-]+$/);

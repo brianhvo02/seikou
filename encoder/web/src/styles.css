@@ -602,3 +602,231 @@ input::placeholder {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/*
+ * step 3: the episode rail, the preview, then the alignment strip directly under the picture, since the strip is
+ * the thing to watch while nudging; the nudge's value is the one amber thing on the page
+ */
+.lineup-episodes ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 0 0 18px;
+  padding: 0;
+  list-style: none;
+  border-bottom: 1px solid var(--rule);
+}
+
+.lineup-episodes button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-height: 44px;
+  padding: 4px 0 8px;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.lineup-episodes button[aria-current='true'] {
+  border-bottom-color: var(--accent);
+}
+
+.lineup-episode-name {
+  font-weight: 560;
+}
+
+.lineup-episode-status {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.lineup-status {
+  min-height: 24px;
+  margin-bottom: 12px;
+}
+
+.lineup-result {
+  font-size: 17px;
+  font-weight: 560;
+  font-variant-numeric: tabular-nums;
+}
+
+.working {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+}
+
+.spinner {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--rule);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+.player-frame {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.player-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.player-message {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  right: 12px;
+  font-size: 14px;
+}
+
+.player-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.player-controls .play {
+  min-width: 4.75rem;
+}
+
+.seek {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--ink);
+}
+
+.player-time {
+  flex: none;
+  font-size: 14px;
+}
+
+/* the strip: two lanes on one canvas, their names in a narrow column beside it */
+.strip {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  margin-top: 14px;
+  background: var(--panel);
+  border-radius: 4px;
+}
+
+.strip-labels {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  align-items: center;
+  padding: 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.2;
+  border-right: 1px solid var(--rule);
+}
+
+.strip-canvas {
+  display: block;
+  width: 100%;
+  height: 64px;
+}
+
+.nudge {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-top: 12px;
+}
+
+.nudge-label {
+  color: var(--muted);
+}
+
+.nudge-value {
+  min-width: 5.5rem;
+  color: var(--amber);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.nudge-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.nudge-buttons button {
+  min-width: 3.25rem;
+  padding: 0 10px;
+}
+
+.nudge-keys {
+  font-size: 13px;
+}
+
+kbd {
+  display: inline-block;
+  min-width: 1.4em;
+  padding: 0 4px;
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  font: inherit;
+  text-align: center;
+}
+
+.track-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 18px 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.track-switch legend {
+  padding: 0;
+  margin-bottom: 6px;
+  color: var(--muted);
+}
+
+.lineup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+@media (max-width: 480px) {
+  .strip {
+    grid-template-columns: 4.25rem minmax(0, 1fr);
+  }
+
+  .lineup-actions .primary {
+    flex-basis: 100%;
+  }
+}
