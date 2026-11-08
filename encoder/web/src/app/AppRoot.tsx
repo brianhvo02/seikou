@@ -10,6 +10,7 @@ import { EpisodesPage } from './EpisodesPage';
 import { LibraryPage } from './LibraryPage';
 import { useDocumentTitle } from './place';
 import { Link, useRoute } from './router';
+import { SettingsPage } from './SettingsPage';
 
 /** What the root needs. */
 export interface AppRootProps {
@@ -73,7 +74,7 @@ export function AppRoot({ token }: AppRootProps) {
       page = <EpisodesRoute api={appApi} discKey={route.discKey} playlistId={route.playlistId} />;
       break;
     case 'settings':
-      page = <Placeholder title="Settings" />;
+      page = <SettingsPage api={appApi} />;
       break;
     case 'queue':
       page = <Placeholder title="Queue" />;

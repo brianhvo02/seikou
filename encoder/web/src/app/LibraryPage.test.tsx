@@ -41,6 +41,10 @@ function fakeApi(extra: Partial<LibraryAnswer> = {}, overrides: Partial<AppApi> 
       throw new Error('not used');
     }),
     createSession: vi.fn(async () => ''),
+    profiles: vi.fn(async () => []),
+    createProfile: vi.fn(),
+    updateProfile: vi.fn(),
+    deleteProfile: vi.fn(),
     remoteDisc: vi.fn(async () => {
       throw new Error('not used');
     }),

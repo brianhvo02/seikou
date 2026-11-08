@@ -1574,3 +1574,96 @@ a {
   }
 
 }
+
+/* Settings: profiles as rows; the open one shows its form in place */
+.profile-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  max-width: var(--column);
+}
+
+.profile {
+  border-bottom: 1px solid var(--rule);
+  padding: 12px 0;
+}
+
+.profile-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.profile-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 16rem;
+}
+
+.profile-name {
+  font-weight: 560;
+  overflow-wrap: anywhere;
+}
+
+.profile-summary {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+button.quiet.danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.profile-form {
+  display: grid;
+  gap: 2px;
+  margin-top: 6px;
+  padding: 4px 0 8px 14px;
+  border-left: 2px solid var(--accent);
+}
+
+.profile-form .field input[type='text'],
+.profile-form .field input[type='number'] {
+  width: 100%;
+}
+
+.profile-form .field-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0 20px;
+}
+
+.profile-form .field .check {
+  margin-top: 2px;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.field-error {
+  font-size: 13px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.profile-new {
+  margin-top: 28px;
+  max-width: var(--column);
+}

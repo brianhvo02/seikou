@@ -2,7 +2,7 @@
 import { ApiError, errorOf, type FetchLike } from '../api';
 import type { RemoteDiscSpec } from '@seikou/engine';
 import type { DiscManifest } from '@seikou/nas/nas-api';
-import type { LibraryAnswer, PlaylistDetail, PlaylistSummary } from '../api-types';
+import type { EncodeSettings, LibraryAnswer, PlaylistDetail, PlaylistSummary, Profile } from '../api-types';
 
 // The app pages' client for the backend's library routes, carrying the run's token.
 
@@ -22,6 +22,14 @@ export interface AppApi {
   createSession(discKey: string, playlistId: string, episodeSpec: string): Promise<string>;
   /** What the engine needs to read a library disc: the disc API's base address, the token and the manifest. */
   remoteDisc(discKey: string): Promise<RemoteDiscSpec>;
+  /** The settings profiles, the built-in default first. */
+  profiles(): Promise<Profile[]>;
+  /** Makes a profile; rejects with `ApiError` whose `details.field` names a bad value. */
+  createProfile(name: string, settings: EncodeSettings): Promise<Profile>;
+  /** Replaces a stored profile's name and settings; rejects like `createProfile`. */
+  updateProfile(id: string, name: string, settings: EncodeSettings): Promise<Profile>;
+  /** Deletes a stored profile. */
+  deleteProfile(id: string): Promise<void>;
 }
 
 /** The client for the backend at `base` (an origin, or `''` for the page's own) with the run's `token`, sent as `Authorization: Bearer`. */
@@ -67,6 +75,14 @@ export function createAppApi(base: string, token: string, fetchImpl: FetchLike =
       const manifest = await request<DiscManifest>('GET', `/api/discs/${key}/manifest`);
       const base = new URL(`${root}/api/discs/${key}/`, root === '' ? location.href : undefined).href;
       return { kind: 'remote', base, token, manifest };
+    },
+    async profiles() {
+      return (await request<{ profiles: Profile[] }>('GET', '/api/profiles')).profiles;
+    },
+    createProfile: (name, settings) => request('POST', '/api/profiles', { name, settings }),
+    updateProfile: (id, name, settings) => request('PUT', `/api/profiles/${encodeURIComponent(id)}`, { name, settings }),
+    async deleteProfile(id) {
+      await request('DELETE', `/api/profiles/${encodeURIComponent(id)}`);
     },
   };
 }

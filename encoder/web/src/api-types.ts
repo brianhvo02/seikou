@@ -363,6 +363,38 @@ export interface LibraryAnswer {
   readonly discs: readonly LibraryDiscInfo[];
 }
 
+/** The settings of an encode that a profile holds. */
+export interface EncodeSettings {
+  /** SVT-AV1 constant rate factor, an integer 0 to 63; lower is better quality and bigger files. */
+  readonly crf: number;
+  /** SVT-AV1 preset, an integer -1 to 13; lower is slower and better. */
+  readonly preset: number;
+  /** Film-grain synthesis level, an integer 0 to 50. */
+  readonly filmGrain: number;
+  /** More SVT-AV1 arguments, one item per argument. */
+  readonly extraSvtArgs: readonly string[];
+  /** Opus bitrate in kb/s (an integer 6 to 512), or null for opusenc's own default. */
+  readonly opusBitrate: number | null;
+  /** Whether the disc's PGS subtitle tracks go into the MKV. */
+  readonly pgs: boolean;
+  /** Whether each episode is also packaged for the web player. */
+  readonly web: boolean;
+  /** The episode file name without its extension; contains `{n}`, the episode number. */
+  readonly namePattern: string;
+}
+
+/** A named set of encode settings (`GET /api/profiles`). */
+export interface Profile {
+  /** `default` for the built-in profile, else a short URL-safe id. */
+  readonly id: string;
+  /** The profile's name, unique in any letter case. */
+  readonly name: string;
+  /** True for the built-in profile, which cannot be changed or deleted. */
+  readonly builtIn: boolean;
+  /** The settings. */
+  readonly settings: EncodeSettings;
+}
+
 /** One chapter of a playlist: its 1-based number, where it starts and how long it is. */
 export interface ChapterInfo {
   /** Chapter number, from 1. */
