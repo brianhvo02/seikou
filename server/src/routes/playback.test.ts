@@ -15,6 +15,7 @@ import type { TitleLibrary } from './titles';
 import type { Catalogue } from '@seikou/titles/catalogue';
 import type { DiscEvidence } from '../titles/evidence';
 import { PlaybackStore } from '../playback-store';
+import type { EncodeIndex } from '../encodes/index-store';
 import { Store } from '../store';
 
 // Every name here is made up.
@@ -231,5 +232,72 @@ describe('Continue watching routes', () => {
     expect(list).toEqual([expect.objectContaining({ kind: 'resume', titleId: null })]);
     await call('PUT', `${KEY}/00001`, owner.token, place({ finished: true }));
     expect((await get('/api/me/playback/title/star', owner.token)).status).toBe(200);
+  });
+});
+
+describe('encode places', () => {
+  const EKEY = 'e.990001.1';
+  const encodePlace = (over: Partial<PlaybackPlace> = {}): PlaybackPlace => place({ discKey: EKEY, discId: '990001-1', playlistId: 'mkv', psrs: [], ...over });
+  const entry = (episode: number) => ({ id: `990001-${episode}`, anilistId: 990001, episode, episodeTitle: null, durationMs: 1_440_000, path: '/x' });
+  let gate: 'owners' | 'everyone' = 'everyone';
+  let url = '';
+  let stop: (() => void) | undefined;
+
+  beforeEach(async () => {
+    gate = 'everyone';
+    const library = new Library([], join(data, 'library.json'), { scanPauseMs: 0 });
+    const titles = { service: { gate: () => gate, catalogue: () => ({ titles: [], detail: () => null }), entriesFor: () => new Map(), addEncodeArt: () => {} }, owner: {} } as unknown as TitleLibrary;
+    const encodes = { ready: async () => true, list: () => [entry(1), entry(2)] } as unknown as EncodeIndex;
+    const server = createServer(appHandlers({ auth, library, bdjStore: new BdjStore(data), playbackStore: new PlaybackStore(data), publicBase: 'https://nas.example/bluray/api/', titles, encodes }));
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    stop = () => { server.close(); server.closeAllConnections(); };
+  });
+  afterEach(() => stop?.());
+
+  const at = (method: string, path: string, token: string, body?: unknown): Promise<Response> =>
+    fetch(`${url}${path}`, { method, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+
+  it('an e. key stores and reads a place', async () => {
+    const { token } = await tokenFor('Mika', false);
+    expect((await at('PUT', `/api/me/playback/${EKEY}/mkv`, token, encodePlace())).status).toBe(204);
+    expect((await (await at('GET', `/api/me/playback/${EKEY}`, token)).json() as { places: Record<string, unknown> }).places).toEqual({ mkv: encodePlace() });
+    expect((await at('PUT', `/api/me/playback/${EKEY}/mkv`, token, encodePlace({ mode: 'hdmv' }))).status).toBe(400);
+    expect((await at('PUT', `/api/me/playback/${EKEY}/mkv`, token, encodePlace({ discId: '990001-2' }))).status).toBe(400);
+    expect((await at('DELETE', `/api/me/playback/${EKEY}/mkv`, token)).status).toBe(204);
+    expect((await at('GET', `/api/me/playback/${EKEY}`, token)).status).toBe(404);
+  });
+
+  it('a disc route answers 404 bad-key for an e. key', async () => {
+    const { token } = await tokenFor('Mika', false);
+    const wrong = await at('PUT', `/api/me/playback/${EKEY}/00001`, token, encodePlace({ playlistId: '00001' }));
+    expect([wrong.status, await wrong.json()]).toEqual([404, { error: 'bad-key' }]);
+    const bad = await at('GET', '/api/me/playback/e.0.1', token);
+    expect([bad.status, await bad.json()]).toEqual([404, { error: 'bad-key' }]);
+    expect((await at('GET', `/api/discs/resolve/${EKEY}`, token)).status).toBe(404);
+  });
+
+  it('continue watching lists encodes only in the encodes list', async () => {
+    const { token } = await tokenFor('Mika', false);
+    await at('PUT', `/api/me/playback/${EKEY}/mkv`, token, encodePlace({ finished: true, updatedAt: 2000 }));
+    await at('PUT', `/api/me/playback/${KEY}/00001`, token, place());
+    const discs = (await (await at('GET', '/api/me/playback', token)).json()) as { discKey: string }[];
+    expect(discs.map((i) => i.discKey)).toEqual([KEY]);
+    const list = (await (await at('GET', '/api/me/playback?library=encodes', token)).json()) as unknown[];
+    expect(list).toEqual([expect.objectContaining({ kind: 'up-next', encodeId: '990001-2', discKey: '', discId: '', playlistId: 'mkv', titleId: '990001', titleName: 'AniList 990001' })]);
+    expect((await at('GET', '/api/me/playback?library=nope', token)).status).toBe(400);
+    const progress = await (await at('GET', '/api/me/playback/title/990001?library=encodes', token)).json();
+    expect(progress).toEqual({ '990001-1': { mkv: { timeUs: 5_000_000, durationUs: 60_000_000, finished: true } } });
+    expect((await at('GET', '/api/me/playback/title/42?library=encodes', token)).status).toBe(404);
+  });
+
+  it('hides the encodes catalogue from a guest while the gate is owners', async () => {
+    gate = 'owners';
+    const { token } = await tokenFor('Mika', false);
+    await at('PUT', `/api/me/playback/${EKEY}/mkv`, token, encodePlace({ finished: true }));
+    await at('PUT', '/api/me/playback/e.990001.2/mkv', token, encodePlace({ discKey: 'e.990001.2', discId: '990001-2' }));
+    const list = (await (await at('GET', '/api/me/playback?library=encodes', token)).json()) as unknown[];
+    expect(list).toEqual([expect.objectContaining({ kind: 'resume', encodeId: '990001-2', titleId: null })]);
+    expect((await at('GET', '/api/me/playback/title/990001?library=encodes', token)).status).toBe(404);
   });
 });

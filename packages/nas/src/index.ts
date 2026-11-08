@@ -8,3 +8,4 @@ export * from './pairing-code';
 export * from './cors-policy';
 export * from './rtc-wire';
 export * from './encode-id';
+export * from './place-key';

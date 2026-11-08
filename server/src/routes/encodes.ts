@@ -101,14 +101,7 @@ export function encodeRoutes(auth: Auth, encodes: EncodeIndex | undefined, title
     }
   };
 
-  /** The encodes grouped by AniList, from the cached entries; the posters are registered for the art route. */
-  const catalogue = (): EncodeCatalogue => {
-    const list = encodes!.list();
-    const entries = titles ? titles.service.entriesFor([...new Set(list.map((e) => e.anilistId))]) : new Map();
-    const built = buildEncodeCatalogue(list, entries);
-    titles?.service.addEncodeArt(built.art);
-    return built;
-  };
+  const catalogue = (): EncodeCatalogue => encodeCatalogueOf(encodes!, titles);
 
   const library: Handler = async (req, url) => {
     const match = SHOWS_ROUTE.exec(url.pathname);
@@ -162,6 +155,15 @@ export function encodeRoutes(auth: Auth, encodes: EncodeIndex | undefined, title
     return serveFile(req, entry.path);
   };
   return async (req, url) => (await write(req, url)) ?? (await library(req, url)) ?? read(req, url);
+}
+
+/** The encodes grouped by AniList, from the entries the title service has cached; the posters are registered for the art route. */
+export function encodeCatalogueOf(encodes: EncodeIndex, titles: TitleLibrary | undefined): EncodeCatalogue {
+  const list = encodes.list();
+  const entries = titles ? titles.service.entriesFor([...new Set(list.map((e) => e.anilistId))]) : new Map();
+  const built = buildEncodeCatalogue(list, entries);
+  titles?.service.addEncodeArt(built.art);
+  return built;
 }
 
 function stripPath(entry: EncodeEntry): Omit<EncodeEntry, 'path'> {

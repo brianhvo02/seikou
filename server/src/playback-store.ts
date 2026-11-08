@@ -1,6 +1,7 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { parseDiscKey } from '@seikou/nas/disc-key';
+import { encodeId } from '@seikou/nas/encode-id';
+import { ENCODE_PLAYLIST, parsePlaceKey } from '@seikou/nas/place-key';
 import type { DiscPlaces, PlaceSettings, PlaybackPlace } from '@seikou/nas/nas-api';
 import { isCode, lockFile, replaceAtomically } from '@seikou/titles/atomic-json';
 import { PERSON_RE } from './bdj-store';
@@ -51,7 +52,25 @@ export function isPlaybackPlace(v: unknown): v is PlaybackPlace {
   return isSettings(v.settings);
 }
 
-/** Each person's places, one file per disc under `users/<personId>/playback/<discKey>.json`. */
+/**
+ * Whether a place fits the library its key names: any shape for a disc key; for an encode key, that encode's id as
+ * `discId`, the playlist `mkv` and no program state (`mode: 'none'`, no PSRs, GPRs or title). False for a bad key.
+ */
+export function fitsKey(place: PlaybackPlace): boolean {
+  const parsed = parsePlaceKey(place.discKey);
+  if (parsed === null) return false;
+  if (parsed.kind === 'disc') return true;
+  return place.discId === encodeId(parsed.anilistId, parsed.episode) && place.playlistId === ENCODE_PLAYLIST
+    && place.mode === 'none' && place.psrs.length === 0 && place.gprs === null && place.title === null;
+}
+
+/** Which library a place belongs to, by its key. */
+export type PlaceLibrary = 'disc' | 'encode';
+
+/**
+ * Each person's places, one file per place key under `users/<personId>/playback/<key>.json`: a disc's (`f.`/`d.`) or
+ * an encoded episode's (`e.`). One cap counts both.
+ */
 export class PlaybackStore {
   private readonly maxPlaces: number;
   private readonly now: () => number;
@@ -67,7 +86,7 @@ export class PlaybackStore {
   }
 
   private file(personId: string, discKey: string): string {
-    if (parseDiscKey(discKey) === null) throw new Error('bad disc key');
+    if (parsePlaceKey(discKey) === null) throw new Error('bad place key');
     return join(this.dir(personId), `${discKey}.json`);
   }
 
@@ -124,7 +143,8 @@ export class PlaybackStore {
     });
   }
 
-  all(personId: string): PlaybackPlace[] {
+  /** Every place of the person, or only those of one library. */
+  all(personId: string, library?: PlaceLibrary): PlaybackPlace[] {
     let names: string[];
     try {
       names = readdirSync(this.dir(personId));
@@ -134,7 +154,8 @@ export class PlaybackStore {
     }
     const out: PlaybackPlace[] = [];
     for (const name of names) {
-      if (!name.endsWith('.json') || parseDiscKey(name.slice(0, -5)) === null) continue;
+      const kind = name.endsWith('.json') ? parsePlaceKey(name.slice(0, -5))?.kind : undefined;
+      if (kind === undefined || (library !== undefined && kind !== library)) continue;
       const disc = this.read(join(this.dir(personId), name));
       if (disc) out.push(...Object.values(disc.places));
     }

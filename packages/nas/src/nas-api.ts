@@ -137,10 +137,16 @@ export interface PlaybackPlace {
 /** One person's places in one disc: by playlist id, with the settings of the latest put as `defaults`. */
 export interface DiscPlaces { readonly defaults: PlaceSettings | null; readonly places: Readonly<Record<string, PlaybackPlace>> }
 
-/** One card of the Continue watching row. `up-next` is the episode after a finished one, to start from the beginning. */
+/**
+ * One card of the Continue watching row. `up-next` is the episode after a finished one, to start from the beginning.
+ * A card of the encodes list carries `encodeId`, with `discKey` and `discId` empty and `playlistId` `mkv`; there the
+ * title is the encodes show, the season its AniList entry.
+ */
 export interface ContinueItem {
   readonly kind: 'resume' | 'up-next';
   readonly discKey: string; readonly discId: string; readonly playlistId: string;
+  /** The encoded episode, `<anilistId>-<episode>`; only on a card of the encodes list. */
+  readonly encodeId?: string;
   readonly timeUs: number; readonly durationUs: number;
   readonly titleId: string | null; readonly titleName: string | null; readonly poster: string | null;
   readonly seasonId: string | null; readonly seasonNumber: number | null; readonly episode: number | null;

@@ -5,6 +5,7 @@ import { appHandlers } from './app';
 import { Auth } from './auth';
 import { BdjStore } from './bdj-store';
 import { PlaybackStore } from './playback-store';
+import { PlayerSettingsStore } from './player-settings-store';
 import { SubtitleStore } from './subtitle-store';
 import { ownerCode, printNasId } from './cli';
 import { loadConfig } from './config';
@@ -246,7 +247,7 @@ async function serve(config: Config): Promise<void> {
   });
   const encodes = config.encodesDir === null ? undefined : new EncodeIndex({ dir: config.encodesDir, dataDir: config.dataDir, log: console.log });
   const encodeUploads = encodes && config.encodesDir !== null ? new UploadStore({ dir: config.encodesDir, index: encodes, log: console.log }) : undefined;
-  const handlers = appHandlers({ auth, library, ...(encodes ? { encodes } : {}), ...(encodeUploads ? { encodeUploads } : {}), bdjStore: new BdjStore(config.dataDir), playbackStore: new PlaybackStore(config.dataDir), subtitleStore, publicBase: config.publicBase, appUrl: config.appUrl, ...(config.rendezvousUrl !== undefined ? { rendezvousUrl: config.rendezvousUrl } : {}), registrar: rendezvous, trustProxy, titles: { service: titles, owner }, relay, nasId, isoTrees, ...(levels ? { levels } : {}), activity, fansubs: { service: fansubs, state: fansubState, seadex, tosho, picks, lookup } });
+  const handlers = appHandlers({ auth, library, ...(encodes ? { encodes } : {}), ...(encodeUploads ? { encodeUploads } : {}), bdjStore: new BdjStore(config.dataDir), playbackStore: new PlaybackStore(config.dataDir), playerSettingsStore: new PlayerSettingsStore(config.dataDir), subtitleStore, publicBase: config.publicBase, appUrl: config.appUrl, ...(config.rendezvousUrl !== undefined ? { rendezvousUrl: config.rendezvousUrl } : {}), registrar: rendezvous, trustProxy, titles: { service: titles, owner }, relay, nasId, isoTrees, ...(levels ? { levels } : {}), activity, fansubs: { service: fansubs, state: fansubState, seadex, tosho, picks, lookup } });
   const server = createServer(handlers);
   const stopRtc = rendezvous && config.rendezvousUrl !== undefined ? startRtc(config, config.rendezvousUrl, rendezvous, handlers, auth, relay) : async () => {};
 

@@ -1,24 +1,32 @@
 import type { IncomingMessage } from 'node:http';
 import { parseDiscKey } from '@seikou/nas/disc-key';
+import { ENCODE_PLAYLIST, parsePlaceKey } from '@seikou/nas/place-key';
 import { LockHeldError } from '@seikou/titles/atomic-json';
 import type { Auth } from '../auth';
 import { HttpError, json } from '../http';
-import type { Handler } from '../http';
-import { isPlaybackPlace, isPlaylistId, PLACE_LIMIT_BYTES } from '../playback-store';
+import type { Handler, Response } from '../http';
+import { fitsKey, isPlaybackPlace, isPlaylistId, PLACE_LIMIT_BYTES } from '../playback-store';
 import type { PlaybackStore } from '../playback-store';
 import type { Catalogue } from '@seikou/titles/catalogue';
 import type { Library } from '../library';
-import { continueWatching, titleProgress } from '@seikou/titles/up-next';
+import { continueWatching, continueWatchingEncodes, encodeShowProgress, titleProgress } from '@seikou/titles/up-next';
+import { buildEncodeCatalogue } from '@seikou/titles/encode-catalogue';
+import type { EncodeIndex } from '../encodes/index-store';
+import { encodeCatalogueOf, FIRST_SCAN_WAIT_MS } from './encodes';
 import { decodeSegment, requestDevice } from './titles';
 import type { TitleLibrary } from './titles';
 
 const EMPTY: Catalogue = { titles: [], detail: () => null, unsorted: [], hidden: [], art: () => null, provisional: [] };
+const NO_ENCODES = buildEncodeCatalogue([], new Map());
 const LIST = '/api/me/playback';
 const PREFIX = `${LIST}/`;
 const TITLE_PREFIX = `${PREFIX}title/`;
 
-/** What the list and the title progress work out from; both optional (without them the list holds only resume cards). */
-export interface PlaybackCatalogue { readonly titles?: TitleLibrary; readonly library?: Library }
+/**
+ * What the lists and the progress work out from; all optional (without them a list holds only resume cards). `encodes`
+ * is the encodes folder's index, and `encodesWaitMs` how long a request waits for its first scan (default 30 s).
+ */
+export interface PlaybackCatalogue { readonly titles?: TitleLibrary | undefined; readonly library?: Library | undefined; readonly encodes?: EncodeIndex | undefined; readonly encodesWaitMs?: number | undefined }
 
 /** The disc ids a disc key stands for: every listed disc with an `f.` key's fingerprint, the one id of a `d.` key. */
 function discsOfFor(library: Library | undefined): (discKey: string) => readonly string[] {
@@ -49,14 +57,36 @@ async function readPlace(req: IncomingMessage): Promise<unknown> {
 }
 
 /**
- * `GET` and `DELETE /api/me/playback/<discKey>`, `PUT` and `DELETE /api/me/playback/<discKey>/<playlistId>`: the
- * token's own person's places. Behind `requireToken`.
+ * `GET` and `DELETE /api/me/playback/<key>`, `PUT` and `DELETE /api/me/playback/<key>/<playlistId>`: the token's own
+ * person's places, of a disc (`f.`/`d.` key) or an encoded episode (`e.` key, whose one playlist is `mkv`).
+ * `GET /api/me/playback` is the discs' Continue watching row and `GET /api/me/playback/title/<id>` a title's progress;
+ * with `?library=encodes` they are the encodes' row and an encodes show's progress (by show id, keyed by encode id).
+ * Behind `requireToken`.
  */
 export function playbackRoutes(auth: Auth, store: PlaybackStore, catalogue: PlaybackCatalogue = {}): Handler {
   const discsOf = discsOfFor(catalogue.library);
   const keyOf = (discId: string): string => {
     const fingerprint = catalogue.library?.evidence().find((ev) => ev.discId === discId)?.fingerprint;
     return fingerprint ? `f.${fingerprint}` : `d.${discId}`;
+  };
+  const encodesWaitMs = catalogue.encodesWaitMs ?? FIRST_SCAN_WAIT_MS;
+  /**
+   * The encodes' row (`show` null) or a show's progress. Behind the title gate, as the encodes routes are, a guest's
+   * row holds bare resume cards and a show answers 404.
+   */
+  const encodeAnswer = async (show: string | null, person: string, owner: boolean): Promise<Response> => {
+    const titles = catalogue.titles;
+    const open = titles === undefined || owner || titles.service.gate() === 'everyone';
+    const places = store.all(person, 'encode');
+    const encodes = catalogue.encodes;
+    if (open && encodes && !(await encodes.ready(encodesWaitMs))) return json(503, { error: 'indexing' }, { 'Retry-After': '5' });
+    const built = open && encodes ? encodeCatalogueOf(encodes, titles) : null;
+    if (show === null) {
+      const items = built ? continueWatchingEncodes(places, built) : continueWatchingEncodes(places.filter((p) => !p.finished), NO_ENCODES);
+      return json(200, items, { 'Cache-Control': 'no-store' });
+    }
+    const found = built && !show.includes('/') ? built.show(decodeSegment(show)) : null;
+    return found ? json(200, encodeShowProgress(places, found), { 'Cache-Control': 'no-store' }) : json(404, { error: 'not found' });
   };
   return async (req, url) => {
     const isList = url.pathname === LIST;
@@ -69,21 +99,28 @@ export function playbackRoutes(auth: Auth, store: PlaybackStore, catalogue: Play
     const titles = catalogue.titles;
     // The title gate hides the library from a guest, and so what the catalogue would add to the list.
     const open = titles !== undefined && (device.owner || titles.service.gate() === 'everyone');
-    if (isList) {
+    const isTitle = url.pathname.startsWith(TITLE_PREFIX);
+    if (isList || isTitle) {
       if (method !== 'GET') return json(405, { error: 'method not allowed' }, { Allow: 'GET' });
-      const places = store.all(person);
+      const library = url.searchParams.get('library');
+      if (library !== null && library !== 'discs' && library !== 'encodes') return json(400, { error: 'bad library' });
+      if (library === 'encodes') return encodeAnswer(isList ? null : url.pathname.slice(TITLE_PREFIX.length), person, device.owner);
+    }
+    if (isList) {
+      const places = store.all(person, 'disc');
       const items = open ? continueWatching(places, titles.service.catalogue(), discsOf, keyOf) : continueWatching(places.filter((p) => !p.finished), EMPTY, discsOf);
       return json(200, items, { 'Cache-Control': 'no-store' });
     }
-    if (url.pathname.startsWith(TITLE_PREFIX)) {
-      if (method !== 'GET') return json(405, { error: 'method not allowed' }, { Allow: 'GET' });
+    if (isTitle) {
       const segments = url.pathname.slice(TITLE_PREFIX.length).split('/');
       const detail = open && segments.length === 1 ? titles.service.catalogue().detail(decodeSegment(segments[0]!)) : null;
-      return detail ? json(200, titleProgress(store.all(person), detail, discsOf), { 'Cache-Control': 'no-store' }) : json(404, { error: 'not found' });
+      return detail ? json(200, titleProgress(store.all(person, 'disc'), detail, discsOf), { 'Cache-Control': 'no-store' }) : json(404, { error: 'not found' });
     }
     const [discKey, playlistId, ...rest] = url.pathname.slice(PREFIX.length).split('/');
+    const parsed = parsePlaceKey(discKey!);
+    const badPlaylist = playlistId !== undefined && (parsed?.kind === 'encode' ? playlistId !== ENCODE_PLAYLIST : !isPlaylistId(playlistId));
     // `bad-key`: the app drops a place answered so, where a 404 from a NAS without these routes keeps it for later
-    if (rest.length > 0 || parseDiscKey(discKey!) === null || (playlistId !== undefined && !isPlaylistId(playlistId))) return json(404, { error: 'bad-key' }, method === 'PUT' ? { Connection: 'close' } : {});
+    if (rest.length > 0 || parsed === null || badPlaylist) return json(404, { error: 'bad-key' }, method === 'PUT' ? { Connection: 'close' } : {});
     try {
       if (method === 'GET') {
         if (playlistId !== undefined) return json(405, { error: 'method not allowed' }, { Allow: 'PUT, DELETE' });
@@ -98,6 +135,7 @@ export function playbackRoutes(auth: Auth, store: PlaybackStore, catalogue: Play
       const body = await readPlace(req);
       if (!isPlaybackPlace(body)) return json(400, { error: 'bad-place' });
       if (body.discKey !== discKey || body.playlistId !== playlistId) return json(400, { error: 'key-mismatch' });
+      if (!fitsKey(body)) return json(400, { error: 'bad-place' });
       return store.put(person, body) === 'stale' ? json(409, { error: 'stale' }) : { status: 204 };
     } catch (err) {
       if (err instanceof LockHeldError) return json(503, { error: 'busy' }, { 'Retry-After': '1' });

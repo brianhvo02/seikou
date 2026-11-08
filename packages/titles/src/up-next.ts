@@ -3,8 +3,12 @@
  * §6.4 and §6.6). Pure: the catalogue, the places and the disc lookups come in as arguments. Original code.
  */
 import type { ContinueItem, EpisodeRef, PlaybackPlace, PlaylistProgress, TitleDetail, TitleSummary } from '@seikou/nas/nas-api';
+import { encodeId, parseEncodePlaceKey } from '@seikou/nas/encode-id';
+import { ENCODE_PLAYLIST } from '@seikou/nas/place-key';
 import { isShortPlace } from '@seikou/nas/place-rules';
 import type { Catalogue } from './catalogue';
+import { nextEncodeEpisode } from './encode-catalogue';
+import type { EncodeCatalogue, EncodeEpisode, EncodeSeason, EncodeShow } from './encode-catalogue';
 
 export type { ContinueItem, PlaylistProgress };
 
@@ -83,8 +87,9 @@ function catalogueFields(slot: EpisodeSlot): Pick<ContinueItem, 'titleId' | 'tit
 export function continueWatching(
   places: readonly PlaybackPlace[], catalogue: Catalogue, discsOf: DiscsOf, discKeyOf: (discId: string) => string = (id) => `d.${id}`,
 ): ContinueItem[] {
-  // an unfinished place near its start is none to resume (spec §6.5): it makes no card and holds back no Up next card
-  places = places.filter((p) => p.finished || !isShortPlace(p.timeUs, p.durationUs));
+  // an unfinished place near its start is none to resume (spec §6.5): it makes no card and holds back no Up next card;
+  // an encode's place belongs to the encodes list alone
+  places = places.filter((p) => parseEncodePlaceKey(p.discKey) === null && (p.finished || !isShortPlace(p.timeUs, p.durationUs)));
   if (places.length === 0) return [];
   const index = indexEpisodes(catalogue);
   const slots = new Map(places.map((p) => [p, slotOf(p, index, discsOf)] as const));
@@ -139,6 +144,80 @@ export function titleProgress(places: readonly PlaybackPlace[], detail: TitleDet
       if (!ids.has(id)) continue;
       (out[id] ??= {})[place.playlistId] = { timeUs: place.timeUs, durationUs: place.durationUs, finished: place.finished };
     }
+  }
+  return out;
+}
+
+/** Where an encoded episode sits in the encodes catalogue. */
+interface EncodeSlot { readonly show: EncodeShow; readonly season: EncodeSeason; readonly episode: EncodeEpisode }
+
+/** The encode id an encode place's key names; null for a disc place. */
+function encodeOf(place: PlaybackPlace): string | null {
+  const parsed = parseEncodePlaceKey(place.discKey);
+  return parsed ? encodeId(parsed.anilistId, parsed.episode) : null;
+}
+
+function indexEncodes(catalogue: EncodeCatalogue): Map<string, EncodeSlot> {
+  const index = new Map<string, EncodeSlot>();
+  for (const show of catalogue.shows) for (const season of show.seasons) for (const episode of season.episodes) index.set(episode.id, { show, season, episode });
+  return index;
+}
+
+function encodeFields(slot: EncodeSlot): Pick<ContinueItem, 'titleId' | 'titleName' | 'poster' | 'seasonId' | 'seasonNumber' | 'episode' | 'kindOfTitle'> {
+  const { show, season, episode } = slot;
+  return {
+    titleId: show.id, titleName: show.name, poster: show.poster, seasonId: String(season.anilistId), seasonNumber: season.number, episode: episode.episode,
+    kindOfTitle: show.seasons.every((s) => s.kind === 'film') ? 'movie' : 'series',
+  };
+}
+
+const ENCODE_CARD = { discKey: '', discId: '', playlistId: ENCODE_PLAYLIST } as const;
+
+/**
+ * The encodes' Continue watching row, by the rules of the disc row: an unfinished place past its first moments is a
+ * `resume` card; the newest finished place of a show leads to an `up-next` card for `nextEncodeEpisode`, carrying its
+ * settings, unless the show has a newer place or that episode has a place of its own. Disc places are left out. Newest
+ * first, at most 50.
+ */
+export function continueWatchingEncodes(places: readonly PlaybackPlace[], catalogue: EncodeCatalogue): ContinueItem[] {
+  const index = indexEncodes(catalogue);
+  const mine = places.flatMap((p) => {
+    const id = encodeOf(p);
+    return id !== null && (p.finished || !isShortPlace(p.timeUs, p.durationUs)) ? [{ place: p, id, slot: index.get(id) ?? null }] : [];
+  });
+  const items: ContinueItem[] = [];
+  const upNextDone = new Set<string>();
+  const newestFirst = [...mine].sort((a, b) => b.place.updatedAt - a.place.updatedAt);
+  for (const { place, id, slot } of newestFirst) {
+    if (!place.finished) {
+      items.push({
+        kind: 'resume', ...ENCODE_CARD, encodeId: id, timeUs: place.timeUs, durationUs: place.durationUs,
+        ...(slot ? encodeFields(slot) : NO_CATALOGUE), updatedAt: place.updatedAt, deviceName: place.deviceName, settings: null,
+      });
+      continue;
+    }
+    if (!slot || upNextDone.has(slot.show.id)) continue;
+    upNextDone.add(slot.show.id); // only the show's newest finished episode can lead on
+    const newer = mine.some((q) => q.place !== place && q.place.updatedAt > place.updatedAt && q.slot?.show.id === slot.show.id);
+    const nextId = newer ? null : nextEncodeEpisode(catalogue, id);
+    const next = nextId === null ? undefined : index.get(nextId);
+    if (!next || mine.some((q) => q.id === nextId)) continue;
+    items.push({
+      kind: 'up-next', ...ENCODE_CARD, encodeId: next.episode.id, timeUs: 0, durationUs: next.episode.durationMs * 1000,
+      ...encodeFields(next), updatedAt: place.updatedAt, deviceName: place.deviceName, settings: place.settings,
+    });
+  }
+  return items.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, CONTINUE_LIMIT);
+}
+
+/** Where the person is in each encoded episode of a show, by encode id, under the one playlist id `mkv`. */
+export function encodeShowProgress(places: readonly PlaybackPlace[], show: EncodeShow): Record<string, Record<string, PlaylistProgress>> {
+  const ids = new Set(show.seasons.flatMap((s) => s.episodes.map((e) => e.id)));
+  const out: Record<string, Record<string, PlaylistProgress>> = {};
+  for (const place of places) {
+    const id = encodeOf(place);
+    if (id === null || !ids.has(id)) continue;
+    out[id] = { [ENCODE_PLAYLIST]: { timeUs: place.timeUs, durationUs: place.durationUs, finished: place.finished } };
   }
   return out;
 }

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { PlaybackPlace } from '@seikou/nas/nas-api';
-import { isPlaybackPlace, PlaybackStore } from './playback-store';
+import { fitsKey, isPlaybackPlace, PlaybackStore } from './playback-store';
 
 // Every name here is made up.
 
@@ -122,5 +122,44 @@ describe('isPlaybackPlace', () => {
     expect(isPlaybackPlace(withFile({ fansub: { fileId: 7101, track: 0, trackName: 'Full' } }))).toBe(false);
     expect(isPlaybackPlace(withFile({ fansub: { ...fansub, trackName: 'x'.repeat(257) } }))).toBe(false);
     expect(isPlaybackPlace(withFile({ fansub: null }))).toBe(false);
+  });
+});
+
+describe('encode places', () => {
+  const EKEY = 'e.990001.2';
+  const encodePlace = (over: Partial<PlaybackPlace> = {}): PlaybackPlace => place({ discKey: EKEY, discId: '990001-2', playlistId: 'mkv', psrs: [], ...over });
+
+  it('an e. key stores and reads a place', () => {
+    const store = new PlaybackStore(tmp);
+    expect(store.put('mika', encodePlace())).toBe('stored');
+    expect(store.get('mika', EKEY)!.places.mkv).toEqual(encodePlace());
+    expect(existsSync(join(tmp, 'users', 'mika', 'playback', `${EKEY}.json`))).toBe(true);
+    store.put('mika', place());
+    expect(store.all('mika')).toHaveLength(2);
+    expect(store.all('mika', 'encode')).toEqual([encodePlace()]);
+    expect(store.all('mika', 'disc')).toEqual([place()]);
+    store.delete('mika', EKEY, 'mkv');
+    expect(store.get('mika', EKEY)).toBeNull();
+    expect(() => store.get('mika', 'e.0.1')).toThrow();
+  });
+
+  it('counts encode and disc places under one cap', () => {
+    const store = new PlaybackStore(tmp, { maxPlaces: 2 });
+    store.put('mika', place({ updatedAt: 1 }));
+    store.put('mika', encodePlace({ updatedAt: 2 }));
+    store.put('mika', encodePlace({ discKey: 'e.990001.3', discId: '990001-3', updatedAt: 3 }));
+    expect(store.all('mika').map((p) => p.discKey).sort()).toEqual(['e.990001.2', 'e.990001.3']);
+  });
+
+  it('fitsKey wants an encode place to be the encode with no program state', () => {
+    expect(fitsKey(encodePlace())).toBe(true);
+    expect(fitsKey(place())).toBe(true);
+    expect(fitsKey(encodePlace({ discId: '990001-3' }))).toBe(false);
+    expect(fitsKey(encodePlace({ playlistId: '00001' }))).toBe(false);
+    expect(fitsKey(encodePlace({ mode: 'hdmv' }))).toBe(false);
+    expect(fitsKey(encodePlace({ psrs: [1] }))).toBe(false);
+    expect(fitsKey(encodePlace({ gprs: { 1: 2 } }))).toBe(false);
+    expect(fitsKey(encodePlace({ title: 1 }))).toBe(false);
+    expect(fitsKey(place({ discKey: 'x.1' }))).toBe(false);
   });
 });

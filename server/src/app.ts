@@ -2,6 +2,8 @@ import type { Auth } from './auth';
 import type { BdjStore } from './bdj-store';
 import type { PlaybackStore } from './playback-store';
 import { playbackRoutes } from './routes/playback';
+import type { PlayerSettingsStore } from './player-settings-store';
+import { playerSettingsRoutes } from './routes/player-settings';
 import { fansubRoutes } from './routes/fansubs';
 import type { FansubRouteOptions } from './routes/fansubs';
 import { subtitleRoutes } from './routes/subtitles';
@@ -32,6 +34,8 @@ export interface AppOptions {
   bdjStore: BdjStore;
   /** Absent in tests that never touch places. */
   playbackStore?: PlaybackStore;
+  /** Each person's player settings; absent in tests that never touch them. */
+  playerSettingsStore?: PlayerSettingsStore;
   /** Owner-uploaded subtitles; without it, their routes answer 404. */
   subtitleStore?: SubtitleStore;
   publicBase: string;
@@ -82,7 +86,8 @@ export function appHandlers(opts: AppOptions): Handler[] {
     pairRoutes(auth, { now: opts.now ?? Date.now, trustProxy: opts.trustProxy ?? (() => false), registrar: opts.registrar }),
     requireToken(auth),
     bdjStoreRoutes(auth, opts.bdjStore),
-    ...(opts.playbackStore ? [playbackRoutes(auth, opts.playbackStore, { titles: opts.titles, library: opts.library })] : []),
+    ...(opts.playbackStore ? [playbackRoutes(auth, opts.playbackStore, { titles: opts.titles, library: opts.library, encodes: opts.encodes, encodesWaitMs: opts.encodesWaitMs })] : []),
+    ...(opts.playerSettingsStore ? [playerSettingsRoutes(auth, opts.playerSettingsStore)] : []),
     ...(opts.fansubs ? [fansubRoutes(auth, opts.fansubs, opts.titles)] : []),
     ...(opts.subtitleStore ? [subtitleRoutes(auth, opts.subtitleStore, { titles: opts.titles, library: opts.library, fansubs: opts.fansubs?.service })] : []),
     adminRoutes(auth, {
