@@ -54,8 +54,14 @@ export const Id = {
   TrackNumber: 0xd7,
   /** RFC 9559 §5.1.4.1.2: a unique, non-zero id for the track. */
   TrackUID: 0x73c5,
-  /** RFC 9559 §5.1.4.1.3: kind of track: 1 video, 2 audio. */
+  /** RFC 9559 §5.1.4.1.3: kind of track: 1 video, 2 audio, 17 subtitle. */
   TrackType: 0x83,
+  /** RFC 9559 §5.1.4.1.5: 1 when a player may pick the track automatically, 0 when it may not. Its default is 1, so the writer always writes it. */
+  FlagDefault: 0x88,
+  /** RFC 9559 §5.1.4.1.12: 0 promises that no block of the track uses lacing (one frame per block). */
+  FlagLacing: 0x9c,
+  /** RFC 9559 §5.1.4.1.18: a human-readable name for the track, UTF-8. */
+  Name: 0x536e,
   /** RFC 9559 §5.1.4.1.21: codec name, such as `V_AV1` or `A_OPUS`. */
   CodecID: 0x86,
   /** RFC 9559 §5.1.4.1.22: codec setup bytes whose layout the codec mapping defines (`av1C` for AV1, the OpusHead packet for Opus). */
@@ -80,6 +86,20 @@ export const Id = {
   SamplingFrequency: 0xb5,
   /** RFC 9559 §5.1.4.1.29.3: number of audio channels. */
   Channels: 0x9f,
+  /** RFC 9559 §5.1.6: master element holding the files attached to the Segment, such as fonts for ASS subtitles. */
+  Attachments: 0x1941a469,
+  /** RFC 9559 §5.1.6.1: one attached file. */
+  AttachedFile: 0x61a7,
+  /** RFC 9559 §5.1.6.1.1: a description of the file; the writer leaves it out. */
+  FileDescription: 0x467e,
+  /** RFC 9559 §5.1.6.1.2: the file's name, UTF-8. */
+  FileName: 0x466e,
+  /** RFC 9559 §5.1.6.1.3: the file's media type (MIME type), such as `font/ttf`. */
+  FileMediaType: 0x4660,
+  /** RFC 9559 §5.1.6.1.4: the file's bytes. */
+  FileData: 0x465c,
+  /** RFC 9559 §5.1.6.1.5: a unique, non-zero id for the file. */
+  FileUID: 0x46ae,
   /** RFC 9559 §5.1.7: master element holding the chapter editions. */
   Chapters: 0x1043a770,
   /** RFC 9559 §5.1.7.1: one edition, a complete chapter list. */
@@ -111,10 +131,12 @@ export const Id = {
   Timestamp: 0xe7,
   /** RFC 9559 §5.1.3.4: one frame with its track number, relative timestamp and flags (layout in §10.2). */
   SimpleBlock: 0xa3,
-  /** RFC 9559 §5.1.3.5: a block plus extra information about it, such as DiscardPadding. */
+  /** RFC 9559 §5.1.3.5: a block plus extra information about it, such as BlockDuration or DiscardPadding. */
   BlockGroup: 0xa0,
   /** RFC 9559 §5.1.3.5.1: the block inside a BlockGroup (layout in §10.1). */
   Block: 0xa1,
+  /** RFC 9559 §5.1.3.5.3: how long the block lasts, in track ticks (milliseconds here); subtitle events carry their length in it. */
+  BlockDuration: 0x9b,
   /** RFC 9559 §5.1.3.5.7: nanoseconds of padding at the end of the block that a player drops. */
   DiscardPadding: 0x75a2,
   /** RFC 9559 §5.1.5: master element holding the seek index. */

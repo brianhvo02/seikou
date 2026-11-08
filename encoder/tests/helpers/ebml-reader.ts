@@ -23,6 +23,8 @@ const MASTERS = new Set<number>([
   Id.TrackEntry,
   Id.Video,
   Id.Audio,
+  Id.Attachments,
+  Id.AttachedFile,
   Id.Chapters,
   Id.EditionEntry,
   Id.ChapterAtom,
@@ -109,4 +111,45 @@ export function firstBlockIsVideoKeyframe(cluster: EbmlNode): boolean {
 
 export function countVideoBlocks(tree: EbmlNode): number {
   return findAll(tree, Id.SimpleBlock).concat(findAll(tree, Id.Block)).filter((b) => b.bytes![0] === 0x81).length;
+}
+
+/** One block as it sits in the file: its track, absolute timestamp in ms and how it was stored. */
+export interface BlockInfo {
+  track: number;
+  timeMs: number;
+  /** `simple` for a SimpleBlock, `group` for a Block inside a BlockGroup. */
+  kind: 'simple' | 'group';
+  flags: number;
+  /** BlockDuration of a BlockGroup, when present. */
+  durationMs?: number;
+  data: Buffer;
+}
+
+/** Every block in file order, with the cluster timestamp added to its relative one (track numbers under 127). */
+export function blocksInOrder(tree: EbmlNode): BlockInfo[] {
+  const out: BlockInfo[] = [];
+  for (const cluster of findAll(tree, Id.Cluster)) {
+    const base = Number(uintOf(find(cluster, Id.Timestamp)));
+    for (const c of cluster.children ?? []) {
+      let block: EbmlNode | undefined;
+      let durationMs: number | undefined;
+      if (c.id === Id.SimpleBlock) block = c;
+      else if (c.id === Id.BlockGroup) {
+        block = c.children!.find((g) => g.id === Id.Block);
+        const d = c.children!.find((g) => g.id === Id.BlockDuration);
+        if (d !== undefined) durationMs = Number(uintOf(d));
+      }
+      if (block === undefined) continue;
+      const b = block.bytes!;
+      out.push({
+        track: b[0]! & 0x7f,
+        timeMs: base + b.readInt16BE(1),
+        kind: c.id === Id.SimpleBlock ? 'simple' : 'group',
+        flags: b[3]!,
+        ...(durationMs !== undefined ? { durationMs } : {}),
+        data: b.subarray(4),
+      });
+    }
+  }
+  return out;
 }
