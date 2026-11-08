@@ -72,7 +72,7 @@ export function titleRoutes(auth: Auth, library: TitleLibrary, relay?: RelayStat
     const size = url.searchParams.get('size') ?? 'small';
     if (!ART_ID.test(artId) || (size !== 'small' && size !== 'large')) return notFound();
     // lookup results' posters only for owners, who alone can look up (ruling T9e)
-    const source = catalogue.art(artId) ?? (device.owner ? service.lookupArtUrls(artId) : null);
+    const source = catalogue.art(artId) ?? service.encodeArtUrls(artId) ?? (device.owner ? service.lookupArtUrls(artId) : null);
     if (!source) return notFound();
     // a folder cover's file comes only from the catalogue, which found it itself; never from the request
     const cached = await service.art.get(artId, size, 'file' in source ? { file: source.file } : source[size]);

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,6 +12,7 @@ import { EncodeIndex } from '../encodes/index-store';
 import { createServer } from '../http';
 import { Library } from '../library';
 import { Store } from '../store';
+import type { Entry } from '@seikou/titles/sources';
 import type { TitleLibrary } from './titles';
 
 const FIXTURE = join(import.meta.dirname, '../../../fixtures/encodes/990001');
@@ -20,17 +21,29 @@ let base = '';
 let close: (() => void) | undefined;
 let auth: Auth;
 let gate: 'owners' | 'everyone';
+let known: Map<number, Entry>;
+const arts = new Map<string, unknown>();
 
-async function start(configured: boolean, opts: { scan?: boolean; waitMs?: number; dirOverride?: string } = {}): Promise<EncodeIndex | undefined> {
+/** A made-up AniList TV entry. */
+function tv(n: number, name: string): Entry {
+  return {
+    source: 'anilist', id: `anilist:${n}`, kind: 'series', format: 'TV', names: { english: name, romaji: null, native: null, synonyms: [] }, animation: true, year: 2020,
+    episodes: 12, runtimeMin: 24, seasons: [], relations: [], poster: { small: 'https://img.example/s.jpg', large: 'https://img.example/l.jpg' }, banner: null,
+  };
+}
+
+async function start(configured: boolean, opts: { scan?: boolean; waitMs?: number; dirOverride?: string; loose?: boolean; second?: boolean } = {}): Promise<EncodeIndex | undefined> {
   const data = join(tmp, 'data');
   const dir = join(tmp, 'encodes');
   mkdirSync(join(dir, '990001'), { recursive: true });
   cpSync(join(FIXTURE, '1.mkv'), join(dir, '990001/1.mkv'));
+  if (opts.second) cpSync(join(FIXTURE, '2.mkv'), join(dir, '990001/2.mkv'));
+  if (opts.loose) writeFileSync(join(dir, 'loose.mkv'), 'not an mkv');
   auth = new Auth(new Store(data), Date.now);
   const library = new Library([], join(data, 'library.json'), { scanPauseMs: 0 });
   const encodes = configured ? new EncodeIndex({ dir: opts.dirOverride ?? dir, dataDir: data, log: () => {}, settleMs: 0 }) : undefined;
   if (encodes && opts.scan !== false) void encodes.scan().catch(() => {});
-  const titles = { service: { gate: () => gate }, owner: {} } as unknown as TitleLibrary;
+  const titles = { service: { gate: () => gate, entriesFor: () => known, addEncodeArt: (a: Map<string, unknown>) => { for (const [k, v] of a) arts.set(k, v); } }, owner: {} } as unknown as TitleLibrary;
   const server = createServer(appHandlers({
     auth, library, bdjStore: new BdjStore(data), publicBase: 'https://nas.example/bluray/api/', titles, ...(encodes ? { encodes } : {}), ...(opts.waitMs !== undefined ? { encodesWaitMs: opts.waitMs } : {}),
   }));
@@ -46,6 +59,8 @@ async function start(configured: boolean, opts: { scan?: boolean; waitMs?: numbe
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), 'encodes-routes-'));
   gate = 'everyone';
+  known = new Map();
+  arts.clear();
 });
 afterEach(() => {
   close?.();
@@ -177,5 +192,54 @@ describe('encodes routes', () => {
     expect((await get('990001-1/manifest', guest)).status).toBe(404);
     expect((await get('990001-1/files/EPISODE.MKV', guest)).status).toBe(404);
     expect((await get('990001-1/manifest', owner)).status).toBe(200);
+  });
+
+  describe('library', () => {
+    const library = (path: string, t: string | null): Promise<Response> => fetch(`${base}/api/encodes/${path}`, { headers: t ? { Authorization: `Bearer ${t}` } : {} });
+
+    it('lists shows grouped by AniList, and a show with its seasons', async () => {
+      known = new Map([[990001, tv(990001, 'Lantern Road')]]);
+      const index = await start(true, { second: true });
+      await index!.ready(5000);
+      const t = await token('Guest', false);
+      const list = (await (await library('shows', t)).json()) as { shows: unknown[]; unfiled?: unknown };
+      expect(list.shows).toEqual([expect.objectContaining({ id: '990001', name: 'Lantern Road', episodeCount: 2 })]);
+      expect(list.unfiled).toBeUndefined();
+      const show = (await (await library('shows/990001', t)).json()) as { name: string; poster: string; seasons: { episodes: { id: string }[] }[] };
+      expect(show.name).toBe('Lantern Road');
+      expect(show.seasons[0]!.episodes.map((e) => e.id)).toEqual(['990001-1', '990001-2']);
+      expect(arts.has(show.poster)).toBe(true);
+      expect((await library('shows/12345', t)).status).toBe(404);
+      expect((await library('shows', null)).status).toBe(401);
+    });
+
+    it('a show whose metadata is not loaded yet is named by its AniList id', async () => {
+      const index = await start(true);
+      await index!.ready(5000);
+      const t = await token('Guest', false);
+      expect(((await (await library('shows', t)).json()) as { shows: { name: string }[] }).shows[0]!.name).toBe('AniList 990001');
+    });
+
+    it("owners see unfiled files, guests don't", async () => {
+      const index = await start(true, { loose: true });
+      await index!.ready(5000);
+      const owner = await token('Owner', true);
+      const guest = await token('Guest', false);
+      const seen = (await (await library('shows', owner)).json()) as { unfiled?: { path: string; size: number }[] };
+      expect(seen.unfiled?.map((u) => u.size)).toEqual([10]);
+      expect(((await (await library('shows', guest)).json()) as { unfiled?: unknown }).unfiled).toBeUndefined();
+    });
+
+    it('a guest behind a closed gate gets 404, and the first scan is waited for', async () => {
+      gate = 'owners';
+      await start(true, { scan: false, waitMs: 20 });
+      const guest = await token('Guest', false);
+      expect((await library('shows', guest)).status).toBe(404);
+      const owner = await token('Owner', true);
+      const r = await library('shows', owner);
+      expect(r.status).toBe(503);
+      expect(await r.json()).toEqual({ error: 'indexing' });
+      expect((await library('shows/990001', owner)).status).toBe(503);
+    });
   });
 });

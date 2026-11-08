@@ -88,15 +88,16 @@ export function folderCoverArtId(cover: FolderCover): string {
 
 const TV_FORMATS = new Set(['TV', 'TV_SHORT']);
 /** Relations that tie a film or OVA to a series; CHARACTER, OTHER and the like don't. */
-const STORY_LINKS = new Set(['SEQUEL', 'PREQUEL', 'PARENT', 'SIDE_STORY', 'SUMMARY']);
+const STORY_LINKS =new Set(['SEQUEL', 'PREQUEL', 'PARENT', 'SIDE_STORY', 'SUMMARY']);
 
 const naturalOrder = (a: string, b: string): number => a.localeCompare(b, undefined, { numeric: true });
 const lastSegment = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
 const hash = (text: string, length: number): string => createHash('sha256').update(text).digest('hex').slice(0, length);
-const isAnilistTv = (en: Entry): boolean => en.source === 'anilist' && TV_FORMATS.has(en.format ?? '');
+/** An AniList entry whose format is TV or TV_SHORT. */
+export const isAnilistTv =(en: Entry): boolean => en.source === 'anilist' && TV_FORMATS.has(en.format ?? '');
 
 /** An AniList series: a chain of TV entries in start-date order, and each one's season number. */
-interface Series {
+export interface Series {
   readonly id: string;
   /** The root isn't loaded, so the id is the root reached so far. */
   readonly provisional: boolean;
@@ -151,7 +152,7 @@ type Target = { readonly title: TitleBuild; readonly season: SeasonBuild | null 
  * date if several), so the series id is the first season's even when that entry isn't loaded; while the root isn't
  * loaded the series is provisional. Seasons that aren't loaded are absent, never invented.
  */
-function anilistSeries(entries: ReadonlyMap<string, Entry>): Map<string, Series> {
+export function anilistSeries(entries: ReadonlyMap<string, Entry>): Map<string, Series> {
   const prequels = tvPrequels(entries);
   const isTvNode = (id: string): boolean => {
     const en = entries.get(id);
@@ -219,6 +220,18 @@ function anilistSeries(entries: ReadonlyMap<string, Entry>): Map<string, Series>
     for (const id of ids) out.set(id, series);
   }
   return out;
+}
+
+/**
+ * The series a film or OVA row hangs under (T7e): the first of the row's story relations that names a member of a
+ * series with a build in `builds` (by series id), else a build whose series has a member with a story relation to the
+ * row. `seriesBuilds` are the builds that have a series.
+ */
+export function storyParent<T extends { readonly series: Series | null }>(
+  row: Entry, seriesOf: ReadonlyMap<string, Series>, builds: ReadonlyMap<string, T>, seriesBuilds: readonly T[],
+): T | undefined {
+  return row.relations.filter((r) => STORY_LINKS.has(r.type)).map((r) => seriesOf.get(r.id)).map((s) => (s ? builds.get(s.id) : undefined)).find((s) => s !== undefined) ??
+    seriesBuilds.find((s) => s.series!.members.some((m) => m.relations.some((r) => r.id === row.id && STORY_LINKS.has(r.type))));
 }
 
 /**
@@ -475,9 +488,7 @@ export function buildCatalogue(input: CatalogueInput): Catalogue {
   for (const b of builds.values()) {
     const row = b.row;
     if (row === null) continue;
-    const parent =
-      row.relations.filter((r) => STORY_LINKS.has(r.type)).map((r) => seriesOf.get(r.id)).map((s) => (s ? builds.get(s.id) : undefined)).find((s) => s !== undefined) ??
-      seriesBuilds.find((s) => s.series!.members.some((m) => m.relations.some((r) => r.id === row.id && STORY_LINKS.has(r.type))));
+    const parent = storyParent(row, seriesOf, builds, seriesBuilds);
     if (!parent) continue;
     relatedOf.set(parent.id, [...(relatedOf.get(parent.id) ?? []), b]);
   }

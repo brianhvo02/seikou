@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { stat } from 'node:fs/promises';
 import type { DiscManifest } from '@seikou/nas/nas-api';
+import { buildEncodeCatalogue } from '@seikou/titles/encode-catalogue';
+import type { EncodeCatalogue } from '@seikou/titles/encode-catalogue';
 import type { Auth } from '../auth';
 import type { EncodeEntry, EncodeIndex } from '../encodes/index-store';
 import { MAX_CHUNK_BYTES, UPLOAD_ID, UploadError } from '../encodes/uploads';
@@ -15,6 +17,7 @@ const ROUTE = /^\/api\/encodes\/(?:(status)|([1-9]\d*-[1-9]\d*)(?:\/(manifest|fi
 /** A request that arrives during the first scan waits for it this long, then gets 503 `indexing`. */
 export const FIRST_SCAN_WAIT_MS = 30_000;
 
+const SHOWS_ROUTE = /^\/api\/encodes\/shows(?:\/(\d+))?$/;
 const UPLOAD_ROUTE = /^\/api\/encodes\/uploads(?:\/([^/]+)(\/complete)?)?$/;
 const DELETE_ROUTE = /^\/api\/encodes\/([1-9]\d*-[1-9]\d*)$/;
 const CONTENT_RANGE = /^bytes (\d{1,15})-(\d{1,15})\/(\d{1,15})$/;
@@ -28,6 +31,9 @@ const notFound = (): Response => json(404, { error: 'not found' });
  * `GET /api/encodes/<id>/manifest` (a `DiscManifest` with the one file `EPISODE.MKV`) and
  * `GET|HEAD /api/encodes/<id>/files/EPISODE.MKV` (the file or a `Range` of it). With that base the engine reads an
  * encode as it reads a NAS disc. Without `encodes` only `status` answers, with `configured: false`.
+ * The library: `GET /api/encodes/shows` (`{ shows: { id, name, poster, episodeCount }[], unfiled? }`, `unfiled`, the files
+ * the index could not file, for owners only) and `GET /api/encodes/shows/<id>` (an `EncodeShow`), grouped by AniList as
+ * the disc catalogue is. They answer from the entries the title service has cached and never wait for AniList.
  */
 export function encodeRoutes(auth: Auth, encodes: EncodeIndex | undefined, titles: TitleLibrary | undefined, waitMs = FIRST_SCAN_WAIT_MS, uploads?: UploadStore): Handler {
   const answer = (err: unknown, close: boolean): Response => {
@@ -95,6 +101,32 @@ export function encodeRoutes(auth: Auth, encodes: EncodeIndex | undefined, title
     }
   };
 
+  /** The encodes grouped by AniList, from the cached entries; the posters are registered for the art route. */
+  const catalogue = (): EncodeCatalogue => {
+    const list = encodes!.list();
+    const entries = titles ? titles.service.entriesFor([...new Set(list.map((e) => e.anilistId))]) : new Map();
+    const built = buildEncodeCatalogue(list, entries);
+    titles?.service.addEncodeArt(built.art);
+    return built;
+  };
+
+  const library: Handler = async (req, url) => {
+    const match = SHOWS_ROUTE.exec(url.pathname);
+    if (!match || (req.method !== 'GET' && req.method !== 'HEAD')) return null;
+    const device = requestDevice(auth, req.headers.authorization, url);
+    if (!device) return json(401, { error: 'unauthorized' });
+    if (titles && !device.owner && titles.service.gate() !== 'everyone') return notFound();
+    if (!encodes) return notFound();
+    if (!(await encodes.ready(waitMs))) return json(503, { error: 'indexing' }, { 'Retry-After': '5' });
+    const built = catalogue();
+    if (match[1] !== undefined) {
+      const show = built.show(match[1]);
+      return show ? json(200, show) : notFound();
+    }
+    const shows = built.shows.map((s) => ({ id: s.id, name: s.name, poster: s.poster, episodeCount: s.seasons.reduce((n, x) => n + x.episodes.length, 0) }));
+    return json(200, { shows, ...(device.owner ? { unfiled: encodes.unfiled() } : {}) });
+  };
+
   const read: Handler = async (req, url) => {
     const match = ROUTE.exec(url.pathname);
     if (!match || (req.method !== 'GET' && req.method !== 'HEAD')) return null;
@@ -129,7 +161,7 @@ export function encodeRoutes(auth: Auth, encodes: EncodeIndex | undefined, title
     }
     return serveFile(req, entry.path);
   };
-  return async (req, url) => (await write(req, url)) ?? read(req, url);
+  return async (req, url) => (await write(req, url)) ?? (await library(req, url)) ?? read(req, url);
 }
 
 function stripPath(entry: EncodeEntry): Omit<EncodeEntry, 'path'> {

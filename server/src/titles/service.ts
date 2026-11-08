@@ -38,6 +38,14 @@ const MAX_CHAIN_ENTRIES = 30;
 const TV_FORMATS = new Set(['TV', 'TV_SHORT']);
 /** The matcher's cache keys for entries looked up by id (`anilist-entry:anilist:1`, `tmdb-entry:tmdb-tv:2`). */
 const ENTRY_KEY = /^(?:anilist|tmdb)-entry:(.+)$/;
+/** An AniList entry the encodes catalogue asked for and the source didn't give isn't asked for again this soon. */
+const ENCODE_RETRY_MS = 10 * 60_000;
+/** The ids a loaded entry leads to: its TV prequels and sequels, and, for a film or OVA, the TV entries its story links name. */
+function chainIds(en: Entry): string[] {
+  const tv = TV_FORMATS.has(en.format ?? '');
+  const links = tv ? ['PREQUEL', 'SEQUEL'] : ['PREQUEL', 'SEQUEL', 'PARENT', 'SIDE_STORY', 'SUMMARY'];
+  return en.relations.filter((r) => links.includes(r.type) && TV_FORMATS.has(r.format ?? '')).map((r) => r.id);
+}
 /** Posters of lookup results kept for `GET art/<id>`, at most (ruling T9e). */
 const MAX_LOOKUP_ART = 500;
 /** A run saves and publishes its progress after this many groups, or this long, whichever comes first (ruling F4). */
@@ -190,6 +198,13 @@ export class TitleService {
   private cancelTimer: () => void = () => {};
   /** Lookup results' poster URLs by art id, least recently used first. */
   private readonly lookupArt = new Map<string, { small: string; large: string }>();
+  /** Posters of the encodes catalogue's shows, by art id. */
+  private readonly encodeArt = new Map<string, { small: string; large: string }>();
+  /** AniList entries loaded for the encodes catalogue, kept in memory. */
+  private readonly encodeEntries = new Map<string, Entry>();
+  private readonly encodeWanted = new Set<string>();
+  private readonly encodeFailedAt = new Map<string, number>();
+  private encodeFetching: Promise<void> | null = null;
   /** A hash of what metadata.json holds, besides `lastRunAt`, so a run that changed nothing doesn't write it (M1). */
   private savedHash: string | null = null;
 
@@ -304,6 +319,102 @@ export class TitleService {
     this.lookupArt.set(id, { small: poster.small, large: poster.large });
     while (this.lookupArt.size > MAX_LOOKUP_ART) this.lookupArt.delete(this.lookupArt.keys().next().value!);
     return id;
+  }
+
+  /**
+   * The AniList entries of `ids` and of the TV PREQUEL/SEQUEL chains they sit on (a film's story links to TV entries
+   * too), from what is known (filed entries, the matcher's cache, earlier loads), by AniList number. Never waits for the
+   * network: entries not known yet are fetched in the background through the paced source, and the catalogue is
+   * rebuilt when they arrive, so the next call has them. A lookup that found nothing is not repeated for ten minutes.
+   */
+  entriesFor(ids: readonly number[]): ReadonlyMap<number, Entry> {
+    const out = new Map<number, Entry>();
+    const missing = new Set<string>();
+    const walked = new Set<string>();
+    for (const start of ids) {
+      const queue = [`anilist:${start}`];
+      let count = 0;
+      while (queue.length > 0 && count < MAX_CHAIN_ENTRIES) {
+        const id = queue.shift()!;
+        if (walked.has(id)) continue;
+        walked.add(id);
+        count++;
+        const en = this.knownEntry(id);
+        if (!en) {
+          missing.add(id);
+          continue;
+        }
+        out.set(Number(id.slice('anilist:'.length)), en);
+        for (const next of chainIds(en)) if (!walked.has(next)) queue.push(next);
+      }
+    }
+    this.fetchMissing(missing);
+    return out;
+  }
+
+  /** An entry already held: filed, from the matcher's cache, or loaded for the encodes. */
+  private knownEntry(id: string): Entry | undefined {
+    return this.entries.get(id)?.value ?? this.cache.get(`anilist-entry:${id}`)?.value[0] ?? this.encodeEntries.get(id);
+  }
+
+  /** Starts the background fetch of `ids` (one at a time, so the source's pacing holds); a second call adds to it. */
+  private fetchMissing(ids: ReadonlySet<string>): void {
+    const now = this.now();
+    for (const id of ids) {
+      const failed = this.encodeFailedAt.get(id);
+      if (failed !== undefined && now - failed < ENCODE_RETRY_MS) continue;
+      this.encodeWanted.add(id);
+    }
+    if (this.encodeFetching || this.encodeWanted.size === 0) return;
+    this.encodeFetching = (async () => {
+      let loaded = 0;
+      try {
+        while (this.encodeWanted.size > 0 && loaded < MAX_CHAIN_ENTRIES * 2) {
+          const id = this.encodeWanted.values().next().value!;
+          this.encodeWanted.delete(id);
+          if (this.knownEntry(id)) continue;
+          const src = this.sourceFor(id);
+          try {
+            const en = src ? await src.entry(id) : null;
+            if (!en) {
+              this.encodeFailedAt.set(id, this.now());
+              continue;
+            }
+            this.encodeEntries.set(id, en);
+            loaded++;
+            for (const next of chainIds(en)) if (!this.knownEntry(next)) this.encodeWanted.add(next);
+          } catch (err) {
+            if (!(err instanceof SourceUnavailable)) throw err;
+            this.encodeFailedAt.set(id, this.now());
+          }
+        }
+      } catch (err) {
+        console.error('loading entries for the encodes failed', err);
+      } finally {
+        this.encodeWanted.clear();
+        this.encodeFetching = null;
+        if (loaded > 0) this.rebuild();
+      }
+    })();
+  }
+
+  /** Registers the posters an encodes catalogue names (art id to source URLs), for `encodeArtUrls`; the newest 500 stay. */
+  addEncodeArt(art: ReadonlyMap<string, { readonly small: string; readonly large: string }>): void {
+    for (const [id, urls] of art) {
+      this.encodeArt.delete(id);
+      this.encodeArt.set(id, { small: urls.small, large: urls.large });
+    }
+    while (this.encodeArt.size > MAX_LOOKUP_ART) this.encodeArt.delete(this.encodeArt.keys().next().value!);
+  }
+
+  /** The source URLs of an encode poster by art id, or null. */
+  encodeArtUrls(artId: string): { small: string; large: string } | null {
+    return this.encodeArt.get(artId) ?? null;
+  }
+
+  /** Resolves when the background fetch for `entriesFor` is idle (tests). */
+  async encodeEntriesIdle(): Promise<void> {
+    while (this.encodeFetching) await this.encodeFetching;
   }
 
   /** Builds the catalogue again from what is known, with no network access: after an owner change. */

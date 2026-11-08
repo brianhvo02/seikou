@@ -565,6 +565,39 @@ describe('TitleService', () => {
     expect(discsOf(s, 'anilist:100')).toBe(1);
   });
 
+  it('entriesFor answers from what is cached, fetches the chain in the background and never waits for it', async () => {
+    const rel = (type: string, id: string, format: string) => ({ type, id, format, startDate: null });
+    const a = entry('anilist:900', { english: 'Comet One' }, { relations: [rel('SEQUEL', 'anilist:901', 'TV')] });
+    const b = entry('anilist:901', { english: 'Comet Two' }, { relations: [rel('PREQUEL', 'anilist:900', 'TV')] });
+    const anilist = fake({}, [a, b]);
+    const s = service({ evidence: () => [], anilist });
+    // nothing is known yet: an empty answer at once, with lookups started behind it
+    expect(s.entriesFor([901]).size).toBe(0);
+    await s.encodeEntriesIdle();
+    expect(anilist.calls).toEqual(['entry:anilist:901', 'entry:anilist:900']);
+    const known = s.entriesFor([901]);
+    expect([...known.keys()].sort()).toEqual([900, 901]);
+    expect(known.get(900)?.names.english).toBe('Comet One');
+    const before = anilist.calls.length;
+    s.entriesFor([901]);
+    await s.encodeEntriesIdle();
+    expect(anilist.calls.length).toBe(before);
+  });
+
+  it('entriesFor does not ask again for an entry the source lacks until ten minutes pass', async () => {
+    const anilist = fake({});
+    const s = service({ evidence: () => [], anilist });
+    s.entriesFor([5]);
+    await s.encodeEntriesIdle();
+    s.entriesFor([5]);
+    await s.encodeEntriesIdle();
+    expect(anilist.calls).toEqual(['entry:anilist:5']);
+    clock += 11 * 60_000;
+    s.entriesFor([5]);
+    await s.encodeEntriesIdle();
+    expect(anilist.calls).toEqual(['entry:anilist:5', 'entry:anilist:5']);
+  });
+
   it('takes the gate from the owner, else the config', () => {
     const owner = new OwnerStore(dir);
     const s = new TitleService({

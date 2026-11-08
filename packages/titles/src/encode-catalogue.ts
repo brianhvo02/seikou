@@ -1,0 +1,156 @@
+// SPDX-License-Identifier: LGPL-3.0-or-later
+/**
+ * The encodes catalogue: the NAS's encoded episodes, known by AniList id and episode, grouped into shows with seasons
+ * and films the way the disc catalogue groups AniList entries (it uses that catalogue's series and story-link rules).
+ * Pure: no network, no clock. Original code.
+ */
+import { anilistSeries, artIdOf, isAnilistTv, storyParent } from './catalogue';
+import type { Series } from './catalogue';
+import type { Entry } from './sources';
+
+/** What the catalogue needs of an indexed encode (the server's `EncodeEntry` has all of it). */
+export interface EncodeEntryLike {
+  readonly id: string;
+  readonly anilistId: number;
+  readonly episode: number;
+  readonly episodeTitle: string | null;
+  readonly durationMs: number;
+}
+
+/** One episode of a season. */
+export interface EncodeEpisode {
+  readonly episode: number;
+  /** The encode's id, `<anilistId>-<episode>`. */
+  readonly id: string;
+  readonly title: string | null;
+  readonly durationMs: number;
+}
+
+/** One AniList entry with encodes: a TV season, a film, or another row (OVA, special). Only entries with encodes exist. */
+export interface EncodeSeason {
+  readonly anilistId: number;
+  readonly name: string;
+  readonly kind: 'season' | 'film' | 'other';
+  /** The place in the series' chain for a season, else null. */
+  readonly number: number | null;
+  readonly episodes: readonly EncodeEpisode[];
+}
+
+/** A show: a series' seasons then its films and others, or one film. `poster` is an art id, never a URL. */
+export interface EncodeShow {
+  /** The root AniList entry's id, as a string. */
+  readonly id: string;
+  readonly name: string;
+  readonly poster: string | null;
+  readonly seasons: readonly EncodeSeason[];
+}
+
+/** The built catalogue. */
+export interface EncodeCatalogue {
+  /** Shows by name. */
+  readonly shows: readonly EncodeShow[];
+  /** A show by id, or null. */
+  show(id: string): EncodeShow | null;
+  /** The source URLs of each poster, by the art id the shows carry. */
+  readonly art: ReadonlyMap<string, { readonly small: string; readonly large: string }>;
+}
+
+const anilistKey = (n: number): string => `anilist:${n}`;
+const entryName = (en: Entry): string => en.names.english ?? en.names.romaji ?? en.names.native ?? en.id;
+const numberOf = (id: string): number => Number(id.slice('anilist:'.length));
+
+/** When an entry started, as YYYYMMDD; the year when the day is unknown; last when unknown. */
+function startOf(en: Entry, others: ReadonlyMap<string, Entry>): number {
+  if (en.startDate != null) return en.startDate;
+  for (const o of others.values()) for (const r of o.relations) if (r.id === en.id && r.startDate !== null) return r.startDate;
+  return en.year !== null ? en.year * 10000 : Number.MAX_SAFE_INTEGER;
+}
+
+/**
+ * Groups encodes into shows. A TV entry linked by PREQUEL/SEQUEL to others is a season of their series, in chain order,
+ * and the show is the series' root entry; a film or OVA attaches to the series its story relations name and follows the
+ * seasons, by start date; one that names none is a show of its own. An AniList id missing from `anilist` is a show
+ * named `AniList <id>` until the metadata arrives. Only entries with encodes are listed.
+ */
+export function buildEncodeCatalogue(encodes: readonly EncodeEntryLike[], anilist: ReadonlyMap<number, Entry>): EncodeCatalogue {
+  const byEntry = new Map<number, EncodeEntryLike[]>();
+  for (const e of encodes) byEntry.set(e.anilistId, [...(byEntry.get(e.anilistId) ?? []), e]);
+  const entries = new Map<string, Entry>();
+  for (const [n, en] of anilist) entries.set(anilistKey(n), en);
+  const seriesOf = anilistSeries(entries);
+
+  const art = new Map<string, { small: string; large: string }>();
+  const posterOf = (en: Entry | undefined): string | null => {
+    if (!en?.poster) return null;
+    const id = artIdOf(en.poster);
+    art.set(id, { small: en.poster.small, large: en.poster.large });
+    return id;
+  };
+  const episodesOf = (n: number): EncodeEpisode[] =>
+    (byEntry.get(n) ?? []).map((e) => ({ episode: e.episode, id: e.id, title: e.episodeTitle, durationMs: e.durationMs })).sort((a, b) => a.episode - b.episode);
+
+  // a build per series, found by the series id; films attach to these
+  interface Build { readonly series: Series | null; readonly rows: Entry[] }
+  const builds = new Map<string, Build>();
+  for (const s of seriesOf.values()) if (!builds.has(s.id)) builds.set(s.id, { series: s, rows: [] });
+  const lone: Entry[] = [];
+  const missing: number[] = [];
+  for (const n of [...byEntry.keys()].sort((a, b) => a - b)) {
+    const en = entries.get(anilistKey(n));
+    if (!en) missing.push(n);
+    else if (isAnilistTv(en) && seriesOf.has(en.id)) continue; // a season of its series
+    else {
+      const parent = storyParent(en, seriesOf, builds, [...builds.values()]);
+      if (parent) parent.rows.push(en);
+      else lone.push(en);
+    }
+  }
+
+  const rowSeason = (en: Entry): EncodeSeason => ({
+    anilistId: numberOf(en.id), name: entryName(en), kind: en.format === 'MOVIE' ? 'film' : 'other', number: null, episodes: episodesOf(numberOf(en.id)),
+  });
+  const shows: EncodeShow[] = [];
+  for (const b of builds.values()) {
+    const series = b.series!;
+    const seasons: EncodeSeason[] = [];
+    series.members.forEach((m, i) => {
+      const n = numberOf(m.id);
+      if (!byEntry.has(n)) return;
+      const number = series.number.get(m.id) ?? null;
+      seasons.push({ anilistId: n, name: number !== null ? `Season ${number}` : entryName(m), kind: 'season', number: number ?? (series.provisional ? null : i + 1), episodes: episodesOf(n) });
+    });
+    const rows = [...b.rows].sort((x, y) => startOf(x, entries) - startOf(y, entries) || numberOf(x.id) - numberOf(y.id));
+    seasons.push(...rows.map(rowSeason));
+    if (seasons.length === 0) continue;
+    const head = series.members[0]!;
+    shows.push({ id: String(numberOf(series.id)), name: entryName(head), poster: posterOf(series.members.find((m) => m.poster !== null)), seasons });
+  }
+  for (const en of lone) shows.push({ id: String(numberOf(en.id)), name: entryName(en), poster: posterOf(en), seasons: [rowSeason(en)] });
+  for (const n of missing) {
+    shows.push({ id: String(n), name: `AniList ${n}`, poster: null, seasons: [{ anilistId: n, name: `AniList ${n}`, kind: 'season', number: 1, episodes: episodesOf(n) }] });
+  }
+  shows.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }) || a.id.localeCompare(b.id, undefined, { numeric: true }));
+  const byId = new Map(shows.map((s) => [s.id, s]));
+  return { shows, show: (id) => byId.get(id) ?? null, art };
+}
+
+/**
+ * The encode that follows `encodeId`: the next episode number in its season, else the first episode of the next season
+ * with encodes, else null. Films and other rows are not part of "next": none follows a film, and none follows the last
+ * season.
+ */
+export function nextEncodeEpisode(catalogue: EncodeCatalogue, encodeId: string): string | null {
+  for (const show of catalogue.shows) {
+    for (let i = 0; i < show.seasons.length; i++) {
+      const season = show.seasons[i]!;
+      const at = season.episodes.findIndex((e) => e.id === encodeId);
+      if (at < 0) continue;
+      if (season.kind !== 'season') return null;
+      const same = season.episodes[at + 1];
+      if (same) return same.id;
+      const later = show.seasons.slice(i + 1).find((s) => s.kind === 'season' && s.episodes.length > 0);
+      return later?.episodes[0]?.id ?? null;
+    }
+  }
+  return null;
+}
