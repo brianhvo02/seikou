@@ -6,11 +6,19 @@ import { framed } from './audio-units';
 import { writeFixture } from './fixture-dir';
 import { encodeTestVideo } from './x264';
 
-const outDir = process.argv[2];
-if (!outDir) {
-  console.error('usage: tsx scripts/make-speech-disc.ts <outDir>');
+const args = process.argv.slice(2);
+const sizeAt = args.indexOf('--video-size');
+const videoSize = sizeAt >= 0 ? args.splice(sizeAt, 2)[1] : undefined;
+const outDir = args[0];
+if (!outDir || (videoSize !== undefined && !/^\d+x\d+$/.test(videoSize))) {
+  console.error('usage: tsx scripts/make-speech-disc.ts <outDir> [--video-size WxH]');
   process.exit(1);
 }
+/**
+ * The picture. The default 64x36 (crf 51) is what the committed synthetic disc holds; a larger size is for discs
+ * whose picture a browser must decode, which Chrome refuses at 64x36, and gets a rate that keeps the disc small.
+ */
+const videoArgs = videoSize === undefined ? ['-crf', '51'] : ['-crf', '41', '-preset', 'fast'];
 
 /** The AC-3 encoder's delay: its output sounds this many samples after its input, which the encoded signal leads by. */
 const AC3_PRIMING_SAMPLES = 256;
@@ -37,7 +45,7 @@ const clip = (clipId: string, fromS: number, seconds: number): Parameters<typeof
   const frames = seconds * 24;
   return {
     clipId,
-    videoAus: encodeTestVideo(frames, '64x36', ['-crf', '51']),
+    videoAus: encodeTestVideo(frames, videoSize ?? '64x36', videoArgs),
     keyIndices: Array.from({ length: seconds }, (_, i) => i * 24),
     startPts: CLIP_START_PTS,
     audioStreams: [{ pid: 0x1100, codingType: CodingType.AC3, lang: 'jpn', format: 3, units: framed(speechAudio(fromS, seconds), 'ac3') }],
