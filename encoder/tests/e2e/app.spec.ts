@@ -47,6 +47,16 @@ async function discKey(page: Page, name: string): Promise<string> {
   return key ?? '';
 }
 
+const NO_TOOLS = 'needs VapourSynth with BestSource, SvtAv1EncApp and opusenc';
+
+/** Whether the app found the encoder's tools, as a helper session on the disc reports it. */
+async function toolsReady(request: APIRequestContext, key: string): Promise<boolean> {
+  const made = await request.post(new URL('/api/sessions', appUrl()).href, { headers: headers(), data: { discKey: key, playlistId: '00000', episodeSpec: '1-3,4-' } });
+  const id = ((await made.json()) as { id: string }).id;
+  const session = await request.get(new URL(`/api/sessions/${id}`, appUrl()).href, { headers: headers() });
+  return ((await session.json()) as { toolsReady: boolean }).toolsReady;
+}
+
 test.describe.serial('the app', () => {
   test('group a disc into episodes, choose subtitles, queue the encode and watch it finish', async ({ page, request }) => {
     test.setTimeout(420_000);
@@ -92,15 +102,10 @@ test.describe.serial('the app', () => {
     await page.getByRole('button', { name: 'Next' }).click();
     await expect(page.getByRole('group', { name: 'Episode 1, Arrival' })).toBeVisible();
     await page.getByRole('button', { name: 'Next' }).click();
-    if (session.toolsReady) {
-      await expect(page.locator('.lineup-status')).toContainText(/Shifted|Could not line up/, { timeout: 120_000 });
-    }
+    test.skip(!session.toolsReady, NO_TOOLS);
+    await expect(page.locator('.lineup-status')).toContainText(/Shifted|Could not line up/, { timeout: 120_000 });
     await page.getByRole('button', { name: 'Save for encoding' }).click();
     await expect(page.getByRole('status').filter({ hasText: /^Saved at/ })).toBeVisible();
-    if (!session.toolsReady) {
-      test.info().annotations.push({ type: 'skip', description: 'no VapourSynth with BestSource here: the encode is not run' });
-      return;
-    }
 
     // Queue encode from the helper, into a folder of this test's own
     const out = join(outputRoot(), 'first');
@@ -141,6 +146,7 @@ test.describe.serial('the app', () => {
   test('cancel a running job: it stops, and no partial file is left', async ({ page, request }) => {
     test.setTimeout(180_000);
     const key = await discKey(page, 'disc-speech');
+    test.skip(!(await toolsReady(request, key)), NO_TOOLS);
     const base = new URL('/api/', appUrl()).href;
     const created = await request.post(`${base}profiles`, {
       headers: headers(),
@@ -165,9 +171,10 @@ test.describe.serial('the app', () => {
     expect(left.filter((f) => f.endsWith('.partial'))).toEqual([]);
   });
 
-  test('a test encode shows its samples side by side and plays them', async ({ page }) => {
+  test('a test encode shows its samples side by side and plays them', async ({ page, request }) => {
     test.setTimeout(240_000);
     const key = await discKey(page, 'disc-speech');
+    test.skip(!(await toolsReady(request, key)), NO_TOOLS);
     await page.goto(at(`/queue/new?disc=${key}&playlist=00000&spec=${encodeURIComponent('1-3,4-')}&noSubtitles=1`));
     await expect(page.getByRole('heading', { name: 'Queue an encode' })).toBeVisible();
     await page.getByRole('checkbox', { name: /^Default/ }).check();
