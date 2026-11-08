@@ -103,6 +103,22 @@ describe('SaveBar', () => {
     expect(screen.queryByRole('button', { name: `Fetch ${release.label} again` })).toBeNull();
   });
 
+  it('keeps Save off while the saved release is missing, and keeps the saved tracks', async () => {
+    const saveRecord = vi.fn(async (r: SubtitleRecord) => r);
+    const api = fakeApi({
+      record: vi.fn(async () => ({ record, missing: [{ release: release.label, files: ['releases/tosho-7/11-t1.ass'] }] })),
+      release: vi.fn(async () => Promise.reject(new ApiError(404, 'not-found', 'No such release.'))),
+      saveRecord,
+    });
+    render(<App api={api} />);
+    await screen.findByRole('button', { name: `Fetch ${release.label} again` });
+    const save = screen.getByRole('button', { name: 'Save for encoding' }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    expect(screen.getByText(/Saving is off until the release is back/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+    expect((screen.getByLabelText('Name of subtitle track 1') as HTMLInputElement).value).toBe('GroupA full');
+  });
+
   it('says to add the files again when the missing release was the user own', async () => {
     const local = { ...record, release: { source: 'local' as const, id: `local-${'b'.repeat(16)}`, group: '', label: 'Your files' } };
     const api = fakeApi({

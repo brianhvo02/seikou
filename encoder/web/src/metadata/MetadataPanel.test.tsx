@@ -132,6 +132,31 @@ describe('MetadataPanel', () => {
     expect(state().metadata.episodes[1]!.tracks[0]!.key).toBe('a/1/3.ass');
   });
 
+  it('Alt+ArrowDown moves a track down and keeps focus on it', () => {
+    const state = renderPanel();
+    const name = screen.getByLabelText('Name of subtitle track 1') as HTMLInputElement;
+    name.focus();
+    fireEvent.keyDown(name, { key: 'ArrowDown', altKey: true });
+    expect(state().metadata.episodes[1]!.tracks.map((t) => t.key)).toEqual(['a/1/3.ass', 'a/1/2.ass']);
+    expect(document.activeElement).toBe(name);
+  });
+
+  it('the Down button keeps focus with the moved track, on Up once Down is disabled', () => {
+    const state = renderPanel();
+    const down = screen.getByRole('button', { name: 'Move GroupA full down' });
+    down.focus();
+    fireEvent.click(down);
+    expect(state().metadata.episodes[1]!.tracks.map((t) => t.key)).toEqual(['a/1/3.ass', 'a/1/2.ass']);
+    // the row is now last, so its Down button is disabled and focus goes to its Up button
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Move GroupA full up' }));
+  });
+
+  it('the Up button keeps focus on the moved row while it can still move', () => {
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'Move GroupA signs up' }));
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Move GroupA signs down' }));
+  });
+
   it('a language code is kept to three lowercase letters, and und when it is not one', () => {
     const state = renderPanel();
     const code = screen.getByLabelText('Language of audio stream 1') as HTMLInputElement;

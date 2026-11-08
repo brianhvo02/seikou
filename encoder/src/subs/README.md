@@ -18,7 +18,7 @@ Fansub releases and the user's own files supply subtitles; this area decides wha
 - `decodeSubtitleText(bytes)` returns text, or throws `SubtitleEncodingError`.
 - `appDataDir(env, platform, home)` returns the app data directory (`SEIKOU_ENCODE_DATA`, else Application Support on macOS, else `$XDG_DATA_HOME`).
 - `RecordStore(dataDir)` reads, writes (atomically) and checks the saved `SubtitleRecord` at `subtitles/<discKey>/<playlist>.json`; `parseRecord(json)` validates one and throws `RecordError` with the JSON path of the first bad field; `missingFiles(record)` names the release whose cached files are gone.
-- `new ReleaseCache(dataDir, { tosho, fetchCache })` with `fetchTosho(id)` (no network the second time; `NotFoundOnTosho` for an unknown release), `addLocal(files)` (`UploadRejected` names the refused file), `get(key)` and `read(relPath)`; a `CachedRelease` holds each file's tracks (path, kind, dialogue line count) and fonts, all paths relative to the data directory.
+- `new ReleaseCache(dataDir, { tosho, fetchCache })` with `fetchTosho(id)` (no network the second time, unless a stored track or font file is gone; `NotFoundOnTosho` for an unknown release), `addLocal(files)` (`UploadRejected` names the refused file), `get(key)` and `read(relPath)`; a `CachedRelease` holds each file's tracks (path, kind, dialogue line count) and fonts, all paths relative to the data directory.
 
 ## Where to look
 

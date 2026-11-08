@@ -17,12 +17,14 @@ export interface MatchStepProps {
   readonly dispatch: Dispatch<HelperAction>;
 }
 
-/** One episode: its title, the release file it uses, that file's tracks to tick, and "No subtitles". */
-function EpisodeRow({ row, release, rows, state, title, dispatch }: {
+/** One episode, shown by its release number: its title, the release file it uses, that file's tracks to tick, and "No subtitles". */
+function EpisodeRow({ row, release, rows, state, number, title, dispatch }: {
   row: MatchRow;
   release: CachedRelease;
   rows: readonly MatchRow[];
   state: HelperState;
+  /** The episode's number as the release and AniList count it: the run's episode plus the episode offset. */
+  number: number;
   title: string | undefined;
   dispatch: Dispatch<HelperAction>;
 }) {
@@ -31,7 +33,7 @@ function EpisodeRow({ row, release, rows, state, title, dispatch }: {
   const file = release.files.find((f) => f.id === row.fileId) ?? null;
   const ticked = new Set(choice === undefined || choice === 'none' ? [] : choice.trackIds);
   const options = optionsFor(release, rows, row);
-  const heading = `Episode ${row.episode}`;
+  const heading = `Episode ${number}`;
 
   const toggle = (trackId: string, on: boolean) => {
     const next = (file?.tracks ?? []).map((t) => t.id).filter((id) => (id === trackId ? on : ticked.has(id)));
@@ -42,7 +44,7 @@ function EpisodeRow({ row, release, rows, state, title, dispatch }: {
     <li>
       <fieldset className="match-row" aria-label={title === undefined ? heading : `${heading}, ${title}`}>
         <div className="match-episode">
-          <span className="match-number num">{row.episode}</span>
+          <span className="match-number num">{number}</span>
           <span className="match-title">{title ?? heading}</span>
         </div>
         <div className="match-body">
@@ -96,10 +98,11 @@ function EpisodeRow({ row, release, rows, state, title, dispatch }: {
 }
 
 /**
- * Step 2: one row per disc episode with its AniList title (or "Episode n"), the release file it uses, that file's
- * tracks as checkboxes and "No subtitles". Release files no episode uses are listed under "Not matched". Episode
- * titles are asked of the backend once per show and shared with the page (`useEpisodeTitles`); if that fails, the
- * rows show "Episode n".
+ * Step 2: one row per disc episode, numbered as the release numbers it (the run's episode plus the episode offset),
+ * with its AniList title for that number (or "Episode n"), the release file it uses, that file's tracks as
+ * checkboxes and "No subtitles". Release files no episode uses are listed under "Not matched". Episode titles are
+ * asked of the backend once per show and shared with the page (`useEpisodeTitles`); if that fails, the rows show
+ * "Episode n".
  */
 export function MatchStep({ api, state, dispatch }: MatchStepProps) {
   const titles = useEpisodeTitles(api, state.title?.alId ?? null);
@@ -115,7 +118,7 @@ export function MatchStep({ api, state, dispatch }: MatchStepProps) {
         <p className="muted">Check which release file goes with each episode, and which of its tracks to keep.</p>
         <ul className="match-rows">
           {state.match.map((row) => (
-            <EpisodeRow key={row.episode} row={row} release={release} rows={state.match} state={state} title={titles?.[row.episode]} dispatch={dispatch} />
+            <EpisodeRow key={row.episode} row={row} release={release} rows={state.match} state={state} number={row.episode + state.episodeOffset} title={titles?.[row.episode + state.episodeOffset]} dispatch={dispatch} />
           ))}
         </ul>
       </section>

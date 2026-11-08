@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 /** Keeps a fansub release's subtitle tracks and fonts, or the user's own files, on disk under the data directory. */
 import { createHash, randomBytes } from 'node:crypto';
-import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { TooLargeArchive, fontsIn7z } from '@seikou/fansubs/archive';
 import { dialogueIntervals } from '@seikou/fansubs/dialogue';
@@ -102,13 +102,14 @@ export class ReleaseCache {
 
   /**
    * Downloads release `toshoId`'s ASS, SSA and SRT tracks (SRT becomes ASS) and its font packs once, or returns the
-   * stored release without any request. Other formats are listed as skipped. A font pack Anime Tosho lacks is no
+   * stored release without any request when every track and font file it names is still there; a stored release
+   * with a file gone (part of the cache removed) is fetched again and stored over the old one. Other formats are listed as skipped. A font pack Anime Tosho lacks is no
    * error. Throws `NotFoundOnTosho` when the release is unknown, and the client's errors on a failed download.
    */
   async fetchTosho(toshoId: number, signal?: AbortSignal): Promise<CachedRelease> {
     const key = `tosho-${toshoId}`;
     const stored = await this.get(key);
-    if (stored) return stored;
+    if (stored && (await this.complete(stored))) return stored;
     const release = await this.deps.tosho.byId(toshoId, { signal });
     if (!release) throw new NotFoundOnTosho(`release ${toshoId}`);
     const files: CachedReleaseFile[] = [];
@@ -213,6 +214,17 @@ export class ReleaseCache {
       throw new Error(`path outside the data directory: ${relPath}`);
     }
     return readFile(full);
+  }
+
+  /** Whether every track and font file `release` names is present in the data directory. */
+  private async complete(release: CachedRelease): Promise<boolean> {
+    const paths = [...release.files.flatMap((f) => f.tracks.map((t) => t.path)), ...release.fonts.map((f) => f.path)];
+    try {
+      await Promise.all(paths.map((p) => access(join(this.root, p))));
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private async storeTrack(

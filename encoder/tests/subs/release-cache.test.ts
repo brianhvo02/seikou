@@ -57,6 +57,18 @@ describe('ReleaseCache', () => {
     expect(downloads).toBe(n);
   });
 
+  it('fetches again when a stored track or font file is gone', async () => {
+    const first = await cache.fetchTosho(7001);
+    const track = first.files[0]!.tracks[0]!.path;
+    await rm(join(dir, 'data', track));
+    expect(await cache.fetchTosho(7001)).toEqual(first);
+    expect(existsSync(join(dir, 'data', track))).toBe(true);
+    const font = first.fonts[0]!.path;
+    await rm(join(dir, 'data', font));
+    expect(await cache.fetchTosho(7001)).toEqual(first);
+    expect(existsSync(join(dir, 'data', font))).toBe(true);
+  });
+
   it('addLocal converts SRT and keeps fonts', async () => {
     const pooled = (await cache.fetchTosho(7001)).fonts[0]!.path;
     const font = await cache.read(pooled);

@@ -66,8 +66,12 @@ export interface DefaultTrackInput {
 export interface DefaultMetadataInput {
   /** The show's name as picked on AniList; null before a show is picked. */
   readonly show: string | null;
-  /** The run's episodes: `index` gives the `nn` of the title, `title` is AniList's episode title or null. */
-  readonly episodes: readonly { readonly index: number; readonly title: string | null; readonly chapterCount: number }[];
+  /**
+   * The run's episodes: `index` is the position in the run, `number` the episode number the title's `nn` shows (the
+   * release's and AniList's numbering: the index plus the episode offset; the index when absent), `title` AniList's
+   * episode title or null.
+   */
+  readonly episodes: readonly { readonly index: number; readonly number?: number; readonly title: string | null; readonly chapterCount: number }[];
   /** The playlist's audio streams with their stream-table language (empty when the disc names none). */
   readonly audio: readonly { readonly pid: number; readonly language: string }[];
   /** The chosen subtitle tracks of each episode, keyed by episode index, in the order to offer them. */
@@ -135,7 +139,7 @@ export function defaultMetadata(input: DefaultMetadataInput): MetadataDraft {
     episodes[e.index] = {
       index: e.index,
       episodeTitle: e.title ?? '',
-      title: defaultTitle(input.show, e.index, e.title),
+      title: defaultTitle(input.show, e.number ?? e.index, e.title),
       video: { name: '', language: 'und' },
       audio: input.audio.map((a) => {
         const language = languageCode(a.language);

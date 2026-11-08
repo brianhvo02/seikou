@@ -52,9 +52,10 @@ function toshoIdOf(key: string): number | null {
  * saved record and, when there is one, for its release again, and restores both with `fromRecord` (unless the user
  * has already changed something). When the record's release or some of its cached files are gone, it says so and
  * offers "Fetch <release> again", which fetches the release from Anime Tosho and restores the saved choices onto it;
- * the user's own files cannot be fetched, so it asks to add them again. Save writes `toRecord` of the state and
- * answers "Saved at <time>" or the server's message. Renders the button row (with `children` first) and, below it,
- * the status and any missing release.
+ * the user's own files cannot be fetched, so it asks to add them again. While the saved release is missing and no
+ * other release is picked, Save is off, because it would write the record without its release and tracks. Save
+ * writes `toRecord` of the state and answers "Saved at <time>" or the server's message. Renders the button row (with
+ * `children` first) and, below it, the status and any missing release.
  */
 export function SaveBar({ api, state, dispatch, session, episodes, children }: SaveBarProps) {
   const [status, setStatus] = useState<Status | null>(null);
@@ -142,7 +143,13 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
     }
   };
 
-  const gone = saved !== null && saved.release !== null && (releaseGone || missing.length > 0) ? saved.release : null;
+  // the saved release is gone (or some of its files are) and the user has not picked another one
+  const gone =
+    saved !== null && saved.release !== null && (releaseGone || missing.length > 0) && (state.release === null || state.release.key === saved.release.id)
+      ? saved.release
+      : null;
+  // saving now would write no release and no tracks over the saved ones
+  const blocked = gone !== null && state.release === null;
   const goneFiles = missing.reduce((n, m) => n + m.files.length, 0);
   const toshoId = gone === null ? null : toshoIdOf(gone.id);
 
@@ -150,7 +157,7 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
     <>
       <div className="actions">
         {children}
-        <button type="button" className="primary" disabled={session === null || saving} onClick={() => void save()}>
+        <button type="button" className="primary" disabled={session === null || saving || blocked} onClick={() => void save()}>
           Save for encoding
         </button>
       </div>
@@ -168,6 +175,7 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
                   ? `${goneFiles} ${goneFiles === 1 ? 'file' : 'files'} of ${gone.label} ${goneFiles === 1 ? 'is' : 'are'} gone from the helper's cache.`
                   : `${gone.label} is gone from the helper's cache.`}{' '}
                 {toshoId === null ? 'These were your own files. Add them again in step 1.' : 'Fetch it again to use the saved choices.'}
+                {blocked && ' Saving is off until the release is back, so the saved choices are not overwritten.'}
               </p>
               {toshoId !== null && (
                 <button type="button" className="quiet" disabled={fetching} onClick={() => void fetchAgain(saved, toshoId)}>

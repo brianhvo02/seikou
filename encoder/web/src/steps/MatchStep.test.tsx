@@ -54,9 +54,9 @@ function fakeApi(titles: Record<number, string>): HelperApi {
   };
 }
 
-function Harness({ api }: { api: HelperApi }) {
+function Harness({ api, offset = 0 }: { api: HelperApi; offset?: number }) {
   const [state, dispatch] = useReducer(reduce, initialState(), (s) => {
-    const withTitle = reduce(s, { type: 'setTitle', title: hit });
+    const withTitle = reduce(reduce(s, { type: 'setTitle', title: hit }), { type: 'setOffset', offset });
     return reduce(withTitle, { type: 'setRelease', release: answer, from: 'tosho' });
   });
   return <MatchStep api={api} state={state} dispatch={dispatch} />;
@@ -73,6 +73,16 @@ describe('MatchStep', () => {
     expect(api.episodeTitles).toHaveBeenCalledWith(900101);
     // AniList has nothing for episode 3
     expect(within(rowOf(3)).getByText('Episode 3')).toBeTruthy();
+  });
+
+  it('with an episode offset, rows show the release numbers and their AniList titles', async () => {
+    const api = fakeApi({ 1: 'The Harbor Wakes', 13: 'Tide Line', 14: 'Lamps Again' });
+    render(<Harness api={api} offset={12} />);
+    expect(await screen.findByText('Tide Line')).toBeTruthy();
+    expect(within(rowOf(13)).getByText('Tide Line')).toBeTruthy();
+    expect(within(rowOf(14)).getByText('Lamps Again')).toBeTruthy();
+    expect(screen.queryByText('The Harbor Wakes')).toBeNull();
+    expect(within(rowOf(15)).getByRole('combobox', { name: 'Release file for Episode 15' })).toBeTruthy();
   });
 
   it('ticks full and signs by default', () => {

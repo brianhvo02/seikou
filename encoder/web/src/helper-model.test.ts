@@ -290,6 +290,35 @@ describe('metadata defaults', () => {
     expect(fewer.metadata.episodes[1]!.tracks.map((t) => t.key)).toEqual(['releases/tosho-7/11-t2.ass']);
   });
 
+  it('with an episode offset the titles and numbers are the release ones', () => {
+    const shifted = fill(reduce(reduce(initialState(), { type: 'setTitle', title }), { type: 'setOffset', offset: 12 }), { 1: 'Arrival', 13: 'Tide Line' });
+    expect(shifted.metadata.episodes[1]!.title).toBe('Lantern Harbor - 13 - Tide Line');
+    expect(shifted.metadata.episodes[2]!.title).toBe('Lantern Harbor - 14');
+    const record = toRecord(shifted, session, episodes);
+    expect(record.episodes[0]!.title).toBe('Tide Line');
+    const restored = fromRecord(record, null, episodes);
+    expect(restored.metadata.edited.size).toBe(0);
+  });
+
+  it('a restored record without its release keeps its track list through filling the defaults', () => {
+    const record = toRecord(fullState(), session, episodes);
+    const restored = fill(fromRecord(record, null, episodes));
+    expect(restored.metadata.episodes[1]!.tracks.map((t) => t.name)).toEqual(['Songs only', 'GroupA full']);
+    expect(restored.metadata.episodes[2]!.tracks).toHaveLength(1);
+  });
+
+  it('toRecord writes a language that is not three letters as und', () => {
+    const state = fill(withRelease());
+    let metadata = withUserEdit(state.metadata, 'episodes.1.video.language', 'jp');
+    metadata = withUserEdit(metadata, 'episodes.1.audio.0.language', 'JA');
+    metadata = withUserEdit(metadata, 'episodes.1.tracks.0.language', 'e');
+    const record = toRecord(reduce(state, { type: 'setMetadata', metadata }), session, episodes);
+    const ep = record.episodes[0]!;
+    expect(ep.metadata.video.language).toBe('und');
+    expect(ep.metadata.audio[0]!.language).toBe('und');
+    expect(ep.tracks[0]!.language).toBe('und');
+  });
+
   it('without titles known it keeps the episode titles the draft has', () => {
     const restored = fromRecord(toRecord(fullState(), session, episodes), release, episodes);
     expect(fill(restored).metadata.episodes[1]!.episodeTitle).toBe('Arrival');

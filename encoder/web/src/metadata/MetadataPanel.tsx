@@ -82,9 +82,28 @@ function ReorderList<T extends { readonly included: boolean }>({
   // two streams in one language would read the same; their position tells them apart
   const unique = names.map((n, i) => (names.indexOf(n) !== names.lastIndexOf(n) ? `${n} ${i + 1}` : n));
 
+  // after a move by button, focus goes back to the moved row: to the same button, or the other one once this one is
+  // disabled (the row reached an end), so it never falls to the page
+  const refocus = useRef<{ readonly key: string; readonly dir: 'up' | 'down' } | null>(null);
+  useEffect(() => {
+    const wanted = refocus.current;
+    refocus.current = null;
+    if (wanted === null || !listRef.current) return;
+    const row = (Array.from(listRef.current.children) as HTMLElement[]).find((li) => li.dataset.key === wanted.key);
+    const button = (dir: string) => row?.querySelector<HTMLButtonElement>(`button[data-dir="${dir}"]`);
+    const same = button(wanted.dir);
+    const target = same && !same.disabled ? same : button(wanted.dir === 'up' ? 'down' : 'up');
+    target?.focus();
+  }, [items]);
+
   const moveTo = (from: number, to: number) => {
     if (to < 0 || to >= items.length || to === from) return;
     onChange(move(items, from, to));
+  };
+
+  const moveByButton = (from: number, dir: 'up' | 'down') => {
+    refocus.current = { key: keyOf(items[from]!), dir };
+    moveTo(from, dir === 'up' ? from - 1 : from + 1);
   };
 
   const onRowKey = (e: ReactKeyboardEvent, index: number) => {
@@ -127,6 +146,7 @@ function ReorderList<T extends { readonly included: boolean }>({
         return (
           <li
             key={key}
+            data-key={key}
             className={['track-row', i === defaultIndex ? 'is-default' : '', dragging === key ? 'is-dragging' : '', item.included ? '' : 'is-left-out'].join(' ').trim()}
             onKeyDown={(e) => onRowKey(e, i)}
           >
@@ -151,10 +171,10 @@ function ReorderList<T extends { readonly included: boolean }>({
               {i === defaultIndex && <span className="default-mark">Default</span>}
               {items.length > 1 && (
                 <>
-                  <button type="button" className="step-move" aria-label={`Move ${name} up`} disabled={i === 0} onClick={() => moveTo(i, i - 1)}>
+                  <button type="button" className="step-move" data-dir="up" aria-label={`Move ${name} up`} disabled={i === 0} onClick={() => moveByButton(i, 'up')}>
                     <span aria-hidden="true">↑</span>
                   </button>
-                  <button type="button" className="step-move" aria-label={`Move ${name} down`} disabled={i === items.length - 1} onClick={() => moveTo(i, i + 1)}>
+                  <button type="button" className="step-move" data-dir="down" aria-label={`Move ${name} down`} disabled={i === items.length - 1} onClick={() => moveByButton(i, 'down')}>
                     <span aria-hidden="true">↓</span>
                   </button>
                 </>
