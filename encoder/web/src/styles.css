@@ -2084,6 +2084,15 @@ button.quiet.danger {
   font-size: 13px;
 }
 
+.sample-error,
+.sample-none {
+  font-size: 13px;
+}
+
+.sample-error {
+  margin-top: 4px;
+}
+
 .test-feet {
   margin-top: 16px;
 }

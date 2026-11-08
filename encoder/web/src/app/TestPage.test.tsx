@@ -35,7 +35,7 @@ afterEach(() => {
 const plan: TestPlan = {
   profiles: [
     { id: 'default', name: 'Default', settings: DEFAULT_TEST_SETTINGS },
-    { id: 'ab12', name: 'Small files', settings: { ...DEFAULT_TEST_SETTINGS, crf: 32, preset: 6 } },
+    { id: 'ab12', name: 'Small files', settings: { ...DEFAULT_TEST_SETTINGS, crf: 32, preset: 6, opusBitrate: 96 } },
   ],
   stretches: [
     { startMs: 4500, endMs: 14_500 },
@@ -99,7 +99,8 @@ describe('TestPage', () => {
     const videos = rows[1]!.querySelectorAll('video');
     expect([...videos].map((v) => v.getAttribute('src'))).toEqual(['/api/tests/cccccccccccccccc/default/2.webm?t=tok', '/api/tests/cccccccccccccccc/ab12/2.webm?t=tok']);
     expect(screen.getAllByText('Small files').length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/CRF 32, preset 6/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText('CRF 32, preset 6, film grain 4, Opus 96 kb/s').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('CRF 25, preset 4, film grain 4, Opus default').length).toBeGreaterThan(0);
     // Default: (250 000 + 2 × 20 000) × 1440 s = 417.6 MB.
     const sizes = screen.getByRole('list', { name: 'Projected sizes with Default' });
     expect(within(sizes).getByText('418 MB')).toBeTruthy();
@@ -132,6 +133,48 @@ describe('TestPage', () => {
     expect(paused).toEqual(expect.arrayContaining([a, b]));
   });
 
+  it('leaves a follower that is still seeking alone', () => {
+    setup(fakeApi(), [testJob()]);
+    const row = screen.getAllByRole('group', { name: /^Sample at/ })[0]!;
+    const [a, b] = [...row.querySelectorAll('video')] as HTMLVideoElement[];
+    a!.currentTime = 4;
+    b!.currentTime = 2;
+    Object.defineProperty(b, 'seeking', { value: true, configurable: true });
+    fireEvent(a!, new Event('timeupdate'));
+    expect(b!.currentTime).toBe(2);
+    Object.defineProperty(b, 'seeking', { value: false, configurable: true });
+    fireEvent(a!, new Event('timeupdate'));
+    expect(b!.currentTime).toBe(4);
+  });
+
+  it("a sample that fails to load says so, and the row's next sample leads", () => {
+    setup(fakeApi(), [testJob()]);
+    const row = screen.getAllByRole('group', { name: /^Sample at/ })[0]!;
+    const [a, b] = [...row.querySelectorAll('video')] as HTMLVideoElement[];
+    Object.defineProperty(a, 'error', { value: { code: 4 }, configurable: true });
+    fireEvent.error(a!);
+    expect(within(row).getByText(/This sample didn't load \(error code 4/)).toBeTruthy();
+    expect(b!.muted).toBe(false);
+    fireEvent.click(within(row).getByRole('button', { name: 'Play' }));
+    expect(played).toEqual([b]);
+    b!.currentTime = 2.5;
+    fireEvent(b!, new Event('timeupdate'));
+    expect(within(row).getByText(/2\.5 \//)).toBeTruthy();
+  });
+
+  it('a row none of whose samples loaded cannot play and says why', () => {
+    setup(fakeApi(), [testJob()]);
+    const row = screen.getAllByRole('group', { name: /^Sample at/ })[0]!;
+    for (const v of row.querySelectorAll('video')) {
+      Object.defineProperty(v, 'error', { value: { code: 2 }, configurable: true });
+      fireEvent.error(v);
+    }
+    expect(within(row).getAllByText(/error code 2, a network error/)).toHaveLength(2);
+    expect((within(row).getByRole('button', { name: 'Play' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(row).getByRole('slider') as HTMLInputElement).disabled).toBe(true);
+    expect(within(row).getByText(/None of this row's samples loaded/)).toBeTruthy();
+  });
+
   it('Use this profile opens the queue dialog with it', () => {
     setup(fakeApi(), [testJob()]);
     fireEvent.click(screen.getByRole('button', { name: 'Use Small files' }));
@@ -151,7 +194,7 @@ describe('TestPage', () => {
     });
     const source = setup(fakeApi(), [running]);
     act(() => source.sendProgress({ jobId: running.id, episode: 4, framesDone: 180, frames: 240, fps: 30, etaSeconds: 2 }));
-    expect(screen.getByText(/Sample 4 of 10/)).toBeTruthy();
+    expect(screen.getByText(/Encoding sample 4 of 10 \(stretch 2 of 5, Small files\)/)).toBeTruthy();
     expect(screen.getByRole('progressbar', { name: 'Test progress' }).getAttribute('value')).toBe('37');
     expect(screen.queryAllByRole('group', { name: /^Sample at/ })).toHaveLength(0);
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();

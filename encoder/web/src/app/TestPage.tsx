@@ -6,7 +6,7 @@ import { formatLeft, overallPercent, runningEpisode, secondsLeft } from './job-m
 import { useJobs, useJobsStore } from './jobs-context';
 import { useDocumentTitle } from './place';
 import { Link, navigate, routeHref } from './router';
-import { DRIFT_SECONDS, formatPlaylistTime, formatSize, projectedBytes, testSummary } from './test-model';
+import { DRIFT_SECONDS, formatPlaylistTime, formatSize, mediaErrorText, projectedBytes, testSummary } from './test-model';
 
 /** What the page needs: the backend client and the test job to show. */
 export interface TestPageProps {
@@ -29,58 +29,71 @@ interface RowProps {
 }
 
 /**
- * One stretch's samples side by side, with one Play/Pause and one position control for all of them. The first video
- * leads: its time drives the position control, every other video that drifts more than 0.1 s from it is moved back to
- * it, and its end stops the row. Only the first video is heard; every sample carries the same audio.
+ * One stretch's samples side by side, with one Play/Pause and one position control for all of them. The first sample
+ * that loaded leads: its time drives the position control, every other video that drifts more than 0.1 s from it is
+ * moved back to it (unless it is still seeking to an earlier move), and its end stops the row. Only the lead is heard;
+ * every sample carries the same audio. A sample that fails to load says so in its cell with the browser's error code;
+ * when none loaded, the row's controls are off and say why.
  */
 function SampleRow({ label, seconds, samples }: RowProps) {
   const videos = useRef<(HTMLVideoElement | null)[]>([]);
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
   const [duration, setDuration] = useState(seconds);
-  const all = (): HTMLVideoElement[] => videos.current.filter((v): v is HTMLVideoElement => v !== null);
+  const [errors, setErrors] = useState<readonly (number | null)[]>(() => samples.map(() => null));
+  const leadIndex = errors.findIndex((e) => e === null);
+  const loaded = (): HTMLVideoElement[] => videos.current.filter((v, k): v is HTMLVideoElement => v !== null && errors[k] === null);
+  const isLead = (k: number): boolean => k === leadIndex;
 
   const toggle = (): void => {
     if (playing) {
-      for (const v of all()) v.pause();
+      for (const v of loaded()) v.pause();
       setPlaying(false);
       return;
     }
-    const lead = all()[0];
+    const lead = loaded()[0];
     // A row that played to its end starts again from its beginning.
-    if (lead !== undefined && lead.ended) for (const v of all()) v.currentTime = 0;
-    for (const v of all()) void v.play().catch(() => undefined);
+    if (lead !== undefined && lead.ended) for (const v of loaded()) v.currentTime = 0;
+    for (const v of loaded()) void v.play().catch(() => undefined);
     setPlaying(true);
   };
 
   const follow = (): void => {
-    const [lead, ...rest] = all();
+    const [lead, ...rest] = loaded();
     if (lead === undefined) return;
     const t = lead.currentTime;
     setTime(t);
-    for (const v of rest) if (Math.abs(v.currentTime - t) > DRIFT_SECONDS) v.currentTime = t;
+    // A follower still seeking to the last move is left to arrive, so a slow one is not sent back again and again.
+    for (const v of rest) if (!v.seeking && Math.abs(v.currentTime - t) > DRIFT_SECONDS) v.currentTime = t;
   };
 
   const seek = (value: number): void => {
-    for (const v of all()) v.currentTime = value;
+    for (const v of loaded()) v.currentTime = value;
     setTime(value);
   };
 
   const ended = (): void => {
-    for (const v of all()) v.pause();
+    for (const v of loaded()) v.pause();
     setPlaying(false);
   };
 
   const metadata = (): void => {
-    const d = all()[0]?.duration;
+    const d = loaded()[0]?.duration;
     if (d !== undefined && Number.isFinite(d) && d > 0) setDuration(d);
   };
 
+  const failed = (k: number): void => {
+    const code = videos.current[k]?.error?.code ?? 0;
+    videos.current[k]?.pause();
+    setErrors((now) => now.map((e, i) => (i === k ? code : e)));
+  };
+
+  const none = leadIndex === -1;
   return (
     <div role="group" aria-label={`Sample at ${label}`} className="sample-row">
       <div className="sample-controls">
         <span className="sample-at num">{label}</span>
-        <button type="button" className="quiet sample-play" aria-pressed={playing} onClick={toggle}>
+        <button type="button" className="quiet sample-play" aria-pressed={playing} disabled={none} onClick={toggle}>
           {playing ? 'Pause' : 'Play'}
         </button>
         <input
@@ -91,30 +104,43 @@ function SampleRow({ label, seconds, samples }: RowProps) {
           max={duration}
           step={0.1}
           value={Math.min(time, duration)}
+          disabled={none}
           onChange={(e) => seek(Number(e.target.value))}
         />
         <span className="muted num sample-clock">
           {time.toFixed(1)} / {duration.toFixed(1)} s
         </span>
+        {none && <span className="error sample-none">None of this row's samples loaded, so it can't play.</span>}
       </div>
       <div className="sample-videos">
-        {samples.map((s, k) => (
-          <figure key={s.src} className="sample">
-            <video
-              ref={(el) => {
-                videos.current[k] = el;
-              }}
-              src={s.src}
-              muted={k > 0}
-              playsInline
-              preload="metadata"
-              onTimeUpdate={k === 0 ? follow : undefined}
-              onEnded={k === 0 ? ended : undefined}
-              onLoadedMetadata={k === 0 ? metadata : undefined}
-            />
-            <figcaption className="muted">{s.name}</figcaption>
-          </figure>
-        ))}
+        {samples.map((s, k) => {
+          const error = errors[k];
+          return (
+            <figure key={s.src} className="sample">
+              <video
+                ref={(el) => {
+                  videos.current[k] = el;
+                }}
+                src={s.src}
+                muted={!isLead(k)}
+                playsInline
+                preload="metadata"
+                onTimeUpdate={() => {
+                  if (isLead(k)) follow();
+                }}
+                onEnded={() => {
+                  if (isLead(k)) ended();
+                }}
+                onLoadedMetadata={() => {
+                  if (isLead(k)) metadata();
+                }}
+                onError={() => failed(k)}
+              />
+              {error !== null && error !== undefined && <p className="error sample-error">{mediaErrorText(error)}</p>}
+              <figcaption className="muted">{s.name}</figcaption>
+            </figure>
+          );
+        })}
       </div>
     </div>
   );
@@ -178,6 +204,14 @@ function Results({ api, job, plan, results }: { readonly api: AppApi; readonly j
   );
 }
 
+/** Which stretch and profile sample encode `index` (from 1) is, as " (stretch 2 of 5, Small files)"; empty without a plan. */
+function unitLabel(plan: TestPlan | undefined, index: number): string {
+  if (plan === undefined || plan.profiles.length === 0) return '';
+  const profile = plan.profiles[(index - 1) % plan.profiles.length];
+  const stretch = Math.floor((index - 1) / plan.profiles.length) + 1;
+  return profile === undefined ? '' : ` (stretch ${stretch} of ${plan.stretches.length}, ${profile.name})`;
+}
+
 /** The page of one test job. */
 function TestView({ api, job, live }: { readonly api: AppApi; readonly job: Job; readonly live: JobProgress | undefined }) {
   const store = useJobsStore();
@@ -224,7 +258,7 @@ function TestView({ api, job, live }: { readonly api: AppApi; readonly job: Job;
               ? 'Waiting. A test runs before the next episode of any encode in progress.'
               : unit === null
                 ? 'Starting…'
-                : `Sample ${unit.index} of ${job.episodes.length}`}
+                : `Encoding sample ${unit.index} of ${job.episodes.length}${unitLabel(plan, unit.index)}`}
             {job.state === 'running' && <span className="num">, {percent}%</span>}
             {left !== null && <span className="muted">, {formatLeft(left)}</span>}
           </p>

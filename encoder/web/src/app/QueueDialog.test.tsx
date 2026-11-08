@@ -51,11 +51,11 @@ describe('QueueDialog', () => {
     render(<QueueDialog api={api} {...props} />);
     await screen.findByText('LANTERN_HARBOR_D1', { selector: 'p' });
     expect(screen.getByText(/2 episodes/)).toBeTruthy();
-    expect(screen.getByText(/CRF 25, preset 4, film grain 4, Opus/)).toBeTruthy();
+    expect(screen.getByText(/CRF 25, preset 4, film grain 4, Opus default, with PGS/)).toBeTruthy();
     const folder = (await screen.findByLabelText('Output folder')) as HTMLInputElement;
     await waitFor(() => expect(folder.value).toBe('/data/output/LANTERN_HARBOR_D1/00001'));
     fireEvent.change(screen.getByLabelText('Settings profile'), { target: { value: 'ab12' } });
-    expect(screen.getByText(/CRF 32, preset 4, film grain 4, Opus/)).toBeTruthy();
+    expect(screen.getByText(/CRF 32, preset 4, film grain 4, Opus default, with PGS/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Queue encode' }));
     await waitFor(() =>
       expect(api.createJob).toHaveBeenCalledWith({
@@ -145,7 +145,7 @@ describe('QueueDialog', () => {
     const api = fakeApi({ profiles: vi.fn(async () => Promise.reject(new ApiError(500, 'boom', 'No profiles.'))) });
     render(<QueueDialog api={api} {...props} />);
     await screen.findByLabelText('Output folder');
-    expect(screen.getByText(/CRF 25, preset 4, film grain 4, Opus/)).toBeTruthy();
+    expect(screen.getByText(/CRF 25, preset 4, film grain 4, Opus default, with PGS/)).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Queue encode' }));
     await waitFor(() => expect(api.createJob).toHaveBeenCalledWith(expect.objectContaining({ settings: DEFAULT_TEST_SETTINGS })));

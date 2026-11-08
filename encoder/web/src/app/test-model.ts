@@ -34,9 +34,21 @@ export function formatPlaylistTime(ms: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
 }
 
-/** The settings a test compares, in one line: CRF, preset, film grain and any extra SVT-AV1 arguments. */
+/** The settings a test compares, in one line: CRF, preset, film grain, the Opus bitrate and any extra SVT-AV1 arguments. */
 export function testSummary(s: EncodeSettings): string {
-  const parts = [`CRF ${s.crf}`, `preset ${s.preset}`, `film grain ${s.filmGrain}`];
+  const parts = [`CRF ${s.crf}`, `preset ${s.preset}`, `film grain ${s.filmGrain}`, s.opusBitrate === null ? 'Opus default' : `Opus ${s.opusBitrate} kb/s`];
   if (s.extraSvtArgs.length > 0) parts.push(s.extraSvtArgs.join(' '));
   return parts.join(', ');
+}
+
+/** What a sample's failed load says, with the browser's `MediaError` code (0 when it gave none). */
+export function mediaErrorText(code: number): string {
+  const why: Readonly<Record<number, string>> = {
+    1: 'the load was stopped',
+    2: 'a network error',
+    3: 'it could not be decoded',
+    4: 'the browser could not fetch it or cannot play its format',
+  };
+  const reason = why[code];
+  return `This sample didn't load (error code ${code}${reason === undefined ? '' : `, ${reason}`}).`;
 }

@@ -421,7 +421,8 @@ export class JobRunner {
   /**
    * Loads `jobs.json`, marks every job that was running as `interrupted` (an episode in progress goes back to `queued`
    * and its `<name>.mkv.partial` in the job's folder is removed; one whose MKV was complete but not packaged becomes
-   * `packaging-failed`), and starts the queue. A damaged file leaves the queue empty, is logged, and refuses every
+   * `packaging-failed`), removes the sample folder of every test job that is or becomes `interrupted`, and starts the
+   * queue. A damaged file leaves the queue empty, is logged, and refuses every
    * change with 500 `jobs-unreadable`.
    */
   start(): Promise<void> {
@@ -435,6 +436,8 @@ export class JobRunner {
         this.jobs = loaded.jobs;
       }
       for (const job of this.jobs) {
+        // A test interrupted by an earlier stop (Ctrl-C saves it as interrupted) loses its samples too: its retry starts over.
+        if (job.kind === 'test' && job.state === 'interrupted') await this.removeTestFolder(job);
         if (job.state !== 'running') continue;
         job.state = 'interrupted';
         job.finishedAt = this.iso();

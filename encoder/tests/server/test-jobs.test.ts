@@ -184,13 +184,36 @@ describe('a test run', () => {
     expect(await audioOf(b)).toEqual(await audioOf(a));
     expect(outcome.results.map((r) => r.id)).toEqual(['p1', 'p2']);
     expect(outcome.results[0]!.audioBytesPerSecond).toBeGreaterThan(0);
-    expect(outcome.results[1]!.audioBytesPerSecond).toBe(outcome.results[0]!.audioBytesPerSecond);
+    // The shared audio was encoded at 96 kb/s; the second profile's 256 kb/s scales it.
+    expect(outcome.results[1]!.audioBytesPerSecond).toBeCloseTo((outcome.results[0]!.audioBytesPerSecond * 256) / 96, 6);
     expect(outcome.results[0]!.videoBytesPerSecond).toBeGreaterThan(0);
     // The speech disc has one audio stream.
     expect(outcome.audioStreams).toBe(1);
     // One unit per sample encode, in stretch then profile order.
     expect(events.filter((e) => e.kind === 'episode-done').map((e) => e.episode)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     expect(events.filter((e) => e.kind === 'progress').map((e) => e.episode)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  });
+
+  it("each profile's projected audio follows its own Opus bitrate, the encoder's default when it has none", async () => {
+    const fake = new FakePlanEncoder();
+    const run = (profiles: TestProfile[], id: string) =>
+      runTestEncode(
+        { id, disc: { dir: fixturePath('fixtures/disc-speech') }, playlist: '00000', episodeSpec: '1-3,4-5', noSubtitles: true, test: { profiles, stretches: [{ startMs: 0, endMs: 1000 }] } },
+        { dataDir: fx.dataDir, tools: DUMMY_TOOLS },
+        new AbortController().signal,
+        () => undefined,
+        fake,
+      );
+    // The speech disc's audio is stereo: no bitrate means 160 kb/s.
+    const a = await run([profile('p1'), profile('p2', { opusBitrate: 80 }), profile('p3', { opusBitrate: 160 })], '00000000000000cc');
+    const [first, half, same] = a.results;
+    expect(fake.calls.filter((c) => c.audio.length > 0).map((c) => c.opusBitrate)).toEqual([undefined]);
+    expect(half!.audioBytesPerSecond).toBeCloseTo(first!.audioBytesPerSecond / 2, 6);
+    expect(same!.audioBytesPerSecond).toBeCloseTo(first!.audioBytesPerSecond, 6);
+    expect(projectedBytes(100, half!, 2)).toBeLessThan(projectedBytes(100, { ...half!, audioBytesPerSecond: first!.audioBytesPerSecond }, 2));
+    // With the first profile at 64 kb/s and the second at the default, the second's audio is 160/64 of the sample's.
+    const b = await run([profile('p1', { opusBitrate: 64 }), profile('p2')], '00000000000000dd');
+    expect(b.results[1]!.audioBytesPerSecond).toBeCloseTo((b.results[0]!.audioBytesPerSecond * 160) / 64, 6);
   });
 
   it('an aborted test leaves no partial sample and rejects with an AbortError', async () => {
@@ -291,6 +314,30 @@ describe('test jobs in the runner', () => {
     await until(() => second.get(job.id)!.state === 'done', 'the retried test to finish');
     expect(readdirSync(join(fx.dataDir, 'tests', job.id, 'a'))).toEqual(['2.webm']);
     expect(second.get(job.id)!.episodes.every((e) => e.state === 'queued' || e.state === 'done')).toBe(true);
+  });
+
+  it('start-up removes the folder of a test a Ctrl-C left interrupted', async () => {
+    let started = false;
+    const first = startJobRunner(fx.app, {
+      runTest: (job, signal) =>
+        new Promise((_resolve, reject) => {
+          mkdirSync(join(job.outDir, 'a'), { recursive: true });
+          writeFileSync(join(job.outDir, 'a', '1.webm'), 'sample');
+          started = true;
+          signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
+        }),
+    });
+    await first.ready;
+    const job = await first.add({ kind: 'test', discKey: fx.discKey, playlistId: '00000', episodeSpec: '1-3,4-5', profiles: [profile('a')] });
+    await until(() => started, 'the test to start');
+    // Ctrl-C: the runner saves the test as interrupted, its finished sample still on disk.
+    await first.shutdown();
+    expect(first.get(job.id)!.state).toBe('interrupted');
+    expect(existsSync(join(fx.dataDir, 'tests', job.id, 'a', '1.webm'))).toBe(true);
+    const second = startJobRunner(fx.app, { runTest: () => new Promise(() => undefined) });
+    await second.ready;
+    expect(second.get(job.id)!.state).toBe('interrupted');
+    expect(existsSync(join(fx.dataDir, 'tests', job.id))).toBe(false);
   });
 
   it('a failed test keeps its error', async () => {

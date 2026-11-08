@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { loadPlaylist, type Playlist } from '../disc/playlist';
 import { readPlaylistPmts } from '../disc/pmt';
 import { probeClip, type ClipProbe } from '../disc/probe';
-import { encodePlan, type EncodeEvent, type PlanEncodeOptions } from '../encode';
+import { encodePlan, opusArgs, type EncodeEvent, type PlanEncodeOptions } from '../encode';
 import { readMkv, type ParsedMkv } from '../mux/mkv-reader';
 import { writeWebm } from '../package/webm';
 import { selectAudio } from '../plan/audio-streams';
@@ -43,7 +43,10 @@ export interface TestProfileResult {
   readonly id: string;
   /** The video bytes of every sample of the profile over the samples' length in seconds. */
   readonly videoBytesPerSecond: number;
-  /** The shared audio's bytes over the same length: the first audio stream, encoded once and the same for every profile. */
+  /**
+   * Bytes per second of one audio stream at this profile's Opus bitrate: the shared audio sample's rate (encoded once,
+   * at the first profile's bitrate) scaled by this profile's effective bitrate over the first profile's.
+   */
   readonly audioBytesPerSecond: number;
 }
 
@@ -153,6 +156,11 @@ export function parseTestProfiles(value: unknown): TestProfile[] {
       throw e;
     }
   });
+}
+
+/** The Opus bitrate in kb/s an encode uses for a stream of `channels` channels: `bitrate`, else the encoder's default (160 up to stereo, 320 above). */
+export function effectiveOpusBitrate(bitrate: number | null, channels: number): number {
+  return Number(opusArgs(channels, bitrate ?? undefined)[1]);
 }
 
 /** The folder a test job's samples are written to: `<dataDir>/tests/<jobId>`. */
@@ -323,8 +331,15 @@ export async function runTestEncode(
     await rm(work, { recursive: true, force: true });
   }
   const audioBytesPerSecond = seconds > 0 ? audioBytes / seconds : 0;
+  // Opus at a set bitrate spends close to it, so the shared sample's rate scales to another profile's bitrate.
+  const channels = shared[0]?.channels ?? 2;
+  const firstRate = effectiveOpusBitrate(audioSettings.opusBitrate, channels);
   return {
     audioStreams,
-    results: profiles.map((p, k) => ({ id: p.id, videoBytesPerSecond: seconds > 0 ? videoBytes[k]! / seconds : 0, audioBytesPerSecond })),
+    results: profiles.map((p, k) => ({
+      id: p.id,
+      videoBytesPerSecond: seconds > 0 ? videoBytes[k]! / seconds : 0,
+      audioBytesPerSecond: (audioBytesPerSecond * effectiveOpusBitrate(p.settings.opusBitrate, channels)) / firstRate,
+    })),
   };
 }

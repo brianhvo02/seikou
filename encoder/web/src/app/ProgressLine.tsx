@@ -5,7 +5,7 @@ import { Link } from './router';
 
 /**
  * The line under the app bar that says what is encoding: the disc's name, "episode n of m", the share done and the time
- * left, as one link to the job's page. A test encode shows its disc, "test encode", "sample n of m" and the share done.
+ * left, as one link to the job's page. A test encode shows its disc, "test encode", "encoding sample n of m" (one per stretch and profile) and the share done.
  * It renders nothing while no job is running, so the slot it sits in stays empty. It reads the app's shared queue, so every page shows the same line.
  */
 export function ProgressLine() {
@@ -20,7 +20,7 @@ export function ProgressLine() {
       <Link to={{ kind: 'test', jobId: job.id }} className="progress-line">
         <strong className="progress-disc">{job.disc.label}</strong>
         <span className="muted">test encode</span>
-        {unit !== null && <span>{`sample ${unit.index} of ${job.episodes.length}`}</span>}
+        {unit !== null && <span>{`encoding sample ${unit.index} of ${job.episodes.length}`}</span>}
         <span className="num">{done}%</span>
         <span className="progress-meter" aria-hidden="true">
           <span style={{ width: `${done}%` }} />
