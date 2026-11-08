@@ -3,8 +3,8 @@ import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { bestsourceCacheDir } from '../src/cli';
+import { describe, expect, it, vi } from 'vitest';
+import { bestsourceCacheDir, printEncodeEvent } from '../src/cli';
 import { discKeyOfFolder } from '../src/disc/disc-key';
 import { RecordStore } from '../src/subs/record';
 import { writeEpisodeMkv } from './package/episode-mkv';
@@ -287,4 +287,21 @@ describe('package', () => {
   it('exits 2 without --out', () => {
     expect(() => execFileSync('npx', ['tsx', fx('src/cli.ts'), 'package', '/tmp/x.mkv'], { stdio: 'pipe' })).toThrowError(expect.objectContaining({ status: 2 }));
   }, 60_000);
+});
+
+it('the encode event printer stays quiet for progress and packaging events', () => {
+  const out = vi.spyOn(console, 'log').mockImplementation(() => {});
+  const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    for (const kind of ['progress', 'packaged', 'package-failed'] as const) printEncodeEvent({ kind, episode: 1, message: 'x', framesDone: 1, frames: 2 });
+    expect(out).not.toHaveBeenCalled();
+    expect(err).not.toHaveBeenCalled();
+    printEncodeEvent({ kind: 'log', episode: 1, message: 'note' });
+    printEncodeEvent({ kind: 'episode-start', episode: 1, message: 'Encoding episode 1' });
+    expect(err).toHaveBeenCalledWith('note');
+    expect(out).toHaveBeenCalledWith('Encoding episode 1');
+  } finally {
+    out.mockRestore();
+    err.mockRestore();
+  }
 });

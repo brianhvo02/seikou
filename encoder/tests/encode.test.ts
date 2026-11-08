@@ -8,6 +8,7 @@ import { FetchCache } from '@seikou/fansubs/fetch-cache';
 import { fixtureFansubSources } from '@seikou/fansubs/fixture-sources';
 import { discKeyOfFolder } from '../src/disc/disc-key';
 import { encodeEpisodes, opusArgs, svtArgs, type EncodeEvent, type EncodeOptions } from '../src/encode';
+import { EpisodeSpecError } from '../src/plan/episodes';
 import { NoAudioChosenError } from '../src/subs/encode-record';
 import { RecordStore, type SubtitleRecord } from '../src/subs/record';
 import { ReleaseCache } from '../src/subs/release-cache';
@@ -204,6 +205,19 @@ describe.skipIf(!haveTools)('partial files, cancel, progress and subsets on disc
     expect(readdirSync(out).filter((n) => n.endsWith('.partial') || n.endsWith('.mkv'))).toEqual([]);
   }, 180_000);
 
+  it('an abort that arrives after a tool failed keeps the tool failure', async () => {
+    const out = mkdtempSync(join(tmpdir(), 'et-'));
+    process.env.FAKE_ENC_EXIT = '3';
+    process.env.FAKE_ENC_NOREAD = '1';
+    const controller = new AbortController();
+    const tools = { ...toolPaths()!, opusenc: fx('tests/fake-bin/opusenc') };
+    // The abort comes from the first event after the failing tool is started, while the failure is being handled.
+    const err = await encodeEpisodes({ ...base(out), tools, signal: controller.signal }, (e) => {
+      if (e.kind === 'episode-start') setTimeout(() => controller.abort(), 300);
+    }).catch((e: unknown) => e);
+    expect(err).toMatchObject({ tool: 'opusenc', code: 3 });
+  }, 120_000);
+
   it('an already aborted signal rejects before anything is spawned', async () => {
     const out = mkdtempSync(join(tmpdir(), 'et-'));
     const before = childPids();
@@ -220,6 +234,7 @@ describe.skipIf(!haveTools)('partial files, cancel, progress and subsets on disc
     expect(readdirSync(out).sort()).toEqual(['cache', 'ep-02.mkv']);
     expect(events.filter((e) => e.kind === 'episode-start').map((e) => e.episode)).toEqual([2]);
     await expect(encodeEpisodes({ ...base(out), onlyEpisodes: [3] }, () => {})).rejects.toThrow(/episode 3/i);
+    await expect(encodeEpisodes({ ...base(out), onlyEpisodes: [] }, () => {})).rejects.toBeInstanceOf(EpisodeSpecError);
   }, 600_000);
 
   it('progress events report frames done and total', async () => {
@@ -258,6 +273,13 @@ describe.skipIf(!haveTools)('partial files, cancel, progress and subsets on disc
 });
 
 describe.skipIf(!haveTools)('end to end on disc3', () => {
+  it('onlyFirstAudio cuts the first audio stream only', async () => {
+    const out = mkdtempSync(join(tmpdir(), 'et-'));
+    const opts: EncodeOptions = { discDir: fx('fixtures/disc3'), playlistId: '00000', episodes: '1-', outDir: out, namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], filmGrain: 4, cacheDir: join(out, 'cache'), tools: toolPaths()!, dataDir: join(out, 'data'), noSubtitles: false, noPgs: false, onlyFirstAudio: true };
+    const [p] = await encodeEpisodes(opts, () => {});
+    expect(trackSummary(p!).map((t) => [t.codec, t.name])).toEqual([['V_AV1', ''], ['A_OPUS', 'Japanese']]);
+  }, 600_000);
+
   it('encodes disc3 with four Opus tracks', async () => {
     const out = mkdtempSync(join(tmpdir(), 'et-'));
     const opts: EncodeOptions = { discDir: fx('fixtures/disc3'), playlistId: '00000', episodes: '1-', outDir: out, namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], filmGrain: 4, cacheDir: join(out, 'cache'), tools: toolPaths()!, dataDir: join(out, 'data'), noSubtitles: false, noPgs: false };

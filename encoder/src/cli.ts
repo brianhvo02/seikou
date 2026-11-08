@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { listPlaylists, loadPlaylist } from './disc/playlist';
-import { encodeEpisodes } from './encode';
+import { encodeEpisodes, type EncodeEvent } from './encode';
 import { MkvReadError } from './mux/mkv-reader';
 import { packageEpisode, PackageError } from './package/package';
 import { SupError } from './package/sup';
@@ -258,11 +258,7 @@ async function run(argv: string[]): Promise<void> {
         noPgs: values['no-pgs'] === true,
         webDir: values.web === undefined ? undefined : resolve(values.web),
       },
-      (e) => {
-        if (e.kind === 'episode-done') console.log(`Episode ${e.episode} done: ${e.path ?? ''}`);
-        else if (e.kind === 'episode-start') console.log(e.message);
-        else if (e.kind === 'log') console.error(e.message);
-      },
+      printEncodeEvent,
     );
     return;
   }
@@ -276,6 +272,13 @@ async function run(argv: string[]): Promise<void> {
   }
 
   throw new UsageError(`unknown command "${command ?? ''}"`);
+}
+
+/** Prints what the `encode` command shows of an event: starts and finishes on stdout, log lines on stderr, nothing for progress or packaging events. */
+export function printEncodeEvent(e: EncodeEvent): void {
+  if (e.kind === 'episode-done') console.log(`Episode ${e.episode} done: ${e.path ?? ''}`);
+  else if (e.kind === 'episode-start') console.log(e.message);
+  else if (e.kind === 'log') console.error(e.message);
 }
 
 /**

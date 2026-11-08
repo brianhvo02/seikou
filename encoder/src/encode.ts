@@ -217,6 +217,7 @@ export async function encodeEpisodes(
   const now = o.now ?? Date.now;
   const playlist = await loadPlaylist(resolve(o.discDir), o.playlistId);
   const specs = parseEpisodeSpec(o.episodes, playlist.chapters.length);
+  if (o.onlyEpisodes?.length === 0) throw new EpisodeSpecError('onlyEpisodes is empty; leave it out to encode every episode');
   for (const n of o.onlyEpisodes ?? []) {
     if (!Number.isInteger(n) || n < 1 || n > specs.length) throw new EpisodeSpecError(`Episode ${String(n)} is not in the episode list, which has ${specs.length}`);
   }
@@ -277,6 +278,8 @@ export async function encodeEpisodes(
     const pgs = o.noPgs ? [] : await episodePgsTracks(plan, playlist, (message) => onEvent({ kind: 'log', episode: plan.index, message }));
     const tmp = await mkdtemp(join(tmpdir(), 'encoding-tools-'));
     const chains: Chain[] = [];
+    // The first real failure of a chain: an abort that arrives later does not replace it.
+    let chainError: ChainError | WavGuardError | null = null;
     const onAbort = (): void => {
       for (const c of chains) c.abort(abortError());
     };
@@ -285,6 +288,9 @@ export async function encodeEpisodes(
       await writeFile(videoScript, buildVideoScript(plan, { cacheDir }));
       const audioScripts = audio.map((_, i) => join(tmp, `audio-${i + 1}.vpy`));
       for (const [i, script] of audioScripts.entries()) await writeFile(script, buildAudioScript(plan, { cacheDir }, i));
+
+      // The signal is checked again here, after every await that can let it arrive and before any tool starts.
+      if (isAborted()) throw abortError();
 
       // Every chain starts before any reader awaits, and each audio stream has its own: the writer pulls
       // the tracks in timestamp order, and one producer feeding several pipes would stall on whichever
@@ -298,6 +304,7 @@ export async function encodeEpisodes(
       });
       for (const c of chains) {
         c.done.catch((e: unknown) => {
+          if (chainError === null && isChainFailure(e)) chainError = e;
           for (const other of chains) if (other !== c) other.abort(e instanceof Error ? e : new Error(String(e)));
         });
       }
@@ -351,11 +358,13 @@ export async function encodeEpisodes(
       // A finished file of the same name is replaced only now, by the rename.
       await rename(partialPath, outPath);
     } catch (err) {
-      const wasAborted = isAborted();
+      const wasAborted = isAborted() && chainError === null && !isChainFailure(err);
       const toolError = wasAborted || isChainFailure(err) ? null : await chainFailure(chains);
       for (const c of chains) c.abort(err instanceof Error ? err : new Error(String(err)));
       // Leave no process behind: the partial file is removed only once every tool has exited.
       await Promise.all(chains.map((c) => c.exited));
+      // The tools are gone; closing the pipes' read ends frees their descriptors.
+      for (const c of chains) c.stream.destroy();
       await unlink(partialPath).catch(() => {});
       await rm(tmp, { recursive: true, force: true });
       throw wasAborted ? abortError() : toolError ?? err;
