@@ -57,14 +57,34 @@ async function isDisc(dir: string, root: string): Promise<boolean> {
  * left out, as is a root that cannot be read. Two roots that overlap list a disc once.
  */
 export async function scanLibrary(roots: readonly string[], depth = 4): Promise<LibraryDisc[]> {
+  return (await scanRoots(roots, depth)).discs;
+}
+
+/** What `scanRoots` found: the discs, the roots that could not be read, and the real path of each root that could. */
+interface RootsScan {
+  readonly discs: LibraryDisc[];
+  /** The roots, as given, that are missing, not a folder or not readable. */
+  readonly unreadable: string[];
+  /** Real path of each readable root, by the path it was given as. */
+  readonly resolved: Map<string, string>;
+}
+
+/** `scanLibrary`, also saying which roots could not be read and where the others really are. */
+async function scanRoots(roots: readonly string[], depth = 4): Promise<RootsScan> {
   const found = new Map<string, LibraryDisc>();
+  const unreadable: string[] = [];
+  const resolved = new Map<string, string>();
   for (const given of roots) {
     let root: string;
     try {
       root = await realpath(given);
+      if (!(await stat(root)).isDirectory()) throw new Error('not a folder');
+      await readdir(root);
     } catch {
+      unreadable.push(given);
       continue;
     }
+    resolved.set(given, root);
     const visit = async (dir: string, level: number): Promise<void> => {
       if (await isDisc(dir, root)) {
         if (found.has(dir)) return;
@@ -95,7 +115,8 @@ export async function scanLibrary(roots: readonly string[], depth = 4): Promise<
     };
     await visit(root, 0);
   }
-  return [...found.values()].sort((a, b) => a.relPath.localeCompare(b.relPath) || a.dir.localeCompare(b.dir));
+  const discs = [...found.values()].sort((a, b) => a.relPath.localeCompare(b.relPath) || a.dir.localeCompare(b.dir));
+  return { discs, unreadable, resolved };
 }
 
 /**
@@ -108,6 +129,8 @@ export class Library {
   private byKey = new Map<string, string>();
   private running: Promise<void> | null = null;
   private completed = false;
+  private unreadable: readonly string[] = [];
+  private realOf = new Map<string, string>();
 
   constructor(private readonly app: AppContext) {}
 
@@ -126,6 +149,11 @@ export class Library {
     return this.current;
   }
 
+  /** The roots the last scan could not read; their discs from the scan before are kept. */
+  get unreadableRoots(): readonly string[] {
+    return this.unreadable;
+  }
+
   /** The folder of the library disc with `key` in the last complete scan, else null. */
   dirOf(key: string): string | null {
     return this.byKey.get(key) ?? null;
@@ -142,7 +170,14 @@ export class Library {
     if (this.running === null) {
       const run = (async (): Promise<void> => {
         try {
-          const discs = await scanLibrary(await this.roots());
+          const scan = await scanRoots(await this.roots());
+          // a root that cannot be read now keeps the discs found under it before
+          const kept = new Set(scan.unreadable.map((g) => this.realOf.get(g)).filter((r): r is string => r !== undefined));
+          const discs = [...scan.discs];
+          for (const d of this.current) if (kept.has(d.root) && !discs.some((n) => n.dir === d.dir)) discs.push(d);
+          discs.sort((a, b) => a.relPath.localeCompare(b.relPath) || a.dir.localeCompare(b.dir));
+          for (const [given, real] of scan.resolved) this.realOf.set(given, real);
+          this.unreadable = scan.unreadable;
           const byKey = new Map<string, string>();
           for (const d of discs) if (!byKey.has(d.key)) byKey.set(d.key, d.dir);
           this.current = discs;

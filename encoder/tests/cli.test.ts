@@ -199,6 +199,29 @@ describe('app', () => {
     }
   }, 60_000);
 
+  it('with no library folders says so on one line', async () => {
+    const webDir = mkdtempSync(join(tmpdir(), 'et-app-noroots-'));
+    writeFileSync(join(webDir, 'index.html'), '<!doctype html><title>app</title>');
+    const child = spawn(process.execPath, ['--import', 'tsx', fx('src/cli.ts'), 'app', '--no-open', '--port', '0'], {
+      env: { ...process.env, SEIKOU_ENCODE_WEB_DIR: webDir, SEIKOU_ENCODE_DATA: webDir },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    try {
+      let out = '';
+      await new Promise<void>((resolveOut, reject) => {
+        child.once('exit', (code) => reject(new Error(`exited ${String(code)}: ${out}`)));
+        child.stdout.on('data', (d: Buffer) => {
+          out += d.toString();
+          if (/App: http/.test(out)) resolveOut();
+        });
+      });
+      expect(out.split('\n').filter((l) => /No library folders are set/.test(l))).toHaveLength(1);
+      child.removeAllListeners('exit');
+    } finally {
+      child.kill('SIGKILL');
+    }
+  }, 60_000);
+
   it('without a built page exits 3', () => {
     const empty = mkdtempSync(join(tmpdir(), 'et-app-empty-'));
     let err: { status?: number } = {};

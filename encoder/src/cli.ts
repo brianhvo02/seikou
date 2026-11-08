@@ -17,6 +17,7 @@ import { EpisodeSpecError, parseEpisodeSpec } from './plan/episodes';
 import { startHelperServer } from './server/server';
 import { createSources } from './server/sources';
 import { appDataDir } from './subs/app-data';
+import { appSettings } from './subs/app-settings';
 import { findTools, ToolsError } from './tools';
 import type { ToolPaths } from './pipeline/chain';
 
@@ -113,6 +114,9 @@ async function app(roots: readonly string[], port: number, open: boolean): Promi
     real.push(dir);
   }
   const webDir = builtWebDir();
+  if (real.length === 0 && (await appSettings(appDataDir()).read()).roots.length === 0) {
+    console.log('No library folders are set. Add one in the app, or start with --root DIR.');
+  }
   const tools = toolsOrNull();
   const token = randomBytes(32).toString('hex');
   const server = await startHelperServer(

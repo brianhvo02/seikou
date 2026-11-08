@@ -328,3 +328,45 @@ export interface RecordAnswer {
   /** Set when the disc and playlist have a saved record for another episode list (its spec); `record` is then null. */
   readonly otherEpisodeSpec?: string;
 }
+
+/** One disc in `GET /api/library`. */
+export interface LibraryDiscInfo {
+  /** The disc's key, the `<discKey>` of the disc routes. */
+  readonly key: string;
+  /** The disc folder's name. */
+  readonly label: string;
+  /** The folder's path under its library folder, with `/` separators. */
+  readonly relPath: string;
+  /** The library folder the disc was found under. */
+  readonly root: string;
+  /** How many playlists the disc has. */
+  readonly playlistCount: number;
+  /** The playlists (five digits) that have a saved subtitle record. */
+  readonly recordPlaylists: readonly string[];
+}
+
+/** `GET /api/library`: the library folders and the discs found under them. */
+export interface LibraryAnswer {
+  /** The library folders, saved ones first, then those the run was given. */
+  readonly roots: readonly string[];
+  /** The folders the last scan could not read; their discs from the scan before stay in `discs`. */
+  readonly unreadableRoots: readonly string[];
+  /** Whether a scan is running; `discs` is then the last complete scan. */
+  readonly scanning: boolean;
+  /** The discs, sorted by path. */
+  readonly discs: readonly LibraryDiscInfo[];
+}
+
+/** One playlist in `GET /api/discs/<key>/playlists`. */
+export interface PlaylistSummary {
+  /** Five-digit playlist name. */
+  readonly id: string;
+  /** Length in milliseconds. */
+  readonly durationMs: number;
+  /** How many play items the playlist has. */
+  readonly clips: number;
+  /** How many chapters the playlist has. */
+  readonly chapters: number;
+  /** At least 20 minutes and at least 4 chapters, or the longest playlist of the disc. */
+  readonly likelyMain: boolean;
+}

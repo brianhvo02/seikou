@@ -101,7 +101,7 @@ function batchId(): string {
 }
 
 /** The `ApiError` an answer that is not ok stands for. */
-async function errorOf(res: Response): Promise<ApiError> {
+export async function errorOf(res: Response): Promise<ApiError> {
   let body: Record<string, unknown> = {};
   try {
     const parsed: unknown = await res.json();

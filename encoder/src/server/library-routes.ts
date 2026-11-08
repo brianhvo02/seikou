@@ -24,6 +24,8 @@ export interface LibraryDiscAnswer extends Omit<LibraryDisc, 'dir'> {
 export interface LibraryAnswer {
   /** The folders the library is scanned under: the saved ones and those this run was given. */
   readonly roots: readonly string[];
+  /** The roots that could not be read in the last scan (missing, unmounted, no permission); their discs found before stay listed. */
+  readonly unreadableRoots: readonly string[];
   /** Whether a scan is running; `discs` is then the last complete scan. */
   readonly scanning: boolean;
   /** The discs, sorted by path under their root. */
@@ -129,7 +131,7 @@ export const libraryRoutes: RouteTable = [
           recordPlaylists: await recordPlaylists(app.dataDir, disc.key),
         })),
       );
-      const answer: LibraryAnswer = { roots, scanning: library.scanning, discs };
+      const answer: LibraryAnswer = { roots, unreadableRoots: library.unreadableRoots, scanning: library.scanning, discs };
       json(res, 200, answer);
     },
   ],

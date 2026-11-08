@@ -30,7 +30,7 @@ The server listens on `127.0.0.1` only, so nothing else on the network can reach
 
 | Method | Path | Answer |
 | --- | --- | --- |
-| GET | `/api/library` | `{ roots, scanning, discs: [{ key, label, relPath, root, playlistCount, recordPlaylists }] }`: the last complete scan (the first request starts the first scan and waits a moment for it, then answers with what there is and `scanning: true`); `recordPlaylists` are the playlists with a saved subtitle record |
+| GET | `/api/library` | `{ roots, unreadableRoots, scanning, discs: [{ key, label, relPath, root, playlistCount, recordPlaylists }] }`: the last complete scan (the first request starts the first scan and waits a moment for it, then answers with what there is and `scanning: true`); `recordPlaylists` are the playlists with a saved subtitle record; `unreadableRoots` are the folders the last scan could not read (missing, not a folder, no permission), whose discs from the scan before stay listed |
 | POST | `/api/library/rescan` | starts a scan, or joins the running one; 202 `{ scanning: true }` |
 | PUT | `/api/settings/roots` | body `{ roots: [absolute folder paths] }`; saves them, starts a scan, answers `{ roots }` (saved and run roots); 400 `bad-request` or `bad-root`, 413 `too-large` |
 | GET | `/api/discs/<discKey>/playlists` | `{ playlists: [{ id, durationMs, clips, chapters, likelyMain }] }`, longest first; `likelyMain`: at least 20 minutes and 4 chapters, or the longest |

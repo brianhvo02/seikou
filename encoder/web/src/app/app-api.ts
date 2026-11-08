@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: LGPL-3.0-or-later
+import { ApiError, errorOf, type FetchLike } from '../api';
+import type { LibraryAnswer, PlaylistSummary } from '../api-types';
+
+// The app pages' client for the backend's library routes, carrying the run's token.
+
+/** The backend's app-level routes as methods. Every method rejects with `ApiError`. */
+export interface AppApi {
+  /** The library folders and the discs found under them. */
+  library(): Promise<LibraryAnswer>;
+  /** Starts a scan of the library folders (or joins the one running). */
+  rescan(): Promise<void>;
+  /** Saves the library folders (absolute paths) and starts a scan; resolves with the folders now in force. */
+  setRoots(roots: readonly string[]): Promise<readonly string[]>;
+  /** The playlists of a library disc, longest first. */
+  playlists(discKey: string): Promise<PlaylistSummary[]>;
+}
+
+/** The client for the backend at `base` (an origin, or `''` for the page's own) with the run's `token`, sent as `Authorization: Bearer`. */
+export function createAppApi(base: string, token: string, fetchImpl: FetchLike = (input, init) => fetch(input, init)): AppApi {
+  const root = base.replace(/\/$/, '');
+
+  async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+    const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
+    const init: RequestInit = { method, headers };
+    if (body !== undefined) {
+      headers['Content-Type'] = 'application/json';
+      init.body = JSON.stringify(body);
+    }
+    let res: Response;
+    try {
+      res = await fetchImpl(`${root}${path}`, init);
+    } catch {
+      throw new ApiError(0, 'network', 'The app is not answering. Is seikou-encode app still running?');
+    }
+    if (!res.ok) throw await errorOf(res);
+    return (await res.json()) as T;
+  }
+
+  return {
+    library: () => request('GET', '/api/library'),
+    async rescan() {
+      await request('POST', '/api/library/rescan');
+    },
+    async setRoots(roots) {
+      return (await request<{ roots: string[] }>('PUT', '/api/settings/roots', { roots })).roots;
+    },
+    async playlists(discKey) {
+      const { playlists } = await request<{ playlists: PlaylistSummary[] }>('GET', `/api/discs/${encodeURIComponent(discKey)}/playlists`);
+      return playlists;
+    },
+  };
+}
