@@ -258,6 +258,16 @@ export function parseRecord(json: unknown): SubtitleRecord {
 /** Group name `missingFiles` uses for fonts of a record that names no release. */
 export const OWN_FILES_LABEL = 'your own files';
 
+/** The cached files of one release a record names that are gone. */
+export interface MissingGroup {
+  /** The release's id in the record, or null for the group of a record that names no release. */
+  id: string | null;
+  /** The release's label for display, or `OWN_FILES_LABEL` for the null-id group. */
+  release: string;
+  /** The missing paths, relative to the data directory. */
+  files: string[];
+}
+
 /** Reads and writes records under `<dataDir>/subtitles/<discKey>/<playlist>.json`. */
 export class RecordStore {
   /** @param dataDir the app data directory; record paths are relative to it. */
@@ -298,12 +308,12 @@ export class RecordStore {
 
   /**
    * Lists the record's fonts and track files that are no longer under the data directory, one entry per release
-   * (by its label, in the record's order) that has some. A missing track file is listed under its track's release.
+   * (`id` and its label as `release`, in the record's order; labels need not be unique, ids are) that has some. A missing track file is listed under its track's release.
    * A missing font is listed under every release whose cached `release.json` lists it, or under all of the
    * record's releases when none does. A record with no releases groups its files under "your own files". Empty
    * when nothing is missing.
    */
-  async missingFiles(record: SubtitleRecord): Promise<{ release: string; files: string[] }[]> {
+  async missingFiles(record: SubtitleRecord): Promise<MissingGroup[]> {
     const isMissing = async (file: string): Promise<boolean> => {
       try {
         await access(join(this.dataDir, file));
@@ -339,13 +349,13 @@ export class RecordStore {
         if (checked.get(t.file)) add(t.release, t.file);
       }
     }
-    const out: { release: string; files: string[] }[] = [];
+    const out: MissingGroup[] = [];
     for (const r of record.releases) {
       const files = groups.get(r.id);
-      if (files) out.push({ release: r.label, files: [...files] });
+      if (files) out.push({ id: r.id, release: r.label, files: [...files] });
     }
     const own = groups.get('');
-    if (own) out.push({ release: OWN_FILES_LABEL, files: [...own] });
+    if (own) out.push({ id: null, release: OWN_FILES_LABEL, files: [...own] });
     return out;
   }
 }

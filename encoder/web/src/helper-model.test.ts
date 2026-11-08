@@ -492,6 +492,49 @@ describe('toRecord and fromRecord', () => {
   });
 });
 
+describe('restoreRelease', () => {
+  const saved = (): HelperState => {
+    const two = twoReleases();
+    const withMeta = run(two, { type: 'fillDefaults', defaults: metadataDefaults(two, episodes, null) });
+    return run(
+      withMeta,
+      { type: 'chooseTracks', episode: 1, trackIds: ['t1'] },
+      { type: 'setTiming', episode: 1, alignment: { kind: 'offset', offsetMs: 1200, confidence: 0.9 } },
+      { type: 'nudge', episode: 1, deltaMs: 42 },
+    );
+  };
+
+  it('puts the release back and restores only the episodes that use it', () => {
+    const before = saved();
+    const record = toRecord(before, session, episodes);
+    // the page restored without release A, and the user has since changed episode 2 and added their own files
+    const current = run(
+      fromRecord(record, [releaseB], episodes),
+      { type: 'markNone', episode: 2 },
+      { type: 'addRelease', release: own, from: 'local' },
+    );
+    expect(current.choices[1]).toBeUndefined();
+    const after = reduce(current, { type: 'restoreRelease', record, release, disc: episodes });
+    expect(after.releases.map((p) => p.release.key)).toEqual(['tosho-8', own.key, 'tosho-7']);
+    expect(after.releases[2]!.source).toBe('seadex');
+    expect(after.choices[1]).toEqual(before.choices[1]);
+    expect(after.timing[1]).toEqual({ alignment: { kind: 'offset', offsetMs: 1200, confidence: 1 }, nudgeMs: 42, accepted: true });
+    expect(after.choices[2]).toBe('none');
+    expect(after.timing[2]).toBe(current.timing[2]);
+    expect(after.metadata.episodes[1]!.tracks.map((t) => t.key)).toEqual(record.episodes[0]!.tracks.map((t) => t.file));
+    expect(after.dirty).toBe(true);
+  });
+
+  it('keeps what an episode had when its saved tracks are not in the fetched release', () => {
+    const record = toRecord(saved(), session, episodes);
+    const current = fromRecord(record, [releaseB], episodes);
+    const changed: ReleaseAnswer = { ...release, files: [{ id: '99', name: 'other.mkv', tracks: [] }], match: { rows: [], unmatched: [] } };
+    const after = reduce(current, { type: 'restoreRelease', record, release: changed, disc: episodes });
+    expect(after.choices[1]).toBeUndefined();
+    expect(after.choices[2]).toEqual(current.choices[2]);
+  });
+});
+
 describe('metadata defaults', () => {
   const fill = (state: HelperState, titles: Record<number, string> | null = null): HelperState =>
     reduce(state, { type: 'fillDefaults', defaults: metadataDefaults(state, episodes, titles) });

@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, type Dispatch, type ReactNode } from 'react';
 import type { HelperApi } from './api';
 import type { EpisodesAnswer, RecordAnswer, RecordRelease, ReleaseAnswer, SessionInfo, SubtitleRecord } from './api-types';
-import { fromRecord, releaseOf, toRecord, type HelperAction, type HelperState } from './helper-model';
+import { currentForm, fromRecord, releaseOf, toRecord, type HelperAction, type HelperState } from './helper-model';
 
 /** What the save bar needs. `session` and `episodes` are null until the page has loaded them. */
 export interface SaveBarProps {
@@ -51,10 +51,11 @@ function toshoIdOf(key: string): number | null {
  * Save for encoding, and what the saved record says when the page loads. Once the run is known it asks for the
  * saved record and, when there is one, for each of its releases again, and restores the record with the releases
  * that came back (`fromRecord`), unless the user has already changed something. When one of the record's releases or
- * some of its cached files are gone, it names the first such release and offers "Fetch <release> again", which
- * fetches it from Anime Tosho and restores the saved choices onto it and the releases already pooled; the user's own
- * files cannot be fetched, so it asks to add them again. While a saved release is missing and the pool is empty, Save
- * is off, because it would write the record without its releases and tracks. Save writes `toRecord` of the state and
+ * some of its cached files are gone, it names each such release and offers "Fetch <release> again", which
+ * fetches it from Anime Tosho, puts it back in the pool and restores the saved choices of the episodes that use it
+ * (`restoreRelease`), leaving the rest of the page as the user has it; the user's own
+ * files cannot be fetched, so it asks to add them again. While a release the saved episodes use is missing and not back in the pool, Save
+ * is off, because it would write the record without its tracks. Save writes `toRecord` of the state and
  * answers "Saved at <time>" or the server's message. Renders the button row (with `children` first) and, below it,
  * the status and any missing release.
  */
@@ -65,7 +66,8 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
   const [missing, setMissing] = useState<RecordAnswer['missing']>([]);
   // ids of the saved record's releases the backend no longer holds
   const [goneIds, setGoneIds] = useState<readonly string[]>([]);
-  const [fetching, setFetching] = useState(false);
+  // id of the release being fetched again
+  const [fetching, setFetching] = useState<string | null>(null);
   const dirty = useRef(state.dirty);
   dirty.current = state.dirty;
 
@@ -85,8 +87,8 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
         setStatus({ ok: false, text: 'The saved choices for this disc could not be read, so the helper starts fresh. Saving replaces them.' });
         return;
       }
-      const record = answer.record;
-      if (record === null) return;
+      if (answer.record === null) return;
+      const record = currentForm(answer.record);
       const offset = record.anilist?.episodeOffset ?? 0;
       const answers = await Promise.all(record.releases.map((r) => api.release(r.id, offset).catch((): ReleaseAnswer | null => null)));
       if (!live) return;
@@ -127,29 +129,26 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
   };
 
   const fetchAgain = async (record: SubtitleRecord, gone: RecordRelease, toshoId: number) => {
-    setFetching(true);
+    setFetching(gone.id);
     try {
       const release = await api.fetchRelease(toshoId, record.anilist?.episodeOffset ?? 0);
-      const pooled = state.releases.map((p) => p.release).filter((r) => r.key !== release.key);
-      dispatch({ type: 'load', state: fromRecord(record, [...pooled, release], episodes) });
-      setMissing((m) => m.filter((x) => x.release !== gone.label));
+      dispatch({ type: 'restoreRelease', record, release, disc: episodes });
+      setMissing((m) => m.filter((x) => x.id !== gone.id));
       setGoneIds((ids) => ids.filter((id) => id !== gone.id));
-      setStatus({ ok: true, text: `Fetched ${gone.label} again and restored the saved choices.` });
+      setStatus({ ok: true, text: `Fetched ${gone.label} again and restored the saved choices that use it.` });
     } catch (e) {
       setStatus({ ok: false, text: messageOf(e) });
     } finally {
-      setFetching(false);
+      setFetching(null);
     }
   };
 
-  // the first saved release that is gone (or some of whose files are); one gone from the backend but back in the pool
+  // the saved releases that are gone (or some of whose files are); one gone from the backend but back in the pool
   // (added again in step 1) no longer counts
-  const gone =
-    saved?.releases.find((r) => (goneIds.includes(r.id) && releaseOf(state, r.id) === null) || missing.some((m) => m.release === r.label)) ?? null;
-  // saving now would write no release and no tracks over the saved ones
-  const blocked = gone !== null && state.releases.length === 0;
-  const goneFiles = missing.filter((m) => m.release === gone?.label).reduce((n, m) => n + m.files.length, 0);
-  const toshoId = gone === null ? null : toshoIdOf(gone.id);
+  const missingOf = (r: RecordRelease): number => missing.filter((m) => m.id === r.id).reduce((n, m) => n + m.files.length, 0);
+  const gone = (saved?.releases ?? []).filter((r) => (goneIds.includes(r.id) && releaseOf(state, r.id) === null) || missingOf(r) > 0);
+  // saving now would write no tracks for the episodes that used a release that is not in the pool
+  const blocked = gone.some((r) => releaseOf(state, r.id) === null && saved?.episodes.some((e) => e.tracks.some((t) => t.release === r.id)));
 
   return (
     <>
@@ -159,29 +158,34 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
           Save for encoding
         </button>
       </div>
-      {(status !== null || gone !== null) && (
+      {(status !== null || gone.length > 0) && (
         <div className="save-notes">
           {status !== null && (
             <p className={status.ok ? 'save-status muted' : 'save-status error'} role="status">
               {status.text}
             </p>
           )}
-          {gone !== null && saved !== null && (
-            <div className="save-missing">
-              <p>
-                {goneFiles > 0
-                  ? `${goneFiles} ${goneFiles === 1 ? 'file' : 'files'} of ${gone.label} ${goneFiles === 1 ? 'is' : 'are'} gone from the helper's cache.`
-                  : `${gone.label} is gone from the helper's cache.`}{' '}
-                {toshoId === null ? 'These were your own files. Add them again in step 1.' : 'Fetch it again to use the saved choices.'}
-                {blocked && ' Saving is off until the release is back, so the saved choices are not overwritten.'}
-              </p>
-              {toshoId !== null && (
-                <button type="button" className="quiet" disabled={fetching} onClick={() => void fetchAgain(saved, gone, toshoId)}>
-                  {fetching ? `Fetching ${gone.label}…` : `Fetch ${gone.label} again`}
-                </button>
-              )}
-            </div>
-          )}
+          {saved !== null &&
+            gone.map((r) => {
+              const files = missingOf(r);
+              const toshoId = toshoIdOf(r.id);
+              return (
+                <div className="save-missing" key={r.id}>
+                  <p>
+                    {files > 0
+                      ? `${files} ${files === 1 ? 'file' : 'files'} of ${r.label} ${files === 1 ? 'is' : 'are'} gone from the helper's cache.`
+                      : `${r.label} is gone from the helper's cache.`}{' '}
+                    {toshoId === null ? 'These were your own files. Add them again in step 1.' : 'Fetch it again to use the saved choices.'}
+                    {blocked && releaseOf(state, r.id) === null && ' Saving is off until the release is back, so the saved choices are not overwritten.'}
+                  </p>
+                  {toshoId !== null && (
+                    <button type="button" className="quiet" disabled={fetching !== null} onClick={() => void fetchAgain(saved, r, toshoId)}>
+                      {fetching === r.id ? `Fetching ${r.label}…` : `Fetch ${r.label} again`}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
         </div>
       )}
     </>

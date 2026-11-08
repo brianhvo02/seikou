@@ -52,6 +52,22 @@ const record: SubtitleRecord = {
   savedAt: '2026-11-07T10:00:00.000Z',
 };
 
+const releaseB: ReleaseAnswer = {
+  ...release,
+  key: 'tosho-8',
+  files: release.files.map((f) => ({ ...f, tracks: f.tracks.map((t) => ({ ...t, path: t.path.replace('tosho-7', 'tosho-8') })) })),
+};
+const trackOfB = (file: string) => ({ ...recordTrack(file), release: 'tosho-8' });
+// episode 1 from release A and episode 2 from release B, whose labels are the same (two batches of one group)
+const twoRecord: SubtitleRecord = {
+  ...record,
+  releases: [record.releases[0]!, { source: 'tosho', id: 'tosho-8', group: 'GroupA', label: release.label }],
+  episodes: [record.episodes[0]!, { ...record.episodes[1]!, tracks: [trackOfB('releases/tosho-8/12-t1.ass')] }],
+};
+const answerFor = (...found: ReleaseAnswer[]) =>
+  vi.fn(async (id: string) => found.find((r) => r.key === id) ?? Promise.reject(new ApiError(404, 'not-found', 'No such release.')));
+const saveButton = () => screen.getByRole('button', { name: 'Save for encoding' }) as HTMLButtonElement;
+
 function fakeApi(overrides: Partial<HelperApi> = {}): HelperApi {
   const notCalled = () => Promise.reject(new Error('not expected'));
   return {
@@ -90,7 +106,7 @@ describe('SaveBar', () => {
 
   it('offers to fetch a missing release again', async () => {
     const api = fakeApi({
-      record: vi.fn(async () => ({ record, missing: [{ release: release.label, files: ['releases/tosho-7/11-t1.ass'] }] })),
+      record: vi.fn(async () => ({ record, missing: [{ id: 'tosho-7', release: release.label, files: ['releases/tosho-7/11-t1.ass'] }] })),
       release: vi.fn(async () => Promise.reject(new ApiError(404, 'not-found', 'No such release.'))),
       fetchRelease: vi.fn(async () => release),
     });
@@ -106,7 +122,7 @@ describe('SaveBar', () => {
   it('keeps Save off while the saved release is missing, and keeps the saved tracks', async () => {
     const saveRecord = vi.fn(async (r: SubtitleRecord) => r);
     const api = fakeApi({
-      record: vi.fn(async () => ({ record, missing: [{ release: release.label, files: ['releases/tosho-7/11-t1.ass'] }] })),
+      record: vi.fn(async () => ({ record, missing: [{ id: 'tosho-7', release: release.label, files: ['releases/tosho-7/11-t1.ass'] }] })),
       release: vi.fn(async () => Promise.reject(new ApiError(404, 'not-found', 'No such release.'))),
       saveRecord,
     });
@@ -122,7 +138,7 @@ describe('SaveBar', () => {
   it('says to add the files again when the missing release was the user own', async () => {
     const local = { ...record, releases: [{ source: 'local' as const, id: `local-${'b'.repeat(16)}`, group: '', label: 'Your files' }] };
     const api = fakeApi({
-      record: vi.fn(async () => ({ record: local, missing: [{ release: 'Your files', files: ['x.ass'] }] })),
+      record: vi.fn(async () => ({ record: local, missing: [{ id: `local-${'b'.repeat(16)}`, release: 'Your files', files: ['x.ass'] }] })),
       release: vi.fn(async () => Promise.reject(new ApiError(404, 'not-found', 'No such release.'))),
     });
     render(<App api={api} />);
@@ -152,5 +168,88 @@ describe('SaveBar', () => {
     const api = fakeApi({ record: vi.fn(async () => ({ record: null, missing: [], error: { code: 'record-unreadable' as const, message: 'bad json' } })) });
     render(<App api={api} />);
     expect(await screen.findByText(/could not be read/)).toBeTruthy();
+  });
+
+  it('restores a two-release record', async () => {
+    const api = fakeApi({ record: vi.fn(async () => ({ record: twoRecord, missing: [] })), release: answerFor(release, releaseB) });
+    render(<App api={api} />);
+    await waitFor(() => expect(stepButton(/Line up/).disabled).toBe(false));
+    expect(api.release).toHaveBeenCalledWith('tosho-7', 0);
+    expect(api.release).toHaveBeenCalledWith('tosho-8', 0);
+    expect(screen.getByRole('status').textContent).toContain('Restored the choices saved');
+    expect(screen.queryByRole('button', { name: /^Fetch/ })).toBeNull();
+    expect(saveButton().disabled).toBe(false);
+  });
+
+  it('restores an old record', async () => {
+    const { releases: _releases, episodes: _episodes, ...rest } = record;
+    const old = {
+      ...rest,
+      release: record.releases[0]!,
+      episodes: record.episodes.map((e) => ({ ...e, tracks: e.tracks.map(({ release: _r, ...t }) => t) })),
+    };
+    const api = fakeApi({ record: vi.fn(async () => ({ record: old as unknown as SubtitleRecord, missing: [] })), release: answerFor(release) });
+    render(<App api={api} />);
+    await waitFor(() => expect(stepButton(/Line up/).disabled).toBe(false));
+    expect(api.release).toHaveBeenCalledWith('tosho-7', 0);
+    expect(screen.getByRole('status').textContent).toContain('Restored the choices saved');
+  });
+
+  it('offers to fetch each missing release, even when two share a label', async () => {
+    const fetchRelease = vi.fn(async (id: number) => (id === 7 ? release : releaseB));
+    const api = fakeApi({
+      record: vi.fn(async () => ({
+        record: twoRecord,
+        missing: [
+          { id: 'tosho-7', release: release.label, files: ['releases/tosho-7/11-t1.ass'] },
+          { id: 'tosho-8', release: release.label, files: ['releases/tosho-8/12-t1.ass', 'releases/tosho-8/13-t1.ass'] },
+        ],
+      })),
+      release: answerFor(),
+      fetchRelease,
+    });
+    render(<App api={api} />);
+    const buttons = await screen.findAllByRole('button', { name: `Fetch ${release.label} again` });
+    expect(buttons).toHaveLength(2);
+    // each notice counts only its own release's files
+    expect(screen.getByText(/^1 file of /)).toBeTruthy();
+    expect(screen.getByText(/^2 files of /)).toBeTruthy();
+    fireEvent.click(buttons[1]!);
+    await waitFor(() => expect(screen.getAllByRole('button', { name: `Fetch ${release.label} again` })).toHaveLength(1));
+    expect(fetchRelease).toHaveBeenCalledWith(8, 0);
+    expect(screen.getByText(/^1 file of /)).toBeTruthy();
+  });
+
+  it('keeps Save off until every release the episodes use is back', async () => {
+    const api = fakeApi({
+      record: vi.fn(async () => ({ record: twoRecord, missing: [{ id: 'tosho-8', release: release.label, files: ['releases/tosho-8/12-t1.ass'] }] })),
+      release: answerFor(release),
+      fetchRelease: vi.fn(async () => releaseB),
+    });
+    render(<App api={api} />);
+    const again = await screen.findByRole('button', { name: `Fetch ${release.label} again` });
+    // release A is pooled, but B is missing
+    expect(saveButton().disabled).toBe(true);
+    fireEvent.click(again);
+    await waitFor(() => expect(saveButton().disabled).toBe(false));
+  });
+
+  it('fetching again leaves the pooled releases and the other choices as the user has them', async () => {
+    const api = fakeApi({
+      record: vi.fn(async () => ({ record: twoRecord, missing: [{ id: 'tosho-8', release: release.label, files: ['releases/tosho-8/12-t1.ass'] }] })),
+      release: answerFor(release),
+      fetchRelease: vi.fn(async () => releaseB),
+    });
+    render(<App api={api} />);
+    await screen.findByRole('button', { name: `Fetch ${release.label} again` });
+    fireEvent.click(stepButton(/Episodes/));
+    const select = (await screen.findAllByRole('combobox'))[0] as HTMLSelectElement;
+    // the user takes episode 1 out of release A
+    fireEvent.change(select, { target: { value: '' } });
+    const before = select.value;
+    fireEvent.click(screen.getByRole('button', { name: `Fetch ${release.label} again` }));
+    await waitFor(() => expect(screen.queryByRole('button', { name: `Fetch ${release.label} again` })).toBeNull());
+    expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe(before);
+    expect(screen.getAllByRole('combobox')).toHaveLength(2);
   });
 });

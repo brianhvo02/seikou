@@ -319,10 +319,10 @@ export interface SingleReleaseRecord extends Omit<SubtitleRecord, 'releases' | '
 
 /** `GET /api/record`. */
 export interface RecordAnswer {
-  /** The saved record, or null when none was saved or the file was unreadable. */
-  readonly record: SubtitleRecord | null;
-  /** Cached files the record names that are gone, by release label. */
-  readonly missing: readonly { readonly release: string; readonly files: readonly string[] }[];
+  /** The saved record (a single-release one from an older backend is read through `currentForm`), or null when none was saved or the file was unreadable. */
+  readonly record: SubtitleRecord | SingleReleaseRecord | null;
+  /** Cached files the record names that are gone, by release: its id (null for a record with no release), its label and the paths. */
+  readonly missing: readonly { readonly id: string | null; readonly release: string; readonly files: readonly string[] }[];
   /** Set when a record file exists but could not be read; the page then starts fresh. */
   readonly error?: { readonly code: 'record-unreadable'; readonly message: string };
 }

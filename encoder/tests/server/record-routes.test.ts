@@ -7,7 +7,7 @@ import { jsonOf, startRouteFixture, type RouteFixture } from './route-fixture';
 
 interface GetAnswer {
   record: SubtitleRecord | null;
-  missing: { release: string; files: string[] }[];
+  missing: { id: string | null; release: string; files: string[] }[];
   error?: { code: string; message: string };
 }
 
@@ -92,7 +92,7 @@ describe('record routes', () => {
     expect(jsonOf<GetAnswer>(await fixture.send('/api/record')).missing).toEqual([]);
     rmSync(join(fixture.dataDir, 'tracks/one.ass'));
     const got = jsonOf<GetAnswer>(await fixture.send('/api/record'));
-    expect(got.missing).toEqual([{ release: 'GroupA release', files: ['tracks/one.ass'] }]);
+    expect(got.missing).toEqual([{ id: 'tosho-7001', release: 'GroupA release', files: ['tracks/one.ass'] }]);
   });
 
   it('round-trips a two-release record', async () => {

@@ -85,7 +85,7 @@ describe('RecordStore', () => {
     const store = new RecordStore(dir);
     const rec = sample();
     expect(await store.missingFiles(rec)).toEqual([
-      { release: 'GroupA batch', files: ['cache/r1/fonts/a.ttf', 'cache/r1/ep1.ass'] },
+      { id: 'r1', release: 'GroupA batch', files: ['cache/r1/fonts/a.ttf', 'cache/r1/ep1.ass'] },
     ]);
     await mkdir(join(dir, 'cache/r1/fonts'), { recursive: true });
     await writeFile(join(dir, 'cache/r1/fonts/a.ttf'), 'x');
@@ -160,21 +160,30 @@ describe('record releases', () => {
       await cacheRelease('tosho-11', ['cache/r1/fonts/a.ttf']);
       await cacheRelease('local-0123456789abcdef', []);
       expect(await new RecordStore(dir).missingFiles(rec)).toEqual([
-        { release: 'GroupA batch', files: ['cache/r1/fonts/a.ttf', 'cache/r1/ep1.ass'] },
-        { release: 'own files', files: ['cache/own/ep2.ass'] },
+        { id: 'tosho-11', release: 'GroupA batch', files: ['cache/r1/fonts/a.ttf', 'cache/r1/ep1.ass'] },
+        { id: second.id, release: 'own files', files: ['cache/own/ep2.ass'] },
       ]);
     });
     it('a font no cached release lists is reported under every release', async () => {
       expect(await new RecordStore(dir).missingFiles(twoReleases())).toEqual([
-        { release: 'GroupA batch', files: ['cache/r1/fonts/a.ttf', 'cache/r1/ep1.ass'] },
-        { release: 'own files', files: ['cache/r1/fonts/a.ttf', 'cache/own/ep2.ass'] },
+        { id: 'tosho-11', release: 'GroupA batch', files: ['cache/r1/fonts/a.ttf', 'cache/r1/ep1.ass'] },
+        { id: second.id, release: 'own files', files: ['cache/r1/fonts/a.ttf', 'cache/own/ep2.ass'] },
+      ]);
+    });
+    it('keeps two releases with the same label apart by id', async () => {
+      const rec = twoReleases();
+      rec.releases[1] = { ...second, label: rec.releases[0]!.label };
+      const missing = await new RecordStore(dir).missingFiles(rec);
+      expect(missing.map((m) => [m.id, m.release])).toEqual([
+        ['tosho-11', 'GroupA batch'],
+        [second.id, 'GroupA batch'],
       ]);
     });
     it('a record with no releases groups a missing font under your own files', async () => {
       const rec = sample();
       rec.releases = [];
       rec.episodes[0]!.tracks = [];
-      expect(await new RecordStore(dir).missingFiles(rec)).toEqual([{ release: 'your own files', files: ['cache/r1/fonts/a.ttf'] }]);
+      expect(await new RecordStore(dir).missingFiles(rec)).toEqual([{ id: null, release: 'your own files', files: ['cache/r1/fonts/a.ttf'] }]);
     });
   });
 });

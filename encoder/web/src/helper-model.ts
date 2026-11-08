@@ -113,6 +113,15 @@ export type HelperAction =
    * its tracks, when that file has any.
    */
   | { readonly type: 'addRelease'; readonly release: ReleaseAnswer; readonly from: ReleaseSource }
+  /**
+   * Puts a release the saved `record` names back at the end of the pool (in place when it is already there) after it
+   * was fetched again, without giving it to other episodes, and restores the record's
+   * choices for the episodes whose tracks come from it: their file, tracks, timing and drafted tracks. Everything else
+   * stays as it is: the other pooled releases, other episodes' choices and timings, and the metadata the user edited.
+   * An episode whose saved tracks are not in the fetched release keeps what it had. `disc` is the run's episodes
+   * answer, as `fromRecord` takes it.
+   */
+  | { readonly type: 'restoreRelease'; readonly record: SubtitleRecord; readonly release: ReleaseAnswer; readonly disc: Pick<EpisodesAnswer, 'audio'> | null }
   /** Removes a release from the pool; the episodes that used it lose their file, timing and drafted tracks. */
   | { readonly type: 'removeRelease'; readonly key: string }
   /**
@@ -306,6 +315,30 @@ function addRelease(state: HelperState, release: ReleaseAnswer, from: ReleaseSou
   return fillFrom(next, release);
 }
 
+/** The `restoreRelease` action: see its description. */
+function restoreRelease(state: HelperState, record: SubtitleRecord, release: ReleaseAnswer, disc: Pick<EpisodesAnswer, 'audio'> | null): HelperState {
+  const source = record.releases.find((r) => r.id === release.key)?.source ?? 'local';
+  const old = releaseOf(state, release.key);
+  const pooled: PooledRelease = { release, source };
+  let next: HelperState = { ...state, releases: old ? state.releases.map((p) => (p === old ? pooled : p)) : [...state.releases, pooled] };
+  const restored = fromRecord(record, [release], disc);
+  const edited = new Set(next.metadata.edited);
+  const drafts = { ...next.metadata.episodes };
+  for (const e of record.episodes) {
+    if (e.tracks[0]?.release !== release.key) continue;
+    const choice = restored.choices[e.index];
+    if (choice === undefined) continue;
+    next = { ...next, choices: { ...next.choices, [e.index]: choice }, timing: restored.timing[e.index] ? { ...next.timing, [e.index]: restored.timing[e.index]! } : without(next.timing, e.index) };
+    const draft = drafts[e.index];
+    const saved = restored.metadata.episodes[e.index];
+    if (draft !== undefined && saved !== undefined) drafts[e.index] = { ...draft, tracks: saved.tracks };
+    const key = `episodes.${e.index}.tracks`;
+    if (restored.metadata.edited.has(key)) edited.add(key);
+    else edited.delete(key);
+  }
+  return { ...next, metadata: { episodes: drafts, edited } };
+}
+
 function apply(state: HelperState, action: HelperAction): HelperState {
   switch (action.type) {
     case 'goTo':
@@ -324,6 +357,8 @@ function apply(state: HelperState, action: HelperAction): HelperState {
       return { ...state, episodeOffset: action.offset };
     case 'addRelease':
       return addRelease(state, action.release, action.from);
+    case 'restoreRelease':
+      return restoreRelease(state, action.record, action.release, action.disc);
     case 'removeRelease':
       return removeRelease(state, action.key);
     case 'fillFromPool':
@@ -528,8 +563,8 @@ function recordDefaults(record: SubtitleRecord, e: RecordEpisode, disc: Pick<Epi
   return draft.episodes[e.index]!;
 }
 
-/** A record in the current form: a single-release record becomes one with that release (or none) and tracks naming it. */
-function currentForm(record: SubtitleRecord | SingleReleaseRecord): SubtitleRecord {
+/** A record in the current form (a page that gets either form from the server reads it through this): a single-release record becomes one with that release (or none) and tracks naming it. */
+export function currentForm(record: SubtitleRecord | SingleReleaseRecord): SubtitleRecord {
   if ('releases' in record) return record;
   const { release, episodes, ...rest } = record;
   const id = release?.id ?? '';
