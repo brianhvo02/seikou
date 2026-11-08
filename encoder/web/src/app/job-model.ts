@@ -93,3 +93,21 @@ export function fileNameOf(path: string): string {
 export function formatFps(fps: number): string {
   return `${fps.toFixed(1)} fps`;
 }
+
+/** Jobs just queued as re-encodes that replace an earlier encode's files, whose page has not said so yet. */
+const replacesFiles = new Set<string>();
+
+/** Remembers that the job just queued with `id` replaces an earlier encode's files, for its page to say once. */
+export function noteReplacesFiles(id: string): void {
+  replacesFiles.add(id);
+}
+
+/** Whether the page of job `id` still has to say that it replaces earlier files (see `takeReplacesFilesNotice`). */
+export function hasReplacesFilesNotice(id: string): boolean {
+  return replacesFiles.has(id);
+}
+
+/** Like `hasReplacesFilesNotice`, and forgets the note, so the notice is shown once. */
+export function takeReplacesFilesNotice(id: string): boolean {
+  return replacesFiles.delete(id);
+}

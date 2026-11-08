@@ -6,6 +6,7 @@ import { ApiError } from '../api';
 import type { Job } from '../api-types';
 import type { AppApi } from './app-api';
 import { createJobsStore, type EventSourceCtor } from './job-events';
+import { noteReplacesFiles } from './job-model';
 import { FakeEventSource, makeEpisode, makeJob } from './job-test-support';
 import { JobsProvider } from './jobs-context';
 import { QueuePage } from './QueuePage';
@@ -51,6 +52,16 @@ describe('QueuePage', () => {
     expect(screen.getByText(job.cli)).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Copy command' })).toBeTruthy();
     await waitFor(() => expect(screen.getByText(/episode 2 running/)).toBeTruthy());
+  });
+
+  it('says once that a re-encode replaces the earlier files', () => {
+    const job = makeJob();
+    noteReplacesFiles(job.id);
+    setup(fakeApi(), [job], job.id);
+    expect(screen.getByText(/replace the files of the earlier encode/)).toBeTruthy();
+    cleanup();
+    setup(fakeApi(), [job], job.id);
+    expect(screen.queryByText(/replace the files of the earlier encode/)).toBeNull();
   });
 
   it('says a job is paused for a test encode', () => {

@@ -2,7 +2,7 @@
 import { ApiError, errorOf, type FetchLike } from '../api';
 import type { RemoteDiscSpec } from '@seikou/engine';
 import type { DiscManifest } from '@seikou/nas/nas-api';
-import type { EncodeSettings, Job, LibraryAnswer, NewJob, NewTest, PlaylistDetail, PlaylistSummary, Profile } from '../api-types';
+import type { EncodeSettings, Job, LibraryAnswer, NewJob, NewTest, PlaylistDetail, PlaylistSummary, Profile, QueuedJob } from '../api-types';
 
 // The app pages' client for the backend's library routes, carrying the run's token.
 
@@ -32,8 +32,12 @@ export interface AppApi {
   deleteProfile(id: string): Promise<void>;
   /** The queue, oldest first; rejects with `ApiError` code `jobs-unreadable` while the queue file is damaged, `queue-elsewhere` while another process runs it. */
   jobs(): Promise<Job[]>;
-  /** Queues an encode; rejects with `ApiError` (`record-mismatch` carries `recordEpisodeSpec` and `episodeSpec` in `details`). */
-  createJob(job: NewJob): Promise<Job>;
+  /**
+   * Queues an encode; rejects with `ApiError` (`record-mismatch` carries `recordEpisodeSpec` and `episodeSpec` in
+   * `details`, `output-in-use` a `suggestedOutDir`). A re-encode into an earlier encode's files resolves with
+   * `warning: 'replaces-files'`.
+   */
+  createJob(job: NewJob): Promise<QueuedJob>;
   /** Queues a test encode of one to three profiles; it runs ahead of the encodes. */
   createTest(test: NewTest): Promise<Job>;
   /** Stops a queued or running job; resolves with the job once it has stopped. */

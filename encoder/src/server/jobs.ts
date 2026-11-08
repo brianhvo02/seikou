@@ -93,6 +93,12 @@ export interface Job {
   test?: TestPlan;
 }
 
+/**
+ * A job as `JobRunner.add` answers it. `warning: 'replaces-files'` says the job re-encodes the same disc, playlist and
+ * episodes into a folder where another job wrote (or will write) the same file names, so its files replace those.
+ */
+export type QueuedJob = Job & { readonly warning?: 'replaces-files' };
+
 /** What a job is queued from; the routes pass the request body's fields as they are, and `add` checks them. */
 export interface JobInput {
   /** `encode` (the default) or `test`. */
@@ -178,6 +184,15 @@ const EPISODE_STATES: ReadonlySet<string> = new Set(['queued', 'running', 'done'
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
+/** `sameEpisodeList`, with a list that no longer fits the playlist counted as different. */
+function sameListOrFalse(a: string, b: string, chapters: number): boolean {
+  try {
+    return sameEpisodeList(a, b, chapters);
+  } catch {
+    return false;
+  }
+}
+
 /** `text` as one POSIX shell word: as it is when it holds only safe characters, else in single quotes. */
 function shellWord(text: string): string {
   if (/^[A-Za-z0-9_/.,:=+@%-]+$/.test(text)) return text;
@@ -231,6 +246,22 @@ async function realPathOf(p: string): Promise<string> {
 /** Whether `child` is `parent` or inside it. */
 function within(child: string, parent: string): boolean {
   return child === parent || child.startsWith(parent.endsWith(sep) ? parent : parent + sep);
+}
+
+/** How many episode numbers two name patterns are compared over. */
+const NAME_CHECK_EPISODES = 99;
+
+/**
+ * Whether two name patterns can give the same file name: the same pattern does, and different ones are compared over
+ * episodes 1 to 99, ignoring case, since a case-insensitive disk (the default on macOS) takes `EP-01` and `ep-01` for
+ * one file.
+ */
+export function namesCollide(a: string, b: string): boolean {
+  if (a === b) return true;
+  const names = new Set<string>();
+  for (let n = 1; n <= NAME_CHECK_EPISODES; n++) names.add(episodeName(a, n).toLowerCase());
+  for (let n = 1; n <= NAME_CHECK_EPISODES; n++) if (names.has(episodeName(b, n).toLowerCase())) return true;
+  return false;
 }
 
 /** Checks one stored job's shape; throws on anything that is not a job this runner wrote. */
@@ -488,12 +519,15 @@ export class JobRunner {
    * Queues a job and resolves with it. Refusals (`JobError`): 400 `bad-request` (a malformed field), 400 `bad-setting`
    * (with `field`), 404 `not-found` (an unknown disc or playlist), 400 `bad-episode-spec`, 400 `output-not-absolute`,
    * 400 `output-not-allowed` (a folder inside a library root, inside the disc, or inside the data directory other than
-   * under `<data>/output`), 409 `record-mismatch` (the saved subtitle record is for another episode list or misses an
+   * under `<data>/output`), 409 `output-in-use` (another job in the queue, finished or not, has the same output folder,
+   * compared by real paths, and a name pattern that can make the same file names; `suggestedOutDir` names a free
+   * folder), 409 `record-mismatch` (the saved subtitle record is for another episode list or misses an
    * episode; `recordEpisodeSpec` and `episodeSpec` name both lists), 409 `no-audio-chosen`, 409 `subtitle-files-missing`,
    * 409 `record-unreadable`, and 500 `jobs-unreadable`. The record is not checked with `noSubtitles` or for a test job.
-   * The output folder is made when missing.
+   * The output folder is made when missing. A job for the same disc, playlist and episode list as the job whose folder
+   * and names it shares is a re-encode, not a refusal: it is queued and answered with `warning: 'replaces-files'`.
    */
-  async add(input: JobInput): Promise<Job> {
+  async add(input: JobInput): Promise<QueuedJob> {
     await this.ready;
     this.checkAvailable();
     const kind = input.kind ?? 'encode';
@@ -544,10 +578,12 @@ export class JobRunner {
     }
     const id = randomBytes(8).toString('hex');
     let outDir: string;
+    let warning: QueuedJob['warning'];
     if (kind === 'test') {
       outDir = testDirOf(this.app.dataDir, id);
     } else {
       outDir = await this.checkOutputFolder(input.outDir, disc.root);
+      warning = await this.checkOutputInUse({ outDir, discKey: disc.key, playlistId, episodeSpec, chapters, namePattern: settings.namePattern });
       if (!noSubtitles) await this.checkRecord(disc.root, disc.key, playlistId, episodeSpec, chapters);
     }
     await mkdir(outDir, { recursive: true });
@@ -574,9 +610,11 @@ export class JobRunner {
     if (test !== undefined) job.test = test;
     this.jobs.push(job);
     this.appendLog(job, `Queued: ${test !== undefined ? `test of ${test.profiles.map((p) => p.name).join(', ')}` : job.cli}`);
+    if (warning === 'replaces-files') this.appendLog(job, `Its files replace those of an earlier encode of the same episodes in ${outDir}.`);
     this.persist();
     this.pump();
-    return structuredClone(job);
+    const answer = structuredClone(job);
+    return warning === undefined ? answer : { ...answer, warning };
   }
 
   /**
@@ -749,6 +787,46 @@ export class JobRunner {
       if (within(real, await realPathOf(root))) throw refuse('the disc library');
     }
     return outDir;
+  }
+
+  /**
+   * Refuses (409 `output-in-use`) an encode whose files would land on those of another job in the queue: the same
+   * output folder by real path and name patterns that can make the same names. A job for the same disc, playlist and
+   * episode list is a re-encode and answers `'replaces-files'` instead; anything else answers undefined.
+   */
+  private async checkOutputInUse(o: {
+    outDir: string;
+    discKey: string;
+    playlistId: string;
+    episodeSpec: string;
+    chapters: number;
+    namePattern: string;
+  }): Promise<QueuedJob['warning']> {
+    const real = await realPathOf(o.outDir);
+    const usedFolders = new Set<string>();
+    for (const other of this.jobs) if (other.kind === 'encode') usedFolders.add(await realPathOf(other.outDir));
+    if (!usedFolders.has(real)) return undefined;
+    let warning: QueuedJob['warning'];
+    for (const other of this.jobs) {
+      if (other.kind !== 'encode' || !namesCollide(other.settings.namePattern, o.namePattern)) continue;
+      if ((await realPathOf(other.outDir)) !== real) continue;
+      if (other.disc.key === o.discKey && other.playlist === o.playlistId && sameListOrFalse(other.episodeSpec, o.episodeSpec, o.chapters)) {
+        warning = 'replaces-files';
+        continue;
+      }
+      let suggested = '';
+      for (let n = 2; ; n++) {
+        suggested = `${o.outDir.replace(/[/\\]+$/, '')}-${n}`;
+        if (!usedFolders.has(await realPathOf(suggested))) break;
+      }
+      throw new JobError(
+        409,
+        'output-in-use',
+        `${o.outDir} is the output folder of another encode (${other.disc.label}, playlist ${other.playlist}, ${other.state}) whose files have the same names. Choose another folder, such as ${suggested}.`,
+        { suggestedOutDir: suggested, jobId: other.id },
+      );
+    }
+    return warning;
   }
 
   /** Checks the saved subtitle record against the job's playlist and episodes, as the encode will. */

@@ -40,6 +40,16 @@ export function safePathSegment(text: string): string {
   return cleaned.replace(/[.\s]+$/, '') || 'disc';
 }
 
+/**
+ * The output folder the queue dialog offers for a disc's playlist: `<dataDir>/output/<safe label>-<hex>/<playlist>`,
+ * where `<hex>` is the first 8 hex digits of the disc key's fingerprint (or disc id), lower case. Two discs whose folders
+ * share a name (`Disc 1` of two shows) so get folders of their own, and the folder of one disc never changes.
+ */
+export function defaultOutDir(dataDir: string, label: string, discKey: string, playlistId: string): string {
+  const hex = discKey.replace(/^[a-z]\./, '').slice(0, 8).toLowerCase();
+  return join(dataDir, 'output', `${safePathSegment(label)}-${hex}`, playlistId);
+}
+
 /** Answers a refusal: its status, code, message and any more fields. */
 function refuse(res: ServerResponse, e: JobError): void {
   json(res, e.status, { error: e.code, message: e.message, ...e.extra });
@@ -175,12 +185,13 @@ const serveSample: Route = async (req, res, match, app) => {
  *   GET /api/jobs                    `{ jobs: Job[] }`, oldest first
  *   POST /api/jobs                   body `{ kind?, discKey, playlistId, episodeSpec, settings, outDir, noSubtitles? }`, or
  *                                    for a test `{ kind: 'test', discKey, playlistId, episodeSpec, profiles }` with one to
- *                                    three `{ id, name, settings }`; 201 with the Job
+ *                                    three `{ id, name, settings }`; 201 with the Job, or 200 with the Job and
+ *                                    `warning: 'replaces-files'` for a re-encode into the folder of an earlier one
  *   POST /api/jobs/<id>/cancel       the Job, once it has stopped; 409 `not-cancellable`
  *   POST /api/jobs/<id>/retry        the Job; 409 `not-retryable`
  *   DELETE /api/jobs/<id>            `{ deleted: true }` for a finished job; 409 `not-finished`
  *   GET /api/jobs/<id>/log?tail=N    the last N lines of the job's log as text (default and most 2000)
- *   GET /api/jobs/defaults?disc=&playlist=   `{ outDir }`: `<data>/output/<disc label>/<playlist>`, the folder the queue dialog offers
+ *   GET /api/jobs/defaults?disc=&playlist=   `{ outDir }`: the folder the queue dialog offers (see `defaultOutDir`)
  *   GET /api/jobs/events            server-sent events: `jobs` with `{ jobs }` on connect and on every change, and
  *                                    `progress` with a `JobProgress` (see `JobRunner`)
  *   GET|HEAD /api/outputs/<id>/<path>   a file under that job's output folder, whole or one range
@@ -221,7 +232,7 @@ export const jobRoutes: RouteTable = [
           outDir: body.outDir,
           noSubtitles: body.noSubtitles,
         });
-        json(res, 201, job);
+        json(res, job.warning === undefined ? 201 : 200, job);
       });
     },
   ],
@@ -239,7 +250,7 @@ export const jobRoutes: RouteTable = [
       const dir = await sessionsOf(app).discDirOf(discKey);
       if (dir === null) return httpError(res, 404, 'not-found', 'No disc the app knows has that key.');
       const disc = await discOf(app, dir);
-      json(res, 200, { outDir: join(app.dataDir, 'output', safePathSegment(disc.label), playlist) });
+      json(res, 200, { outDir: defaultOutDir(app.dataDir, disc.label, disc.key, playlist) });
     },
   ],
   [

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -483,7 +483,7 @@ describe('the job routes', () => {
     // The same list written another way is no mismatch.
     const same = await post({ ...body, episodeSpec: '1-2, 3-' });
     expect(same.status).toBe(201);
-    const ok = await post({ ...body, noSubtitles: true });
+    const ok = await post({ ...body, noSubtitles: true, outDir: join(outRoot, 'b') });
     expect(ok.status).toBe(201);
     expect(jsonOf<Job>(ok)).toMatchObject({ kind: 'encode', state: expect.stringMatching(/queued|running/), noSubtitles: true, recordSavedAt: null });
   });
@@ -512,6 +512,39 @@ describe('the job routes', () => {
     expect(missing.status).toBe(404);
     const spec = await post({ ...body, outDir: join(outRoot, 'x'), episodeSpec: '1-9' });
     expect(jsonOf<{ error: string }>(spec).error).toBe('bad-episode-spec');
+  });
+
+  it('a second job whose files would land on another job\'s is refused with 409 output-in-use', async () => {
+    const body = { discKey: fx.discKey, playlistId: '00000', episodeSpec: '1-3,4-5', settings: settings(), noSubtitles: true, outDir: join(outRoot, 'a') };
+    const first = jsonOf<Job>(await post(body));
+    // Another episode list into the same folder, reached through a link: the same names, so refused.
+    symlinkSync(join(outRoot, 'a'), join(outRoot, 'link'));
+    const refused = await post({ ...body, episodeSpec: '1-5', outDir: join(outRoot, 'link') });
+    expect(refused.status).toBe(409);
+    const answer = jsonOf<{ error: string; message: string; suggestedOutDir: string }>(refused);
+    expect(answer.error).toBe('output-in-use');
+    expect(answer.message).toMatch(/disc-speech/);
+    expect(answer.message).toMatch(/running|queued/);
+    expect(answer.suggestedOutDir).toBe(join(outRoot, 'link-2'));
+    expect(answer.message).toContain(answer.suggestedOutDir);
+    // Names that differ only in case are the same file on a case-insensitive disk.
+    expect((await post({ ...body, episodeSpec: '1-5', settings: settings({ namePattern: 'EP-{n}' }) })).status).toBe(409);
+    // A pattern that never makes the same names for episodes 1 to 99 is fine.
+    expect((await post({ ...body, episodeSpec: '1-5', settings: settings({ namePattern: 'part {n}' }) })).status).toBe(201);
+    // Once the first job is removed, its folder is free.
+    await fx.send(`/api/jobs/${first.id}/cancel`, { method: 'POST' });
+    expect((await fx.send(`/api/jobs/${first.id}`, { method: 'DELETE' })).status).toBe(200);
+    expect((await post({ ...body, episodeSpec: '1-5' })).status).toBe(201);
+  });
+
+  it('a re-encode of the same episodes into the same folder is queued with a warning', async () => {
+    const body = { discKey: fx.discKey, playlistId: '00000', episodeSpec: '1-3,4-5', settings: settings(), noSubtitles: true, outDir: join(outRoot, 'a') };
+    expect((await post(body)).status).toBe(201);
+    const again = await post({ ...body, episodeSpec: '1-3,4-', settings: settings({ crf: 30 }) });
+    expect(again.status).toBe(200);
+    expect(jsonOf<Job & { warning?: string }>(again)).toMatchObject({ kind: 'encode', warning: 'replaces-files' });
+    // The stored job carries no warning.
+    expect(jsonOf<{ jobs: (Job & { warning?: string })[] }>(await fx.send('/api/jobs')).jobs.every((j) => j.warning === undefined)).toBe(true);
   });
 
   it('outputs serve only the job\'s own folder', async () => {
@@ -612,10 +645,30 @@ describe.skipIf(!haveTools)('the job runner with the real tools', () => {
 });
 
 describe('GET /api/jobs/defaults', () => {
-  it('answers <data>/output/<disc label>/<playlist>', async () => {
+  it('answers <data>/output/<disc label>-<8 hex of the key>/<playlist>', async () => {
     const reply = await fx.send(`/api/jobs/defaults?disc=${encodeURIComponent(fx.discKey)}&playlist=00000`);
     expect(reply.status).toBe(200);
-    expect(jsonOf<{ outDir: string }>(reply).outDir).toBe(join(fx.dataDir, 'output', 'disc-speech', '00000'));
+    const hex = fx.discKey.slice(2, 10).toLowerCase();
+    expect(hex).toMatch(/^[0-9a-f]{8}$/);
+    expect(jsonOf<{ outDir: string }>(reply).outDir).toBe(join(fx.dataDir, 'output', `disc-speech-${hex}`, '00000'));
+  });
+
+  it('differs for two discs whose folders have the same name', async () => {
+    const shelf = mkdtempSync(join(tmpdir(), 'jobs-shelf-'));
+    try {
+      const folders: string[] = [];
+      for (const [show, disc] of [['Starfall Wanderer', 'disc1'], ['Lantern Harbor', 'disc-speech']] as const) {
+        const dir = join(shelf, show, 'Disc 1');
+        cpSync(fixturePath(`fixtures/${disc}`), dir, { recursive: true });
+        const session = await sessionsOf(fx.app).create({ discDir: dir, playlistId: '00000', episodeSpec: '1-' });
+        const reply = await fx.send(`/api/jobs/defaults?disc=${encodeURIComponent(session.discKey)}&playlist=00000`);
+        folders.push(jsonOf<{ outDir: string }>(reply).outDir);
+      }
+      expect(folders[0]).not.toBe(folders[1]);
+      for (const f of folders) expect(f).toMatch(/[/\\]output[/\\]Disc 1-[0-9a-f]{8}[/\\]00000$/);
+    } finally {
+      rmSync(shelf, { recursive: true, force: true });
+    }
   });
 
   it('refuses an unknown disc and a bad playlist', async () => {

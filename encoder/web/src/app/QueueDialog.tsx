@@ -2,6 +2,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { ApiError } from '../api';
 import type { ChapterInfo, Profile } from '../api-types';
+import { noteReplacesFiles } from './job-model';
 import { MAX_TEST_PROFILES, testSummary } from './test-model';
 import type { AppApi } from './app-api';
 import { formatLength } from './DiscPage';
@@ -44,14 +45,15 @@ interface Mismatch {
 }
 
 /** The codes of refusals about the output folder, which are shown beside the folder. */
-const FOLDER_ERRORS: ReadonlySet<string> = new Set(['output-not-absolute', 'output-not-allowed']);
+const FOLDER_ERRORS: ReadonlySet<string> = new Set(['output-not-absolute', 'output-not-allowed', 'output-in-use']);
 
 const text = (v: unknown, fallback: string): string => (typeof v === 'string' ? v : fallback);
 
 /**
  * The page that queues an encode: the disc, playlist and episode list the route named, a settings profile (with its
  * settings in one line), the output folder (the backend's default, editable) and "Encode without subtitles". Queue
- * encode makes the job and goes to its page. A refusal about the folder shows beside the folder, any other as an alert;
+ * encode makes the job and goes to its page (which says once when the job re-encodes into an earlier encode's files). A
+ * refusal about the folder (another encode's folder among them) shows beside the folder, any other as an alert;
  * when the saved subtitle choices are for another episode list the alert says both lists and offers to encode without
  * subtitles or to open the helper for this list.
  */
@@ -135,6 +137,7 @@ export function QueueDialog({ api, discKey, playlistId, spec, noSubtitles: start
     setMismatch(null);
     try {
       const job = await api.createJob({ discKey, playlistId, episodeSpec: spec, settings: profile.settings, outDir: outDir.trim(), noSubtitles: without });
+      if (job.warning === 'replaces-files') noteReplacesFiles(job.id);
       navigate(routeHref({ kind: 'job', jobId: job.id }, location.search));
     } catch (e) {
       setBusy(false);

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api';
 import type { LibraryAnswer, PlaylistDetail, Profile } from '../api-types';
 import type { AppApi } from './app-api';
+import { takeReplacesFilesNotice } from './job-model';
 import { makeJob, DEFAULT_TEST_SETTINGS } from './job-test-support';
 import { QueueDialog } from './QueueDialog';
 
@@ -87,6 +88,30 @@ describe('QueueDialog', () => {
     const folder = await screen.findByLabelText('Output folder');
     await waitFor(() => expect(folder.getAttribute('aria-invalid')).toBe('true'));
     expect(screen.getByText('That folder is inside the library.')).toBeTruthy();
+  });
+
+  it('shows a folder another encode uses beside the folder', async () => {
+    const api = fakeApi({
+      createJob: vi.fn(async () => {
+        throw new ApiError(409, 'output-in-use', '/out is the output folder of another encode (SHOW_B, done). Choose another folder, such as /out-2.', { suggestedOutDir: '/out-2' });
+      }),
+    });
+    render(<QueueDialog api={api} {...props} />);
+    await screen.findByLabelText('Output folder');
+    fireEvent.click(screen.getByRole('button', { name: 'Queue encode' }));
+    const folder = await screen.findByLabelText('Output folder');
+    await waitFor(() => expect(folder.getAttribute('aria-invalid')).toBe('true'));
+    expect(screen.getByText(/another encode \(SHOW_B, done\)/)).toBeTruthy();
+  });
+
+  it('a re-encode that replaces earlier files leaves a notice for the job page', async () => {
+    const api = fakeApi({ createJob: vi.fn(async () => ({ ...makeJob({ id: 'dddddddddddddddd' }), warning: 'replaces-files' as const })) });
+    render(<QueueDialog api={api} {...props} />);
+    await screen.findByLabelText('Output folder');
+    fireEvent.click(screen.getByRole('button', { name: 'Queue encode' }));
+    await waitFor(() => expect(location.pathname).toBe('/queue/dddddddddddddddd'));
+    expect(takeReplacesFilesNotice('dddddddddddddddd')).toBe(true);
+    expect(takeReplacesFilesNotice('dddddddddddddddd')).toBe(false);
   });
 
   it('shows any other error as an alert', async () => {

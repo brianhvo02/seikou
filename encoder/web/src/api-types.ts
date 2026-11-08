@@ -498,6 +498,12 @@ export interface Job {
   readonly test?: TestPlan;
 }
 
+/**
+ * What `POST /api/jobs` answers for an encode: the Job, with `warning: 'replaces-files'` when it re-encodes the same
+ * disc, playlist and episodes into a folder where an earlier job's files have the same names, so its files replace them.
+ */
+export type QueuedJob = Job & { readonly warning?: 'replaces-files' };
+
 /** One profile a test encodes with. */
 export interface TestProfile {
   /** The profile's id; the samples' folder name. */

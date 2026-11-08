@@ -2,7 +2,18 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Job, JobEpisode, JobProgress } from '../api-types';
 import type { AppApi } from './app-api';
-import { episodeFraction, fileNameOf, formatFps, formatLeft, isFinished, orderJobs, overallPercent, stateLabel } from './job-model';
+import {
+  episodeFraction,
+  fileNameOf,
+  formatFps,
+  formatLeft,
+  hasReplacesFilesNotice,
+  isFinished,
+  orderJobs,
+  overallPercent,
+  stateLabel,
+  takeReplacesFilesNotice,
+} from './job-model';
 import { useJobs, useJobsStore } from './jobs-context';
 import { useDocumentTitle } from './place';
 import { Link, navigate, routeHref } from './router';
@@ -198,6 +209,11 @@ function JobView({ api, job }: { readonly api: AppApi; readonly job: Job }) {
   const [busy, setBusy] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Said once, on the page the queue dialog opens after queueing a re-encode.
+  const [replaces] = useState(() => hasReplacesFilesNotice(job.id));
+  useEffect(() => {
+    takeReplacesFilesNotice(job.id);
+  }, [job.id]);
   useDocumentTitle(`${job.disc.label} · encode`);
   const test = job.kind === 'test';
   const live = progress[job.id];
@@ -229,6 +245,11 @@ function JobView({ api, job }: { readonly api: AppApi; readonly job: Job }) {
         {job.noSubtitles && !test && ', without subtitles'}
       </p>
 
+      {replaces && (
+        <p className="warn" role="status">
+          This encode writes the same episodes into the same folder as an earlier one, so its files replace the files of the earlier encode.
+        </p>
+      )}
       {job.paused && (
         <p className="warn" role="status">
           Paused while a test encode runs. This job carries on when the test is done.
