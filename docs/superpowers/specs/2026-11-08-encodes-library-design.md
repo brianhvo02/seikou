@@ -50,7 +50,7 @@ Anti-goals:
 ## 4. Constraints
 
 - Everything in `CLAUDE.md` holds, with one change the deploy and the constraints section must state: the server writes only to its data volume and to `/encodes` (a folder the owner binds writable); the library mounts stay read-only and the server never writes anywhere else under `/mnt`.
-- The engine changes stay in the packages and import nothing from `src/`. The Matroska reader is not a disc format, so it does not go in `@seikou/bdmv`; it lives in the engine (`demux/matroska`) or in a small package of its own (designer's call at planning).
+- The engine changes stay in the packages and import nothing from `src/`. The Matroska reader is a package of its own, `@seikou/matroska` (the user's decision, 2026-11-08: useful to other people), the eighth workspace package: its own README, NOTICE, `LGPL-3.0-or-later`, in `npm run package-smoke`, and no dependency on the engine or on anything of Seikou's. The engine depends on it.
 - Licences: new files LGPL-3.0-or-later; if any Matroska code is ported from FFmpeg or libmatroska-derived code, it keeps its upstream licence and goes in a NOTICE as the rules say. The encoder already has its own Matroska writer; a reader written fresh is preferred.
 - Supported browsers as today (Safari 26, Chrome and Firefox stable and stable−2, Chrome Android). AV1 decode is hardware-dependent; the warning in §3.5 covers the rest.
 - The repo is public: made-up names in tests, fixtures and docs.
@@ -77,7 +77,7 @@ Anti-goals:
 
 - The library routes (`GET /api/encodes/titles`, a show, a season, Continue watching) follow the title routes' shapes and the `TITLE_LIBRARY` gate.
 - The file is served by range reads like a disc file (`GET /api/encodes/files/<episode id>`), so the engine's `RemoteSource` and the WebRTC route work unchanged.
-- **Engine.** A Matroska reader (EBML, SeekHead, Cues for seeking, Clusters with SimpleBlock and BlockGroup, lacing as needed for Opus, attachments for fonts, Chapters, Tags) feeds the existing decode and render path: AV1 through WebCodecs (codec string from the AV1 CodecPrivate), Opus through WebCodecs `AudioDecoder` where present, else the WASM decoder (add Opus to `audio.wasm` only if needed), ASS through `@seikou/ass` with the attached fonts, PGS through `@seikou/pg` from the Matroska blocks, chapters into the snapshot. Seeking uses the Cues. The player works from a new `open` kind for an encoded episode; the protocol change comes first, as `CLAUDE.md` says.
+- **Engine.** `@seikou/matroska` (EBML, SeekHead, Cues for seeking, Clusters with SimpleBlock and BlockGroup, lacing as needed for Opus, attachments for fonts, Chapters, Tags) feeds the existing decode and render path: AV1 through WebCodecs (codec string from the AV1 CodecPrivate), Opus through WebCodecs `AudioDecoder` where present, else the WASM decoder (add Opus to `audio.wasm` only if needed), ASS through `@seikou/ass` with the attached fonts, PGS through `@seikou/pg` from the Matroska blocks, chapters into the snapshot. Seeking uses the Cues. The player works from a new `open` kind for an encoded episode; the protocol change comes first, as `CLAUDE.md` says.
 - **Places.** An encoded episode's place uses its own key kind (e.g. `e.<AniList id>.<episode>`), stored with the person's places as discs' are; Continue watching and Up next include encodes in the Encodes tab only.
 - **Subtitle store** (designer's call after the builder check). Stored subtitles are matched to an encode by the source disc key and playlist in its tags, not by AniList episode (a disc catalogue season is not always an AniList entry):
   - an `episode` attachment on the same disc key and playlist is offered, shifted by the episode's start time in that playlist (the `SEIKOU_EPISODE_START_MS` tag);
@@ -94,7 +94,7 @@ Anti-goals:
 ## 6. What is left to the builder
 
 - The exact route paths and error bodies, the index format, the episode id's form.
-- How the Matroska reader is split between files and package; whether Opus needs the WASM decoder.
+- The Matroska package's API (a reader over byte ranges, as `ByteSource` reads); whether Opus needs the WASM decoder.
 - The show page's layout within the existing look; where the countdown setting is shown.
 - How AniList relations are walked and cached, sharing as much with the disc catalogue as fits.
 
