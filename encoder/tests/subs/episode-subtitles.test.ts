@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { episodeSubtitleTracks } from '../../src/subs/episode-subtitles';
+import { episodeSubtitleTracks, recordFontLoader } from '../../src/subs/episode-subtitles';
 import type { RecordTrack, SubtitleRecord } from '../../src/subs/record';
 import type { CachedRelease } from '../../src/subs/release-cache';
 
@@ -191,6 +191,18 @@ describe('episodeSubtitleTracks', () => {
     put(font, new Uint8Array([7]));
     const { attachments } = await episodeSubtitleTracks(record([track({})], [font]), 1, 1_440_000, dir);
     expect(attachments.map((a) => [a.name, a.mediaType])).toEqual([[`${'a'.repeat(64)}.otf`, 'font/otf']]);
+  });
+
+  it('episodes given one font loader share the same attachments', async () => {
+    put('releases/tosho-77/f1-t1.ass', SCRIPT);
+    const font = `fonts/${'c'.repeat(64)}.ttf`;
+    put(font, new Uint8Array([9]));
+    const r = record([track({})], [font]);
+    r.episodes.push({ ...r.episodes[0]!, index: 2 });
+    const fonts = recordFontLoader(r, dir);
+    const one = await episodeSubtitleTracks(r, 1, 1_440_000, dir, fonts);
+    const two = await episodeSubtitleTracks(r, 2, 1_440_000, dir, fonts);
+    expect(two.attachments[0]!.data).toBe(one.attachments[0]!.data);
   });
 
   it('throws for an episode the record does not hold', async () => {

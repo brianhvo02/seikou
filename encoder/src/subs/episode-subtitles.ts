@@ -40,6 +40,42 @@ export interface EpisodeSubtitles {
   attachments: MkvAttachment[];
 }
 
+/** Gives a record's font attachments; see `recordFontLoader`. */
+export type FontLoader = () => Promise<MkvAttachment[]>;
+
+/**
+ * A `FontLoader` for `record`'s `fonts` under the data directory `dataDir`: the first call reads every font, each
+ * with its media type from `FONT_MEDIA_TYPES` and its file name from the cached release named by
+ * `record.release.id` (the first name the release lists for that pooled file), else the pooled file's own name; every
+ * later call gives the same attachments without reading again, so the episodes of one encode share one copy of each
+ * font. A failed read is not kept: the next call reads again.
+ */
+export function recordFontLoader(record: SubtitleRecord, dataDir: string): FontLoader {
+  let loaded: Promise<MkvAttachment[]> | null = null;
+  return () => {
+    loaded ??= readRecordFonts(record, dataDir).catch((err: unknown) => {
+      loaded = null;
+      throw err;
+    });
+    return loaded;
+  };
+}
+
+async function readRecordFonts(record: SubtitleRecord, dataDir: string): Promise<MkvAttachment[]> {
+  const release = record.release !== null ? await readCachedRelease(dataDir, record.release.id) : null;
+  const names = new Map<string, string>();
+  for (const f of release?.fonts ?? []) if (!names.has(f.path)) names.set(f.path, f.name);
+  const attachments: MkvAttachment[] = [];
+  for (const path of record.fonts) {
+    attachments.push({
+      name: names.get(path) ?? basename(path),
+      mediaType: FONT_MEDIA_TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream',
+      data: await readFile(join(dataDir, path)),
+    });
+  }
+  return attachments;
+}
+
 /**
  * Builds episode `episodeIndex`'s subtitle tracks and font attachments from `record`, reading the cached files under
  * the data directory `dataDir`. The episode lasts `durationMs` milliseconds from its first video frame, which is the
@@ -52,9 +88,8 @@ export interface EpisodeSubtitles {
  * `assToMatroska`'s drop and clamp rules applied. The first track is the default; none is when nothing is ticked.
  * A `signs` track is marked forced (FlagForced), which is how the MKV keeps a track's kind for packaging.
  *
- * Attachments: the record's `fonts`, each with its media type from `FONT_MEDIA_TYPES` and its file name from the
- * cached release named by `record.release.id` (the first name the release lists for that pooled file), else the
- * pooled file's own name. No fonts are attached when no track is.
+ * Attachments: the record's `fonts`, as `fonts` gives them (see `recordFontLoader`); pass one loader to every
+ * episode of a record so the fonts are read once and shared. No fonts are attached, or read, when no track is.
  *
  * Throws when the record has no such episode, when a file cannot be read (the caller checks for missing files first)
  * and `SubtitleEncodingError` for a track that is not UTF-8 or UTF-16 with a BOM.
@@ -64,6 +99,7 @@ export async function episodeSubtitleTracks(
   episodeIndex: number,
   durationMs: number,
   dataDir: string,
+  fonts: FontLoader = recordFontLoader(record, dataDir),
 ): Promise<EpisodeSubtitles> {
   const episode = record.episodes.find((e) => e.index === episodeIndex);
   if (episode === undefined) throw new Error(`the subtitle record holds no episode ${episodeIndex}`);
@@ -75,17 +111,5 @@ export async function episodeSubtitleTracks(
     tracks.push({ codecId: 'S_TEXT/ASS', name: t.name, language: t.language, isDefault: tracks.length === 0, isForced: t.kind === 'signs', codecPrivate, blocks });
   }
   if (tracks.length === 0) return { tracks, attachments: [] };
-
-  const release = record.release !== null ? await readCachedRelease(dataDir, record.release.id) : null;
-  const names = new Map<string, string>();
-  for (const f of release?.fonts ?? []) if (!names.has(f.path)) names.set(f.path, f.name);
-  const attachments: MkvAttachment[] = [];
-  for (const path of record.fonts) {
-    attachments.push({
-      name: names.get(path) ?? basename(path),
-      mediaType: FONT_MEDIA_TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream',
-      data: await readFile(join(dataDir, path)),
-    });
-  }
-  return { tracks, attachments };
+  return { tracks, attachments: await fonts() };
 }

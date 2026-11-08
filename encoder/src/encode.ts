@@ -14,7 +14,7 @@ import { audioChain, ChainError, videoChain, type Chain, type ToolPaths } from '
 import { buildAudioScript, buildVideoScript } from './pipeline/vpy';
 import { WavGuardError } from './pipeline/wav-guard';
 import { loadEncodeRecord, NoAudioChosenError } from './subs/encode-record';
-import { episodeSubtitleTracks } from './subs/episode-subtitles';
+import { episodeSubtitleTracks, recordFontLoader } from './subs/episode-subtitles';
 import { selectAudio, type SelectedAudio } from './plan/audio-streams';
 import { parseEpisodeSpec, planEpisodes, type EpisodePlan } from './plan/episodes';
 import type { RecordMetadata, SubtitleRecord } from './subs/record';
@@ -209,7 +209,9 @@ export async function encodeEpisodes(
   // Every episode's subtitles are built before the first encode, so an unreadable or undecodable track fails now and not after hours of encoding.
   const subtitles = new Map<number, Awaited<ReturnType<typeof episodeSubtitleTracks>>>();
   if (record !== null) {
-    for (const { plan } of episodes) subtitles.set(plan.index, await episodeSubtitleTracks(record, plan.index, Number(plan.durationNs / 1_000_000n), o.dataDir));
+    // One loader for every episode: the fonts are read once and every episode's MKV attaches the same copies.
+    const fonts = recordFontLoader(record, o.dataDir);
+    for (const { plan } of episodes) subtitles.set(plan.index, await episodeSubtitleTracks(record, plan.index, Number(plan.durationNs / 1_000_000n), o.dataDir, fonts));
   }
 
   await mkdir(o.outDir, { recursive: true });
