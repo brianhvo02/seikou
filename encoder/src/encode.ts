@@ -198,7 +198,7 @@ export async function encodeEpisodes(
     onEvent({ kind: 'episode-start', episode: plan.index, message: `Encoding episode ${plan.index}`, path: outPath });
 
     // Read before any tool starts: the PG streams come straight from the disc and need no cleanup when they fail.
-    const pgs = o.noPgs ? [] : await episodePgsTracks(plan, playlist);
+    const pgs = o.noPgs ? [] : await episodePgsTracks(plan, playlist, (message) => onEvent({ kind: 'log', episode: plan.index, message }));
     const tmp = await mkdtemp(join(tmpdir(), 'encoding-tools-'));
     const chains: Chain[] = [];
     try {
