@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { mkdirSync, readFileSync } from 'node:fs';
-import { readdir, rm, stat } from 'node:fs/promises';
-import { join, relative, sep } from 'node:path';
+import { readdir, realpath, rm, stat } from 'node:fs/promises';
+import { isAbsolute, join, relative, sep } from 'node:path';
 import { openMatroska } from '@seikou/matroska';
 import type { MkvChapterInfo } from '@seikou/matroska';
 import { encodeId } from '@seikou/nas/encode-id';
@@ -35,7 +35,25 @@ export interface EncodeIndexOptions {
   log: (message: string) => void;
   /** Called with a file's path (relative to `dir`) each time the file is read; tests count these. */
   onRead?: (relativePath: string) => void;
+  /** A file modified more recently than this is left for the next scan (a copy in progress). Default 10 s. */
+  settleMs?: number;
+  now?: () => number;
 }
+
+/** What a client may be told of the index's state. */
+export interface EncodeIndexState {
+  /** The first scan has not finished. */
+  scanning: boolean;
+  /** The folder is missing or unreadable; the last good list is still served. */
+  rootMissing: boolean;
+  /** The message of a scan that failed, else null. */
+  scanError: string | null;
+}
+
+const DEFAULT_SETTLE_MS = 10_000;
+
+/** The encodes folder itself could not be read. */
+class RootUnreadable extends Error {}
 
 type StoredEntry = Omit<EncodeEntry, 'path'>;
 
@@ -75,6 +93,9 @@ export class EncodeIndex {
   private unfiledFiles: { path: string; size: number }[] = [];
   private scanning: Promise<void> | null = null;
   private firstScan: Promise<void> | null = null;
+  private firstSettled = false;
+  private rootProblem: string | null = null;
+  private scanError: string | null = null;
 
   constructor(private readonly opts: EncodeIndexOptions) {
     this.file = join(opts.dataDir, 'encodes.json');
@@ -163,34 +184,63 @@ export class EncodeIndex {
     }
   }
 
-  private async walk(dir: string, out: string[]): Promise<void> {
+  /** Collects the `.mkv` files under `dir`; a folder that can't be read is skipped (listed in `skipped`), except the root. */
+  private async walk(dir: string, out: string[], skipped: string[]): Promise<void> {
     let names;
     try {
       names = await readdir(dir, { withFileTypes: true });
     } catch (err) {
-      if (isCode(err, 'ENOENT')) return;
-      throw err;
+      const message = err instanceof Error ? err.message : String(err);
+      if (dir === this.opts.dir) throw new RootUnreadable(message);
+      this.opts.log(`encodes: skipping ${posix(relative(this.opts.dir, dir))}: ${message}`);
+      skipped.push(posix(relative(this.opts.dir, dir)));
+      return;
     }
     for (const e of names) {
       if (e.name.startsWith('.')) continue;
       const full = join(dir, e.name);
-      if (e.isDirectory()) await this.walk(full, out);
+      if (e.isDirectory()) await this.walk(full, out, skipped);
       else if (e.isFile() && /\.mkv$/i.test(e.name)) out.push(posix(relative(this.opts.dir, full)));
     }
   }
 
   /** Reads the folder; files unchanged since the last scan are not read again. Overlapping calls share one scan. */
   scan(): Promise<void> {
-    this.scanning ??= this.doScan().finally(() => {
-      this.scanning = null;
-    });
-    this.firstScan ??= this.scanning;
+    this.scanning ??= this.doScan()
+      .catch((err: unknown) => {
+        this.scanError = err instanceof Error ? err.message : String(err);
+        throw err;
+      })
+      .finally(() => {
+        this.scanning = null;
+      });
+    this.firstScan ??= this.scanning.then(
+      () => {
+        this.firstSettled = true;
+      },
+      () => {
+        this.firstSettled = true;
+      },
+    );
     return this.scanning;
   }
 
   private async doScan(): Promise<void> {
     const found: string[] = [];
-    await this.walk(this.opts.dir, found);
+    const skipped: string[] = [];
+    try {
+      await this.walk(this.opts.dir, found, skipped);
+    } catch (err) {
+      if (!(err instanceof RootUnreadable)) throw err;
+      // Like a library root that is missing: keep the last good list, and say so once.
+      if (this.rootProblem !== err.message) this.opts.log(`encodes: ${this.opts.dir} can't be read (${err.message}); keeping the last index`);
+      this.rootProblem = err.message;
+      return;
+    }
+    this.rootProblem = null;
+    this.scanError = null;
+    const settleMs = this.opts.settleMs ?? DEFAULT_SETTLE_MS;
+    const now = (this.opts.now ?? Date.now)();
     const next = new Map<string, FileRecord>();
     for (const rel of found.sort()) {
       let s;
@@ -200,14 +250,24 @@ export class EncodeIndex {
         continue;
       }
       const old = this.files.get(rel);
-      next.set(rel, old && old.size === s.size && old.mtimeMs === s.mtimeMs ? old : await this.read(rel, s.size, s.mtimeMs));
+      if (old && old.size === s.size && old.mtimeMs === s.mtimeMs) next.set(rel, old);
+      else if (settleMs > 0 && now - s.mtimeMs < settleMs) {
+        // being copied: the next scan takes it (what we knew of it stays meanwhile)
+        if (old) next.set(rel, old);
+      } else next.set(rel, await this.read(rel, s.size, s.mtimeMs));
     }
+    // a folder we couldn't read keeps what it held
+    for (const [rel, record] of this.files) if (!next.has(rel) && skipped.some((d) => rel.startsWith(`${d}/`))) next.set(rel, record);
     this.files = next;
     this.resolve();
     this.save();
   }
 
-  /** True once the first scan has finished; false after `ms`, or when none was started. */
+  state(): EncodeIndexState {
+    return { scanning: !this.firstSettled, rootMissing: this.rootProblem !== null, scanError: this.scanError };
+  }
+
+  /** True once the first scan has finished (well or not: see `state`); false after `ms`, or when none was started. */
   async ready(ms: number): Promise<boolean> {
     if (!this.firstScan) return false;
     let timer: NodeJS.Timeout | undefined;
@@ -235,9 +295,10 @@ export class EncodeIndex {
 
   /** Reads one file (say, one just uploaded) into the index; throws when it names no AniList id and episode. */
   async add(path: string): Promise<EncodeEntry> {
-    const rel = posix(relative(this.opts.dir, path));
-    if (rel.startsWith('..') || rel.split('/').some((s) => s.startsWith('.') && s !== '.')) throw new Error('not inside the encodes folder');
-    const s = await stat(path);
+    const real = await realpath(path);
+    const rel = posix(relative(await realpath(this.opts.dir), real));
+    if (rel === '' || rel === '..' || rel.startsWith('../') || isAbsolute(rel) || rel.split('/').some((seg) => seg.startsWith('.'))) throw new Error('not inside the encodes folder');
+    const s = await stat(real);
     const record = await this.read(rel, s.size, s.mtimeMs);
     if (!record.entry) throw new Error('the file names no AniList id and episode in its tags');
     this.files.set(rel, record);

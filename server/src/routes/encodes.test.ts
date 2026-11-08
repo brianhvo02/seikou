@@ -21,18 +21,18 @@ let close: (() => void) | undefined;
 let auth: Auth;
 let gate: 'owners' | 'everyone';
 
-async function start(configured: boolean): Promise<void> {
+async function start(configured: boolean, opts: { scan?: boolean; waitMs?: number; dirOverride?: string } = {}): Promise<EncodeIndex | undefined> {
   const data = join(tmp, 'data');
   const dir = join(tmp, 'encodes');
   mkdirSync(join(dir, '990001'), { recursive: true });
   cpSync(join(FIXTURE, '1.mkv'), join(dir, '990001/1.mkv'));
   auth = new Auth(new Store(data), Date.now);
   const library = new Library([], join(data, 'library.json'), { scanPauseMs: 0 });
-  const encodes = configured ? new EncodeIndex({ dir, dataDir: data, log: () => {} }) : undefined;
-  if (encodes) void encodes.scan();
+  const encodes = configured ? new EncodeIndex({ dir: opts.dirOverride ?? dir, dataDir: data, log: () => {}, settleMs: 0 }) : undefined;
+  if (encodes && opts.scan !== false) void encodes.scan().catch(() => {});
   const titles = { service: { gate: () => gate }, owner: {} } as unknown as TitleLibrary;
   const server = createServer(appHandlers({
-    auth, library, bdjStore: new BdjStore(data), publicBase: 'https://nas.example/bluray/api/', titles, ...(encodes ? { encodes } : {}),
+    auth, library, bdjStore: new BdjStore(data), publicBase: 'https://nas.example/bluray/api/', titles, ...(encodes ? { encodes } : {}), ...(opts.waitMs !== undefined ? { encodesWaitMs: opts.waitMs } : {}),
   }));
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -40,6 +40,7 @@ async function start(configured: boolean): Promise<void> {
     server.close();
     server.closeAllConnections();
   };
+  return encodes;
 }
 
 beforeEach(() => {
@@ -106,6 +107,22 @@ describe('encodes routes', () => {
     await start(true);
     const t = await token('Owner', true);
     expect(await (await get('status', t)).json()).toEqual({ configured: true, count: 1 });
+  });
+
+  it('answers 503 indexing while the first scan has not finished, and status says scanning', async () => {
+    await start(true, { scan: false, waitMs: 20 });
+    const t = await token('Owner', true);
+    const r = await get('990001-1/manifest', t);
+    expect(r.status).toBe(503);
+    expect(r.headers.get('retry-after')).toBe('5');
+    expect(await r.json()).toEqual({ error: 'indexing' });
+    expect(await (await get('status', t)).json()).toEqual({ configured: true, scanning: true });
+  });
+
+  it('status reports a missing folder', async () => {
+    await start(true, { dirOverride: join(tmp, 'gone'), waitMs: 2000 });
+    const t = await token('Owner', true);
+    expect(await (await get('status', t)).json()).toEqual({ configured: true, count: 0, rootMissing: true });
   });
 
   it('a guest behind a closed gate gets 404', async () => {

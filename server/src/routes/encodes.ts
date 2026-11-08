@@ -9,7 +9,7 @@ import { requestDevice } from './titles';
 import type { TitleLibrary } from './titles';
 
 const ROUTE = /^\/api\/encodes\/(?:(status)|([1-9]\d*-[1-9]\d*)(?:\/(manifest|files\/EPISODE\.MKV))?)$/;
-/** A request that arrives during the first scan waits for it this long. */
+/** A request that arrives during the first scan waits for it this long, then gets 503 `indexing`. */
 export const FIRST_SCAN_WAIT_MS = 30_000;
 
 const notFound = (): Response => json(404, { error: 'not found' });
@@ -32,11 +32,12 @@ export function encodeRoutes(auth: Auth, encodes: EncodeIndex | undefined, title
     const [, status, id, action] = match;
     if (status) {
       if (!encodes) return json(200, { configured: false, count: 0 });
-      await encodes.ready(waitMs);
-      return json(200, { configured: true, count: encodes.list().length });
+      if (!(await encodes.ready(waitMs))) return json(200, { configured: true, scanning: true });
+      const state = encodes.state();
+      return json(200, { configured: true, count: encodes.list().length, ...(state.rootMissing ? { rootMissing: true } : {}), ...(state.scanError !== null ? { scanError: state.scanError } : {}) });
     }
     if (!encodes) return notFound();
-    await encodes.ready(waitMs);
+    if (!(await encodes.ready(waitMs))) return json(503, { error: 'indexing' }, { 'Retry-After': '5' });
     const entry = encodes.get(id!);
     if (!entry) return notFound();
     if (action === undefined) {

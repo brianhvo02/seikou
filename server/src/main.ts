@@ -265,7 +265,14 @@ async function serve(config: Config): Promise<void> {
   server.listen(config.port, () => {
     console.log(`bluray-server listening on ${config.port}; roots: ${config.roots.map((r) => `${r.name}=${r.dir}`).join(', ')}`);
     scheduleScans();
-    encodes?.scan().catch((err: unknown) => console.error('encodes scan failed', err));
+    // At start, then every 10 minutes, so a file copied in by hand appears without a restart.
+    if (encodes) {
+      const rescan = (): void => {
+        encodes.scan().catch((err: unknown) => console.error('encodes scan failed', err));
+      };
+      rescan();
+      setInterval(rescan, 10 * 60_000).unref();
+    }
   });
 
   for (const signal of ['SIGTERM', 'SIGINT'] as const) {

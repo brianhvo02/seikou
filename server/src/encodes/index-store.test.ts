@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { cpSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -12,7 +12,7 @@ let data: string;
 let reads: string[];
 let logs: string[];
 
-const make = (): EncodeIndex => new EncodeIndex({ dir, dataDir: data, log: (m) => logs.push(m), onRead: (p) => reads.push(p) });
+const make = (settleMs = 0): EncodeIndex => new EncodeIndex({ dir, dataDir: data, log: (m) => logs.push(m), onRead: (p) => reads.push(p), settleMs });
 
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), 'encodes-'));
@@ -85,6 +85,67 @@ describe('EncodeIndex', () => {
     utimesSync(join(dir, '990001/2.mkv'), when, when);
     await again.scan();
     expect(reads).toEqual(['990001/2.mkv']);
+  });
+
+  it('reports a missing root and keeps no index', async () => {
+    rmSync(dir, { recursive: true });
+    const index = make();
+    await index.scan();
+    expect(index.state()).toEqual({ scanning: false, rootMissing: true, scanError: null });
+    expect(index.list()).toEqual([]);
+    expect(logs.filter((l) => l.includes("can't be read")).length).toBe(1);
+    await index.scan();
+    expect(logs.filter((l) => l.includes("can't be read")).length).toBe(1);
+  });
+
+  it('keeps the last index when the root disappears between scans', async () => {
+    cpSync(join(FIXTURES, '1.mkv'), join(dir, '990001/1.mkv'));
+    await make().scan();
+    const restarted = make();
+    rmSync(dir, { recursive: true });
+    await restarted.scan();
+    expect(restarted.state().rootMissing).toBe(true);
+    expect(restarted.list().map((e) => e.id)).toEqual(['990001-1']);
+    mkdirSync(join(dir, '990001'), { recursive: true });
+    cpSync(join(FIXTURES, '2.mkv'), join(dir, '990001/2.mkv'));
+    await restarted.scan();
+    expect(restarted.state().rootMissing).toBe(false);
+    expect(restarted.list().map((e) => e.id)).toEqual(['990001-2']);
+  });
+
+  it('skips a subfolder it cannot read and keeps what it held', async () => {
+    cpSync(join(FIXTURES, '1.mkv'), join(dir, '990001/1.mkv'));
+    mkdirSync(join(dir, 'ok'));
+    cpSync(join(FIXTURES, '2.mkv'), join(dir, 'ok/2.mkv'));
+    const index = make();
+    await index.scan();
+    chmodSync(join(dir, '990001'), 0o000);
+    try {
+      await index.scan();
+      expect(index.list().map((e) => e.id)).toEqual(['990001-1', '990001-2']);
+      expect(logs.join('\n')).toContain('skipping 990001');
+    } finally {
+      chmodSync(join(dir, '990001'), 0o755);
+    }
+  });
+
+  it('leaves a file modified in the last 10 s for the next scan', async () => {
+    cpSync(join(FIXTURES, '1.mkv'), join(dir, '990001/1.mkv'));
+    const index = make(10_000);
+    await index.scan();
+    expect(index.list()).toEqual([]);
+    expect(reads).toEqual([]);
+    const later = new EncodeIndex({ dir, dataDir: data, log: () => {}, now: () => Date.now() + 60_000 });
+    await later.scan();
+    expect(later.list().map((e) => e.id)).toEqual(['990001-1']);
+  });
+
+  it('refuses to add a file outside the folder', async () => {
+    const index = make();
+    await index.scan();
+    cpSync(join(FIXTURES, '1.mkv'), join(tmp, 'outside.mkv'));
+    await expect(index.add(join(tmp, 'outside.mkv'))).rejects.toThrow('not inside');
+    await expect(index.add(join(dir, '..', 'outside.mkv'))).rejects.toThrow('not inside');
   });
 
   it('forgets a file that is gone', async () => {
