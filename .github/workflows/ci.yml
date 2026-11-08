@@ -79,7 +79,9 @@ jobs:
     name: Browser tests (${{ matrix.project }})
     needs: changes
     if: needs.changes.outputs.e2e == 'true'
-    runs-on: ubuntu-latest
+    # Pinned: on ubuntu-26.04 (ubuntu-latest from November 2026) Linux WebKit plays the NAS tests' discs too slowly for
+    # their waits (CI runs 42464130005 and 42469519101), while all of them pass on 24.04 (run 42469601138).
+    runs-on: ubuntu-24.04
     # The installs can be slow when the Ubuntu mirror is; the tests themselves have their own limit below.
     timeout-minutes: 35
     strategy:
