@@ -17,7 +17,7 @@ async function plan(discDir: string, spec: string): Promise<{ playlist: Playlist
   const probes = new Map<string, ClipProbe>();
   for (const item of playlist.items) probes.set(item.clipId, await probeClip(item));
   const pmts = await readPlaylistPmts(playlist);
-  const audio = playlist.items[0]!.audioPids.map((pid) => ({ pid }));
+  const audio = playlist.items[0]!.audioPids.map((pid) => ({ pid, sampleRate: 48000 }));
   return { playlist, plans: planEpisodes(playlist, probes, parseEpisodeSpec(spec, playlist.chapters.length), audio, pmts) };
 }
 

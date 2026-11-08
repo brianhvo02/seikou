@@ -16,7 +16,7 @@ async function speechPlan(spec: string): Promise<EpisodePlan> {
   const playlist = await loadPlaylist(fx('fixtures/disc-speech'), '00000');
   const probes = new Map<string, ClipProbe>();
   for (const item of playlist.items) if (!probes.has(item.clipId)) probes.set(item.clipId, await probeClip(item));
-  const audio = [{ pid: playlist.items[0].audioPids[0] }];
+  const audio = [{ pid: playlist.items[0].audioPids[0], sampleRate: 48000 }];
   return planEpisodes(playlist, probes, parseEpisodeSpec(spec, playlist.chapters.length), audio, await readPlaylistPmts(playlist))[0];
 }
 

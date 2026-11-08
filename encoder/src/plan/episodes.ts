@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { audioTrackIndex, PmtError, type PmtInfo } from '../disc/pmt';
+import { audioTrackIndex, pidHex, PmtError, type PmtInfo } from '../disc/pmt';
+import { audioRate } from '../disc/stream-codes';
 import type { Playlist, PlaylistItem } from '../disc/playlist';
 import type { AudioProbe, ClipProbe, VideoProbe } from '../disc/probe';
 import type { SelectedAudio } from './audio-streams';
@@ -99,7 +100,11 @@ export interface EpisodePlan {
   durationNs: bigint;
   /** Video attributes of the episode's first clip. */
   video: VideoProbe;
-  /** Each chosen audio stream's attributes in the episode's first clip, in the order the streams were given to `planEpisodes`. */
+  /**
+   * Each chosen audio stream's attributes in the episode's first clip, in the order the streams were given to
+   * `planEpisodes`, except `sampleRate`, which is the rate the stream was given with (the STN's, which the samples
+   * are counted at and the decode is checked against) and can differ from the CLPI's.
+   */
   audio: AudioProbe[];
 }
 
@@ -127,11 +132,25 @@ function bsTrackOf(pmts: Map<string, PmtInfo>, clipId: string, pid: number): num
   }
 }
 
+/**
+ * Throws when `item`'s STN entry for `stream` gives it another sample rate than the episode's: the clips could not be
+ * joined into one stream at that rate. An item whose STN does not list the PID is taken at the episode's rate.
+ */
+function checkItemRate(item: PlaylistItem, stream: Pick<SelectedAudio, 'pid' | 'sampleRate'>): void {
+  const at = item.audioPids.indexOf(stream.pid);
+  if (at < 0) return;
+  const code = item.audioRateCodes[at];
+  const rate = code === undefined ? undefined : audioRate(code);
+  if (rate !== stream.sampleRate) {
+    throw new Error(`Clip ${item.clipId}: audio PID ${pidHex(stream.pid)} has sample rate ${rate ?? 'unknown'} Hz in its STN entry, not the episode's ${stream.sampleRate} Hz`);
+  }
+}
+
 function planEpisode(
   index: number,
   playlist: Playlist,
   probes: Map<string, ClipProbe>,
-  audioPids: readonly number[],
+  streams: readonly Pick<SelectedAudio, 'pid' | 'sampleRate'>[],
   pmts: Map<string, PmtInfo>,
   startPlaylist45: number,
   endPlaylist45: number,
@@ -146,16 +165,14 @@ function planEpisode(
     const itemEnd45 = itemStart45 + (item.outTime45 - item.inTime45);
     if (startPlaylist45 < itemEnd45 && endPlaylist45 > itemStart45) {
       const probe = probeOf(probes, item.clipId);
-      const itemAudio = audioPids.map((pid) => audioOf(probe, pid));
+      // Samples are counted at the rate each stream was given with (the STN's, which the decode is checked against), not the CLPI's.
+      const itemAudio = streams.map((st) => ({ ...audioOf(probe, st.pid), sampleRate: st.sampleRate }));
+      for (const st of streams) checkItemRate(item, st);
       if (!video || !audio) {
         video = probe.video;
         audio = itemAudio;
-      } else if (
-        probe.video.fpsNum !== video.fpsNum ||
-        probe.video.fpsDen !== video.fpsDen ||
-        itemAudio.some((a, i) => a.sampleRate !== audio![i]!.sampleRate)
-      ) {
-        throw new Error(`Clip ${item.clipId} differs in frame rate or sample rate from the episode's first clip`);
+      } else if (probe.video.fpsNum !== video.fpsNum || probe.video.fpsDen !== video.fpsDen) {
+        throw new Error(`Clip ${item.clipId} differs in frame rate from the episode's first clip`);
       }
       const lo = Math.max(item.inTime45, startPlaylist45 - itemStart45 + item.inTime45);
       const hi = Math.min(item.outTime45, endPlaylist45 - itemStart45 + item.inTime45);
@@ -217,25 +234,27 @@ export function firstFramePlaylistUs(playlist: Pick<Playlist, 'items'>, plan: Ep
  * Plans one episode per spec. An episode runs from its first chapter to the start of the chapter
  * after its last (or the end of the playlist). Chapters between ranges that no spec covers are
  * skipped. `probes` holds a probe for every clip the playlist plays, keyed by clip id; `audio`
- * lists the audio streams to cut, by PID, in track order (an empty list cuts no audio); `pmts`
- * holds every clip's PMT (`readPlaylistPmts`), which gives each stream's BestSource track number
- * per clip. Throws when a probe or an audio PID is missing, when clips inside one episode differ
- * in frame rate or in a stream's sample rate (they could not be joined into one stream), and
+ * lists the audio streams to cut, by PID, in track order (an empty list cuts no audio), each with
+ * the sample rate its samples are counted at: `SelectedAudio.sampleRate`, the STN entry's rate, the
+ * same one the decode is checked against, which a clip's CLPI can contradict; `pmts` holds every
+ * clip's PMT (`readPlaylistPmts`), which gives each stream's BestSource track number per clip.
+ * Throws when a probe or an audio PID is missing, when clips inside one episode differ in frame
+ * rate or a play item's STN entry gives a stream another sample rate (they could not be joined
+ * into one stream), and
  * `PmtError` naming the clip and PID when a clip's PMT is missing or lacks a chosen stream.
  */
 export function planEpisodes(
   playlist: Playlist,
   probes: Map<string, ClipProbe>,
   specs: EpisodeSpec[],
-  audio: readonly Pick<SelectedAudio, 'pid'>[],
+  audio: readonly Pick<SelectedAudio, 'pid' | 'sampleRate'>[],
   pmts: Map<string, PmtInfo>,
 ): EpisodePlan[] {
-  const audioPids = audio.map((a) => a.pid);
   const chapterCount = playlist.chapters.length;
   return specs.map((spec, i) => {
     const last = spec.to ?? chapterCount;
     const start = playlist.chapters[spec.from - 1].start45;
     const end = last < chapterCount ? playlist.chapters[last].start45 : playlist.duration45;
-    return planEpisode(i + 1, playlist, probes, audioPids, pmts, start, end, spec.from, last);
+    return planEpisode(i + 1, playlist, probes, audio, pmts, start, end, spec.from, last);
   });
 }

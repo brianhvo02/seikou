@@ -100,7 +100,7 @@ describe.skipIf(!haveTools)('with vspipe', () => {
       ['00001', await probeClip(playlist.items[0])],
       ['00002', await probeClip(playlist.items[1])],
     ]);
-    const [plan] = planEpisodes(playlist, probes, parseEpisodeSpec('1-2,3-4', 4), [{ pid: 4352 }], await readPlaylistPmts(playlist));
+    const [plan] = planEpisodes(playlist, probes, parseEpisodeSpec('1-2,3-4', 4), [{ pid: 4352, sampleRate: 48000 }], await readPlaylistPmts(playlist));
     const cacheDir = path.resolve('.cache/bestsource');
     fs.mkdirSync(cacheDir, { recursive: true });
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vpy-test-'));

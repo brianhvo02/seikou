@@ -4,6 +4,7 @@ import { loadPlaylist, type Playlist } from '../../src/disc/playlist';
 import { PmtError, readPlaylistPmts, type PmtInfo } from '../../src/disc/pmt';
 import { probeClip, type ClipProbe } from '../../src/disc/probe';
 import { EpisodeSpecError, firstFramePlaylistUs, parseEpisodeSpec, planEpisodes, type Segment } from '../../src/plan/episodes';
+import { selectAudio } from '../../src/plan/audio-streams';
 import { fx } from '../paths';
 
 let p: Playlist;
@@ -11,7 +12,7 @@ let probe00001: ClipProbe;
 let probe00002: ClipProbe;
 let probes: Map<string, ClipProbe>;
 let pmts: Map<string, PmtInfo>;
-const lpcm = [{ pid: 4352 }];
+const lpcm = [{ pid: 4352, sampleRate: 48000 }];
 /** The first audio track's sample range, as the M1 tests knew it. */
 const samplesOf = (s: Segment): [number, number] => s.audioTracks[0]!.samples;
 
@@ -31,7 +32,7 @@ function plansFor(spec: string, chapterTimes45: number[]) {
     id: '00000',
     discDir: fx('fixtures/disc1'),
     items: [
-      { index: 0, clipId: '00001', inTime45: 450000, outTime45: 630000, videoPid: 4113, audioPids: [4352] },
+      { index: 0, clipId: '00001', inTime45: 450000, outTime45: 630000, videoPid: 4113, audioPids: [4352], audioRateCodes: [1] },
     ],
     chapters: chapterTimes45.map((t, i) => ({ index: i + 1, itemIndex: 0, time45: t, start45: t - 450000 })),
     duration45: 180000,
@@ -84,6 +85,23 @@ describe('planEpisodes', () => {
     }
   });
 
+  it("counts samples at the stream's STN rate, which the audio guard checks, not the CLPI's", () => {
+    // The CLPI says 48 kHz; the playlist's STN entries say 96 kHz, which is what BestSource's decode is held to.
+    expect(probe00001.audio[0]!.sampleRate).toBe(48000);
+    const stn96 = { ...p, items: p.items.map((item) => ({ ...item, audioRateCodes: item.audioRateCodes.map(() => 4) })) };
+    const audio = selectAudio(stn96, probes, null, 1);
+    expect(audio.map((a) => a.sampleRate)).toEqual([96000]);
+    const [ep] = planEpisodes(stn96, probes, parseEpisodeSpec('1-2', 4), audio, pmts);
+    expect(samplesOf(ep!.segments[0]!)).toEqual([0, 384000]);
+    expect(ep!.audio[0]!.sampleRate).toBe(96000);
+  });
+
+  it("refuses a clip whose STN entry gives the stream another rate than the episode's", () => {
+    const second = { ...p.items[1]!, audioRateCodes: p.items[1]!.audioRateCodes.map(() => 4) }; // 96 kHz
+    const mixed = { ...p, items: [p.items[0]!, second] };
+    expect(() => planEpisodes(mixed, probes, parseEpisodeSpec('1-3', 4), lpcm, pmts)).toThrow(/sample rate/);
+  });
+
   it('skips chapters between ranges that no spec covers', () => {
     const plans = planEpisodes(p, probes, parseEpisodeSpec('1-2,4-', 4), lpcm, pmts);
     expect(plans.map((e) => e.segments.map((s) => [s.item.index, s.videoFrames]))).toEqual([[[0, [0, 96]]], [[1, [48, 96]]]]);
@@ -111,7 +129,7 @@ describe('planEpisodes', () => {
   });
 
   it('throws naming the clip and PID when the audio PID is missing', () => {
-    expect(() => planEpisodes(p, probes, parseEpisodeSpec('1-', 4), [{ pid: 9999 }], pmts)).toThrow(/00001.*9999/);
+    expect(() => planEpisodes(p, probes, parseEpisodeSpec('1-', 4), [{ pid: 9999, sampleRate: 48000 }], pmts)).toThrow(/00001.*9999/);
   });
   describe('audio tracks', () => {
     const video = { pid: 0x1011, streamType: 0x1b };
@@ -128,7 +146,7 @@ describe('planEpisodes', () => {
         ['00002', { pmtPid: 0x100, hdmv: true, streams: [video, ac3(0x1101), { pid: 0x1200, streamType: 0x90 }, { pid: 0x1100, streamType: 0x80 }] }],
       ]);
       // Episode 1 of '1-3,4-' covers all of clip 1 and the first half of clip 2.
-      const [ep] = planEpisodes(p, twoProbes(), parseEpisodeSpec('1-3,4-', 4), [{ pid: 0x1101 }, { pid: 0x1100 }], pmtPair);
+      const [ep] = planEpisodes(p, twoProbes(), parseEpisodeSpec('1-3,4-', 4), [{ pid: 0x1101, sampleRate: 96000 }, { pid: 0x1100, sampleRate: 48000 }], pmtPair);
       expect(ep!.segments.map((s) => s.audioTracks)).toEqual([
         [
           { pid: 0x1101, bsTrack: 2, samples: [0, 384000] },
@@ -147,7 +165,7 @@ describe('planEpisodes', () => {
         ['00001', { pmtPid: 0x100, hdmv: true, streams: [video, { pid: 0x1100, streamType: 0x80 }, ac3(0x1101)] }],
         ['00002', { pmtPid: 0x100, hdmv: true, streams: [video, { pid: 0x1100, streamType: 0x80 }] }],
       ]);
-      const plan = () => planEpisodes(p, twoProbes(), parseEpisodeSpec('1-', 4), [{ pid: 0x1100 }, { pid: 0x1101 }], pmtPair);
+      const plan = () => planEpisodes(p, twoProbes(), parseEpisodeSpec('1-', 4), [{ pid: 0x1100, sampleRate: 48000 }, { pid: 0x1101, sampleRate: 96000 }], pmtPair);
       expect(plan).toThrow(PmtError);
       expect(plan).toThrow(/00002.*0x1101.*0x1011, 0x1100/);
     });
