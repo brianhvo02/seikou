@@ -835,6 +835,11 @@ kbd {
   border-top: 1px solid var(--rule);
 }
 
+/* Back and Previous episode move around the step; a wider gap sets them apart from the actions that settle the episode */
+.lineup-actions .lineup-previous {
+  margin-right: 12px;
+}
+
 /* Said once every episode with tracks is accepted, so the last Accept visibly finishes the step. */
 .lineup-done {
   margin: 14px 0 0;

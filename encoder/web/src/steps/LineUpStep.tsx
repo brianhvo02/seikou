@@ -15,6 +15,7 @@ import {
   allLinedUp,
   nextEpisode,
   othersToCheck,
+  previousEpisode,
   NUDGE_FINE_MS,
   NUDGE_FRAME_MS,
   nudgeForKey,
@@ -28,7 +29,7 @@ export interface LineUpStepProps {
   readonly api: HelperApi;
   /** The page's state; the step reads the choices, the pooled releases their files come from, and the timings. */
   readonly state: HelperState;
-  /** Applies an action to the page's state (timings, nudges, accept, skip). */
+  /** Applies an action to the page's state (timings, nudges, accept, skip, and Back to the Episodes step). */
   readonly dispatch: Dispatch<HelperAction>;
   /** The run: its disc key, playlist and whether lining up can run here. */
   readonly session: SessionInfo;
@@ -85,7 +86,10 @@ function clampNudge(ms: number): number {
  * with the most dialogue, and its timing applies to every track of the episode), says what it found, and plays the
  * episode in Seikou's engine with the retimed track and the release's fonts. The nudge (`[` `]` by 42 ms, `{` `}` by
  * 10 ms, or the buttons) moves the subtitles live and slides the strip's lower lane. "Accept, next episode", "Use
- * original timing" and "Skip" settle the episode. Without VapourSynth it previews at the release's own timing.
+ * original timing" and "Skip" settle the episode. Each episode uses the file and fonts of its own release
+ * (`episodeFile`), so episodes from different releases line up and preview against their own. "Previous episode"
+ * returns to the episode before in the list with its timing and nudge as they were, and "Back" goes to the Episodes
+ * step. Without VapourSynth it previews at the release's own timing.
  */
 export function LineUpStep({ api, state, dispatch, session, episodes, controller }: LineUpStepProps) {
   const order = episodes.episodes.filter((e) => state.choices[e.index] !== undefined).map((e) => e.index);
@@ -131,11 +135,15 @@ export function LineUpStep({ api, state, dispatch, session, episodes, controller
   const loadKey = `${lineKey}:${trackId}:${JSON.stringify(fetchTiming)}`;
   const previewing = loaded === loadKey;
 
-  // Line the episode's file up once per episode and file. A timing already there (restored, or the release's own
-  // timing chosen by hand) is kept; the answer still feeds the strip.
+  // Line the episode's file up once per episode, release and file. A timing already there (restored, or the release's
+  // own timing chosen by hand) is kept; the answer still feeds the strip. Choosing another file drops the episode's
+  // timing, so coming back to a file lined up before puts its answer back instead of asking again.
   useEffect(() => {
     if (!hasTracks || !session.toolsReady || shown === null || release === null || fileId === null) return;
-    if (settled.current.has(lineKey)) return;
+    if (settled.current.has(lineKey)) {
+      if (answer !== null && timingNow.current[shown] === undefined) dispatch({ type: 'setTiming', episode: shown, alignment: answer.alignment });
+      return;
+    }
     const abort = new AbortController();
     setLineups((l) => ({ ...l, [lineKey]: { status: 'working' } }));
     api.align(shown, release.key, fileId, abort.signal).then(
@@ -152,7 +160,7 @@ export function LineUpStep({ api, state, dispatch, session, episodes, controller
       },
     );
     return () => abort.abort();
-  }, [api, dispatch, hasTracks, session.toolsReady, shown, release, fileId, lineKey]);
+  }, [api, dispatch, hasTracks, session.toolsReady, shown, release, fileId, lineKey, answer]);
 
   // Load the preview track (retimed as found) with the release's fonts, place it at the episode's start, and on a new
   // episode go to its first dialogue line. Everything is sent to the engine in order, so the track lands on the disc
@@ -238,14 +246,23 @@ export function LineUpStep({ api, state, dispatch, session, episodes, controller
     setPicked(nextEpisode(order, shown, state.choices, timings));
   };
 
+  const back = (
+    <button type="button" className="quiet" onClick={() => dispatch({ type: 'goTo', step: 2 })}>
+      Back
+    </button>
+  );
+
   if (shown === null || episode === null) {
     return (
       <section aria-labelledby="step-heading">
         <h2 id="step-heading">Line up</h2>
         <p className="muted">Choose tracks for an episode on the Episodes step first.</p>
+        <div className="step-next step-actions">{back}</div>
       </section>
     );
   }
+
+  const previous = previousEpisode(order, episode.index);
 
   const toolsMissing = !session.toolsReady || lineup?.status === 'tools-missing';
 
@@ -340,8 +357,16 @@ export function LineUpStep({ api, state, dispatch, session, episodes, controller
               ))}
             </fieldset>
           )}
+        </>
+      )}
 
-          <div className="lineup-actions">
+      <div className="lineup-actions">
+        {back}
+        <button type="button" className="quiet lineup-previous" disabled={previous === null} onClick={() => previous !== null && setPicked(previous)}>
+          Previous episode
+        </button>
+        {hasTracks && (
+          <>
             <button
               type="button"
               className="primary"
@@ -366,13 +391,13 @@ export function LineUpStep({ api, state, dispatch, session, episodes, controller
             >
               Skip
             </button>
-          </div>
-          {allLinedUp(order, state.choices, state.timing) && (
-            <p className="lineup-done" role="status" aria-label="Every episode is lined up">
-              Every episode is lined up. Check Details, then Save for encoding.
-            </p>
-          )}
-        </>
+          </>
+        )}
+      </div>
+      {hasTracks && allLinedUp(order, state.choices, state.timing) && (
+        <p className="lineup-done" role="status" aria-label="Every episode is lined up">
+          Every episode is lined up. Check Details, then Save for encoding.
+        </p>
       )}
     </section>
   );

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PlayerSnapshot } from '@seikou/engine';
 import { ApiError, type HelperApi } from '../api';
 import type { AlignAnswer, EpisodesAnswer, FansubAlignment, ReleaseAnswer, SessionInfo, TitleHit } from '../api-types';
-import { initialState, reduce } from '../helper-model';
+import { initialState, reduce, type HelperAction } from '../helper-model';
 import type { PlayerLike } from '../player/use-controller';
 import { LineUpStep } from './LineUpStep';
 
@@ -112,12 +112,44 @@ function fakeController() {
   return controller;
 }
 
-function Harness({ api, controller, tools = true }: { api: HelperApi; controller: PlayerLike; tools?: boolean }) {
+/** A second release, the user's own files, with its own file for episode 2 and its own font. */
+const other: ReleaseAnswer = {
+  key: 'own-7',
+  source: 'local',
+  label: 'Own files',
+  group: 'Own',
+  files: [{ id: 'g2', name: 'Own - 02.ass', tracks: [{ id: '1', name: 'Own dialogue', language: 'eng', path: 'own/g2/1.ass', kind: 'full', dialogueLines: 250 }] }],
+  fonts: [{ name: 'Own Serif.otf', path: 'fonts/own.otf' }],
+  match: { rows: [{ episode: 2, fileId: 'g2', candidates: ['g2'] }], unmatched: [] },
+};
+
+function Harness({
+  api,
+  controller,
+  tools = true,
+  after = [],
+  onAction,
+  control,
+}: {
+  api: HelperApi;
+  controller: PlayerLike;
+  tools?: boolean;
+  after?: readonly HelperAction[];
+  onAction?: (action: HelperAction) => void;
+  /** Filled with the harness's dispatch, so a test can change the state while the step is on screen. */
+  control?: { dispatch?: (action: HelperAction) => void };
+}) {
   const [state, dispatch] = useReducer(reduce, initialState(), (s) => {
     const withTitle = reduce(s, { type: 'setTitle', title: hit });
-    return reduce(reduce(withTitle, { type: 'addRelease', release, from: 'tosho' }), { type: 'goTo', step: 3 });
+    const pooled = reduce(withTitle, { type: 'addRelease', release, from: 'tosho' });
+    return reduce(after.reduce(reduce, pooled), { type: 'goTo', step: 3 });
   });
-  return <LineUpStep api={api} state={state} dispatch={dispatch} session={session(tools)} episodes={episodes} controller={controller} />;
+  const send = (action: HelperAction) => {
+    onAction?.(action);
+    dispatch(action);
+  };
+  if (control) control.dispatch = dispatch;
+  return <LineUpStep api={api} state={state} dispatch={send} session={session(tools)} episodes={episodes} controller={controller} />;
 }
 
 beforeEach(() => {
@@ -244,5 +276,81 @@ describe('LineUpStep', () => {
     await waitFor(() => expect(controller.setSubtitleStart).toHaveBeenCalledWith(0, 60_000_000));
     fireEvent.click(await screen.findByRole('button', { name: 'Accept' }));
     expect((await screen.findByRole('status', { name: /Every episode is lined up/ })).textContent).toMatch(/Save for encoding/);
+  });
+
+  it('episode 2 from another release aligns and previews that release\'s file', async () => {
+    const api = fakeApi(async () => answer({ kind: 'offset', offsetMs: 1200, confidence: 0.92 }));
+    const controller = fakeController();
+    const after: HelperAction[] = [
+      { type: 'addRelease', release: other, from: 'local' },
+      { type: 'chooseFile', episode: 2, releaseKey: 'own-7', fileId: 'g2' },
+    ];
+    render(<Harness api={api} controller={controller} after={after} />);
+    await waitFor(() => expect(controller.setSubtitleStart).toHaveBeenCalledWith(0, 0));
+    fireEvent.click(screen.getByRole('button', { name: 'Accept, next episode' }));
+    await waitFor(() => expect(controller.setSubtitleStart).toHaveBeenCalledWith(0, 60_000_000));
+    expect(api.align).toHaveBeenLastCalledWith(2, 'own-7', 'g2', expect.anything());
+    expect(api.subtitleUrl).toHaveBeenLastCalledWith(2, 'own-7', 'g2', '1', { kind: 'offset', offsetMs: 1200, confidence: 0.92 });
+    expect(api.fontUrl).toHaveBeenCalledWith('own-7', 'Own Serif.otf');
+    const files = controller.loadSubtitleFiles.mock.calls.at(-1)![0];
+    expect(files.map((f) => f.name)).toEqual(['Episode 2 - Own dialogue.ass', 'Own Serif.otf']);
+  });
+
+  it('Previous episode returns with its nudge kept', async () => {
+    const api = fakeApi(async () => answer({ kind: 'offset', offsetMs: 1200, confidence: 0.92 }));
+    const controller = fakeController();
+    render(<Harness api={api} controller={controller} />);
+    await waitFor(() => expect(controller.setSubtitleStart).toHaveBeenCalledWith(0, 0));
+    act(() => {
+      fireEvent.keyDown(window, { key: ']' });
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Accept, next episode' }));
+    await waitFor(() => expect(controller.setSubtitleStart).toHaveBeenLastCalledWith(0, 60_000_000));
+    expect(screen.getByText('0.000 s')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Previous episode' }));
+    expect(screen.getByRole('heading', { name: 'Episode 1' })).toBeTruthy();
+    expect(screen.getByText('+0.042 s')).toBeTruthy();
+    await waitFor(() => expect(controller.setSubtitleStart).toHaveBeenLastCalledWith(0, 0));
+    // the preview goes back to episode 1's first line, and the engine's file is put at the kept nudge again
+    expect(controller.seek).toHaveBeenLastCalledWith(6_200_000);
+    await waitFor(() => expect(controller.getSnapshot().subtitles?.text?.files[0]?.offsetMs).toBe(42));
+    // episode 1 was lined up already: it is not asked again
+    expect(api.align).toHaveBeenCalledTimes(2);
+  });
+
+  it('Previous episode is disabled on the first', async () => {
+    const api = fakeApi(async () => answer({ kind: 'offset', offsetMs: 1200, confidence: 0.92 }));
+    const controller = fakeController();
+    render(<Harness api={api} controller={controller} />);
+    await waitFor(() => expect(controller.setSubtitleStart).toHaveBeenCalledWith(0, 0));
+    expect((screen.getByRole('button', { name: 'Previous episode' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Accept, next episode' }));
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Previous episode' }) as HTMLButtonElement).disabled).toBe(false));
+  });
+
+  it('Back goes to step 2', async () => {
+    const api = fakeApi(async () => answer({ kind: 'offset', offsetMs: 1200, confidence: 0.92 }));
+    const controller = fakeController();
+    const onAction = vi.fn();
+    render(<Harness api={api} controller={controller} onAction={onAction} />);
+    const back = await screen.findByRole('button', { name: 'Back' });
+    const accept = screen.getByRole('button', { name: 'Accept, next episode' });
+    expect(back.compareDocumentPosition(accept) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(back);
+    expect(onAction).toHaveBeenCalledWith({ type: 'goTo', step: 2 });
+  });
+
+  it('choosing an episode\'s file again puts back the answer found for it without asking again', async () => {
+    const api = fakeApi(async () => answer({ kind: 'offset', offsetMs: 1200, confidence: 0.92 }));
+    const controller = fakeController();
+    const onAction = vi.fn();
+    const control: { dispatch?: (action: HelperAction) => void } = {};
+    render(<Harness api={api} controller={controller} onAction={onAction} control={control} />);
+    await waitFor(() => expect(onAction).toHaveBeenCalledWith(expect.objectContaining({ type: 'setTiming', episode: 1 })));
+    onAction.mockClear();
+    // the same file chosen again drops the episode's timing
+    act(() => control.dispatch!({ type: 'chooseFile', episode: 1, releaseKey: 'tosho-11', fileId: 'f1' }));
+    await waitFor(() => expect(onAction).toHaveBeenCalledWith({ type: 'setTiming', episode: 1, alignment: { kind: 'offset', offsetMs: 1200, confidence: 0.92 } }));
+    expect(api.align).toHaveBeenCalledTimes(1);
   });
 });

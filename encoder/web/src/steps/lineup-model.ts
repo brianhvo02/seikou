@@ -138,3 +138,12 @@ export function nextEpisode(
   }
   return from;
 }
+
+/**
+ * The episode before `from` in the step's `order`, whatever its state (accepted, to check or without subtitles);
+ * null when `from` is the first or not in `order`.
+ */
+export function previousEpisode(order: readonly number[], from: number): number | null {
+  const at = order.indexOf(from);
+  return at > 0 ? order[at - 1]! : null;
+}

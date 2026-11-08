@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { clock, describeAlignment, firstDialogueMs, formatNudge, nextEpisode, nudgeForKey, previewTiming } from './lineup-model';
+import { clock, describeAlignment, firstDialogueMs, formatNudge, nextEpisode, nudgeForKey, previewTiming, previousEpisode } from './lineup-model';
 
 describe('lineup-model', () => {
   it('says what lining up found', () => {
@@ -35,5 +35,12 @@ describe('lineup-model', () => {
     expect(nextEpisode([1, 2, 3], 1, choices, {})).toBe(3);
     expect(nextEpisode([1, 2, 3], 3, choices, {})).toBe(1);
     expect(nextEpisode([1, 2, 3], 3, choices, { 1: { alignment: { kind: 'original' }, nudgeMs: 0, accepted: true } })).toBe(3);
+  });
+
+  it('previousEpisode is the one before in the order, null on the first', () => {
+    expect(previousEpisode([1, 3, 4], 4)).toBe(3);
+    expect(previousEpisode([1, 3, 4], 3)).toBe(1);
+    expect(previousEpisode([1, 3, 4], 1)).toBeNull();
+    expect(previousEpisode([1, 3, 4], 2)).toBeNull();
   });
 });
