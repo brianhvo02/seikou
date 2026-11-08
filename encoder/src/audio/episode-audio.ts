@@ -38,8 +38,8 @@ function concat(parts: Int16Array[]): Int16Array {
  * differ from it by part of a frame. A longer decode is left alone.
  */
 function checkLength(plan: EpisodePlan, actual16k: number): void {
-  const sourceSamples = plan.segments.reduce((n, s) => n + (s.audioSamples[1] - s.audioSamples[0]), 0);
-  const expected16k = Math.ceil((sourceSamples * 16_000) / plan.audio.sampleRate);
+  const sourceSamples = plan.segments.reduce((n, s) => n + (s.audioTracks[0]!.samples[1] - s.audioTracks[0]!.samples[0]), 0);
+  const expected16k = Math.ceil((sourceSamples * 16_000) / plan.audio[0]!.sampleRate);
   const frame16k = Math.ceil((16_000 * plan.video.fpsDen) / plan.video.fpsNum);
   if (expected16k - actual16k > frame16k) {
     throw new Error(

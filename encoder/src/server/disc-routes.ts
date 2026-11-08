@@ -10,7 +10,9 @@ import type { DiscManifest } from '@seikou/nas/nas-api';
 import { buildManifest, resolveDiscFile } from '../../../server/src/manifest';
 import { discKeyOfFolder } from '../disc/disc-key';
 import { bdmvRoot, listPlaylists, loadPlaylist } from '../disc/playlist';
+import { readPlaylistPmts } from '../disc/pmt';
 import { probeClip, type ClipProbe } from '../disc/probe';
+import { selectAudio } from '../plan/audio-streams';
 import { EpisodeSpecError, firstFramePlaylistUs, parseEpisodeSpec, planEpisodes, type EpisodePlan, type EpisodeSpec } from '../plan/episodes';
 import { httpError, json, sendFile, type HelperContext, type Route, type RouteTable } from './http';
 
@@ -130,12 +132,12 @@ async function planTimes(ctx: HelperContext, root: string): Promise<PlannedEpiso
     if (e instanceof EpisodeSpecError) throw new DiscRequestError(422, 'bad-episode-spec', e.message);
     throw e;
   }
-  const first = playlist.items[0];
-  const audioPid = first?.audioPids[0];
-  if (first === undefined || audioPid === undefined) throw new DiscRequestError(422, 'no-audio', `Playlist ${ctx.playlistId} has no audio stream`);
+  if (playlist.items[0]?.audioPids[0] === undefined) throw new DiscRequestError(422, 'no-audio', `Playlist ${ctx.playlistId} has no audio stream`);
   const probes = new Map<string, ClipProbe>();
   for (const item of playlist.items) if (!probes.has(item.clipId)) probes.set(item.clipId, await probeClip(item));
-  const plans = planEpisodes(playlist, probes, specs, audioPid);
+  // Alignment listens to the playlist's first STN audio stream, which BestSource finds through each clip's PMT.
+  const firstAudio = selectAudio(playlist, probes, null, 1).slice(0, 1);
+  const plans = planEpisodes(playlist, probes, specs, firstAudio, await readPlaylistPmts(playlist));
 
   const episodes = plans.map((plan): EpisodeTimes => {
     const startUs = firstFramePlaylistUs(playlist, plan);

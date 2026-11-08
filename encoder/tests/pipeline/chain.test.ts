@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { loadPlaylist } from '../../src/disc/playlist';
+import { readPlaylistPmts } from '../../src/disc/pmt';
 import { probeClip } from '../../src/disc/probe';
 import { parseEpisodeSpec, planEpisodes } from '../../src/plan/episodes';
 import { audioChain, videoChain } from '../../src/pipeline/chain';
@@ -79,7 +80,7 @@ describe.skipIf(!haveTools)('real tools', () => {
       ['00001', await probeClip(playlist.items[0])],
       ['00002', await probeClip(playlist.items[1])],
     ]);
-    const [plan] = planEpisodes(playlist, probes, parseEpisodeSpec('1-2,3-4', 4), 4352);
+    const [plan] = planEpisodes(playlist, probes, parseEpisodeSpec('1-2,3-4', 4), [{ pid: 4352 }], await readPlaylistPmts(playlist));
     const cacheDir = path.resolve('.cache/bestsource');
     fs.mkdirSync(cacheDir, { recursive: true });
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chain-test-'));

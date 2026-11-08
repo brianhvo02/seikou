@@ -58,20 +58,24 @@ export function buildVideoScript(plan: EpisodePlan, opts: VpyOptions): string {
 }
 
 /**
- * The VapourSynth script that outputs an episode's audio: for each segment, BestSource's
- * `AudioSource` on the clip, a sample slice, all joined. The output stays in the source's sample
- * format and rate. Throws when a path cannot be embedded in a Python raw string.
+ * The VapourSynth script that outputs an episode's first planned audio stream: for each segment,
+ * BestSource's `AudioSource` on the clip with that stream's track number in the clip
+ * (`audioTracks[0].bsTrack`), a sample slice, all joined. The output stays in the source's sample
+ * format and rate. Throws when a segment has no planned audio stream or a path cannot be embedded
+ * in a Python raw string.
  */
 export function buildAudioScript(plan: EpisodePlan, opts: VpyOptions): string {
   rawPath(opts.cacheDir);
   const lines = [...HEADER];
   for (const seg of plan.segments) {
-    const [start, end] = seg.audioSamples;
+    const track = seg.audioTracks[0];
+    if (!track) throw new Error(`Episode ${plan.index}: clip ${seg.item.clipId} has no planned audio stream`);
+    const [start, end] = track.samples;
     // adjustdelay=-1 makes BestSource pad or trim the audio so sample 0 coincides with the file's first
     // video frame; the planner counts samples from the video's first PTS to match, so the MKV needs no
-    // audio offset. track=-1 picks the first audio stream; choosing a stream by PID would need a
-    // PID-to-track mapping that BestSource does not provide.
-    lines.push(`c = core.bs.AudioSource(${rawPath(seg.item.m2tsPath)}, track=-1, adjustdelay=-1, cachepath=${cachePrefix(opts.cacheDir, seg.item.m2tsPath)}, cachemode=4)`);
+    // audio offset. track=-n picks the n-th audio stream libavformat finds, which follows the clip's PMT;
+    // the planner maps the stream's PID to that n through the PMT, clip by clip.
+    lines.push(`c = core.bs.AudioSource(${rawPath(seg.item.m2tsPath)}, track=-${track.bsTrack}, adjustdelay=-1, cachepath=${cachePrefix(opts.cacheDir, seg.item.m2tsPath)}, cachemode=4)`);
     // Audio that started before the video was trimmed at the front, so it can end a little short of the
     // video; pad with silence rather than let the slice clamp and drift.
     lines.push(`if c.num_samples < ${end}: c = c + core.std.BlankAudio(clip=c, length=${end} - c.num_samples)`);

@@ -8,12 +8,14 @@ This area turns a decrypted BDMV folder into the facts the planner needs: which 
 - **Clip (m2ts and CLPI).** `BDMV/STREAM/NNNNN.m2ts` is an MPEG-2 transport stream in 192-byte source packets. `BDMV/CLIPINF/NNNNN.clpi` describes it: for each stream, its PID, coding type, and a 4-bit format code and a 4-bit rate code.
 - **Times.** Playlist times are 45 kHz ticks, half the 90 kHz clock PES timestamps use. Names carry the unit: `*45`, `*90`.
 - **Stream codes.** The format and rate codes are small enumerations (frame size and scan type, frame rate, channel layout, sample rate). `stream-codes.ts` maps them to numbers using libbluray's tables, because the Blu-ray specification is not public.
+- **PAT and PMT.** A transport stream lists its programs in the PAT (PID 0) and each program's streams, with their stream types, in a PMT (ISO/IEC 13818-1 §2.4.4.3 and §2.4.4.8). A Blu-ray clip holds one program and carries both tables from its first packets. libavformat, and so BestSource, numbers a clip's audio streams in PMT order, adding an AC-3 stream right after each TrueHD stream (the AC-3 version TrueHD carries) in a program registered as "HDMV"; `pmt.ts` reads the tables from the first 1,000 packets to work out that number for a PID.
 - **First PTS.** The CLPI does not say when a stream's first sample is presented. The probe reads the start of the m2ts to find the first PES timestamp of each stream, which is what lets the planner line audio up with video.
 
 ## API
 
-- `loadPlaylist(discDir, id)` returns a `Playlist`: items (`PlaylistItem`), chapters (`Chapter`) and the total length. `listPlaylists(discDir)` lists every playlist with its length and clips. `bdmvRoot(dir)` accepts a disc folder or its BDMV folder. `chaptersFromMarks` is the pure chapter rule.
+- `loadPlaylist(discDir, id)` returns a `Playlist`: items (`PlaylistItem`, with the main-path audio PIDs and their STN languages), chapters (`Chapter`) and the total length. `listPlaylists(discDir)` lists every playlist with its length and clips. `bdmvRoot(dir)` accepts a disc folder or its BDMV folder. `chaptersFromMarks` is the pure chapter rule.
 - `probeClip(item)` returns a `ClipProbe`: video frame size, rate, scan type and first PTS, and each audio stream's rate, channels and first PTS. Failures are `ProbeError`.
+- `readPmt(m2tsPath, maxPackets = 1000)` returns a `PmtInfo` (PMT PID, streams in PMT order with PID and stream type, whether the program is "HDMV"); `readPlaylistPmts(playlist)` reads every clip's, keyed by clip id. `audioTrackIndex(pmt, pid)` is the PID's 1-based BestSource audio track number. Failures are `PmtError`, naming the clip, or the PID and the PMT's PIDs.
 - `discKeyOfFolder(discDir)` returns a disc's key (`f.<content fingerprint>`, or `d.<id>` with no streams) and its label (the folder's name); the helper's routes and `encode` use it to find a saved record.
 - `videoRate`, `videoFormat`, `audioRate` and `audioChannels` map CLPI codes and throw on a code the table lacks.
 
@@ -21,5 +23,6 @@ This area turns a decrypted BDMV folder into the facts the planner needs: which 
 
 - `playlist.ts`: MPLS reading, play items, chapter marks.
 - `probe.ts`: the m2ts scan for first timestamps and the CLPI stream lookup.
+- `pmt.ts`: the PAT/PMT reader and the PID-to-BestSource-track rule.
 - `stream-codes.ts`: the code tables.
 - Tests: `encoder/tests/disc/`, run against the synthetic discs in `encoder/fixtures/`.

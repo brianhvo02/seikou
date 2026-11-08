@@ -28,6 +28,8 @@ export interface PlaylistItem {
   videoPid: number;
   /** PIDs of the main-path audio streams, in STN order (the order players number them). */
   audioPids: number[];
+  /** ISO 639-2 language code of each of `audioPids`, in the same order, as the STN entry gives it; empty when it gives none. */
+  audioLanguages: string[];
   /**
    * PlayItem `connection_condition`: how this item joins the one before it. 1 is a plain
    * (non-seamless) join; 5 and 6 are seamless joins, which libbluray treats alike (the item starts at the
@@ -153,6 +155,7 @@ export async function loadPlaylist(discDir: string, playlistId: string): Promise
     if (video === undefined) {
       throw new Error(`Playlist ${playlistId}: play item ${index} (clip ${p.clipId}) has no main-path video stream`);
     }
+    const mainAudio = p.stn.audio.filter((e) => !e.subPath);
     const clpi = parseClpi(new Uint8Array(await readFile(join(root, 'CLIPINF', `${p.clipId}.clpi`))));
     items.push({
       index,
@@ -162,7 +165,8 @@ export async function loadPlaylist(discDir: string, playlistId: string): Promise
       inTime45: p.inTime,
       outTime45: p.outTime,
       videoPid: video.pid,
-      audioPids: p.stn.audio.filter((e) => !e.subPath).map((e) => e.pid),
+      audioPids: mainAudio.map((e) => e.pid),
+      audioLanguages: mainAudio.map((e) => e.lang.replace(/\0/g, '').trim()),
       connectionCondition: p.connectionCondition,
     });
   }

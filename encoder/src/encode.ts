@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { loadPlaylist } from './disc/playlist';
+import { readPlaylistPmts } from './disc/pmt';
 import { probeClip, type ClipProbe } from './disc/probe';
 import { writeMkv } from './mux/mkv-writer';
 import { readIvf } from './mux/ivf';
@@ -10,6 +11,7 @@ import { readOggOpus } from './mux/ogg';
 import { audioChain, ChainError, videoChain, type Chain, type ToolPaths } from './pipeline/chain';
 import { buildAudioScript, buildVideoScript } from './pipeline/vpy';
 import { loadEncodeRecord } from './subs/encode-record';
+import { selectAudio } from './plan/audio-streams';
 import { parseEpisodeSpec, planEpisodes } from './plan/episodes';
 
 /** Everything `encodeEpisodes` needs. */
@@ -158,9 +160,10 @@ export async function encodeEpisodes(
   for (const item of playlist.items) {
     if (!probes.has(item.clipId)) probes.set(item.clipId, await probeClip(item));
   }
-  const audioPid = playlist.items[0]?.audioPids[0];
-  if (audioPid === undefined) throw new Error(`Playlist ${o.playlistId} has no audio stream`);
-  const plans = planEpisodes(playlist, probes, specs, audioPid);
+  // The playlist's first STN audio stream, which BestSource finds through each clip's PMT.
+  const [audio] = selectAudio(playlist, probes, null, 1);
+  if (audio === undefined) throw new Error(`Playlist ${o.playlistId} has no audio stream`);
+  const plans = planEpisodes(playlist, probes, specs, [audio], await readPlaylistPmts(playlist));
 
   await mkdir(o.outDir, { recursive: true });
   const cacheDir = resolve(o.cacheDir);
@@ -181,7 +184,7 @@ export async function encodeEpisodes(
       await writeFile(audioScript, buildAudioScript(plan, { cacheDir }));
       const video = videoChain(o.tools, videoScript, svtArgs(o));
       chains.push(video);
-      const audio = audioChain(o.tools, audioScript, opusArgs(plan.audio.channels, o.opusBitrate));
+      const audio = audioChain(o.tools, audioScript, opusArgs(plan.audio[0]!.channels, o.opusBitrate));
       chains.push(audio);
 
       // Both readers must attach before either await: Node discards the unread stdout of a child that

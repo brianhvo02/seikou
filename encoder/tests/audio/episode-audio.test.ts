@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { SPEECH_BURSTS } from '../../../tests/helpers/speech-bursts';
 import { decodeEpisodeAudio16k, episodeReader } from '../../src/audio/episode-audio';
 import { loadPlaylist } from '../../src/disc/playlist';
+import { readPlaylistPmts } from '../../src/disc/pmt';
 import { probeClip, type ClipProbe } from '../../src/disc/probe';
 import { parseEpisodeSpec, planEpisodes, type EpisodePlan } from '../../src/plan/episodes';
 import { haveTools, toolPaths } from '../helpers/tools';
@@ -15,7 +16,8 @@ async function speechPlan(spec: string): Promise<EpisodePlan> {
   const playlist = await loadPlaylist(fx('fixtures/disc-speech'), '00000');
   const probes = new Map<string, ClipProbe>();
   for (const item of playlist.items) if (!probes.has(item.clipId)) probes.set(item.clipId, await probeClip(item));
-  return planEpisodes(playlist, probes, parseEpisodeSpec(spec, playlist.chapters.length), playlist.items[0].audioPids[0])[0];
+  const audio = [{ pid: playlist.items[0].audioPids[0] }];
+  return planEpisodes(playlist, probes, parseEpisodeSpec(spec, playlist.chapters.length), audio, await readPlaylistPmts(playlist))[0];
 }
 
 function meanAbs(pcm: Int16Array, from: number, to: number): number {

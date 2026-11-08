@@ -7,6 +7,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { loadPlaylist } from '../../src/disc/playlist';
 import type { PlaylistItem } from '../../src/disc/playlist';
+import { readPlaylistPmts } from '../../src/disc/pmt';
 import { probeClip } from '../../src/disc/probe';
 import { parseEpisodeSpec, planEpisodes } from '../../src/plan/episodes';
 import type { EpisodePlan, Segment } from '../../src/plan/episodes';
@@ -20,7 +21,7 @@ function planWithSegments(specs: SegSpec[]): EpisodePlan {
   const segments: Segment[] = specs.map(([m2tsPath, a, b]) => ({
     item: { m2tsPath, clipId: clipIdOf(m2tsPath) } as PlaylistItem,
     videoFrames: typeof a === 'number' ? [a, b as number] : a,
-    audioSamples: typeof a === 'number' ? [0, 0] : (b as [number, number]),
+    audioTracks: [{ pid: 0x1100, bsTrack: 1, samples: typeof a === 'number' ? [0, 0] : (b as [number, number]) }],
   }));
   return { index: 1, segments } as unknown as EpisodePlan;
 }
@@ -52,6 +53,15 @@ describe('vpy script generation', () => {
       ].join('\n'));
   });
 
+  it("takes the first planned stream at each clip's own BestSource track", () => {
+    const plan = planWithSegments([['/d/00001.m2ts', [0, 96], [0, 96000]], ['/d/00002.m2ts', [0, 48], [0, 48000]]]);
+    plan.segments[1]!.audioTracks = [{ pid: 0x1101, bsTrack: 3, samples: [0, 48000] }, { pid: 0x1100, bsTrack: 1, samples: [0, 48000] }];
+    const s = buildAudioScript(plan, { cacheDir: '/c' });
+    expect([...s.matchAll(/track=-(\d+)/g)].map((m) => m[1])).toEqual(['1', '3']);
+    plan.segments[1]!.audioTracks = [];
+    expect(() => buildAudioScript(plan, { cacheDir: '/c' })).toThrow(/00002 has no planned audio stream/);
+  });
+
   it('emits the same audio for alignment as for the encode, without a format conversion', () => {
     const plan = planWithSegments([['/d/00001.m2ts', [0, 96], [0, 96000]], ['/d/00002.m2ts', [0, 48], [10, 48010]]]);
     const s = buildSpeechAudioScript(plan, { cacheDir: '/c' });
@@ -76,7 +86,7 @@ describe.skipIf(!haveTools)('with vspipe', () => {
       ['00001', await probeClip(playlist.items[0])],
       ['00002', await probeClip(playlist.items[1])],
     ]);
-    const [plan] = planEpisodes(playlist, probes, parseEpisodeSpec('1-2,3-4', 4), 4352);
+    const [plan] = planEpisodes(playlist, probes, parseEpisodeSpec('1-2,3-4', 4), [{ pid: 4352 }], await readPlaylistPmts(playlist));
     const cacheDir = path.resolve('.cache/bestsource');
     fs.mkdirSync(cacheDir, { recursive: true });
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'vpy-test-'));
@@ -89,9 +99,16 @@ describe.skipIf(!haveTools)('with vspipe', () => {
     }
   }
 
-  const extend = (field: 'videoFrames' | 'audioSamples', extra: number) => (plan: EpisodePlan): EpisodePlan => ({
+  const extendFrames = (extra: number) => (plan: EpisodePlan): EpisodePlan => ({
     ...plan,
-    segments: plan.segments.map((seg) => ({ ...seg, [field]: [seg[field][0], seg[field][1] + extra] })),
+    segments: plan.segments.map((seg) => ({ ...seg, videoFrames: [seg.videoFrames[0], seg.videoFrames[1] + extra] })),
+  });
+  const extendSamples = (extra: number) => (plan: EpisodePlan): EpisodePlan => ({
+    ...plan,
+    segments: plan.segments.map((seg) => ({
+      ...seg,
+      audioTracks: seg.audioTracks.map((t) => ({ ...t, samples: [t.samples[0], t.samples[1] + extra] })),
+    })),
   });
 
   it('reports 96 frames of YUV420P10 for disc1 episode 1', async () => {
@@ -107,7 +124,7 @@ describe.skipIf(!haveTools)('with vspipe', () => {
   it('fails naming the clip when the video clip is shorter than planned', async () => {
     let stderr = '';
     try {
-      await vspipeInfo(buildVideoScript, extend('videoFrames', 10));
+      await vspipeInfo(buildVideoScript, extendFrames(10));
     } catch (e) {
       stderr = String((e as { stderr?: unknown }).stderr);
     }
@@ -115,6 +132,6 @@ describe.skipIf(!haveTools)('with vspipe', () => {
   }, 120000);
 
   it('pads the audio with silence when it is shorter than planned', async () => {
-    expect(await vspipeInfo(buildAudioScript, extend('audioSamples', 1000))).toMatch(/Samples: 193000\b/);
+    expect(await vspipeInfo(buildAudioScript, extendSamples(1000))).toMatch(/Samples: 193000\b/);
   }, 120000);
 });

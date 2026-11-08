@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
+import { audioTrackIndex, PmtError, type PmtInfo } from '../disc/pmt';
 import type { Playlist, PlaylistItem } from '../disc/playlist';
 import type { AudioProbe, ClipProbe, VideoProbe } from '../disc/probe';
+import type { SelectedAudio } from './audio-streams';
 import { frameAt, framesToNs, sampleAt, videoMs } from './timing';
 
 // The planner turns chapter ranges into per-clip cuts. An episode is a run of chapters; because a
 // playlist can span several clips, an episode is a list of segments, one per clip it touches, each
-// a frame range of the video and a sample range of the audio. Frame and sample ranges are
-// half-open, and both are counted from the clip's first video frame (see `sampleAt`), so the
-// video and audio of one segment cover the same stretch of time.
+// a frame range of the video and a sample range of each chosen audio stream. Frame and sample
+// ranges are half-open, and both are counted from the clip's first video frame (see `sampleAt`),
+// so the video and audio of one segment cover the same stretch of time.
 
 /** 1-based inclusive chapter indices; `to: null` runs to the last chapter. */
 export interface EpisodeSpec {
@@ -52,13 +54,26 @@ export function parseEpisodeSpec(text: string, chapterCount: number): EpisodeSpe
   return specs;
 }
 
+/** One chosen audio stream within one segment. */
+export interface SegmentAudio {
+  /** The stream's PID. */
+  pid: number;
+  /**
+   * The stream's 1-based position among the clip's audio streams in its PMT: BestSource's `AudioSource(track=-n)`
+   * takes it as `n`. It can differ from clip to clip for the same PID.
+   */
+  bsTrack: number;
+  /** Half-open sample range in the clip at this stream's rate, counted from the clip's first video frame (BestSource's alignment). */
+  samples: [number, number];
+}
+
 /** The part of one episode that lies in one clip. */
 export interface Segment {
   item: PlaylistItem;
   /** Half-open frame range in the clip. */
   videoFrames: [number, number];
-  /** Half-open sample range in the clip, counted from the clip's first video frame (BestSource's alignment). */
-  audioSamples: [number, number];
+  /** One entry per chosen audio stream, in the order the streams were given to `planEpisodes`. */
+  audioTracks: SegmentAudio[];
 }
 
 /** A chapter inside an episode's own timeline (it starts at 0 with the episode). */
@@ -82,8 +97,8 @@ export interface EpisodePlan {
   durationNs: bigint;
   /** Video attributes of the episode's first clip. */
   video: VideoProbe;
-  /** The chosen audio stream's attributes in the episode's first clip. */
-  audio: AudioProbe;
+  /** Each chosen audio stream's attributes in the episode's first clip, in the order the streams were given to `planEpisodes`. */
+  audio: AudioProbe[];
 }
 
 function probeOf(probes: Map<string, ClipProbe>, clipId: string): ClipProbe {
@@ -98,11 +113,24 @@ function audioOf(probe: ClipProbe, audioPid: number): AudioProbe {
   return audio;
 }
 
+/** BestSource's track number of `pid` in a clip, from the clip's PMT; a `PmtError` names the clip. */
+function bsTrackOf(pmts: Map<string, PmtInfo>, clipId: string, pid: number): number {
+  const pmt = pmts.get(clipId);
+  if (!pmt) throw new PmtError(`Clip ${clipId}: no PMT was read`);
+  try {
+    return audioTrackIndex(pmt, pid);
+  } catch (e) {
+    if (e instanceof PmtError) throw new PmtError(`Clip ${clipId}: ${e.message}`);
+    throw e;
+  }
+}
+
 function planEpisode(
   index: number,
   playlist: Playlist,
   probes: Map<string, ClipProbe>,
-  audioPid: number,
+  audioPids: readonly number[],
+  pmts: Map<string, PmtInfo>,
   startPlaylist45: number,
   endPlaylist45: number,
   firstChapter: number,
@@ -110,37 +138,36 @@ function planEpisode(
 ): EpisodePlan {
   const segments: Segment[] = [];
   let video: VideoProbe | undefined;
-  let audio: AudioProbe | undefined;
+  let audio: AudioProbe[] | undefined;
   let itemStart45 = 0;
   for (const item of playlist.items) {
     const itemEnd45 = itemStart45 + (item.outTime45 - item.inTime45);
     if (startPlaylist45 < itemEnd45 && endPlaylist45 > itemStart45) {
       const probe = probeOf(probes, item.clipId);
-      const itemAudio = audioOf(probe, audioPid);
+      const itemAudio = audioPids.map((pid) => audioOf(probe, pid));
       if (!video || !audio) {
         video = probe.video;
         audio = itemAudio;
       } else if (
         probe.video.fpsNum !== video.fpsNum ||
         probe.video.fpsDen !== video.fpsDen ||
-        itemAudio.sampleRate !== audio.sampleRate
+        itemAudio.some((a, i) => a.sampleRate !== audio![i]!.sampleRate)
       ) {
         throw new Error(`Clip ${item.clipId} differs in frame rate or sample rate from the episode's first clip`);
       }
       const lo = Math.max(item.inTime45, startPlaylist45 - itemStart45 + item.inTime45);
       const hi = Math.min(item.outTime45, endPlaylist45 - itemStart45 + item.inTime45);
       const frameEnd = frameAt(item.outTime45, probe.video);
-      // BestSource pads or trims the audio so sample 0 is the first video frame, so samples count from
-      // the video's first PTS, not the audio's.
-      const audioOrigin = { firstPts90: probe.video.firstPts90, sampleRate: itemAudio.sampleRate };
-      const sampleEnd = sampleAt(item.outTime45, audioOrigin);
       const clampFrame = (t: number): number => Math.min(Math.max(frameAt(t, probe.video), 0), frameEnd);
-      const clampSample = (t: number): number => Math.min(Math.max(sampleAt(t, audioOrigin), 0), sampleEnd);
-      segments.push({
-        item,
-        videoFrames: [clampFrame(lo), clampFrame(hi)],
-        audioSamples: [clampSample(lo), clampSample(hi)],
+      const audioTracks = itemAudio.map((a): SegmentAudio => {
+        // BestSource pads or trims the audio so sample 0 is the first video frame, so samples count from
+        // the video's first PTS, not the audio's.
+        const audioOrigin = { firstPts90: probe.video.firstPts90, sampleRate: a.sampleRate };
+        const sampleEnd = sampleAt(item.outTime45, audioOrigin);
+        const clampSample = (t: number): number => Math.min(Math.max(sampleAt(t, audioOrigin), 0), sampleEnd);
+        return { pid: a.pid, bsTrack: bsTrackOf(pmts, item.clipId, a.pid), samples: [clampSample(lo), clampSample(hi)] };
       });
+      segments.push({ item, videoFrames: [clampFrame(lo), clampFrame(hi)], audioTracks });
     }
     itemStart45 = itemEnd45;
   }
@@ -187,22 +214,26 @@ export function firstFramePlaylistUs(playlist: Pick<Playlist, 'items'>, plan: Ep
 /**
  * Plans one episode per spec. An episode runs from its first chapter to the start of the chapter
  * after its last (or the end of the playlist). Chapters between ranges that no spec covers are
- * skipped. `probes` holds a probe for every clip the playlist plays, keyed by clip id, and
- * `audioPid` selects the audio stream in each clip. Throws when a probe or the audio PID is
- * missing, or when clips inside one episode differ in frame rate or sample rate (they could not
- * be joined into one stream).
+ * skipped. `probes` holds a probe for every clip the playlist plays, keyed by clip id; `audio`
+ * lists the audio streams to cut, by PID, in track order (an empty list cuts no audio); `pmts`
+ * holds every clip's PMT (`readPlaylistPmts`), which gives each stream's BestSource track number
+ * per clip. Throws when a probe or an audio PID is missing, when clips inside one episode differ
+ * in frame rate or in a stream's sample rate (they could not be joined into one stream), and
+ * `PmtError` naming the clip and PID when a clip's PMT is missing or lacks a chosen stream.
  */
 export function planEpisodes(
   playlist: Playlist,
   probes: Map<string, ClipProbe>,
   specs: EpisodeSpec[],
-  audioPid: number,
+  audio: readonly Pick<SelectedAudio, 'pid'>[],
+  pmts: Map<string, PmtInfo>,
 ): EpisodePlan[] {
+  const audioPids = audio.map((a) => a.pid);
   const chapterCount = playlist.chapters.length;
   return specs.map((spec, i) => {
     const last = spec.to ?? chapterCount;
     const start = playlist.chapters[spec.from - 1].start45;
     const end = last < chapterCount ? playlist.chapters[last].start45 : playlist.duration45;
-    return planEpisode(i + 1, playlist, probes, audioPid, start, end, spec.from, last);
+    return planEpisode(i + 1, playlist, probes, audioPids, pmts, start, end, spec.from, last);
   });
 }
