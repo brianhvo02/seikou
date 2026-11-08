@@ -36,6 +36,13 @@ function fakeApi(discs: LibraryAnswer['discs'] = listed): AppApi {
     rescan: vi.fn(async () => undefined),
     setRoots: vi.fn(async (r) => r),
     playlists: vi.fn(async () => playlists),
+    playlist: vi.fn(async () => {
+      throw new Error('not used');
+    }),
+    createSession: vi.fn(async () => ''),
+    remoteDisc: vi.fn(async () => {
+      throw new Error('not used');
+    }),
   };
 }
 

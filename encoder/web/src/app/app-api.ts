@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { ApiError, errorOf, type FetchLike } from '../api';
-import type { LibraryAnswer, PlaylistSummary } from '../api-types';
+import type { RemoteDiscSpec } from '@seikou/engine';
+import type { DiscManifest } from '@seikou/nas/nas-api';
+import type { LibraryAnswer, PlaylistDetail, PlaylistSummary } from '../api-types';
 
 // The app pages' client for the backend's library routes, carrying the run's token.
 
@@ -14,6 +16,12 @@ export interface AppApi {
   setRoots(roots: readonly string[]): Promise<readonly string[]>;
   /** The playlists of a library disc, longest first. */
   playlists(discKey: string): Promise<PlaylistSummary[]>;
+  /** One playlist of a library disc with its chapters and the episode list of its saved subtitle record. */
+  playlist(discKey: string, playlistId: string): Promise<PlaylistDetail>;
+  /** Opens (or finds) the subtitle helper's session for a disc, playlist and episode list; resolves with its id. */
+  createSession(discKey: string, playlistId: string, episodeSpec: string): Promise<string>;
+  /** What the engine needs to read a library disc: the disc API's base address, the token and the manifest. */
+  remoteDisc(discKey: string): Promise<RemoteDiscSpec>;
 }
 
 /** The client for the backend at `base` (an origin, or `''` for the page's own) with the run's `token`, sent as `Authorization: Bearer`. */
@@ -48,6 +56,17 @@ export function createAppApi(base: string, token: string, fetchImpl: FetchLike =
     async playlists(discKey) {
       const { playlists } = await request<{ playlists: PlaylistSummary[] }>('GET', `/api/discs/${encodeURIComponent(discKey)}/playlists`);
       return playlists;
+    },
+    playlist: (discKey, playlistId) =>
+      request('GET', `/api/discs/${encodeURIComponent(discKey)}/playlists/${encodeURIComponent(playlistId)}`),
+    async createSession(discKey, playlistId, episodeSpec) {
+      return (await request<{ id: string }>('POST', '/api/sessions', { discKey, playlistId, episodeSpec })).id;
+    },
+    async remoteDisc(discKey) {
+      const key = encodeURIComponent(discKey);
+      const manifest = await request<DiscManifest>('GET', `/api/discs/${key}/manifest`);
+      const base = new URL(`${root}/api/discs/${key}/`, root === '' ? location.href : undefined).href;
+      return { kind: 'remote', base, token, manifest };
     },
   };
 }

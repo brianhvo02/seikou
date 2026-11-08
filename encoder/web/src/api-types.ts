@@ -363,6 +363,28 @@ export interface LibraryAnswer {
   readonly discs: readonly LibraryDiscInfo[];
 }
 
+/** One chapter of a playlist: its 1-based number, where it starts and how long it is. */
+export interface ChapterInfo {
+  /** Chapter number, from 1. */
+  readonly index: number;
+  /** Start in milliseconds of playlist time. */
+  readonly startMs: number;
+  /** Length in milliseconds. */
+  readonly lengthMs: number;
+}
+
+/** A playlist in full, as `GET /api/discs/<key>/playlists/<id>` answers. */
+export interface PlaylistDetail {
+  /** Five-digit playlist name. */
+  readonly id: string;
+  /** Length in milliseconds. */
+  readonly durationMs: number;
+  /** The chapters in order. */
+  readonly chapters: readonly ChapterInfo[];
+  /** The episode list of the playlist's saved subtitle record, or null when none is saved. */
+  readonly record: { readonly episodeSpec: string } | null;
+}
+
 /** One playlist in `GET /api/discs/<key>/playlists`. */
 export interface PlaylistSummary {
   /** Five-digit playlist name. */

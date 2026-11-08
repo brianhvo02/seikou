@@ -6,8 +6,7 @@
  */
 import { useState } from 'react';
 import { createController, createEngineWorker, type PlayerController } from '@seikou/engine';
-import type { HelperApi } from '../api';
-import type { SessionInfo } from '../api-types';
+import type { RemoteDiscSpec } from '@seikou/engine';
 
 /**
  * The part of the engine's controller the helper uses. Components take this rather than the class, so tests can
@@ -44,27 +43,45 @@ export function useController(): PlayerController {
   return controller;
 }
 
-/** The disc opens per controller: the open in flight or done. A failed open is forgotten, so the next call tries again. */
-const opens = new WeakMap<PlayerLike, Promise<void>>();
+/** The disc and playlist to show: a helper session has both, and so does a library disc's playlist. */
+export interface ShownPlaylist {
+  /** The disc's key, as the backend's disc routes name it. */
+  readonly discKey: string;
+  /** Five-digit playlist name. */
+  readonly playlistId: string;
+}
+
+/** The part of a backend client `showAt` needs: the engine's way into a disc. */
+export interface DiscOpener {
+  /** What the engine needs to read the disc `discKey`. */
+  remoteDisc(discKey: string): Promise<RemoteDiscSpec>;
+}
 
 /**
- * Shows the run's playlist at `timeUs` (microseconds of playlist time). The first call for a controller fetches the
- * disc's manifest and opens it there, playing the playlist directly (no disc menus); later calls wait for that open
- * and seek. Rejects with the `ApiError` of a manifest that could not be fetched.
+ * What a controller has open: the disc and playlist, and the open in flight or done. A failed open is forgotten, so
+ * the next call tries again.
  */
-export async function showAt(controller: PlayerLike, api: HelperApi, session: SessionInfo, timeUs: number): Promise<void> {
+const opens = new WeakMap<PlayerLike, { readonly id: string; readonly opening: Promise<void> }>();
+
+/**
+ * Shows the disc's playlist at `timeUs` (microseconds of playlist time). The first call for a controller fetches the
+ * disc's manifest and opens it there, playing the playlist directly (no disc menus); later calls for the same disc
+ * and playlist wait for that open and seek, and a call for another one opens that instead. Rejects with the `ApiError` of a manifest that could not be fetched.
+ */
+export async function showAt(controller: PlayerLike, api: DiscOpener, shown: ShownPlaylist, timeUs: number): Promise<void> {
+  const id = `${shown.discKey}|${shown.playlistId}`;
   const open = opens.get(controller);
-  if (open) {
-    await open;
+  if (open?.id === id) {
+    await open.opening;
     controller.seek(timeUs);
     return;
   }
   // The engine gives a playlist sound only when its audio output is attached before the playlist starts, so the
   // output is started, and waited for, before the disc opens.
-  const opening = Promise.all([api.remoteDisc(session.discKey), controller.startAudio()]).then(([spec]) => {
-    controller.openRemote(spec, undefined, undefined, undefined, { playlistId: session.playlistId, timeUs, hdmv: null, playback: null });
+  const opening = Promise.all([api.remoteDisc(shown.discKey), controller.startAudio()]).then(([spec]) => {
+    controller.openRemote(spec, undefined, undefined, undefined, { playlistId: shown.playlistId, timeUs, hdmv: null, playback: null });
   });
-  opens.set(controller, opening);
+  opens.set(controller, { id, opening });
   try {
     await opening;
   } catch (e) {

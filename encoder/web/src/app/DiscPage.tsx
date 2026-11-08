@@ -33,7 +33,7 @@ interface Loaded {
 }
 
 /** The message and way back for a disc the library does not hold (it may have moved, or the library needs a rescan). */
-function NotInLibrary() {
+export function NotInLibrary() {
   return (
     <main className="content wide">
       <p className="error" role="alert">

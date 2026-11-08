@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { useMemo } from 'react';
 import { createApi } from '../api';
+import { useController } from '../player/use-controller';
 import { App } from '../App';
-import { createAppApi } from './app-api';
+import { createAppApi, type AppApi } from './app-api';
 import { AppShell } from './AppShell';
 import { DiscPage } from './DiscPage';
+import { EpisodesPage } from './EpisodesPage';
 import { LibraryPage } from './LibraryPage';
 import { useDocumentTitle } from './place';
 import { Link, useRoute } from './router';
@@ -46,6 +48,12 @@ function HelperRoute({ token, sessionId }: { readonly token: string; readonly se
   return <App api={api} />;
 }
 
+/** The Episodes page with the page's engine, which is made only once this page is shown. */
+function EpisodesRoute({ api, discKey, playlistId }: { readonly api: AppApi; readonly discKey: string; readonly playlistId: string }) {
+  const controller = useController();
+  return <EpisodesPage api={api} discKey={discKey} playlistId={playlistId} controller={controller} />;
+}
+
 /** Picks the page for the address and puts it in the shell. */
 export function AppRoot({ token }: AppRootProps) {
   const { route } = useRoute();
@@ -62,7 +70,7 @@ export function AppRoot({ token }: AppRootProps) {
       page = <HelperRoute token={token} sessionId={route.sessionId} />;
       break;
     case 'episodes':
-      page = <Placeholder title="Episodes" />;
+      page = <EpisodesRoute api={appApi} discKey={route.discKey} playlistId={route.playlistId} />;
       break;
     case 'settings':
       page = <Placeholder title="Settings" />;

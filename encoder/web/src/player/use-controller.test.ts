@@ -24,4 +24,19 @@ describe('showAt', () => {
     await shown;
     expect(order).toEqual(['audio', 'open']);
   });
+
+  it('seeks within the same playlist and opens another playlist afresh', async () => {
+    const controller = {
+      startAudio: vi.fn(async () => undefined),
+      openRemote: vi.fn(),
+      seek: vi.fn(),
+    } as unknown as PlayerLike;
+    const api = { remoteDisc: vi.fn(async () => ({ kind: 'remote', base: 'http://x/', token: 't', manifest: {} })) } as unknown as HelperApi;
+    await showAt(controller, api, session, 0);
+    await showAt(controller, api, session, 5);
+    expect(controller.openRemote).toHaveBeenCalledTimes(1);
+    expect(controller.seek).toHaveBeenCalledWith(5);
+    await showAt(controller, api, { discKey: session.discKey, playlistId: '00001' }, 7);
+    expect(controller.openRemote).toHaveBeenCalledTimes(2);
+  });
 });
