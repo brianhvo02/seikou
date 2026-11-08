@@ -116,6 +116,12 @@ export type HelperAction =
   /** Removes a release from the pool; the episodes that used it lose their file, timing and drafted tracks. */
   | { readonly type: 'removeRelease'; readonly key: string }
   /**
+   * Gives every episode with no file (not one marked `none`) the first matched file in pool order. The page sends it
+   * after it has re-added every pooled release at a new offset: each re-add falls back only to its own release, so
+   * this pass settles what the order of the re-adds left open.
+   */
+  | { readonly type: 'fillFromPool' }
+  /**
    * Uses a pooled release's file for an episode, with all its tracks, dropping the episode's timing. A null key or id
    * leaves the episode with no file and clears its drafted tracks; a file not in the pool changes nothing.
    */
@@ -259,6 +265,19 @@ function removeRelease(state: HelperState, key: string): HelperState {
   return next;
 }
 
+/** The state with every episode that has no file (not one marked `none`) taking `release`'s matched file, with all its tracks, when that file has any. */
+function fillFrom(state: HelperState, release: ReleaseAnswer): HelperState {
+  let next = state;
+  for (const row of release.match.rows) {
+    if (next.choices[row.episode] !== undefined || row.fileId === null) continue;
+    const file = release.files.find((f) => f.id === row.fileId);
+    if (!file || file.tracks.length === 0) continue;
+    const choice: EpisodeChoice = { releaseKey: release.key, fileId: file.id, trackIds: file.tracks.map((t) => t.id) };
+    next = { ...next, choices: { ...next.choices, [row.episode]: choice }, timing: without(next.timing, row.episode) };
+  }
+  return next;
+}
+
 /** The `addRelease` action: see its description. */
 function addRelease(state: HelperState, release: ReleaseAnswer, from: ReleaseSource): HelperState {
   const key = release.key;
@@ -284,14 +303,7 @@ function addRelease(state: HelperState, release: ReleaseAnswer, from: ReleaseSou
     }
   }
 
-  for (const row of release.match.rows) {
-    if (next.choices[row.episode] !== undefined || row.fileId === null) continue;
-    const file = release.files.find((f) => f.id === row.fileId);
-    if (!file || file.tracks.length === 0) continue;
-    const choice: EpisodeChoice = { releaseKey: key, fileId: file.id, trackIds: file.tracks.map((t) => t.id) };
-    next = { ...next, choices: { ...next.choices, [row.episode]: choice }, timing: without(next.timing, row.episode) };
-  }
-  return next;
+  return fillFrom(next, release);
 }
 
 function apply(state: HelperState, action: HelperAction): HelperState {
@@ -314,6 +326,8 @@ function apply(state: HelperState, action: HelperAction): HelperState {
       return addRelease(state, action.release, action.from);
     case 'removeRelease':
       return removeRelease(state, action.key);
+    case 'fillFromPool':
+      return state.releases.reduce((next, p) => fillFrom(next, p.release), state);
     case 'chooseFile': {
       if (action.releaseKey === null || action.fileId === null) return withoutFile(state, action.episode);
       const file = releaseOf(state, action.releaseKey)?.release.files.find((f) => f.id === action.fileId);

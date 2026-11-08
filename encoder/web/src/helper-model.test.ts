@@ -171,6 +171,27 @@ describe('reduce', () => {
     expect(after.timing[2]).toEqual(before.timing[2]);
   });
 
+  it('fillFromPool gives an episode without a file the first matched file in pool order, and leaves the rest', () => {
+    // B alone numbers episode 2, A alone episode 1; episode 1 has no file and A is first in the pool
+    const onlyOne: ReleaseAnswer = { ...releaseB, match: { rows: [{ episode: 1, fileId: '11', candidates: ['11'] }, { episode: 2, fileId: null, candidates: [] }], unmatched: [] } };
+    const pool: HelperState = {
+      ...initialState(),
+      releases: [
+        { release: onlyOne, source: 'tosho' },
+        { release, source: 'seadex' },
+      ],
+      choices: { 2: { releaseKey: 'tosho-7', fileId: '13', trackIds: ['t1'] } },
+    };
+    const after = reduce(pool, { type: 'fillFromPool' });
+    expect(after.choices[1]).toEqual({ releaseKey: 'tosho-8', fileId: '11', trackIds: ['t1'] });
+    expect(after.choices[2]).toEqual(pool.choices[2]);
+    expect(after.dirty).toBe(true);
+    // marked none stays none; a pool with nothing to give changes nothing
+    const none = reduce({ ...pool, choices: { ...pool.choices, 1: 'none' } }, { type: 'fillFromPool' });
+    expect(none.choices[1]).toBe('none');
+    expect(reduce(after, { type: 'fillFromPool' })).toBe(after);
+  });
+
   it('removing a release clears the episodes that used it', () => {
     const filled = fill0(run(twoReleases(), { type: 'setTiming', episode: 2, alignment: { kind: 'original' } }));
     expect(filled.metadata.episodes[2]!.tracks).toHaveLength(1);

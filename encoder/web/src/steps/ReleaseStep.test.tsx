@@ -42,6 +42,33 @@ const answer: ReleaseAnswer = {
   },
 };
 
+const answerB: ReleaseAnswer = {
+  ...answer,
+  key: 'tosho-12',
+  label: 'GroupB release',
+  group: 'GroupB',
+  files: [{ id: 'g1', name: 'Lantern Harbor - 01.mkv', tracks: [track('2', 'b/1/2.ass')] }],
+  fonts: [],
+  match: { rows: [{ episode: 1, fileId: 'g1', candidates: ['g1'] }, { episode: 2, fileId: null, candidates: [] }], unmatched: [] },
+};
+
+/** An API whose fetches answer by Anime Tosho id: 11 is GroupA's release, 12 is GroupB's. */
+function poolApi(overrides: Partial<HelperApi> = {}): HelperApi {
+  return fakeApi({
+    fetchRelease: vi.fn(async (id: number) => (id === 11 ? answer : answerB)),
+    release: vi.fn(async (key: string) => (key === 'tosho-11' ? answer : answerB)),
+    ...overrides,
+  });
+}
+
+async function pickBoth(api: HelperApi) {
+  await searchAndPick(api);
+  fireEvent.click(await screen.findByRole('button', { name: /^GroupA/ }));
+  await waitFor(() => expect(screen.getAllByRole('listitem').some((li) => /GroupA release/.test(li.textContent ?? ''))).toBe(true));
+  fireEvent.click(await screen.findByRole('button', { name: /^GroupB/ }));
+  await screen.findByText('GroupB release');
+}
+
 function fakeApi(overrides: Partial<HelperApi> = {}): HelperApi {
   const notCalled = () => Promise.reject(new Error('not expected'));
   return {
@@ -133,7 +160,7 @@ describe('ReleaseStep', () => {
     const api = fakeApi();
     await searchAndPick(api);
     fireEvent.click(await screen.findByRole('button', { name: /GroupA/ }));
-    const summary = await screen.findByRole('region', { name: /Fetched release/i });
+    const summary = await screen.findByRole('region', { name: /Releases in use/i });
     expect(api.fetchRelease).toHaveBeenCalledWith(11, 0);
     expect(summary.textContent).toMatch(/2 episodes/);
     expect(summary.textContent).toMatch(/3 tracks/);
@@ -145,10 +172,10 @@ describe('ReleaseStep', () => {
   it('changing the show clears the SeaDex list and the release', async () => {
     await searchAndPick(fakeApi());
     fireEvent.click(await screen.findByRole('button', { name: /GroupA/ }));
-    await screen.findByRole('region', { name: /Fetched release/i });
+    await screen.findByRole('region', { name: /Releases in use/i });
     fireEvent.click(screen.getByRole('button', { name: 'Change' }));
     expect(screen.queryByRole('button', { name: /GroupA/ })).toBeNull();
-    expect(screen.queryByRole('region', { name: /Fetched release/i })).toBeNull();
+    expect(screen.queryByRole('region', { name: /Releases in use/i })).toBeNull();
     expect((screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByRole('searchbox', { name: /show/i })).toBeTruthy();
   });
@@ -168,15 +195,15 @@ describe('ReleaseStep', () => {
     const api = fakeApi({ searchTosho: vi.fn(async () => [{ toshoId: 21, title: 'Lantern Harbor [GroupT]', date: 1700000000 }]) });
     render(<Harness api={api} />);
     await addRelease();
-    await screen.findByRole('region', { name: /Fetched release/i });
+    await screen.findByRole('region', { name: /Releases in use/i });
     const box = screen.getByRole('searchbox', { name: /show/i });
     fireEvent.change(box, { target: { value: 'lantern' } });
     fireEvent.submit(box.closest('form')!);
     fireEvent.click(await screen.findByRole('button', { name: /ランタン港/ }));
     await waitFor(() => expect(api.seadex).toHaveBeenCalled());
-    expect(screen.getByRole('region', { name: /Fetched release/i })).toBeTruthy();
+    expect(screen.getByRole('region', { name: /Releases in use/i })).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Change' }));
-    expect(screen.getByRole('region', { name: /Fetched release/i })).toBeTruthy();
+    expect(screen.getByRole('region', { name: /Releases in use/i })).toBeTruthy();
     expect((screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled).toBe(false);
   });
 
@@ -204,5 +231,95 @@ describe('ReleaseStep', () => {
     const alert = await screen.findByRole('alert');
     expect(alert.textContent).toMatch(/not answering/i);
     expect(alert.textContent).toMatch(/try again/i);
+  });
+
+  it('picking two releases lists both in use', async () => {
+    await pickBoth(poolApi());
+    const region = screen.getByRole('region', { name: /Releases in use/i });
+    const items = region.querySelectorAll('li.release-in-use');
+    expect(items).toHaveLength(2);
+    expect(items[0]!.textContent).toMatch(/GroupA release/);
+    expect(items[0]!.textContent).toMatch(/GroupA, SeaDex/);
+    expect(items[0]!.textContent).toMatch(/2 episodes, 3 tracks/);
+    expect(items[1]!.textContent).toMatch(/GroupB release/);
+    expect(items[1]!.textContent).toMatch(/1 episode, 1 track/);
+  });
+
+  it('Remove drops a release and its episodes', async () => {
+    await pickBoth(poolApi());
+    fireEvent.click(screen.getByRole('button', { name: 'Remove GroupA release' }));
+    const region = screen.getByRole('region', { name: /Releases in use/i });
+    expect(region.querySelectorAll('li.release-in-use')).toHaveLength(1);
+    expect(region.textContent).not.toMatch(/GroupA release/);
+    // GroupB numbers only episode 1, so one episode has a file
+    expect(region.textContent).toMatch(/1 episode, 1 track/);
+    fireEvent.click(screen.getByRole('button', { name: 'Remove GroupB release' }));
+    expect(screen.queryByRole('region', { name: /Releases in use/i })).toBeNull();
+    expect((screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('an already pooled release shows as added and picking it again fetches it again', async () => {
+    const api = poolApi();
+    await searchAndPick(api);
+    fireEvent.click(await screen.findByRole('button', { name: /^GroupA/ }));
+    await screen.findByRole('region', { name: /Releases in use/i });
+    const row = screen.getByRole('button', { name: /^GroupA/ });
+    expect(row.textContent).toMatch(/Added/);
+    expect(row.getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: /^GroupB/ }).textContent).not.toMatch(/Added/);
+    fireEvent.click(row);
+    await waitFor(() => expect(api.fetchRelease).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole('region', { name: /Releases in use/i }).querySelectorAll('li.release-in-use')).toHaveLength(1);
+  });
+
+  it('changing the offset fetches every pooled release again', async () => {
+    const api = poolApi();
+    await pickBoth(api);
+    const box = screen.getByRole('spinbutton');
+    fireEvent.change(box, { target: { value: '2' } });
+    fireEvent.blur(box);
+    await waitFor(() => expect(api.release).toHaveBeenCalledTimes(2));
+    expect(api.release).toHaveBeenCalledWith('tosho-11', 2);
+    expect(api.release).toHaveBeenCalledWith('tosho-12', 2);
+    await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('a failed refetch keeps that release, re-adds the others and names it beside the offset', async () => {
+    const shifted: ReleaseAnswer = { ...answer, match: { rows: [{ episode: 1, fileId: 'f2', candidates: ['f2'] }, { episode: 2, fileId: null, candidates: [] }], unmatched: [] } };
+    const api = poolApi({ release: vi.fn(async (key: string) => (key === 'tosho-11' ? shifted : Promise.reject(new Error('gone')))) });
+    await pickBoth(api);
+    const box = screen.getByRole('spinbutton');
+    fireEvent.change(box, { target: { value: '1' } });
+    fireEvent.blur(box);
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toMatch(/GroupB release/);
+    expect(alert.textContent).not.toMatch(/GroupA release/);
+    // GroupA was re-added at the new offset (one episode with one track), GroupB stays pooled
+    const items = screen.getByRole('region', { name: /Releases in use/i }).querySelectorAll('li.release-in-use');
+    expect(items).toHaveLength(2);
+    expect(items[0]!.textContent).toMatch(/1 episode, 1 track/);
+  });
+
+  it('a pick that was fetched at an offset the user has since changed is fetched again at the new one', async () => {
+    let resolveFirst: (a: ReleaseAnswer) => void = () => {};
+    const fetchRelease = vi.fn().mockImplementationOnce(() => new Promise<ReleaseAnswer>((r) => (resolveFirst = r))).mockResolvedValue(answer);
+    const api = poolApi({ fetchRelease });
+    await searchAndPick(api);
+    fireEvent.click(await screen.findByRole('button', { name: /^GroupA/ }));
+    const box = screen.getByRole('spinbutton');
+    fireEvent.change(box, { target: { value: '3' } });
+    fireEvent.blur(box);
+    resolveFirst(answer);
+    await screen.findByRole('region', { name: /Releases in use/i });
+    expect(fetchRelease).toHaveBeenLastCalledWith(11, 3);
+  });
+
+  it('keeps Next off while no pooled release matches an episode', async () => {
+    const api = poolApi({ fetchRelease: vi.fn(async () => ({ ...answer, match: { rows: [{ episode: 1, fileId: null, candidates: [] }], unmatched: [] } })) });
+    await searchAndPick(api);
+    fireEvent.click(await screen.findByRole('button', { name: /^GroupA/ }));
+    await screen.findByRole('region', { name: /Releases in use/i });
+    expect((screen.getByRole('button', { name: 'Next' }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

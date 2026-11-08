@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type Dispatch, type FormEvent } from 'reac
 import type { HelperApi } from '../api';
 import type { ReleaseAnswer, SeaDexAnswer, SeaDexRelease, TitleHit, ToshoHit } from '../api-types';
 import { releaseOf, type HelperAction, type HelperState, type ReleaseSource } from '../helper-model';
-import { errorText, plural, releaseSummary } from './release-model';
+import { anyEpisodeHasFile, errorText, plural, refetchNotice, releaseSummary, sourceText } from './release-model';
 
 /** What step 1 needs: the backend client, the page's state and the dispatcher that changes it. */
 export interface ReleaseStepProps {
@@ -61,12 +61,15 @@ function Problem({ text }: { text: string | null }) {
  * Step 1: the user searches AniList for the show and picks it, then picks a release for it from SeaDex, from an Anime
  * Tosho search or from their own files. SeaDex is asked only once a show is picked, and again whenever the picked show
  * changes; the Anime Tosho search and the user's own files need no show. A picked release is fetched at the episode
- * offset and added to the page's pool, which the state holds with the show and the offset; a new offset fetches every
- * pooled release again. The newest pooled release is summarised. "Next" opens step 2.
+ * offset and added to the page's pool, which the state holds with the show and the offset; picking a pooled release
+ * again fetches it again. "Releases in use" lists the pool with a summary of each and a Remove button. A new offset
+ * fetches every pooled release again: the answers that arrive are added back in pool order and one last pass gives
+ * the episodes still without a file the first matched one, and releases that could not be fetched are named beside
+ * the offset and keep their old match. A pick fetched at an offset the user has changed meanwhile is fetched again at
+ * the new one. "Next" opens step 2 once some episode has a file.
  */
 export function ReleaseStep({ api, state, dispatch }: ReleaseStepProps) {
   const { title, releases, episodeOffset } = state;
-  const release = releases.at(-1)?.release ?? null;
   const alId = title?.alId ?? null;
 
   const [query, setQuery] = useState('');
@@ -83,11 +86,18 @@ export function ReleaseStep({ api, state, dispatch }: ReleaseStepProps) {
 
   const [offsetText, setOffsetText] = useState(String(episodeOffset));
   const [offsetError, setOffsetError] = useState<string | null>(null);
-  const [fetching, setFetching] = useState(false);
+  const [pending, setPending] = useState(0);
+  const fetching = pending > 0;
+  const [refetchProblem, setRefetchProblem] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  // the newest fetch wins: an answer that arrives after another request started is dropped
+  // bumped when the show is cleared: a pick still on its way for the old show is dropped
   const fetchSeq = useRef(0);
+  // what an answer arriving later must be checked against: the offset now in force, and the pool as it is now
+  const offsetNow = useRef(episodeOffset);
+  offsetNow.current = episodeOffset;
+  const poolNow = useRef(state);
+  poolNow.current = state;
   // the same rule for the two searches: only the newest submit may set its results
   const searchSeq = useRef(0);
   const toshoSeq = useRef(0);
@@ -139,7 +149,6 @@ export function ReleaseStep({ api, state, dispatch }: ReleaseStepProps) {
 
   const changeShow = () => {
     fetchSeq.current += 1;
-    setFetching(false);
     setFetchError(null);
     setUploadError(null);
     dispatch({ type: 'setTitle', title: null });
@@ -162,29 +171,38 @@ export function ReleaseStep({ api, state, dispatch }: ReleaseStepProps) {
     }
   };
 
-  /** Runs `get`, hands its answer to the state as a release from `from`, and shows a failure with `onError`. */
-  const take = async (get: () => Promise<ReleaseAnswer>, from: ReleaseSource, onError: (text: string | null) => void) => {
-    const seq = ++fetchSeq.current;
-    setFetching(true);
+  /**
+   * Runs `get` at the offset in force, hands its answer to the state as a release from `from`, and shows a failure with
+   * `onError`. An answer fetched at an offset the user has changed since is fetched again at the new one, so a pick is
+   * never added with a match for the wrong offset.
+   */
+  const take = async (get: (offset: number) => Promise<ReleaseAnswer>, from: ReleaseSource, onError: (text: string | null) => void) => {
+    const epoch = fetchSeq.current;
+    setPending((n) => n + 1);
     setFetchError(null);
     setUploadError(null);
     onError(null);
     try {
-      const answer = await get();
-      if (seq === fetchSeq.current) dispatch({ type: 'addRelease', release: answer, from });
+      let offset = offsetNow.current;
+      let answer = await get(offset);
+      while (offset !== offsetNow.current) {
+        offset = offsetNow.current;
+        answer = await get(offset);
+      }
+      if (epoch === fetchSeq.current) dispatch({ type: 'addRelease', release: answer, from });
     } catch (err) {
-      if (seq === fetchSeq.current) onError(errorText(err));
+      if (epoch === fetchSeq.current) onError(errorText(err));
     } finally {
-      if (seq === fetchSeq.current) setFetching(false);
+      setPending((n) => n - 1);
     }
   };
 
   const pickToshoRelease = (toshoId: number, from: 'seadex' | 'tosho') =>
-    take(() => api.fetchRelease(toshoId, episodeOffset), from, from === 'seadex' ? setFetchError : setToshoError);
+    take((offset) => api.fetchRelease(toshoId, offset), from, from === 'seadex' ? setFetchError : setToshoError);
 
   const addOwnFiles = (files: FileList | null) => {
     if (files === null || files.length === 0) return;
-    void take(() => api.upload(Array.from(files), episodeOffset), 'local', setUploadError);
+    void take((offset) => api.upload(Array.from(files), offset), 'local', setUploadError);
   };
 
   const commitOffset = () => {
@@ -195,28 +213,37 @@ export function ReleaseStep({ api, state, dispatch }: ReleaseStepProps) {
     }
     setOffsetError(null);
     if (n === episodeOffset) return;
+    offsetNow.current = n;
+    setRefetchProblem(null);
     dispatch({ type: 'setOffset', offset: n });
     if (releases.length > 0) void refetchPool(n);
   };
 
-  /** Fetches every pooled release again at `offset` and adds each answer back, keeping the files that still fit. */
+  /**
+   * Fetches every pooled release again at `offset`. The answers that arrive are added back in pool order, then one pass
+   * fills the episodes still without a file; releases that failed are named in a notice and keep their old match. The
+   * answers are applied even when a pick started meanwhile, but only for releases still in the pool and only while
+   * `offset` is still the offset in force (a newer offset change has its own refetch).
+   */
   const refetchPool = async (offset: number) => {
-    const seq = ++fetchSeq.current;
-    setFetching(true);
-    setFetchError(null);
+    setPending((n) => n + 1);
     try {
-      const answers = await Promise.all(releases.map((p) => api.release(p.release.key, offset).then((answer) => ({ answer, from: p.source }))));
-      if (seq === fetchSeq.current) for (const { answer, from } of answers) dispatch({ type: 'addRelease', release: answer, from });
-    } catch (err) {
-      if (seq === fetchSeq.current) setFetchError(errorText(err));
+      const settled = await Promise.allSettled(releases.map((p) => api.release(p.release.key, offset)));
+      if (offsetNow.current !== offset) return;
+      const failed: string[] = [];
+      settled.forEach((result, i) => {
+        const pooled = releases[i]!;
+        if (result.status === 'rejected') failed.push(pooled.release.label);
+        else if (releaseOf(poolNow.current, pooled.release.key) !== null) dispatch({ type: 'addRelease', release: result.value, from: pooled.source });
+      });
+      dispatch({ type: 'fillFromPool' });
+      setRefetchProblem(refetchNotice(failed));
     } finally {
-      if (seq === fetchSeq.current) setFetching(false);
+      setPending((n) => n - 1);
     }
   };
 
   const isChosen = (r: SeaDexRelease) => r.toshoId !== null && releaseOf(state, `tosho-${r.toshoId}`) !== null;
-  const match = release?.match.rows ?? [];
-  const summary = release === null ? null : releaseSummary(release, match);
 
   return (
     <div className="release-step">
@@ -274,7 +301,35 @@ export function ReleaseStep({ api, state, dispatch }: ReleaseStepProps) {
           </p>
         </div>
         <Problem text={offsetError} />
+        <Problem text={refetchProblem} />
       </section>
+
+      {releases.length > 0 && (
+        <section aria-labelledby="in-use-heading" className="block">
+          <h2 id="in-use-heading">Releases in use</h2>
+          <ul className="releases-in-use">
+            {releases.map(({ release, source }) => {
+              const summary = releaseSummary(release, release.match.rows);
+              return (
+                <li key={release.key} className="release-in-use">
+                  <div className="in-use-text">
+                    <span className="release-group">{release.label}</span>
+                    <span className="muted">{[release.group !== '' ? release.group : null, sourceText(source)].filter((t): t is string => t !== null).join(', ')}</span>
+                    <span className="muted num">
+                      {plural(summary.episodes, 'episode')}, {plural(summary.tracks, 'track')}
+                      {summary.languages.length > 0 && <>, {summary.languages.join(', ')}</>}, {plural(summary.fonts, 'font')}
+                    </span>
+                    {summary.unmatched > 0 && <span className="unmatched-note">{plural(summary.unmatched, 'file')} matched no episode of this disc.</span>}
+                  </div>
+                  <button type="button" className="quiet" aria-label={`Remove ${release.label}`} onClick={() => dispatch({ type: 'removeRelease', key: release.key })}>
+                    Remove
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
 
       <section aria-labelledby="release-heading" className="block">
         <h2 id="release-heading">Release</h2>
@@ -307,7 +362,7 @@ export function ReleaseStep({ api, state, dispatch }: ReleaseStepProps) {
                           >
                             <span className="release-group">{r.group}</span>
                             <span className="release-tags muted">
-                              {[r.isBest ? 'Best' : null, ...r.tags, r.dualAudio && !r.tags.some((t) => /dual/i.test(t)) ? 'Dual audio' : null, r.unavailable !== null ? UNAVAILABLE_TEXT[r.unavailable] : null]
+                              {[r.isBest ? 'Best' : null, ...r.tags, r.dualAudio && !r.tags.some((t) => /dual/i.test(t)) ? 'Dual audio' : null, r.unavailable !== null ? UNAVAILABLE_TEXT[r.unavailable] : null, isChosen(r) ? 'Added' : null]
                                 .filter((t): t is string => t !== null)
                                 .join(', ')}
                             </span>
@@ -339,7 +394,10 @@ export function ReleaseStep({ api, state, dispatch }: ReleaseStepProps) {
               <li key={h.toshoId}>
                 <button type="button" className="release-row" aria-pressed={releaseOf(state, `tosho-${h.toshoId}`) !== null} disabled={fetching} onClick={() => void pickToshoRelease(h.toshoId, 'tosho')}>
                   <span className="release-group">{h.title}</span>
-                  <span className="release-tags muted num">{new Date(h.date * 1000).toISOString().slice(0, 10)}</span>
+                  <span className="release-tags muted num">
+                    {new Date(h.date * 1000).toISOString().slice(0, 10)}
+                    {releaseOf(state, `tosho-${h.toshoId}`) !== null && ', Added'}
+                  </span>
                 </button>
               </li>
             ))}
@@ -364,33 +422,8 @@ export function ReleaseStep({ api, state, dispatch }: ReleaseStepProps) {
       {fetching && <p className="muted" role="status">Fetching the release…</p>}
       <Problem text={fetchError} />
 
-      {release !== null && summary !== null && (
-        <section aria-labelledby="fetched-heading" className="block fetched">
-          <h2 id="fetched-heading">Fetched release</h2>
-          <p>{release.label}</p>
-          <p className="muted num">
-            {plural(summary.episodes, 'episode')}, {plural(summary.tracks, 'track')}
-            {summary.languages.length > 0 && <>, {summary.languages.join(', ')}</>}, {plural(summary.fonts, 'font')}
-          </p>
-          {summary.unmatched > 0 && <p className="unmatched-note">{plural(summary.unmatched, 'file')} in the release matched no episode of this disc.</p>}
-          <ul className="per-episode">
-            {match
-              .filter((r) => r.fileId !== null)
-              .map((r) => {
-                const file = release.files.find((f) => f.id === r.fileId);
-                return (
-                  <li key={r.episode} className="num">
-                    <span>Episode {r.episode}</span>
-                    <span className="muted">{plural(file?.tracks.length ?? 0, 'track')}</span>
-                  </li>
-                );
-              })}
-          </ul>
-        </section>
-      )}
-
       <div className="step-next">
-        <button type="button" className="primary" disabled={release === null || fetching} onClick={() => dispatch({ type: 'goTo', step: 2 })}>
+        <button type="button" className="primary" disabled={!anyEpisodeHasFile(state) || fetching} onClick={() => dispatch({ type: 'goTo', step: 2 })}>
           Next
         </button>
       </div>

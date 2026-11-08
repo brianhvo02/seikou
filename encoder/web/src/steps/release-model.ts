@@ -2,6 +2,7 @@
 /** Pure helpers for step 1: what a fetched release holds, and the sentences the step shows for it and for errors. */
 import { ApiError } from '../api';
 import type { CachedRelease, MatchRow } from '../api-types';
+import type { HelperState, ReleaseSource } from '../helper-model';
 
 /** What a fetched release holds, counted over the files the run's episodes use. */
 export interface ReleaseSummary {
@@ -46,4 +47,24 @@ export function errorText(e: unknown): string {
 /** `n` followed by `word`, with an `s` unless `n` is 1. */
 export function plural(n: number, word: string): string {
   return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
+/** Where a pooled release came from, as its row says it. */
+export function sourceText(source: ReleaseSource): string {
+  return { seadex: 'SeaDex', tosho: 'Anime Tosho', local: 'Your files' }[source];
+}
+
+/** Whether any episode of the state has a file of a pooled release (an episode marked as having none does not count). */
+export function anyEpisodeHasFile(state: Pick<HelperState, 'choices'>): boolean {
+  return Object.values(state.choices).some((c) => c !== 'none');
+}
+
+/**
+ * The sentence for pooled releases that could not be fetched again at a new offset, naming each by its label; they
+ * keep the match they had. Null when none failed.
+ */
+export function refetchNotice(failedLabels: readonly string[]): string | null {
+  if (failedLabels.length === 0) return null;
+  const names = failedLabels.join(', ');
+  return `Could not fetch ${names} again at the new offset. ${failedLabels.length === 1 ? 'It keeps' : 'They keep'} the match from the old offset.`;
 }

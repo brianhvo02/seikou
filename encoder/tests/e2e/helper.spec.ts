@@ -82,7 +82,7 @@ test('pick a show and a release, match, line up, nudge, name a track, save and r
   await expect(page.getByRole('button', { name: /^GroupC/ })).toBeDisabled();
   await expect(page.getByRole('button', { name: /^GroupC/ })).toContainText('Private tracker');
   await page.getByRole('button', { name: /^GroupA/ }).click();
-  await expect(page.getByRole('heading', { name: 'Fetched release' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Releases in use' })).toBeVisible();
   await page.getByRole('button', { name: 'Next' }).click();
 
   // Step 2: both episodes, with AniList's titles

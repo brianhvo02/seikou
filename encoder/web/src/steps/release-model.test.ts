@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import type { CachedRelease, MatchRow } from '../api-types';
-import { releaseSummary } from './release-model';
+import { anyEpisodeHasFile, refetchNotice, releaseSummary, sourceText } from './release-model';
 
 const track = (id: string, path: string, language = 'eng') => ({ id, name: 'Full', language, path, kind: 'full' as const, dialogueLines: 100 });
 
@@ -35,5 +35,27 @@ describe('releaseSummary', () => {
     const s = releaseSummary(groupA, [rows[0]!, { episode: 2, fileId: null, candidates: [] }]);
     expect(s.episodes).toBe(1);
     expect(s.unmatched).toBe(1);
+  });
+});
+
+describe('sourceText', () => {
+  it('names each source', () => {
+    expect(['seadex', 'tosho', 'local'].map((x) => sourceText(x as 'seadex'))).toEqual(['SeaDex', 'Anime Tosho', 'Your files']);
+  });
+});
+
+describe('anyEpisodeHasFile', () => {
+  it('counts a file, not an episode marked none', () => {
+    expect(anyEpisodeHasFile({ choices: {} })).toBe(false);
+    expect(anyEpisodeHasFile({ choices: { 1: 'none' } })).toBe(false);
+    expect(anyEpisodeHasFile({ choices: { 1: 'none', 2: { releaseKey: 'k', fileId: 'f', trackIds: [] } } })).toBe(true);
+  });
+});
+
+describe('refetchNotice', () => {
+  it('names the releases that failed', () => {
+    expect(refetchNotice([])).toBeNull();
+    expect(refetchNotice(['A'])).toBe('Could not fetch A again at the new offset. It keeps the match from the old offset.');
+    expect(refetchNotice(['A', 'B'])).toMatch(/A, B again.*They keep/);
   });
 });

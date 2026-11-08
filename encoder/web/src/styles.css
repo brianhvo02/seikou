@@ -357,7 +357,7 @@ input::placeholder {
 
 .results,
 .releases,
-.per-episode {
+.releases-in-use {
   list-style: none;
   margin: 12px 0 0;
   padding: 0;
@@ -481,16 +481,22 @@ input::placeholder {
   max-width: 100%;
 }
 
-.per-episode li {
+/* releases in use: one ruled row per pooled release, its facts beside a quiet Remove */
+.release-in-use {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
-  padding: 6px 0;
+  gap: 12px;
+  padding: 10px 0 10px 12px;
   border-top: 1px solid var(--rule);
+  border-left: 3px solid var(--accent);
 }
 
-.fetched {
-  border-left: 3px solid var(--accent);
-  padding-left: 12px;
+.in-use-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .step-next {
