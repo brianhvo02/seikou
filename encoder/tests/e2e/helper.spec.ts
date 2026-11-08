@@ -33,6 +33,11 @@ function lineUpEpisode(page: Page, n: number) {
   return page.getByRole('navigation', { name: 'Episodes' }).getByRole('button', { name: new RegExp(`^Episode ${n}\\b`) });
 }
 
+/** Episode `n`'s release-file select in step 2. */
+function fileOf(page: Page, n: number) {
+  return page.getByRole('combobox', { name: new RegExp(`^Release file for Episode ${n}\\b`) });
+}
+
 /** The nudge value step 3 shows. */
 function nudgeValue(page: Page) {
   return page.getByRole('group', { name: 'Nudge the subtitles' }).locator('output');
@@ -83,11 +88,20 @@ test('pick a show and a release, match, line up, nudge, name a track, save and r
   await expect(page.getByRole('button', { name: /^GroupC/ })).toContainText('Private tracker');
   await page.getByRole('button', { name: /^GroupA/ }).click();
   await expect(page.getByRole('heading', { name: 'Releases in use' })).toBeVisible();
+  // a second release joins the pool
+  await page.getByRole('button', { name: /^GroupB/ }).click();
+  await expect(page.getByRole('button', { name: /^Remove .*GroupB/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Remove .*GroupA/ })).toBeVisible();
   await page.getByRole('button', { name: 'Next' }).click();
 
-  // Step 2: both episodes, with AniList's titles
+  // Step 2: both episodes, with AniList's titles; episode 1 takes GroupB's file, episode 2 stays on GroupA's
   await expect(page.getByRole('group', { name: 'Episode 1, Arrival' })).toBeVisible();
   await expect(page.getByRole('group', { name: 'Episode 2, The Lighthouse' })).toBeVisible();
+  await expect(fileOf(page, 1).locator('optgroup')).toHaveCount(2);
+  await expect(fileOf(page, 1).locator('option:checked')).toContainText('[GroupA]');
+  await fileOf(page, 1).selectOption({ label: '[GroupB] Lantern Harbor - 01 (BD 1080p).mkv' });
+  await expect(fileOf(page, 1).locator('option:checked')).toContainText('[GroupB]');
+  await expect(fileOf(page, 2).locator('option:checked')).toContainText('[GroupA]');
   await page.getByRole('button', { name: 'Next' }).click();
 
   // Step 3, episode 1: lined up, playing, nudged a frame later
@@ -118,6 +132,25 @@ test('pick a show and a release, match, line up, nudge, name a track, save and r
   await expect(page.getByRole('heading', { name: 'Episode 2', exact: true })).toBeVisible();
   if (session.toolsReady) await expect(status).toContainText('Could not line up', { timeout: 120_000 });
 
+  // Previous episode returns to episode 1 with its nudge, and is disabled there
+  await page.getByRole('button', { name: 'Previous episode' }).click();
+  await expect(page.getByRole('heading', { name: 'Episode 1', exact: true })).toBeVisible();
+  await expect(nudgeValue(page)).toHaveText('+0.042 s');
+  await expect(page.getByRole('button', { name: 'Previous episode' })).toBeDisabled();
+  await lineUpEpisode(page, 2).click();
+  await expect(page.getByRole('heading', { name: 'Episode 2', exact: true })).toBeVisible();
+
+  // The browser's Back moves between steps: 3 to 2 to 1, then Forward to 2
+  await page.goBack();
+  await expect(page.getByRole('group', { name: 'Episode 1, Arrival' })).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole('heading', { name: 'Releases in use' })).toBeVisible();
+  await page.goForward();
+  await expect(page.getByRole('group', { name: 'Episode 1, Arrival' })).toBeVisible();
+  await expect(fileOf(page, 1).locator('option:checked')).toContainText('[GroupB]');
+  await page.getByRole('navigation', { name: 'Steps' }).getByRole('button', { name: /Line up/ }).click();
+  await lineUpEpisode(page, 2).click();
+
   // Details: rename episode 1's first subtitle track, then save
   await page.getByRole('button', { name: 'Details' }).click();
   const details = page.getByRole('dialog', { name: 'Details' });
@@ -138,14 +171,22 @@ test('pick a show and a release, match, line up, nudge, name a track, save and r
   await page.getByRole('navigation', { name: 'Steps' }).getByRole('button', { name: /Line up/ }).click();
   await lineUpEpisode(page, 1).click();
   await expect(nudgeValue(page)).toHaveText('+0.042 s');
+  await page.getByRole('navigation', { name: 'Steps' }).getByRole('button', { name: /Episodes/ }).click();
+  await expect(fileOf(page, 1).locator('option:checked')).toContainText('[GroupB]');
+  await expect(fileOf(page, 2).locator('option:checked')).toContainText('[GroupA]');
 
   // The record on disk
   const files = recordFiles();
   expect(files).toHaveLength(1);
   expect(files[0]).toMatch(/[\\/]00000\.json$/);
   const record = JSON.parse(readFileSync(files[0]!, 'utf8')) as {
-    episodes: { index: number; tracks: { name: string; nudgeMs: number }[] }[];
+    releases: { id: string; group: string }[];
+    episodes: { index: number; tracks: { name: string; nudgeMs: number; release: string }[] }[];
   };
+  expect(record.releases.map((r) => r.id).sort()).toEqual(['tosho-7001', 'tosho-7002']);
+  const second = record.episodes.find((e) => e.index === 2);
+  for (const track of record.episodes.find((e) => e.index === 1)?.tracks ?? []) expect(track.release).toBe('tosho-7002');
+  for (const track of second?.tracks ?? []) expect(track.release).toBe('tosho-7001');
   const first = record.episodes.find((e) => e.index === 1);
   expect(first?.tracks.length).toBeGreaterThan(0);
   expect(first?.tracks[0]?.name).toBe('Harbor dialogue');

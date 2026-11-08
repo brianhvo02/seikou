@@ -40,7 +40,7 @@ The page the user works in to choose fansub subtitles for a disc's episodes befo
 - `npm run encoder:web:dev` serves the page with hot reload. Start `serve` first and set `SEIKOU_ENCODE_API` to its address; the dev server sends `/api` there. Open the dev page with serve's token as `?t=`.
 - Both serve with COOP/COEP, because Seikou's engine needs `SharedArrayBuffer`.
 - Tests run in the root Vitest `encoder` project (`npx vitest run --project encoder encoder/web`); component tests pick jsdom with a `// @vitest-environment jsdom` comment. Type-checking is `tsconfig.encoder-web.json` (DOM, `vite/client`); the Vite config is checked by `tsconfig.node.json`.
-- `npx playwright test -c playwright.encoder.config.ts` runs the page end to end in installed Chrome (`encoder/tests/e2e/helper.spec.ts`): it builds the page, starts `serve` on the speech disc with recorded answers, and walks the three steps, Details, Save and a reload.
+- `npx playwright test -c playwright.encoder.config.ts` runs the page end to end in installed Chrome (`encoder/tests/e2e/helper.spec.ts`): it builds the page, starts `serve` on the speech disc with recorded answers, and picks two releases, gives episode 1 the second release's file, walks the three steps with Previous episode and the browser's Back and Forward, then Details, Save, a reload that restores both releases and a look at the record on disk.
 
 ## Look
 
