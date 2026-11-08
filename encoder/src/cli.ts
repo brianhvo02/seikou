@@ -148,11 +148,21 @@ async function app(roots: readonly string[], port: number, open: boolean): Promi
 }
 
 /**
+ * The line the first Ctrl-C prints while a job runs, saying what the stop waits for (see `JobRunner.waitingFor`);
+ * null when nothing runs.
+ */
+export function stoppingLine(waitingFor: string | null): string | null {
+  return waitingFor === null ? null : `Stopping: waiting for ${waitingFor} to finish; press Ctrl-C again to quit now.`;
+}
+
+/**
  * Stops the encode queue before the process exits: a running job is cancelled, its tools are waited for, and it is
- * saved as interrupted, so it can be retried on the next start.
+ * saved as interrupted, so it can be retried on the next start. A second Ctrl-C meanwhile quits at once, since the
+ * first one took the only signal listener.
  */
 async function stopRunning(runner: ReturnType<typeof startJobRunner>): Promise<void> {
-  if (runner.list().some((j) => j.state === 'running')) console.log('Stopping the running encode; it can be retried after the next start.');
+  const line = stoppingLine(runner.waitingFor());
+  if (line !== null) console.log(line);
   await runner.shutdown();
 }
 

@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFil
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { bestsourceCacheDir, printEncodeEvent } from '../src/cli';
+import { bestsourceCacheDir, printEncodeEvent, stoppingLine } from '../src/cli';
 import { discKeyOfFolder } from '../src/disc/disc-key';
 import { RecordStore } from '../src/subs/record';
 import { writeEpisodeMkv } from './package/episode-mkv';
@@ -262,6 +262,14 @@ describe('app', () => {
     }
     expect(err.status).toBe(3);
   }, 60_000);
+});
+
+describe('stoppingLine', () => {
+  it('says what the first Ctrl-C waits for, and nothing when no job runs', () => {
+    expect(stoppingLine('the tool chain')).toBe('Stopping: waiting for the tool chain to finish; press Ctrl-C again to quit now.');
+    expect(stoppingLine('packaging episode 3')).toBe('Stopping: waiting for packaging episode 3 to finish; press Ctrl-C again to quit now.');
+    expect(stoppingLine(null)).toBeNull();
+  });
 });
 
 describe('bestsourceCacheDir', () => {

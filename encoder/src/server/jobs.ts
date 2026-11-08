@@ -785,6 +785,18 @@ export class JobRunner {
     }
   }
 
+  /**
+   * What stopping the runner now waits for: `packaging episode <n>` while an episode's web package is made, `the tool
+   * chain` while the encoding tools run, and null when no job runs.
+   */
+  waitingFor(): string | null {
+    const job = this.current?.job;
+    if (job === undefined) return null;
+    const ep = job.episodes.find((e) => e.state === 'running');
+    if (job.kind === 'encode' && ep !== undefined && ep.encoded && job.settings.web) return `packaging episode ${ep.index}`;
+    return 'the tool chain';
+  }
+
   /** The job with `id`, or a 404 `JobError`. */
   private find(id: string): Job {
     const job = this.jobs.find((j) => j.id === id);

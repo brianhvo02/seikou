@@ -429,6 +429,21 @@ describe('the job runner', () => {
     expect(existsSync(join(outRoot, 'a', 'ep-01.mkv.partial'))).toBe(false);
   });
 
+  it('says what a stop waits for: the tool chain, or packaging an episode', async () => {
+    const runner = startJobRunner(fx.app, deps());
+    await runner.ready;
+    expect(runner.waitingFor()).toBeNull();
+    await runner.add(input({ settings: settings({ web: true }) }));
+    const call = await fake.next();
+    expect(runner.waitingFor()).toBe('the tool chain');
+    const path = nameOf(call.options, 1);
+    renameSync(`${path}.partial`, path);
+    call.onEvent({ kind: 'progress', episode: 1, message: '', framesDone: 100, frames: 100 });
+    expect(runner.waitingFor()).toBe('packaging episode 1');
+    await runner.shutdown();
+    expect(runner.waitingFor()).toBeNull();
+  });
+
   it('a damaged jobs.json is never overwritten', async () => {
     writeFileSync(join(fx.dataDir, 'jobs.json'), '{ "jobs": [ broken');
     const logged: string[] = [];
