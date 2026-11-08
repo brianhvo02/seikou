@@ -246,10 +246,25 @@ describe('SaveBar', () => {
     const select = (await screen.findAllByRole('combobox'))[0] as HTMLSelectElement;
     // the user takes episode 1 out of release A
     fireEvent.change(select, { target: { value: '' } });
-    const before = select.value;
+    expect(select.value).toBe('');
     fireEvent.click(screen.getByRole('button', { name: `Fetch ${release.label} again` }));
     await waitFor(() => expect(screen.queryByRole('button', { name: `Fetch ${release.label} again` })).toBeNull());
-    expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe(before);
-    expect(screen.getAllByRole('combobox')).toHaveLength(2);
+    // episode 1 stays empty (no fill from the fetched release); episode 2 gets release B's file back
+    expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('');
+    expect((screen.getAllByRole('combobox')[1] as HTMLSelectElement).value).toBe(JSON.stringify(['tosho-8', '12']));
+  });
+
+  it('turns Save back on when the episodes that needed the missing release get other files', async () => {
+    const api = fakeApi({
+      record: vi.fn(async () => ({ record: twoRecord, missing: [{ id: 'tosho-8', release: release.label, files: ['releases/tosho-8/12-t1.ass'] }] })),
+      release: answerFor(release),
+    });
+    render(<App api={api} />);
+    await screen.findByRole('button', { name: `Fetch ${release.label} again` });
+    expect(saveButton().disabled).toBe(true);
+    fireEvent.click(stepButton(/Episodes/));
+    const select = (await screen.findAllByRole('combobox'))[1] as HTMLSelectElement;
+    fireEvent.change(select, { target: { value: JSON.stringify(['tosho-7', '12']) } });
+    await waitFor(() => expect(saveButton().disabled).toBe(false));
   });
 });

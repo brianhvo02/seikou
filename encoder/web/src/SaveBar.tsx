@@ -54,7 +54,7 @@ function toshoIdOf(key: string): number | null {
  * some of its cached files are gone, it names each such release and offers "Fetch <release> again", which
  * fetches it from Anime Tosho, puts it back in the pool and restores the saved choices of the episodes that use it
  * (`restoreRelease`), leaving the rest of the page as the user has it; the user's own
- * files cannot be fetched, so it asks to add them again. While a release the saved episodes use is missing and not back in the pool, Save
+ * files cannot be fetched, so it asks to add them again. While an episode with no file now had tracks from a saved release that is missing and not back in the pool, Save
  * is off, because it would write the record without its tracks. Save writes `toRecord` of the state and
  * answers "Saved at <time>" or the server's message. Renders the button row (with `children` first) and, below it,
  * the status and any missing release.
@@ -131,7 +131,7 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
   const fetchAgain = async (record: SubtitleRecord, gone: RecordRelease, toshoId: number) => {
     setFetching(gone.id);
     try {
-      const release = await api.fetchRelease(toshoId, record.anilist?.episodeOffset ?? 0);
+      const release = await api.fetchRelease(toshoId, state.episodeOffset);
       dispatch({ type: 'restoreRelease', record, release, disc: episodes });
       setMissing((m) => m.filter((x) => x.id !== gone.id));
       setGoneIds((ids) => ids.filter((id) => id !== gone.id));
@@ -148,7 +148,10 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
   const missingOf = (r: RecordRelease): number => missing.filter((m) => m.id === r.id).reduce((n, m) => n + m.files.length, 0);
   const gone = (saved?.releases ?? []).filter((r) => (goneIds.includes(r.id) && releaseOf(state, r.id) === null) || missingOf(r) > 0);
   // saving now would write no tracks for the episodes that used a release that is not in the pool
-  const blocked = gone.some((r) => releaseOf(state, r.id) === null && saved?.episodes.some((e) => e.tracks.some((t) => t.release === r.id)));
+  // (an episode the user has since given another file or marked none no longer counts)
+  const blocks = (r: RecordRelease): boolean =>
+    releaseOf(state, r.id) === null && (saved?.episodes.some((e) => state.choices[e.index] === undefined && e.tracks.some((t) => t.release === r.id)) ?? false);
+  const blocked = gone.some(blocks);
 
   return (
     <>
@@ -176,7 +179,7 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
                       ? `${files} ${files === 1 ? 'file' : 'files'} of ${r.label} ${files === 1 ? 'is' : 'are'} gone from the helper's cache.`
                       : `${r.label} is gone from the helper's cache.`}{' '}
                     {toshoId === null ? 'These were your own files. Add them again in step 1.' : 'Fetch it again to use the saved choices.'}
-                    {blocked && releaseOf(state, r.id) === null && ' Saving is off until the release is back, so the saved choices are not overwritten.'}
+                    {blocks(r) && ' Saving is off until the release is back, so the saved choices are not overwritten.'}
                   </p>
                   {toshoId !== null && (
                     <button type="button" className="quiet" disabled={fetching !== null} onClick={() => void fetchAgain(saved, r, toshoId)}>

@@ -525,6 +525,15 @@ describe('restoreRelease', () => {
     expect(after.dirty).toBe(true);
   });
 
+  it('keeps a pick the user made while the release was missing', () => {
+    const record = toRecord(saved(), session, episodes);
+    const current = run(fromRecord(record, [releaseB], episodes), { type: 'chooseFile', episode: 1, releaseKey: 'tosho-8', fileId: '11' });
+    const after = reduce(current, { type: 'restoreRelease', record, release, disc: episodes });
+    expect(after.choices[1]).toEqual(current.choices[1]);
+    expect(after.timing[1]).toBe(current.timing[1]);
+    expect(after.metadata.episodes[1]).toBe(current.metadata.episodes[1]);
+  });
+
   it('keeps what an episode had when its saved tracks are not in the fetched release', () => {
     const record = toRecord(saved(), session, episodes);
     const current = fromRecord(record, [releaseB], episodes);

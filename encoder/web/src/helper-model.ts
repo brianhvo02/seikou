@@ -116,7 +116,7 @@ export type HelperAction =
   /**
    * Puts a release the saved `record` names back at the end of the pool (in place when it is already there) after it
    * was fetched again, without giving it to other episodes, and restores the record's
-   * choices for the episodes whose tracks come from it: their file, tracks, timing and drafted tracks. Everything else
+   * choices for the episodes whose tracks come from it and that have no choice now (a pick made meanwhile, `none` included, stays): their file, tracks, timing and drafted tracks. Everything else
    * stays as it is: the other pooled releases, other episodes' choices and timings, and the metadata the user edited.
    * An episode whose saved tracks are not in the fetched release keeps what it had. `disc` is the run's episodes
    * answer, as `fromRecord` takes it.
@@ -327,7 +327,7 @@ function restoreRelease(state: HelperState, record: SubtitleRecord, release: Rel
   for (const e of record.episodes) {
     if (e.tracks[0]?.release !== release.key) continue;
     const choice = restored.choices[e.index];
-    if (choice === undefined) continue;
+    if (choice === undefined || next.choices[e.index] !== undefined) continue;
     next = { ...next, choices: { ...next.choices, [e.index]: choice }, timing: restored.timing[e.index] ? { ...next.timing, [e.index]: restored.timing[e.index]! } : without(next.timing, e.index) };
     const draft = drafts[e.index];
     const saved = restored.metadata.episodes[e.index];
