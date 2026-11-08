@@ -2,9 +2,11 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { HelperApi } from './api';
 import type { EpisodesAnswer, SessionInfo } from './api-types';
-import { canEnter, initialState, reduce, toRecord, type HelperAction, type HelperState, type Step } from './helper-model';
-import { defaultMetadata } from './metadata/metadata-model';
+import { useEpisodeTitles } from './episode-titles';
+import { canEnter, initialState, metadataDefaults, reduce, type Step } from './helper-model';
+import { MetadataPanel } from './metadata/MetadataPanel';
 import { useController } from './player/use-controller';
+import { SaveBar } from './SaveBar';
 import { STEP_NAMES, StepBar } from './StepBar';
 import { LineUpStep, type LineUpStepProps } from './steps/LineUpStep';
 import { MatchStep } from './steps/MatchStep';
@@ -27,57 +29,12 @@ function episodeCount(spec: string): number {
   return spec.split(',').filter((t) => t.trim() !== '').length;
 }
 
-/** The state the page starts from once the run is known: nothing picked, the metadata at its defaults. */
-function startingState(episodes: EpisodesAnswer): HelperState {
-  const metadata = defaultMetadata({
-    show: null,
-    episodes: episodes.episodes.map((e) => ({ index: e.index, title: null, chapterCount: e.chapters.length })),
-    audio: episodes.audio,
-    tracks: {},
-  });
-  return { ...initialState(), metadata };
-}
-
 /** The guidance each step shows until its own screen is in place. */
 const STEP_HINTS: Readonly<Record<Step, string>> = {
   1: 'Search AniList for the show, then pick a release from SeaDex, search Anime Tosho, or add your own files.',
   2: 'Check which release file goes with each episode, and which of its tracks to keep.',
   3: "Line each episode's subtitles up with the disc's audio and check them in the player.",
 };
-
-/** The Details sheet: names and languages written into each episode's file. */
-function DetailsPanel({ state, onClose }: { state: HelperState; onClose: () => void }) {
-  const closeRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    closeRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
-  const episodes = Object.values(state.metadata.episodes).sort((a, b) => a.index - b.index);
-  return (
-    <div className="sheet-backdrop" onClick={onClose}>
-      <aside className="sheet" role="dialog" aria-modal="true" aria-labelledby="details-heading" onClick={(e) => e.stopPropagation()}>
-        <header className="sheet-head">
-          <h2 id="details-heading">Details</h2>
-          <button ref={closeRef} type="button" className="quiet" aria-label="Close details" onClick={onClose}>
-            Close
-          </button>
-        </header>
-        <p className="muted">The titles, track names and languages written into each episode's file.</p>
-        <ol className="episode-titles">
-          {episodes.map((e) => (
-            <li key={e.index} className="num">
-              {e.title}
-            </li>
-          ))}
-        </ol>
-      </aside>
-    </div>
-  );
-}
 
 /** Step 3 with the page's engine, which is made only once the step is first shown. */
 function LineUpScreen(props: Omit<LineUpStepProps, 'controller'>) {
@@ -87,15 +44,14 @@ function LineUpScreen(props: Omit<LineUpStepProps, 'controller'>) {
 
 /**
  * The helper page: a header with the disc's name, the step bar, Details and Save for encoding, and below it the step
- * on screen. It asks the backend for the session and the episodes on mount; a failure shows as an alert.
+ * on screen. It asks the backend for the session and the episodes on mount (a failure shows as an alert), and keeps
+ * the metadata draft's defaults in step with the show, the release, the chosen tracks and AniList's episode titles.
  */
 export function App({ api }: AppProps) {
   const [state, dispatch] = useReducer(reduce, initialState());
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [saveStatus, setSaveStatus] = useState<{ ok: boolean; text: string } | null>(null);
-  const [saving, setSaving] = useState(false);
   const detailsButton = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -104,7 +60,6 @@ export function App({ api }: AppProps) {
       ([session, episodes]) => {
         if (!live) return;
         setLoaded({ session, episodes });
-        dispatch({ type: 'load', state: startingState(episodes) });
       },
       (e: unknown) => {
         if (live) setLoadError(e instanceof Error ? e.message : String(e));
@@ -120,20 +75,16 @@ export function App({ api }: AppProps) {
     detailsButton.current?.focus();
   }, []);
 
-  const save = async () => {
-    if (!loaded) return;
-    setSaving(true);
-    try {
-      const stored = await api.saveRecord(toRecord(state, loaded.session, loaded.episodes));
-      dispatch({ type: 'saved' } satisfies HelperAction);
-      const time = new Date(stored.savedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      setSaveStatus({ ok: true, text: `Saved at ${time}` });
-    } catch (e) {
-      setSaveStatus({ ok: false, text: e instanceof Error ? e.message : String(e) });
-    } finally {
-      setSaving(false);
-    }
-  };
+  // the metadata defaults follow the show, the release, the chosen tracks and AniList's episode titles; the fields
+  // the user edited keep their values
+  const titles = useEpisodeTitles(api, state.title?.alId ?? null);
+  const { title, release, match, choices } = state;
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  useEffect(() => {
+    if (loaded === null) return;
+    dispatch({ type: 'fillDefaults', defaults: metadataDefaults(stateRef.current, loaded.episodes, titles) });
+  }, [loaded, title, release, match, choices, titles]);
 
   const session = loaded?.session;
   const count = session ? episodeCount(session.episodeSpec) : 0;
@@ -151,20 +102,12 @@ export function App({ api }: AppProps) {
         </div>
         <div className="bar">
           <StepBar step={state.step} canEnter={(s) => canEnter(state, s)} onSelect={(s) => dispatch({ type: 'goTo', step: s })} />
-          <div className="actions">
+          <SaveBar api={api} state={state} dispatch={dispatch} session={loaded?.session ?? null} episodes={loaded?.episodes ?? null}>
             <button ref={detailsButton} type="button" className="quiet" disabled={!loaded} onClick={() => setDetailsOpen(true)}>
               Details
             </button>
-            <button type="button" className="primary" disabled={!loaded || saving} onClick={() => void save()}>
-              Save for encoding
-            </button>
-          </div>
+          </SaveBar>
         </div>
-        {saveStatus && (
-          <p className={saveStatus.ok ? 'save-status muted' : 'save-status error'} role="status">
-            {saveStatus.text}
-          </p>
-        )}
       </header>
 
       <main className="content">
@@ -186,7 +129,7 @@ export function App({ api }: AppProps) {
         )}
       </main>
 
-      {detailsOpen && <DetailsPanel state={state} onClose={closeDetails} />}
+      {detailsOpen && loaded && <MetadataPanel state={state} dispatch={dispatch} episodes={loaded.episodes} onClose={closeDetails} />}
     </div>
   );
 }

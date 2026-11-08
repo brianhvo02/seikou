@@ -46,6 +46,9 @@ type LineUp =
 /** What the step says when lining up cannot run on this machine. */
 const TOOLS_MESSAGE = "Lining up needs VapourSynth with BestSource, which this machine does not have. The preview uses the release's own timing.";
 
+/** Input types that take no typed text, so the nudge keys still work while one of them has focus. */
+const NOT_TYPED_INTO = new Set(['radio', 'checkbox', 'range', 'button', 'submit', 'reset', 'color', 'file', 'image']);
+
 /** A name the engine accepts as an ASS file: the track's name with path separators taken out. */
 function trackFileName(episode: number, name: string, id: string): string {
   const base = (name.trim() || `Track ${id}`).replace(/[\\/]/g, ' ');
@@ -213,8 +216,9 @@ export function LineUpStep({ api, state, dispatch, session, episodes, controller
     const onKey = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const t = e.target;
-      if (t instanceof HTMLInputElement && t.type !== 'range') return;
+      if (t instanceof HTMLInputElement && !NOT_TYPED_INTO.has(t.type)) return;
       if (t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement) return;
+      if (t instanceof HTMLElement && t.isContentEditable) return;
       const delta = nudgeForKey(e.key);
       if (delta === null) return;
       e.preventDefault();

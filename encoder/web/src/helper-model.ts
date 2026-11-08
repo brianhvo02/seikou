@@ -16,7 +16,15 @@ import type {
   SubtitleRecord,
   TitleHit,
 } from './api-types';
-import { defaultMetadata, defaultTrack, type EpisodeDraft, type MetadataDraft, type TrackDraft } from './metadata/metadata-model';
+import {
+  defaultMetadata,
+  defaultTrack,
+  mergeDefaults,
+  type DefaultTrackInput,
+  type EpisodeDraft,
+  type MetadataDraft,
+  type TrackDraft,
+} from './metadata/metadata-model';
 
 /** The page's three steps, in order: pick a release, match episodes, line up. */
 export type Step = 1 | 2 | 3;
@@ -61,13 +69,14 @@ export interface HelperState {
   readonly dirty: boolean;
 }
 
-/** What can happen to the state. Every action but `goTo`, `load` and `saved` marks the state dirty. */
+/** What can happen to the state. Every action but `goTo`, `load`, `saved` and `fillDefaults` marks the state dirty. */
 export type HelperAction =
   /** Moves to a step, when `canEnter` allows it. */
   | { readonly type: 'goTo'; readonly step: Step }
   /**
    * Picks the show (null clears it). A different show drops a release that came from the old show's SeaDex list,
-   * with its match, choices and timings; a release from an Anime Tosho search or the user's own files is kept.
+   * with its match, choices and timings; a release from an Anime Tosho search or the user's own files is kept. A
+   * different show also forgets the old show's episode titles in the metadata draft.
    */
   | { readonly type: 'setTitle'; readonly title: TitleHit | null }
   /** Sets the episode offset; the caller fetches the release again at the new offset and sends `setRelease`. */
@@ -90,8 +99,13 @@ export type HelperAction =
   | { readonly type: 'skip'; readonly episode: number }
   /** Drops the shift found for an episode and uses the release's own timing, keeping the nudge. */
   | { readonly type: 'useOriginal'; readonly episode: number }
-  /** Replaces the metadata draft. */
+  /** Replaces the metadata draft, as the user edited it. */
   | { readonly type: 'setMetadata'; readonly metadata: MetadataDraft }
+  /**
+   * Puts fresh defaults (`metadataDefaults`) into the fields of the metadata draft the user has not edited
+   * (`mergeDefaults`). Filling defaults is not a change the user made, so it leaves `dirty` as it is.
+   */
+  | { readonly type: 'fillDefaults'; readonly defaults: MetadataDraft }
   /** Replaces the whole state, such as one restored by `fromRecord`. */
   | { readonly type: 'load'; readonly state: HelperState }
   /** Notes a successful save: the state is no longer dirty. */
@@ -146,6 +160,13 @@ function defaultChoices(release: CachedRelease, rows: readonly MatchRow[]): Reco
   return choices;
 }
 
+/** The draft without AniList's episode titles, which belong to the show they were asked for. */
+function withoutEpisodeTitles(metadata: MetadataDraft): MetadataDraft {
+  const episodes: Record<number, EpisodeDraft> = {};
+  for (const e of Object.values(metadata.episodes)) episodes[e.index] = { ...e, episodeTitle: '' };
+  return { ...metadata, episodes };
+}
+
 /** The timing an episode has, or the release's own timing when it was never lined up. */
 function timingOf(state: HelperState, episode: number): EpisodeTiming {
   return state.timing[episode] ?? { alignment: { kind: 'original' }, nudgeMs: 0, accepted: false };
@@ -159,9 +180,12 @@ function apply(state: HelperState, action: HelperAction): HelperState {
       return action.state;
     case 'saved':
       return { ...state, dirty: false };
-    case 'setTitle':
-      if (action.title?.alId === state.title?.alId || state.releaseSource !== 'seadex') return { ...state, title: action.title };
-      return { ...state, title: action.title, release: null, releaseSource: null, match: [], choices: {}, timing: {} };
+    case 'setTitle': {
+      if (action.title?.alId === state.title?.alId) return { ...state, title: action.title };
+      const metadata = withoutEpisodeTitles(state.metadata);
+      if (state.releaseSource !== 'seadex') return { ...state, title: action.title, metadata };
+      return { ...state, title: action.title, metadata, release: null, releaseSource: null, match: [], choices: {}, timing: {} };
+    }
     case 'setOffset':
       return { ...state, episodeOffset: action.offset };
     case 'setRelease': {
@@ -194,6 +218,10 @@ function apply(state: HelperState, action: HelperAction): HelperState {
       return { ...state, timing: { ...state.timing, [action.episode]: { ...timingOf(state, action.episode), alignment: { kind: 'original' } } } };
     case 'setMetadata':
       return { ...state, metadata: action.metadata };
+    case 'fillDefaults': {
+      const metadata = mergeDefaults(state.metadata, action.defaults);
+      return metadata === state.metadata ? state : { ...state, metadata };
+    }
   }
 }
 
@@ -203,9 +231,42 @@ function apply(state: HelperState, action: HelperAction): HelperState {
  */
 export function reduce(state: HelperState, action: HelperAction): HelperState {
   let next = apply(state, action);
-  if (action.type !== 'goTo' && action.type !== 'load' && action.type !== 'saved' && next !== state) next = { ...next, dirty: true };
+  const quiet = action.type === 'goTo' || action.type === 'load' || action.type === 'saved' || action.type === 'fillDefaults';
+  if (!quiet && next !== state) next = { ...next, dirty: true };
   while (next.step > 1 && !canEnter(next, next.step)) next = { ...next, step: (next.step - 1) as Step };
   return next;
+}
+
+/** The chosen tracks of an episode as `defaultMetadata` takes them, in the matched file's order. */
+function chosenTrackInputs(state: HelperState, episode: number): DefaultTrackInput[] {
+  const choice = state.choices[episode];
+  const file = fileOf(state, episode);
+  if (choice === undefined || choice === 'none' || file === null) return [];
+  const group = state.release?.group ?? '';
+  return file.tracks.filter((t) => choice.trackIds.includes(t.id)).map((t) => ({ ...t, group, key: t.path }));
+}
+
+/**
+ * The metadata defaults for the state as it is now: the MKV titles from the show and AniList's episode titles, the
+ * disc's audio streams and chapters, and each episode's chosen tracks. `titles` is AniList's answer for the state's
+ * show, keyed by episode number, or null while it is not known (not asked yet, still on its way, or failed): then
+ * each episode keeps the AniList title its draft already has, such as one restored from a record. Without a show
+ * there are no episode titles. Give the result to the `fillDefaults` action.
+ */
+export function metadataDefaults(state: HelperState, episodes: EpisodesAnswer, titles: Readonly<Record<number, string>> | null): MetadataDraft {
+  const titleOf = (index: number): string | null => {
+    if (state.title === null) return null;
+    const title = titles === null ? state.metadata.episodes[index]?.episodeTitle : titles[index];
+    return title === undefined || title === '' ? null : title;
+  };
+  const tracks: Record<number, DefaultTrackInput[]> = {};
+  for (const e of episodes.episodes) tracks[e.index] = chosenTrackInputs(state, e.index);
+  return defaultMetadata({
+    show: state.title?.title ?? null,
+    episodes: episodes.episodes.map((e) => ({ index: e.index, title: titleOf(e.index), chapterCount: e.chapters.length })),
+    audio: episodes.audio,
+    tracks,
+  });
 }
 
 /** The shift and split a track saves for an alignment: the offset as the shift, a split's parts, zero otherwise. */
@@ -247,12 +308,7 @@ function recordTracks(state: HelperState, episode: number, draft: EpisodeDraft |
  * for an episode the panel has no draft of. `savedAt` is left empty for the server to set.
  */
 export function toRecord(state: HelperState, session: SessionInfo, episodes: EpisodesAnswer): SubtitleRecord {
-  const defaults = defaultMetadata({
-    show: state.title?.title ?? null,
-    episodes: episodes.episodes.map((e) => ({ index: e.index, title: null, chapterCount: e.chapters.length })),
-    audio: episodes.audio,
-    tracks: {},
-  });
+  const defaults = metadataDefaults(state, episodes, null);
   const recordEpisodes = episodes.episodes.map((e): RecordEpisode => {
     const draft = state.metadata.episodes[e.index];
     const meta = draft ?? defaults.episodes[e.index]!;
@@ -288,15 +344,48 @@ function restoredAlignment(track: RecordTrack): FansubAlignment {
   return { kind: 'original' };
 }
 
+/** The AniList episode title a record episode holds: its `title`, unless that is the `Episode n` stand-in. */
+function savedEpisodeTitle(e: RecordEpisode): string {
+  return e.title === `Episode ${e.index}` ? '' : e.title;
+}
+
+/** Whether two plain values differ. */
+function differs(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) !== JSON.stringify(b);
+}
+
+/**
+ * The metadata the page would have proposed for a record episode: the defaults built from the record's show and
+ * episode title, the disc's audio streams (the record's own, in its order, when `disc` is not known), the episode's
+ * chapter count and the given tracks.
+ */
+function recordDefaults(record: SubtitleRecord, e: RecordEpisode, disc: Pick<EpisodesAnswer, 'audio'> | null, tracks: readonly DefaultTrackInput[]): EpisodeDraft {
+  const audio = disc?.audio ?? e.metadata.audio.map((a) => ({ pid: a.pid, language: a.language }));
+  const draft = defaultMetadata({
+    show: record.anilist?.title ?? null,
+    episodes: [{ index: e.index, title: savedEpisodeTitle(e) || null, chapterCount: e.metadata.chapters.length }],
+    audio,
+    tracks: { [e.index]: tracks },
+  });
+  return draft.episodes[e.index]!;
+}
+
 /**
  * The state a saved record stands for, on step 1 and not dirty. `release` is the record's release as the backend
  * answers it now (`HelperApi.release(record.release.id, offset)`); with it, each episode's file and tracks are found
- * again by their paths, and an episode saved without tracks is marked as having none. Without it (or when its key is
- * not the record's) the release, match and choices stay empty, while the show, timings and metadata are restored.
- * A timing with no shift, split or nudge is not restored, so that episode is lined up again; whether it was `none`
- * or `original` is not saved.
+ * again by their paths. An episode saved without tracks is marked as having none; one whose saved tracks are no
+ * longer in the release is left with nothing chosen, so step 2 asks about it again. Without the release (or when its
+ * key is not the record's) the release, match and choices stay empty, while the show, timings and metadata are
+ * restored. A timing with no shift, split or nudge is not restored, so that episode is lined up again; whether it was
+ * `none` or `original` is not saved.
+ *
+ * Only the metadata fields that differ from what the page would propose for them are marked edited, so a restored
+ * record still takes new defaults (such as AniList's episode titles arriving) where the user changed nothing. `disc`
+ * is the run's episodes answer, whose audio streams are the defaults to compare with; without it the record's own
+ * stream languages stand in. A track list is compared only when its file is found in `release`, and counts as
+ * edited otherwise.
  */
-export function fromRecord(record: SubtitleRecord, release: ReleaseAnswer | null = null): HelperState {
+export function fromRecord(record: SubtitleRecord, release: ReleaseAnswer | null = null, disc: Pick<EpisodesAnswer, 'audio'> | null = null): HelperState {
   const usable = release !== null && record.release !== null && release.key === record.release.id ? release : null;
   const base = initialState();
   const title: TitleHit | null = record.anilist
@@ -321,24 +410,34 @@ export function fromRecord(record: SubtitleRecord, release: ReleaseAnswer | null
       timing[e.index] = { alignment: restoredAlignment(first), nudgeMs: first.nudgeMs, accepted: true };
     }
     const tracks: TrackDraft[] = e.tracks.map((t) => ({ key: t.file, kind: t.kind, name: t.name, language: t.language, included: t.included }));
-    episodes[e.index] = {
+    const draft: EpisodeDraft = {
       index: e.index,
-      episodeTitle: e.title,
+      episodeTitle: savedEpisodeTitle(e),
       title: e.metadata.title,
       video: { ...e.metadata.video },
       audio: e.metadata.audio.map((a) => ({ ...a })),
       chapters: [...e.metadata.chapters],
       tracks,
     };
-    for (const field of ['title', 'video', 'audio', 'chapters', 'tracks']) edited.add(`episodes.${e.index}.${field}`);
+    episodes[e.index] = draft;
+
+    const paths = new Set(e.tracks.map((t) => t.file));
+    const file = cached?.files.find((f) => f.tracks.some((t) => paths.has(t.path))) ?? null;
+    const group = cached?.group ?? '';
+    const fileTracks = file === null ? null : file.tracks.filter((t) => paths.has(t.path)).map((t) => ({ ...t, group, key: t.path }));
+    const defaults = recordDefaults(record, e, disc, fileTracks ?? []);
+    if (draft.title !== defaults.title) edited.add(`episodes.${e.index}.title`);
+    if (differs(draft.video, defaults.video)) edited.add(`episodes.${e.index}.video`);
+    if (differs(draft.audio, defaults.audio)) edited.add(`episodes.${e.index}.audio`);
+    if (differs(draft.chapters, defaults.chapters)) edited.add(`episodes.${e.index}.chapters`);
+    if (fileTracks === null ? tracks.length > 0 : differs(tracks, defaults.tracks)) edited.add(`episodes.${e.index}.tracks`);
 
     if (cached === null) continue;
-    const paths = new Set(e.tracks.map((t) => t.file));
-    const file = cached.files.find((f) => f.tracks.some((t) => paths.has(t.path)));
-    if (!file) {
+    if (e.tracks.length === 0) {
       choices[e.index] = 'none';
       continue;
     }
+    if (file === null) continue;
     match = match.map((r) => (r.episode === e.index ? { ...r, fileId: file.id } : r));
     choices[e.index] = { trackIds: file.tracks.filter((t) => paths.has(t.path)).map((t) => t.id) };
   }

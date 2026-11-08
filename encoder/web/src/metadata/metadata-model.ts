@@ -29,11 +29,11 @@ export interface EpisodeDraft {
   readonly title: string;
   /** Name and three-letter language of the video track. */
   readonly video: { readonly name: string; readonly language: string };
-  /** Audio streams in MKV order; the first carries the default flag. */
+  /** Audio streams in MKV order; the panel marks the first ticked one as the default. */
   readonly audio: readonly RecordAudio[];
   /** Chapter names in chapter order. */
   readonly chapters: readonly string[];
-  /** Subtitle tracks in MKV order; the first of each kind carries the default flag. */
+  /** Subtitle tracks in MKV order; the panel marks the first ticked one as the default. */
   readonly tracks: readonly TrackDraft[];
 }
 
@@ -146,4 +146,98 @@ export function defaultMetadata(input: DefaultMetadataInput): MetadataDraft {
     };
   }
   return { episodes, edited: new Set() };
+}
+
+/**
+ * A copy of `list` with the item at `from` moved to `to`, the items between shifting by one. `to` is kept inside the
+ * list; a `from` outside it moves nothing. `list` is never changed.
+ */
+export function move<T>(list: readonly T[], from: number, to: number): T[] {
+  const copy = [...list];
+  if (!Number.isInteger(from) || from < 0 || from >= copy.length) return copy;
+  const target = Math.min(Math.max(Math.trunc(to), 0), copy.length - 1);
+  const [item] = copy.splice(from, 1);
+  copy.splice(target, 0, item as T);
+  return copy;
+}
+
+/** The fields of an episode draft that a path can name, each tracked as one unit in `MetadataDraft.edited`. */
+const EDITABLE_FIELDS = new Set(['title', 'video', 'audio', 'chapters', 'tracks']);
+
+/** `target` with `value` at `keys`, copying every object and array on the way; `target` is never changed. */
+function setIn(target: unknown, keys: readonly string[], value: unknown): unknown {
+  if (keys.length === 0) return value;
+  const [key, ...rest] = keys as [string, ...string[]];
+  if (Array.isArray(target)) {
+    const index = Number(key);
+    if (!Number.isInteger(index) || index < 0 || index >= target.length) throw new Error(`no item ${key} in the list`);
+    const copy = [...target];
+    copy[index] = setIn(copy[index], rest, value);
+    return copy;
+  }
+  if (typeof target !== 'object' || target === null || !(key in target)) throw new Error(`no field ${key}`);
+  const record = target as Record<string, unknown>;
+  return { ...record, [key]: setIn(record[key], rest, value) };
+}
+
+/**
+ * The draft with `value` set at `path` by the user, such as `episodes.1.title`, `episodes.1.chapters.0` or
+ * `episodes.2.tracks` (a whole list, for a reorder or a tick). The episode's field the path falls in
+ * (`episodes.<n>.<field>`, one of title, video, audio, chapters, tracks) is marked edited, so `mergeDefaults` keeps
+ * it from then on. Throws for a path that names no field of the draft; `draft` is never changed.
+ */
+export function withUserEdit(draft: MetadataDraft, path: string, value: unknown): MetadataDraft {
+  const keys = path.split('.');
+  const [root, index, field] = keys;
+  if (root !== 'episodes' || index === undefined || field === undefined || !EDITABLE_FIELDS.has(field)) {
+    throw new Error(`not an editable metadata path: ${path}`);
+  }
+  const episode = draft.episodes[Number(index)];
+  if (episode === undefined) throw new Error(`no episode ${index} in the draft`);
+  const changed = setIn(episode, keys.slice(2), value) as EpisodeDraft;
+  const edited = new Set(draft.edited);
+  edited.add(`episodes.${episode.index}.${field}`);
+  return { episodes: { ...draft.episodes, [episode.index]: changed }, edited };
+}
+
+/** `edited` reconciled with `defaults` by `keyOf`: edited items still in the defaults, in their order, then new ones. */
+function reconcile<T>(edited: readonly T[], defaults: readonly T[], keyOf: (item: T) => string | number): T[] {
+  const wanted = new Set(defaults.map(keyOf));
+  const kept = edited.filter((item) => wanted.has(keyOf(item)));
+  const seen = new Set(kept.map(keyOf));
+  return [...kept, ...defaults.filter((item) => !seen.has(keyOf(item)))];
+}
+
+/** Whether two values are the same; drafts hold only plain data. */
+function same(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** One episode's draft after `mergeDefaults`. */
+function mergeEpisode(draft: EpisodeDraft | undefined, defaults: EpisodeDraft, edited: ReadonlySet<string>): EpisodeDraft {
+  if (draft === undefined) return defaults;
+  const isEdited = (field: string) => edited.has(`episodes.${defaults.index}.${field}`);
+  return {
+    index: defaults.index,
+    episodeTitle: defaults.episodeTitle,
+    title: isEdited('title') ? draft.title : defaults.title,
+    video: isEdited('video') ? draft.video : defaults.video,
+    audio: isEdited('audio') ? reconcile(draft.audio, defaults.audio, (a) => a.pid) : defaults.audio,
+    chapters: isEdited('chapters') ? defaults.chapters.map((name, i) => draft.chapters[i] ?? name) : defaults.chapters,
+    tracks: isEdited('tracks') ? reconcile(draft.tracks, defaults.tracks, (t) => t.key) : defaults.tracks,
+  };
+}
+
+/**
+ * The draft with fresh defaults (from `defaultMetadata`, built again whenever the show, the release, the chosen
+ * tracks or the episode titles change) put into every field the user has not edited. An edited title or video is
+ * kept as it is; edited audio and track lists keep their order, names and ticks for the streams and tracks the
+ * defaults still list, drop the others and add new ones at the end; edited chapters keep their names for the
+ * chapters the episode still has. The episode titles and the set of episodes always follow the defaults. Answers
+ * `draft` itself when nothing changes, so a caller can tell that nothing did.
+ */
+export function mergeDefaults(draft: MetadataDraft, defaults: MetadataDraft): MetadataDraft {
+  const episodes: Record<number, EpisodeDraft> = {};
+  for (const d of Object.values(defaults.episodes)) episodes[d.index] = mergeEpisode(draft.episodes[d.index], d, draft.edited);
+  return same(episodes, draft.episodes) ? draft : { episodes, edited: draft.edited };
 }

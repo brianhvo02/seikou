@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { useEffect, useState, type Dispatch } from 'react';
+import type { Dispatch } from 'react';
 import type { HelperApi } from '../api';
 import type { CachedRelease, MatchRow } from '../api-types';
 import type { HelperAction, HelperState } from '../helper-model';
+import { useEpisodeTitles } from '../episode-titles';
 import { languageName } from '../metadata/metadata-model';
 import { optionsFor, unusedFiles } from './match-model';
 
 /** What step 2 needs: the backend client, the page's state and the dispatcher that changes it. */
 export interface MatchStepProps {
-  /** The backend client; asked once for the show's episode titles. */
+  /** The backend client; asked for the show's episode titles unless the page already has them. */
   readonly api: HelperApi;
   /** The page's state; the step reads the show, the release, its match and the choices. */
   readonly state: HelperState;
@@ -97,26 +98,11 @@ function EpisodeRow({ row, release, rows, state, title, dispatch }: {
 /**
  * Step 2: one row per disc episode with its AniList title (or "Episode n"), the release file it uses, that file's
  * tracks as checkboxes and "No subtitles". Release files no episode uses are listed under "Not matched". Episode
- * titles are asked of the backend once per show; if that fails, the rows show "Episode n".
+ * titles are asked of the backend once per show and shared with the page (`useEpisodeTitles`); if that fails, the
+ * rows show "Episode n".
  */
 export function MatchStep({ api, state, dispatch }: MatchStepProps) {
-  const alId = state.title?.alId ?? null;
-  const [titles, setTitles] = useState<Readonly<Record<number, string>>>({});
-
-  useEffect(() => {
-    setTitles({});
-    if (alId === null) return;
-    let live = true;
-    api.episodeTitles(alId).then(
-      (t) => {
-        if (live) setTitles(t);
-      },
-      () => undefined,
-    );
-    return () => {
-      live = false;
-    };
-  }, [api, alId]);
+  const titles = useEpisodeTitles(api, state.title?.alId ?? null);
 
   const release = state.release;
   if (release === null) return null;
@@ -129,7 +115,7 @@ export function MatchStep({ api, state, dispatch }: MatchStepProps) {
         <p className="muted">Check which release file goes with each episode, and which of its tracks to keep.</p>
         <ul className="match-rows">
           {state.match.map((row) => (
-            <EpisodeRow key={row.episode} row={row} release={release} rows={state.match} state={state} title={titles[row.episode]} dispatch={dispatch} />
+            <EpisodeRow key={row.episode} row={row} release={release} rows={state.match} state={state} title={titles?.[row.episode]} dispatch={dispatch} />
           ))}
         </ul>
       </section>

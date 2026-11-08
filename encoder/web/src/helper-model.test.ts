@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import type { EpisodesAnswer, ReleaseAnswer, SessionInfo, TitleHit } from './api-types';
-import { canEnter, fromRecord, initialState, reduce, toRecord, type HelperAction, type HelperState } from './helper-model';
-import { defaultMetadata } from './metadata/metadata-model';
+import { canEnter, fromRecord, initialState, metadataDefaults, reduce, toRecord, type HelperAction, type HelperState } from './helper-model';
+import { defaultMetadata, withUserEdit } from './metadata/metadata-model';
 
 const session: SessionInfo = { discKey: `f.${'a'.repeat(32)}`, label: 'LANTERN_HARBOR_D1', playlistId: '00000', episodeSpec: '1-3,4-5', toolsReady: true };
 
@@ -257,3 +257,70 @@ describe('toRecord and fromRecord', () => {
     expect(restored.metadata.episodes[1]!.tracks[0]!.name).toBe('Songs only');
   });
 });
+
+describe('metadata defaults', () => {
+  const fill = (state: HelperState, titles: Record<number, string> | null = null): HelperState =>
+    reduce(state, { type: 'fillDefaults', defaults: metadataDefaults(state, episodes, titles) });
+
+  it('a draft made before the show takes the show and episode titles once they arrive', () => {
+    const start = fill(initialState());
+    expect(start.metadata.episodes[1]!.title).toBe('01');
+    expect(start.dirty).toBe(false);
+    const typed = reduce(start, { type: 'setMetadata', metadata: withUserEdit(start.metadata, 'episodes.2.title', 'Bonus cut') });
+    const picked = fill(reduce(typed, { type: 'setTitle', title }));
+    expect(picked.metadata.episodes[1]!.title).toBe('Lantern Harbor - 01');
+    const titled = fill(picked, { 1: 'Arrival', 2: 'The Lighthouse' });
+    expect(titled.metadata.episodes[1]!.title).toBe('Lantern Harbor - 01 - Arrival');
+    expect(titled.metadata.episodes[2]!.title).toBe('Bonus cut');
+    expect(toRecord(titled, session, episodes).episodes[0]!.title).toBe('Arrival');
+  });
+
+  it('filling the defaults does not mark the state dirty', () => {
+    const clean = { ...reduce(initialState(), { type: 'setTitle', title }), dirty: false };
+    expect(fill(clean, { 1: 'Arrival' }).dirty).toBe(false);
+  });
+
+  it('a release fills each episode with its chosen tracks', () => {
+    const state = fill(withRelease());
+    expect(state.metadata.episodes[1]!.tracks.map((t) => [t.key, t.name])).toEqual([
+      ['releases/tosho-7/11-t1.ass', 'GroupA full'],
+      ['releases/tosho-7/11-t2.ass', 'GroupA signs'],
+    ]);
+    const fewer = fill(reduce(state, { type: 'chooseTracks', episode: 1, trackIds: ['t2'] }));
+    expect(fewer.metadata.episodes[1]!.tracks.map((t) => t.key)).toEqual(['releases/tosho-7/11-t2.ass']);
+  });
+
+  it('without titles known it keeps the episode titles the draft has', () => {
+    const restored = fromRecord(toRecord(fullState(), session, episodes), release, episodes);
+    expect(fill(restored).metadata.episodes[1]!.episodeTitle).toBe('Arrival');
+  });
+});
+
+describe('fromRecord marks only what differs from the defaults', () => {
+  it('a restored record still takes new defaults where the user changed nothing', () => {
+    const saved = fill0(reduce(withRelease(), { type: 'setTitle', title }));
+    const record = toRecord(saved, session, episodes);
+    expect(record.episodes[0]!.metadata.title).toBe('Lantern Harbor - 01');
+    const restored = fromRecord(record, release, episodes);
+    expect(restored.metadata.edited.size).toBe(0);
+    const titled = reduce(restored, { type: 'fillDefaults', defaults: metadataDefaults(restored, episodes, { 1: 'Arrival' }) });
+    expect(titled.metadata.episodes[1]!.title).toBe('Lantern Harbor - 01 - Arrival');
+  });
+
+  it('marks the fields the user changed', () => {
+    const restored = fromRecord(toRecord(fullState(), session, episodes), release, episodes);
+    expect([...restored.metadata.edited]).toEqual(['episodes.1.tracks']);
+  });
+
+  it('leaves an episode whose saved tracks are gone from the release unresolved', () => {
+    const record = toRecord(reduce(withRelease(), { type: 'markNone', episode: 2 }), session, episodes);
+    const other: ReleaseAnswer = { ...release, files: release.files.map((f) => (f.id === '11' ? { ...f, tracks: [] } : f)) };
+    const restored = fromRecord(record, other, episodes);
+    expect(restored.choices[1]).toBeUndefined();
+    expect(restored.choices[2]).toBe('none');
+  });
+});
+
+function fill0(state: HelperState): HelperState {
+  return reduce(state, { type: 'fillDefaults', defaults: metadataDefaults(state, episodes, null) });
+}

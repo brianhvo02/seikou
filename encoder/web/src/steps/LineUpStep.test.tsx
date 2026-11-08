@@ -168,6 +168,28 @@ describe('LineUpStep', () => {
     expect(screen.getByText('+0.032 s')).toBeTruthy();
   });
 
+  it('nudge keys work with the track switch focused but not while typing', async () => {
+    const api = fakeApi(async () => answer({ kind: 'offset', offsetMs: 1200, confidence: 0.92 }));
+    const controller = fakeController();
+    render(<Harness api={api} controller={controller} />);
+    await waitFor(() => expect(controller.setSubtitleStart).toHaveBeenCalled());
+    const radio = screen.getAllByRole('radio')[0]!;
+    radio.focus();
+    act(() => {
+      fireEvent.keyDown(radio, { key: ']' });
+    });
+    expect(controller.shiftSubtitleFile).toHaveBeenLastCalledWith(0, 42);
+    const text = document.createElement('input');
+    text.type = 'text';
+    document.body.append(text);
+    text.focus();
+    act(() => {
+      fireEvent.keyDown(text, { key: ']' });
+    });
+    expect(controller.shiftSubtitleFile).toHaveBeenCalledTimes(1);
+    text.remove();
+  });
+
   it('shows the reason and keeps original timing when alignment is none', async () => {
     const api = fakeApi(async () => answer({ kind: 'none', reason: 'no-speech' }));
     const controller = fakeController();
