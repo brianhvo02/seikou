@@ -76,6 +76,18 @@ describe('subscribeJobs', () => {
     expect(FakeEventSource.made[0]!.closed).toBe(true);
   });
 
+  it('does not report a problem after it has stopped', async () => {
+    const problems: (string | null)[] = [];
+    let answer: () => void = () => undefined;
+    const slow = api(() => new Promise<Job[]>((r) => (answer = () => r([]))));
+    const stop = subscribeJobs(slow, () => undefined, () => undefined, { eventSource: ctor, onProblem: (m) => problems.push(m) });
+    FakeEventSource.made[0]!.fail();
+    stop();
+    answer();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(problems).toEqual([]);
+  });
+
   it('says why a failing stream fails when the queue file is damaged', async () => {
     const problems: (string | null)[] = [];
     const broken = api(async () => {

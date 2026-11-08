@@ -129,4 +129,25 @@ describe('QueueDialog', () => {
     expect(createJob.mock.calls[1]![0]).toMatchObject({ noSubtitles: true });
     await waitFor(() => expect(location.pathname).toBe('/queue/bbbbbbbbbbbbbbbb'));
   });
+
+  it('leaves the folder empty and editable, with a hint, when no folder can be suggested', async () => {
+    const api = fakeApi({ jobDefaults: vi.fn(async () => Promise.reject(new ApiError(500, 'boom', 'No folder.'))) });
+    render(<QueueDialog api={api} {...props} />);
+    const folder = (await screen.findByLabelText('Output folder')) as HTMLInputElement;
+    expect(folder.value).toBe('');
+    expect(screen.getByText(/Couldn't suggest a folder; type a full path/)).toBeTruthy();
+    fireEvent.change(folder, { target: { value: '/out/here' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Queue encode' }));
+    await waitFor(() => expect(api.createJob).toHaveBeenCalledWith(expect.objectContaining({ outDir: '/out/here' })));
+  });
+
+  it('falls back to the built-in Default settings when the profiles cannot be read', async () => {
+    const api = fakeApi({ profiles: vi.fn(async () => Promise.reject(new ApiError(500, 'boom', 'No profiles.'))) });
+    render(<QueueDialog api={api} {...props} />);
+    await screen.findByLabelText('Output folder');
+    expect(screen.getByText(/CRF 25/)).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Queue encode' }));
+    await waitFor(() => expect(api.createJob).toHaveBeenCalledWith(expect.objectContaining({ settings: DEFAULT_TEST_SETTINGS })));
+  });
 });

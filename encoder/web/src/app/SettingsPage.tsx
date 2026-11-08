@@ -17,7 +17,7 @@ export function exampleName(pattern: string): string {
 }
 
 /** The settings of the built-in profile, which a new profile starts from. */
-const STARTING_SETTINGS: EncodeSettings = {
+export const STARTING_SETTINGS: EncodeSettings = {
   crf: 25,
   preset: 4,
   filmGrain: 4,

@@ -62,8 +62,12 @@ export function subscribeJobs(
 
   const explain = (): void => {
     api.jobs().then(
-      () => options.onProblem?.(null),
-      (e: unknown) => options.onProblem?.(e instanceof ApiError || e instanceof Error ? e.message : String(e)),
+      () => {
+        if (!stopped) options.onProblem?.(null);
+      },
+      (e: unknown) => {
+        if (!stopped) options.onProblem?.(e instanceof ApiError || e instanceof Error ? e.message : String(e));
+      },
     );
   };
 

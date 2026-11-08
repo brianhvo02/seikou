@@ -131,4 +131,56 @@ describe('QueuePage', () => {
     setup(fakeApi(), [makeJob()], 'ffffffffffffffff');
     expect(screen.getByText(/not in the queue/)).toBeTruthy();
   });
+
+  it('switching to another job drops the previous job log at once', async () => {
+    const a = makeJob({ id: 'aaaaaaaaaaaaaaaa' });
+    const b = makeJob({ id: 'bbbbbbbbbbbbbbbb' });
+    let release: (lines: string[]) => void = () => undefined;
+    const jobLog = vi.fn((id: string) => (id === a.id ? Promise.resolve(['log of job a']) : new Promise<string[]>((r) => (release = r))));
+    const api = fakeApi({ jobLog });
+    const store = createJobsStore(api, { eventSource: FakeEventSource as unknown as EventSourceCtor });
+    const view = (jobId: string) => (
+      <JobsProvider store={store}>
+        <QueuePage api={api} jobId={jobId} />
+      </JobsProvider>
+    );
+    const { rerender } = render(view(a.id));
+    act(() => FakeEventSource.made[0]!.sendJobs([a, b]));
+    await screen.findByText('log of job a');
+    rerender(view(b.id));
+    expect(screen.queryByText('log of job a')).toBeNull();
+    expect(screen.getByText('Reading the log…')).toBeTruthy();
+    await act(async () => release(['log of job b']));
+    expect(screen.getByText('log of job b')).toBeTruthy();
+  });
+
+  describe('the log poll', () => {
+    const setVisibility = (state: 'visible' | 'hidden') => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+      document.dispatchEvent(new Event('visibilitychange'));
+    };
+    afterEach(() => {
+      vi.useRealTimers();
+      setVisibility('visible');
+    });
+
+    it('stops while the tab is hidden and asks again when it is shown', async () => {
+      vi.useFakeTimers();
+      const api = fakeApi();
+      const job = makeJob();
+      setup(api, [job], job.id);
+      await act(async () => undefined);
+      const calls = () => (api.jobLog as ReturnType<typeof vi.fn>).mock.calls.length;
+      const start = calls();
+      await act(async () => void vi.advanceTimersByTime(4100));
+      expect(calls()).toBe(start + 2);
+      act(() => setVisibility('hidden'));
+      await act(async () => void vi.advanceTimersByTime(10_000));
+      expect(calls()).toBe(start + 2);
+      act(() => setVisibility('visible'));
+      expect(calls()).toBe(start + 3);
+      await act(async () => void vi.advanceTimersByTime(2100));
+      expect(calls()).toBe(start + 4);
+    });
+  });
 });

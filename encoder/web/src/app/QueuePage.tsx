@@ -98,11 +98,21 @@ function LogBox({ api, job }: { readonly api: AppApi; readonly job: Job }) {
         () => undefined,
       );
     };
-    load();
-    const timer = running ? setInterval(load, LOG_POLL_MS) : undefined;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    // The poll runs only while the tab is visible, and asks once as soon as the tab is shown again.
+    const sync = (): void => {
+      clearInterval(timer);
+      timer = undefined;
+      if (document.visibilityState === 'hidden') return;
+      load();
+      if (running) timer = setInterval(load, LOG_POLL_MS);
+    };
+    sync();
+    document.addEventListener('visibilitychange', sync);
     return () => {
       live = false;
       clearInterval(timer);
+      document.removeEventListener('visibilitychange', sync);
     };
   }, [api, job.id, job.state, running]);
 
@@ -294,7 +304,7 @@ function JobView({ api, job }: { readonly api: AppApi; readonly job: Job }) {
 
       <section aria-labelledby="job-log-heading" className="job-section">
         <h2 id="job-log-heading">Log</h2>
-        <LogBox api={api} job={job} />
+        <LogBox key={job.id} api={api} job={job} />
       </section>
 
       {job.cli !== '' && <CliBox cli={job.cli} />}
@@ -340,7 +350,7 @@ export function QueuePage({ api, jobId }: QueuePageProps) {
         </main>
       );
     }
-    return <JobView api={api} job={job} />;
+    return <JobView key={job.id} api={api} job={job} />;
   }
   const ordered = orderJobs(jobs);
   return (

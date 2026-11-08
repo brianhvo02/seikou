@@ -7,7 +7,7 @@ import { formatLength } from './DiscPage';
 import { episodeLengths, episodesOf, fromSpec } from './grouping';
 import { useDocumentTitle } from './place';
 import { Link, navigate, routeHref } from './router';
-import { profileSummary } from './SettingsPage';
+import { profileSummary, STARTING_SETTINGS } from './SettingsPage';
 
 /** What the dialog needs: the backend client and what the route named. */
 export interface QueueDialogProps {
@@ -27,7 +27,12 @@ interface Loaded {
   readonly label: string | null;
   readonly chapters: readonly ChapterInfo[];
   readonly profiles: readonly Profile[];
+  /** False when the backend could not suggest an output folder. */
+  readonly folderSuggested: boolean;
 }
+
+/** The profile list used when the profiles cannot be read: the built-in Default alone. */
+const FALLBACK_PROFILES: readonly Profile[] = [{ id: 'default', name: 'Default', builtIn: true, settings: STARTING_SETTINGS }];
 
 /** A 409 that says the saved subtitle choices are for another episode list. */
 interface Mismatch {
@@ -61,12 +66,24 @@ export function QueueDialog({ api, discKey, playlistId, spec, noSubtitles: start
 
   useEffect(() => {
     let live = true;
-    Promise.all([api.library(), api.playlist(discKey, playlistId), api.profiles(), api.jobDefaults(discKey, playlistId)]).then(
-      ([library, playlist, profiles, defaults]) => {
+    // The folder suggestion and the profiles are only conveniences: when one fails the dialog still works.
+    Promise.all([
+      api.library(),
+      api.playlist(discKey, playlistId),
+      api.profiles().then(
+        (p) => (p.length > 0 ? p : FALLBACK_PROFILES),
+        () => FALLBACK_PROFILES,
+      ),
+      api.jobDefaults(discKey, playlistId).then(
+        (d) => d.outDir as string | null,
+        () => null,
+      ),
+    ]).then(
+      ([library, playlist, profiles, suggested]) => {
         if (!live) return;
-        setLoaded({ label: library.discs.find((d) => d.key === discKey)?.label ?? null, chapters: playlist.chapters, profiles });
+        setLoaded({ label: library.discs.find((d) => d.key === discKey)?.label ?? null, chapters: playlist.chapters, profiles, folderSuggested: suggested !== null });
         setProfileId(profiles[0]?.id ?? 'default');
-        setOutDir(defaults.outDir);
+        setOutDir(suggested ?? '');
       },
       (e: unknown) => {
         if (live) setLoadError(e instanceof Error ? e.message : String(e));
@@ -198,7 +215,9 @@ export function QueueDialog({ api, discKey, playlistId, spec, noSubtitles: start
             </span>
           ) : (
             <span className="hint" id="queue-out-hint">
-              A full path. The episodes are written here, and the folder is made if it is missing.
+              {loaded.folderSuggested
+                ? 'A full path. The episodes are written here, and the folder is made if it is missing.'
+                : "Couldn't suggest a folder; type a full path. The folder is made if it is missing."}
             </span>
           )}
         </div>
