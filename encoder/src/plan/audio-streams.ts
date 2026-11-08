@@ -34,7 +34,7 @@ export interface SelectedAudio {
 const languageNames = new Intl.DisplayNames(['en'], { type: 'language', fallback: 'none' });
 
 /** The English name of an ISO 639-2 code (`jpn` is `Japanese`), `Unknown` for `und`, else the code itself. */
-function languageName(code: string): string {
+export function languageName(code: string): string {
   if (code === 'und') return 'Unknown';
   try {
     return languageNames.of(code) ?? code;

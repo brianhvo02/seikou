@@ -21,6 +21,7 @@ function planWithSegments(specs: SegSpec[]): EpisodePlan {
   const segments: Segment[] = specs.map(([m2tsPath, a, b]) => ({
     item: { m2tsPath, clipId: clipIdOf(m2tsPath) } as PlaylistItem,
     videoFrames: typeof a === 'number' ? [a, b as number] : a,
+    videoFirstPts90: 0,
     audioTracks: [{ pid: 0x1100, bsTrack: 1, samples: typeof a === 'number' ? [0, 0] : (b as [number, number]) }],
   }));
   return { index: 1, segments } as unknown as EpisodePlan;

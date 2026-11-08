@@ -79,7 +79,8 @@ describe('planEpisodes', () => {
       const shifted = { ...probe00001, audio: [{ ...probe00001.audio[0], firstPts90 }] };
       const [ep] = planEpisodes(p, new Map([['00001', shifted], ['00002', probe00002]]), parseEpisodeSpec('1-2', 4), lpcm, pmts);
       expect(samplesOf(ep.segments[0])).toEqual([0, 192000]);
-      expect(Object.keys(ep.segments[0]).sort()).toEqual(['audioTracks', 'item', 'videoFrames']);
+      expect(Object.keys(ep.segments[0]).sort()).toEqual(['audioTracks', 'item', 'videoFirstPts90', 'videoFrames']);
+      expect(ep.segments[0].videoFirstPts90).toBe(probe00001.video.firstPts90);
     }
   });
 

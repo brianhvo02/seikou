@@ -2,6 +2,7 @@
 import { mkdir, mkdtemp, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { episodePgsTracks } from './disc/pgs';
 import { loadPlaylist } from './disc/playlist';
 import { readPlaylistPmts } from './disc/pmt';
 import { probeClip, type ClipProbe } from './disc/probe';
@@ -148,7 +149,8 @@ function chainFailure(chains: Chain[]): Promise<ChainError | WavGuardError | nul
  * languages; a stream it does not list is left out with a `log` event), else every audio stream of
  * the playlist in STN order; each becomes an Opus track (160 kb/s up to two channels, 320 above,
  * `opusBitrate` for all when set). The video track takes the record's name and language when there
- * is a record. Every episode is planned before the first is encoded. When any chain fails the others
+ * is a record. The disc's PG subtitle streams follow as `S_HDMV/PGS` tracks (`episodePgsTracks`) unless
+ * `noPgs` is set. Every episode is planned before the first is encoded. When any chain fails the others
  * are stopped, the episode's partial file is deleted and the error thrown is the chain's own
  * (`ChainError` from a tool, `WavGuardError` when a decoded stream's channels or rate differ from the
  * playlist's) when there is one, since a downstream parse error is usually its symptom; episodes
@@ -195,6 +197,8 @@ export async function encodeEpisodes(
     const outPath = join(o.outDir, `${name}.mkv`);
     onEvent({ kind: 'episode-start', episode: plan.index, message: `Encoding episode ${plan.index}`, path: outPath });
 
+    // Read before any tool starts: the PG streams come straight from the disc and need no cleanup when they fail.
+    const pgs = o.noPgs ? [] : await episodePgsTracks(plan, playlist);
     const tmp = await mkdtemp(join(tmpdir(), 'encoding-tools-'));
     const chains: Chain[] = [];
     try {
@@ -248,7 +252,7 @@ export async function encodeEpisodes(
           packets: ogg.packets,
           end: ogg.end,
         })),
-        subtitles: [],
+        subtitles: pgs,
         attachments: [],
         chapters: plan.chapters,
       });

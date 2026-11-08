@@ -72,6 +72,8 @@ export interface Segment {
   item: PlaylistItem;
   /** Half-open frame range in the clip. */
   videoFrames: [number, number];
+  /** PTS of the clip's first video frame (frame 0 of `videoFrames`), in 90 kHz ticks: frame i is presented at this plus i frame durations. */
+  videoFirstPts90: number;
   /** One entry per chosen audio stream, in the order the streams were given to `planEpisodes`. */
   audioTracks: SegmentAudio[];
 }
@@ -167,7 +169,7 @@ function planEpisode(
         const clampSample = (t: number): number => Math.min(Math.max(sampleAt(t, audioOrigin), 0), sampleEnd);
         return { pid: a.pid, bsTrack: bsTrackOf(pmts, item.clipId, a.pid), samples: [clampSample(lo), clampSample(hi)] };
       });
-      segments.push({ item, videoFrames: [clampFrame(lo), clampFrame(hi)], audioTracks });
+      segments.push({ item, videoFrames: [clampFrame(lo), clampFrame(hi)], videoFirstPts90: probe.video.firstPts90, audioTracks });
     }
     itemStart45 = itemEnd45;
   }

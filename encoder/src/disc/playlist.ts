@@ -10,6 +10,9 @@ import { MarkType, parseMpls, type Mpls, type PlayListMark } from '@seikou/bdmv/
 // (src/libbluray/bdnav/mpls_parse.c, `_parse_playitem` and `_parse_playlistmark`), which
 // `@seikou/bdmv` ports.
 
+/** Stream coding type of a presentation graphics (PG, bitmap subtitle) stream in the STN table and the CLPI. */
+export const PG_CODING_TYPE = 0x90;
+
 /** One play item of a playlist: a time range of one clip, as the MPLS PlayItem structure gives it. */
 export interface PlaylistItem {
   /** 0-based position in the playlist; marks refer to it as `play_item_ref`. */
@@ -37,6 +40,18 @@ export interface PlaylistItem {
   audioFormatCodes: number[];
   /** The STN entry's 4-bit audio rate code of each of `audioPids` (1 is 48 kHz), in the same order; `audioRate` turns it into Hz. */
   audioRateCodes: number[];
+  /**
+   * PIDs of the main-path presentation graphics (PG, coding type 0x90) streams, in STN order (the order players
+   * number them). Text subtitle streams (0x92) and sub-path streams are left out: they are not in this clip.
+   */
+  pgPids: number[];
+  /** ISO 639-2 language code of each of `pgPids`, in the same order, as the STN entry gives it; empty when it gives none. */
+  pgLanguages: string[];
+  /**
+   * PlayItem `ref_to_STC_id`: the clip's STC sequence (one continuous PTS timeline) the item plays; `stcSpnRange`
+   * from `@seikou/bdmv` turns it into the clip's packet range, which bounds an EP map search.
+   */
+  stcId: number;
   /**
    * PlayItem `connection_condition`: how this item joins the one before it. 1 is a plain
    * (non-seamless) join; 5 and 6 are seamless joins, which libbluray treats alike (the item starts at the
@@ -163,6 +178,7 @@ export async function loadPlaylist(discDir: string, playlistId: string): Promise
       throw new Error(`Playlist ${playlistId}: play item ${index} (clip ${p.clipId}) has no main-path video stream`);
     }
     const mainAudio = p.stn.audio.filter((e) => !e.subPath);
+    const mainPg = p.stn.pg.filter((e) => !e.subPath && e.codingType === PG_CODING_TYPE);
     const clpi = parseClpi(new Uint8Array(await readFile(join(root, 'CLIPINF', `${p.clipId}.clpi`))));
     items.push({
       index,
@@ -176,6 +192,9 @@ export async function loadPlaylist(discDir: string, playlistId: string): Promise
       audioLanguages: mainAudio.map((e) => e.lang.replace(/\0/g, '').trim()),
       audioFormatCodes: mainAudio.map((e) => e.format),
       audioRateCodes: mainAudio.map((e) => e.rate),
+      pgPids: mainPg.map((e) => e.pid),
+      pgLanguages: mainPg.map((e) => e.lang.replace(/\0/g, '').trim()),
+      stcId: p.stcId,
       connectionCondition: p.connectionCondition,
     });
   }
