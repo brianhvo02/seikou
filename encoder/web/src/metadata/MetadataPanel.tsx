@@ -82,35 +82,37 @@ function ReorderList<T extends { readonly included: boolean }>({
   // two streams in one language would read the same; their position tells them apart
   const unique = names.map((n, i) => (names.indexOf(n) !== names.lastIndexOf(n) ? `${n} ${i + 1}` : n));
 
-  // after a move by button, focus goes back to the moved row: to the same button, or the other one once this one is
-  // disabled (the row reached an end), so it never falls to the page
-  const refocus = useRef<{ readonly key: string; readonly dir: 'up' | 'down' } | null>(null);
+  // after a move, focus goes back to the control in the moved row that had it (the browser can drop focus when the
+  // row's node is moved); a move button that is now disabled (the row reached an end) hands focus to the row's other
+  // move button, so focus never falls to the page
+  const refocus = useRef<{ readonly key: string; readonly control: HTMLElement } | null>(null);
   useEffect(() => {
     const wanted = refocus.current;
     refocus.current = null;
     if (wanted === null || !listRef.current) return;
     const row = (Array.from(listRef.current.children) as HTMLElement[]).find((li) => li.dataset.key === wanted.key);
-    const button = (dir: string) => row?.querySelector<HTMLButtonElement>(`button[data-dir="${dir}"]`);
-    const same = button(wanted.dir);
-    const target = same && !same.disabled ? same : button(wanted.dir === 'up' ? 'down' : 'up');
-    target?.focus();
+    if (!row || !row.contains(wanted.control)) return;
+    const control = wanted.control;
+    const dir = control.dataset.dir;
+    if (control instanceof HTMLButtonElement && control.disabled && dir !== undefined) {
+      row.querySelector<HTMLButtonElement>(`button[data-dir="${dir === 'up' ? 'down' : 'up'}"]`)?.focus();
+    } else {
+      control.focus();
+    }
   }, [items]);
 
-  const moveTo = (from: number, to: number) => {
+  /** Moves the item at `from` to `to`; `control`, the element in its row that has focus, gets it back after. */
+  const moveTo = (from: number, to: number, control: HTMLElement | null) => {
     if (to < 0 || to >= items.length || to === from) return;
+    if (control !== null) refocus.current = { key: keyOf(items[from]!), control };
     onChange(move(items, from, to));
-  };
-
-  const moveByButton = (from: number, dir: 'up' | 'down') => {
-    refocus.current = { key: keyOf(items[from]!), dir };
-    moveTo(from, dir === 'up' ? from - 1 : from + 1);
   };
 
   const onRowKey = (e: ReactKeyboardEvent, index: number) => {
     if (!e.altKey || e.ctrlKey || e.metaKey) return;
     if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
     e.preventDefault();
-    moveTo(index, e.key === 'ArrowUp' ? index - 1 : index + 1);
+    moveTo(index, e.key === 'ArrowUp' ? index - 1 : index + 1, e.target instanceof HTMLElement ? e.target : null);
   };
 
   const onHandleDown = (e: ReactPointerEvent<HTMLSpanElement>, key: string) => {
@@ -132,7 +134,7 @@ function ReorderList<T extends { readonly included: boolean }>({
       }
     }
     const from = items.findIndex((item) => keyOf(item) === key);
-    if (from >= 0) moveTo(from, target);
+    if (from >= 0) moveTo(from, target, null);
   };
 
   const endDrag = () => setDragging(null);
@@ -171,10 +173,10 @@ function ReorderList<T extends { readonly included: boolean }>({
               {i === defaultIndex && <span className="default-mark">Default</span>}
               {items.length > 1 && (
                 <>
-                  <button type="button" className="step-move" data-dir="up" aria-label={`Move ${name} up`} disabled={i === 0} onClick={() => moveByButton(i, 'up')}>
+                  <button type="button" className="step-move" data-dir="up" aria-label={`Move ${name} up`} disabled={i === 0} onClick={(e) => moveTo(i, i - 1, e.currentTarget)}>
                     <span aria-hidden="true">↑</span>
                   </button>
-                  <button type="button" className="step-move" data-dir="down" aria-label={`Move ${name} down`} disabled={i === items.length - 1} onClick={() => moveByButton(i, 'down')}>
+                  <button type="button" className="step-move" data-dir="down" aria-label={`Move ${name} down`} disabled={i === items.length - 1} onClick={(e) => moveTo(i, i + 1, e.currentTarget)}>
                     <span aria-hidden="true">↓</span>
                   </button>
                 </>

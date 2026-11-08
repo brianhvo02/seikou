@@ -136,9 +136,21 @@ describe('MetadataPanel', () => {
     const state = renderPanel();
     const name = screen.getByLabelText('Name of subtitle track 1') as HTMLInputElement;
     name.focus();
+    // React's commit already restores the focused element once (one focus call); the panel's own refocus after the
+    // move is the second, which keeps focus where a browser drops it when the row's node is moved
+    const focus = vi.spyOn(name, 'focus');
     fireEvent.keyDown(name, { key: 'ArrowDown', altKey: true });
     expect(state().metadata.episodes[1]!.tracks.map((t) => t.key)).toEqual(['a/1/3.ass', 'a/1/2.ass']);
+    expect(focus.mock.calls.length).toBeGreaterThanOrEqual(2);
     expect(document.activeElement).toBe(name);
+  });
+
+  it('Alt+Arrow on a move button that becomes disabled moves focus to the other one', () => {
+    renderPanel();
+    const up = screen.getByRole('button', { name: 'Move GroupA signs up' });
+    up.focus();
+    fireEvent.keyDown(up, { key: 'ArrowUp', altKey: true });
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Move GroupA signs down' }));
   });
 
   it('the Down button keeps focus with the moved track, on Up once Down is disabled', () => {
