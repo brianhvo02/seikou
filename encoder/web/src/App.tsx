@@ -118,7 +118,7 @@ export function App({ api }: AppProps) {
         ) : state.step === 1 && loaded ? (
           <ReleaseStep api={api} state={state} dispatch={dispatch} />
         ) : state.step === 2 && loaded ? (
-          <MatchStep api={api} state={state} dispatch={dispatch} />
+          <MatchStep api={api} state={state} dispatch={dispatch} episodes={loaded.episodes} />
         ) : state.step === 3 && loaded ? (
           <LineUpScreen api={api} state={state} dispatch={dispatch} session={loaded.session} episodes={loaded.episodes} />
         ) : (

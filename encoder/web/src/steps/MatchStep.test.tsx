@@ -4,8 +4,8 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { useReducer } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { HelperApi } from '../api';
-import type { CachedTrack, ReleaseAnswer, TitleHit } from '../api-types';
-import { initialState, reduce } from '../helper-model';
+import type { CachedTrack, EpisodesAnswer, ReleaseAnswer, TitleHit } from '../api-types';
+import { initialState, reduce, type HelperAction } from '../helper-model';
 import { fileValue } from './match-model';
 import { MatchStep } from './MatchStep';
 
@@ -55,12 +55,41 @@ function fakeApi(titles: Record<number, string>): HelperApi {
   };
 }
 
-function Harness({ api, offset = 0 }: { api: HelperApi; offset?: number }) {
+const episodes: EpisodesAnswer = {
+  episodes: [1, 2, 3].map((index) => ({ index, startUs: index * 1_000_000, durationUs: 1_000_000, chapters: [{ startUs: index * 1_000_000 }] })),
+  audio: [],
+  pgCount: 0,
+};
+
+/** A second release whose file ids repeat the first's, with its own episode 3 file. */
+const other: ReleaseAnswer = {
+  key: 'own-7',
+  source: 'local',
+  label: 'Own files',
+  group: 'Me',
+  files: [
+    { id: 'f1', name: 'Own - 01.mkv', tracks: [track('5', 'b/1/5.srt', 'full', 'Plain text')] },
+    { id: 'f3', name: 'Own - 03.mkv', tracks: [track('6', 'b/3/6.ass', 'full', 'Own dialogue')] },
+  ],
+  fonts: [],
+  match: {
+    rows: [
+      { episode: 1, fileId: 'f1', candidates: ['f1'] },
+      { episode: 2, fileId: null, candidates: [] },
+      { episode: 3, fileId: 'f3', candidates: ['f3'] },
+    ],
+    unmatched: [],
+  },
+};
+
+function Harness({ api, offset = 0, extra = [], pool = [answer], after = [] }: { api: HelperApi; offset?: number; extra?: ReleaseAnswer[]; pool?: ReleaseAnswer[]; after?: HelperAction[] }) {
   const [state, dispatch] = useReducer(reduce, initialState(), (s) => {
-    const withTitle = reduce(reduce(s, { type: 'setTitle', title: hit }), { type: 'setOffset', offset });
-    return reduce(withTitle, { type: 'addRelease', release: answer, from: 'tosho' });
+    let next = reduce(reduce(s, { type: 'setTitle', title: hit }), { type: 'setOffset', offset });
+    for (const r of [...pool, ...extra]) next = reduce(next, { type: 'addRelease', release: r, from: r.source });
+    for (const a of after) next = reduce(next, a);
+    return next;
   });
-  return <MatchStep api={api} state={state} dispatch={dispatch} />;
+  return <MatchStep api={api} state={state} dispatch={dispatch} episodes={episodes} />;
 }
 
 const rowOf = (n: number) => screen.getByRole('group', { name: new RegExp(`^Episode ${n}\\b`) });
@@ -122,5 +151,57 @@ describe('MatchStep', () => {
     // unticking brings the file's tracks back
     fireEvent.click(none);
     expect((within(rowOf(1)).getByRole('checkbox', { name: /Full dialogue/ }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it('rows offer files from every pooled release, grouped', () => {
+    render(<Harness api={fakeApi({})} extra={[other]} />);
+    const select = within(rowOf(3)).getByRole('combobox');
+    const groups = Array.from(select.querySelectorAll('optgroup'));
+    expect(groups.map((g) => g.label)).toEqual(['GroupA release', 'Own files']);
+    expect(Array.from(groups[0]!.querySelectorAll('option')).map((o) => o.textContent)).toEqual(['Lantern Harbor - Special.mkv']);
+    expect(Array.from(groups[1]!.querySelectorAll('option')).map((o) => o.textContent)).toEqual(['Own - 03.mkv']);
+    expect((select.querySelector('option') as HTMLOptionElement).textContent).toBe('No file');
+  });
+
+  it('lists every episode with an empty pool', () => {
+    render(<Harness api={fakeApi({})} pool={[]} />);
+    expect(rowOf(1)).toBeTruthy();
+    expect(rowOf(3)).toBeTruthy();
+    expect(within(rowOf(2)).getByText('No release file for this episode.')).toBeTruthy();
+  });
+
+  it("choosing another release's file swaps the tracks", () => {
+    render(<Harness api={fakeApi({})} extra={[other]} />);
+    fireEvent.change(within(rowOf(3)).getByRole('combobox'), { target: { value: fileValue('own-7', 'f3') } });
+    expect(within(rowOf(3)).getByRole('checkbox', { name: /Own dialogue/ })).toBeTruthy();
+    fireEvent.change(within(rowOf(1)).getByRole('combobox'), { target: { value: fileValue('own-7', 'f1') } });
+    expect(within(rowOf(1)).queryByRole('checkbox', { name: /Signs and songs/ })).toBeNull();
+    expect(within(rowOf(1)).getByRole('checkbox', { name: /Plain text/ })).toBeTruthy();
+  });
+
+  it('same file id in two releases picks the right one', () => {
+    render(<Harness api={fakeApi({})} extra={[other]} />);
+    const select = within(rowOf(1)).getByRole('combobox') as HTMLSelectElement;
+    expect(select.value).toBe(fileValue('tosho-11', 'f1'));
+    fireEvent.change(select, { target: { value: fileValue('own-7', 'f1') } });
+    expect(select.value).toBe(fileValue('own-7', 'f1'));
+    expect(select.selectedOptions[0]!.textContent).toBe('Own - 01.mkv');
+  });
+
+  it('a restored choice that is no candidate still shows selected', () => {
+    render(<Harness api={fakeApi({})} extra={[other]} after={[{ type: 'chooseFile', episode: 2, releaseKey: 'own-7', fileId: 'f3' }]} />);
+    const select = within(rowOf(2)).getByRole('combobox') as HTMLSelectElement;
+    expect(select.value).toBe(fileValue('own-7', 'f3'));
+  });
+
+  it('Back goes to step 1', () => {
+    const dispatch = vi.fn();
+    const state = reduce(initialState(), { type: 'goTo', step: 2 });
+    render(<MatchStep api={fakeApi({})} state={state} dispatch={dispatch} episodes={episodes} />);
+    const back = screen.getByRole('button', { name: 'Back' });
+    const next = screen.getByRole('button', { name: 'Next' });
+    expect(back.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(back);
+    expect(dispatch).toHaveBeenCalledWith({ type: 'goTo', step: 1 });
   });
 });

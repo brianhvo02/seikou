@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import type { Dispatch } from 'react';
 import type { HelperApi } from '../api';
-import { candidatesFor, releaseOf, type HelperAction, type HelperState } from '../helper-model';
+import type { EpisodesAnswer } from '../api-types';
+import { candidatesFor, releaseOf, type FileCandidate, type HelperAction, type HelperState } from '../helper-model';
 import { useEpisodeTitles } from '../episode-titles';
 import { languageName } from '../metadata/metadata-model';
 import { fileValue, parseFileValue, unusedFiles } from './match-model';
@@ -10,10 +11,37 @@ import { fileValue, parseFileValue, unusedFiles } from './match-model';
 export interface MatchStepProps {
   /** The backend client; asked for the show's episode titles unless the page already has them. */
   readonly api: HelperApi;
+  /** The run's episodes; every one gets a row, whatever the pooled releases cover. */
+  readonly episodes: EpisodesAnswer;
   /** The page's state; the step reads the show, the pooled releases and the choices. */
   readonly state: HelperState;
   /** Applies an action to the page's state. */
   readonly dispatch: Dispatch<HelperAction>;
+}
+
+/** One release's files in a row's select: its label and the files the row offers from it. */
+interface FileGroup {
+  readonly releaseKey: string;
+  readonly label: string;
+  readonly files: readonly { readonly value: string; readonly name: string }[];
+}
+
+/**
+ * The select's groups for one episode: per pooled release in pool order, the candidates `candidatesFor` offers, and
+ * the row's current file when it is not among them (a choice restored from a record), so the select never holds a
+ * value that matches no option. Releases with nothing to offer have no group.
+ */
+function fileGroups(state: HelperState, options: readonly FileCandidate[], shown: { releaseKey: string; fileId: string } | null): FileGroup[] {
+  const wanted = shown !== null && !options.some((c) => c.releaseKey === shown.releaseKey && c.fileId === shown.fileId) ? [...options, { ...shown, matched: false }] : options;
+  return state.releases
+    .map(({ release }) => ({
+      releaseKey: release.key,
+      label: release.label,
+      files: wanted
+        .filter((c) => c.releaseKey === release.key)
+        .map((c) => ({ value: fileValue(c.releaseKey, c.fileId), name: release.files.find((f) => f.id === c.fileId)?.name ?? c.fileId })),
+    }))
+    .filter((g) => g.files.length > 0);
 }
 
 /** One episode, shown by its release number: its title, the release file it uses, that file's tracks to tick, and "No subtitles". */
@@ -34,6 +62,7 @@ function EpisodeRow({ episode, state, number, title, dispatch }: {
   const file = shown === null ? null : (releaseOf(state, shown.releaseKey)?.release.files.find((f) => f.id === shown.fileId) ?? null);
   const ticked = new Set(choice === undefined || choice === 'none' ? [] : choice.trackIds);
   const value = shown === null ? '' : fileValue(shown.releaseKey, shown.fileId);
+  const groups = fileGroups(state, options, shown);
   const heading = `Episode ${number}`;
 
   const toggle = (trackId: string, on: boolean) => {
@@ -57,14 +86,15 @@ function EpisodeRow({ episode, state, number, title, dispatch }: {
             onChange={(e) => choose(parseFileValue(e.target.value))}
           >
             <option value="">No file</option>
-            {options.map((c) => {
-              const v = fileValue(c.releaseKey, c.fileId);
-              return (
-                <option key={v} value={v}>
-                  {releaseOf(state, c.releaseKey)?.release.files.find((f) => f.id === c.fileId)?.name ?? c.fileId}
-                </option>
-              );
-            })}
+            {groups.map((g) => (
+              <optgroup key={g.releaseKey} label={g.label}>
+                {g.files.map((f) => (
+                  <option key={f.value} value={f.value}>
+                    {f.name}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
           </select>
           {file !== null && file.tracks.length > 0 ? (
             <ul className="match-tracks">
@@ -106,17 +136,14 @@ function EpisodeRow({ episode, state, number, title, dispatch }: {
 /**
  * Step 2: one row per disc episode, numbered as the release numbers it (the run's episode plus the episode offset),
  * with its AniList title for that number (or "Episode n"), the file it uses from any pooled release (`candidatesFor`),
- * that file's tracks as checkboxes and "No subtitles". Release files no episode uses are listed under "Not matched".
+ * that file's tracks as checkboxes and "No subtitles". Release files no episode uses are listed under "Not matched", per release. Back returns to step 1.
  * Episode titles are asked of the backend once per show and shared with the page (`useEpisodeTitles`); if that
  * fails, the rows show "Episode n".
  */
-export function MatchStep({ api, state, dispatch }: MatchStepProps) {
+export function MatchStep({ api, state, episodes, dispatch }: MatchStepProps) {
   const titles = useEpisodeTitles(api, state.title?.alId ?? null);
 
-  // every release's match has one row per episode of the run
-  const episodes = state.releases[0]?.release.match.rows.map((r) => r.episode);
-  if (episodes === undefined) return null;
-  const unused = unusedFiles(state).flatMap((r) => r.files.map((f) => ({ key: fileValue(r.pooled.release.key, f.id), name: f.name })));
+  const unused = unusedFiles(state);
 
   return (
     <div className="match-step">
@@ -124,7 +151,7 @@ export function MatchStep({ api, state, dispatch }: MatchStepProps) {
         <h2 id="match-heading">Match episodes</h2>
         <p className="muted">Check which release file goes with each episode, and which of its tracks to keep.</p>
         <ul className="match-rows">
-          {episodes.map((episode) => (
+          {episodes.episodes.map(({ index: episode }) => (
             <EpisodeRow key={episode} episode={episode} state={state} number={episode + state.episodeOffset} title={titles?.[episode + state.episodeOffset]} dispatch={dispatch} />
           ))}
         </ul>
@@ -135,14 +162,24 @@ export function MatchStep({ api, state, dispatch }: MatchStepProps) {
           <h2 id="unmatched-heading">Not matched</h2>
           <p className="muted">These files fit no episode. Pick one in an episode's file list to use it.</p>
           <ul aria-labelledby="unmatched-heading">
-            {unused.map((f) => (
-              <li key={f.key}>{f.name}</li>
+            {unused.map((r) => (
+              <li key={r.pooled.release.key}>
+                <span className="muted">{r.pooled.release.label}</span>
+                <ul>
+                  {r.files.map((f) => (
+                    <li key={f.id}>{f.name}</li>
+                  ))}
+                </ul>
+              </li>
             ))}
           </ul>
         </section>
       )}
 
-      <div className="step-next">
+      <div className="step-next step-actions">
+        <button type="button" className="quiet" onClick={() => dispatch({ type: 'goTo', step: 1 })}>
+          Back
+        </button>
         <button type="button" className="primary" onClick={() => dispatch({ type: 'goTo', step: 3 })}>
           Next
         </button>

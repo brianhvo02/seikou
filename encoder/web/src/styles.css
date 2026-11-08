@@ -503,6 +503,12 @@ input::placeholder {
   margin-top: 8px;
 }
 
+/* a step's Back and its primary action, side by side with Back on the left */
+.step-actions {
+  display: flex;
+  gap: 10px;
+}
+
 /* step 2: one ruled row per episode, the file and its tracks beside the episode, stacked at phone width */
 .match-rows,
 .match-unmatched ul,
@@ -604,6 +610,11 @@ input::placeholder {
 .match-unmatched li {
   padding: 4px 0;
   overflow-wrap: anywhere;
+}
+
+.match-unmatched li > ul {
+  margin-top: 2px;
+  padding-left: 14px;
 }
 
 @media (max-width: 480px) {
