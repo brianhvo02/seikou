@@ -317,13 +317,23 @@ describe('canEnter', () => {
     expect(canEnter(withRelease(), 2)).toBe(true);
   });
 
-  it('step 3 needs an episode whose chosen file has tracks', () => {
+  it('step 3 needs an episode with a choice: a chosen file that has tracks, or "No subtitles"', () => {
     const empty = { ...withRelease(), choices: {} };
     expect(canEnter(empty, 3)).toBe(false);
-    expect(canEnter({ ...empty, choices: { 2: 'none' } }, 3)).toBe(false);
+    expect(canEnter({ ...empty, choices: { 2: 'none' } }, 3)).toBe(true);
     expect(canEnter({ ...empty, choices: { 1: { releaseKey: 'tosho-9', fileId: '11', trackIds: ['t1'] } } }, 3)).toBe(false);
     expect(canEnter({ ...empty, choices: { 1: { releaseKey: 'tosho-7', fileId: '11', trackIds: [] } } }, 3)).toBe(true);
     expect(canEnter(withRelease(), 3)).toBe(true);
+  });
+
+  it('a run where every episode is "No subtitles" reaches step 3', () => {
+    const state = run(withRelease(), { type: 'markNone', episode: 1 }, { type: 'markNone', episode: 2 }, { type: 'goTo', step: 3 });
+    expect(state.step).toBe(3);
+  });
+
+  it('skipping the last episode with a file on step 3 stays on step 3', () => {
+    const state = run({ ...withRelease(), step: 3 }, { type: 'skip', episode: 1 }, { type: 'skip', episode: 2 });
+    expect(state.step).toBe(3);
   });
 
   it('removing the last release closes steps 2 and 3 and the state falls back to step 1', () => {

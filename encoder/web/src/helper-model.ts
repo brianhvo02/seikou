@@ -177,12 +177,13 @@ export function initialState(): HelperState {
 
 /**
  * Whether the user may go to `step`: step 1 always, step 2 once the pool holds a release, step 3 once at least one
- * episode has a chosen file, from a pooled release, that has tracks to line up.
+ * episode has a choice: a chosen file, from a pooled release, that has tracks to line up, or "No subtitles". So
+ * skipping the last episode left on step 3 stays there, and a run whose every episode has no subtitles reaches it.
  */
 export function canEnter(state: HelperState, step: Step): boolean {
   if (step === 1) return true;
   if (step === 2) return state.releases.length > 0;
-  return Object.keys(state.choices).some((e) => (episodeFile(state, Number(e))?.file.tracks.length ?? 0) > 0);
+  return Object.entries(state.choices).some(([e, c]) => c === 'none' || (episodeFile(state, Number(e))?.file.tracks.length ?? 0) > 0);
 }
 
 /** The pooled release with key `key`, or null when the pool has none. */
