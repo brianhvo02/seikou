@@ -248,6 +248,16 @@ describe('toRecord and fromRecord', () => {
     expect(bare.episodes[0]!.metadata.audio).toEqual([{ pid: 0x1100, name: 'Japanese', language: 'jpn', included: true }]);
   });
 
+  it('an episode with no title is named by its number with the episode offset, as its MKV title is', () => {
+    const shifted = reduce(run(initialState(), { type: 'setTitle', title }), { type: 'setOffset', offset: 12 });
+    const record = toRecord(shifted, session, episodes);
+    expect(record.episodes.map((e) => e.title)).toEqual(['Episode 13', 'Episode 14']);
+    expect(record.episodes[0]!.metadata.title).toBe('Lantern Harbor - 13');
+    const restored = fromRecord(record, null, episodes);
+    expect(restored.metadata.episodes[1]!.episodeTitle).toBe('');
+    expect(restored.metadata.edited.size).toBe(0);
+  });
+
   it('fromRecord without its release keeps the metadata and timings', () => {
     const record = toRecord(fullState(), session, episodes);
     const restored = fromRecord(record);

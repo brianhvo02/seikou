@@ -320,7 +320,8 @@ function recordTracks(state: HelperState, episode: number, draft: EpisodeDraft |
  * The record to save for this run. Every episode of `episodes` is written, in order: its chosen tracks with the
  * panel's names, languages, order and ticks, its timing (an offset as `shiftMs`; a split as `split` with `shiftMs` 0;
  * `none`, `original` and an episode never lined up as 0 and null), and its metadata, falling back to the defaults
- * for an episode the panel has no draft of. Languages that are not three letters (a code left half typed) are
+ * for an episode the panel has no draft of. An episode with no title is named `Episode <n>`, with n its number
+ * as in its MKV title (the run's index plus the episode offset). Languages that are not three letters (a code left half typed) are
  * written as `und`, as the backend accepts nothing else. `savedAt` is left empty for the server to set.
  */
 export function toRecord(state: HelperState, session: SessionInfo, episodes: EpisodesAnswer): SubtitleRecord {
@@ -330,7 +331,7 @@ export function toRecord(state: HelperState, session: SessionInfo, episodes: Epi
     const meta = draft ?? defaults.episodes[e.index]!;
     return {
       index: e.index,
-      title: meta.episodeTitle !== '' ? meta.episodeTitle : `Episode ${e.index}`,
+      title: meta.episodeTitle !== '' ? meta.episodeTitle : `Episode ${e.index + state.episodeOffset}`,
       tracks: recordTracks(state, e.index, draft),
       metadata: {
         title: meta.title,
@@ -360,9 +361,12 @@ function restoredAlignment(track: RecordTrack): FansubAlignment {
   return { kind: 'original' };
 }
 
-/** The AniList episode title a record episode holds: its `title`, unless that is the `Episode n` stand-in. */
-function savedEpisodeTitle(e: RecordEpisode): string {
-  return e.title === `Episode ${e.index}` ? '' : e.title;
+/**
+ * The AniList episode title a record episode holds: its `title`, unless that is the `Episode n` stand-in, n being the
+ * episode's number with the record's episode offset.
+ */
+function savedEpisodeTitle(record: SubtitleRecord, e: RecordEpisode): string {
+  return e.title === `Episode ${e.index + (record.anilist?.episodeOffset ?? 0)}` ? '' : e.title;
 }
 
 /** Whether two plain values differ. */
@@ -379,7 +383,7 @@ function recordDefaults(record: SubtitleRecord, e: RecordEpisode, disc: Pick<Epi
   const audio = disc?.audio ?? e.metadata.audio.map((a) => ({ pid: a.pid, language: a.language }));
   const draft = defaultMetadata({
     show: record.anilist?.title ?? null,
-    episodes: [{ index: e.index, number: e.index + (record.anilist?.episodeOffset ?? 0), title: savedEpisodeTitle(e) || null, chapterCount: e.metadata.chapters.length }],
+    episodes: [{ index: e.index, number: e.index + (record.anilist?.episodeOffset ?? 0), title: savedEpisodeTitle(record, e) || null, chapterCount: e.metadata.chapters.length }],
     audio,
     tracks: { [e.index]: tracks },
   });
@@ -428,7 +432,7 @@ export function fromRecord(record: SubtitleRecord, release: ReleaseAnswer | null
     const tracks: TrackDraft[] = e.tracks.map((t) => ({ key: t.file, kind: t.kind, name: t.name, language: t.language, included: t.included }));
     const draft: EpisodeDraft = {
       index: e.index,
-      episodeTitle: savedEpisodeTitle(e),
+      episodeTitle: savedEpisodeTitle(record, e),
       title: e.metadata.title,
       video: { ...e.metadata.video },
       audio: e.metadata.audio.map((a) => ({ ...a })),
