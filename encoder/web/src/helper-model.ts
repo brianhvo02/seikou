@@ -106,20 +106,20 @@ export type HelperAction =
   | { readonly type: 'setOffset'; readonly offset: number }
   /**
    * Adds a release at the end of the pool, or replaces the pooled release with the same key in place (a fetch at
-   * another offset, or the same release found again), keeping the source it was first added from. A replaced release keeps each episode's choice whose file still
-   * fits that episode: the file is among the episode's candidates in the new match, or is a file no episode was or is
-   * numbered for (an extra), with the tracks still in it; other episodes that used it lose their file, timing and
-   * drafted tracks. Then every episode with no file (not one marked `none`) takes this release's matched file with all
-   * its tracks, when that file has any.
+   * another offset, or the same release found again), keeping the source it was first added from. A replaced release
+   * keeps each episode's choice whose file still fits that episode: the file is among the episode's candidates in the
+   * new match, or is a file no episode was or is numbered for (an extra), with the tracks still in it; other episodes
+   * that used it lose their file, timing and drafted tracks. Then every episode with no file (not one marked `none`)
+   * takes this release's matched file with all its tracks, when that file has any.
    */
   | { readonly type: 'addRelease'; readonly release: ReleaseAnswer; readonly from: ReleaseSource }
   /**
    * Puts a release the saved `record` names back at the end of the pool (in place when it is already there) after it
-   * was fetched again, without giving it to other episodes, and restores the record's
-   * choices for the episodes whose tracks come from it and that have no choice now (a pick made meanwhile, `none` included, stays): their file, tracks, timing and drafted tracks. Everything else
-   * stays as it is: the other pooled releases, other episodes' choices and timings, and the metadata the user edited.
-   * An episode whose saved tracks are not in the fetched release keeps what it had. `disc` is the run's episodes
-   * answer, as `fromRecord` takes it.
+   * was fetched again, without giving it to other episodes, and restores the record's choices for the episodes whose
+   * tracks come from it and that have no choice now (a pick made meanwhile, `none` included, stays): their file,
+   * tracks, timing and drafted tracks. Everything else stays as it is: the other pooled releases, other episodes'
+   * choices and timings, and the metadata the user edited. An episode whose saved tracks are not in the fetched release
+   * keeps what it had. `disc` is the run's episodes answer, as `fromRecord` takes it.
    */
   | { readonly type: 'restoreRelease'; readonly record: SubtitleRecord; readonly release: ReleaseAnswer; readonly disc: Pick<EpisodesAnswer, 'audio'> | null }
   /** Removes a release from the pool; the episodes that used it lose their file, timing and drafted tracks. */
@@ -552,8 +552,8 @@ function differs(a: unknown, b: unknown): boolean {
 
 /**
  * The metadata the page would have proposed for a record episode: the defaults built from the record's show, episode
- * offset and episode title, the disc's audio streams (the record's own, in its order, when `disc` is not known), the episode's
- * chapter count and the given tracks.
+ * offset and episode title, the disc's audio streams (the record's own, in its order, when `disc` is not known), the
+ * episode's chapter count and the given tracks.
  */
 function recordDefaults(record: SubtitleRecord, e: RecordEpisode, disc: Pick<EpisodesAnswer, 'audio'> | null, tracks: readonly DefaultTrackInput[]): EpisodeDraft {
   const audio = disc?.audio ?? e.metadata.audio.map((a) => ({ pid: a.pid, language: a.language }));

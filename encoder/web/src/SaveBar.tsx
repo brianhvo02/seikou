@@ -48,16 +48,16 @@ function toshoIdOf(key: string): number | null {
 }
 
 /**
- * Save for encoding, and what the saved record says when the page loads. Once the run is known it asks for the
- * saved record and, when there is one, for each of its releases again, and restores the record with the releases
- * that came back (`fromRecord`), unless the user has already changed something. When one of the record's releases or
- * some of its cached files are gone, it names each such release and offers "Fetch <release> again", which
- * fetches it from Anime Tosho, puts it back in the pool and restores the saved choices of the episodes that use it
- * (`restoreRelease`), leaving the rest of the page as the user has it; the user's own
- * files cannot be fetched, so it asks to add them again. While an episode with no file now had tracks from a saved release that is missing and not back in the pool, Save
- * is off, because it would write the record without its tracks. Save writes `toRecord` of the state and
- * answers "Saved at <time>" or the server's message. Renders the button row (with `children` first) and, below it,
- * the status and any missing release.
+ * Save for encoding, and what the saved record says when the page loads. Once the run is known it asks for the saved
+ * record and, when there is one, for each of its releases again, and restores the record with the releases that came
+ * back (`fromRecord`), unless the user has already changed something. When one of the record's releases or some of its
+ * cached files are gone, it names each such release and offers "Fetch <release> again", which fetches it from Anime
+ * Tosho, puts it back in the pool and restores the saved choices of the episodes that use it (`restoreRelease`),
+ * leaving the rest of the page as the user has it; the user's own files cannot be fetched, so it asks to add them
+ * again. While an episode with no file now had tracks from a saved release that is missing and not back in the pool,
+ * Save is off, because it would write the record without its tracks. Save writes `toRecord` of the state and answers
+ * "Saved at <time>" or the server's message. Renders the button row (with `children` first) and, below it, the status
+ * and any missing release.
  */
 export function SaveBar({ api, state, dispatch, session, episodes, children }: SaveBarProps) {
   const [status, setStatus] = useState<Status | null>(null);

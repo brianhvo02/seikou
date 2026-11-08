@@ -196,10 +196,11 @@ function parseMetadata(v: unknown, path: string): RecordMetadata {
 }
 
 /**
- * Validates parsed JSON as a record and returns it as a clean copy, always in the current form: a record with the
- * older single `release` field reads as a one-item `releases` (none for null) with that id on each track. Throws `RecordError` naming the JSON path
- * of the first bad field. Checks that languages are three lowercase letters, shifts are finite, episode
- * indexes are positive integers and unique, release ids are unique, every track names a release of the record, and every path is relative to the data directory without `..`.
+ * Validates parsed JSON as a record and returns it as a clean copy, always in the current form: a record with the older
+ * single `release` field reads as a one-item `releases` (none for null) with that id on each track. Throws
+ * `RecordError` naming the JSON path of the first bad field. Checks that languages are three lowercase letters, shifts
+ * are finite, episode indexes are positive integers and unique, release ids are unique, every track names a release of
+ * the record, and every path is relative to the data directory without `..`.
  */
 export function parseRecord(json: unknown): SubtitleRecord {
   const o = obj(json, '$');
@@ -307,11 +308,11 @@ export class RecordStore {
   }
 
   /**
-   * Lists the record's fonts and track files that are no longer under the data directory, one entry per release
-   * (`id` and its label as `release`, in the record's order; labels need not be unique, ids are) that has some. A missing track file is listed under its track's release.
-   * A missing font is listed under every release whose cached `release.json` lists it, or under all of the
-   * record's releases when none does. A record with no releases groups its files under "your own files". Empty
-   * when nothing is missing.
+   * Lists the record's fonts and track files that are no longer under the data directory, one entry per release (`id`
+   * and its label as `release`, in the record's order; labels need not be unique, ids are) that has some. A missing
+   * track file is listed under its track's release. A missing font is listed under every release whose cached
+   * `release.json` lists it, or under all of the record's releases when none does. A record with no releases groups its
+   * files under "your own files". Empty when nothing is missing.
    */
   async missingFiles(record: SubtitleRecord): Promise<MissingGroup[]> {
     const isMissing = async (file: string): Promise<boolean> => {

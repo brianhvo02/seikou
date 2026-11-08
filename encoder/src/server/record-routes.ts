@@ -15,10 +15,10 @@ const MAX_RECORD_BYTES = 2 * 1024 * 1024;
  *
  *   GET /api/record   `{ record, missing }` for the run's disc and playlist. `record` is null when none was saved
  *                     (never a 404); `missing` lists, by release (its `id`, null for a record with no release,
- *                     and its label as `release`), the cached files the record names that are gone, so the page can say which release to fetch again. A record file on disk that is not
- *                     valid answers 200 with `record: null`, `missing: []` and
- *                     `error: { code: 'record-unreadable', message }`, so the page starts fresh; saving then
- *                     overwrites the broken file.
+ *                     and its label as `release`), the cached files the record names that are gone, so the page
+ *                     can say which release to fetch again. A record file on disk that is not valid answers 200
+ *                     with `record: null`, `missing: []` and `error: { code: 'record-unreadable', message }`, so
+ *                     the page starts fresh; saving then overwrites the broken file.
  *   PUT /api/record   body: a record. It is validated, its disc key, playlist and episode spec must equal the run's
  *                     (409 `session-mismatch`), `savedAt` is set to the server's clock, and the stored record is
  *                     answered. Errors: 400 `bad-record` with `message` and `path` (the JSON path of the first bad
