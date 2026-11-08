@@ -6,8 +6,8 @@
  */
 
 /**
- * The page's state for one playlist. A canonical grouping holds splits only between two chapters that are both
- * kept, so every state the page makes is one `fromSpec(toSpec(...))` gives back unchanged.
+ * The page's state for one playlist. Any combination of numbers is allowed; `normalize` drops what has no effect, and
+ * `episodesOf` reads a grouping as if it were normalized.
  */
 export interface Grouping {
   /** Chapter numbers (1-based) after which a new episode starts. */
@@ -23,20 +23,34 @@ export interface EpisodeRange {
 }
 
 /**
- * The episodes a grouping makes: runs of kept chapters, cut at every split and at every skipped chapter.
- * Splits at or beyond the last chapter are ignored.
+ * The grouping with everything that has no effect removed: out-of-range numbers in either set, splits at or after
+ * the last chapter and splits next to a skipped chapter. It is what `fromSpec` gives for the grouping's episodes, so
+ * two groupings make the same episodes exactly when their normal forms are equal.
+ */
+export function normalize(grouping: Grouping, chapterCount: number): Grouping {
+  const skipped = new Set([...grouping.skipped].filter((c) => c >= 1 && c <= chapterCount));
+  const splits = new Set(
+    [...grouping.splits].filter((c) => c >= 1 && c < chapterCount && !skipped.has(c) && !skipped.has(c + 1)),
+  );
+  return { splits, skipped };
+}
+
+/**
+ * The episodes a grouping makes: runs of kept chapters, cut at every split and at every skipped chapter. Numbers
+ * outside 1 to `chapterCount` in either set are ignored, as are splits at or beyond the last chapter.
  */
 export function episodesOf(grouping: Grouping, chapterCount: number): EpisodeRange[] {
+  const { splits, skipped } = normalize(grouping, chapterCount);
   const episodes: EpisodeRange[] = [];
   let from = 0;
   for (let c = 1; c <= chapterCount; c++) {
-    if (grouping.skipped.has(c)) {
+    if (skipped.has(c)) {
       if (from > 0) episodes.push({ from, to: c - 1 });
       from = 0;
       continue;
     }
     if (from === 0) from = c;
-    if (grouping.splits.has(c) || c === chapterCount) {
+    if (splits.has(c) || c === chapterCount) {
       episodes.push({ from, to: c });
       from = 0;
     }

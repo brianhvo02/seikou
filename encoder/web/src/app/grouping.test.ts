@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { episodeLengths, episodesOf, fromSpec, toSpec } from './grouping';
+import { episodeLengths, episodesOf, fromSpec, normalize, toSpec } from './grouping';
 
 const set = (...n: number[]): Set<number> => new Set(n);
 
@@ -37,9 +37,26 @@ describe('grouping', () => {
     expect(toSpec([], 3)).toBe('');
   });
 
-  it('gives back canonical groupings unchanged', () => {
-    const g = { splits: set(2, 6), skipped: set(4, 8) };
-    expect(fromSpec(toSpec(episodesOf(g, 9), 9), 9)).toEqual(g);
+  it('reads any grouping back as its normal form', () => {
+    const groupings = [
+      { splits: set(2, 6), skipped: set(4, 8) },
+      { splits: set(3, 4, 5, 9, 0, -1, 20), skipped: set(4, 1, 99) },
+      { splits: set(1, 2, 3), skipped: set(2) },
+      { splits: set(9), skipped: set(9) },
+      { splits: set(), skipped: set(2, 3, 4, 5, 6, 7, 8, 9) },
+    ];
+    for (const g of groupings) {
+      const spec = toSpec(episodesOf(g, 9), 9);
+      const n = normalize(g, 9);
+      if (n.skipped.size === 9) expect(spec).toBe('');
+      else expect(fromSpec(spec, 9)).toEqual(n);
+      expect(normalize(n, 9)).toEqual(n);
+    }
+    expect(normalize({ splits: set(2, 3, 4, 9, 0), skipped: set(3, 99) }, 9)).toEqual({ splits: set(4), skipped: set(3) });
+  });
+
+  it('rejects any text when there are no chapters', () => {
+    for (const t of ['1', '1-', '0', '']) expect(fromSpec(t, 0), t).toBeNull();
   });
 
   it('rejects what the encoder rejects', () => {
