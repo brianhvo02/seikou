@@ -11,6 +11,8 @@ export interface ChapterListProps {
   readonly grouping: Grouping;
   /** The episodes the grouping makes; each is marked on its first chapter. */
   readonly episodes: readonly EpisodeRange[];
+  /** The chapter (1-based) the player is in, marked in the list; null when none is. */
+  readonly currentIndex: number | null;
   /** A chapter was clicked: show the playlist from its start. */
   readonly onSeek: (chapter: ChapterInfo) => void;
   /** The "split after" toggle of chapter `n` (1-based) was changed. */
@@ -22,9 +24,9 @@ export interface ChapterListProps {
 /**
  * The playlist's chapters, one row each: the chapter's number, start and length (a button that shows the playlist from
  * there), a toggle that cuts the episode after it (not on the last chapter) and one that leaves it out of every
- * episode. The first chapter of each episode carries the episode's number.
+ * episode. The first chapter of each episode carries the episode's number, and the row of the chapter being played is marked.
  */
-export function ChapterList({ chapters, grouping, episodes, onSeek, onToggleSplit, onToggleSkip }: ChapterListProps) {
+export function ChapterList({ chapters, grouping, episodes, currentIndex, onSeek, onToggleSplit, onToggleSkip }: ChapterListProps) {
   const episodeStartingAt = new Map(episodes.map((e, i) => [e.from, i + 1]));
   return (
     <ol className="chapter-list" aria-label="Chapters">
@@ -33,7 +35,11 @@ export function ChapterList({ chapters, grouping, episodes, onSeek, onToggleSpli
         const last = i === chapters.length - 1;
         const starts = episodeStartingAt.get(c.index);
         return (
-          <li key={c.index} className={skipped ? 'chapter chapter-skipped' : 'chapter'}>
+          <li
+            key={c.index}
+            className={`chapter${skipped ? ' chapter-skipped' : ''}${c.index === currentIndex ? ' chapter-current' : ''}`}
+            aria-current={c.index === currentIndex ? 'true' : undefined}
+          >
             <button
               type="button"
               className="chapter-seek"

@@ -55,6 +55,27 @@ export function parseEpisodeSpec(text: string, chapterCount: number): EpisodeSpe
   return specs;
 }
 
+/**
+ * The chapter ranges of `text` with open ends closed at `chapterCount`, as JSON; null for a list that does not parse.
+ * Two lists with the same value cut a playlist into the same episodes, however they are written.
+ */
+export function resolvedSpec(text: string, chapterCount: number): string | null {
+  let specs: EpisodeSpec[];
+  try {
+    specs = parseEpisodeSpec(text, chapterCount);
+  } catch {
+    return null;
+  }
+  return JSON.stringify(specs.map((s) => [s.from, s.to ?? chapterCount]));
+}
+
+/** Whether episode lists `a` and `b` cut a playlist of `chapterCount` chapters into the same episodes; text that does not parse equals only itself. */
+export function sameEpisodeList(a: string, b: string, chapterCount: number): boolean {
+  if (a === b) return true;
+  const ra = resolvedSpec(a, chapterCount);
+  return ra !== null && ra === resolvedSpec(b, chapterCount);
+}
+
 /** One chosen audio stream within one segment. */
 export interface SegmentAudio {
   /** The stream's PID. */

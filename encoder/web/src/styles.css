@@ -1505,11 +1505,20 @@ a {
 
 .chapter {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 5.5rem auto auto;
+  grid-template-columns: minmax(0, 1fr) 5.5rem 4.5rem 7rem;
   align-items: center;
-  gap: 0 12px;
+  gap: 0 8px;
   border-bottom: 1px solid var(--rule);
   padding: 2px 0;
+}
+
+.chapter-current {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.chapter-current .chapter-number,
+.chapter-current .chapter-start {
+  color: var(--accent);
 }
 
 .chapter-skipped .chapter-seek {
@@ -1543,7 +1552,6 @@ a {
   gap: 6px;
   font-size: 13px;
   color: var(--muted);
-  min-width: 5.5rem;
   cursor: pointer;
 }
 
@@ -1553,7 +1561,7 @@ a {
 
 @media (max-width: 520px) {
   .chapter {
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr) 4.5rem 7rem;
   }
 
   .chapter-mark {
@@ -1565,7 +1573,4 @@ a {
     display: none;
   }
 
-  .chapter-toggle {
-    min-width: 0;
-  }
 }

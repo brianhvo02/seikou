@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { ApiError } from '../api';
 import type { ChapterInfo, EpisodeTimes, LibraryDiscInfo, PlaylistDetail } from '../api-types';
 import { Player } from '../player/Player';
@@ -52,6 +52,7 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
   const [text, setText] = useState('');
   const [textError, setTextError] = useState(false);
   const [busy, setBusy] = useState(false);
+  const playing = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   useDocumentTitle(loaded?.disc ? `${loaded.disc.label} · ${playlistId}` : 'Seikou encoder');
 
   const fail = (e: unknown): void => {
@@ -164,6 +165,8 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
     chapters: chapters.map((c) => ({ startUs: c.startMs * 1000 })),
   };
   const usable = episodes.length > 0;
+  let currentIndex: number | null = null;
+  for (const c of chapters) if (c.startMs * 1000 <= playing.timeUs) currentIndex = c.index;
 
   return (
     <main className="content wide episodes-page">
@@ -213,7 +216,9 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
                 ))}
               </ol>
             ) : (
-              <p className="muted">No chapter is kept. Untick Skip on a chapter to make an episode.</p>
+              <p className="muted">
+                {count === 0 ? 'This playlist has no chapters to group.' : 'No chapter is kept. Untick Skip on a chapter to make an episode.'}
+              </p>
             )}
             <div className="actions">
               <button type="button" className="primary" disabled={!usable || busy} onClick={chooseSubtitles}>
@@ -229,6 +234,7 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
           chapters={chapters}
           grouping={normalize(grouping, count)}
           episodes={episodes}
+          currentIndex={currentIndex}
           onSeek={seek}
           onToggleSplit={(n) => apply({ ...grouping, splits: toggle(grouping.splits, n) })}
           onToggleSkip={(n) => apply({ ...grouping, skipped: toggle(grouping.skipped, n) })}

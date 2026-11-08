@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LibraryAnswer, PlaylistDetail } from '../api-types';
 import type { PlayerLike } from '../player/use-controller';
@@ -35,10 +35,18 @@ function fakeApi(playlist: PlaylistDetail = detail(), discs: LibraryAnswer['disc
 }
 
 function fakeController() {
-  const snapshot = { engineState: 'playing', timeUs: 0, error: null };
+  let snapshot = { engineState: 'playing', timeUs: 0, error: null };
+  const listeners = new Set<() => void>();
   return {
-    subscribe: () => () => undefined,
+    subscribe: (l: () => void) => {
+      listeners.add(l);
+      return () => listeners.delete(l);
+    },
     getSnapshot: () => snapshot,
+    setTime: (timeUs: number) => {
+      snapshot = { ...snapshot, timeUs };
+      for (const l of listeners) l();
+    },
     attachCanvas: vi.fn(),
     resize: vi.fn(),
     startAudio: vi.fn(async () => undefined),
@@ -49,7 +57,7 @@ function fakeController() {
     loadSubtitleFiles: vi.fn(),
     setSubtitleStart: vi.fn(),
     shiftSubtitleFile: vi.fn(),
-  } as unknown as PlayerLike & { seek: ReturnType<typeof vi.fn>; openRemote: ReturnType<typeof vi.fn> };
+  } as unknown as PlayerLike & { seek: ReturnType<typeof vi.fn>; openRemote: ReturnType<typeof vi.fn>; setTime: (timeUs: number) => void };
 }
 
 async function show(api = fakeApi(), controller = fakeController()) {
@@ -142,5 +150,25 @@ describe('EpisodesPage', () => {
     cleanup();
     render(<EpisodesPage api={fakeApi(detail(), [])} discKey={KEY} playlistId="00800" controller={fakeController()} />);
     expect((await screen.findByRole('alert')).textContent).toContain('not in the library');
+  });
+
+  it('marks the chapter being played and follows playback', async () => {
+    const { controller } = await show();
+    const current = () => screen.getAllByRole('listitem').filter((li) => li.getAttribute('aria-current') === 'true').map((li) => li.textContent);
+    expect(current()).toHaveLength(1);
+    expect(current()[0]).toContain('0:00');
+    act(() => controller.setTime(1_250_000_000));
+    expect(current()).toHaveLength(1);
+    expect(screen.getByRole('button', { name: /Chapter 3,/ }).closest('li')!.getAttribute('aria-current')).toBe('true');
+    act(() => controller.setTime(3_599_000_000));
+    expect(screen.getByRole('button', { name: /Chapter 6,/ }).closest('li')!.getAttribute('aria-current')).toBe('true');
+  });
+
+  it('a playlist with no chapters says there is nothing to group', async () => {
+    const empty: PlaylistDetail = { id: '00800', durationMs: 60_000, chapters: [], record: null };
+    await show(fakeApi(empty));
+    expect(screen.getByText(/no chapters to group/)).toBeTruthy();
+    expect(screen.queryByText(/Untick Skip/)).toBeNull();
+    expect((screen.getByRole('button', { name: 'Choose subtitles' }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

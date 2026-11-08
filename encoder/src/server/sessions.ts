@@ -8,7 +8,7 @@ import { readBody } from '../../../server/src/http';
 import { buildManifest } from '../../../server/src/manifest';
 import { discKeyOfFolder } from '../disc/disc-key';
 import { loadPlaylist } from '../disc/playlist';
-import { EpisodeSpecError, parseEpisodeSpec } from '../plan/episodes';
+import { EpisodeSpecError, parseEpisodeSpec, resolvedSpec } from '../plan/episodes';
 import { httpError, json, type AppContext, type HelperSession, type RouteTable } from './http';
 import { libraryOf } from './library';
 
@@ -97,7 +97,7 @@ export class SessionStore {
   constructor(private readonly app: AppContext) {}
 
   /**
-   * The session for `input`: the existing one when a session on the same disc, playlist and episode list was made
+   * The session for `input`: the existing one when a session on the same disc, playlist and episodes (lists that cut the playlist alike, such as `1-3,4-` and `1-3,4-5` on five chapters, are the same) was made
    * before, else a new one with a random id. Rejects with `SessionError` for a playlist id that is not five digits
    * (400 `bad-request`), a playlist the disc lacks (404 `not-found`) or an episode list the playlist cannot hold
    * (400 `bad-episode-spec`), and with the read error when the folder is not a disc.
@@ -118,7 +118,7 @@ export class SessionStore {
       if (e instanceof EpisodeSpecError) throw new SessionError(400, 'bad-episode-spec', e.message);
       throw e;
     }
-    const inputKey = JSON.stringify([disc.root, input.playlistId, input.episodeSpec]);
+    const inputKey = JSON.stringify([disc.root, input.playlistId, resolvedSpec(input.episodeSpec, chapters)]);
     const existing = this.byInput.get(inputKey);
     if (existing !== undefined) return this.sessions.get(existing)!;
     const session: HelperSession = {

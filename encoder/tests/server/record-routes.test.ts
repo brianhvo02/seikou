@@ -3,6 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { SubtitleRecord } from '../../src/subs/record';
+import { fx } from '../paths';
 import { jsonOf, startRouteFixture, type RouteFixture } from './route-fixture';
 
 interface GetAnswer {
@@ -114,5 +115,20 @@ describe('record routes', () => {
     expect(got.error?.code).toBe('record-unreadable');
     expect((await put(record())).status).toBe(200);
     expect(jsonOf<GetAnswer>(await fixture.call('/record')).record).not.toBeNull();
+  });
+
+  it('an equivalent episode list reads, saves and shares a session', async () => {
+    const written = await put(record({ episodeSpec: '1-3,4-5' }));
+    expect(written.status).toBe(200);
+    const open = await fixture.server.sessions.create({ discDir: fx('fixtures/disc-speech'), playlistId: '00000', episodeSpec: '1-3, 4-' });
+    expect(open.id).toBe(fixture.sessionId);
+    const other = await fixture.server.sessions.create({ discDir: fx('fixtures/disc-speech'), playlistId: '00000', episodeSpec: '1-3,4-' });
+    expect(other.id).toBe(fixture.sessionId);
+    // the record as written is kept, and it loads for the open-ended spelling
+    const via = (sub: string, init?: Parameters<RouteFixture['send']>[1]) => fixture.send(`/api/sessions/${other.id}${sub}`, init);
+    const got = jsonOf<GetAnswer>(await via('/record'));
+    expect(got.record?.episodeSpec).toBe('1-3,4-5');
+    const saved = await fixture.call('/record', { method: 'PUT', body: JSON.stringify(record({ episodeSpec: '1-3,4-' })) });
+    expect(saved.status).toBe(200);
   });
 });
