@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { createHash, randomBytes } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { mkdir, open, readFile, readdir, rename, rm, stat, statfs } from 'node:fs/promises';
+import { lstat, mkdir, open, readFile, readdir, rename, rm, stat, statfs } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { openMatroska } from '@seikou/matroska';
+import { encodeId } from '@seikou/nas/encode-id';
 import { isCode, replaceAtomically } from '@seikou/titles/atomic-json';
 import { HttpError } from '../http';
 import type { EncodeEntry, EncodeIndex } from './index-store';
@@ -14,6 +15,8 @@ export const MAX_CHUNK_BYTES = 16 * 1024 * 1024;
 /** Free space that must remain after an upload's size. */
 export const ROOM_MARGIN_BYTES = 1024 * 1024 * 1024;
 /** An upload untouched for this long is removed. */
+/** Open uploads one device may hold. */
+export const MAX_OPEN_PER_DEVICE = 8;
 export const STALE_UPLOAD_MS = 24 * 60 * 60_000;
 const MAX_UPLOAD_BYTES = 2 ** 44;
 
@@ -95,6 +98,7 @@ export class UploadStore {
   private readonly uploads: string;
   private readonly now: () => number;
   private readonly locks = new Map<string, Promise<unknown>>();
+  private creating: Promise<unknown> = Promise.resolve();
 
   constructor(private readonly opts: UploadStoreOptions) {
     this.uploads = join(opts.dir, '.uploads');
@@ -142,18 +146,32 @@ export class UploadStore {
     return Number(s.bavail) * Number(s.bsize);
   }
 
-  async create(deviceId: string, input: Record<string, unknown>): Promise<string> {
+  /** One creation at a time, so the same-name and room checks can't both pass for two POSTs. */
+  create(deviceId: string, input: Record<string, unknown>): Promise<string> {
+    const run = this.creating.then(() => this.createOne(deviceId, input));
+    this.creating = run.catch(() => {});
+    return run;
+  }
+
+  private async createOne(deviceId: string, input: Record<string, unknown>): Promise<string> {
     const { size, sha256, name } = input;
     if (typeof size !== 'number' || !Number.isSafeInteger(size) || size < 1 || size > MAX_UPLOAD_BYTES) throw new UploadError(400, 'bad size');
     if (typeof sha256 !== 'string' || !/^[0-9a-f]{64}$/i.test(sha256)) throw new UploadError(400, 'bad sha256');
     if (typeof name !== 'string' || name === '' || name.length > 255) throw new UploadError(400, 'bad name');
     await mkdir(this.uploads, { recursive: true });
+    let owed = 0;
+    let mine = 0;
     for (const file of await readdir(this.uploads)) {
       if (!file.endsWith('.json')) continue;
       const other = await this.readMeta(file.slice(0, -5));
-      if (other?.name === name) throw new UploadError(409, 'in-progress');
+      if (!other) continue;
+      if (other.name === name) throw new UploadError(409, 'in-progress');
+      if (other.deviceId === deviceId) mine++;
+      owed += other.size - other.ranges.reduce((n, [x, y]) => n + (y - x + 1), 0);
     }
-    if ((await this.free()) < size + ROOM_MARGIN_BYTES) throw new UploadError(507, 'no-room');
+    if (mine >= MAX_OPEN_PER_DEVICE) throw new UploadError(429, 'too-many-uploads');
+    // the bytes open uploads still have to write count against the room
+    if ((await this.free()) < owed + size + ROOM_MARGIN_BYTES) throw new UploadError(507, 'no-room');
     const id = randomBytes(8).toString('hex');
     const handle = await open(this.partial(id), 'w');
     try {
@@ -196,7 +214,8 @@ export class UploadStore {
     });
   }
 
-  async complete(id: string): Promise<EncodeEntry> {
+  /** `entry` is null when the file was filed but the index could not list it yet (`filed` is its id; the next scan lists it). */
+  async complete(id: string): Promise<{ entry: EncodeEntry | null; filed: string }> {
     return this.locked(id, async () => {
       const meta = await this.readMeta(id);
       if (!meta) throw new UploadError(404, 'not found');
@@ -219,12 +238,26 @@ export class UploadStore {
       }
       // kept, so the owner can abort it
       if (anilistId === null || episode === null) throw new UploadError(422, 'bad-tags');
-      const finalPath = join(this.opts.dir, String(anilistId), `${episode}.mkv`);
+      const folder = join(this.opts.dir, String(anilistId));
+      const finalPath = join(folder, `${episode}.mkv`);
+      try {
+        if (!(await lstat(folder)).isDirectory()) throw new UploadError(409, 'bad-folder');
+      } catch (err) {
+        if (err instanceof UploadError) throw err;
+        if (!isCode(err, 'ENOENT')) throw err;
+      }
       await mkdir(dirname(finalPath), { recursive: true });
       // one rename over any old file: the old one plays until it lands
       await rename(this.partial(id), finalPath);
       await rm(this.metaFile(id), { force: true });
-      return this.opts.index.add(finalPath);
+      const filed = encodeId(anilistId, episode);
+      try {
+        return { entry: await this.opts.index.add(finalPath), filed };
+      } catch (err) {
+        // the file is in place; an error now must not send the client back to a gone upload
+        this.opts.log(`encodes: upload ${id} was filed as ${filed} but not listed: ${err instanceof Error ? err.message : String(err)}`);
+        return { entry: null, filed };
+      }
     });
   }
 

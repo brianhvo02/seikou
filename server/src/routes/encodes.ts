@@ -46,12 +46,13 @@ export function encodeRoutes(auth: Auth, encodes: EncodeIndex | undefined, title
     const allowed = del ? ['DELETE'] : !id ? ['POST'] : complete ? ['POST'] : ['PUT', 'GET', 'DELETE'];
     if (!allowed.includes(method)) return json(405, { error: 'method not allowed' }, { Allow: allowed.join(', ') });
     const device = requestDevice(auth, req.headers.authorization, url);
-    if (!device) return json(401, { error: 'unauthorized' });
     // a refused PUT leaves its body unread, so the connection can't carry another request
     const close = method === 'PUT';
-    if (!device.owner) return json(403, { error: 'forbidden' }, close ? { Connection: 'close' } : {});
-    if (viaChannel(req)) return json(403, { error: 'https-only' });
-    if (!encodes || !uploads) return json(404, { error: 'not-configured' });
+    const shut: Record<string, string> = close ? { Connection: 'close' } : {};
+    if (!device) return json(401, { error: 'unauthorized' }, shut);
+    if (!device.owner) return json(403, { error: 'forbidden' }, shut);
+    if (viaChannel(req)) return json(403, { error: 'https-only' }, shut);
+    if (!encodes || !uploads) return json(404, { error: 'not-configured' }, shut);
     try {
       if (del) {
         if (!(await encodes.ready(waitMs))) return json(503, { error: 'indexing' }, { 'Retry-After': '5' });
@@ -64,8 +65,11 @@ export function encodeRoutes(auth: Auth, encodes: EncodeIndex | undefined, title
         if (!body || typeof body !== 'object') return json(400, { error: 'bad request' });
         return json(200, { id: await uploads.create(device.id, body) });
       }
-      if (!UPLOAD_ID.test(id)) return notFound();
-      if (complete) return json(200, { entry: stripPath(await uploads.complete(id)) });
+      if (!UPLOAD_ID.test(id)) return json(404, { error: 'not found' }, shut);
+      if (complete) {
+        const done = await uploads.complete(id);
+        return json(200, done.entry ? { entry: stripPath(done.entry) } : { entry: null, filed: done.filed });
+      }
       if (method === 'GET') return json(200, await uploads.status(id));
       if (method === 'DELETE') {
         await uploads.abort(id);

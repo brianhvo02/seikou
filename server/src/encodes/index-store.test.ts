@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { chmodSync, cpSync, mkdirSync, symlinkSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, cpSync, renameSync, mkdirSync, symlinkSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -215,5 +215,74 @@ describe('EncodeIndex', () => {
     expect(index.list().length).toBe(1);
     await index.remove('990001-2');
     expect(index.get('990001-2')).toBeNull();
+  });
+
+  describe('while a scan is running', () => {
+    /** An index whose read of `holdPath` waits for `release()`; `held` resolves once the scan is inside that read. */
+    function held(holdPath: string): { index: EncodeIndex; held: Promise<void>; release: () => void } {
+      let release!: () => void;
+      let entered!: () => void;
+      const gate = new Promise<void>((r) => { release = r; });
+      const held = new Promise<void>((r) => { entered = r; });
+      let armed = true;
+      const index = new EncodeIndex({
+        dir, dataDir: data, log: () => {}, settleMs: 0,
+        onRead: async (p) => {
+          if (p === holdPath && armed) {
+            armed = false;
+            entered();
+            await gate;
+          }
+        },
+      });
+      return { index, held, release };
+    }
+
+    it('an add during the scan survives the scan\'s commit', async () => {
+      cpSync(join(FIXTURES, '1.mkv'), join(dir, '990001/1.mkv'));
+      const h = held('990001/1.mkv');
+      const scan = h.index.scan();
+      await h.held;
+      cpSync(join(FIXTURES, '2.mkv'), join(dir, '990001/2.mkv'));
+      await h.index.add(join(dir, '990001/2.mkv'));
+      h.release();
+      await scan;
+      expect(h.index.list().map((e) => e.id)).toEqual(['990001-1', '990001-2']);
+    });
+
+    it('a replacement added during the scan keeps its new record', async () => {
+      cpSync(join(FIXTURES, '1.mkv'), join(dir, '990001/1.mkv'));
+      cpSync(join(FIXTURES, '2.mkv'), join(dir, '990001/2.mkv'));
+      await make().scan();
+      const before = make();
+      expect(before.get('990001-2')!.size).toBeGreaterThan(0);
+      const h = held('990001/2.mkv');
+      // the scan rereads 2.mkv because it changed since the index was saved
+      appendFileSync(join(dir, '990001/2.mkv'), Buffer.alloc(10));
+      const scan = h.index.scan();
+      await h.held;
+      cpSync(join(FIXTURES, '1.mkv'), join(dir, '990001/1.mkv.new'));
+      renameSync(join(dir, '990001/1.mkv.new'), join(dir, '990001/1.mkv'));
+      appendFileSync(join(dir, '990001/1.mkv'), Buffer.alloc(100));
+      const added = await h.index.add(join(dir, '990001/1.mkv'));
+      h.release();
+      await scan;
+      expect(h.index.get('990001-1')!.size).toBe(added.size);
+    });
+
+    it('a remove during the scan stays removed', async () => {
+      cpSync(join(FIXTURES, '1.mkv'), join(dir, '990001/1.mkv'));
+      cpSync(join(FIXTURES, '2.mkv'), join(dir, '990001/2.mkv'));
+      await make().scan();
+      const h = held('990001/2.mkv');
+      const when = new Date(Date.now() + 5000);
+      utimesSync(join(dir, '990001/2.mkv'), when, when);
+      const scan = h.index.scan();
+      await h.held;
+      await h.index.remove('990001-1');
+      h.release();
+      await scan;
+      expect(h.index.list().map((e) => e.id)).toEqual(['990001-2']);
+    });
   });
 });

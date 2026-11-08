@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
 import type { IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -71,6 +71,18 @@ async function token(name: string, owner: boolean): Promise<string> {
 }
 
 const sha = (b: Buffer): string => createHash('sha256').update(b).digest('hex');
+/** `bytes` with every `from` replaced by `to`, which must have the same length. */
+function patch(bytes: Buffer, from: string, to: string): Buffer {
+  expect(to.length).toBe(from.length);
+  const out = Buffer.from(bytes);
+  let n = 0;
+  for (let at = out.indexOf(from); at >= 0; at = out.indexOf(from, at + from.length)) {
+    out.write(to, at);
+    n++;
+  }
+  expect(n).toBeGreaterThan(0);
+  return out;
+}
 const ZERO = '0'.repeat(64);
 const call = (method: string, path: string, t: string, init: { body?: Buffer | string; headers?: Record<string, string> } = {}): Promise<Response> =>
   fetch(`${base}/api/encodes/${path}`, { method, headers: { Authorization: `Bearer ${t}`, ...init.headers }, ...(init.body !== undefined ? { body: init.body } : {}) });
@@ -123,16 +135,30 @@ describe('encode uploads', () => {
     await start();
     mkdirSync(join(dir, '990001'), { recursive: true });
     cpSync(join(FIXTURE, '1.mkv'), join(dir, '990001/1.mkv'));
+    await index.scan();
     const old = readFileSync(join(dir, '990001/1.mkv'));
+    const fresh = Buffer.concat([patch(old, 'The Lantern Road', 'The Lantern Toad'), Buffer.alloc(4096)]);
+    expect(fresh.length).not.toBe(old.length);
     const t = await token('Owner', true);
-    const id = await createId(t, { size: old.length, sha256: sha(old), name: 'again.mkv' });
-    await put(t, id, old, 0, 99);
+    // a viewer is streaming the old file
+    const viewing = await call('GET', '990001-1/files/EPISODE.MKV', t);
+    const reader = viewing.body!.getReader();
+    const first = await reader.read();
+    const id = await createId(t, { size: fresh.length, sha256: sha(fresh), name: 'again.mkv' });
+    await put(t, id, fresh, 0, 99);
+    await put(t, id, fresh, 100, fresh.length - 1);
     expect(readFileSync(join(dir, '990001/1.mkv')).equals(old)).toBe(true);
-    await put(t, id, old, 100, old.length - 1);
-    expect(readFileSync(join(dir, '990001/1.mkv')).equals(old)).toBe(true);
-    expect((await call('POST', `uploads/${id}/complete`, t)).status).toBe(200);
+    expect(index.get('990001-1')!.size).toBe(old.length);
+    const done = await call('POST', `uploads/${id}/complete`, t);
+    expect(done.status).toBe(200);
+    // the stream that began before the rename reads the old bytes to its end
+    const parts: Buffer[] = [Buffer.from(first.value!)];
+    for (let r = await reader.read(); !r.done; r = await reader.read()) parts.push(Buffer.from(r.value));
+    expect(Buffer.concat(parts).equals(old)).toBe(true);
+    expect(readFileSync(join(dir, '990001/1.mkv')).equals(fresh)).toBe(true);
+    expect(index.get('990001-1')!.size).toBe(fresh.length);
+    expect(index.get('990001-1')!.episodeTitle).toBe('The Lantern Toad');
     expect(readdirSync(join(dir, '990001'))).toEqual(['1.mkv']);
-    expect(readdirSync(join(dir, '.uploads'))).toEqual([]);
   });
 
   it('a guest device gets 403', async () => {
@@ -177,7 +203,8 @@ describe('encode uploads', () => {
   it('missing tags answer 422 bad-tags and keep the upload', async () => {
     await start();
     const t = await token('Owner', true);
-    const bytes = Buffer.from('not a matroska file');
+    // a valid MKV whose tag names are changed to ones the index doesn't know
+    const bytes = patch(patch(readFileSync(join(FIXTURE, '1.mkv')), 'ANILIST_ID', 'ANILIST_IX'), 'EPISODE', 'EPISODX');
     const id = await createId(t, { size: bytes.length, sha256: sha(bytes), name: 'x.mkv' });
     await put(t, id, bytes, 0, bytes.length - 1);
     const r = await call('POST', `uploads/${id}/complete`, t);
@@ -231,5 +258,86 @@ describe('encode uploads', () => {
     const r = await create(t, { size: 10, sha256: ZERO, name: 'x.mkv' });
     expect(r.status).toBe(404);
     expect(await r.json()).toEqual({ error: 'not-configured' });
+  });
+
+  it('counts the bytes open uploads still owe in the room check', async () => {
+    await start();
+    const t = await token('Owner', true);
+    const GiB = 1024 * 1024 * 1024;
+    free = 3 * GiB;
+    expect((await create(t, { size: GiB, sha256: ZERO, name: 'a.mkv' })).status).toBe(200);
+    // 1 GiB is owed, so this one needs 1 + 1 + 1 GiB of room and there are 3
+    expect((await create(t, { size: GiB, sha256: ZERO, name: 'b.mkv' })).status).toBe(200);
+    const r = await create(t, { size: GiB, sha256: ZERO, name: 'c.mkv' });
+    expect(r.status).toBe(507);
+  });
+
+  it('caps open uploads at 8 per device', async () => {
+    await start();
+    const t = await token('Owner', true);
+    for (let i = 0; i < 8; i++) expect((await create(t, { size: 10, sha256: ZERO, name: `${i}.mkv` })).status).toBe(200);
+    const r = await create(t, { size: 10, sha256: ZERO, name: '8.mkv' });
+    expect(r.status).toBe(429);
+    expect(await r.json()).toEqual({ error: 'too-many-uploads' });
+  });
+
+  it('two POSTs of one name at once leave one upload', async () => {
+    await start();
+    const t = await token('Owner', true);
+    const body = { size: 10, sha256: ZERO, name: 'same.mkv' };
+    const statuses = (await Promise.all([create(t, body), create(t, body), create(t, body)])).map((r) => r.status).sort();
+    expect(statuses).toEqual([200, 409, 409]);
+  });
+
+  it('refused PUTs close the connection', async () => {
+    await start();
+    const t = await token('Owner', true);
+    const range = { 'Content-Range': 'bytes 0-0/10' };
+    // (a missing token is answered 401 by the global token guard before these routes)
+    const guest = await token('Guest', false);
+    const forbidden = await call('PUT', 'uploads/0123456789abcdef', guest, { body: 'x', headers: range });
+    expect(forbidden.status).toBe(403);
+    expect(forbidden.headers.get('connection')).toBe('close');
+    const badId = await call('PUT', 'uploads/nope', t, { body: 'x', headers: range });
+    expect(badId.status).toBe(404);
+    expect(badId.headers.get('connection')).toBe('close');
+    const missing = await call('PUT', 'uploads/0123456789abcdef', t, { body: 'x', headers: range });
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get('connection')).toBe('close');
+    close?.();
+    index.close();
+    await start(false);
+    const t2 = await token('Owner2', true);
+    const off = await call('PUT', 'uploads/0123456789abcdef', t2, { body: 'x', headers: range });
+    expect(off.status).toBe(404);
+    expect(off.headers.get('connection')).toBe('close');
+  });
+
+  it('a failure to list after the rename answers 200 with entry null and filed', async () => {
+    await start();
+    const t = await token('Owner', true);
+    const bytes = readFileSync(join(FIXTURE, '1.mkv'));
+    const id = await createId(t, { size: bytes.length, sha256: sha(bytes), name: 'e1.mkv' });
+    await put(t, id, bytes, 0, bytes.length - 1);
+    index.add = async () => {
+      throw new Error('disk full');
+    };
+    const r = await call('POST', `uploads/${id}/complete`, t);
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ entry: null, filed: '990001-1' });
+    expect(readFileSync(join(dir, '990001/1.mkv')).equals(bytes)).toBe(true);
+  });
+
+  it('refuses 409 bad-folder when the AniList folder is not a directory', async () => {
+    await start();
+    const t = await token('Owner', true);
+    const bytes = readFileSync(join(FIXTURE, '1.mkv'));
+    symlinkSync(tmp, join(dir, '990001'));
+    const id = await createId(t, { size: bytes.length, sha256: sha(bytes), name: 'e1.mkv' });
+    await put(t, id, bytes, 0, bytes.length - 1);
+    const r = await call('POST', `uploads/${id}/complete`, t);
+    expect(r.status).toBe(409);
+    expect(await r.json()).toEqual({ error: 'bad-folder' });
+    expect(existsSync(join(tmp, '1.mkv'))).toBe(false);
   });
 });

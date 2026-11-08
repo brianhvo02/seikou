@@ -102,6 +102,8 @@ export class EncodeIndex {
   private rootEmpty = false;
   private closed = false;
   private scanError: string | null = null;
+  /** While a scan runs: what `add` and `remove` changed since it began (null for a removal), which its commit keeps. */
+  private changedDuringScan: Map<string, FileRecord | null> | null = null;
 
   constructor(private readonly opts: EncodeIndexOptions) {
     this.file = join(opts.dataDir, 'encodes.json');
@@ -240,6 +242,15 @@ export class EncodeIndex {
   }
 
   private async doScan(): Promise<void> {
+    this.changedDuringScan = new Map();
+    try {
+      await this.scanFolder();
+    } finally {
+      this.changedDuringScan = null;
+    }
+  }
+
+  private async scanFolder(): Promise<void> {
     const found: string[] = [];
     const skipped: string[] = [];
     try {
@@ -279,6 +290,11 @@ export class EncodeIndex {
     }
     // a folder we couldn't read keeps what it held
     for (const [rel, record] of this.files) if (!next.has(rel) && skipped.some((d) => rel.startsWith(`${d}/`))) next.set(rel, record);
+    // what `add` and `remove` did while this scan read the folder wins over what the scan saw
+    for (const [rel, record] of this.changedDuringScan ?? []) {
+      if (record) next.set(rel, record);
+      else next.delete(rel);
+    }
     this.commit(next);
   }
 
@@ -337,6 +353,7 @@ export class EncodeIndex {
     const record = await this.read(rel, s.size, s.mtimeMs);
     if (!record.entry) throw new Error('the file names no AniList id and episode in its tags');
     this.commit(new Map(this.files).set(rel, record));
+    this.changedDuringScan?.set(rel, record);
     return this.get(record.entry.id)!;
   }
 
@@ -346,8 +363,10 @@ export class EncodeIndex {
     if (!entry) return;
     // the index first: a failed save keeps both the entry and its file
     const files = new Map(this.files);
-    files.delete(posix(relative(this.opts.dir, entry.path)));
+    const rel = posix(relative(this.opts.dir, entry.path));
+    files.delete(rel);
     this.commit(files);
+    this.changedDuringScan?.set(rel, null);
     try {
       await rm(entry.path, { force: true });
     } catch (err) {
