@@ -48,16 +48,22 @@ afterEach(() => {
   delete process.env.FAKE_ENC_EXIT;
   delete process.env.FAKE_ENC_IVF;
   delete process.env.FAKE_ENC_NOREAD;
+  delete process.env.FAKE_SLEEP;
+});
+
+it('film grain comes from the settings', () => {
+  const args = svtArgs({ crf: 25, preset: 4, filmGrain: 9, extraSvtArgs: [] });
+  expect(args.slice(args.indexOf('--film-grain'), args.indexOf('--film-grain') + 2)).toEqual(['--film-grain', '9']);
 });
 
 it('builds encoder argument lists from the spec defaults', () => {
-  expect(svtArgs({ crf: 25, preset: 4, extraSvtArgs: ['--lp', '4'] })).toEqual(['--preset', '4', '--crf', '25', '--enable-variance-boost', '1', '--tf-strength', '1', '--film-grain', '4', '--sharpness', '1', '--luminance-qp-bias', '25', '--enable-qm', '1', '--qm-min', '0', '--tile-columns', '1', '--keyint', '-2', '--color-primaries', '1', '--transfer-characteristics', '1', '--matrix-coefficients', '1', '--color-range', '0', '--progress', '0', '--lp', '4']);
+  expect(svtArgs({ crf: 25, preset: 4, filmGrain: 4, extraSvtArgs: ['--lp', '4'] })).toEqual(['--preset', '4', '--crf', '25', '--enable-variance-boost', '1', '--tf-strength', '1', '--film-grain', '4', '--sharpness', '1', '--luminance-qp-bias', '25', '--enable-qm', '1', '--qm-min', '0', '--tile-columns', '1', '--keyint', '-2', '--color-primaries', '1', '--transfer-characteristics', '1', '--matrix-coefficients', '1', '--color-range', '0', '--progress', '0', '--lp', '4']);
   expect(opusArgs(2)).toEqual(['--bitrate', '160', '--ignorelength']);
   expect(opusArgs(6)).toEqual(['--bitrate', '320', '--ignorelength']);
 });
 
 describe.skipIf(!haveTools)('end to end on disc1', () => {
-  const base = (out: string): EncodeOptions => ({ discDir: fx('fixtures/disc1'), playlistId: '00000', episodes: '1-2,3-4', outDir: out, namePattern: 'ep-{n}', crf: 40, preset: 8, extraSvtArgs: [], cacheDir: join(out, 'cache'), tools: toolPaths()!, dataDir: join(out, 'data'), noSubtitles: false, noPgs: false });
+  const base = (out: string): EncodeOptions => ({ discDir: fx('fixtures/disc1'), playlistId: '00000', episodes: '1-2,3-4', outDir: out, namePattern: 'ep-{n}', crf: 40, preset: 8, extraSvtArgs: [], filmGrain: 4, cacheDir: join(out, 'cache'), tools: toolPaths()!, dataDir: join(out, 'data'), noSubtitles: false, noPgs: false });
 
   it('encodes two episodes with chapters and no leftover files', async () => {
     const out = mkdtempSync(join(tmpdir(), 'et-'));
@@ -145,10 +151,116 @@ describe.skipIf(!haveTools)('end to end on disc1', () => {
   }, 120_000);
 });
 
+/** The pids of the direct children of this process. */
+function childPids(): number[] {
+  try {
+    return execFileSync('pgrep', ['-P', String(process.pid)], { encoding: 'utf8' }).split('\n').filter((l) => l !== '').map(Number);
+  } catch {
+    return [];
+  }
+}
+
+describe.skipIf(!haveTools)('partial files, cancel, progress and subsets on disc1', () => {
+  const base = (out: string): EncodeOptions => ({ discDir: fx('fixtures/disc1'), playlistId: '00000', episodes: '1-2,3-4', outDir: out, namePattern: 'ep-{n}', crf: 40, preset: 8, extraSvtArgs: [], filmGrain: 4, cacheDir: join(out, 'cache'), tools: toolPaths()!, dataDir: join(out, 'data'), noSubtitles: false, noPgs: false });
+
+  it('an episode is written as .partial and renamed when complete', async () => {
+    const out = mkdtempSync(join(tmpdir(), 'et-'));
+    const [p] = await encodeEpisodes({ ...base(out), onlyEpisodes: [1] }, () => {});
+    expect(p).toBe(join(out, 'ep-01.mkv'));
+    expect(readdirSync(out).sort()).toEqual(['cache', 'ep-01.mkv']);
+    // An older finished file is only replaced by the rename: a failed run leaves it whole and no partial behind.
+    writeFileSync(join(out, 'ep-01.mkv'), 'old');
+    process.env.FAKE_ENC_EXIT = '3';
+    process.env.FAKE_ENC_IVF = fx('fixtures/small.ivf');
+    await expect(encodeEpisodes({ ...base(out), onlyEpisodes: [1], tools: { ...toolPaths()!, svt: fx('tests/fake-bin/SvtAv1EncApp') } }, () => {})).rejects.toMatchObject({ code: 3 });
+    expect(readFileSync(join(out, 'ep-01.mkv'), 'utf8')).toBe('old');
+    expect(existsSync(join(out, 'ep-01.mkv.partial'))).toBe(false);
+  }, 600_000);
+
+  it('aborting stops every chain and removes the partial file', async () => {
+    const out = mkdtempSync(join(tmpdir(), 'et-'));
+    const marker = '61.37';
+    process.env.FAKE_SLEEP = marker;
+    process.env.FAKE_ENC_IVF = fx('fixtures/small.ivf');
+    const before = new Set(childPids());
+    const controller = new AbortController();
+    const tools = { ...toolPaths()!, svt: fx('tests/fake-bin/SvtAv1EncApp'), opusenc: fx('tests/fake-bin/opusenc') };
+    const run = encodeEpisodes({ ...base(out), tools, signal: controller.signal }, () => {}).catch((e: unknown) => e);
+    // Wait until the video and audio chains (four processes) are running.
+    const deadline = Date.now() + 120_000;
+    while (childPids().filter((p) => !before.has(p)).length < 4 && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
+    expect(childPids().filter((p) => !before.has(p)).length).toBeGreaterThanOrEqual(4);
+    controller.abort();
+    const err = await run;
+    expect(err).toMatchObject({ name: 'AbortError' });
+    expect(childPids().filter((p) => !before.has(p))).toEqual([]);
+    let sleepers = '';
+    try {
+      sleepers = execFileSync('pgrep', ['-f', `sleep ${marker}`], { encoding: 'utf8' });
+    } catch {
+      // pgrep exits 1 when nothing matches
+    }
+    expect(sleepers.trim()).toBe('');
+    expect(readdirSync(out).filter((n) => n.endsWith('.partial') || n.endsWith('.mkv'))).toEqual([]);
+  }, 180_000);
+
+  it('an already aborted signal rejects before anything is spawned', async () => {
+    const out = mkdtempSync(join(tmpdir(), 'et-'));
+    const before = childPids();
+    await expect(encodeEpisodes({ ...base(out), signal: AbortSignal.abort() }, () => {})).rejects.toMatchObject({ name: 'AbortError' });
+    expect(childPids()).toEqual(before);
+    expect(existsSync(join(out, 'cache'))).toBe(false);
+  });
+
+  it('onlyEpisodes encodes the listed episodes only', async () => {
+    const out = mkdtempSync(join(tmpdir(), 'et-'));
+    const events: EncodeEvent[] = [];
+    const paths = await encodeEpisodes({ ...base(out), onlyEpisodes: [2] }, (e) => events.push(e));
+    expect(paths.map((p) => basename(p))).toEqual(['ep-02.mkv']);
+    expect(readdirSync(out).sort()).toEqual(['cache', 'ep-02.mkv']);
+    expect(events.filter((e) => e.kind === 'episode-start').map((e) => e.episode)).toEqual([2]);
+    await expect(encodeEpisodes({ ...base(out), onlyEpisodes: [3] }, () => {})).rejects.toThrow(/episode 3/i);
+  }, 600_000);
+
+  it('progress events report frames done and total', async () => {
+    const out = mkdtempSync(join(tmpdir(), 'et-'));
+    // A frozen clock: only the closing event at 100% is sent.
+    let events: EncodeEvent[] = [];
+    await encodeEpisodes({ ...base(out), onlyEpisodes: [1], now: () => 0 }, (e) => events.push(e));
+    let progress = events.filter((e) => e.kind === 'progress');
+    expect(progress.map((e) => [e.episode, e.framesDone, e.frames])).toEqual([[1, 96, 96]]);
+    // A clock that moves 400 ms per reading: events come in order, the last at 100%.
+    let t = 0;
+    events = [];
+    await encodeEpisodes({ ...base(out), onlyEpisodes: [1], now: () => (t += 400) }, (e) => events.push(e));
+    progress = events.filter((e) => e.kind === 'progress');
+    expect(progress.length).toBeGreaterThan(2);
+    const done = progress.map((e) => e.framesDone!);
+    expect([...done].sort((a, b) => a - b)).toEqual(done);
+    expect(progress.at(-1)).toMatchObject({ framesDone: 96, frames: 96 });
+    expect(progress.slice(0, -1).every((e) => e.framesDone! < 96 && e.frames === 96)).toBe(true);
+  }, 600_000);
+
+  it('reports packaged, and package-failed with the MKV kept', async () => {
+    const out = mkdtempSync(join(tmpdir(), 'et-'));
+    const events: EncodeEvent[] = [];
+    await encodeEpisodes({ ...base(out), onlyEpisodes: [1], webDir: join(out, 'web') }, (e) => events.push(e));
+    expect(events.filter((e) => e.kind === 'packaged').map((e) => e.episode)).toEqual([1]);
+    // A file where the package directory's parent should go makes packaging fail.
+    writeFileSync(join(out, 'blocked'), 'x');
+    const failed: EncodeEvent[] = [];
+    await expect(encodeEpisodes({ ...base(out), onlyEpisodes: [1], webDir: join(out, 'blocked') }, (e) => failed.push(e))).rejects.toThrow();
+    expect(failed.filter((e) => e.kind === 'package-failed')).toHaveLength(1);
+    expect(failed.find((e) => e.kind === 'package-failed')!.message).not.toBe('');
+    expect(existsSync(join(out, 'ep-01.mkv'))).toBe(true);
+    expect(failed.some((e) => e.kind === 'episode-done')).toBe(false);
+  }, 600_000);
+});
+
 describe.skipIf(!haveTools)('end to end on disc3', () => {
   it('encodes disc3 with four Opus tracks', async () => {
     const out = mkdtempSync(join(tmpdir(), 'et-'));
-    const opts: EncodeOptions = { discDir: fx('fixtures/disc3'), playlistId: '00000', episodes: '1-', outDir: out, namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], cacheDir: join(out, 'cache'), tools: toolPaths()!, dataDir: join(out, 'data'), noSubtitles: false, noPgs: false };
+    const opts: EncodeOptions = { discDir: fx('fixtures/disc3'), playlistId: '00000', episodes: '1-', outDir: out, namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], filmGrain: 4, cacheDir: join(out, 'cache'), tools: toolPaths()!, dataDir: join(out, 'data'), noSubtitles: false, noPgs: false };
     const [p] = await encodeEpisodes(opts, () => {});
     const tracks = findAll(parseMkv(readFileSync(p!)), Id.TrackEntry).map((t) => ({
       codec: stringOf(find(t, Id.CodecID)),
@@ -177,7 +289,7 @@ describe.skipIf(!haveTools)('end to end on disc3', () => {
 
   it("follows the saved record's audio order, ticks, names and video label", async () => {
     const out = mkdtempSync(join(tmpdir(), 'et-'));
-    const opts: EncodeOptions = { discDir: fx('fixtures/disc3'), playlistId: '00000', episodes: '1-', outDir: out, namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], cacheDir: join(out, 'cache'), tools: toolPaths()!, dataDir: join(out, 'data'), noSubtitles: false, noPgs: false };
+    const opts: EncodeOptions = { discDir: fx('fixtures/disc3'), playlistId: '00000', episodes: '1-', outDir: out, namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], filmGrain: 4, cacheDir: join(out, 'cache'), tools: toolPaths()!, dataDir: join(out, 'data'), noSubtitles: false, noPgs: false };
     const { key, label } = await discKeyOfFolder(opts.discDir);
     await new RecordStore(opts.dataDir).write({
       disc: { key, label },
@@ -239,7 +351,7 @@ it('refuses, before any tool starts, an episode whose ticked audio streams are a
     savedAt: '2026-11-07T00:00:00Z',
   });
   const missing = { vspipe: '/nonexistent/vspipe', svt: '/nonexistent/SvtAv1EncApp', opusenc: '/nonexistent/opusenc' };
-  const opts: EncodeOptions = { discDir, playlistId: '00000', episodes: '1-', outDir: join(out, 'mkv'), namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], cacheDir: join(out, 'cache'), tools: missing, dataDir: join(out, 'data'), noSubtitles: false, noPgs: false };
+  const opts: EncodeOptions = { discDir, playlistId: '00000', episodes: '1-', outDir: join(out, 'mkv'), namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], filmGrain: 4, cacheDir: join(out, 'cache'), tools: missing, dataDir: join(out, 'data'), noSubtitles: false, noPgs: false };
   const err = await encodeEpisodes(opts, () => {}).catch((e: unknown) => e);
   expect(err).toBeInstanceOf(NoAudioChosenError);
   expect((err as Error).message).toBe('Episode 1 has no audio stream ticked in the saved choices; tick one in the helper or pass --no-subtitles');
@@ -281,7 +393,7 @@ describe.skipIf(!haveTools)('end to end on disc-speech with a saved record', () 
       ],
       savedAt: '2026-11-07T00:00:00Z',
     });
-    const opts: EncodeOptions = { discDir, playlistId: '00000', episodes: '1-3,4-5', outDir: join(out, 'mkv'), namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], cacheDir: join(out, 'cache'), tools: toolPaths()!, dataDir, noSubtitles: false, noPgs: false, title: 'Ignored' };
+    const opts: EncodeOptions = { discDir, playlistId: '00000', episodes: '1-3,4-5', outDir: join(out, 'mkv'), namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], filmGrain: 4, cacheDir: join(out, 'cache'), tools: toolPaths()!, dataDir, noSubtitles: false, noPgs: false, title: 'Ignored' };
     const [p1, p2] = await encodeEpisodes(opts, () => {});
     const tree = parseMkv(readFileSync(p1!));
     expect(stringOf(find(tree, Id.Title))).toBe('Lantern Harbor - 01 - Arrival');
@@ -313,7 +425,7 @@ describe.skipIf(!haveTools)('end to end on disc-speech with a saved record', () 
 });
 
 describe.skipIf(!haveTools)('end to end on disc-subs', () => {
-  const opts = (out: string, noPgs: boolean): EncodeOptions => ({ discDir: fx('fixtures/disc-subs'), playlistId: '00000', episodes: '1-', outDir: out, namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], cacheDir: join(out, 'cache'), tools: toolPaths()!, dataDir: join(out, 'data'), noSubtitles: false, noPgs });
+  const opts = (out: string, noPgs: boolean): EncodeOptions => ({ discDir: fx('fixtures/disc-subs'), playlistId: '00000', episodes: '1-', outDir: out, namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], filmGrain: 4, cacheDir: join(out, 'cache'), tools: toolPaths()!, dataDir: join(out, 'data'), noSubtitles: false, noPgs });
 
   it('encodes disc-subs with its two PGS tracks', async () => {
     const out = mkdtempSync(join(tmpdir(), 'et-'));
@@ -353,7 +465,7 @@ it('follows the record it is given and does not read the saved one again', async
     savedAt: '2026-11-07T00:00:00Z',
   });
   const missing = { vspipe: '/nonexistent/vspipe', svt: '/nonexistent/SvtAv1EncApp', opusenc: '/nonexistent/opusenc' };
-  const opts: EncodeOptions = { discDir, playlistId: '00000', episodes: '1-', outDir: join(out, 'mkv'), namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], cacheDir: join(out, 'cache'), tools: missing, dataDir: join(out, 'data'), noSubtitles: false, noPgs: true, record: null };
+  const opts: EncodeOptions = { discDir, playlistId: '00000', episodes: '1-', outDir: join(out, 'mkv'), namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], filmGrain: 4, cacheDir: join(out, 'cache'), tools: missing, dataDir: join(out, 'data'), noSubtitles: false, noPgs: true, record: null };
   const err = await encodeEpisodes(opts, () => {}).catch((e: unknown) => e);
   expect(err).not.toBeInstanceOf(NoAudioChosenError);
 });
@@ -373,7 +485,7 @@ it('reads every episode\'s subtitle files before any tool starts', async () => {
   });
   const record: SubtitleRecord = { disc: { key, label }, playlist: '00000', episodeSpec: '1-2,3-4', anilist: null, releases: [{ source: 'local', id: 'local-0', group: '', label: 'own files' }], fonts: [], episodes: [episode(1, 'cache/ep1.ass'), episode(2, 'cache/gone.ass')], savedAt: '2026-11-07T00:00:00Z' };
   const missing = { vspipe: '/nonexistent/vspipe', svt: '/nonexistent/SvtAv1EncApp', opusenc: '/nonexistent/opusenc' };
-  const opts: EncodeOptions = { discDir, playlistId: '00000', episodes: '1-2,3-4', outDir: join(out, 'mkv'), namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], cacheDir: join(out, 'cache'), tools: missing, dataDir, noSubtitles: false, noPgs: true, record };
+  const opts: EncodeOptions = { discDir, playlistId: '00000', episodes: '1-2,3-4', outDir: join(out, 'mkv'), namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], filmGrain: 4, cacheDir: join(out, 'cache'), tools: missing, dataDir, noSubtitles: false, noPgs: true, record };
   // The tools are missing, so reaching the first encode would fail with a spawn error instead.
   await expect(encodeEpisodes(opts, () => {})).rejects.toMatchObject({ code: 'ENOENT', path: expect.stringContaining('gone.ass') });
   expect(existsSync(join(out, 'mkv'))).toBe(false);

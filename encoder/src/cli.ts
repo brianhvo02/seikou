@@ -29,7 +29,7 @@ class WebDirMissingError extends Error {}
 const USAGE = `Usage:
   seikou-encode plan <disc> [--playlist ID]
   seikou-encode encode <disc> --playlist ID --episodes SPEC --out DIR
-      [--name PATTERN] [--crf N] [--preset N] [--svt-args "..."] [--opus-bitrate N] [--title T] [--cache DIR]
+      [--name PATTERN] [--crf N] [--preset N] [--film-grain N] [--svt-args "..."] [--opus-bitrate N] [--title T] [--cache DIR]
       [--no-subtitles] [--no-pgs] [--web DIR]
   seikou-encode package <episode.mkv> --out DIR
   seikou-encode serve <disc> --playlist ID --episodes SPEC [--port N] [--no-open]
@@ -173,6 +173,7 @@ async function run(argv: string[]): Promise<void> {
       name: { type: 'string' },
       crf: { type: 'string' },
       preset: { type: 'string' },
+      'film-grain': { type: 'string' },
       'svt-args': { type: 'string' },
       'opus-bitrate': { type: 'string' },
       title: { type: 'string' },
@@ -227,6 +228,7 @@ async function run(argv: string[]): Promise<void> {
       values['opus-bitrate'] === undefined ? undefined : intOption(values['opus-bitrate'], 'opus-bitrate');
     const crf = values.crf === undefined ? 25 : intOption(values.crf, 'crf');
     const preset = values.preset === undefined ? 4 : intOption(values.preset, 'preset');
+    const filmGrain = values['film-grain'] === undefined ? 4 : intOption(values['film-grain'], 'film-grain');
     // A bad episode spec is a usage error (exit 2) whether or not the tools are installed.
     const playlist = await loadPlaylist(resolve(disc), values.playlist);
     parseEpisodeSpec(values.episodes, playlist.chapters.length);
@@ -244,6 +246,7 @@ async function run(argv: string[]): Promise<void> {
         namePattern: values.name ?? 'episode-{n}',
         crf,
         preset,
+        filmGrain,
         extraSvtArgs: (values['svt-args'] ?? '').split(/\s+/).filter((a) => a !== ''),
         opusBitrate,
         cacheDir,
@@ -258,7 +261,7 @@ async function run(argv: string[]): Promise<void> {
       (e) => {
         if (e.kind === 'episode-done') console.log(`Episode ${e.episode} done: ${e.path ?? ''}`);
         else if (e.kind === 'episode-start') console.log(e.message);
-        else console.error(e.message);
+        else if (e.kind === 'log') console.error(e.message);
       },
     );
     return;

@@ -279,3 +279,34 @@ export function planEpisodes(
     return planEpisode(i + 1, playlist, probes, audio, pmts, start, end, spec.from, last);
   });
 }
+
+/** A stretch of playlist time, in milliseconds from the playlist's start; `endMs` is exclusive. */
+export interface TimeRange {
+  startMs: number;
+  endMs: number;
+}
+
+/**
+ * Plans one episode per playlist-time range, cut on the same frames and samples as `planEpisodes` cuts a chapter
+ * episode (the range's ends are rounded to the nearest 45 kHz tick, then to frames and samples as chapters are), with
+ * no chapters. It is for a stretch of a disc that is no chapter range, such as a short test sample. A range that is
+ * empty, backwards, negative or ends after the playlist throws a `RangeError`; the other arguments and errors are
+ * those of `planEpisodes`.
+ */
+export function planRanges(
+  playlist: Playlist,
+  probes: Map<string, ClipProbe>,
+  ranges: readonly TimeRange[],
+  audio: readonly Pick<SelectedAudio, 'pid' | 'sampleRate'>[],
+  pmts: Map<string, PmtInfo>,
+): EpisodePlan[] {
+  return ranges.map((range, i) => {
+    const start = Math.round(range.startMs * 45);
+    const end = Math.round(range.endMs * 45);
+    if (!(start >= 0 && end > start && end <= playlist.duration45)) {
+      throw new RangeError(`Range ${range.startMs}-${range.endMs} ms is empty or outside the playlist's ${Math.floor(playlist.duration45 / 45)} ms`);
+    }
+    // No chapter index lies between 1 and 0, so the plan holds no chapters.
+    return planEpisode(i + 1, playlist, probes, audio, pmts, start, end, 1, 0);
+  });
+}

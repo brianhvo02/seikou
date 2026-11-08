@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { loadPlaylist, type Playlist } from '../../src/disc/playlist';
 import { PmtError, readPlaylistPmts, type PmtInfo } from '../../src/disc/pmt';
 import { probeClip, type ClipProbe } from '../../src/disc/probe';
-import { EpisodeSpecError, firstFramePlaylistUs, parseEpisodeSpec, planEpisodes, type Segment } from '../../src/plan/episodes';
+import { EpisodeSpecError, firstFramePlaylistUs, parseEpisodeSpec, planEpisodes, planRanges, type Segment } from '../../src/plan/episodes';
 import { selectAudio } from '../../src/plan/audio-streams';
 import { fx } from '../paths';
 
@@ -179,5 +179,45 @@ describe('planEpisodes', () => {
       expect(ep!.segments.map((s) => s.audioTracks)).toEqual([[], []]);
       expect(ep!.audio).toEqual([]);
     });
+  });
+});
+
+describe('planRanges', () => {
+  // disc-speech runs at 24 frames a second over two clips, so a stretch of whole seconds is a whole number of frames.
+  let sp: Playlist;
+  let spProbes: Map<string, ClipProbe>;
+  let spPmts: Map<string, PmtInfo>;
+  beforeAll(async () => {
+    sp = await loadPlaylist(fx('fixtures/disc-speech'), '00000');
+    spProbes = new Map(await Promise.all(sp.items.map(async (item) => [item.clipId, await probeClip(item)] as const)));
+    spPmts = await readPlaylistPmts(sp);
+  });
+
+  it('plans a 10 s stretch frame-exactly', () => {
+    const [plan] = planRanges(sp, spProbes, [{ startMs: 5000, endMs: 15_000 }], lpcm, spPmts);
+    expect(plan!.index).toBe(1);
+    expect(plan!.frameCount).toBe(240);
+    expect(plan!.chapters).toEqual([]);
+    expect(plan!.segments.reduce((n, seg) => n + seg.videoFrames[1] - seg.videoFrames[0], 0)).toBe(240);
+  });
+
+  it('cuts a stretch across a clip boundary into one segment per clip', () => {
+    const boundaryMs = (sp.items[0]!.outTime45 - sp.items[0]!.inTime45) / 45;
+    const [plan] = planRanges(sp, spProbes, [{ startMs: boundaryMs - 2000, endMs: boundaryMs + 3000 }], lpcm, spPmts);
+    expect(plan!.segments.map((seg) => seg.videoFrames[1] - seg.videoFrames[0])).toEqual([48, 72]);
+  });
+
+  it('plans the same cut as the chapters it spans', () => {
+    const chapterwise = planEpisodes(p, probes, parseEpisodeSpec('1-2', p.chapters.length), lpcm, pmts)[0]!;
+    const [same] = planRanges(p, probes, [{ startMs: 0, endMs: p.chapters[2]!.start45 / 45 }], lpcm, pmts);
+    expect(same!.segments.map((seg) => [seg.videoFrames, seg.audioTracks[0]!.samples])).toEqual(chapterwise.segments.map((seg) => [seg.videoFrames, seg.audioTracks[0]!.samples]));
+  });
+
+  it('numbers the plans in order and rejects an empty, backwards or overlong range', () => {
+    const plans = planRanges(p, probes, [{ startMs: 0, endMs: 1000 }, { startMs: 1000, endMs: 3000 }], lpcm, pmts);
+    expect(plans.map((x) => x.index)).toEqual([1, 2]);
+    for (const bad of [{ startMs: 2000, endMs: 1000 }, { startMs: 1000, endMs: 1000 }, { startMs: -1, endMs: 1000 }, { startMs: 0, endMs: 9000 }]) {
+      expect(() => planRanges(p, probes, [bad], lpcm, pmts)).toThrow(RangeError);
+    }
   });
 });
