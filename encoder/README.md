@@ -35,6 +35,18 @@ out/
 
 `serve` checks the episode list against the playlist, starts the helper on 127.0.0.1 and prints `Helper: http://127.0.0.1:<port>/?t=<token>`, the address of the page with this run's secret token. It opens that address in your browser (`open` on macOS, `xdg-open` elsewhere) unless `--no-open` is given, and runs until Ctrl-C. `--port N` picks the port (default: any free one). The helper needs the built page in `encoder/web/dist` (`npm run encoder:web:build`; `SEIKOU_ENCODE_WEB_DIR` points at another folder). Without `vspipe` the helper still starts, and says line-up is unavailable.
 
+### Subtitle helper
+
+`serve` is how subtitles are chosen for an encode. The page it opens works through three steps for the run's disc, playlist and episodes:
+
+1. **Release.** Search AniList for the show and pick it; nothing is guessed from the disc. SeaDex's releases for that show are listed with its notes, the best one marked; a release on a private tracker, or not on Anime Tosho, is shown but cannot be picked. Instead you can search Anime Tosho or add your own `.ass`, `.ssa` or `.srt` files and fonts (an SRT becomes ASS when it is added). The episode offset says how many episodes the release numbers before this disc's first, for a later disc or season.
+2. **Episodes.** One row per disc episode with its AniList title: the release file it uses, which of that file's tracks to keep, or "No subtitles".
+3. **Line up.** Each episode's tracks are lined up against the disc's audio (decoded by VapourSynth and BestSource, as the encode decodes it): a single shift, a split at a cut, or "Could not line up" when the episode has too little dialogue or the answer is not confident. The episode plays in Seikou's engine with the retimed track and the release's fonts, and the nudge moves the subtitles live: `[` and `]` by 42 ms, `{` and `}` by 10 ms, or the buttons. Accept, use the release's own timing, or skip the episode.
+
+Details sets each episode's MKV title, the video, audio and subtitle tracks' names, languages and order, and the chapter titles. "Save for encoding" writes the record; opening the helper again for the same disc and playlist restores it. The record is what the encode will read to put the subtitles, fonts and names in the MKV (not yet: `encode` does not read it in this version).
+
+The page is built separately from the CLI: `npm run encoder:web:build` writes `encoder/web/dist`. Rebuild it after changing anything in `encoder/web/` or in the Seikou packages it bundles. `npm run encoder:web:dev` serves it with hot reload against a running `serve` (see [`web/README.md`](web/README.md)).
+
 ### Data directory
 
 The encoder keeps what it learns and downloads in one directory: saved subtitle records (`subtitles/<disc key>/<playlist>.json`), fetched fansub tracks and fonts, and the BestSource index files (`bestsource/`, shared by `serve` and `encode` so an encode reuses the index the line-up built). It is `~/Library/Application Support/seikou-encode` on macOS and `$XDG_DATA_HOME/seikou-encode` (default `~/.local/share/seikou-encode`) elsewhere; `SEIKOU_ENCODE_DATA` names another.
@@ -58,6 +70,9 @@ Each area of `encoder/src/` has a README with its concepts, its API and where to
 - [`src/pipeline/`](src/pipeline/README.md): VapourSynth scripts and the vspipe-to-encoder chains.
 - [`src/mux/`](src/mux/README.md): IVF and Ogg Opus readers and the Matroska writer.
 - [`src/audio/`](src/audio/README.md): an episode's audio as 16 kHz mono for subtitle alignment.
+- [`src/subs/`](src/subs/README.md): the data directory, fetched releases and the saved subtitle record.
+- [`src/server/`](src/server/README.md): the subtitle helper's local backend.
+- [`web/`](web/README.md): the subtitle helper page.
 
 The test discs are described in [`fixtures/README.md`](fixtures/README.md).
 
@@ -70,6 +85,14 @@ npx vitest run --project encoder   # or npm test for the whole repository
 ```
 
 Tests that need the encoders skip themselves when `vspipe`, `SvtAv1EncApp`, `opusenc` or the BestSource plugin are missing. Set `ENCODING_TOOLS_VSPIPE`, `ENCODING_TOOLS_SVT` or `ENCODING_TOOLS_OPUSENC` to point at binaries outside `PATH`.
+
+The helper's end-to-end check walks the whole page in installed Chrome, from the AniList search to a saved and restored record, with the recorded answers in `tests/fixtures/fansubs/` and the speech disc:
+
+```sh
+npx playwright test -c playwright.encoder.config.ts
+```
+
+It builds the page, starts `serve` on port 4195 with a temporary data directory and reads the address with its token from the output, so a running helper is never reused. Without VapourSynth and BestSource the line-up results are not checked and the test says so.
 
 ## License
 
