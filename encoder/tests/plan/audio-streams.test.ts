@@ -37,9 +37,9 @@ describe('selectAudio', () => {
   it('selectAudio without a record takes every stream, first default', () => {
     expect(selectAudio(playlist, probes, null, 1)).toEqual([
       { pid: 0x1100, name: 'Japanese', language: 'jpn', isDefault: true, codingType: 0x80, channels: 2, sampleRate: 48000 },
-      { pid: 0x1101, name: 'English', language: 'eng', isDefault: false, codingType: 0x81, channels: 2, sampleRate: 48000 },
+      { pid: 0x1101, name: 'English', language: 'eng', isDefault: false, codingType: 0x81, channels: 6, sampleRate: 48000 },
       { pid: 0x1102, name: 'English', language: 'eng', isDefault: false, codingType: 0x83, channels: 2, sampleRate: 48000 },
-      { pid: 0x1103, name: 'French', language: 'fra', isDefault: false, codingType: 0x82, channels: 2, sampleRate: 48000 },
+      { pid: 0x1103, name: 'French', language: 'fra', isDefault: false, codingType: 0x82, channels: 6, sampleRate: 48000 },
     ]);
   });
 

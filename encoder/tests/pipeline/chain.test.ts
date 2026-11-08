@@ -10,6 +10,7 @@ import { parseEpisodeSpec, planEpisodes } from '../../src/plan/episodes';
 import { audioChain, videoChain } from '../../src/pipeline/chain';
 import { buildVideoScript } from '../../src/pipeline/vpy';
 import { collect } from '../helpers/streams';
+import { wavBytes } from '../helpers/wav';
 import { haveTools, toolPaths } from '../helpers/tools';
 import { fx } from '../paths';
 
@@ -64,14 +65,38 @@ describe('chains with fake binaries', () => {
 
   it('abort kills both processes', async () => {
     process.env.FAKE_SLEEP = '5';
-    const c = audioChain(fake, fx('tests/fixtures/hello.vpy'), []);
+    const c = audioChain(fake, wavFile(2, 48000), [], { pid: 0x1100, channels: 2, sampleRate: 48000 });
     c.stream.resume();
     const start = Date.now();
     c.abort(new Error('user cancel'));
     await expect(c.done).rejects.toThrow('user cancel');
     expect(Date.now() - start).toBeLessThan(1000);
   });
+
+  it("passes the WAV into the encoder when it matches the disc's stream", async () => {
+    const file = wavFile(6, 48000, 10);
+    const c = audioChain(fake, file, [], { pid: 0x1101, channels: 6, sampleRate: 48000 });
+    expect(Buffer.concat(await collect(c.stream)).equals(fs.readFileSync(file))).toBe(true);
+    await c.done;
+  });
+
+  it('channel guard fails on a mismatched stream', async () => {
+    process.env.FAKE_SLEEP = '5';
+    const c = audioChain(fake, wavFile(2, 48000, 10), [], { pid: 0x1101, channels: 6, sampleRate: 48000 });
+    c.stream.resume();
+    const start = Date.now();
+    await expect(c.done).rejects.toThrow('PID 0x1101: BestSource gave 2 channels at 48000 Hz; the disc says 6 channels at 48000 Hz');
+    // The encoder, still waiting, is stopped rather than left to finish.
+    expect(Date.now() - start).toBeLessThan(2000);
+  });
 });
+
+/** A WAV file in a fresh temporary folder: the fake vspipe writes its "script" to stdout. */
+function wavFile(channels: number, sampleRate: number, frames = 0): string {
+  const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'chain-wav-')), 'audio.wav');
+  fs.writeFileSync(file, wavBytes(channels, sampleRate, frames));
+  return file;
+}
 
 describe.skipIf(!haveTools)('real tools', () => {
   it('produces an IVF stream for disc1 episode 1', async () => {

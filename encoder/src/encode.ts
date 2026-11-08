@@ -10,9 +10,11 @@ import { readIvf } from './mux/ivf';
 import { readOggOpus } from './mux/ogg';
 import { audioChain, ChainError, videoChain, type Chain, type ToolPaths } from './pipeline/chain';
 import { buildAudioScript, buildVideoScript } from './pipeline/vpy';
+import { WavGuardError } from './pipeline/wav-guard';
 import { loadEncodeRecord } from './subs/encode-record';
-import { selectAudio } from './plan/audio-streams';
-import { parseEpisodeSpec, planEpisodes } from './plan/episodes';
+import { selectAudio, type SelectedAudio } from './plan/audio-streams';
+import { parseEpisodeSpec, planEpisodes, type EpisodePlan } from './plan/episodes';
+import type { RecordMetadata } from './subs/record';
 
 /** Everything `encodeEpisodes` needs. */
 export interface EncodeOptions {
@@ -102,8 +104,13 @@ export function opusArgs(channels: number, bitrate?: number): string[] {
 
 const SETTLE_TIMEOUT_MS = 5000;
 
-/** After a failure, prefer the tool's own ChainError over a downstream parse error it caused. */
-function chainFailure(chains: Chain[]): Promise<ChainError | null> {
+/** A chain's own failure: a tool's `ChainError` or the audio guard's `WavGuardError`, not a reader's symptom of one. */
+function isChainFailure(e: unknown): e is ChainError | WavGuardError {
+  return e instanceof ChainError || e instanceof WavGuardError;
+}
+
+/** After a failure, prefer a chain's own failure over a downstream parse error it caused. */
+function chainFailure(chains: Chain[]): Promise<ChainError | WavGuardError | null> {
   // A healthy chain is drained and its output discarded: the episode is failing anyway.
   // The failed reader's async iterator leaves a 'readable' listener behind, which makes resume() a no-op.
   for (const c of chains) {
@@ -113,7 +120,7 @@ function chainFailure(chains: Chain[]): Promise<ChainError | null> {
   return new Promise((res) => {
     let pending = chains.length;
     const timer = setTimeout(() => res(null), SETTLE_TIMEOUT_MS);
-    const finish = (e: ChainError | null): void => {
+    const finish = (e: ChainError | WavGuardError | null): void => {
       clearTimeout(timer);
       res(e);
     };
@@ -124,7 +131,7 @@ function chainFailure(chains: Chain[]): Promise<ChainError | null> {
           if (--pending === 0) finish(null);
         },
         (e: unknown) => {
-          if (e instanceof ChainError) finish(e);
+          if (isChainFailure(e)) finish(e);
           else if (--pending === 0) finish(null);
         },
       );
@@ -134,12 +141,18 @@ function chainFailure(chains: Chain[]): Promise<ChainError | null> {
 
 /**
  * Cuts and encodes each requested episode of a playlist into `<outDir>/<name>.mkv`, one at a time,
- * and returns the output paths. Video and audio are encoded through pipes (see `pipeline/chain`)
- * and muxed as they arrive, so no intermediate files are written beyond two small scripts in a
- * temporary folder. Uses the first audio stream of the playlist. On failure the episode's
- * partial file is deleted and the error thrown is the failing tool's `ChainError` when there is
- * one (a downstream parse error is usually its symptom); episodes already finished are kept.
- * Throws `EpisodeSpecError` for a bad episode list.
+ * and returns the output paths. Video and every chosen audio stream are encoded through pipes (see
+ * `pipeline/chain`), one independent chain per stream, and muxed as they arrive, so no intermediate
+ * files are written beyond small scripts in a temporary folder. The audio streams and their labels
+ * come from `selectAudio`: the helper's saved record when there is one (its order, ticks, names and
+ * languages; a stream it does not list is left out with a `log` event), else every audio stream of
+ * the playlist in STN order; each becomes an Opus track (160 kb/s up to two channels, 320 above,
+ * `opusBitrate` for all when set). The video track takes the record's name and language when there
+ * is a record. Every episode is planned before the first is encoded. When any chain fails the others
+ * are stopped, the episode's partial file is deleted and the error thrown is the chain's own
+ * (`ChainError` from a tool, `WavGuardError` when a decoded stream's channels or rate differ from the
+ * playlist's) when there is one, since a downstream parse error is usually its symptom; episodes
+ * already finished are kept. Throws `EpisodeSpecError` for a bad episode list.
  */
 export async function encodeEpisodes(
   o: EncodeOptions,
@@ -155,22 +168,26 @@ export async function encodeEpisodes(
     dataDir: o.dataDir,
     noSubtitles: o.noSubtitles,
   });
-  void record;
   const probes = new Map<string, ClipProbe>();
   for (const item of playlist.items) {
     if (!probes.has(item.clipId)) probes.set(item.clipId, await probeClip(item));
   }
-  // The playlist's first STN audio stream, which BestSource finds through each clip's PMT.
-  const [audio] = selectAudio(playlist, probes, null, 1);
-  if (audio === undefined) throw new Error(`Playlist ${o.playlistId} has no audio stream`);
-  const plans = planEpisodes(playlist, probes, specs, [audio], await readPlaylistPmts(playlist));
+  // Each episode keeps its own audio streams (a record can tick different ones per episode), so each is planned alone.
+  const pmts = await readPlaylistPmts(playlist);
+  const episodes = specs.map((spec, i): { plan: EpisodePlan; audio: SelectedAudio[]; metadata: RecordMetadata | null } => {
+    const index = i + 1;
+    const audio = selectAudio(playlist, probes, record, index, (message) => onEvent({ kind: 'log', episode: index, message }));
+    const [plan] = planEpisodes(playlist, probes, [spec], audio, pmts);
+    const metadata = record?.episodes.find((e) => e.index === index)?.metadata ?? null;
+    return { plan: { ...plan!, index }, audio, metadata };
+  });
 
   await mkdir(o.outDir, { recursive: true });
   const cacheDir = resolve(o.cacheDir);
   await mkdir(cacheDir, { recursive: true });
 
   const outputs: string[] = [];
-  for (const plan of plans) {
+  for (const { plan, audio, metadata } of episodes) {
     const name = o.namePattern.replaceAll('{n}', String(plan.index).padStart(2, '0'));
     const outPath = join(o.outDir, `${name}.mkv`);
     onEvent({ kind: 'episode-start', episode: plan.index, message: `Encoding episode ${plan.index}`, path: outPath });
@@ -179,17 +196,29 @@ export async function encodeEpisodes(
     const chains: Chain[] = [];
     try {
       const videoScript = join(tmp, 'video.vpy');
-      const audioScript = join(tmp, 'audio.vpy');
       await writeFile(videoScript, buildVideoScript(plan, { cacheDir }));
-      await writeFile(audioScript, buildAudioScript(plan, { cacheDir }));
+      const audioScripts = audio.map((_, i) => join(tmp, `audio-${i + 1}.vpy`));
+      for (const [i, script] of audioScripts.entries()) await writeFile(script, buildAudioScript(plan, { cacheDir }, i));
+
+      // Every chain starts before any reader awaits, and each audio stream has its own: the writer pulls
+      // the tracks in timestamp order, and one producer feeding several pipes would stall on whichever
+      // pipe the writer is not reading. A failure in any chain stops the others at once.
       const video = videoChain(o.tools, videoScript, svtArgs(o));
       chains.push(video);
-      const audio = audioChain(o.tools, audioScript, opusArgs(plan.audio[0]!.channels, o.opusBitrate));
-      chains.push(audio);
+      const audioChains = audio.map((a, i) => {
+        const chain = audioChain(o.tools, audioScripts[i]!, opusArgs(a.channels, o.opusBitrate), a);
+        chains.push(chain);
+        return chain;
+      });
+      for (const c of chains) {
+        c.done.catch((e: unknown) => {
+          for (const other of chains) if (other !== c) other.abort(e instanceof Error ? e : new Error(String(e)));
+        });
+      }
 
-      // Both readers must attach before either await: Node discards the unread stdout of a child that
+      // Every reader must attach before any await: Node discards the unread stdout of a child that
       // exits while nobody is reading, which would lose a short audio stream while video starts up.
-      const [ivf, ogg] = await Promise.all([readIvf(video.stream), readOggOpus(audio.stream)]);
+      const [ivf, ...oggs] = await Promise.all([readIvf(video.stream), ...audioChains.map((c) => readOggOpus(c.stream))]);
       const seq = await ivf.sequenceHeader;
       await writeMkv(outPath, {
         title: o.title,
@@ -199,32 +228,30 @@ export async function encodeEpisodes(
           fpsNum: plan.video.fpsNum,
           fpsDen: plan.video.fpsDen,
           codecPrivate: seq.av1C,
-          name: 'Video',
-          language: 'und',
+          name: metadata?.video.name ?? '',
+          language: metadata?.video.language || 'und',
           isDefault: true,
         },
         videoPackets: ivf.packets,
-        audio: [
-          {
-            channels: ogg.head.channels,
-            sampleRate: 48000,
-            codecPrivate: ogg.head.raw,
-            codecDelayNs: (BigInt(ogg.head.preSkip) * 1_000_000_000n) / 48000n,
-            seekPreRollNs: 80_000_000n,
-            name: 'Audio',
-            language: 'und',
-            isDefault: true,
-            packets: ogg.packets,
-            end: ogg.end,
-          },
-        ],
+        audio: oggs.map((ogg, i) => ({
+          channels: ogg.head.channels,
+          sampleRate: 48000,
+          codecPrivate: ogg.head.raw,
+          codecDelayNs: (BigInt(ogg.head.preSkip) * 1_000_000_000n) / 48000n,
+          seekPreRollNs: 80_000_000n,
+          name: audio[i]!.name,
+          language: audio[i]!.language,
+          isDefault: audio[i]!.isDefault,
+          packets: ogg.packets,
+          end: ogg.end,
+        })),
         subtitles: [],
         attachments: [],
         chapters: plan.chapters,
       });
-      await Promise.all([video.done, audio.done]);
+      await Promise.all(chains.map((c) => c.done));
     } catch (err) {
-      const toolError = err instanceof ChainError ? null : await chainFailure(chains);
+      const toolError = isChainFailure(err) ? null : await chainFailure(chains);
       for (const c of chains) c.abort(err instanceof Error ? err : new Error(String(err)));
       await unlink(outPath).catch(() => {});
       await rm(tmp, { recursive: true, force: true });

@@ -55,6 +55,16 @@ class ByteQueue {
 
   constructor(private readonly source: AsyncIterator<unknown>) {}
 
+  /** Bytes buffered and not yet taken. */
+  get length(): number {
+    return this.buffered.length;
+  }
+
+  /** The buffered bytes, without taking them. */
+  peek(): Buffer {
+    return this.buffered;
+  }
+
   /** Reads until at least `n` bytes are buffered or the source ends; returns how many are buffered. */
   async fill(n: number): Promise<number> {
     while (this.buffered.length < n && !this.done) {
@@ -63,14 +73,6 @@ class ByteQueue {
       else this.buffered = Buffer.concat([this.buffered, Buffer.from(next.value as Uint8Array)]);
     }
     return this.buffered.length;
-  }
-
-  /** Exactly `n` bytes; throws when the source ends first. */
-  async take(n: number, what: string): Promise<Buffer> {
-    if ((await this.fill(n)) < n) throw new Error(`WAV stream ends inside the ${what}`);
-    const out = this.buffered.subarray(0, n);
-    this.buffered = this.buffered.subarray(n);
-    return out;
   }
 
   /** Up to `max` bytes, at least one unless the source has ended (then an empty buffer). */
@@ -164,26 +166,58 @@ async function* framesOf(queue: ByteQueue, dataSize: number | null, format: WavF
  */
 export async function readWav(stream: Readable): Promise<WavReader> {
   const queue = new ByteQueue(stream[Symbol.asyncIterator]());
-  const riff = await queue.take(12, 'RIFF header').catch(() => Buffer.alloc(0));
-  if (riff.length < 12 || riff.toString('latin1', 0, 4) !== 'RIFF' || riff.toString('latin1', 8, 12) !== 'WAVE') {
-    throw new Error('Not a WAV stream: it does not start with a RIFF/WAVE header');
-  }
-  let parsed: { format: WavFormat; blockAlign: number } | null = null;
   for (;;) {
-    const head = await queue.take(8, 'chunk header');
-    const id = head.toString('latin1', 0, 4);
-    const size = head.readUInt32LE(4);
+    const header = parseWavHeader(queue.peek());
+    if (header !== null) {
+      await queue.skip(header.dataOffset, 'header');
+      return { format: header.format, frames: framesOf(queue, header.dataSize, header.format, header.blockAlign) };
+    }
+    const before = queue.length;
+    if ((await queue.fill(before + 1)) === before) throw new Error(before < 12 ? NOT_WAV : 'WAV stream ends inside the header');
+  }
+}
+
+const NOT_WAV = 'Not a WAV stream: it does not start with a RIFF/WAVE header';
+
+/** A WAV header read by `parseWavHeader`: the sample layout and where the samples start. */
+export interface WavHeader {
+  format: WavFormat;
+  /** Bytes per frame of all channels (WAVEFORMATEX `nBlockAlign`). */
+  blockAlign: number;
+  /** Offset of the first sample byte: just past the `data` chunk's header. */
+  dataOffset: number;
+  /** The `data` chunk's size in bytes, or null when it is streamed (a size of 0 or 0xFFFFFFFF: read to the end). */
+  dataSize: number | null;
+}
+
+/**
+ * Parses the WAV header at the start of `bytes`, up to and including the `data` chunk's header, with the rules
+ * `readWav` follows (it is `readWav`'s own header reader). Returns null while `bytes` ends before that header is
+ * complete: the caller reads more and asks again with the longer prefix. Throws when the bytes are not RIFF/WAVE,
+ * the `data` chunk comes before `fmt `, or the format is one `readWav` cannot convert (naming its tag).
+ */
+export function parseWavHeader(bytes: Uint8Array): WavHeader | null {
+  const buf = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  if (buf.length >= 4 && buf.toString('latin1', 0, 4) !== 'RIFF') throw new Error(NOT_WAV);
+  if (buf.length < 12) return null;
+  if (buf.toString('latin1', 8, 12) !== 'WAVE') throw new Error(NOT_WAV);
+  let parsed: { format: WavFormat; blockAlign: number } | null = null;
+  let at = 12;
+  for (;;) {
+    if (buf.length < at + 8) return null;
+    const id = buf.toString('latin1', at, at + 4);
+    const size = buf.readUInt32LE(at + 4);
+    at += 8;
     if (id === 'data') {
       if (parsed === null) throw new Error('WAV data chunk comes before the fmt chunk');
       const streamed = size === 0 || size === 0xffffffff;
-      return { format: parsed.format, frames: framesOf(queue, streamed ? null : size, parsed.format, parsed.blockAlign) };
+      return { ...parsed, dataOffset: at, dataSize: streamed ? null : size };
     }
     if (id === 'fmt ') {
       if (size > MAX_FMT_BYTES) throw new Error(`WAV fmt chunk of ${size} bytes is too large`);
-      parsed = parseFmt(await queue.take(size, 'fmt chunk'));
-      if (size % 2 === 1) await queue.skip(1, 'fmt chunk');
-    } else {
-      await queue.skip(size + (size % 2), `${id} chunk`);
+      if (buf.length < at + size) return null;
+      parsed = parseFmt(buf.subarray(at, at + size));
     }
+    at += size + (size % 2);
   }
 }

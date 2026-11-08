@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { pidHex } from '../disc/pmt';
+import { audioChannels, audioRate } from '../disc/stream-codes';
 import type { Playlist } from '../disc/playlist';
 import type { AudioProbe, ClipProbe } from '../disc/probe';
 import type { SubtitleRecord } from '../subs/record';
@@ -20,9 +21,13 @@ export interface SelectedAudio {
   isDefault: boolean;
   /** CLPI stream coding type (0x80 LPCM, 0x81 AC-3, 0x82 DTS, 0x83 TrueHD, 0x84 E-AC-3, 0x85 and 0x86 DTS-HD). */
   codingType: number;
-  /** Channel count from the CLPI's audio format code, in the playlist's first clip. */
+  /**
+   * Channel count from the STN entry's audio format code in the playlist's first play item: 1, 2, or 6 for any
+   * multi-channel layout (the code does not say how many channels above two). The STN table is what players go by,
+   * and a clip's CLPI can disagree with it.
+   */
   channels: number;
-  /** Hz, from the CLPI's audio rate code, in the playlist's first clip. */
+  /** Hz, from the STN entry's audio rate code in the playlist's first play item (48000 for the combo codes, the core's rate). */
   sampleRate: number;
 }
 
@@ -44,8 +49,9 @@ function languageName(code: string): string {
  * With a record, the episode's `metadata.audio` decides: its order, its ticks (unticked streams are left out), its
  * names and languages; the first kept stream is the default. A playlist stream the record does not list is left
  * out, and a record entry for a PID the playlist lacks is ignored; each calls `warn` once with a message naming
- * the PID. Attributes come from `probes` of the first item's clip, which must be present. Throws when the record
- * has no episode `episodeIndex`; returns an empty list when nothing is kept.
+ * the PID. The coding type comes from `probes` of the first item's clip, which must be present; channels and sample
+ * rate from the first item's STN entries. Throws when the record has no episode `episodeIndex` or an STN entry has a
+ * format or rate code the tables lack; returns an empty list when nothing is kept.
  */
 export function selectAudio(
   playlist: Playlist,
@@ -63,9 +69,24 @@ export function selectAudio(
     if (!audio) throw new Error(`Clip ${first.clipId} has no audio PID ${pidHex(pid)}`);
     return audio;
   };
-  const stn = first.audioPids.map((pid, i) => ({ pid, language: first.audioLanguages[i] || 'und' }));
+  const stn = first.audioPids.map((pid, i) => ({
+    pid,
+    language: first.audioLanguages[i] || 'und',
+    formatCode: first.audioFormatCodes[i]!,
+    rateCode: first.audioRateCodes[i]!,
+  }));
   const select = (pid: number, name: string, language: string, i: number): SelectedAudio => {
-    const { codingType, channels, sampleRate } = attributes(pid);
+    const { codingType } = attributes(pid);
+    const entry = stn.find((s) => s.pid === pid)!;
+    const fromStn = (f: () => number): number => {
+      try {
+        return f();
+      } catch (e) {
+        throw new Error(`Playlist ${playlist.id}: audio PID ${pidHex(pid)}: ${(e as Error).message} in its STN entry`);
+      }
+    };
+    const channels = fromStn(() => audioChannels(entry.formatCode));
+    const sampleRate = fromStn(() => audioRate(entry.rateCode));
     return { pid, name: name || languageName(language), language, isDefault: i === 0, codingType, channels, sampleRate };
   };
 

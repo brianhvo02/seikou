@@ -31,6 +31,13 @@ export interface PlaylistItem {
   /** ISO 639-2 language code of each of `audioPids`, in the same order, as the STN entry gives it; empty when it gives none. */
   audioLanguages: string[];
   /**
+   * The STN entry's 4-bit audio format code of each of `audioPids` (1 mono, 3 stereo, 6 multi-channel, 12 stereo
+   * core with a multi-channel extension), in the same order; `audioChannels` turns it into a count.
+   */
+  audioFormatCodes: number[];
+  /** The STN entry's 4-bit audio rate code of each of `audioPids` (1 is 48 kHz), in the same order; `audioRate` turns it into Hz. */
+  audioRateCodes: number[];
+  /**
    * PlayItem `connection_condition`: how this item joins the one before it. 1 is a plain
    * (non-seamless) join; 5 and 6 are seamless joins, which libbluray treats alike (the item starts at the
    * clip's first packet).
@@ -167,6 +174,8 @@ export async function loadPlaylist(discDir: string, playlistId: string): Promise
       videoPid: video.pid,
       audioPids: mainAudio.map((e) => e.pid),
       audioLanguages: mainAudio.map((e) => e.lang.replace(/\0/g, '').trim()),
+      audioFormatCodes: mainAudio.map((e) => e.format),
+      audioRateCodes: mainAudio.map((e) => e.rate),
       connectionCondition: p.connectionCondition,
     });
   }

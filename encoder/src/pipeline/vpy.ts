@@ -58,18 +58,18 @@ export function buildVideoScript(plan: EpisodePlan, opts: VpyOptions): string {
 }
 
 /**
- * The VapourSynth script that outputs an episode's first planned audio stream: for each segment,
- * BestSource's `AudioSource` on the clip with that stream's track number in the clip
- * (`audioTracks[0].bsTrack`), a sample slice, all joined. The output stays in the source's sample
- * format and rate. Throws when a segment has no planned audio stream or a path cannot be embedded
- * in a Python raw string.
+ * The VapourSynth script that outputs one planned audio stream of an episode, the `trackIndex`-th (0-based) of the
+ * streams given to `planEpisodes`: for each segment, BestSource's `AudioSource` on the clip with that stream's track
+ * number in the clip (`audioTracks[trackIndex].bsTrack`, which can differ from clip to clip), the segment's sample
+ * slice for it, all joined. The output stays in the source's sample format and rate. Throws when a segment has no
+ * planned stream at `trackIndex` or a path cannot be embedded in a Python raw string.
  */
-export function buildAudioScript(plan: EpisodePlan, opts: VpyOptions): string {
+export function buildAudioScript(plan: EpisodePlan, opts: VpyOptions, trackIndex: number): string {
   rawPath(opts.cacheDir);
   const lines = [...HEADER];
   for (const seg of plan.segments) {
-    const track = seg.audioTracks[0];
-    if (!track) throw new Error(`Episode ${plan.index}: clip ${seg.item.clipId} has no planned audio stream`);
+    const track = seg.audioTracks[trackIndex];
+    if (!track) throw new Error(`Episode ${plan.index}: clip ${seg.item.clipId} has no planned audio stream ${trackIndex + 1}`);
     const [start, end] = track.samples;
     // adjustdelay=-1 makes BestSource pad or trim the audio so sample 0 coincides with the file's first
     // video frame; the planner counts samples from the video's first PTS to match, so the MKV needs no
@@ -86,12 +86,13 @@ export function buildAudioScript(plan: EpisodePlan, opts: VpyOptions): string {
 }
 
 /**
- * The VapourSynth script whose audio subtitle alignment listens to: the episode's audio exactly as
- * `buildAudioScript` cuts, joins and pads it for the encode, so a subtitle timed against it is timed
- * against the encoded file. Nothing is converted in VapourSynth (it has no audio resampler); the
+ * The VapourSynth script whose audio subtitle alignment listens to: the episode's first planned audio
+ * stream (the playlist's first STN audio stream, as the helper plans it) exactly as `buildAudioScript`
+ * cuts, joins and pads it for the encode, so a subtitle timed against it is timed against the encoded
+ * file. Nothing is converted in VapourSynth (it has no audio resampler); the
  * caller downmixes and decimates the WAV itself. A function of its own so the encode's script can
  * gain a conversion later without changing what alignment hears. Throws as `buildAudioScript` does.
  */
 export function buildSpeechAudioScript(plan: EpisodePlan, opts: VpyOptions): string {
-  return buildAudioScript(plan, opts);
+  return buildAudioScript(plan, opts, 0);
 }

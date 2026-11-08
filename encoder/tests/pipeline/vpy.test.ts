@@ -45,7 +45,7 @@ describe('vpy script generation', () => {
   });
 
   it('emits the audio script with explicit alignment, a silence pad and sample slices', () => {
-    expect(buildAudioScript(planWithSegments([['/d/00001.m2ts', [0, 96], [96000, 192000]]]), { cacheDir: '/c' }))
+    expect(buildAudioScript(planWithSegments([['/d/00001.m2ts', [0, 96], [96000, 192000]]]), { cacheDir: '/c' }, 0))
       .toContain([
         `c = core.bs.AudioSource(r'/d/00001.m2ts', track=-1, adjustdelay=-1, cachepath=r'${prefix('/d/00001.m2ts')}', cachemode=4)`,
         'if c.num_samples < 192000: c = c + core.std.BlankAudio(clip=c, length=192000 - c.num_samples)',
@@ -56,24 +56,37 @@ describe('vpy script generation', () => {
   it("takes the first planned stream at each clip's own BestSource track", () => {
     const plan = planWithSegments([['/d/00001.m2ts', [0, 96], [0, 96000]], ['/d/00002.m2ts', [0, 48], [0, 48000]]]);
     plan.segments[1]!.audioTracks = [{ pid: 0x1101, bsTrack: 3, samples: [0, 48000] }, { pid: 0x1100, bsTrack: 1, samples: [0, 48000] }];
-    const s = buildAudioScript(plan, { cacheDir: '/c' });
+    const s = buildAudioScript(plan, { cacheDir: '/c' }, 0);
     expect([...s.matchAll(/track=-(\d+)/g)].map((m) => m[1])).toEqual(['1', '3']);
     plan.segments[1]!.audioTracks = [];
-    expect(() => buildAudioScript(plan, { cacheDir: '/c' })).toThrow(/00002 has no planned audio stream/);
+    expect(() => buildAudioScript(plan, { cacheDir: '/c' }, 0)).toThrow(/00002 has no planned audio stream 1/);
+  });
+
+  it("audio script uses each segment's bsTrack", () => {
+    const plan = planWithSegments([['/d/00001.m2ts', [0, 96], [0, 96000]], ['/d/00002.m2ts', [0, 48], [0, 48000]]]);
+    plan.segments[0]!.audioTracks = [{ pid: 0x1100, bsTrack: 1, samples: [0, 96000] }, { pid: 0x1103, bsTrack: 5, samples: [12, 96012] }];
+    plan.segments[1]!.audioTracks = [{ pid: 0x1100, bsTrack: 2, samples: [0, 48000] }, { pid: 0x1103, bsTrack: 4, samples: [7, 48007] }];
+    const s = buildAudioScript(plan, { cacheDir: '/c' }, 1);
+    expect([...s.matchAll(/track=-(\d+)/g)].map((m) => m[1])).toEqual(['5', '4']);
+    expect([...s.matchAll(/parts\.append\(c\[(\d+):(\d+)\]\)/g)].map((m) => [m[1], m[2]])).toEqual([['12', '96012'], ['7', '48007']]);
+    expect(() => buildAudioScript(plan, { cacheDir: '/c' }, 2)).toThrow(/00001 has no planned audio stream 3/);
   });
 
   it('emits the same audio for alignment as for the encode, without a format conversion', () => {
     const plan = planWithSegments([['/d/00001.m2ts', [0, 96], [0, 96000]], ['/d/00002.m2ts', [0, 48], [10, 48010]]]);
     const s = buildSpeechAudioScript(plan, { cacheDir: '/c' });
-    expect(s).toBe(buildAudioScript(plan, { cacheDir: '/c' }));
+    expect(s).toBe(buildAudioScript(plan, { cacheDir: '/c' }, 0));
     expect(s).not.toMatch(/resample|AudioConvert|format=/i);
     expect(() => buildSpeechAudioScript(plan, { cacheDir: "/c'" })).toThrow(Error);
+    // With several planned streams, alignment still listens to the first.
+    for (const seg of plan.segments) seg.audioTracks.push({ pid: 0x1101, bsTrack: 2, samples: seg.audioTracks[0]!.samples });
+    expect(buildSpeechAudioScript(plan, { cacheDir: '/c' })).toBe(s);
   });
 
   it('rejects paths a raw string cannot hold', () => {
     const plan = planWithSegments([["/d/it's.m2ts", 0, 1]]);
     expect(() => buildVideoScript(plan, { cacheDir: '/c' })).toThrow(Error);
-    expect(() => buildAudioScript(planWithSegments([['/d/a.m2ts', [0, 1], [0, 1]]]), { cacheDir: "/c\\'" })).toThrow(Error);
+    expect(() => buildAudioScript(planWithSegments([['/d/a.m2ts', [0, 1], [0, 1]]]), { cacheDir: "/c\\'" }, 0)).toThrow(Error);
   });
 });
 
@@ -118,7 +131,7 @@ describe.skipIf(!haveTools)('with vspipe', () => {
   }, 120000);
 
   it('reports 192000 samples for disc1 episode 1', async () => {
-    expect(await vspipeInfo(buildAudioScript)).toMatch(/Samples: 192000\b/);
+    expect(await vspipeInfo((p, o) => buildAudioScript(p, o, 0))).toMatch(/Samples: 192000\b/);
   }, 120000);
 
   it('fails naming the clip when the video clip is shorter than planned', async () => {
@@ -132,6 +145,6 @@ describe.skipIf(!haveTools)('with vspipe', () => {
   }, 120000);
 
   it('pads the audio with silence when it is shorter than planned', async () => {
-    expect(await vspipeInfo(buildAudioScript, extendSamples(1000))).toMatch(/Samples: 193000\b/);
+    expect(await vspipeInfo((p, o) => buildAudioScript(p, o, 0), extendSamples(1000))).toMatch(/Samples: 193000\b/);
   }, 120000);
 });

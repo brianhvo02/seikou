@@ -2,6 +2,7 @@
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import type { Readable } from 'node:stream';
+import { guardWav, type WavExpectation } from './wav-guard';
 
 // Video and audio travel through two-process pipelines with no intermediate files: `vspipe` runs
 // a VapourSynth script and writes raw frames (Y4M) or samples (WAV) to its stdout, which is piped
@@ -53,7 +54,11 @@ interface Stage {
   args: string[];
 }
 
-function runChain(first: Stage, second: Stage): Chain {
+/**
+ * Runs `first | second`. `between`, when given, wraps the first process's stdout before it reaches the second's
+ * stdin (a check on the stream); an error it raises fails the chain with that error and stops both processes.
+ */
+function runChain(first: Stage, second: Stage, between?: (out: Readable) => Readable): Chain {
   const p1: ChildProcess = spawn(first.cmd, first.args, { stdio: ['ignore', 'pipe', 'pipe'] });
   const p2: ChildProcess = spawn(second.cmd, second.args, { stdio: ['pipe', 'pipe', 'pipe'] });
   const procs = [p1, p2];
@@ -67,7 +72,7 @@ function runChain(first: Stage, second: Stage): Chain {
   // The second process may die before consuming everything; the exit codes report the real failure.
   out1.on('error', () => {});
   in2.on('error', () => {});
-  out1.pipe(in2);
+  const into2 = between === undefined ? out1 : between(out1);
 
   let settled = false;
   let resolveDone!: () => void;
@@ -90,6 +95,9 @@ function runChain(first: Stage, second: Stage): Chain {
     killAll();
     rejectDone(err);
   };
+
+  if (into2 !== out1) into2.on('error', (e: Error) => fail(e));
+  into2.pipe(in2);
 
   procs.forEach((p, i) => {
     (p.stderr as Readable).on('data', (d: Buffer) => {
@@ -160,12 +168,15 @@ export function videoChain(tools: ToolPaths, scriptPath: string, svtArgs: string
 }
 
 /**
- * `vspipe script.vpy - -c wav | opusenc <opusArgs> - -`: the script's audio as WAV into opusenc,
- * whose stdout is an Ogg Opus stream.
+ * `vspipe script.vpy - -c wav | guardWav | opusenc <opusArgs> - -`: the script's audio as WAV into opusenc, whose
+ * stdout is an Ogg Opus stream. The WAV passes through `guardWav` with `expected` on its way, so a header that does
+ * not match the stream the script was meant to decode rejects `done` with a `WavGuardError` naming the PID and
+ * stops both processes before opusenc encodes anything.
  */
-export function audioChain(tools: ToolPaths, scriptPath: string, opusArgs: string[]): Chain {
+export function audioChain(tools: ToolPaths, scriptPath: string, opusArgs: string[], expected: WavExpectation): Chain {
   return runChain(
     { name: 'vspipe', cmd: tools.vspipe, args: [scriptPath, '-', '-c', 'wav'] },
     { name: 'opusenc', cmd: tools.opusenc, args: [...opusArgs, '-', '-'] },
+    (out) => guardWav(out, expected),
   );
 }

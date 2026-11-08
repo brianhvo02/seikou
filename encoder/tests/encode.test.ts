@@ -4,9 +4,11 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { encodeEpisodes, opusArgs, svtArgs, type EncodeOptions } from '../src/encode';
+import { discKeyOfFolder } from '../src/disc/disc-key';
+import { encodeEpisodes, opusArgs, svtArgs, type EncodeEvent, type EncodeOptions } from '../src/encode';
+import { RecordStore } from '../src/subs/record';
 import { Id } from '../src/mux/mkv-ids';
-import { countVideoBlocks, find, findAll, floatOf, parseMkv, uintOf } from './helpers/ebml-reader';
+import { countVideoBlocks, find, findAll, floatOf, parseMkv, stringOf, uintOf } from './helpers/ebml-reader';
 import { loadPlaylist } from '../src/disc/playlist';
 import { probeClip } from '../src/disc/probe';
 import { ffprobePath, haveFfprobe, haveTools, toolPaths } from './helpers/tools';
@@ -92,6 +94,13 @@ describe.skipIf(!haveTools)('end to end on disc1', () => {
     expect(Math.abs(s.opus!.duration - s.av1!.duration)).toBeLessThanOrEqual(0.02);
   }, 600_000);
 
+  it('deletes the partial file when an audio encoder fails', async () => {
+    const out = mkdtempSync(join(tmpdir(), 'et-'));
+    process.env.FAKE_ENC_EXIT = '3';
+    await expect(encodeEpisodes({ ...base(out), episodes: '1-2', tools: { ...toolPaths()!, opusenc: fx('tests/fake-bin/opusenc') } }, () => {})).rejects.toMatchObject({ tool: 'opusenc', code: 3 });
+    expect(existsSync(join(out, 'ep-01.mkv'))).toBe(false);
+  }, 120_000);
+
   it('deletes the partial file when the encoder fails', async () => {
     const out = mkdtempSync(join(tmpdir(), 'et-'));
     const opts = { ...base(out), episodes: '1-2' };
@@ -101,4 +110,76 @@ describe.skipIf(!haveTools)('end to end on disc1', () => {
     await expect(encodeEpisodes({ ...opts, tools: { ...toolPaths()!, svt: fx('tests/fake-bin/SvtAv1EncApp') } }, () => {})).rejects.toMatchObject({ tool: 'SvtAv1EncApp', code: 3 });
     expect(existsSync(join(out, 'ep-01.mkv'))).toBe(false);
   }, 120_000);
+});
+
+describe.skipIf(!haveTools)('end to end on disc3', () => {
+  it('encodes disc3 with four Opus tracks', async () => {
+    const out = mkdtempSync(join(tmpdir(), 'et-'));
+    const opts: EncodeOptions = { discDir: fx('fixtures/disc3'), playlistId: '00000', episodes: '1-', outDir: out, namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], cacheDir: join(out, 'cache'), tools: toolPaths()!, dataDir: join(out, 'data'), noSubtitles: false, noPgs: false };
+    const [p] = await encodeEpisodes(opts, () => {});
+    const tracks = findAll(parseMkv(readFileSync(p!)), Id.TrackEntry).map((t) => ({
+      codec: stringOf(find(t, Id.CodecID)),
+      name: stringOf(find(t, Id.Name)),
+      language: stringOf(find(t, Id.Language)),
+      isDefault: uintOf(find(t, Id.FlagDefault)) === 1n,
+    }));
+    expect(tracks).toEqual([
+      { codec: 'V_AV1', name: '', language: 'und', isDefault: true },
+      { codec: 'A_OPUS', name: 'Japanese', language: 'jpn', isDefault: true },
+      { codec: 'A_OPUS', name: 'English', language: 'eng', isDefault: false },
+      { codec: 'A_OPUS', name: 'English', language: 'eng', isDefault: false },
+      { codec: 'A_OPUS', name: 'French', language: 'fra', isDefault: false },
+    ]);
+    if (haveFfprobe) {
+      const j = JSON.parse(execFileSync(ffprobePath!, ['-v', 'error', '-show_entries', 'stream=codec_type,codec_name,channels:stream_tags=language', '-of', 'json', p!], { encoding: 'utf8' })) as {
+        streams: { codec_type: string; codec_name: string; channels?: number; tags?: { language?: string } }[];
+      };
+      expect(j.streams.filter((s) => s.codec_type === 'video').map((s) => s.codec_name)).toEqual(['av1']);
+      const audio = j.streams.filter((s) => s.codec_type === 'audio');
+      expect(audio.map((s) => s.codec_name)).toEqual(['opus', 'opus', 'opus', 'opus']);
+      expect(audio.map((s) => s.channels)).toEqual([2, 6, 2, 6]);
+      expect(audio.map((s) => s.tags?.language)).toEqual(['jpn', 'eng', 'eng', 'fra']);
+    }
+  }, 600_000);
+
+  it("follows the saved record's audio order, ticks, names and video label", async () => {
+    const out = mkdtempSync(join(tmpdir(), 'et-'));
+    const opts: EncodeOptions = { discDir: fx('fixtures/disc3'), playlistId: '00000', episodes: '1-', outDir: out, namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], cacheDir: join(out, 'cache'), tools: toolPaths()!, dataDir: join(out, 'data'), noSubtitles: false, noPgs: false };
+    const { key, label } = await discKeyOfFolder(opts.discDir);
+    await new RecordStore(opts.dataDir).write({
+      disc: { key, label },
+      playlist: '00000',
+      episodeSpec: '1-',
+      anilist: null,
+      release: null,
+      fonts: [],
+      episodes: [
+        {
+          index: 1,
+          title: 'Starfall Wanderer 1',
+          tracks: [],
+          metadata: {
+            title: 'Starfall Wanderer 1',
+            video: { name: 'Starfall Wanderer', language: 'jpn' },
+            audio: [
+              { pid: 0x1103, name: 'Starfall dub', language: 'fra', included: true },
+              { pid: 0x1100, name: 'Original', language: 'jpn', included: true },
+              { pid: 0x1101, name: 'Commentary', language: 'eng', included: false },
+            ],
+            chapters: [],
+          },
+        },
+      ],
+      savedAt: '2026-11-07T00:00:00Z',
+    });
+    const events: EncodeEvent[] = [];
+    const [p] = await encodeEpisodes(opts, (e) => events.push(e));
+    const tracks = findAll(parseMkv(readFileSync(p!)), Id.TrackEntry).map((t) => [stringOf(find(t, Id.Name)), stringOf(find(t, Id.Language)), uintOf(find(t, Id.FlagDefault))]);
+    expect(tracks).toEqual([
+      ['Starfall Wanderer', 'jpn', 1n],
+      ['Starfall dub', 'fra', 1n],
+      ['Original', 'jpn', 0n],
+    ]);
+    expect(events.filter((e) => e.kind === 'log').map((e) => e.message)).toEqual([expect.stringContaining('audio PID 0x1102 is not in the saved record')]);
+  }, 600_000);
 });

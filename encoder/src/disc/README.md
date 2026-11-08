@@ -13,7 +13,7 @@ This area turns a decrypted BDMV folder into the facts the planner needs: which 
 
 ## API
 
-- `loadPlaylist(discDir, id)` returns a `Playlist`: items (`PlaylistItem`, with the main-path audio PIDs and their STN languages), chapters (`Chapter`) and the total length. `listPlaylists(discDir)` lists every playlist with its length and clips. `bdmvRoot(dir)` accepts a disc folder or its BDMV folder. `chaptersFromMarks` is the pure chapter rule.
+- `loadPlaylist(discDir, id)` returns a `Playlist`: items (`PlaylistItem`, with the main-path audio PIDs and their STN languages, format codes and rate codes), chapters (`Chapter`) and the total length. `listPlaylists(discDir)` lists every playlist with its length and clips. `bdmvRoot(dir)` accepts a disc folder or its BDMV folder. `chaptersFromMarks` is the pure chapter rule.
 - `probeClip(item)` returns a `ClipProbe`: video frame size, rate, scan type and first PTS, and each audio stream's rate, channels and first PTS. Failures are `ProbeError`.
 - `readPmt(m2tsPath, maxPackets = 1000)` returns a `PmtInfo` (PMT PID, streams in PMT order with PID and stream type, whether the program is "HDMV"); `readPlaylistPmts(playlist)` reads every clip's, keyed by clip id. `audioTrackIndex(pmt, pid)` is the PID's 1-based BestSource audio track number. Failures are `PmtError`, naming the clip, or the PID and the PMT's PIDs.
 - `discKeyOfFolder(discDir)` returns a disc's key (`f.<content fingerprint>`, or `d.<id>` with no streams) and its label (the folder's name); the helper's routes and `encode` use it to find a saved record.
