@@ -29,7 +29,7 @@ export interface EncodeOptions {
   episodes: string;
   /** Created if missing. Existing files of the same name are overwritten. */
   outDir: string;
-  /** `{n}` is replaced by the episode index zero-padded to 2. Default 'episode-{n}'. */
+  /** Every `{n}` is replaced by the episode index zero-padded to 2 (see `episodeName`). Default 'episode-{n}'. */
   namePattern: string;
   /** SVT-AV1 constant rate factor; lower is higher quality and larger. */
   crf: number;
@@ -128,6 +128,11 @@ export function svtArgs(o: Pick<EncodeOptions, 'crf' | 'preset' | 'filmGrain' | 
  */
 export function opusArgs(channels: number, bitrate?: number): string[] {
   return ['--bitrate', String(bitrate ?? (channels <= 2 ? 160 : 320)), '--ignorelength'];
+}
+
+/** An episode's output name without its extension: every `{n}` in `pattern` becomes `index` zero-padded to two digits. */
+export function episodeName(pattern: string, index: number): string {
+  return pattern.replaceAll('{n}', String(index).padStart(2, '0'));
 }
 
 const SETTLE_TIMEOUT_MS = 5000;
@@ -266,7 +271,7 @@ export async function encodeEpisodes(
 
   const outputs: string[] = [];
   for (const { plan, audio, metadata } of episodes) {
-    const name = o.namePattern.replaceAll('{n}', String(plan.index).padStart(2, '0'));
+    const name = episodeName(o.namePattern, plan.index);
     const outPath = join(o.outDir, `${name}.mkv`);
     const partialPath = `${outPath}.partial`;
     if (isAborted()) throw abortError();

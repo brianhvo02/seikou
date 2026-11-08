@@ -100,7 +100,7 @@ The page is built separately from the CLI: `npm run encoder:web:build` writes `e
 
 ### Data directory
 
-The encoder keeps what it learns and downloads in one directory: saved subtitle records (`subtitles/<disc key>/<playlist>.json`), the app's settings profiles (`profiles.json`), fetched fansub tracks and fonts, and the BestSource index files (`bestsource/`, shared by `serve` and `encode` so an encode reuses the index the line-up built). It is `~/Library/Application Support/seikou-encode` on macOS and `$XDG_DATA_HOME/seikou-encode` (default `~/.local/share/seikou-encode`) elsewhere; `SEIKOU_ENCODE_DATA` names another.
+The encoder keeps what it learns and downloads in one directory: saved subtitle records (`subtitles/<disc key>/<playlist>.json`), the app's settings profiles (`profiles.json`), the encode queue (`jobs.json`, logs in `jobs/`, test samples in `tests/`, and `output/`, a place for output folders), fetched fansub tracks and fonts, and the BestSource index files (`bestsource/`, shared by `serve` and `encode` so an encode reuses the index the line-up built). It is `~/Library/Application Support/seikou-encode` on macOS and `$XDG_DATA_HOME/seikou-encode` (default `~/.local/share/seikou-encode`) elsewhere; `SEIKOU_ENCODE_DATA` names another.
 
 ### Offline mode
 
@@ -109,6 +109,16 @@ The encoder keeps what it learns and downloads in one directory: saved subtitle 
 Exit codes: 0 success, 1 encode or packaging failure, 2 usage error, bad episode spec, a saved record that does not match the encode (including one with no entry for an episode) or that ticks no audio stream for an episode, 3 required tools missing (for `serve` and `app`, the page not built).
 
 `app [--root DIR]… [--port N] [--no-open]` starts the same backend with no helper session and opens its front page, printing `App: http://127.0.0.1:<port>/?t=<token>`. The page's disc library is every folder holding `BDMV/index.bdmv` up to four folders below the library folders: the ones saved in `settings.json` in the data directory (set from the page) and the `--root` folders of this run, which are not saved. A link that leads out of a library folder is not followed. With no saved folders and no `--root` it prints one line saying so (folders can be added in the app or with `--root DIR`). A folder that cannot be read (an unmounted drive) keeps the discs found under it in the last scan and is reported as unreadable. It needs the built page like `serve` does, and runs until Ctrl-C.
+
+### Encode queue
+
+`app` and `serve` both run an encode queue in the backend (`src/server/jobs.ts`). A job is one disc, playlist, episode list, copy of a profile's settings and output folder; jobs run one at a time, in the order they were queued, and keep running when the page is closed. The queue is kept in `jobs.json` in the data directory, and each job's log in `jobs/<id>.log`. Each job shows the `seikou-encode encode …` command that does the same (`--web` goes to `<output folder>/web`), and the command line keeps working on its own.
+
+- **Output folder.** Any absolute folder, made when missing, except one inside a library folder, inside the disc, or inside the data directory other than its `output/` folder; the backend serves files only from the output folders of the jobs it made.
+- **Subtitles.** Queuing a job checks the saved subtitle record against the job's playlist and episode list and refuses a mismatch, unless the job encodes without subtitles; with no record, the job encodes without them, as `encode` does. The job reads the record when it runs and remembers when that record was saved.
+- **Episodes.** Each episode is encoded on its own and counts as done only once the queue saw it finish (with the web package, once packaged); a file found on disk never counts. Cancel stops every tool and removes the partial file. Retry (of a failed, interrupted or cancelled job) encodes only the episodes not done, and packages again, without encoding, an episode whose packaging failed; when the subtitle record was saved again since the job's first run, it encodes every episode, so one job never mixes two sets of subtitle choices.
+- **Test encodes** go first: a running job stops after the episode in progress, the test runs, and the job resumes at its next episode.
+- **Restart.** A job that was running when the app stopped is marked interrupted and its `.partial` files are removed; queued jobs stay queued. Ctrl-C stops the running job the same way, waiting for its tools to exit. A damaged `jobs.json` is never written over: the queue is empty and refuses new jobs until the file is fixed or removed.
 
 ## Where it sits in Seikou
 

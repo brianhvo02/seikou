@@ -14,7 +14,8 @@ import { WebmError } from './package/webm';
 import { loadEncodeRecord, MissingSubtitleFilesError, NoAudioChosenError, RecordMismatchError } from './subs/encode-record';
 import { ChainError } from './pipeline/chain';
 import { EpisodeSpecError, parseEpisodeSpec } from './plan/episodes';
-import { startHelperServer } from './server/server';
+import { startJobRunner } from './server/jobs';
+import { startHelperServer, type AppContext } from './server/server';
 import { createSources } from './server/sources';
 import { appDataDir } from './subs/app-data';
 import { appSettings } from './subs/app-settings';
@@ -105,7 +106,10 @@ function toolsOrNull(): ToolPaths | null {
   }
 }
 
-/** Starts the app on the library `roots` with no session, prints its address and runs until stopped. */
+/**
+ * Starts the app on the library `roots` with no session and its encode queue, prints its address and runs until
+ * stopped.
+ */
 async function app(roots: readonly string[], port: number, open: boolean): Promise<void> {
   const real: string[] = [];
   for (const root of roots) {
@@ -119,15 +123,24 @@ async function app(roots: readonly string[], port: number, open: boolean): Promi
   }
   const tools = toolsOrNull();
   const token = randomBytes(32).toString('hex');
-  const server = await startHelperServer(
-    { dataDir: appDataDir(), token, webDir, tools, sources: createSources(process.env, fetch), roots: real },
-    port,
-  );
+  const context: AppContext = { dataDir: appDataDir(), token, webDir, tools, sources: createSources(process.env, fetch), roots: real };
+  const server = await startHelperServer(context, port);
+  const runner = startJobRunner(context);
   const url = `${server.url}?t=${token}`;
   console.log(`App: ${url}`);
   if (open) openInBrowser(url);
   await untilStopped();
+  await stopRunning(runner);
   await server.close();
+}
+
+/**
+ * Stops the encode queue before the process exits: a running job is cancelled, its tools are waited for, and it is
+ * saved as interrupted, so it can be retried on the next start.
+ */
+async function stopRunning(runner: ReturnType<typeof startJobRunner>): Promise<void> {
+  if (runner.list().some((j) => j.state === 'running')) console.log('Stopping the running encode; it can be retried after the next start.');
+  await runner.shutdown();
 }
 
 async function serve(
@@ -144,14 +157,14 @@ async function serve(
   const webDir = builtWebDir();
   const tools = toolsOrNull();
   const token = randomBytes(32).toString('hex');
-  const server = await startHelperServer(
-    { dataDir: appDataDir(), token, webDir, tools, sources: createSources(process.env, fetch), roots: [] },
-    port,
-  );
+  const context: AppContext = { dataDir: appDataDir(), token, webDir, tools, sources: createSources(process.env, fetch), roots: [] };
+  const server = await startHelperServer(context, port);
+  const runner = startJobRunner(context);
   let session;
   try {
     session = await server.sessions.create({ discDir, playlistId, episodeSpec: episodes });
   } catch (err) {
+    await stopRunning(runner);
     await server.close();
     throw err;
   }
@@ -159,6 +172,7 @@ async function serve(
   console.log(`Helper: ${url}`);
   if (open) openInBrowser(url);
   await untilStopped();
+  await stopRunning(runner);
   await server.close();
 }
 

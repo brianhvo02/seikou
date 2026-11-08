@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { FetchCache } from '@seikou/fansubs/fetch-cache';
 import { fixtureFansubSources } from '@seikou/fansubs/fixture-sources';
 import { discKeyOfFolder } from '../src/disc/disc-key';
-import { encodeEpisodes, opusArgs, svtArgs, type EncodeEvent, type EncodeOptions } from '../src/encode';
+import { encodeEpisodes, episodeName, opusArgs, svtArgs, type EncodeEvent, type EncodeOptions } from '../src/encode';
 import { EpisodeSpecError } from '../src/plan/episodes';
 import { NoAudioChosenError } from '../src/subs/encode-record';
 import { RecordStore, type SubtitleRecord } from '../src/subs/record';
@@ -50,6 +50,11 @@ afterEach(() => {
   delete process.env.FAKE_ENC_IVF;
   delete process.env.FAKE_ENC_NOREAD;
   delete process.env.FAKE_SLEEP;
+});
+
+it('every {n} of the name pattern becomes the episode number', () => {
+  expect(episodeName('Starfall {n} - part {n}', 3)).toBe('Starfall 03 - part 03');
+  expect(episodeName('ep-{n}', 12)).toBe('ep-12');
 });
 
 it('film grain comes from the settings', () => {

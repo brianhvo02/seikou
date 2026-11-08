@@ -34,6 +34,8 @@ export interface SendInit {
  */
 export interface RouteFixture {
   readonly server: HelperServer;
+  /** The app context the server runs with. */
+  readonly app: AppContext;
   /** The open session's id. */
   readonly sessionId: string;
   /** The speech disc's key. */
@@ -95,6 +97,7 @@ export async function startRouteFixture(
     });
   return {
     server,
+    app,
     sessionId: session.id,
     discKey: session.discKey,
     dataDir,
