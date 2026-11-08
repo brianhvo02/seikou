@@ -6,6 +6,7 @@ import { basename, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { discKeyOfFolder } from '../src/disc/disc-key';
 import { encodeEpisodes, opusArgs, svtArgs, type EncodeEvent, type EncodeOptions } from '../src/encode';
+import { NoAudioChosenError } from '../src/subs/encode-record';
 import { RecordStore } from '../src/subs/record';
 import { Id } from '../src/mux/mkv-ids';
 import { countVideoBlocks, find, findAll, floatOf, parseMkv, stringOf, uintOf } from './helpers/ebml-reader';
@@ -43,6 +44,7 @@ function probeStreams(file: string): Record<string, ProbedStream> {
 afterEach(() => {
   delete process.env.FAKE_ENC_EXIT;
   delete process.env.FAKE_ENC_IVF;
+  delete process.env.FAKE_ENC_NOREAD;
 });
 
 it('builds encoder argument lists from the spec defaults', () => {
@@ -97,6 +99,8 @@ describe.skipIf(!haveTools)('end to end on disc1', () => {
   it('deletes the partial file when an audio encoder fails', async () => {
     const out = mkdtempSync(join(tmpdir(), 'et-'));
     process.env.FAKE_ENC_EXIT = '3';
+    // Exit before reading anything, so the failure does not wait on BestSource decoding the episode.
+    process.env.FAKE_ENC_NOREAD = '1';
     await expect(encodeEpisodes({ ...base(out), episodes: '1-2', tools: { ...toolPaths()!, opusenc: fx('tests/fake-bin/opusenc') } }, () => {})).rejects.toMatchObject({ tool: 'opusenc', code: 3 });
     expect(existsSync(join(out, 'ep-01.mkv'))).toBe(false);
   }, 120_000);
@@ -182,4 +186,33 @@ describe.skipIf(!haveTools)('end to end on disc3', () => {
     ]);
     expect(events.filter((e) => e.kind === 'log').map((e) => e.message)).toEqual([expect.stringContaining('audio PID 0x1102 is not in the saved record')]);
   }, 600_000);
+});
+
+it('refuses, before any tool starts, an episode whose ticked audio streams are all missing from the playlist', async () => {
+  const out = mkdtempSync(join(tmpdir(), 'et-'));
+  const discDir = fx('fixtures/disc3');
+  const { key, label } = await discKeyOfFolder(discDir);
+  await new RecordStore(join(out, 'data')).write({
+    disc: { key, label },
+    playlist: '00000',
+    episodeSpec: '1-',
+    anilist: null,
+    release: null,
+    fonts: [],
+    episodes: [
+      {
+        index: 1,
+        title: 'Starfall Wanderer 1',
+        tracks: [],
+        metadata: { title: 'Starfall Wanderer 1', video: { name: '', language: 'jpn' }, audio: [{ pid: 0x1999, name: 'Gone', language: 'jpn', included: true }], chapters: [] },
+      },
+    ],
+    savedAt: '2026-11-07T00:00:00Z',
+  });
+  const missing = { vspipe: '/nonexistent/vspipe', svt: '/nonexistent/SvtAv1EncApp', opusenc: '/nonexistent/opusenc' };
+  const opts: EncodeOptions = { discDir, playlistId: '00000', episodes: '1-', outDir: join(out, 'mkv'), namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], cacheDir: join(out, 'cache'), tools: missing, dataDir: join(out, 'data'), noSubtitles: false, noPgs: false };
+  const err = await encodeEpisodes(opts, () => {}).catch((e: unknown) => e);
+  expect(err).toBeInstanceOf(NoAudioChosenError);
+  expect((err as Error).message).toBe('Episode 1 has no audio stream ticked in the saved choices; tick one in the helper or pass --no-subtitles');
+  expect(existsSync(join(out, 'mkv'))).toBe(false);
 });

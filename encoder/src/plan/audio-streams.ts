@@ -27,7 +27,7 @@ export interface SelectedAudio {
    * and a clip's CLPI can disagree with it.
    */
   channels: number;
-  /** Hz, from the STN entry's audio rate code in the playlist's first play item (48000 for the combo codes, the core's rate). */
+  /** Hz, from the STN entry's audio rate code in the playlist's first play item (for the combo codes, the lossless layer's rate, which is the rate BestSource decodes). */
   sampleRate: number;
 }
 

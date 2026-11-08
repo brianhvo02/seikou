@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { discKeyOfFolder } from '../../src/disc/disc-key';
-import { loadEncodeRecord, MissingSubtitleFilesError, RecordMismatchError } from '../../src/subs/encode-record';
+import { loadEncodeRecord, MissingSubtitleFilesError, NoAudioChosenError, RecordMismatchError } from '../../src/subs/encode-record';
 import { RecordStore, type SubtitleRecord } from '../../src/subs/record';
 import { fx } from '../paths';
 
@@ -26,7 +26,7 @@ async function recordFor(over: Partial<SubtitleRecord>): Promise<SubtitleRecord>
         tracks: [
           { file: 'cache/r1/ep1.ass', kind: 'full', language: 'eng', name: 'GroupA', shiftMs: 0, nudgeMs: 0, split: null, included: true },
         ],
-        metadata: { title: 'Harbor', video: { name: '', language: 'und' }, audio: [], chapters: [] },
+        metadata: { title: 'Harbor', video: { name: '', language: 'und' }, audio: [{ pid: 0x1100, name: '', language: 'jpn', included: true }], chapters: [] },
       },
     ],
     savedAt: '2026-11-07T10:00:00Z',
@@ -53,6 +53,16 @@ describe('loadEncodeRecord', () => {
     const saved = await recordFor({});
     await new RecordStore(dataDir).write(saved);
     expect(await ask('1-2')).toEqual(saved);
+  });
+
+  it('refuses a record that ticks no audio stream for an episode, naming it', async () => {
+    const saved = await recordFor({});
+    saved.episodes[0]!.metadata.audio = [{ pid: 0x1100, name: '', language: 'jpn', included: false }];
+    await new RecordStore(dataDir).write(saved);
+    const err = await ask('1-2').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(NoAudioChosenError);
+    expect((err as Error).message).toBe('Episode 1 has no audio stream ticked in the saved choices; tick one in the helper or pass --no-subtitles');
+    expect(await ask('1-2', true)).toBeNull();
   });
 
   it('--no-subtitles ignores a mismatched record', async () => {

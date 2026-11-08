@@ -56,7 +56,9 @@ interface Stage {
 
 /**
  * Runs `first | second`. `between`, when given, wraps the first process's stdout before it reaches the second's
- * stdin (a check on the stream); an error it raises fails the chain with that error and stops both processes.
+ * stdin (a check on the stream); an error it raises fails the chain with that error and stops both processes,
+ * except that an error raised after the first process's output ended or broke waits for that process to exit, and
+ * gives way to its `ChainError` when it exits with an error.
  */
 function runChain(first: Stage, second: Stage, between?: (out: Readable) => Readable): Chain {
   const p1: ChildProcess = spawn(first.cmd, first.args, { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -96,7 +98,21 @@ function runChain(first: Stage, second: Stage, between?: (out: Readable) => Read
     rejectDone(err);
   };
 
-  if (into2 !== out1) into2.on('error', (e: Error) => fail(e));
+  if (into2 !== out1) {
+    into2.on('error', (e: Error) => {
+      // An error raised once the first process's output has ended or broken (a WAV cut short, say) is
+      // usually that process failing: let its exit decide. A nonzero exit fails the chain with the
+      // tool's own ChainError (from the exit handler below); a clean exit fails it with this error.
+      if (!(out1.readableEnded || out1.destroyed)) return fail(e);
+      if (p1.exitCode !== null || p1.signalCode !== null) {
+        if (p1.exitCode === 0) fail(e);
+        return;
+      }
+      p1.once('exit', (code) => {
+        if (code === 0) fail(e);
+      });
+    });
+  }
   into2.pipe(in2);
 
   procs.forEach((p, i) => {

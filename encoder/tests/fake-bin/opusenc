@@ -1,4 +1,9 @@
 #!/bin/sh
+# FAKE_ENC_NOREAD: fail at once with FAKE_ENC_EXIT, without reading stdin.
+if [ -n "$FAKE_ENC_NOREAD" ]; then
+  echo "fake stderr line" >&2
+  exit "${FAKE_ENC_EXIT:-0}"
+fi
 if [ -n "$FAKE_SLEEP" ]; then
   trap 'kill $!; exit 143' TERM
   sleep "$FAKE_SLEEP" &

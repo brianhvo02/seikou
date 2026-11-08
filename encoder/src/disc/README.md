@@ -17,7 +17,7 @@ This area turns a decrypted BDMV folder into the facts the planner needs: which 
 - `probeClip(item)` returns a `ClipProbe`: video frame size, rate, scan type and first PTS, and each audio stream's rate, channels and first PTS. Failures are `ProbeError`.
 - `readPmt(m2tsPath, maxPackets = 1000)` returns a `PmtInfo` (PMT PID, streams in PMT order with PID and stream type, whether the program is "HDMV"); `readPlaylistPmts(playlist)` reads every clip's, keyed by clip id. `audioTrackIndex(pmt, pid)` is the PID's 1-based BestSource audio track number. Failures are `PmtError`, naming the clip, or the PID and the PMT's PIDs.
 - `discKeyOfFolder(discDir)` returns a disc's key (`f.<content fingerprint>`, or `d.<id>` with no streams) and its label (the folder's name); the helper's routes and `encode` use it to find a saved record.
-- `videoRate`, `videoFormat`, `audioRate` and `audioChannels` map CLPI codes and throw on a code the table lacks.
+- `videoRate`, `videoFormat`, `audioRate` and `audioChannels` map CLPI and STN codes and throw on a code the table lacks. The combo rate codes (12, 14: a lossless stream with a 48 kHz core) map to the lossless rate (192 and 96 kHz), the rate BestSource decodes them at.
 
 ## Where to look
 

@@ -80,6 +80,25 @@ describe('chains with fake binaries', () => {
     await c.done;
   });
 
+  it("reports vspipe's own failure, not the guard's, when vspipe exits with an error before writing a header", async () => {
+    process.env.FAKE_VSPIPE_EXIT = '2';
+    const empty = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'chain-wav-')), 'empty.wav');
+    fs.writeFileSync(empty, '');
+    for (let n = 0; n < 10; n++) {
+      const c = audioChain(fake, empty, [], { pid: 0x1100, channels: 2, sampleRate: 48000 });
+      c.stream.resume();
+      await expect(c.done).rejects.toMatchObject({ tool: 'vspipe', code: 2 });
+    }
+  });
+
+  it('fails with the guard error when vspipe exits cleanly inside the header', async () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'chain-wav-')), 'short.wav');
+    fs.writeFileSync(file, wavBytes(2, 48000).subarray(0, 20));
+    const c = audioChain(fake, file, [], { pid: 0x1100, channels: 2, sampleRate: 48000 });
+    c.stream.resume();
+    await expect(c.done).rejects.toThrow('PID 0x1100: the WAV stream ended inside its header');
+  });
+
   it('channel guard fails on a mismatched stream', async () => {
     process.env.FAKE_SLEEP = '5';
     const c = audioChain(fake, wavFile(2, 48000, 10), [], { pid: 0x1101, channels: 6, sampleRate: 48000 });

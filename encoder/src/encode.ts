@@ -11,7 +11,7 @@ import { readOggOpus } from './mux/ogg';
 import { audioChain, ChainError, videoChain, type Chain, type ToolPaths } from './pipeline/chain';
 import { buildAudioScript, buildVideoScript } from './pipeline/vpy';
 import { WavGuardError } from './pipeline/wav-guard';
-import { loadEncodeRecord } from './subs/encode-record';
+import { loadEncodeRecord, NoAudioChosenError } from './subs/encode-record';
 import { selectAudio, type SelectedAudio } from './plan/audio-streams';
 import { parseEpisodeSpec, planEpisodes, type EpisodePlan } from './plan/episodes';
 import type { RecordMetadata } from './subs/record';
@@ -152,7 +152,8 @@ function chainFailure(chains: Chain[]): Promise<ChainError | WavGuardError | nul
  * are stopped, the episode's partial file is deleted and the error thrown is the chain's own
  * (`ChainError` from a tool, `WavGuardError` when a decoded stream's channels or rate differ from the
  * playlist's) when there is one, since a downstream parse error is usually its symptom; episodes
- * already finished are kept. Throws `EpisodeSpecError` for a bad episode list.
+ * already finished are kept. Throws `EpisodeSpecError` for a bad episode list, and `NoAudioChosenError`, before
+ * any tool starts, when the record leaves an episode with no audio stream.
  */
 export async function encodeEpisodes(
   o: EncodeOptions,
@@ -177,6 +178,8 @@ export async function encodeEpisodes(
   const episodes = specs.map((spec, i): { plan: EpisodePlan; audio: SelectedAudio[]; metadata: RecordMetadata | null } => {
     const index = i + 1;
     const audio = selectAudio(playlist, probes, record, index, (message) => onEvent({ kind: 'log', episode: index, message }));
+    // The record's ticked streams may all be missing from the playlist; an episode is never encoded without sound.
+    if (record !== null && audio.length === 0) throw new NoAudioChosenError(index);
     const [plan] = planEpisodes(playlist, probes, [spec], audio, pmts);
     const metadata = record?.episodes.find((e) => e.index === index)?.metadata ?? null;
     return { plan: { ...plan!, index }, audio, metadata };

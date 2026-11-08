@@ -10,6 +10,11 @@ it('maps Blu-ray rate and format codes', () => {
   expect(() => videoRate(5)).toThrow();
 });
 
+it('maps the combo rates to the lossless rate BestSource decodes, not the 48 kHz core', () => {
+  expect(audioRate(12)).toBe(192000);
+  expect(audioRate(14)).toBe(96000);
+});
+
 it('maps video format 5 to 720p and 7 to 576p, as libbluray does', () => {
   expect(videoFormat(5)).toEqual({ width: 1280, height: 720, interlaced: false });
   expect(videoFormat(7)).toEqual({ width: 720, height: 576, interlaced: false });

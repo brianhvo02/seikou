@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { listPlaylists, loadPlaylist } from './disc/playlist';
 import { encodeEpisodes } from './encode';
-import { loadEncodeRecord, MissingSubtitleFilesError, RecordMismatchError } from './subs/encode-record';
+import { loadEncodeRecord, MissingSubtitleFilesError, NoAudioChosenError, RecordMismatchError } from './subs/encode-record';
 import { ChainError } from './pipeline/chain';
 import { EpisodeSpecError, parseEpisodeSpec } from './plan/episodes';
 import { startHelperServer } from './server/server';
@@ -220,7 +220,8 @@ async function run(argv: string[]): Promise<void> {
 
 /**
  * Runs the command line and returns the process exit code: 0 success, 1 encode failure, 2 usage
- * error or bad episode list, 3 required tools missing (or, for `serve`, the helper page not built). Output goes to stdout and stderr; nothing
+ * error, bad episode list or a saved record that does not fit the encode (another playlist or episode list, or an
+ * episode with no audio stream ticked), 3 required tools missing (or, for `serve`, the helper page not built). Output goes to stdout and stderr; nothing
  * is thrown.
  */
 export async function main(argv: string[]): Promise<number> {
@@ -236,7 +237,7 @@ export async function main(argv: string[]): Promise<number> {
       console.error(err.message);
       return 2;
     }
-    if (err instanceof RecordMismatchError) {
+    if (err instanceof RecordMismatchError || err instanceof NoAudioChosenError) {
       console.error(err.message);
       return 2;
     }

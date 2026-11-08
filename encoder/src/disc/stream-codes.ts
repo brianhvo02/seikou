@@ -27,8 +27,10 @@ const VIDEO_FORMATS: Readonly<Record<number, { width: number; height: number; in
 };
 
 // Codes 12 and 14 are "combo" rates: a lossless stream at 192 kHz (12) or 96 kHz (14) that carries
-// an AC-3/DTS core. The table reports the core's usual 48 kHz for them.
-const AUDIO_RATES: Readonly<Record<number, number>> = { 1: 48000, 4: 96000, 5: 192000, 12: 48000, 14: 48000 };
+// an AC-3/DTS core at 48 kHz. The table reports the lossless rate, because that is the rate BestSource
+// decodes them at (libavcodec decodes the TrueHD and DTS-HD Master Audio lossless layers, not the core),
+// and the planner counts each stream's samples at the rate it is decoded at.
+const AUDIO_RATES: Readonly<Record<number, number>> = { 1: 48000, 4: 96000, 5: 192000, 12: 192000, 14: 96000 };
 
 // 1 mono, 3 stereo, 6 multichannel, 12 combo (a stereo core with a multichannel extension); the
 // multichannel count of 6 is the 5.1 core.
