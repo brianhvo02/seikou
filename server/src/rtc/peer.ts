@@ -366,6 +366,17 @@ export class RtcPeers {
     }
   }
 
+  /**
+   * The address and port the device socket `sid`'s packets arrive from, on its nominated candidate pair; null before
+   * a pair is nominated or without a peer. This is the address the relay classing compares, which can differ from the
+   * device's own idea of its candidate (a socket on several interfaces).
+   */
+  remoteAddressOf(sid: string): readonly [string, number] | null {
+    const peer = this.peers.get(sid);
+    const pair = peer === undefined ? undefined : this.nominated(peer);
+    return pair === undefined ? null : [pair.remoteAddr[0], pair.remoteAddr[1]];
+  }
+
   private pruneTurnServers(): void {
     const now = this.opts.now();
     for (const [sid, entry] of this.turnServers) if (entry.since <= now - SIGNAL_DEVICE_LIFETIME_MS) this.turnServers.delete(sid);

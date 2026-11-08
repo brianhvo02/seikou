@@ -82,6 +82,17 @@ function peersOn(port: number, limits?: ConstructorParameters<typeof RtcPeers>[0
   return peers;
 }
 
+/**
+ * The device's address as the NAS sees its packets arrive, read from the NAS's side. The client's own nominated
+ * candidate can name another interface of the same socket (a LAN address on a machine that has one), and which address
+ * the packets leave from depends on the machine, so the tests never take the client's word for it.
+ */
+function seenBy(peers: RtcPeers, sid: string): { host: string; port: number } {
+  const seen = peers.remoteAddressOf(sid);
+  if (seen === null) throw new Error(`no nominated pair for ${sid}`);
+  return { host: seen[0], port: seen[1] };
+}
+
 /** A device's side: an `api` channel offered to `peers` as `sid`, its candidates trickled. */
 async function connect(peers: RtcPeers, sid: string): Promise<{ pc: RTCPeerConnection; dc: RTCDataChannel; answer: string; client: WireClient }> {
   const pc = new RTCPeerConnection({ iceServers: STUN(), iceUseIpv6: false });
@@ -156,7 +167,7 @@ describe('RtcPeers', () => {
     });
     open.push({ close: () => peers.closeAll() });
     const sid = 'sid-kkkkkkkkkkkkkkkkkkk';
-    const { pc, client } = await connect(peers, sid);
+    const { client } = await connect(peers, sid);
     const { deviceId, token } = await sessionOver(client);
     await readRange(client, token, 0, 99_999);
     const device = () => auth.devices().find((d) => d.id === deviceId)?.lastRoute;
@@ -165,8 +176,8 @@ describe('RtcPeers', () => {
 
     // The device's address as the NAS sees it, announced as a relay candidate after the fact (as when werift
     // learnt the relayed address as prflx before the trickled candidate came).
-    const local = pc.iceTransports[0]!.connection.nominated!.localCandidate;
-    peers.candidate(sid, { candidate: `candidate:9 1 udp 41885439 ${local.host} ${local.port} typ relay raddr 0.0.0.0 rport 0`, sdpMid: '0' });
+    const seen = seenBy(peers, sid);
+    peers.candidate(sid, { candidate: `candidate:9 1 udp 41885439 ${seen.host} ${seen.port} typ relay raddr 0.0.0.0 rport 0`, sdpMid: '0' });
     expect(device()).toBe('relay');
     await expect.poll(() => relayed, { timeout: 5000 }).toBeGreaterThan(100_000);
   });
@@ -175,10 +186,10 @@ describe('RtcPeers', () => {
     const peers = new RtcPeers({ handlers, auth, port: 0, advertise: () => ['127.0.0.1'], iceServers: async () => STUN(), now: Date.now });
     open.push({ close: () => peers.closeAll() });
     const sid = 'sid-lllllllllllllllllll';
-    const { pc, client } = await connect(peers, sid);
+    const { client } = await connect(peers, sid);
     const { deviceId } = await sessionOver(client);
     expect(auth.devices().find((d) => d.id === deviceId)?.lastRoute).toBe('webrtc');
-    peers.noteTurnServers(sid, [pc.iceTransports[0]!.connection.nominated!.localCandidate.host]);
+    peers.noteTurnServers(sid, [seenBy(peers, sid).host]);
     expect(auth.devices().find((d) => d.id === deviceId)?.lastRoute).toBe('relay');
   });
 
