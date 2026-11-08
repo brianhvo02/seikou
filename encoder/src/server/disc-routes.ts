@@ -12,7 +12,7 @@ import { discKeyOfFolder } from '../disc/disc-key';
 import { bdmvRoot, listPlaylists, loadPlaylist } from '../disc/playlist';
 import { readPlaylistPmts } from '../disc/pmt';
 import { probeClip, type ClipProbe } from '../disc/probe';
-import { selectAudio } from '../plan/audio-streams';
+import { firstStnAudio } from '../plan/audio-streams';
 import { EpisodeSpecError, firstFramePlaylistUs, parseEpisodeSpec, planEpisodes, type EpisodePlan, type EpisodeSpec } from '../plan/episodes';
 import { httpError, json, sendFile, type HelperContext, type Route, type RouteTable } from './http';
 
@@ -136,7 +136,8 @@ async function planTimes(ctx: HelperContext, root: string): Promise<PlannedEpiso
   const probes = new Map<string, ClipProbe>();
   for (const item of playlist.items) if (!probes.has(item.clipId)) probes.set(item.clipId, await probeClip(item));
   // Alignment listens to the playlist's first STN audio stream, which BestSource finds through each clip's PMT.
-  const firstAudio = selectAudio(playlist, probes, null, 1).slice(0, 1);
+  const first = firstStnAudio(playlist, probes);
+  const firstAudio = first === null ? [] : [first];
   const plans = planEpisodes(playlist, probes, specs, firstAudio, await readPlaylistPmts(playlist));
 
   const episodes = plans.map((plan): EpisodeTimes => {

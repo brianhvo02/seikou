@@ -43,25 +43,17 @@ export function languageName(code: string): string {
   }
 }
 
-/**
- * The audio streams episode `episodeIndex` (1-based) keeps, in MKV order. Without a record every main-path audio
- * stream of the playlist's first play item is kept in STN order, named after its STN language, the first default.
- * With a record, the episode's `metadata.audio` decides: its order, its ticks (unticked streams are left out), its
- * names and languages; the first kept stream is the default. A playlist stream the record does not list is left
- * out, and a record entry for a PID the playlist lacks is ignored; each calls `warn` once with a message naming
- * the PID. The coding type comes from `probes` of the first item's clip, which must be present; channels and sample
- * rate from the first item's STN entries. Throws when the record has no episode `episodeIndex` or an STN entry has a
- * format or rate code the tables lack; returns an empty list when nothing is kept.
- */
-export function selectAudio(
-  playlist: Playlist,
-  probes: Map<string, ClipProbe>,
-  record: SubtitleRecord | null,
-  episodeIndex: number,
-  warn: (message: string) => void = (message) => console.warn(message),
-): SelectedAudio[] {
+interface StnStreams {
+  /** The first play item's main-path STN audio entries, in STN order. */
+  stn: { pid: number; language: string; formatCode: number; rateCode: number }[];
+  /** Resolves the entry for `pid` (one of `stn`'s) into the `i`th selected stream. */
+  select: (pid: number, name: string, language: string, i: number) => SelectedAudio;
+}
+
+/** The first play item's STN audio entries and their resolver; null for a playlist with no items. */
+function stnStreams(playlist: Playlist, probes: Map<string, ClipProbe>): StnStreams | null {
   const first = playlist.items[0];
-  if (!first) return [];
+  if (!first) return null;
   const probe = probes.get(first.clipId);
   if (!probe) throw new Error(`No probe for clip ${first.clipId}`);
   const attributes = (pid: number): AudioProbe => {
@@ -89,6 +81,42 @@ export function selectAudio(
     const sampleRate = fromStn(() => audioRate(entry.rateCode));
     return { pid, name: name || languageName(language), language, isDefault: i === 0, codingType, channels, sampleRate };
   };
+  return { stn, select };
+}
+
+/**
+ * The first main-path STN audio stream of the playlist's first play item, as `selectAudio` without a record gives it,
+ * or null when there is none. Only that entry is resolved, so the codes and CLPI attributes of the other streams do
+ * not matter. Throws when the first item's clip has no probe in `probes`, its CLPI lacks the stream, or its STN entry
+ * has a format or rate code the tables lack.
+ */
+export function firstStnAudio(playlist: Playlist, probes: Map<string, ClipProbe>): SelectedAudio | null {
+  const streams = stnStreams(playlist, probes);
+  const first = streams?.stn[0];
+  if (!streams || !first) return null;
+  return streams.select(first.pid, '', first.language, 0);
+}
+
+/**
+ * The audio streams episode `episodeIndex` (1-based) keeps, in MKV order. Without a record every main-path audio
+ * stream of the playlist's first play item is kept in STN order, named after its STN language, the first default.
+ * With a record, the episode's `metadata.audio` decides: its order, its ticks (unticked streams are left out), its
+ * names and languages; the first kept stream is the default. A playlist stream the record does not list is left
+ * out, and a record entry for a PID the playlist lacks is ignored; each calls `warn` once with a message naming
+ * the PID. The coding type comes from `probes` of the first item's clip, which must be present; channels and sample
+ * rate from the first item's STN entries. Throws when the record has no episode `episodeIndex` or an STN entry has a
+ * format or rate code the tables lack; returns an empty list when nothing is kept.
+ */
+export function selectAudio(
+  playlist: Playlist,
+  probes: Map<string, ClipProbe>,
+  record: SubtitleRecord | null,
+  episodeIndex: number,
+  warn: (message: string) => void = (message) => console.warn(message),
+): SelectedAudio[] {
+  const streams = stnStreams(playlist, probes);
+  if (!streams) return [];
+  const { stn, select } = streams;
 
   if (record === null) return stn.map((s, i) => select(s.pid, '', s.language, i));
 
