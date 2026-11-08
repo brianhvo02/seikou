@@ -10,6 +10,7 @@ import { readBody } from '../../../server/src/http';
 import { ReleaseCache, UploadRejected, type CachedRelease } from '../subs/release-cache';
 import { matchRelease } from '../subs/release-match';
 import { SubtitleEncodingError } from '../subs/srt-to-ass';
+import { DiscRequestError, episodePlans } from './disc-routes';
 import { httpError, json, type HelperContext, type RouteTable } from './http';
 import { answerUnavailable } from './title-routes';
 
@@ -37,11 +38,6 @@ export function releaseCacheOf(ctx: HelperContext): ReleaseCache {
   return cache;
 }
 
-/** The session's episode numbers, 1 to N: one episode per comma-separated token of the spec. */
-function episodeNumbers(ctx: HelperContext): number[] {
-  const n = ctx.episodeSpec.split(',').filter((t) => t.trim() !== '').length;
-  return Array.from({ length: n }, (_, i) => i + 1);
-}
 
 /** The request's query parameters. */
 function queryOf(req: IncomingMessage): URLSearchParams {
@@ -55,9 +51,21 @@ function offsetOf(req: IncomingMessage): number | null {
   return /^-?\d{1,6}$/.test(raw) ? Number(raw) : null;
 }
 
-/** Answers `release` with its `match` against the session's episodes. */
-function answerRelease(res: ServerResponse, ctx: HelperContext, release: CachedRelease, offset: number): void {
-  json(res, 200, { ...release, match: matchRelease(release.files, episodeNumbers(ctx), offset) });
+/**
+ * Answers `release` with its `match` against the session's episodes, 1 to N for the N episodes of the run's plan
+ * (`episodePlans`, the one `GET /api/episodes` answers from); an episode list the playlist cannot hold answers as
+ * that route does (422 `bad-episode-spec` or `no-audio`).
+ */
+async function answerRelease(res: ServerResponse, ctx: HelperContext, release: CachedRelease, offset: number): Promise<void> {
+  let count: number;
+  try {
+    count = (await episodePlans(ctx)).length;
+  } catch (e) {
+    if (e instanceof DiscRequestError) return httpError(res, e.status, e.code, e.message);
+    throw e;
+  }
+  const episodes = Array.from({ length: count }, (_, i) => i + 1);
+  json(res, 200, { ...release, match: matchRelease(release.files, episodes, offset) });
 }
 
 /**
@@ -222,7 +230,7 @@ export const fansubRoutes: RouteTable = [
         throw e;
       }
       await rm(dir, { recursive: true, force: true });
-      answerRelease(res, ctx, release, offset);
+      await answerRelease(res, ctx, release, offset);
     },
   ],
   [
@@ -233,7 +241,7 @@ export const fansubRoutes: RouteTable = [
       if (offset === null) return httpError(res, 400, 'bad-request', 'offset must be a whole number.');
       const release = await releaseCacheOf(ctx).get(decode(match[1]!) ?? '');
       if (!release) return httpError(res, 404, 'not-found', 'No such release.');
-      answerRelease(res, ctx, release, offset);
+      await answerRelease(res, ctx, release, offset);
     },
   ],
   [

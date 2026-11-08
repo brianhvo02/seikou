@@ -34,15 +34,18 @@ export interface RouteFixture {
   stop(): Promise<void>;
 }
 
-/** Starts a helper server; `sources` replaces the recorded sources it names, `tools` the missing tools (null by default). */
-export async function startRouteFixture(sources: Partial<HelperSources> = {}, tools: ToolPaths | null = null): Promise<RouteFixture> {
+/**
+ * Starts a helper server; `sources` replaces the recorded sources it names, `tools` the missing tools (null by
+ * default), and `episodeSpec` the episode list (`1-3,4-5` by default).
+ */
+export async function startRouteFixture(sources: Partial<HelperSources> = {}, tools: ToolPaths | null = null, episodeSpec = '1-3,4-5'): Promise<RouteFixture> {
   const dataDir = mkdtempSync(join(tmpdir(), 'helper-routes-'));
   const fansubs = fixtureFansubSources(FANSUBS);
   const anilist = fixtureAniList(FANSUBS);
   const ctx: HelperContext = {
     discDir: fx('fixtures/disc-speech'),
     playlistId: '00000',
-    episodeSpec: '1-3,4-5',
+    episodeSpec,
     dataDir,
     token: TOKEN,
     webDir: null,

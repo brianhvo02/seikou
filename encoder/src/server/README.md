@@ -36,7 +36,7 @@ The server listens on `127.0.0.1` only, so nothing else on the network can reach
 | GET | `/api/titles/<alId>/episodes` | `{ titles: { [episode]: title } }`, empty when AniList has none |
 | GET | `/api/fansubs/seadex?anilist=<id>` | `{ notes, comparison, url, releases }`: public releases in `rankReleases` order, private-tracker ones after, each with `toshoId` and `unavailable` (`null`, `private-tracker` or `not-on-tosho`) |
 | GET | `/api/fansubs/search?q=` | Anime Tosho releases `[{ toshoId, title, date }]` |
-| POST | `/api/fansubs/fetch?offset=` | body `{ toshoId }`; the cached release plus `match: { rows, unmatched }` against episodes 1 to N of the spec, `offset` default 0 |
+| POST | `/api/fansubs/fetch?offset=` | body `{ toshoId }`; the cached release plus `match: { rows, unmatched }` against episodes 1 to N of the run's episode plan (the one `/api/episodes` answers from; its 422s too), `offset` default 0 |
 | PUT | `/api/uploads/<batch>/<name>` | one raw file of an upload batch (`batch`: 16 lower-case hex digits; `name`: a plain file name); 413 `too-large` with `Connection: close` over 50 MB |
 | POST | `/api/uploads/<batch>/commit?offset=` | the batch as a local release, answered as fetch is; the batch folder is removed; 422 `upload-rejected` or `bad-encoding` |
 | GET | `/api/releases/<key>?offset=` | a cached release plus `match`; 404 `not-found` |

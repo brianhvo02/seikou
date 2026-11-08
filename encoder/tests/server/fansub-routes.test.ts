@@ -128,4 +128,16 @@ describe('fansub routes', () => {
       await limited.stop();
     }
   });
+
+  it('matches against the episode plan, so an episode list the playlist cannot hold answers as GET /api/episodes does', async () => {
+    const bad = await startRouteFixture({}, null, '1-3,4-9');
+    try {
+      const reply = await bad.send('/api/fansubs/fetch', { method: 'POST', body: JSON.stringify({ toshoId: 7001 }) });
+      expect(reply.status).toBe(422);
+      expect(jsonOf<{ error: string }>(reply).error).toBe('bad-episode-spec');
+      expect((await bad.send('/api/releases/tosho-7001')).status).toBe(422);
+    } finally {
+      await bad.stop();
+    }
+  });
 });
