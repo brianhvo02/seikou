@@ -12,7 +12,9 @@ import {
   episodeStatus,
   formatNudge,
   MAX_NUDGE_MS,
+  allLinedUp,
   nextEpisode,
+  othersToCheck,
   NUDGE_FINE_MS,
   NUDGE_FRAME_MS,
   nudgeForKey,
@@ -347,7 +349,7 @@ export function LineUpStep({ api, state, dispatch, session, episodes, controller
                 moveOn(true);
               }}
             >
-              Accept, next episode
+              {othersToCheck(order, episode.index, state.choices, state.timing) ? 'Accept, next episode' : 'Accept'}
             </button>
             <button type="button" className="quiet" disabled={fetchTiming.kind === 'original'} onClick={() => dispatch({ type: 'useOriginal', episode: episode.index })}>
               Use original timing
@@ -363,6 +365,11 @@ export function LineUpStep({ api, state, dispatch, session, episodes, controller
               Skip
             </button>
           </div>
+          {allLinedUp(order, state.choices, state.timing) && (
+            <p className="lineup-done" role="status" aria-label="Every episode is lined up">
+              Every episode is lined up. Check Details, then Save for encoding.
+            </p>
+          )}
         </>
       )}
     </section>

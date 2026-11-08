@@ -233,4 +233,16 @@ describe('LineUpStep', () => {
     expect(controller.seek).toHaveBeenLastCalledWith(60_000_000 + 6_200_000);
     expect(controller.openRemote).toHaveBeenCalledTimes(1);
   });
+
+  it('the last episode reads Accept, and accepting it says every episode is lined up', async () => {
+    const api = fakeApi(async () => answer({ kind: 'offset', offsetMs: 1200, confidence: 0.92 }));
+    const controller = fakeController();
+    render(<Harness api={api} controller={controller} />);
+    await waitFor(() => expect(controller.setSubtitleStart).toHaveBeenCalledWith(0, 0));
+    expect(screen.queryByText(/Every episode is lined up/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Accept, next episode' }));
+    await waitFor(() => expect(controller.setSubtitleStart).toHaveBeenCalledWith(0, 60_000_000));
+    fireEvent.click(await screen.findByRole('button', { name: 'Accept' }));
+    expect((await screen.findByRole('status', { name: /Every episode is lined up/ })).textContent).toMatch(/Save for encoding/);
+  });
 });

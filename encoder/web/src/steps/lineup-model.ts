@@ -96,6 +96,30 @@ export function episodeStatus(choice: EpisodeChoice | undefined, timing: Episode
   return 'To check';
 }
 
+/** Whether an episode has tracks to line up: a choice of at least one track, not "no subtitles". */
+function hasTracks(choice: EpisodeChoice | undefined): boolean {
+  return choice !== undefined && choice !== 'none' && choice.trackIds.length > 0;
+}
+
+/** Whether any episode in `order` other than `from` still has tracks waiting to be accepted. */
+export function othersToCheck(
+  order: readonly number[],
+  from: number,
+  choices: Readonly<Record<number, EpisodeChoice>>,
+  timing: Readonly<Record<number, EpisodeTiming>>,
+): boolean {
+  return order.some((n) => n !== from && hasTracks(choices[n]) && !timing[n]?.accepted);
+}
+
+/** Whether every episode in `order` that has tracks is accepted: nothing is left to line up. */
+export function allLinedUp(
+  order: readonly number[],
+  choices: Readonly<Record<number, EpisodeChoice>>,
+  timing: Readonly<Record<number, EpisodeTiming>>,
+): boolean {
+  return order.every((n) => !hasTracks(choices[n]) || timing[n]?.accepted === true);
+}
+
 /**
  * The episode to show after `from` is accepted or skipped: the next one in `order` that has tracks and is not
  * accepted yet, looking past the end back to the start; `from` itself when there is none.
