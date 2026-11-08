@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { lstat, realpath, stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { extname, join, sep } from 'node:path';
+import { extname, join, relative, sep } from 'node:path';
 import { readBody } from '../../../server/src/http';
 import { httpError, json, sendFile, type Route, type RouteTable } from './http';
 import { discOf, sessionsOf } from './sessions';
+import { episodeName } from '../encode';
 import { JobError, jobRunnerOf, MAX_LOG_TAIL, type Job, type JobProgress } from './jobs';
 import { testDirOf } from './test-encode';
 
@@ -119,6 +120,26 @@ const jobEvents: Route = async (req, res, _match, app) => {
   res.on('close', stop);
 };
 
+/** Whether a path segment is empty, `.` or `..`, or holds a separator or NUL. */
+const badSegment = (s: string): boolean => s === '' || s === '.' || s === '..' || /[/\\\0]/.test(s);
+
+/**
+ * Whether `segments`, a path under the job's output folder, names one of the job's own files: an episode's recorded
+ * MKV, or a file of the web package (`web/<episode name>/…`) of an episode whose package is done.
+ */
+export function isJobFile(job: Job, segments: readonly string[]): boolean {
+  for (const ep of job.episodes) {
+    if (ep.path !== undefined) {
+      const rel = relative(job.outDir, ep.path).split(sep);
+      if (rel.length === segments.length && rel.every((s, i) => s === segments[i])) return true;
+    }
+    if (job.settings.web && ep.state === 'done' && segments.length >= 3 && segments[0] === 'web' && segments[1] === episodeName(job.settings.namePattern, ep.index)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Answers the file `segments` names under `root`, whole or one range, with the content type `typeOf` gives: 400
  * `bad-path` for an empty, `.` or `..` segment or one holding a separator, and 404 for anything that is not a regular
@@ -133,7 +154,7 @@ async function serveUnder(
   noLinks = false,
 ): Promise<void> {
   // The server refuses these already; the route does not rely on it.
-  if (segments.some((s) => s === '' || s === '.' || s === '..' || /[/\\\0]/.test(s))) return httpError(res, 400, 'bad-path');
+  if (segments.some(badSegment)) return httpError(res, 400, 'bad-path');
   let file: string;
   let size: number;
   try {
@@ -151,7 +172,7 @@ async function serveUnder(
   sendFile(req, res, file, size, { 'Content-Type': typeOf(file), 'Cache-Control': 'no-store' });
 }
 
-/** Answers a file under a job's own output folder, whole or one range. */
+/** Answers one of a job's own files (see `isJobFile`) from its output folder, whole or one range. */
 const serveOutput: Route = async (req, res, match, app) => {
   const runner = jobRunnerOf(app);
   await runner.ready;
@@ -159,7 +180,11 @@ const serveOutput: Route = async (req, res, match, app) => {
   if (unavailable !== null) return refuse(res, unavailable);
   const job = runner.get(idOf(match[1]!));
   if (job === null) return httpError(res, 404, 'not-found', 'There is no such job.');
-  await serveUnder(req, res, job.outDir, match[2]!.split('/').map(idOf), (file) => OUTPUT_TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream');
+  const segments = match[2]!.split('/').map(idOf);
+  // The server refuses these already; the route does not rely on it.
+  if (segments.some(badSegment)) return httpError(res, 400, 'bad-path');
+  if (!isJobFile(job, segments)) return httpError(res, 404, 'not-found', 'There is no such file.');
+  await serveUnder(req, res, job.outDir, segments, (file) => OUTPUT_TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream');
 };
 
 /**
@@ -194,7 +219,7 @@ const serveSample: Route = async (req, res, match, app) => {
  *   GET /api/jobs/defaults?disc=&playlist=   `{ outDir }`: the folder the queue dialog offers (see `defaultOutDir`)
  *   GET /api/jobs/events            server-sent events: `jobs` with `{ jobs }` on connect and on every change, and
  *                                    `progress` with a `JobProgress` (see `JobRunner`)
- *   GET|HEAD /api/outputs/<id>/<path>   a file under that job's output folder, whole or one range
+ *   GET|HEAD /api/outputs/<id>/<path>   one of that job's own files (see `isJobFile`), whole or one range
  *   GET|HEAD /api/tests/<id>/<profile>/<n>.webm   a test job's sample, whole or one range, as `video/webm`
  *
  * Refusals are `{ error, message, ... }` (see `JobRunner.add`); an unknown job answers 404 `not-found`. While

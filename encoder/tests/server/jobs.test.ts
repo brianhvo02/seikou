@@ -2,8 +2,8 @@
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { episodeName, type EncodeEvent, type EncodeOptions } from '../../src/encode';
 import { DEFAULT_SETTINGS, type EncodeSettings } from '../../src/server/profiles';
@@ -547,15 +547,28 @@ describe('the job routes', () => {
     expect(jsonOf<{ jobs: (Job & { warning?: string })[] }>(await fx.send('/api/jobs')).jobs.every((j) => j.warning === undefined)).toBe(true);
   });
 
-  it('outputs serve only the job\'s own folder', async () => {
-    const job = jsonOf<Job>(await post({ discKey: fx.discKey, playlistId: '00000', episodeSpec: '1-3,4-5', settings: settings(), noSubtitles: true, outDir: join(outRoot, 'a') }));
+  it("outputs serve only the job's own files: the episodes' MKVs and their finished web packages", async () => {
+    const job = jsonOf<Job>(await post({ discKey: fx.discKey, playlistId: '00000', episodeSpec: '1-3,4-5', settings: settings({ web: true }), noSubtitles: true, outDir: join(outRoot, 'a') }));
+    const call = await fake.next();
     mkdirSync(join(outRoot, 'a', 'web', 'ep-01'), { recursive: true });
     writeFileSync(join(outRoot, 'a', 'web', 'ep-01', 'episode.json'), '{"ok":true}');
+    call.onEvent({ kind: 'packaged', episode: 1, message: '', path: join(outRoot, 'a', 'web', 'ep-01') });
+    FakeEncoder.complete(call);
+    await fake.next();
+    // Episode 2 is running: its partial file and an earlier package of it are not the job's files yet.
+    mkdirSync(join(outRoot, 'a', 'web', 'ep-02'), { recursive: true });
+    writeFileSync(join(outRoot, 'a', 'web', 'ep-02', 'episode.json'), '{"old":true}');
+    writeFileSync(join(outRoot, 'a', 'notes.txt'), 'not written by the job');
     writeFileSync(join(outRoot, 'secret.txt'), 'not yours');
     symlinkSync(join(outRoot, 'secret.txt'), join(outRoot, 'a', 'link.txt'));
+    symlinkSync(join(outRoot, 'secret.txt'), join(outRoot, 'a', 'web', 'ep-01', 'link.json'));
     const ok = await fx.send(`/api/outputs/${job.id}/web/ep-01/episode.json`);
     expect(ok.status).toBe(200);
     expect(ok.body.toString()).toBe('{"ok":true}');
+    expect((await fx.send(`/api/outputs/${job.id}/ep-01.mkv`)).status).toBe(200);
+    for (const path of ['ep-02.mkv.partial', 'web/ep-02/episode.json', 'notes.txt', 'link.txt', 'web/ep-01/link.json', 'web', 'web/ep-01']) {
+      expect([path, (await fx.send(`/api/outputs/${job.id}/${path}`)).status]).toEqual([path, 404]);
+    }
     for (const path of [
       `/api/outputs/${job.id}/../secret.txt`,
       `/api/outputs/${job.id}/%2e%2e/secret.txt`,
@@ -564,9 +577,33 @@ describe('the job routes', () => {
     ]) {
       expect([path, (await rawGet(path)).status]).toEqual([path, 400]);
     }
-    expect((await fx.send(`/api/outputs/${job.id}/link.txt`)).status).toBe(404);
-    expect((await fx.send(`/api/outputs/${job.id}/web`)).status).toBe(404);
     expect((await fx.send('/api/outputs/0123456789abcdef/web/ep-01/episode.json')).status).toBe(404);
+  });
+
+  it('refuses an output folder that is or holds a library root, the data folder or the home folder, naming which', async () => {
+    const body = { discKey: fx.discKey, playlistId: '00000', episodeSpec: '1-3,4-5', settings: settings(), noSubtitles: true };
+    const shelf = realpathSync(mkdtempSync(join(tmpdir(), 'jobs-shelf-')));
+    try {
+      await appSettings(fx.dataDir).write({ roots: [join(shelf, 'library')] });
+      mkdirSync(join(shelf, 'library'));
+      const cases: [string, RegExp][] = [
+        [join(shelf, 'library'), /library/],
+        [shelf, /library/],
+        [fx.dataDir, /data folder/],
+        [dirname(fx.dataDir), /data folder/],
+        [homedir(), /home folder/],
+        [dirname(homedir()), /home folder/],
+      ];
+      for (const [dir, named] of cases) {
+        const res = await post({ ...body, outDir: dir });
+        expect([dir, res.status, jsonOf<{ error: string }>(res).error]).toEqual([dir, 400, 'output-not-allowed']);
+        expect(jsonOf<{ message: string }>(res).message).toMatch(named);
+      }
+      // A folder inside the home folder is fine.
+      expect((await post({ ...body, outDir: join(outRoot, 'fine') })).status).toBe(201);
+    } finally {
+      rmSync(shelf, { recursive: true, force: true });
+    }
   });
 
   it('cancel, retry and delete answer through the routes, and the stream sends the jobs', async () => {

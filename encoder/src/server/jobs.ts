@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { readFile, realpath, rm, unlink, mkdir } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { replaceAtomically } from '@seikou/titles';
 import { loadPlaylist } from '../disc/playlist';
@@ -769,8 +770,9 @@ export class JobRunner {
 
   /**
    * The output folder `raw` names, as an absolute path, after checking that it may be written: absolute (400
-   * `output-not-absolute`), and not inside a library root, the disc, or the data directory other than `<data>/output`
-   * (400 `output-not-allowed`), compared by real paths so a link cannot lead in.
+   * `output-not-absolute`); not inside a library root, the disc, or the data directory other than `<data>/output`; and
+   * not a folder that is or holds a library root, the disc, the data directory or the user's home folder (400
+   * `output-not-allowed`, its message naming which), compared by real paths so a link cannot lead in.
    */
   private async checkOutputFolder(raw: unknown, discRoot: string): Promise<string> {
     if (typeof raw !== 'string' || !isAbsolute(raw)) {
@@ -781,11 +783,20 @@ export class JobRunner {
     const data = await realPathOf(this.app.dataDir);
     const refuse = (where: string): JobError =>
       new JobError(400, 'output-not-allowed', `The output folder cannot be inside ${where}; pick a folder of its own.`);
+    const holding = (what: string): JobError =>
+      new JobError(400, 'output-not-allowed', `The output folder cannot be or hold ${what}; pick a folder of its own.`);
+    if (within(data, real)) throw holding(`the app's data folder (${data})`);
     if (within(real, data) && !within(real, join(data, 'output'))) throw refuse('the app\'s data folder (except its "output" folder)');
-    if (within(real, await realPathOf(discRoot))) throw refuse('the disc');
+    const disc = await realPathOf(discRoot);
+    if (within(real, disc)) throw refuse('the disc');
     for (const root of await libraryOf(this.app).roots()) {
-      if (within(real, await realPathOf(root))) throw refuse('the disc library');
+      const realRoot = await realPathOf(root);
+      if (within(realRoot, real)) throw holding(`the disc library folder ${realRoot}`);
+      if (within(real, realRoot)) throw refuse('the disc library');
     }
+    const home = await realPathOf(homedir());
+    if (within(home, real)) throw holding(`your home folder (${home})`);
+    if (within(disc, real)) throw holding(`the disc (${disc})`);
     return outDir;
   }
 
