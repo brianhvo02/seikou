@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import type { Step } from './helper-model';
 
 /** What each history entry the helper makes stores. */
@@ -16,14 +16,17 @@ function entryStep(state: unknown): Step | null {
 
 /**
  * Ties the step on screen to the browser's history, so Back and Forward move between steps. The first render replaces
- * the current entry with `{ step }`; each later step change the user makes pushes one. On `popstate` the stored step
- * is entered through `goTo`, or, when `canEnter` no longer allows it, the nearest earlier step that does (the entry is
- * then rewritten to match). A step change that came from `popstate` pushes nothing, so there are no history loops.
- * The address, `location.search` included, is never changed: the page's token is read from it at load and a reload
- * must keep working.
+ * the current entry with `{ step }`. Each later step change pushes an entry when it is the step the user last asked
+ * for (through the function this returns, which the page calls for Back, Next and the step bar, or through
+ * `popstate`), and replaces the current entry when the state forced it (it could no longer stay on its step), so
+ * Back never lands on a step that cannot be shown. On `popstate` the stored step is entered through `goTo`, or, when
+ * `canEnter` no longer allows it, the nearest earlier step that does (the entry is then rewritten to match). A step
+ * change that came from `popstate` pushes nothing, so there are no history loops. The address, `location.search`
+ * included, is never changed: the page's token is read from it at load and a reload must keep working.
  */
-export function useStepHistory(step: Step, canEnter: (step: Step) => boolean, goTo: (step: Step) => void): void {
+export function useStepHistory(step: Step, canEnter: (step: Step) => boolean, goTo: (step: Step) => void): (step: Step) => void {
   const recorded = useRef<Step | null>(null);
+  const requested = useRef<Step | null>(null);
   const latest = useRef({ canEnter, goTo });
   latest.current = { canEnter, goTo };
 
@@ -31,7 +34,8 @@ export function useStepHistory(step: Step, canEnter: (step: Step) => boolean, go
     if (recorded.current === null) {
       window.history.replaceState({ step } satisfies StepEntry, '', window.location.href);
     } else if (recorded.current !== step) {
-      window.history.pushState({ step } satisfies StepEntry, '', window.location.href);
+      if (requested.current === step) window.history.pushState({ step } satisfies StepEntry, '', window.location.href);
+      else window.history.replaceState({ step } satisfies StepEntry, '', window.location.href);
     }
     recorded.current = step;
   }, [step]);
@@ -44,9 +48,14 @@ export function useStepHistory(step: Step, canEnter: (step: Step) => boolean, go
       while (landed > 1 && !latest.current.canEnter(landed)) landed = (landed - 1) as Step;
       if (landed !== target) window.history.replaceState({ step: landed } satisfies StepEntry, '', window.location.href);
       recorded.current = landed;
+      requested.current = landed;
       latest.current.goTo(landed);
     };
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
+  }, []);
+
+  return useCallback((target: Step) => {
+    requested.current = target;
   }, []);
 }

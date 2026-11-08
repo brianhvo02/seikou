@@ -6,15 +6,22 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Step } from './helper-model';
 import { useStepHistory } from './step-history';
 
+/** A step change the user asked for: noted with the hook, then made. */
 let setStep: (s: Step) => void = () => {};
+/** A step change the state forced, which the user never asked for. */
+let forceStep: (s: Step) => void = () => {};
 let current: Step = 1;
 let allowed: (s: Step) => boolean = () => true;
 
 function Harness() {
   const [step, set] = useState<Step>(1);
-  setStep = set;
+  const request = useStepHistory(step, (s) => allowed(s), set);
+  setStep = (s) => {
+    request(s);
+    set(s);
+  };
+  forceStep = set;
   current = step;
-  useStepHistory(step, (s) => allowed(s), set);
   return null;
 }
 
@@ -65,6 +72,19 @@ describe('useStepHistory', () => {
     allowed = (s) => s === 1;
     pop(3);
     expect(current).toBe(1);
+  });
+
+  it('a step change the state forced replaces the entry instead of pushing one', () => {
+    render(<Harness />);
+    act(() => setStep(2));
+    act(() => setStep(3));
+    const before = window.history.length;
+    act(() => forceStep(2));
+    expect(window.history.length).toBe(before);
+    expect(window.history.state).toEqual({ step: 2 });
+    act(() => setStep(3));
+    expect(window.history.length).toBe(before + 1);
+    expect(window.history.state).toEqual({ step: 3 });
   });
 
   it("the URL's search is kept", () => {

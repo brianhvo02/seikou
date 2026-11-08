@@ -3,7 +3,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { HelperApi } from './api';
 import type { EpisodesAnswer, SessionInfo } from './api-types';
 import { useEpisodeTitles } from './episode-titles';
-import { canEnter, initialState, metadataDefaults, reduce, type Step } from './helper-model';
+import { canEnter, initialState, metadataDefaults, reduce, type HelperAction, type Step } from './helper-model';
 import { MetadataPanel } from './metadata/MetadataPanel';
 import { useController } from './player/use-controller';
 import { SaveBar } from './SaveBar';
@@ -88,7 +88,17 @@ export function App({ api }: AppProps) {
   }, [loaded, title, releases, choices, titles]);
 
   const goTo = useCallback((step: Step) => dispatch({ type: 'goTo', step }), []);
-  useStepHistory(state.step, (s) => canEnter(stateRef.current, s), goTo);
+  const requestStep = useStepHistory(state.step, (s) => canEnter(stateRef.current, s), goTo);
+  // every step change the user asks for (Back, Next, the step bar) is noted, so the history tells it from one the
+  // state forced
+  const userDispatch = useCallback(
+    (action: HelperAction) => {
+      if (action.type === 'goTo') requestStep(action.step);
+      dispatch(action);
+    },
+    [requestStep],
+  );
+  const select = useCallback((step: Step) => userDispatch({ type: 'goTo', step }), [userDispatch]);
 
   const session = loaded?.session;
   const count = session ? episodeCount(session.episodeSpec) : 0;
@@ -105,8 +115,8 @@ export function App({ api }: AppProps) {
           )}
         </div>
         <div className="bar">
-          <StepBar step={state.step} canEnter={(s) => canEnter(state, s)} onSelect={goTo} />
-          <SaveBar api={api} state={state} dispatch={dispatch} session={loaded?.session ?? null} episodes={loaded?.episodes ?? null}>
+          <StepBar step={state.step} canEnter={(s) => canEnter(state, s)} onSelect={select} />
+          <SaveBar api={api} state={state} dispatch={userDispatch} session={loaded?.session ?? null} episodes={loaded?.episodes ?? null}>
             <button ref={detailsButton} type="button" className="quiet" disabled={!loaded} onClick={() => setDetailsOpen(true)}>
               Details
             </button>
@@ -120,11 +130,11 @@ export function App({ api }: AppProps) {
             The helper could not load this disc. {loadError}
           </p>
         ) : state.step === 1 && loaded ? (
-          <ReleaseStep api={api} state={state} dispatch={dispatch} />
+          <ReleaseStep api={api} state={state} dispatch={userDispatch} />
         ) : state.step === 2 && loaded ? (
-          <MatchStep api={api} state={state} dispatch={dispatch} episodes={loaded.episodes} />
+          <MatchStep api={api} state={state} dispatch={userDispatch} episodes={loaded.episodes} />
         ) : state.step === 3 && loaded ? (
-          <LineUpScreen api={api} state={state} dispatch={dispatch} session={loaded.session} episodes={loaded.episodes} />
+          <LineUpScreen api={api} state={state} dispatch={userDispatch} session={loaded.session} episodes={loaded.episodes} />
         ) : (
           <section aria-labelledby="step-heading">
             <h2 id="step-heading">{STEP_NAMES[state.step]}</h2>
@@ -133,7 +143,7 @@ export function App({ api }: AppProps) {
         )}
       </main>
 
-      {detailsOpen && loaded && <MetadataPanel state={state} dispatch={dispatch} episodes={loaded.episodes} onClose={closeDetails} />}
+      {detailsOpen && loaded && <MetadataPanel state={state} dispatch={userDispatch} episodes={loaded.episodes} onClose={closeDetails} />}
     </div>
   );
 }
