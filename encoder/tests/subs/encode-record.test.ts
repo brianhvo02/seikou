@@ -87,6 +87,18 @@ describe('loadEncodeRecord', () => {
     );
   });
 
+  it('matches a saved episode list written differently but naming the same chapters', async () => {
+    await mkdir(join(dataDir, 'cache/r1'), { recursive: true });
+    await writeFile(join(dataDir, 'cache/r1/ep1.ass'), 'x');
+    const saved = await recordFor({ episodeSpec: '1-2,3-4' });
+    saved.episodes.push({ ...saved.episodes[0]!, index: 2 });
+    await new RecordStore(dataDir).write(saved);
+    expect(await ask('1-2, 3-4')).toEqual(saved);
+    // disc1 has four chapters, so an open range from 3 is the same episode as 3-4.
+    expect(await ask('1-2,3-')).toEqual(saved);
+    await expect(ask('1-2,3')).rejects.toBeInstanceOf(RecordMismatchError);
+  });
+
   it('a record whose track file is gone throws naming the release', async () => {
     await new RecordStore(dataDir).write(await recordFor({}));
     const err = await ask('1-2').catch((e: unknown) => e);

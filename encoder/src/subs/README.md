@@ -27,7 +27,7 @@ Fansub releases and the user's own files supply subtitles; this area decides wha
 - `release-match.ts`: file-to-episode matching and track kinds.
 - `srt-to-ass.ts`: decoding and SRT conversion; the SRT format has no specification, so the parsing is tolerant by design (see the comment at the top).
 - `episode-subtitles.ts`: the episode's subtitle tracks and fonts for the muxer.
-- `encode-record.ts`: `loadEncodeRecord` loads the record for an encode (null with `--no-subtitles` or none saved) and throws `RecordMismatchError` (another playlist or episode list) or `MissingSubtitleFilesError` (cached files gone).
+- `encode-record.ts`: `loadEncodeRecord` loads the record for an encode (null with `--no-subtitles` or none saved) and throws `RecordMismatchError` (another playlist or episode list; lists are compared as the chapter ranges they name, so `1-2, 3-4` matches a saved `1-2,3-4`) or `MissingSubtitleFilesError` (cached files gone).
 - `record.ts`: the record's types, validation and store (paths inside it are relative to the data directory); `app-data.ts`: where that directory is.
 - `release-cache.ts`: `ReleaseCache` downloads a release's tracks and fonts (or takes the user's own files) into `releases/<key>/`, with fonts pooled by content under `fonts/`; `release.json` is written last. `fixture-anilist.ts`: recorded AniList answers and cover images (`covers/`) for tests and offline runs.
 - Tests: `encoder/tests/subs/`.
