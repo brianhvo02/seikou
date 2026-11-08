@@ -1690,3 +1690,261 @@ button.quiet.danger {
 .page-head {
   min-width: 0;
 }
+
+/* Progress line: one link under the app bar, a thin meter on its own row */
+.progress-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 14px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.progress-line:hover .progress-disc {
+  text-decoration: underline;
+}
+
+.progress-disc {
+  font-weight: 600;
+  font-stretch: 88%;
+  overflow-wrap: anywhere;
+}
+
+.progress-meter {
+  flex: 1 0 100%;
+  height: 3px;
+  margin-top: 4px;
+  border-radius: 2px;
+  background: var(--rule);
+  overflow: hidden;
+}
+
+.progress-meter > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+/* Queue dialog */
+.queue-dialog > *,
+.queue-form {
+  max-width: var(--column);
+}
+
+.queue-disc {
+  font-size: 20px;
+  font-weight: 600;
+  font-stretch: 78%;
+  overflow-wrap: anywhere;
+}
+
+.queue-dialog .episode-summary {
+  margin-top: 10px;
+}
+
+.queue-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  margin-top: 8px;
+}
+
+.queue-form select {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  width: 100%;
+}
+
+.queue-form .field input[type='text'] {
+  width: 100%;
+}
+
+.queue-form .field input[type='checkbox'] {
+  width: auto;
+}
+
+.queue-form .field input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.queue-mismatch {
+  margin-top: 16px;
+  padding: 2px 0 6px 14px;
+  border-left: 2px solid var(--amber);
+}
+
+.queue-mismatch .actions {
+  margin-top: 8px;
+}
+
+.quiet-link {
+  align-self: center;
+}
+
+/* Queue page: the list */
+.job-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  max-width: var(--column);
+}
+
+.job-row {
+  border-bottom: 1px solid var(--rule);
+}
+
+.job-link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 14px;
+  padding: 12px 0;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.job-link:hover .job-name {
+  text-decoration: underline;
+}
+
+.job-name {
+  font-weight: 560;
+  overflow-wrap: anywhere;
+}
+
+.job-meta {
+  flex: 1 0 100%;
+  font-size: 13px;
+}
+
+.job-state {
+  font-size: 13px;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.job-state-running {
+  color: var(--accent);
+}
+
+.job-state-failed,
+.job-state-interrupted {
+  color: var(--danger);
+}
+
+.job-state-paused {
+  color: var(--amber);
+}
+
+/* Queue page: one job */
+.job-head {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+
+.job-actions {
+  margin-top: 14px;
+  align-items: center;
+}
+
+.job-section {
+  margin-top: 28px;
+  max-width: var(--column);
+}
+
+.job-section h2 {
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+
+.episode-rows,
+.job-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.episode-row {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.episode-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+
+.episode-percent {
+  margin-left: auto;
+}
+
+.episode-row progress {
+  display: block;
+  width: 100%;
+  height: 6px;
+  margin-top: 6px;
+  accent-color: var(--accent);
+}
+
+.episode-failed .episode-name,
+.episode-packaging-failed .episode-name {
+  color: var(--danger);
+}
+
+.episode-speed {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.job-files li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+  padding: 4px 0;
+  overflow-wrap: anywhere;
+}
+
+.job-out {
+  margin-top: 6px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.job-log,
+.job-cli {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--panel);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.job-log {
+  height: 16rem;
+  overflow: auto;
+  white-space: pre;
+}
+
+.job-cli {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.job-cli code {
+  font: inherit;
+}
+
+.job-section .actions {
+  margin-top: 8px;
+  align-items: center;
+}

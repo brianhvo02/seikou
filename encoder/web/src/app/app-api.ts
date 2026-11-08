@@ -2,7 +2,7 @@
 import { ApiError, errorOf, type FetchLike } from '../api';
 import type { RemoteDiscSpec } from '@seikou/engine';
 import type { DiscManifest } from '@seikou/nas/nas-api';
-import type { EncodeSettings, LibraryAnswer, PlaylistDetail, PlaylistSummary, Profile } from '../api-types';
+import type { EncodeSettings, Job, LibraryAnswer, NewJob, PlaylistDetail, PlaylistSummary, Profile } from '../api-types';
 
 // The app pages' client for the backend's library routes, carrying the run's token.
 
@@ -30,11 +30,40 @@ export interface AppApi {
   updateProfile(id: string, name: string, settings: EncodeSettings): Promise<Profile>;
   /** Deletes a stored profile. */
   deleteProfile(id: string): Promise<void>;
+  /** The queue, oldest first; rejects with `ApiError` code `jobs-unreadable` while the queue file is damaged. */
+  jobs(): Promise<Job[]>;
+  /** Queues an encode; rejects with `ApiError` (`record-mismatch` carries `recordEpisodeSpec` and `episodeSpec` in `details`). */
+  createJob(job: NewJob): Promise<Job>;
+  /** Stops a queued or running job; resolves with the job once it has stopped. */
+  cancelJob(id: string): Promise<Job>;
+  /** Queues a failed, interrupted or cancelled job again. */
+  retryJob(id: string): Promise<Job>;
+  /** Removes a finished job from the queue (its files stay). */
+  removeJob(id: string): Promise<void>;
+  /** The last `tail` lines of a job's log (at most 2000). */
+  jobLog(id: string, tail: number): Promise<string[]>;
+  /** The output folder the queue dialog offers for a disc's playlist. */
+  jobDefaults(discKey: string, playlistId: string): Promise<{ readonly outDir: string }>;
+  /** The address of the job event stream, with the token in its query because an `EventSource` cannot send headers. */
+  jobEventsUrl(): string;
+  /** The address of a file a job wrote (`path` is relative to its output folder), with the token in its query. */
+  outputUrl(jobId: string, path: string): string;
 }
 
 /** The client for the backend at `base` (an origin, or `''` for the page's own) with the run's `token`, sent as `Authorization: Bearer`. */
 export function createAppApi(base: string, token: string, fetchImpl: FetchLike = (input, init) => fetch(input, init)): AppApi {
   const root = base.replace(/\/$/, '');
+
+  async function fetchText(path: string): Promise<string> {
+    let res: Response;
+    try {
+      res = await fetchImpl(`${root}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+    } catch {
+      throw new ApiError(0, 'network', 'The app is not answering. Is seikou-encode app still running?');
+    }
+    if (!res.ok) throw await errorOf(res);
+    return res.text();
+  }
 
   async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
@@ -84,5 +113,23 @@ export function createAppApi(base: string, token: string, fetchImpl: FetchLike =
     async deleteProfile(id) {
       await request('DELETE', `/api/profiles/${encodeURIComponent(id)}`);
     },
+    async jobs() {
+      return (await request<{ jobs: Job[] }>('GET', '/api/jobs')).jobs;
+    },
+    createJob: (job) => request('POST', '/api/jobs', { kind: 'encode', ...job }),
+    cancelJob: (id) => request('POST', `/api/jobs/${encodeURIComponent(id)}/cancel`),
+    retryJob: (id) => request('POST', `/api/jobs/${encodeURIComponent(id)}/retry`),
+    async removeJob(id) {
+      await request('DELETE', `/api/jobs/${encodeURIComponent(id)}`);
+    },
+    async jobLog(id, tail) {
+      const res = await fetchText(`/api/jobs/${encodeURIComponent(id)}/log?tail=${tail}`);
+      return res === '' ? [] : res.replace(/\n$/, '').split('\n');
+    },
+    jobDefaults: (discKey, playlistId) =>
+      request('GET', `/api/jobs/defaults?disc=${encodeURIComponent(discKey)}&playlist=${encodeURIComponent(playlistId)}`),
+    jobEventsUrl: () => `${root}/api/jobs/events?t=${encodeURIComponent(token)}`,
+    outputUrl: (jobId, path) =>
+      `${root}/api/outputs/${encodeURIComponent(jobId)}/${path.split('/').map(encodeURIComponent).join('/')}?t=${encodeURIComponent(token)}`,
   };
 }

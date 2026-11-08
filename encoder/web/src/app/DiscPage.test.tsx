@@ -6,6 +6,7 @@ import type { LibraryAnswer, PlaylistSummary } from '../api-types';
 import { ApiError } from '../api';
 import type { AppApi } from './app-api';
 import { DiscPage } from './DiscPage';
+import { UNUSED_JOB_API } from './job-test-support';
 
 afterEach(cleanup);
 
@@ -44,6 +45,7 @@ function fakeApi(discs: LibraryAnswer['discs'] = listed): AppApi {
     createProfile: vi.fn(),
     updateProfile: vi.fn(),
     deleteProfile: vi.fn(),
+    ...UNUSED_JOB_API,
     remoteDisc: vi.fn(async () => {
       throw new Error('not used');
     }),

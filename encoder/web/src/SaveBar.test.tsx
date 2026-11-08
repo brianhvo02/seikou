@@ -104,6 +104,22 @@ describe('SaveBar', () => {
     expect((screen.getByLabelText('MKV title') as HTMLInputElement).value).toBe('Harbor premiere');
   });
 
+  it('Queue encode is off until a record is saved, then opens the queue dialog for the run', async () => {
+    const api = fakeApi();
+    render(<App api={api} />);
+    await waitFor(() => expect(saveButton().disabled).toBe(false));
+    expect((screen.getByRole('button', { name: 'Queue encode' }) as HTMLButtonElement).disabled).toBe(true);
+    cleanup();
+    const saved = fakeApi({ record: vi.fn(async () => ({ record, missing: [] })), release: vi.fn(async () => release) });
+    render(<App api={saved} />);
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Queue encode' }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: 'Queue encode' }));
+    const q = new URLSearchParams(location.search);
+    expect(location.pathname).toBe('/queue/new');
+    expect([q.get('disc'), q.get('playlist'), q.get('spec'), q.get('noSubtitles')]).toEqual([session.discKey, '00000', '1-3,4-5', null]);
+    history.replaceState(null, '', '/');
+  });
+
   it('offers to fetch a missing release again', async () => {
     const api = fakeApi({
       record: vi.fn(async () => ({ record, missing: [{ id: 'tosho-7', release: release.label, files: ['releases/tosho-7/11-t1.ass'] }] })),

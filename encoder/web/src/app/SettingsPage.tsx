@@ -29,7 +29,7 @@ const STARTING_SETTINGS: EncodeSettings = {
 };
 
 /** The settings as one line of plain words, for a profile's row. */
-function summary(s: EncodeSettings): string {
+export function profileSummary(s: EncodeSettings): string {
   const parts = [
     `CRF ${s.crf}`,
     `preset ${s.preset}`,
@@ -246,7 +246,7 @@ function ProfileRow({ profile, editing, onEdit, onCancel, onSave, onDuplicate, o
         <div className="profile-text">
           <span className="profile-name">{profile.name}</span>
           {profile.builtIn && <span className="mark">Built in</span>}
-          <span className="muted profile-summary">{summary(profile.settings)}</span>
+          <span className="muted profile-summary">{profileSummary(profile.settings)}</span>
         </div>
         {!editing && (
           <div className="profile-actions">

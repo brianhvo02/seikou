@@ -4,6 +4,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { extname, join, sep } from 'node:path';
 import { readBody } from '../../../server/src/http';
 import { httpError, json, sendFile, type Route, type RouteTable } from './http';
+import { discOf, sessionsOf } from './sessions';
 import { JobError, jobRunnerOf, MAX_LOG_TAIL, type Job, type JobProgress } from './jobs';
 
 // The routes of the encode queue, its live event stream, and the files the jobs wrote.
@@ -27,6 +28,16 @@ const OUTPUT_TYPES: Readonly<Record<string, string>> = {
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
 };
+
+/**
+ * `text` as one folder name: characters a file system treats specially (and control characters) become `_`, leading
+ * and trailing dots and spaces go, it is at most 100 characters, and `disc` stands in when nothing is left.
+ */
+export function safePathSegment(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  const cleaned = text.replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/^[.\s]+/, '').slice(0, 100);
+  return cleaned.replace(/[.\s]+$/, '') || 'disc';
+}
 
 /** Answers a refusal: its status, code, message and any more fields. */
 function refuse(res: ServerResponse, e: JobError): void {
@@ -130,7 +141,8 @@ const serveOutput: Route = async (req, res, match, app) => {
  *   POST /api/jobs/<id>/retry        the Job; 409 `not-retryable`
  *   DELETE /api/jobs/<id>            `{ deleted: true }` for a finished job; 409 `not-finished`
  *   GET /api/jobs/<id>/log?tail=N    the last N lines of the job's log as text (default and most 2000)
- *   GET /api/jobs/events             server-sent events: `jobs` with `{ jobs }` on connect and on every change, and
+ *   GET /api/jobs/defaults?disc=&playlist=   `{ outDir }`: `<data>/output/<disc label>/<playlist>`, the folder the queue dialog offers
+ *   GET /api/jobs/events            server-sent events: `jobs` with `{ jobs }` on connect and on every change, and
  *                                    `progress` with a `JobProgress` (see `JobRunner`)
  *   GET|HEAD /api/outputs/<id>/<path>   a file under that job's output folder, whole or one range
  *
@@ -171,6 +183,22 @@ export const jobRoutes: RouteTable = [
     },
   ],
   ['GET', /^\/api\/jobs\/events$/, jobEvents],
+  [
+    'GET',
+    /^\/api\/jobs\/defaults$/,
+    async (req, res, _match, app) => {
+      const q = new URL(req.url ?? '/', 'http://localhost').searchParams;
+      const discKey = q.get('disc');
+      const playlist = q.get('playlist');
+      if (discKey === null || playlist === null || !/^\d{5}$/.test(playlist)) {
+        return httpError(res, 400, 'bad-request', 'disc and a five-digit playlist are needed.');
+      }
+      const dir = await sessionsOf(app).discDirOf(discKey);
+      if (dir === null) return httpError(res, 404, 'not-found', 'No disc the app knows has that key.');
+      const disc = await discOf(app, dir);
+      json(res, 200, { outDir: join(app.dataDir, 'output', safePathSegment(disc.label), playlist) });
+    },
+  ],
   [
     'POST',
     /^\/api\/jobs\/([^/]+)\/cancel$/,

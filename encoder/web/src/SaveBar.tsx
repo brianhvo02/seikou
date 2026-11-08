@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, type Dispatch, type ReactNode } from 'react';
 import { ApiError, type HelperApi } from './api';
 import type { EpisodesAnswer, RecordAnswer, RecordRelease, ReleaseAnswer, SessionInfo, SubtitleRecord } from './api-types';
+import { navigate, routeHref } from './app/router';
 import { currentForm, fromRecord, releaseOf, toRecord, type HelperAction, type HelperState } from './helper-model';
 
 /** What the save bar needs. `session` and `episodes` are null until the page has loaded them. */
@@ -58,7 +59,8 @@ function toshoIdOf(key: string): number | null {
  * Save is off, because it would write the record without its tracks. When the disc's playlist has choices saved for
  * another episode list (said on load, or by a save the backend refused for it), a line says so and that saving here
  * replaces them, and only then does Save ask the backend to replace them. Save writes `toRecord` of the state and
- * answers "Saved at <time>" or the server's message. Renders the button row (with `children` first) and, below it, the status
+ * answers "Saved at <time>" or the server's message. "Queue encode" opens the queue dialog for the run's playlist and episode
+ * list; it is on once a record is saved and nothing has changed since. Renders the button row (with `children` first) and, below it, the status
  * and any missing release.
  */
 export function SaveBar({ api, state, dispatch, session, episodes, children }: SaveBarProps) {
@@ -168,6 +170,18 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
     <>
       <div className="actions">
         {children}
+        <button
+          type="button"
+          className="quiet"
+          disabled={session === null || saved === null || state.dirty || saving}
+          onClick={() => {
+            if (session !== null) {
+              navigate(routeHref({ kind: 'queueNew', discKey: session.discKey, playlistId: session.playlistId, spec: session.episodeSpec, noSubtitles: false }, location.search));
+            }
+          }}
+        >
+          Queue encode
+        </button>
         <button type="button" className="primary" disabled={session === null || saving || blocked} onClick={() => void save()}>
           Save for encoding
         </button>

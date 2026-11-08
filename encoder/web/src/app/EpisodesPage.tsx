@@ -42,7 +42,7 @@ const chaptersText = (from: number, to: number): string => (from === to ? `chapt
  * list sit side by side on a wide screen (a click on a chapter shows the playlist from there), with a toggle between
  * chapters that cuts an episode, one per chapter that leaves it out, the `--episodes` text (editable, checked as it is
  * typed; a bad text keeps the last good grouping) and the episodes with their lengths. "Choose subtitles" opens the
- * helper for the grouping and "Encode without subtitles" the queue dialog. When the playlist has saved subtitle choices
+ * helper for the grouping, "Queue encode" the queue dialog and "Encode without subtitles" the same dialog with that box ticked. When the playlist has saved subtitle choices
  * for another episode list, a warning says they won't match until the subtitles are chosen again.
  */
 export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesPageProps) {
@@ -183,6 +183,9 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
   const encodeWithout = (): void => {
     navigate(routeHref({ kind: 'queueNew', discKey, playlistId, spec, noSubtitles: true }, location.search));
   };
+  const queueEncode = (): void => {
+    navigate(routeHref({ kind: 'queueNew', discKey, playlistId, spec, noSubtitles: false }, location.search));
+  };
 
   const whole: EpisodeTimes = {
     index: 1,
@@ -249,6 +252,9 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
             <div className="actions">
               <button type="button" className="primary" disabled={!usable || busy} onClick={chooseSubtitles}>
                 Choose subtitles
+              </button>
+              <button type="button" className="quiet" disabled={!usable || busy} onClick={queueEncode}>
+                Queue encode
               </button>
               <button type="button" className="quiet" disabled={!usable || busy} onClick={encodeWithout}>
                 Encode without subtitles

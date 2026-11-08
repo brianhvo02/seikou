@@ -7,7 +7,12 @@ import { createAppApi, type AppApi } from './app-api';
 import { AppShell } from './AppShell';
 import { DiscPage } from './DiscPage';
 import { EpisodesPage } from './EpisodesPage';
+import { createJobsStore } from './job-events';
+import { JobsProvider } from './jobs-context';
 import { LibraryPage } from './LibraryPage';
+import { ProgressLine } from './ProgressLine';
+import { QueueDialog } from './QueueDialog';
+import { QueuePage } from './QueuePage';
 import { useDocumentTitle } from './place';
 import { Link, useRoute } from './router';
 import { SettingsPage } from './SettingsPage';
@@ -59,6 +64,8 @@ function EpisodesRoute({ api, discKey, playlistId }: { readonly api: AppApi; rea
 export function AppRoot({ token }: AppRootProps) {
   const { route } = useRoute();
   const appApi = useMemo(() => createAppApi('', token), [token]);
+  // one stream of the queue for the whole app: the progress line and the Queue page read it together
+  const jobs = useMemo(() => createJobsStore(appApi), [appApi]);
   let page;
   switch (route.kind) {
     case 'library':
@@ -77,13 +84,13 @@ export function AppRoot({ token }: AppRootProps) {
       page = <SettingsPage api={appApi} />;
       break;
     case 'queue':
-      page = <Placeholder title="Queue" />;
+      page = <QueuePage api={appApi} />;
       break;
     case 'queueNew':
-      page = <Placeholder title="Queue an encode" />;
+      page = <QueueDialog key={`${route.discKey}/${route.playlistId}/${route.spec}/${route.noSubtitles}`} api={appApi} discKey={route.discKey} playlistId={route.playlistId} spec={route.spec} noSubtitles={route.noSubtitles} />;
       break;
     case 'job':
-      page = <Placeholder title="Job" />;
+      page = <QueuePage api={appApi} jobId={route.jobId} />;
       break;
     case 'test':
       page = <Placeholder title="Test results" />;
@@ -92,5 +99,11 @@ export function AppRoot({ token }: AppRootProps) {
       page = <NotFound />;
       break;
   }
-  return <AppShell route={route}>{page}</AppShell>;
+  return (
+    <JobsProvider store={jobs}>
+      <AppShell route={route} progress={<ProgressLine />}>
+        {page}
+      </AppShell>
+    </JobsProvider>
+  );
 }

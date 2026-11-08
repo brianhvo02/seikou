@@ -430,3 +430,100 @@ export interface PlaylistSummary {
   /** At least 20 minutes and at least 4 chapters, or the longest playlist of the disc. */
   readonly likelyMain: boolean;
 }
+
+/** What a job does: encode a playlist's episodes, or encode short samples to compare settings. */
+export type JobKind = 'encode' | 'test';
+
+/** Where a job is. */
+export type JobState = 'queued' | 'running' | 'done' | 'failed' | 'interrupted' | 'cancelled';
+
+/** Where one episode of a job is; `packaging-failed` means the MKV is complete but its web package is not. */
+export type JobEpisodeState = 'queued' | 'running' | 'done' | 'packaging-failed' | 'failed';
+
+/** One episode of a job. */
+export interface JobEpisode {
+  /** 1-based position in the job's episode list. */
+  readonly index: number;
+  /** Where it is. */
+  readonly state: JobEpisodeState;
+  /** Video frames written so far in the current or last attempt. */
+  readonly framesDone: number;
+  /** The episode's video frames in all; 0 until the encoder has said. */
+  readonly frames: number;
+  /** Whether the episode's MKV was seen complete. */
+  readonly encoded: boolean;
+  /** The episode's MKV, once known. */
+  readonly path?: string;
+  /** Why the episode failed. */
+  readonly error?: string;
+}
+
+/** A queued encode or test, as `GET /api/jobs` answers it. */
+export interface Job {
+  /** 16 lower-case hex digits. */
+  readonly id: string;
+  /** What the job does. */
+  readonly kind: JobKind;
+  /** The disc: its key, its folder's name and the folder holding BDMV. */
+  readonly disc: { readonly key: string; readonly label: string; readonly dir: string };
+  /** Five-digit playlist name. */
+  readonly playlist: string;
+  /** The episode list as it was given. */
+  readonly episodeSpec: string;
+  /** The settings the job was queued with. */
+  readonly settings: EncodeSettings;
+  /** The absolute folder the episodes are written to. */
+  readonly outDir: string;
+  /** Whether the encode leaves the saved subtitle choices out. */
+  readonly noSubtitles: boolean;
+  /** Where the job is. */
+  readonly state: JobState;
+  /** True while a test encode runs ahead of this queued job between two of its episodes. */
+  readonly paused: boolean;
+  /** ISO 8601 time the job was queued. */
+  readonly createdAt: string;
+  /** ISO 8601 time the job first ran. */
+  readonly startedAt?: string;
+  /** ISO 8601 time the job last finished, failed or stopped. */
+  readonly finishedAt?: string;
+  /** The episodes in order (none for a test). */
+  readonly episodes: readonly JobEpisode[];
+  /** Why the job failed. */
+  readonly error?: string;
+  /** When the subtitle choices the job encodes with were saved; null with none. */
+  readonly recordSavedAt: string | null;
+  /** The equivalent `seikou-encode encode …` command, quoted for a shell; empty for a test. */
+  readonly cli: string;
+}
+
+/** A progress report for one episode of a running job, sent at most once a second. */
+export interface JobProgress {
+  /** The job. */
+  readonly jobId: string;
+  /** 1-based episode number. */
+  readonly episode: number;
+  /** Video frames written so far. */
+  readonly framesDone: number;
+  /** The episode's video frames in all. */
+  readonly frames: number;
+  /** Frames per second so far; null before any time has passed. */
+  readonly fps: number | null;
+  /** Seconds left for this episode; null when the speed is unknown. */
+  readonly etaSeconds: number | null;
+}
+
+/** What `POST /api/jobs` takes. */
+export interface NewJob {
+  /** The disc's key. */
+  readonly discKey: string;
+  /** Five-digit playlist name. */
+  readonly playlistId: string;
+  /** The episode list. */
+  readonly episodeSpec: string;
+  /** The settings: a copy of a profile's. */
+  readonly settings: EncodeSettings;
+  /** The absolute output folder. */
+  readonly outDir: string;
+  /** Leave the saved subtitle choices out. */
+  readonly noSubtitles: boolean;
+}

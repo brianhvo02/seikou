@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { episodeName, type EncodeEvent, type EncodeOptions } from '../../src/encode';
 import { DEFAULT_SETTINGS, type EncodeSettings } from '../../src/server/profiles';
 import { JobRunner, jobCli, startJobRunner, type Job, type JobProgress, type JobRunnerDeps } from '../../src/server/jobs';
+import { safePathSegment } from '../../src/server/job-routes';
 import { sessionsOf } from '../../src/server/sessions';
 import { appSettings } from '../../src/subs/app-settings';
 import { RecordStore, type SubtitleRecord } from '../../src/subs/record';
@@ -604,4 +605,26 @@ describe.skipIf(!haveTools)('the job runner with the real tools', () => {
       await real.stop();
     }
   }, 600_000);
+});
+
+describe('GET /api/jobs/defaults', () => {
+  it('answers <data>/output/<disc label>/<playlist>', async () => {
+    const reply = await fx.send(`/api/jobs/defaults?disc=${encodeURIComponent(fx.discKey)}&playlist=00000`);
+    expect(reply.status).toBe(200);
+    expect(jsonOf<{ outDir: string }>(reply).outDir).toBe(join(fx.dataDir, 'output', 'disc-speech', '00000'));
+  });
+
+  it('refuses an unknown disc and a bad playlist', async () => {
+    expect((await fx.send(`/api/jobs/defaults?disc=${encodeURIComponent('f.' + '0'.repeat(32))}&playlist=00000`)).status).toBe(404);
+    expect((await fx.send(`/api/jobs/defaults?disc=${encodeURIComponent(fx.discKey)}&playlist=..%2Fx`)).status).toBe(400);
+    expect((await fx.send('/api/jobs/defaults')).status).toBe(400);
+  });
+
+  it('makes a disc label one safe path segment', () => {
+    expect(safePathSegment('A/B\\C:D')).toBe('A_B_C_D');
+    expect(safePathSegment('..')).toBe('disc');
+    expect(safePathSegment('  .hidden. ')).toBe('hidden');
+    expect(safePathSegment('')).toBe('disc');
+    expect(safePathSegment('x'.repeat(300)).length).toBe(100);
+  });
 });

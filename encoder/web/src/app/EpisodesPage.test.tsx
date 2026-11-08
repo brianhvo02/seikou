@@ -7,6 +7,7 @@ import type { LibraryAnswer, PlaylistDetail } from '../api-types';
 import type { PlayerLike } from '../player/use-controller';
 import type { AppApi } from './app-api';
 import { EpisodesPage } from './EpisodesPage';
+import { UNUSED_JOB_API } from './job-test-support';
 
 afterEach(cleanup);
 beforeEach(() => history.replaceState(null, '', '/'));
@@ -35,6 +36,7 @@ function fakeApi(playlist: PlaylistDetail = detail(), discs: LibraryAnswer['disc
     createProfile: vi.fn(),
     updateProfile: vi.fn(),
     deleteProfile: vi.fn(),
+    ...UNUSED_JOB_API,
     remoteDisc: vi.fn(async () => ({ kind: 'remote', base: 'http://x/', token: 't', manifest: {} }) as never),
   };
 }
@@ -143,6 +145,14 @@ describe('EpisodesPage', () => {
     expect(location.pathname).toBe('/queue/new');
     const q = new URLSearchParams(location.search);
     expect([q.get('disc'), q.get('playlist'), q.get('spec'), q.get('noSubtitles')]).toEqual([KEY, '00800', '1-3,4-', '1']);
+  });
+
+  it('Queue encode goes to the queue dialog without the no-subtitles flag', async () => {
+    await show();
+    click('Queue encode');
+    expect(location.pathname).toBe('/queue/new');
+    const q = new URLSearchParams(location.search);
+    expect([q.get('disc'), q.get('playlist'), q.get('spec'), q.get('noSubtitles')]).toEqual([KEY, '00800', '1-', null]);
   });
 
   it('a failed playlist fetch shows an alert, and an unknown disc says so', async () => {
