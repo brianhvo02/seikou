@@ -45,10 +45,12 @@ export type FontLoader = () => Promise<MkvAttachment[]>;
 
 /**
  * A `FontLoader` for `record`'s `fonts` under the data directory `dataDir`: the first call reads every font, each
- * with its media type from `FONT_MEDIA_TYPES` and its file name from the cached release named by
- * `record.release.id` (the first name the release lists for that pooled file), else the pooled file's own name; every
- * later call gives the same attachments without reading again, so the episodes of one encode share one copy of each
- * font. A failed read is not kept: the next call reads again.
+ * with its media type from `FONT_MEDIA_TYPES` and its file name from the first cached release of `record.releases`
+ * that lists that pooled file (the first name it lists for it), else the pooled file's own name. Two fonts of
+ * different content can come with the same name from two releases; a later one gets a number before its extension
+ * (`Name-2.ttf`), so no two attachments of one MKV share a name, ignoring case. Every later call gives the same
+ * attachments without reading again, so the episodes of one encode share one copy of each font. A failed read is not
+ * kept: the next call reads again.
  */
 export function recordFontLoader(record: SubtitleRecord, dataDir: string): FontLoader {
   let loaded: Promise<MkvAttachment[]> | null = null;
@@ -61,6 +63,18 @@ export function recordFontLoader(record: SubtitleRecord, dataDir: string): FontL
   };
 }
 
+/** `name`, or the first of `Name-2.ext`, `Name-3.ext`, … whose lower-case form is not in `taken`. */
+function uniqueName(name: string, taken: ReadonlySet<string>): string {
+  if (!taken.has(name.toLowerCase())) return name;
+  const ext = extname(name);
+  const stem = name.slice(0, name.length - ext.length);
+  for (let n = 2; ; n++) {
+    const candidate = `${stem}-${n}${ext}`;
+    if (!taken.has(candidate.toLowerCase())) return candidate;
+  }
+}
+
+/** Reads `record`'s fonts under `dataDir` as attachments, named as `recordFontLoader` describes. */
 async function readRecordFonts(record: SubtitleRecord, dataDir: string): Promise<MkvAttachment[]> {
   const names = new Map<string, string>();
   for (const r of record.releases) {
@@ -68,9 +82,12 @@ async function readRecordFonts(record: SubtitleRecord, dataDir: string): Promise
     for (const f of release?.fonts ?? []) if (!names.has(f.path)) names.set(f.path, f.name);
   }
   const attachments: MkvAttachment[] = [];
+  const taken = new Set<string>();
   for (const path of record.fonts) {
+    const name = uniqueName(names.get(path) ?? basename(path), taken);
+    taken.add(name.toLowerCase());
     attachments.push({
-      name: names.get(path) ?? basename(path),
+      name,
       mediaType: FONT_MEDIA_TYPES[extname(path).toLowerCase()] ?? 'application/octet-stream',
       data: await readFile(join(dataDir, path)),
     });

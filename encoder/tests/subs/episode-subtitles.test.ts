@@ -201,6 +201,22 @@ describe('episodeSubtitleTracks', () => {
     expect(attachments.map((x) => x.name)).toEqual(['First.ttf', 'Second.ttf']);
   });
 
+  it('fonts of two releases that share a file name but not their content get distinct attachment names', async () => {
+    put('releases/tosho-77/f1-t1.ass', SCRIPT);
+    const [a, b, c] = [`fonts/${'a'.repeat(64)}.ttf`, `fonts/${'b'.repeat(64)}.ttf`, `fonts/${'c'.repeat(64)}.ttf`];
+    put(a, new Uint8Array([1]));
+    put(b, new Uint8Array([2]));
+    put(c, new Uint8Array([3]));
+    const cached = (key: string, fonts: { name: string; path: string }[]): string =>
+      JSON.stringify({ key, source: 'local', label: key, group: '', files: [], fonts });
+    put('releases/tosho-77/release.json', cached('tosho-77', [{ name: 'Harbor.ttf', path: a }]));
+    put('releases/local-0123456789abcdef/release.json', cached('local-0123456789abcdef', [{ name: 'harbor.TTF', path: b }, { name: 'Harbor.ttf', path: c }]));
+    const rec = record([track({})], [a, b, c]);
+    rec.releases.push({ source: 'local', id: 'local-0123456789abcdef', group: '', label: 'own files' });
+    const { attachments } = await episodeSubtitleTracks(rec, 1, 1_440_000, dir);
+    expect(attachments.map((x) => x.name)).toEqual(['Harbor.ttf', 'harbor-2.TTF', 'Harbor-3.ttf']);
+  });
+
   it('fonts keep their pooled names when the release is not cached', async () => {
     put('releases/tosho-77/f1-t1.ass', SCRIPT);
     const font = `fonts/${'a'.repeat(64)}.otf`;
