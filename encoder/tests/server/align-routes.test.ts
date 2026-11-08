@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FansubAlignment } from '@seikou/nas/nas-api';
 import { EpisodeAudioCache } from '../../src/audio/episode-audio-cache';
+import { episodeAudioCacheOf, episodeAudioKey } from '../../src/server/align-routes';
+import type { AppContext, HelperSession } from '../../src/server/http';
 import { haveTools, toolPaths } from '../helpers/tools';
 import { jsonOf, startRouteFixture, type RouteFixture } from './route-fixture';
 
@@ -22,12 +24,12 @@ const timingParam = (t: FansubAlignment): string => Buffer.from(JSON.stringify(t
 
 /** Fetches GroupA's release (Anime Tosho 7001) into the fixture's cache. */
 async function fetchGroupA(fixture: RouteFixture): Promise<void> {
-  const reply = await fixture.send('/api/fansubs/fetch', { method: 'POST', body: JSON.stringify({ toshoId: 7001 }) });
+  const reply = await fixture.call('/fansubs/fetch', { method: 'POST', body: JSON.stringify({ toshoId: 7001 }) });
   expect(reply.status).toBe(200);
 }
 
 const align = (fixture: RouteFixture, episode: number, fileId: string): ReturnType<RouteFixture['send']> =>
-  fixture.send(`/api/episodes/${episode}/align`, { method: 'POST', body: JSON.stringify({ release: 'tosho-7001', fileId }) });
+  fixture.call(`/episodes/${episode}/align`, { method: 'POST', body: JSON.stringify({ release: 'tosho-7001', fileId }) });
 
 describe.skipIf(!haveTools)('align route with vspipe and BestSource', () => {
   let fixture: RouteFixture;
@@ -86,13 +88,13 @@ describe('align and subtitle routes without tools', () => {
 
   it('the subtitle route applies the timing', async () => {
     const original = readFileSync(join(fixture.dataDir, 'releases', 'tosho-7001', '7101-t0.ass'));
-    const plain = await fixture.send('/api/episodes/1/subtitle?release=tosho-7001&file=7101&track=t0');
+    const plain = await fixture.call('/episodes/1/subtitle?release=tosho-7001&file=7101&track=t0');
     expect(plain.status).toBe(200);
     expect(plain.headers['content-type']).toBe('text/plain; charset=utf-8');
     expect(plain.body.equals(original)).toBe(true);
 
     const timing = timingParam({ kind: 'offset', offsetMs: 1200, confidence: 1 });
-    const moved = await fixture.send(`/api/episodes/1/subtitle?release=tosho-7001&file=7101&track=t0&timing=${timing}`);
+    const moved = await fixture.call(`/episodes/1/subtitle?release=tosho-7001&file=7101&track=t0&timing=${timing}`);
     expect(moved.status).toBe(200);
     const firstDialogue = (text: string): string => text.split('\n').find((l) => l.startsWith('Dialogue:'))!;
     expect(firstDialogue(original.toString('utf8'))).toContain('0:00:00.00,0:00:02.11');
@@ -100,12 +102,12 @@ describe('align and subtitle routes without tools', () => {
   });
 
   it('the subtitle route refuses bad requests', async () => {
-    expect((await fixture.send('/api/episodes/1/subtitle?release=tosho-7001&file=7101&track=t9')).status).toBe(404);
-    expect((await fixture.send('/api/episodes/1/subtitle?release=tosho-9999&file=7101&track=t0')).status).toBe(404);
-    expect((await fixture.send('/api/episodes/1/subtitle?release=tosho-7001&file=7101&track=t0&timing=xx')).status).toBe(400);
+    expect((await fixture.call('/episodes/1/subtitle?release=tosho-7001&file=7101&track=t9')).status).toBe(404);
+    expect((await fixture.call('/episodes/1/subtitle?release=tosho-9999&file=7101&track=t0')).status).toBe(404);
+    expect((await fixture.call('/episodes/1/subtitle?release=tosho-7001&file=7101&track=t0&timing=xx')).status).toBe(400);
     const bad = timingParam({ kind: 'offset' } as unknown as FansubAlignment);
-    expect((await fixture.send(`/api/episodes/1/subtitle?release=tosho-7001&file=7101&track=t0&timing=${bad}`)).status).toBe(400);
-    expect((await fixture.send('/api/episodes/9/subtitle?release=tosho-7001&file=7101&track=t0')).status).toBe(404);
+    expect((await fixture.call(`/episodes/1/subtitle?release=tosho-7001&file=7101&track=t0&timing=${bad}`)).status).toBe(400);
+    expect((await fixture.call('/episodes/9/subtitle?release=tosho-7001&file=7101&track=t0')).status).toBe(404);
   });
 });
 
@@ -127,6 +129,26 @@ describe('EpisodeAudioCache', () => {
     expect(calls).toEqual([1, 2, 3]);
     await cache.get(2);
     expect(calls).toEqual([1, 2, 3, 2]);
+  });
+
+  it('one cache per app keeps the last two decodes of every session together', async () => {
+    const app = { dataDir: '/nowhere' } as AppContext;
+    expect(episodeAudioCacheOf(app)).toBe(episodeAudioCacheOf(app));
+    expect(episodeAudioCacheOf(app)).not.toBe(episodeAudioCacheOf({ dataDir: '/nowhere' } as AppContext));
+    const a = { id: 'aaaaaaaaaaaaaaaa' } as HelperSession;
+    const b = { id: 'bbbbbbbbbbbbbbbb' } as HelperSession;
+    expect(episodeAudioKey(a, 1)).not.toBe(episodeAudioKey(b, 1));
+    const calls: string[] = [];
+    const cache = new EpisodeAudioCache<string>(async (key) => {
+      calls.push(key);
+      return new Int16Array(1);
+    }, 2);
+    await cache.get(episodeAudioKey(a, 1));
+    await cache.get(episodeAudioKey(b, 1));
+    await cache.get(episodeAudioKey(a, 2)); // drops a's episode 1: the budget is shared
+    await cache.get(episodeAudioKey(b, 1));
+    await cache.get(episodeAudioKey(a, 1));
+    expect(calls).toEqual([episodeAudioKey(a, 1), episodeAudioKey(b, 1), episodeAudioKey(a, 2), episodeAudioKey(a, 1)]);
   });
 
   it('runs one decode at a time', async () => {

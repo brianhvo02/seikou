@@ -1110,3 +1110,1029 @@ button.step-move:hover:not(:disabled) {
     grid-column: auto;
   }
 }
+
+/* the app shell: a bar with the name and the three sections, and the line for what is encoding */
+.shell {
+  min-height: 100vh;
+}
+
+.app-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 24px;
+  padding: 12px var(--gutter) 0;
+  border-bottom: 1px solid var(--rule);
+  background: var(--base);
+}
+
+.app-name {
+  color: var(--ink);
+  text-decoration: none;
+  font-size: 20px;
+  font-weight: 640;
+  font-stretch: 78%;
+  letter-spacing: -0.005em;
+  padding-bottom: 10px;
+}
+
+.app-name-sub {
+  color: var(--muted);
+  font-weight: 450;
+}
+
+.app-bar nav {
+  display: flex;
+  gap: 20px;
+}
+
+.app-bar nav a {
+  color: var(--muted);
+  text-decoration: none;
+  padding: 8px 0 10px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.app-bar nav a:hover {
+  color: var(--ink);
+}
+
+.app-bar nav a[aria-current='page'] {
+  color: var(--ink);
+  font-weight: 600;
+  border-bottom-color: var(--accent);
+}
+
+/* empty until something is encoding */
+.progress-slot:empty {
+  display: none;
+}
+
+.progress-slot {
+  padding: 8px var(--gutter);
+  border-bottom: 1px solid var(--rule);
+  background: var(--panel);
+  font-size: 14px;
+}
+
+a {
+  color: var(--accent);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* app pages: a wider column than the helper's steps */
+.content.wide {
+  --column: 56rem;
+}
+
+.content.wide p {
+  max-width: none;
+}
+
+.page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: var(--column);
+}
+
+.page-title {
+  font-size: 30px;
+  line-height: 1.1;
+  font-weight: 620;
+  font-stretch: 78%;
+  letter-spacing: -0.005em;
+  margin: 0 0 14px;
+  overflow-wrap: anywhere;
+}
+
+.page-head .page-title {
+  margin-bottom: 0;
+}
+
+.crumb {
+  margin-bottom: 8px;
+}
+
+.content.wide .content-lead {
+  margin-bottom: 16px;
+}
+
+.filter,
+.root-add input {
+  font: inherit;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  padding: 8px 10px;
+  min-width: 0;
+}
+
+.filter {
+  display: block;
+  width: 100%;
+  max-width: var(--column);
+  margin: 16px 0 8px;
+}
+
+.filter:focus-visible,
+.root-add input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* a quiet mark: the accent as text colour, no fill */
+.mark {
+  color: var(--accent);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.mark-warn {
+  color: var(--danger);
+}
+
+.disc-list,
+.playlist-list,
+.root-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-width: var(--column);
+}
+
+.disc-list > li,
+.playlist-list > li,
+.root-list > li {
+  border-bottom: 1px solid var(--rule);
+}
+
+.disc-list > li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 2px 16px;
+  padding: 10px 0;
+}
+
+.disc-link {
+  display: grid;
+  gap: 1px;
+  text-decoration: none;
+  color: var(--ink);
+  min-width: 0;
+}
+
+.disc-name {
+  font-weight: 560;
+  overflow-wrap: anywhere;
+}
+
+.disc-link:hover .disc-name {
+  color: var(--accent);
+}
+
+.disc-path {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.disc-facts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 2px 12px;
+  font-size: 13px;
+}
+
+@media (max-width: 520px) {
+  .disc-list > li {
+    grid-template-columns: 1fr;
+  }
+
+  .disc-facts {
+    justify-content: flex-start;
+  }
+}
+
+.disc-title {
+  margin-bottom: 4px;
+}
+
+.playlist-list {
+  margin-top: 20px;
+}
+
+.playlist-list > li {
+  display: grid;
+  grid-template-columns: 4.5rem 5.5rem 1fr auto;
+  align-items: baseline;
+  gap: 2px 12px;
+  padding: 10px 0;
+}
+
+.playlist-id {
+  font-weight: 560;
+}
+
+.playlist-length {
+  font-size: 17px;
+  font-weight: 560;
+}
+
+.playlist-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 12px;
+  font-size: 13px;
+}
+
+.playlist-marks {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 12px;
+  order: 5;
+}
+
+.playlist-marks:empty {
+  display: none;
+}
+
+.playlist-go {
+  justify-self: end;
+}
+
+@media (min-width: 700px) {
+  .playlist-list > li {
+    grid-template-columns: 4.5rem 5.5rem 1fr auto auto;
+  }
+
+  .playlist-marks {
+    grid-column: auto;
+    order: 0;
+    justify-content: flex-end;
+  }
+}
+
+.roots {
+  margin-top: 40px;
+  max-width: var(--column);
+}
+
+.roots h2,
+.empty h2 {
+  font-size: 18px;
+  font-weight: 600;
+  font-stretch: 88%;
+  margin: 0 0 8px;
+}
+
+.root-list > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 8px 0;
+}
+
+.root-path {
+  flex: 1 1 14rem;
+  overflow-wrap: anywhere;
+}
+
+.root-add {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.root-add label {
+  flex: 1;
+  display: flex;
+}
+
+.root-add input {
+  flex: 1;
+}
+
+.empty {
+  max-width: 38rem;
+  margin: 8px 0 24px;
+}
+
+/* the Episodes page: player and chapters side by side where there is room, one column on a phone */
+.content.wide.episodes-page {
+  --column: 76rem;
+}
+
+.episodes-layout {
+  display: grid;
+  gap: 24px;
+  margin-top: 20px;
+  max-width: var(--column);
+}
+
+@media (min-width: 900px) {
+  .episodes-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(20rem, 26rem);
+    align-items: start;
+  }
+}
+
+.episodes-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.episodes-spec-label {
+  font-weight: 560;
+}
+
+.episodes-form .filter {
+  margin: 0;
+}
+
+.episodes-form .filter[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.warn {
+  color: var(--amber);
+}
+
+.episode-summary,
+.chapter-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.episode-summary > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 14px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.episode-name {
+  font-weight: 560;
+  min-width: 6rem;
+}
+
+.episodes-form .actions {
+  margin-top: 8px;
+}
+
+.chapter-list {
+  border-top: 1px solid var(--rule);
+}
+
+.chapter {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 5.5rem 4.5rem 7rem;
+  align-items: center;
+  gap: 0 8px;
+  border-bottom: 1px solid var(--rule);
+  padding: 2px 0;
+}
+
+.chapter-current {
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.chapter-current .chapter-number,
+.chapter-current .chapter-start {
+  color: var(--accent);
+}
+
+.chapter-skipped .chapter-seek {
+  opacity: 0.45;
+}
+
+.chapter-seek {
+  display: grid;
+  grid-template-columns: 2rem 5rem 1fr;
+  align-items: baseline;
+  gap: 0 8px;
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  padding: 8px 4px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.chapter-seek:hover {
+  color: var(--accent);
+}
+
+.chapter-number {
+  font-weight: 560;
+}
+
+.chapter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.chapter-toggle input {
+  accent-color: var(--accent);
+}
+
+@media (max-width: 520px) {
+  .chapter {
+    grid-template-columns: minmax(0, 1fr) 4.5rem 7rem;
+  }
+
+  .chapter-mark {
+    grid-column: 1 / -1;
+    order: -1;
+  }
+
+  .chapter-mark:empty {
+    display: none;
+  }
+
+}
+
+/* Settings: profiles as rows; the open one shows its form in place */
+.profile-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  max-width: var(--column);
+}
+
+.profile {
+  border-bottom: 1px solid var(--rule);
+  padding: 12px 0;
+}
+
+.profile-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+
+.profile-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 16rem;
+}
+
+.profile-name {
+  font-weight: 560;
+  overflow-wrap: anywhere;
+}
+
+.profile-summary {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+button.quiet.danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.profile-form {
+  display: grid;
+  gap: 2px;
+  margin-top: 6px;
+  padding: 4px 0 8px 14px;
+  border-left: 2px solid var(--accent);
+}
+
+.profile-form .field input[type='text'],
+.profile-form .field input[type='number'] {
+  width: 100%;
+}
+
+.profile-form .field-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0 20px;
+}
+
+.profile-form .field .check {
+  margin-top: 2px;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.field-error {
+  font-size: 13px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.profile-new {
+  margin-top: 28px;
+  max-width: var(--column);
+}
+
+/* keep the form inside the page's gutters: tracks may shrink below their content, and a checkbox is not a full-width field */
+.profile-form,
+.profile-form .field {
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+
+.profile-form .field input[type='checkbox'] {
+  width: auto;
+  flex: none;
+}
+
+.profile-form .field .check {
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+.profile-head,
+.profile-text,
+.page-head {
+  min-width: 0;
+}
+
+/* Progress line: one link under the app bar, a thin meter on its own row */
+.progress-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 14px;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.progress-line:hover .progress-disc {
+  text-decoration: underline;
+}
+
+.progress-disc {
+  font-weight: 600;
+  font-stretch: 88%;
+  overflow-wrap: anywhere;
+}
+
+.progress-meter {
+  flex: 1 0 100%;
+  height: 3px;
+  margin-top: 4px;
+  border-radius: 2px;
+  background: var(--rule);
+  overflow: hidden;
+}
+
+.progress-meter > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+/* Queue dialog */
+.queue-dialog > *,
+.queue-form {
+  max-width: var(--column);
+}
+
+.queue-disc {
+  font-size: 20px;
+  font-weight: 600;
+  font-stretch: 78%;
+  overflow-wrap: anywhere;
+}
+
+.queue-dialog .episode-summary {
+  margin-top: 10px;
+}
+
+.queue-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  margin-top: 8px;
+}
+
+.queue-form select {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  width: 100%;
+}
+
+.queue-form .field input[type='text'] {
+  width: 100%;
+}
+
+.queue-form .field input[type='checkbox'] {
+  width: auto;
+}
+
+.queue-form .field input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.queue-mismatch {
+  margin-top: 16px;
+  padding: 2px 0 6px 14px;
+  border-left: 2px solid var(--amber);
+}
+
+.queue-mismatch .actions {
+  margin-top: 8px;
+}
+
+.quiet-link {
+  align-self: center;
+}
+
+/* Queue page: the list */
+.job-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  max-width: var(--column);
+}
+
+.job-row {
+  border-bottom: 1px solid var(--rule);
+}
+
+.job-link {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 14px;
+  padding: 12px 0;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.job-link:hover .job-name {
+  text-decoration: underline;
+}
+
+.job-name {
+  font-weight: 560;
+  overflow-wrap: anywhere;
+}
+
+.job-meta {
+  flex: 1 0 100%;
+  font-size: 13px;
+}
+
+.job-state {
+  font-size: 13px;
+  white-space: nowrap;
+  color: var(--muted);
+}
+
+.job-state-running {
+  color: var(--accent);
+}
+
+.job-state-failed,
+.job-state-interrupted {
+  color: var(--danger);
+}
+
+.job-state-paused {
+  color: var(--amber);
+}
+
+/* Queue page: one job */
+.job-head {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+
+.job-actions {
+  margin-top: 14px;
+  align-items: center;
+}
+
+.job-section {
+  margin-top: 28px;
+  max-width: var(--column);
+}
+
+.job-section h2 {
+  font-size: 18px;
+  margin-bottom: 8px;
+}
+
+.episode-rows,
+.job-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.episode-row {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.episode-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: 4px 12px;
+}
+
+.episode-percent {
+  margin-left: auto;
+}
+
+.episode-row progress {
+  display: block;
+  width: 100%;
+  height: 6px;
+  margin-top: 6px;
+  accent-color: var(--accent);
+}
+
+.episode-failed .episode-name,
+.episode-packaging-failed .episode-name {
+  color: var(--danger);
+}
+
+.episode-speed {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.job-files li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+  padding: 4px 0;
+  overflow-wrap: anywhere;
+}
+
+.job-out {
+  margin-top: 6px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.job-log,
+.job-cli {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--panel);
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.job-log {
+  height: 16rem;
+  overflow: auto;
+  white-space: pre;
+}
+
+.job-cli {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.job-cli code {
+  font: inherit;
+}
+
+.job-section .actions {
+  margin-top: 8px;
+  align-items: center;
+}
+
+/* Queue dialog: the test encode's profiles */
+.queue-test {
+  border: 0;
+  padding: 0;
+  margin-inline: 0;
+  min-width: 0;
+}
+
+.queue-test legend {
+  padding: 0;
+}
+
+.queue-test-profiles {
+  display: grid;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.queue-test-profile {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+}
+
+.queue-test .actions {
+  margin-top: 6px;
+}
+
+/* Test page: rows are stretches, columns are profiles; one column below 700 px, where each video names its profile */
+.test-page > p,
+.test-progress,
+.test-stopped {
+  max-width: var(--column);
+}
+
+.test-progress,
+.test-stopped,
+.test-note {
+  margin-top: 18px;
+}
+
+.test-progress progress {
+  display: block;
+  width: 100%;
+  height: 6px;
+  margin-top: 6px;
+  accent-color: var(--accent);
+}
+
+.test-progress .actions,
+.test-stopped .actions {
+  margin-top: 10px;
+  align-items: center;
+}
+
+.test-grid {
+  margin-top: 16px;
+}
+
+.test-columns,
+.sample-videos {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px 16px;
+}
+
+.test-head h2,
+.test-foot h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  font-stretch: 88%;
+  overflow-wrap: anywhere;
+}
+
+.test-head p {
+  font-size: 13px;
+}
+
+.test-heads {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.sample-row {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.sample-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-bottom: 10px;
+}
+
+.sample-at {
+  font-weight: 600;
+  min-width: 4ch;
+}
+
+.sample-play {
+  min-width: 5.5em;
+}
+
+.sample-seek {
+  flex: 1 1 10rem;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+
+.sample-clock {
+  font-size: 13px;
+}
+
+.sample {
+  margin: 0;
+  min-width: 0;
+}
+
+.sample video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 4px;
+}
+
+.sample figcaption {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.sample-error,
+.sample-none {
+  font-size: 13px;
+}
+
+.sample-error {
+  margin-top: 4px;
+}
+
+.test-feet {
+  margin-top: 16px;
+}
+
+.test-foot {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.test-sizes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.test-sizes li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.test-foot .primary {
+  justify-self: start;
+}
+
+.test-log {
+  margin-top: 20px;
+}
+
+@media (min-width: 700px) {
+  .test-columns,
+  .sample-videos {
+    grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr));
+  }
+
+  /* the column heads name the profiles above the videos */
+  .sample figcaption {
+    display: none;
+  }
+}

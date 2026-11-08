@@ -55,6 +55,27 @@ export function parseEpisodeSpec(text: string, chapterCount: number): EpisodeSpe
   return specs;
 }
 
+/**
+ * The chapter ranges of `text` with open ends closed at `chapterCount`, as JSON; null for a list that does not parse.
+ * Two lists with the same value cut a playlist into the same episodes, however they are written.
+ */
+export function resolvedSpec(text: string, chapterCount: number): string | null {
+  let specs: EpisodeSpec[];
+  try {
+    specs = parseEpisodeSpec(text, chapterCount);
+  } catch {
+    return null;
+  }
+  return JSON.stringify(specs.map((s) => [s.from, s.to ?? chapterCount]));
+}
+
+/** Whether episode lists `a` and `b` cut a playlist of `chapterCount` chapters into the same episodes; text that does not parse equals only itself. */
+export function sameEpisodeList(a: string, b: string, chapterCount: number): boolean {
+  if (a === b) return true;
+  const ra = resolvedSpec(a, chapterCount);
+  return ra !== null && ra === resolvedSpec(b, chapterCount);
+}
+
 /** One chosen audio stream within one segment. */
 export interface SegmentAudio {
   /** The stream's PID. */
@@ -256,5 +277,36 @@ export function planEpisodes(
     const start = playlist.chapters[spec.from - 1].start45;
     const end = last < chapterCount ? playlist.chapters[last].start45 : playlist.duration45;
     return planEpisode(i + 1, playlist, probes, audio, pmts, start, end, spec.from, last);
+  });
+}
+
+/** A stretch of playlist time, in milliseconds from the playlist's start; `endMs` is exclusive. */
+export interface TimeRange {
+  startMs: number;
+  endMs: number;
+}
+
+/**
+ * Plans one episode per playlist-time range, cut on the same frames and samples as `planEpisodes` cuts a chapter
+ * episode (the range's ends are rounded to the nearest 45 kHz tick, then to frames and samples as chapters are), with
+ * no chapters. It is for a stretch of a disc that is no chapter range, such as a short test sample. A range that is
+ * empty, backwards, negative or ends after the playlist throws a `RangeError`; the other arguments and errors are
+ * those of `planEpisodes`.
+ */
+export function planRanges(
+  playlist: Playlist,
+  probes: Map<string, ClipProbe>,
+  ranges: readonly TimeRange[],
+  audio: readonly Pick<SelectedAudio, 'pid' | 'sampleRate'>[],
+  pmts: Map<string, PmtInfo>,
+): EpisodePlan[] {
+  return ranges.map((range, i) => {
+    const start = Math.round(range.startMs * 45);
+    const end = Math.round(range.endMs * 45);
+    if (!(start >= 0 && end > start && end <= playlist.duration45)) {
+      throw new RangeError(`Range ${range.startMs}-${range.endMs} ms is empty or outside the playlist's ${Math.floor(playlist.duration45 / 45)} ms`);
+    }
+    // No chapter index lies between 1 and 0, so the plan holds no chapters.
+    return planEpisode(i + 1, playlist, probes, audio, pmts, start, end, 1, 0);
   });
 }

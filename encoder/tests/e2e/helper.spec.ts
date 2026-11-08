@@ -46,7 +46,11 @@ function nudgeValue(page: Page) {
 test('pick a show and a release, match, line up, nudge, name a track, save and restore', async ({ page, request }) => {
   const url = helperUrl();
   const token = new URL(url).searchParams.get('t') ?? '';
-  const session = (await (await request.get(new URL('/api/session', url).href, { headers: { Authorization: `Bearer ${token}` } })).json()) as { toolsReady: boolean };
+  // serve opens the helper at /helper/<session id>; the session's API is under /api/sessions/<session id>
+  const sessionId = /^\/helper\/([0-9a-f]{16})$/.exec(new URL(url).pathname)?.[1];
+  expect(sessionId).toBeDefined();
+  const api = `/api/sessions/${sessionId}`;
+  const session = (await (await request.get(new URL(api, url).href, { headers: { Authorization: `Bearer ${token}` } })).json()) as { toolsReady: boolean };
 
   const problems: string[] = [];
   page.on('console', (m) => {
@@ -58,7 +62,7 @@ test('pick a show and a release, match, line up, nudge, name a track, save and r
   });
   const seadexAsked: string[] = [];
   page.on('request', (r) => {
-    if (new URL(r.url()).pathname === '/api/fansubs/seadex') seadexAsked.push(r.url());
+    if (new URL(r.url()).pathname === `${api}/fansubs/seadex`) seadexAsked.push(r.url());
   });
 
   // Step 1: nothing is looked up before the show is picked by hand
@@ -71,7 +75,7 @@ test('pick a show and a release, match, line up, nudge, name a track, save and r
   await expect(show).toBeVisible();
   // the cover comes through the backend, since the isolated page may not load AniList's image host
   const cover = show.locator('img.cover');
-  await expect(cover).toHaveAttribute('src', /\/api\/titles\/900101\/cover\?t=/);
+  await expect(cover).toHaveAttribute('src', new RegExp(`${api}/titles/900101/cover\\?t=`));
   const loadedWidth = () =>
     cover.evaluate((img) => {
       const image = img as unknown as { complete: boolean; naturalWidth: number };
@@ -80,7 +84,7 @@ test('pick a show and a release, match, line up, nudge, name a track, save and r
   await expect.poll(loadedWidth).toBe(4);
   expect(seadexAsked).toEqual([]);
 
-  const seadexAnswer = page.waitForResponse((r) => new URL(r.url()).pathname === '/api/fansubs/seadex');
+  const seadexAnswer = page.waitForResponse((r) => new URL(r.url()).pathname === `${api}/fansubs/seadex`);
   await show.click();
   expect(new URL((await seadexAnswer).url()).searchParams.get('anilist')).toBe('900101');
 
@@ -103,8 +107,8 @@ test('pick a show and a release, match, line up, nudge, name a track, save and r
   await expect(fileOf(page, 1).locator('option:checked')).toContainText('[GroupB]');
   await expect(fileOf(page, 2).locator('option:checked')).toContainText('[GroupA]');
   // step 3 lines episode 1 up, and previews it, from GroupB's release
-  const alignAsked = page.waitForRequest((r) => new URL(r.url()).pathname === '/api/episodes/1/align');
-  const subtitleAsked = page.waitForRequest((r) => new URL(r.url()).pathname === '/api/episodes/1/subtitle', { timeout: 120_000 });
+  const alignAsked = page.waitForRequest((r) => new URL(r.url()).pathname === `${api}/episodes/1/align`);
+  const subtitleAsked = page.waitForRequest((r) => new URL(r.url()).pathname === `${api}/episodes/1/subtitle`, { timeout: 120_000 });
   await page.getByRole('button', { name: 'Next' }).click();
   expect((await alignAsked).postDataJSON()).toMatchObject({ release: 'tosho-7002' });
 

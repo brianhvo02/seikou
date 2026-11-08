@@ -10,6 +10,8 @@ export interface PlayerProps {
   readonly controller: PlayerLike;
   /** The episode on screen; the seek bar and the time cover only its range of the playlist. */
   readonly episode: EpisodeTimes;
+  /** The canvas's accessible name; "Episode <n> preview" by default. */
+  readonly label?: string;
 }
 
 /**
@@ -17,7 +19,7 @@ export interface PlayerProps {
  * range only, and the episode time. Browsers start audio only from a user action, so the first press anywhere on the
  * player starts the engine's audio output.
  */
-export function Player({ controller, episode }: PlayerProps) {
+export function Player({ controller, episode, label }: PlayerProps) {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const audioStarted = useRef(false);
@@ -50,7 +52,7 @@ export function Player({ controller, episode }: PlayerProps) {
   return (
     <div className="player" onPointerDown={startAudio} onKeyDown={startAudio}>
       <div className="player-frame">
-        <canvas ref={canvasRef} className="player-canvas" aria-label={`Episode ${episode.index} preview`} />
+        <canvas ref={canvasRef} className="player-canvas" aria-label={label ?? `Episode ${episode.index} preview`} />
         {snapshot.error ? (
           <p className="player-message error" role="alert">
             {snapshot.error.message}

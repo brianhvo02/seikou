@@ -26,6 +26,11 @@ export interface WebmOptions {
   blockCounts?: ReadonlyMap<number, number>;
   /** The most block bytes the remux may hold for tracks waiting their turn; above it `writeWebm` throws `WebmError`. Default `DEFAULT_MAX_QUEUED_BYTES`. */
   maxQueuedBytes?: number;
+  /**
+   * Another file to take the Opus tracks from instead of `mkv`'s, such as one sample's audio shared by samples of
+   * several video encodes. Its blocks are read in a pass of their own; `blockCounts` counts only `mkv`'s.
+   */
+  audioFrom?: ParsedMkv;
 }
 
 /**
@@ -130,16 +135,23 @@ export function webmTracks(mkv: ParsedMkv): { video: MkvTrack; audio: MkvTrack[]
  * starts far later than the others is the one case that makes many wait. Throws `WebmError` when
  * there is no AV1 track, a kept track has no CodecPrivate, no DefaultDuration (video) or no Audio
  * element (Opus), more than `options.maxQueuedBytes` would wait, or a track has fewer blocks than
- * counted, and whatever reading or writing throws; a partial file is left for the caller to delete.
+ * counted, and whatever reading or writing throws; a partial file is left for the caller to delete. With
+ * `options.audioFrom` the Opus tracks are that file's instead of `mkv`'s.
  */
 export async function writeWebm(mkv: ParsedMkv, path: string, options: WebmOptions = {}): Promise<void> {
-  const { video, audio } = webmTracks(mkv);
+  const { video, audio: ownAudio } = webmTracks(mkv);
+  const audioFile = options.audioFrom;
+  const audio = audioFile === undefined ? ownAudio : audioFile.tracks.filter((t) => t.codecId === 'A_OPUS');
   if (video.defaultDurationNs === undefined || video.defaultDurationNs === 0n) throw new WebmError(`the AV1 track has no DefaultDuration`);
   if (video.video === undefined) throw new WebmError('the AV1 track has no Video element');
   const frameNs = video.defaultDurationNs;
   const counts = options.blockCounts ?? (await countBlocks(mkv));
-  const kept = new Map([video, ...audio].map((t) => [t.number, counts.get(t.number) ?? 0]));
-  const splitter = new TrackSplitter(mkv.blocks(), kept, options.maxQueuedBytes ?? DEFAULT_MAX_QUEUED_BYTES);
+  const maxQueued = options.maxQueuedBytes ?? DEFAULT_MAX_QUEUED_BYTES;
+  const tracksOf = (tracks: MkvTrack[], c: ReadonlyMap<number, number>): Map<number, number> => new Map(tracks.map((t) => [t.number, c.get(t.number) ?? 0]));
+  // With a separate audio file, each file is read in its own pass, so neither queues the other's blocks.
+  const splitter = new TrackSplitter(mkv.blocks(), tracksOf(audioFile === undefined ? [video, ...audio] : [video], counts), maxQueued);
+  const audioSplitter =
+    audioFile === undefined ? splitter : new TrackSplitter(audioFile.blocks(), tracksOf(audio, await countBlocks(audioFile)), maxQueued);
 
   async function* videoPackets(): AsyncGenerator<MkvVideoPacket> {
     let index = 0;
@@ -154,7 +166,7 @@ export async function writeWebm(mkv: ParsedMkv, path: string, options: WebmOptio
     const end = new Promise<{ discardPadding48: number }>((r) => (resolveEnd = r));
     async function* packets(): AsyncGenerator<OpusPacket> {
       let lastPaddingNs = 0n;
-      for await (const b of splitter.stream(track.number)) {
+      for await (const b of audioSplitter.stream(track.number)) {
         lastPaddingNs = b.discardPaddingNs ?? 0n;
         yield { data: b.data, pts48: Math.round(b.timeMs) * 48, durationSamples: opusPacketDuration(b.data) };
       }
@@ -197,5 +209,6 @@ export async function writeWebm(mkv: ParsedMkv, path: string, options: WebmOptio
     });
   } finally {
     await splitter.close();
+    if (audioSplitter !== splitter) await audioSplitter.close();
   }
 }

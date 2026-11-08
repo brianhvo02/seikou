@@ -104,6 +104,22 @@ describe('SaveBar', () => {
     expect((screen.getByLabelText('MKV title') as HTMLInputElement).value).toBe('Harbor premiere');
   });
 
+  it('Queue encode is off until a record is saved, then opens the queue dialog for the run', async () => {
+    const api = fakeApi();
+    render(<App api={api} />);
+    await waitFor(() => expect(saveButton().disabled).toBe(false));
+    expect((screen.getByRole('button', { name: 'Queue encode' }) as HTMLButtonElement).disabled).toBe(true);
+    cleanup();
+    const saved = fakeApi({ record: vi.fn(async () => ({ record, missing: [] })), release: vi.fn(async () => release) });
+    render(<App api={saved} />);
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Queue encode' }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: 'Queue encode' }));
+    const q = new URLSearchParams(location.search);
+    expect(location.pathname).toBe('/queue/new');
+    expect([q.get('disc'), q.get('playlist'), q.get('spec'), q.get('noSubtitles')]).toEqual([session.discKey, '00000', '1-3,4-5', null]);
+    history.replaceState(null, '', '/');
+  });
+
   it('offers to fetch a missing release again', async () => {
     const api = fakeApi({
       record: vi.fn(async () => ({ record, missing: [{ id: 'tosho-7', release: release.label, files: ['releases/tosho-7/11-t1.ass'] }] })),
@@ -154,6 +170,49 @@ describe('SaveBar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save for encoding' }));
     await waitFor(() => expect(screen.getByRole('status').textContent).toMatch(/^Saved at /));
     expect(saveRecord.mock.calls[0]![0].episodes.map((e) => e.metadata.title)).toEqual(['01', '02']);
+  });
+
+  it('says choices are saved for another episode list, and Save replaces them only after saying so', async () => {
+    const saveRecord = vi.fn(async (r: SubtitleRecord, _replace?: boolean) => ({ ...r, savedAt: '2026-11-07T10:00:00.000Z' }));
+    const api = fakeApi({ record: vi.fn(async () => ({ record: null, missing: [], otherEpisodeSpec: '1-5' })), saveRecord });
+    render(<App api={api} />);
+    expect(await screen.findByText('Subtitle choices are saved for episodes 1-5; saving here replaces them.')).toBeTruthy();
+    await waitFor(() => expect(saveButton().disabled).toBe(false));
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(screen.getByRole('status').textContent).toMatch(/^Saved at /));
+    expect(saveRecord.mock.calls[0]![1]).toBe(true);
+    expect(screen.queryByText(/saving here replaces them/)).toBeNull();
+  });
+
+  it('asks before replacing choices another episode list saved meanwhile', async () => {
+    const saveRecord = vi.fn(async (r: SubtitleRecord, replace?: boolean) =>
+      replace === true
+        ? { ...r, savedAt: '2026-11-07T10:00:00.000Z' }
+        : Promise.reject(new ApiError(409, 'other-episode-spec', 'Choices are saved for another episode list.', { episodeSpec: '1-5' })),
+    );
+    render(<App api={fakeApi({ saveRecord })} />);
+    await waitFor(() => expect(saveButton().disabled).toBe(false));
+    fireEvent.click(saveButton());
+    expect(await screen.findByText('Subtitle choices are saved for episodes 1-5; saving here replaces them.')).toBeTruthy();
+    expect(saveRecord).toHaveBeenCalledTimes(1);
+    expect(saveRecord.mock.calls[0]![1]).not.toBe(true);
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(screen.getByRole('status').textContent).toMatch(/^Saved at /));
+    expect(saveRecord.mock.calls[1]![1]).toBe(true);
+  });
+
+  it('warns that a queued encode uses the choices a save would replace', async () => {
+    const queued = 'A queued encode uses the current choices; it will stop with a mismatch unless you queue it again.';
+    const api = fakeApi({ record: vi.fn(async () => ({ record: null, missing: [], otherEpisodeSpec: '1-5', queuedJobs: 1 })) });
+    render(<App api={api} />);
+    expect(await screen.findByText(`Subtitle choices are saved for episodes 1-5; saving here replaces them. ${queued}`)).toBeTruthy();
+    cleanup();
+    // Learnt from a refused save too.
+    const saveRecord = vi.fn(async () => Promise.reject(new ApiError(409, 'other-episode-spec', 'Choices are saved for another episode list.', { episodeSpec: '1-5', queuedJobs: 2 })));
+    render(<App api={fakeApi({ saveRecord })} />);
+    await waitFor(() => expect(saveButton().disabled).toBe(false));
+    fireEvent.click(saveButton());
+    expect(await screen.findByText(`Subtitle choices are saved for episodes 1-5; saving here replaces them. ${queued}`)).toBeTruthy();
   });
 
   it("shows the server's message when saving fails", async () => {

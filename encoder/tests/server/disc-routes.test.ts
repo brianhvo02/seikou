@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { episodePlans } from '../../src/server/disc-routes';
-import type { HelperContext } from '../../src/server/http';
+import type { HelperSession } from '../../src/server/http';
 import { fx } from '../paths';
 
 let dir: string | null = null;
@@ -26,17 +26,8 @@ it('plans on the first STN audio stream alone, whatever codes the other streams 
   mpls[at + 2] = 0x63;
   writeFileSync(mplsPath, mpls);
 
-  const ctx = {
-    discDir: disc,
-    playlistId: '00000',
-    episodeSpec: '1-',
-    dataDir: join(dir, 'data'),
-    token: 'disc-routes-test',
-    webDir: null,
-    tools: null,
-    sources: {},
-  } as unknown as HelperContext;
-  const [plan] = await episodePlans(ctx);
+  const session: HelperSession = { id: '0123456789abcdef', discDir: disc, discKey: 'f.test', playlistId: '00000', episodeSpec: '1-' };
+  const [plan] = await episodePlans(session);
   expect(plan!.segments[0]!.audioTracks.map((a) => a.pid)).toEqual([0x1100]);
   expect(plan!.audio[0]!.sampleRate).toBe(48000);
 });

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { discKeyOfFolder } from '../disc/disc-key';
 import { loadPlaylist } from '../disc/playlist';
-import { parseEpisodeSpec, type EpisodeSpec } from '../plan/episodes';
+import { parseEpisodeSpec, sameEpisodeList } from '../plan/episodes';
 import { RecordStore, type SubtitleRecord } from './record';
 
 /** The saved record does not describe this encode: it was saved for another playlist or episode list. The command line answers it with exit code 2. */
@@ -28,17 +28,6 @@ export class MissingSubtitleFilesError extends Error {
   }
 }
 
-/** The chapter ranges of `text` with open ends closed at `chapterCount`, as JSON; null for a list that does not parse. */
-function resolvedSpec(text: string, chapterCount: number): string | null {
-  let specs: EpisodeSpec[];
-  try {
-    specs = parseEpisodeSpec(text, chapterCount);
-  } catch {
-    return null;
-  }
-  return JSON.stringify(specs.map((s) => [s.from, s.to ?? chapterCount]));
-}
-
 /**
  * Loads the helper's saved record for the disc in `discDir` and `playlistId`, for the encode to follow. Returns null
  * when `noSubtitles` is set (the record is not even read) or no record was saved. The episode lists are compared as
@@ -63,7 +52,7 @@ export async function loadEncodeRecord(o: {
   if (record === null) return null;
   const chapterCount = (await loadPlaylist(o.discDir, o.playlistId)).chapters.length;
   const asked = parseEpisodeSpec(o.episodeSpec, chapterCount);
-  if (record.playlist !== o.playlistId || resolvedSpec(record.episodeSpec, chapterCount) !== resolvedSpec(o.episodeSpec, chapterCount)) {
+  if (record.playlist !== o.playlistId || !sameEpisodeList(record.episodeSpec, o.episodeSpec, chapterCount)) {
     throw new RecordMismatchError(
       `The saved subtitle choices are for playlist ${record.playlist} episodes ${record.episodeSpec}; this encode asks for ${o.playlistId} episodes ${o.episodeSpec}. Re-save them in the helper or pass --no-subtitles.`,
     );

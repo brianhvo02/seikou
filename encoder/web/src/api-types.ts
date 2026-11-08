@@ -11,7 +11,7 @@ export type { FansubAlignment };
 /** What a subtitle track holds: the whole dialogue, or only signs, songs and forced lines. */
 export type TrackKind = 'full' | 'signs';
 
-/** `GET /api/session`: which disc and episode list this run serves. */
+/** `GET /api/sessions/<id>`: which disc and episode list the helper session is about. */
 export interface SessionInfo {
   /** The disc's key, the `<discKey>` of the disc routes and the name of the saved record. */
   readonly discKey: string;
@@ -47,9 +47,9 @@ export interface AudioStreamInfo {
   readonly language: string;
 }
 
-/** `GET /api/episodes`. */
+/** `GET /api/sessions/<id>/episodes`. */
 export interface EpisodesAnswer {
-  /** The run's episodes, in order. */
+  /** The session's episodes, in order. */
   readonly episodes: readonly EpisodeTimes[];
   /** Audio streams in the order players number them. */
   readonly audio: readonly AudioStreamInfo[];
@@ -96,7 +96,7 @@ export interface SeaDexRelease {
   readonly unavailable: null | 'private-tracker' | 'not-on-tosho';
 }
 
-/** `GET /api/fansubs/seadex`: SeaDex's entry for a show, best releases first. */
+/** `GET /api/sessions/<id>/fansubs/seadex`: SeaDex's entry for a show, best releases first. */
 export interface SeaDexAnswer {
   /** SeaDex's notes as plain text; empty when none. */
   readonly notes: string;
@@ -184,11 +184,11 @@ export interface MatchRow {
   readonly candidates: readonly string[];
 }
 
-/** A release's files matched to the run's episodes. */
+/** A release's files matched to the session's episodes. */
 export interface ReleaseMatch {
-  /** One row per episode of the run, in order. */
+  /** One row per episode of the session, in order. */
   readonly rows: readonly MatchRow[];
-  /** Extras, unnumbered files and numbers outside the run. */
+  /** Extras, unnumbered files and numbers outside the session. */
   readonly unmatched: readonly CachedReleaseFile[];
 }
 
@@ -203,7 +203,7 @@ export interface Span {
   readonly toMs: number;
 }
 
-/** `POST /api/episodes/<n>/align`. */
+/** `POST /api/sessions/<id>/episodes/<n>/align`. */
 export interface AlignAnswer {
   /** The timing found for the episode's tracks, or why there is none. */
   readonly alignment: FansubAlignment;
@@ -275,7 +275,7 @@ export interface RecordMetadata {
 
 /** One episode in the saved record. */
 export interface RecordEpisode {
-  /** 1-based position in the run's episode list. */
+  /** 1-based position in the session's episode list. */
   readonly index: number;
   /** The episode's own title (AniList's, or `Episode n`). */
   readonly title: string;
@@ -299,7 +299,7 @@ export interface SubtitleRecord {
   readonly releases: readonly RecordRelease[];
   /** Font files the tracks use: the fonts of every release in `releases`, each once. */
   readonly fonts: readonly string[];
-  /** The run's episodes in index order. */
+  /** The session's episodes in index order. */
   readonly episodes: readonly RecordEpisode[];
   /** When it was saved (ISO 8601 UTC). The server sets it; the page sends an empty string. */
   readonly savedAt: string;
@@ -317,7 +317,7 @@ export interface SingleReleaseRecord extends Omit<SubtitleRecord, 'releases' | '
   readonly episodes: readonly (Omit<RecordEpisode, 'tracks'> & { readonly tracks: readonly Omit<RecordTrack, 'release'>[] })[];
 }
 
-/** `GET /api/record`. */
+/** `GET /api/sessions/<id>/record`. */
 export interface RecordAnswer {
   /** The saved record (a single-release one from an older backend is read through `currentForm`), or null when none was saved or the file was unreadable. */
   readonly record: SubtitleRecord | SingleReleaseRecord | null;
@@ -325,4 +325,263 @@ export interface RecordAnswer {
   readonly missing: readonly { readonly id: string | null; readonly release: string; readonly files: readonly string[] }[];
   /** Set when a record file exists but could not be read; the page then starts fresh. */
   readonly error?: { readonly code: 'record-unreadable'; readonly message: string };
+  /** Set when the disc and playlist have a saved record for another episode list (its spec); `record` is then null. */
+  readonly otherEpisodeSpec?: string;
+  /** With `otherEpisodeSpec`: how many queued or interrupted encodes use that record, and stop with a mismatch once it is replaced. */
+  readonly queuedJobs?: number;
+}
+
+/** One disc in `GET /api/library`. */
+export interface LibraryDiscInfo {
+  /** The disc's key, the `<discKey>` of the disc routes. */
+  readonly key: string;
+  /** The disc folder's name. */
+  readonly label: string;
+  /** The folder's path under its library folder, with `/` separators. */
+  readonly relPath: string;
+  /** The library folder the disc was found under. */
+  readonly root: string;
+  /** How many playlists the disc has. */
+  readonly playlistCount: number;
+  /** The playlists (five digits) that have a saved subtitle record. */
+  readonly recordPlaylists: readonly string[];
+  /** Other folders holding a disc with the same key (copies of it); the disc is listed once, at its first folder. */
+  readonly otherPaths: readonly { readonly relPath: string; readonly root: string }[];
+}
+
+/** `GET /api/library`: the library folders and the discs found under them. */
+export interface LibraryAnswer {
+  /** The library folders, saved ones first, then those the run was given. */
+  readonly roots: readonly string[];
+  /** The roots saved in the settings, the ones the page edits. */
+  readonly savedRoots: readonly string[];
+  /** The roots only this run's command line gave: scanned, never saved, not removable from the page. */
+  readonly runRoots: readonly string[];
+  /** The folders the last scan could not read; their discs from the scan before stay in `discs`. */
+  readonly unreadableRoots: readonly string[];
+  /** Whether a scan is running; `discs` is then the last complete scan. */
+  readonly scanning: boolean;
+  /** The discs, sorted by path. */
+  readonly discs: readonly LibraryDiscInfo[];
+}
+
+/** The settings of an encode that a profile holds. */
+export interface EncodeSettings {
+  /** SVT-AV1 constant rate factor, an integer 0 to 63; lower is better quality and bigger files. */
+  readonly crf: number;
+  /** SVT-AV1 preset, an integer -1 to 13; lower is slower and better. */
+  readonly preset: number;
+  /** Film-grain synthesis level, an integer 0 to 50. */
+  readonly filmGrain: number;
+  /** More SVT-AV1 arguments, one item per argument. */
+  readonly extraSvtArgs: readonly string[];
+  /** Opus bitrate in kb/s (an integer 6 to 512), or null for opusenc's own default. */
+  readonly opusBitrate: number | null;
+  /** Whether the disc's PGS subtitle tracks go into the MKV. */
+  readonly pgs: boolean;
+  /** Whether each episode is also packaged for the web player. */
+  readonly web: boolean;
+  /** The episode file name without its extension; contains `{n}`, the episode number. */
+  readonly namePattern: string;
+}
+
+/** A named set of encode settings (`GET /api/profiles`). */
+export interface Profile {
+  /** `default` for the built-in profile, else a short URL-safe id. */
+  readonly id: string;
+  /** The profile's name, unique in any letter case. */
+  readonly name: string;
+  /** True for the built-in profile, which cannot be changed or deleted. */
+  readonly builtIn: boolean;
+  /** The settings. */
+  readonly settings: EncodeSettings;
+}
+
+/** One chapter of a playlist: its 1-based number, where it starts and how long it is. */
+export interface ChapterInfo {
+  /** Chapter number, from 1. */
+  readonly index: number;
+  /** Start in milliseconds of playlist time. */
+  readonly startMs: number;
+  /** Length in milliseconds. */
+  readonly lengthMs: number;
+}
+
+/** A playlist in full, as `GET /api/discs/<key>/playlists/<id>` answers. */
+export interface PlaylistDetail {
+  /** Five-digit playlist name. */
+  readonly id: string;
+  /** Length in milliseconds. */
+  readonly durationMs: number;
+  /** The chapters in order. */
+  readonly chapters: readonly ChapterInfo[];
+  /** The episode list of the playlist's saved subtitle record, or null when none is saved. */
+  readonly record: { readonly episodeSpec: string } | null;
+}
+
+/** One playlist in `GET /api/discs/<key>/playlists`. */
+export interface PlaylistSummary {
+  /** Five-digit playlist name. */
+  readonly id: string;
+  /** Length in milliseconds. */
+  readonly durationMs: number;
+  /** How many play items the playlist has. */
+  readonly clips: number;
+  /** How many chapters the playlist has. */
+  readonly chapters: number;
+  /** At least 20 minutes and at least 4 chapters, or the longest playlist of the disc. */
+  readonly likelyMain: boolean;
+}
+
+/** What a job does: encode a playlist's episodes, or encode short samples to compare settings. */
+export type JobKind = 'encode' | 'test';
+
+/** Where a job is. */
+export type JobState = 'queued' | 'running' | 'done' | 'failed' | 'interrupted' | 'cancelled';
+
+/** Where one episode of a job is; `packaging-failed` means the MKV is complete but its web package is not. */
+export type JobEpisodeState = 'queued' | 'running' | 'done' | 'packaging-failed' | 'failed';
+
+/** One episode of a job. */
+export interface JobEpisode {
+  /** 1-based position in the job's episode list. */
+  readonly index: number;
+  /** Where it is. */
+  readonly state: JobEpisodeState;
+  /** Video frames written so far in the current or last attempt. */
+  readonly framesDone: number;
+  /** The episode's video frames in all; 0 until the encoder has said. */
+  readonly frames: number;
+  /** Whether the episode's MKV was seen complete. */
+  readonly encoded: boolean;
+  /** The episode's MKV, once known. */
+  readonly path?: string;
+  /** Why the episode failed. */
+  readonly error?: string;
+}
+
+/** A queued encode or test, as `GET /api/jobs` answers it. */
+export interface Job {
+  /** 16 lower-case hex digits. */
+  readonly id: string;
+  /** What the job does. */
+  readonly kind: JobKind;
+  /** The disc: its key, its folder's name and the folder holding BDMV. */
+  readonly disc: { readonly key: string; readonly label: string; readonly dir: string };
+  /** Five-digit playlist name. */
+  readonly playlist: string;
+  /** The episode list as it was given. */
+  readonly episodeSpec: string;
+  /** The settings the job was queued with. */
+  readonly settings: EncodeSettings;
+  /** The absolute folder the episodes are written to. */
+  readonly outDir: string;
+  /** Whether the encode leaves the saved subtitle choices out. */
+  readonly noSubtitles: boolean;
+  /** Where the job is. */
+  readonly state: JobState;
+  /** True while a test encode runs ahead of this queued job between two of its episodes. */
+  readonly paused: boolean;
+  /** ISO 8601 time the job was queued. */
+  readonly createdAt: string;
+  /** ISO 8601 time the job first ran. */
+  readonly startedAt?: string;
+  /** ISO 8601 time the job last finished, failed or stopped. */
+  readonly finishedAt?: string;
+  /** The episodes in order; for a test, one entry per sample encode (stretch by stretch, each with every profile). */
+  readonly episodes: readonly JobEpisode[];
+  /** Why the job failed. */
+  readonly error?: string;
+  /** When the subtitle choices the job encodes with were saved; null with none. */
+  readonly recordSavedAt: string | null;
+  /** The equivalent `seikou-encode encode …` command, quoted for a shell; empty for a test. */
+  readonly cli: string;
+  /** A test job's profiles, stretches and measurements; absent on an encode. */
+  readonly test?: TestPlan;
+}
+
+/**
+ * What `POST /api/jobs` answers for an encode: the Job, with `warning: 'replaces-files'` when it re-encodes the same
+ * disc, playlist and episodes into a folder where an earlier job's files have the same names, so its files replace them.
+ */
+export type QueuedJob = Job & { readonly warning?: 'replaces-files' };
+
+/** One profile a test encodes with. */
+export interface TestProfile {
+  /** The profile's id; the samples' folder name. */
+  readonly id: string;
+  /** The profile's name. */
+  readonly name: string;
+  /** The settings the samples were encoded with. */
+  readonly settings: EncodeSettings;
+}
+
+/** What one profile's samples measured. */
+export interface TestProfileResult {
+  /** The profile's id. */
+  readonly id: string;
+  /** Video bytes per second of the profile's samples. */
+  readonly videoBytesPerSecond: number;
+  /** Bytes per second of the shared audio sample (one stream). */
+  readonly audioBytesPerSecond: number;
+}
+
+/** What a test job holds besides what every job has. */
+export interface TestPlan {
+  /** The profiles compared, in order. */
+  readonly profiles: readonly TestProfile[];
+  /** The stretches of playlist time sampled, in milliseconds; sample `n` (from 1) is stretch `n`. */
+  readonly stretches: readonly { readonly startMs: number; readonly endMs: number }[];
+  /** Each episode's length in seconds. */
+  readonly episodeSeconds: readonly number[];
+  /** How many audio streams an encode of the episodes writes; null until the test has run. */
+  readonly audioStreams: number | null;
+  /** Each profile's measurements in profile order; null until the test is done. */
+  readonly results: readonly TestProfileResult[] | null;
+}
+
+/** What `POST /api/jobs` takes for a test encode. */
+export interface NewTest {
+  /** The disc's key. */
+  readonly discKey: string;
+  /** Five-digit playlist name. */
+  readonly playlistId: string;
+  /** The episode list. */
+  readonly episodeSpec: string;
+  /** One to three profiles to compare. */
+  readonly profiles: readonly TestProfile[];
+  /** Whether the encode the test prepares would leave the saved subtitle choices out (it changes how many audio streams it writes). */
+  readonly noSubtitles: boolean;
+}
+
+/** A progress report for one episode of a running job, sent at most once a second. */
+export interface JobProgress {
+  /** The job. */
+  readonly jobId: string;
+  /** 1-based episode number. */
+  readonly episode: number;
+  /** Video frames written so far. */
+  readonly framesDone: number;
+  /** The episode's video frames in all. */
+  readonly frames: number;
+  /** Frames per second so far; null before any time has passed. */
+  readonly fps: number | null;
+  /** Seconds left for this episode; null when the speed is unknown. */
+  readonly etaSeconds: number | null;
+}
+
+/** What `POST /api/jobs` takes. */
+export interface NewJob {
+  /** The disc's key. */
+  readonly discKey: string;
+  /** Five-digit playlist name. */
+  readonly playlistId: string;
+  /** The episode list. */
+  readonly episodeSpec: string;
+  /** The settings: a copy of a profile's. */
+  readonly settings: EncodeSettings;
+  /** The absolute output folder. */
+  readonly outDir: string;
+  /** Leave the saved subtitle choices out. */
+  readonly noSubtitles: boolean;
 }

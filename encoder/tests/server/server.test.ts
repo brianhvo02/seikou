@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { fixtureFansubSources } from '@seikou/fansubs/fixture-sources';
 import type { DiscManifest } from '@seikou/nas/nas-api';
-import { startHelperServer, type HelperContext } from '../../src/server/server';
+import { startHelperServer, type AppContext } from '../../src/server/server';
 import { fixtureAniList } from '../../src/subs/fixture-anilist';
 import { fx } from '../paths';
 
@@ -25,6 +25,8 @@ interface Reply {
 let server: Awaited<ReturnType<typeof startHelperServer>>;
 let dataDir: string;
 let webDir: string;
+/** The session's API path, `/api/sessions/<id>`. */
+let S: string;
 
 /** A raw request: the path goes out as written (`..` survives) and the Host header can be set, unlike fetch. */
 function send(path: string, headers: Record<string, string> = {}, method = 'GET'): Promise<Reply> {
@@ -46,26 +48,30 @@ const api = (path: string, headers: Record<string, string> = {}, method = 'GET')
 const body = <T>(reply: Reply): T => JSON.parse(reply.body.toString('utf8')) as T;
 
 async function discKey(): Promise<string> {
-  return body<{ discKey: string }>(await api('/api/session')).discKey;
+  return body<{ discKey: string }>(await api(S)).discKey;
+}
+
+/** The app context over `dataDir`, with recorded sources. */
+function appContext(data: string, web: string | null): AppContext {
+  const fansubs = fixtureFansubSources(FANSUBS);
+  const anilist = fixtureAniList(FANSUBS);
+  return {
+    dataDir: data,
+    token: TOKEN,
+    webDir: web,
+    tools: null,
+    sources: { seadex: fansubs.seadex, tosho: fansubs.tosho, anilist: anilist.source, episodes: anilist.episodes, covers: anilist.covers },
+    roots: [],
+  };
 }
 
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'helper-data-'));
   webDir = mkdtempSync(join(tmpdir(), 'helper-web-'));
   writeFileSync(join(webDir, 'index.html'), '<!doctype html><title>helper</title>');
-  const fansubs = fixtureFansubSources(FANSUBS);
-  const anilist = fixtureAniList(FANSUBS);
-  const ctx: HelperContext = {
-    discDir: fx('fixtures/disc-speech'),
-    playlistId: '00000',
-    episodeSpec: '1-3,4-5',
-    dataDir,
-    token: TOKEN,
-    webDir,
-    tools: null,
-    sources: { seadex: fansubs.seadex, tosho: fansubs.tosho, anilist: anilist.source, episodes: anilist.episodes, covers: anilist.covers },
-  };
-  server = await startHelperServer(ctx);
+  server = await startHelperServer(appContext(dataDir, webDir));
+  const session = await server.sessions.create({ discDir: fx('fixtures/disc-speech'), playlistId: '00000', episodeSpec: '1-3,4-5' });
+  S = `/api/sessions/${session.id}`;
 });
 
 afterAll(async () => {
@@ -80,7 +86,7 @@ describe('helper server', () => {
   });
 
   it('session names the disc and spec', async () => {
-    const reply = await api('/api/session');
+    const reply = await api(S);
     expect(reply.status).toBe(200);
     const session = body<{ discKey: string; label: string; playlistId: string; episodeSpec: string; toolsReady: boolean }>(reply);
     expect(session.discKey).toMatch(/^f\.[0-9A-F]{32}$/);
@@ -113,13 +119,13 @@ describe('helper server', () => {
   });
 
   it('lists the playlists', async () => {
-    const playlists = body<{ id: string; duration45: number; clipIds: string[] }[]>(await api('/api/playlists'));
+    const playlists = body<{ id: string; duration45: number; clipIds: string[] }[]>(await api(`${S}/playlists`));
     expect(playlists.map((p) => p.id)).toEqual(['00000']);
     expect(playlists[0]!.clipIds).toEqual(['00001', '00002']);
   });
 
   it('episodes give playlist times', async () => {
-    const reply = await api('/api/episodes');
+    const reply = await api(`${S}/episodes`);
     expect(reply.status).toBe(200);
     const answer = body<{
       episodes: { index: number; startUs: number; durationUs: number; chapters: { startUs: number }[] }[];
@@ -141,20 +147,20 @@ describe('helper server', () => {
   });
 
   it('refuses without a token', async () => {
-    for (const reply of [await send('/api/session'), await send('/api/session', { authorization: 'Bearer wrong' }), await send('/api/session?t=wrong')]) {
+    for (const reply of [await send(S), await send(S, { authorization: 'Bearer wrong' }), await send(`${S}?t=wrong`)]) {
       expect(reply.status).toBe(401);
       expect(body<{ error: string }>(reply).error).toBe('unauthorized');
     }
-    expect((await send(`/api/session?t=${TOKEN}`)).status).toBe(200);
+    expect((await send(`${S}?t=${TOKEN}`)).status).toBe(200);
   });
 
   it('refuses a foreign Host', async () => {
-    const reply = await api('/api/session', { host: `evil.example:${server.port}` });
+    const reply = await api(S, { host: `evil.example:${server.port}` });
     expect(reply.status).toBe(403);
     expect(body<{ error: string }>(reply).error).toBe('bad-host');
     expect((await send('/', { host: `evil.example:${server.port}` })).status).toBe(403);
-    expect((await api('/api/session', { host: `localhost:${server.port}` })).status).toBe(200);
-    expect((await api('/api/session', { host: `127.0.0.1:${server.port + 1}` })).status).toBe(403);
+    expect((await api(S, { host: `localhost:${server.port}` })).status).toBe(200);
+    expect((await api(S, { host: `127.0.0.1:${server.port + 1}` })).status).toBe(403);
   });
 
   it('refuses .. in a path', async () => {
@@ -197,7 +203,7 @@ describe('helper server', () => {
     const unknown = await api('/api/nothing');
     expect(unknown.status).toBe(404);
     expect(body<{ error: string }>(unknown).error).toBe('not-found');
-    const wrongMethod = await api('/api/session', {}, 'DELETE');
+    const wrongMethod = await api(S, {}, 'DELETE');
     expect(wrongMethod.status).toBe(405);
   });
 
@@ -210,7 +216,7 @@ describe('helper server', () => {
   });
 
   it('sets the isolation headers on the page and the API', async () => {
-    const replies = [await send('/'), await api('/api/session'), await send('/api/session'), await api('/api/nothing')];
+    const replies = [await send('/'), await api(S), await send(S), await api('/api/nothing')];
     for (const reply of replies) {
       expect(reply.headers['cross-origin-opener-policy']).toBe('same-origin');
       expect(reply.headers['cross-origin-embedder-policy']).toBe('require-corp');
@@ -237,20 +243,10 @@ describe('episode start times', () => {
     const data = mkdtempSync(join(tmpdir(), 'helper-data-'));
     cpSync(fx('fixtures/disc-speech'), dir, { recursive: true });
     shiftMark(dir, 4, 1000); // episode 2's first mark, 22.2 ms (about half a frame) later
-    const fansubs = fixtureFansubSources(FANSUBS);
-    const anilist = fixtureAniList(FANSUBS);
-    const own = await startHelperServer({
-      discDir: dir,
-      playlistId: '00000',
-      episodeSpec: '1-3,4-5',
-      dataDir: data,
-      token: TOKEN,
-      webDir: null,
-      tools: null,
-      sources: { seadex: fansubs.seadex, tosho: fansubs.tosho, anilist: anilist.source, episodes: anilist.episodes, covers: anilist.covers },
-    });
+    const own = await startHelperServer(appContext(data, null));
     try {
-      const reply = await fetch(`http://127.0.0.1:${own.port}/api/episodes`, { headers: auth });
+      const session = await own.sessions.create({ discDir: dir, playlistId: '00000', episodeSpec: '1-3,4-5' });
+      const reply = await fetch(`http://127.0.0.1:${own.port}/api/sessions/${session.id}/episodes`, { headers: auth });
       const second = ((await reply.json()) as { episodes: { startUs: number; chapters: { startUs: number }[] }[] }).episodes[1]!;
       expect(second.startUs).not.toBe(90_022_222);
       expect(Math.abs(second.startUs - (90_000_000 + FRAME_US))).toBeLessThanOrEqual(1);

@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { bestsourceCacheDir } from '../src/cli';
+import { describe, expect, it, vi } from 'vitest';
+import { bestsourceCacheDir, printEncodeEvent, stoppingLine } from '../src/cli';
 import { discKeyOfFolder } from '../src/disc/disc-key';
 import { RecordStore } from '../src/subs/record';
 import { writeEpisodeMkv } from './package/episode-mkv';
@@ -144,7 +144,7 @@ describe('serve', () => {
         child.once('exit', (code) => reject(new Error(`exited ${String(code)}: ${out}`)));
         child.stdout.on('data', (d: Buffer) => {
           out += d.toString();
-          const m = /Helper: (http:\/\/127\.0\.0\.1:\d+\/\?t=[0-9a-f]{64})/.exec(out);
+          const m = /Helper: (http:\/\/127\.0\.0\.1:\d+\/helper\/[0-9a-f]{16}\?t=[0-9a-f]{64})/.exec(out);
           if (m) resolveUrl(m[1]!);
         });
       });
@@ -152,8 +152,9 @@ describe('serve', () => {
       const page = await fetch(url);
       expect(page.status).toBe(200);
       expect(await page.text()).toContain('<title>helper</title>');
-      expect((await fetch(new URL('/api/playlists', url))).status).toBe(401);
-      expect((await fetch(new URL(`/api/playlists${new URL(url).search}`, url))).status).toBe(200);
+      const sessionPlaylists = `/api/sessions/${new URL(url).pathname.split('/')[2]}/playlists`;
+      expect((await fetch(new URL(sessionPlaylists, url))).status).toBe(401);
+      expect((await fetch(new URL(`${sessionPlaylists}${new URL(url).search}`, url))).status).toBe(200);
       const code = new Promise<number | null>((r) => child.once('exit', (c) => r(c)));
       child.kill('SIGINT');
       expect(await code).toBe(0);
@@ -161,6 +162,114 @@ describe('serve', () => {
       child.kill('SIGKILL');
     }
   }, 60_000);
+});
+
+describe('app', () => {
+  it('starts without a disc argument, lists the library of its roots, and stops on SIGINT', async () => {
+    const webDir = mkdtempSync(join(tmpdir(), 'et-app-'));
+    writeFileSync(join(webDir, 'index.html'), '<!doctype html><title>app</title>');
+    const child = spawn(process.execPath, ['--import', 'tsx', fx('src/cli.ts'), 'app', '--root', fx('fixtures'), '--no-open', '--port', '0'], {
+      env: { ...process.env, SEIKOU_ENCODE_WEB_DIR: webDir, SEIKOU_ENCODE_DATA: webDir },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    try {
+      let out = '';
+      const url = await new Promise<string>((resolveUrl, reject) => {
+        child.once('exit', (code) => reject(new Error(`exited ${String(code)}: ${out}`)));
+        child.stdout.on('data', (d: Buffer) => {
+          out += d.toString();
+          const m = /App: (http:\/\/127\.0\.0\.1:\d+\/\?t=[0-9a-f]{64})/.exec(out);
+          if (m) resolveUrl(m[1]!);
+        });
+      });
+      child.removeAllListeners('exit');
+      expect((await fetch(url)).status).toBe(200);
+      const api = new URL(`/api/library${new URL(url).search}`, url);
+      let body: { discs: { label: string }[] } = { discs: [] };
+      for (let i = 0; i < 100 && body.discs.length === 0; i++) {
+        body = (await (await fetch(api)).json()) as typeof body;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(body.discs.map((d) => d.label)).toContain('disc1');
+      const code = new Promise<number | null>((r) => child.once('exit', (c) => r(c)));
+      child.kill('SIGINT');
+      expect(await code).toBe(0);
+    } finally {
+      child.kill('SIGKILL');
+    }
+  }, 60_000);
+
+  it('with no library folders says so on one line', async () => {
+    const webDir = mkdtempSync(join(tmpdir(), 'et-app-noroots-'));
+    writeFileSync(join(webDir, 'index.html'), '<!doctype html><title>app</title>');
+    const child = spawn(process.execPath, ['--import', 'tsx', fx('src/cli.ts'), 'app', '--no-open', '--port', '0'], {
+      env: { ...process.env, SEIKOU_ENCODE_WEB_DIR: webDir, SEIKOU_ENCODE_DATA: webDir },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    try {
+      let out = '';
+      await new Promise<void>((resolveOut, reject) => {
+        child.once('exit', (code) => reject(new Error(`exited ${String(code)}: ${out}`)));
+        child.stdout.on('data', (d: Buffer) => {
+          out += d.toString();
+          if (/App: http/.test(out)) resolveOut();
+        });
+      });
+      expect(out.split('\n').filter((l) => /No library folders are set/.test(l))).toHaveLength(1);
+      child.removeAllListeners('exit');
+    } finally {
+      child.kill('SIGKILL');
+    }
+  }, 60_000);
+
+  it('a second app on the same data folder refuses to start, naming the first one', async () => {
+    const webDir = mkdtempSync(join(tmpdir(), 'et-app-twice-'));
+    writeFileSync(join(webDir, 'index.html'), '<!doctype html><title>app</title>');
+    const env = { ...process.env, SEIKOU_ENCODE_WEB_DIR: webDir, SEIKOU_ENCODE_DATA: webDir };
+    const args = ['--import', 'tsx', fx('src/cli.ts'), 'app', '--no-open', '--port', '0'];
+    const child = spawn(process.execPath, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    try {
+      let out = '';
+      await new Promise<void>((resolveOut, reject) => {
+        child.once('exit', (code) => reject(new Error(`exited ${String(code)}: ${out}`)));
+        child.stdout.on('data', (d: Buffer) => {
+          out += d.toString();
+          if (/App: http/.test(out)) resolveOut();
+        });
+      });
+      child.removeAllListeners('exit');
+      const second = spawnSync(process.execPath, args, { env, encoding: 'utf8' });
+      expect(second.status).toBe(1);
+      const lines = second.stderr.trim().split('\n');
+      expect(lines).toEqual([`Another seikou-encode app (pid ${String(child.pid)}) is using the data folder ${webDir}.`]);
+      // The first one still runs, and stops cleanly, taking its lock with it.
+      const code = new Promise<number | null>((r) => child.once('exit', (c) => r(c)));
+      child.kill('SIGINT');
+      expect(await code).toBe(0);
+      expect(existsSync(join(webDir, 'jobs.lock'))).toBe(false);
+    } finally {
+      child.kill('SIGKILL');
+    }
+  }, 60_000);
+
+  it('without a built page exits 3', () => {
+    const empty = mkdtempSync(join(tmpdir(), 'et-app-empty-'));
+    let err: { status?: number } = {};
+    try {
+      execFileSync('npx', ['tsx', fx('src/cli.ts'), 'app', '--no-open'], { stdio: 'pipe', env: { ...process.env, SEIKOU_ENCODE_WEB_DIR: empty, SEIKOU_ENCODE_DATA: empty } });
+    } catch (e) {
+      err = e as typeof err;
+    }
+    expect(err.status).toBe(3);
+  }, 60_000);
+});
+
+describe('stoppingLine', () => {
+  it('says what the first Ctrl-C waits for, and nothing when no job runs', () => {
+    expect(stoppingLine('the tool chain')).toBe('Stopping: waiting for the tool chain to finish; press Ctrl-C again to quit now.');
+    expect(stoppingLine('packaging episode 3')).toBe('Stopping: waiting for packaging episode 3 to finish; press Ctrl-C again to quit now.');
+    expect(stoppingLine(null)).toBeNull();
+  });
 });
 
 describe('bestsourceCacheDir', () => {
@@ -216,4 +325,21 @@ describe('package', () => {
   it('exits 2 without --out', () => {
     expect(() => execFileSync('npx', ['tsx', fx('src/cli.ts'), 'package', '/tmp/x.mkv'], { stdio: 'pipe' })).toThrowError(expect.objectContaining({ status: 2 }));
   }, 60_000);
+});
+
+it('the encode event printer stays quiet for progress and packaging events', () => {
+  const out = vi.spyOn(console, 'log').mockImplementation(() => {});
+  const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    for (const kind of ['progress', 'packaged', 'package-failed'] as const) printEncodeEvent({ kind, episode: 1, message: 'x', framesDone: 1, frames: 2 });
+    expect(out).not.toHaveBeenCalled();
+    expect(err).not.toHaveBeenCalled();
+    printEncodeEvent({ kind: 'log', episode: 1, message: 'note' });
+    printEncodeEvent({ kind: 'episode-start', episode: 1, message: 'Encoding episode 1' });
+    expect(err).toHaveBeenCalledWith('note');
+    expect(out).toHaveBeenCalledWith('Encoding episode 1');
+  } finally {
+    out.mockRestore();
+    err.mockRestore();
+  }
 });

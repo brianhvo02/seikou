@@ -44,9 +44,16 @@ export interface Chain {
   done: Promise<void>;
   /** Stops both processes and rejects `done` with `reason`, unless it has already settled. */
   abort(reason: Error): void;
+  /**
+   * Resolves once both processes have exited (or could not start), whatever the outcome. A process that ignores
+   * SIGTERM is killed after five seconds. `abort` does not wait for this; a caller that must leave no process
+   * behind does.
+   */
+  exited: Promise<void>;
 }
 
 const STDERR_TAIL_BYTES = 4096;
+const KILL_AFTER_MS = 5000;
 
 interface Stage {
   name: string;
@@ -88,8 +95,24 @@ function runChain(first: Stage, second: Stage, between?: (out: Readable) => Read
   // callers awaiting `done` still observe it.
   done.catch(() => {});
 
+  const alive = (p: ChildProcess): boolean => p.exitCode === null && p.signalCode === null;
+  const exited_ = Promise.all(
+    procs.map((p) => new Promise<void>((res) => {
+      // 'exit', not 'close': a stdout nobody reads any more never closes.
+      p.once('exit', () => res());
+      p.once('error', () => {
+        // A process that never started never closes.
+        if (p.pid === undefined) res();
+      });
+    })),
+  ).then(() => {});
   const killAll = (): void => {
-    for (const p of procs) if (p.exitCode === null && p.signalCode === null) p.kill('SIGTERM');
+    for (const p of procs) if (alive(p)) p.kill('SIGTERM');
+    const timer = setTimeout(() => {
+      for (const p of procs) if (alive(p)) p.kill('SIGKILL');
+    }, KILL_AFTER_MS);
+    timer.unref();
+    void exited_.then(() => clearTimeout(timer));
   };
   const fail = (err: Error): void => {
     if (settled) return;
@@ -169,6 +192,7 @@ function runChain(first: Stage, second: Stage, between?: (out: Readable) => Read
     abort(reason: Error): void {
       fail(reason);
     },
+    exited: exited_,
   };
 }
 

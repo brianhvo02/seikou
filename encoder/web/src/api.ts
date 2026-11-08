@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-/** The helper page's client for its local backend: one typed method per route, every request carrying the run's token. */
+/** The helper page's client for its local backend: one typed method per route of a helper session, each carrying the token. */
 import type { RemoteDiscSpec } from '@seikou/engine';
 import type { DiscManifest } from '@seikou/nas/nas-api';
 import type {
@@ -36,11 +36,11 @@ export class ApiError extends Error {
   }
 }
 
-/** The backend's routes as methods. Every method rejects with `ApiError`. */
+/** The backend's routes for one helper session as methods. Every method rejects with `ApiError`. */
 export interface HelperApi {
-  /** The run's disc, playlist, episode spec and whether lining up can run. */
+  /** The session's disc, playlist, episode spec and whether lining up can run. */
   session(): Promise<SessionInfo>;
-  /** The run's episodes in playlist time, the audio streams and the PG count. */
+  /** The session's episodes in playlist time, the audio streams and the PG count. */
   episodes(): Promise<EpisodesAnswer>;
   /** AniList's results for `q`, in AniList's order, each `poster` a URL of the backend's cover route with the token. */
   searchTitles(q: string): Promise<TitleHit[]>;
@@ -62,10 +62,14 @@ export interface HelperApi {
   subtitleUrl(episode: number, release: string, fileId: string, trackId: string, timing: FansubAlignment): string;
   /** URL of a release's font by its original name, token included. */
   fontUrl(release: string, name: string): string;
-  /** The saved record for this run (null when none) and the cached files it names that are gone. */
+  /** The saved record for the session (null when none) and the cached files it names that are gone. */
   record(): Promise<RecordAnswer>;
-  /** Saves the record; answers it as stored, with `savedAt` set by the server. */
-  saveRecord(record: SubtitleRecord): Promise<SubtitleRecord>;
+  /**
+   * Saves the record; answers it as stored, with `savedAt` set by the server. A record saved for another episode list
+   * of the playlist is replaced only with `replace`; without it the save rejects with `other-episode-spec` (that
+   * list in `details.episodeSpec`).
+   */
+  saveRecord(record: SubtitleRecord, replace?: boolean): Promise<SubtitleRecord>;
   /**
    * The disc as Seikou's engine opens it from the backend's NAS-compatible disc API: its manifest, an absolute base
    * URL (the engine reads from its worker, which resolves nothing against the page) and the run's token, which the
@@ -85,6 +89,11 @@ export function base64UrlJson(value: unknown): string {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+/** The helper session id in a page path `/helper/<id>` (16 lower-case hex digits, a trailing slash allowed), or null. */
+export function helperSessionId(pathname: string): string | null {
+  return /^\/helper\/([0-9a-f]{16})\/?$/.exec(pathname)?.[1] ?? null;
+}
+
 /** 16 random lower-case hex digits, the name of one upload batch. */
 function batchId(): string {
   const bytes = crypto.getRandomValues(new Uint8Array(8));
@@ -92,7 +101,7 @@ function batchId(): string {
 }
 
 /** The `ApiError` an answer that is not ok stands for. */
-async function errorOf(res: Response): Promise<ApiError> {
+export async function errorOf(res: Response): Promise<ApiError> {
   let body: Record<string, unknown> = {};
   try {
     const parsed: unknown = await res.json();
@@ -114,12 +123,16 @@ function defaultMessage(status: number, code: string): string {
 }
 
 /**
- * The client for the backend at `base` (an origin such as `http://127.0.0.1:4195`, or `''` for the page's own) with
- * the run's `token`. The token goes in an `Authorization` header on requests and in `?t=` on the URLs the engine
- * fetches itself (subtitle and font URLs). It is kept only in this object.
+ * The client for the helper session `sessionId` of the backend at `base` (an origin such as `http://127.0.0.1:4195`,
+ * or `''` for the page's own) with the run's `token`. The session's routes are under `/api/sessions/<sessionId>`; the
+ * disc's files (`remoteDisc`) are the backend's own, outside it. The token goes in an `Authorization` header on
+ * requests and in `?t=` on the URLs the engine fetches itself (subtitle and font URLs). It is kept only in this
+ * object.
  */
-export function createApi(base: string, token: string, fetchImpl: FetchLike = (input, init) => fetch(input, init)): HelperApi {
+export function createApi(base: string, token: string, sessionId: string, fetchImpl: FetchLike = (input, init) => fetch(input, init)): HelperApi {
   const root = base.replace(/\/$/, '');
+  /** The session's API path. */
+  const sessionPath = `/api/sessions/${encodeURIComponent(sessionId)}`;
 
   async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
     const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
@@ -149,34 +162,34 @@ export function createApi(base: string, token: string, fetchImpl: FetchLike = (i
   const enc = encodeURIComponent;
 
   return {
-    session: () => request('GET', '/api/session'),
-    episodes: () => request('GET', '/api/episodes'),
+    session: () => request('GET', sessionPath),
+    episodes: () => request('GET', `${sessionPath}/episodes`),
     async searchTitles(text) {
-      const { candidates } = await request<{ candidates: TitleHit[] }>('GET', `/api/titles/search?${q({ q: text })}`);
+      const { candidates } = await request<{ candidates: TitleHit[] }>('GET', `${sessionPath}/titles/search?${q({ q: text })}`);
       // The backend names each cover by its own path; an <img> sends no Authorization header, so the token goes in ?t=.
       return candidates.map((hit) => (hit.poster === null ? hit : { ...hit, poster: `${root}${hit.poster}?${q({ t: token })}` }));
     },
-    episodeTitles: async (alId) => (await request<{ titles: Record<number, string> }>('GET', `/api/titles/${alId}/episodes`)).titles,
-    seadex: (alId) => request('GET', `/api/fansubs/seadex?${q({ anilist: alId })}`),
-    searchTosho: (text) => request('GET', `/api/fansubs/search?${q({ q: text })}`),
-    fetchRelease: (toshoId, offset) => request('POST', `/api/fansubs/fetch?${q({ offset })}`, { toshoId }),
+    episodeTitles: async (alId) => (await request<{ titles: Record<number, string> }>('GET', `${sessionPath}/titles/${alId}/episodes`)).titles,
+    seadex: (alId) => request('GET', `${sessionPath}/fansubs/seadex?${q({ anilist: alId })}`),
+    searchTosho: (text) => request('GET', `${sessionPath}/fansubs/search?${q({ q: text })}`),
+    fetchRelease: (toshoId, offset) => request('POST', `${sessionPath}/fansubs/fetch?${q({ offset })}`, { toshoId }),
     async upload(files, offset) {
       const batch = batchId();
       // one file at a time: the backend keeps each in the batch folder until commit
-      for (const file of files) await request('PUT', `/api/uploads/${batch}/${enc(file.name)}`, file);
-      return request('POST', `/api/uploads/${batch}/commit?${q({ offset })}`);
+      for (const file of files) await request('PUT', `${sessionPath}/uploads/${batch}/${enc(file.name)}`, file);
+      return request('POST', `${sessionPath}/uploads/${batch}/commit?${q({ offset })}`);
     },
-    release: (key, offset) => request('GET', `/api/releases/${enc(key)}?${q({ offset })}`),
-    align: (episode, release, fileId, signal) => request('POST', `/api/episodes/${episode}/align`, { release, fileId }, signal),
+    release: (key, offset) => request('GET', `${sessionPath}/releases/${enc(key)}?${q({ offset })}`),
+    align: (episode, release, fileId, signal) => request('POST', `${sessionPath}/episodes/${episode}/align`, { release, fileId }, signal),
     subtitleUrl(episode, release, fileId, trackId, timing) {
       const params: Record<string, string> = { release, file: fileId, track: trackId };
       if (timing.kind !== 'original') params.timing = base64UrlJson(timing);
       params.t = token;
-      return `${root}/api/episodes/${episode}/subtitle?${q(params)}`;
+      return `${root}${sessionPath}/episodes/${episode}/subtitle?${q(params)}`;
     },
-    fontUrl: (release, name) => `${root}/api/releases/${enc(release)}/fonts/${enc(name)}?${q({ t: token })}`,
-    record: () => request('GET', '/api/record'),
-    saveRecord: (record) => request('PUT', '/api/record', record),
+    fontUrl: (release, name) => `${root}${sessionPath}/releases/${enc(release)}/fonts/${enc(name)}?${q({ t: token })}`,
+    record: () => request('GET', `${sessionPath}/record`),
+    saveRecord: (record, replace) => request('PUT', `${sessionPath}/record${replace === true ? '?replace=1' : ''}`, record),
     async remoteDisc(discKey) {
       const manifest = await request<DiscManifest>('GET', `/api/discs/${enc(discKey)}/manifest`);
       const base = new URL(`${root}/api/discs/${enc(discKey)}/`, root === '' ? location.href : undefined).href;

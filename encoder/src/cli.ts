@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { listPlaylists, loadPlaylist } from './disc/playlist';
-import { encodeEpisodes } from './encode';
+import { encodeEpisodes, type EncodeEvent } from './encode';
 import { MkvReadError } from './mux/mkv-reader';
 import { packageEpisode, PackageError } from './package/package';
 import { SupError } from './package/sup';
@@ -14,9 +14,12 @@ import { WebmError } from './package/webm';
 import { loadEncodeRecord, MissingSubtitleFilesError, NoAudioChosenError, RecordMismatchError } from './subs/encode-record';
 import { ChainError } from './pipeline/chain';
 import { EpisodeSpecError, parseEpisodeSpec } from './plan/episodes';
-import { startHelperServer } from './server/server';
+import { startJobRunner } from './server/jobs';
+import { takeJobsLock } from './server/jobs-lock';
+import { startHelperServer, type AppContext } from './server/server';
 import { createSources } from './server/sources';
 import { appDataDir } from './subs/app-data';
+import { appSettings } from './subs/app-settings';
 import { findTools, ToolsError } from './tools';
 import type { ToolPaths } from './pipeline/chain';
 
@@ -25,13 +28,17 @@ class UsageError extends Error {}
 /** Thrown by `serve` when the helper page has not been built; the command line answers it with exit code 3. */
 class WebDirMissingError extends Error {}
 
+/** Thrown by `app` when another process runs the data folder's encode queue; the command line answers it with exit code 1. */
+class QueueElsewhereError extends Error {}
+
 const USAGE = `Usage:
   seikou-encode plan <disc> [--playlist ID]
   seikou-encode encode <disc> --playlist ID --episodes SPEC --out DIR
-      [--name PATTERN] [--crf N] [--preset N] [--svt-args "..."] [--opus-bitrate N] [--title T] [--cache DIR]
+      [--name PATTERN] [--crf N] [--preset N] [--film-grain N] [--svt-args "..."] [--opus-bitrate N] [--title T] [--cache DIR]
       [--no-subtitles] [--no-pgs] [--web DIR]
   seikou-encode package <episode.mkv> --out DIR
-  seikou-encode serve <disc> --playlist ID --episodes SPEC [--port N] [--no-open]`;
+  seikou-encode serve <disc> --playlist ID --episodes SPEC [--port N] [--no-open]
+  seikou-encode app [--root DIR]... [--port N] [--no-open]`;
 
 const pad = (n: number, w: number): string => String(n).padStart(w, '0');
 
@@ -83,6 +90,82 @@ function untilStopped(): Promise<void> {
   });
 }
 
+/** The built helper page's folder; throws `WebDirMissingError` when it holds no index.html. */
+function builtWebDir(): string {
+  const webDir = helperWebDir(process.env);
+  if (statSync(join(webDir, 'index.html'), { throwIfNoEntry: false })?.isFile() !== true) {
+    throw new WebDirMissingError(`The helper page is not built (no index.html in ${webDir}); run npm run encoder:web:build first`);
+  }
+  return webDir;
+}
+
+/** The external tools, or null (with a note printed) when some are missing. */
+function toolsOrNull(): ToolPaths | null {
+  try {
+    return findTools();
+  } catch (err) {
+    if (!(err instanceof ToolsError)) throw err;
+    console.log(`Alignment is unavailable: ${err.message.split('\n')[0]}`);
+    return null;
+  }
+}
+
+/**
+ * Starts the app on the library `roots` with no session and its encode queue, prints its address and runs until
+ * stopped. It refuses to start (`QueueElsewhereError`) while another process holds the data folder's queue lock.
+ */
+async function app(roots: readonly string[], port: number, open: boolean): Promise<void> {
+  const real: string[] = [];
+  for (const root of roots) {
+    const dir = resolve(root);
+    if (statSync(dir, { throwIfNoEntry: false })?.isDirectory() !== true) throw new UsageError(`--root ${root} is not a folder`);
+    real.push(dir);
+  }
+  const webDir = builtWebDir();
+  const dataDir = appDataDir();
+  const attempt = takeJobsLock(dataDir);
+  if ('heldBy' in attempt) throw new QueueElsewhereError(`Another seikou-encode app (pid ${attempt.heldBy}) is using the data folder ${dataDir}.`);
+  const token = randomBytes(32).toString('hex');
+  let context: AppContext;
+  let server: Awaited<ReturnType<typeof startHelperServer>>;
+  try {
+    if (real.length === 0 && (await appSettings(dataDir).read()).roots.length === 0) {
+      console.log('No library folders are set. Add one in the app, or start with --root DIR.');
+    }
+    context = { dataDir, token, webDir, tools: toolsOrNull(), sources: createSources(process.env, fetch), roots: real };
+    server = await startHelperServer(context, port);
+  } catch (err) {
+    attempt.lock.release();
+    throw err;
+  }
+  const runner = startJobRunner(context, {}, attempt.lock);
+  const url = `${server.url}?t=${token}`;
+  console.log(`App: ${url}`);
+  if (open) openInBrowser(url);
+  await untilStopped();
+  await stopRunning(runner);
+  await server.close();
+}
+
+/**
+ * The line the first Ctrl-C prints while a job runs, saying what the stop waits for (see `JobRunner.waitingFor`);
+ * null when nothing runs.
+ */
+export function stoppingLine(waitingFor: string | null): string | null {
+  return waitingFor === null ? null : `Stopping: waiting for ${waitingFor} to finish; press Ctrl-C again to quit now.`;
+}
+
+/**
+ * Stops the encode queue before the process exits: a running job is cancelled, its tools are waited for, and it is
+ * saved as interrupted, so it can be retried on the next start. A second Ctrl-C meanwhile quits at once, since the
+ * first one took the only signal listener.
+ */
+async function stopRunning(runner: ReturnType<typeof startJobRunner>): Promise<void> {
+  const line = stoppingLine(runner.waitingFor());
+  if (line !== null) console.log(line);
+  await runner.shutdown();
+}
+
 async function serve(
   disc: string,
   playlistId: string,
@@ -94,35 +177,29 @@ async function serve(
   // A bad episode spec is a usage error whether or not the page is built.
   const playlist = await loadPlaylist(discDir, playlistId);
   parseEpisodeSpec(episodes, playlist.chapters.length);
-  const webDir = helperWebDir(process.env);
-  if (statSync(join(webDir, 'index.html'), { throwIfNoEntry: false })?.isFile() !== true) {
-    throw new WebDirMissingError(`The helper page is not built (no index.html in ${webDir}); run npm run encoder:web:build first`);
-  }
-  let tools: ToolPaths | null = null;
-  try {
-    tools = findTools();
-  } catch (err) {
-    if (!(err instanceof ToolsError)) throw err;
-    console.log(`Alignment is unavailable: ${err.message.split('\n')[0]}`);
-  }
+  const webDir = builtWebDir();
+  const tools = toolsOrNull();
   const token = randomBytes(32).toString('hex');
-  const server = await startHelperServer(
-    {
-      discDir,
-      playlistId,
-      episodeSpec: episodes,
-      dataDir: appDataDir(),
-      token,
-      webDir,
-      tools,
-      sources: createSources(process.env, fetch),
-    },
-    port,
-  );
-  const url = `${server.url}?t=${token}`;
+  const context: AppContext = { dataDir: appDataDir(), token, webDir, tools, sources: createSources(process.env, fetch), roots: [] };
+  const server = await startHelperServer(context, port);
+  const runner = startJobRunner(context);
+  await runner.ready;
+  if (runner.queueElsewhere !== null) {
+    console.log(`The encode queue runs in another seikou-encode app (pid ${runner.queueElsewhere}); this helper can't queue encodes.`);
+  }
+  let session;
+  try {
+    session = await server.sessions.create({ discDir, playlistId, episodeSpec: episodes });
+  } catch (err) {
+    await stopRunning(runner);
+    await server.close();
+    throw err;
+  }
+  const url = `${server.url}helper/${session.id}?t=${token}`;
   console.log(`Helper: ${url}`);
   if (open) openInBrowser(url);
   await untilStopped();
+  await stopRunning(runner);
   await server.close();
 }
 
@@ -137,11 +214,13 @@ async function run(argv: string[]): Promise<void> {
       name: { type: 'string' },
       crf: { type: 'string' },
       preset: { type: 'string' },
+      'film-grain': { type: 'string' },
       'svt-args': { type: 'string' },
       'opus-bitrate': { type: 'string' },
       title: { type: 'string' },
       cache: { type: 'string' },
       port: { type: 'string' },
+      root: { type: 'string', multiple: true },
       'no-open': { type: 'boolean' },
       'no-subtitles': { type: 'boolean' },
       'no-pgs': { type: 'boolean' },
@@ -149,6 +228,12 @@ async function run(argv: string[]): Promise<void> {
     },
   });
   const [command, disc] = positionals;
+  if (command === 'app') {
+    if (positionals.length > 1) throw new UsageError('expected: app [--root DIR]… [--port N] [--no-open]');
+    const port = values.port === undefined ? 0 : intOption(values.port, 'port');
+    await app(values.root ?? [], port, values['no-open'] !== true);
+    return;
+  }
   if (command === 'package') {
     if (disc === undefined || positionals.length > 2) throw new UsageError('expected: package <episode.mkv> --out DIR');
     if (values.out === undefined) throw new UsageError('--out is required');
@@ -184,6 +269,7 @@ async function run(argv: string[]): Promise<void> {
       values['opus-bitrate'] === undefined ? undefined : intOption(values['opus-bitrate'], 'opus-bitrate');
     const crf = values.crf === undefined ? 25 : intOption(values.crf, 'crf');
     const preset = values.preset === undefined ? 4 : intOption(values.preset, 'preset');
+    const filmGrain = values['film-grain'] === undefined ? 4 : intOption(values['film-grain'], 'film-grain');
     // A bad episode spec is a usage error (exit 2) whether or not the tools are installed.
     const playlist = await loadPlaylist(resolve(disc), values.playlist);
     parseEpisodeSpec(values.episodes, playlist.chapters.length);
@@ -201,6 +287,7 @@ async function run(argv: string[]): Promise<void> {
         namePattern: values.name ?? 'episode-{n}',
         crf,
         preset,
+        filmGrain,
         extraSvtArgs: (values['svt-args'] ?? '').split(/\s+/).filter((a) => a !== ''),
         opusBitrate,
         cacheDir,
@@ -212,11 +299,7 @@ async function run(argv: string[]): Promise<void> {
         noPgs: values['no-pgs'] === true,
         webDir: values.web === undefined ? undefined : resolve(values.web),
       },
-      (e) => {
-        if (e.kind === 'episode-done') console.log(`Episode ${e.episode} done: ${e.path ?? ''}`);
-        else if (e.kind === 'episode-start') console.log(e.message);
-        else console.error(e.message);
-      },
+      printEncodeEvent,
     );
     return;
   }
@@ -232,11 +315,19 @@ async function run(argv: string[]): Promise<void> {
   throw new UsageError(`unknown command "${command ?? ''}"`);
 }
 
+/** Prints what the `encode` command shows of an event: starts and finishes on stdout, log lines on stderr, nothing for progress or packaging events. */
+export function printEncodeEvent(e: EncodeEvent): void {
+  if (e.kind === 'episode-done') console.log(`Episode ${e.episode} done: ${e.path ?? ''}`);
+  else if (e.kind === 'episode-start') console.log(e.message);
+  else if (e.kind === 'log') console.error(e.message);
+}
+
 /**
  * Runs the command line and returns the process exit code: 0 success, 1 encode or packaging failure (`package` on a
- * file that is not a readable Matroska file with an AV1 track, too), 2 usage
+ * file that is not a readable Matroska file with an AV1 track, too; `app` when another process runs the data folder's
+ * encode queue), 2 usage
  * error, bad episode list or a saved record that does not fit the encode (another playlist or episode list, or an
- * episode with no audio stream ticked), 3 required tools missing (or, for `serve`, the helper page not built). Output goes to stdout and stderr; nothing
+ * episode with no audio stream ticked), 3 required tools missing (or, for `serve` and `app`, the page not built). Output goes to stdout and stderr; nothing
  * is thrown.
  */
 export async function main(argv: string[]): Promise<number> {
@@ -261,6 +352,10 @@ export async function main(argv: string[]): Promise<number> {
       return 1;
     }
     if (err instanceof MissingSubtitleFilesError) {
+      console.error(err.message);
+      return 1;
+    }
+    if (err instanceof QueueElsewhereError) {
       console.error(err.message);
       return 1;
     }

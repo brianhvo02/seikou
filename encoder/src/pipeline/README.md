@@ -14,7 +14,7 @@ The encoder never decodes or encodes in-process. It writes a small VapourSynth s
 ## API
 
 - `buildVideoScript(plan, { cacheDir })` and `buildAudioScript(plan, { cacheDir }, trackIndex)` return script text; `trackIndex` is the 0-based position of the stream among those the plan was made with. `buildSpeechAudioScript(plan, { cacheDir })` returns the audio script that subtitle alignment decodes (see `audio/`): today `buildAudioScript` of the first planned stream (the helper plans only the playlist's first STN audio stream), kept separate so a conversion added to the encode's audio does not change what alignment hears.
-- `videoChain(tools, scriptPath, svtArgs)` and `audioChain(tools, scriptPath, opusArgs, expected)` return a `Chain`: `stream` (read it), `done` (await it for the outcome), `abort(reason)`. `expected` (`WavExpectation`: PID, channels, sample rate; a `SelectedAudio` will do) is what the audio chain's guard checks.
+- `videoChain(tools, scriptPath, svtArgs)` and `audioChain(tools, scriptPath, opusArgs, expected)` return a `Chain`: `stream` (read it), `done` (await it for the outcome), `abort(reason)`, `exited` (resolves once both processes have exited; a process that ignores SIGTERM is killed after 5 s). `expected` (`WavExpectation`: PID, channels, sample rate; a `SelectedAudio` will do) is what the audio chain's guard checks.
 - `guardWav(stream, expected)` returns the guarded pass-through; its failure is a `WavGuardError`.
 - `ToolPaths` names the three programs; `ChainError` is the failure type.
 

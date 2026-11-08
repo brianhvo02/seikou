@@ -1,7 +1,7 @@
 # Encoder Jobs UI: Design
 
 Date: 2026-11-08
-Status: Draft for the user's review (the user skipped the questions; every decision below not quoted from an earlier spec is marked "designer's call")
+Status: Implemented on 2026-11-08 (plan `2026-11-08-m4-jobs-ui.md`)
 Parents: `2026-11-06-encoding-tools-design.md` (milestone 4: "Web UI and job runner. Disc browser, chapter grouping with a preview, encode queue, logs and progress, settings profiles (SilentAperture-style test-encode helper)") and `2026-11-07-subtitle-helper-design.md` (milestone 4 "Web UI for jobs", with the chapter-grouping preview the user asked for on 2026-11-07: "the playlist plays in `@seikou/engine` as in the helper, the chapter list shows each mark's time, a click jumps there, and the user groups chapters into episodes while watching").
 
 ## 1. Intent
@@ -40,7 +40,7 @@ Anti-goals:
 3. **Episodes.** The playlist plays (preview, same engine and player surface as the helper's step 3). Beside it, the chapter list: number, start time, length. A click on a chapter jumps there. Between chapters the user toggles a split, and can mark a chapter "skip" (for recaps or previews before the next episode). The result is shown as episodes with their lengths, and as the `--episodes` text, editable directly. When a subtitle record exists for this playlist, its episode list is loaded; changing it warns that the saved subtitle choices will no longer match.
 4. **Subtitles.** "Choose subtitles" opens the helper on this disc, playlist and episode list (the helper's three steps as they are). "Encode without subtitles" skips it.
 5. **Settings and test.** Pick a profile (or edit one), optionally run a test encode with up to three profiles, watch the samples, read the projected sizes, pick.
-6. **Queue.** Choose the output folder (default `<data>/output/<disc label>/<playlist>`; designer's call) and add the job. The queue page shows every job: state (queued, running, done, failed, interrupted, cancelled), per-episode progress, the log, the CLI command, and links to the output files (and the web directory with `--web`).
+6. **Queue.** Choose the output folder (default `<data>/output/<disc label>-<first 8 hex digits of the disc key>/<playlist>`, so two discs whose folders share a name get folders of their own; designer's call) and add the job. The queue page shows every job: state (queued, running, done, failed, interrupted, cancelled), per-episode progress, the log, the CLI command, and links to the output files (and the web directory with `--web`).
 
 ## 4. Constraints
 
