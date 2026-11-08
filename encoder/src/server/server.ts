@@ -153,7 +153,9 @@ async function api(req: IncomingMessage, res: ServerResponse, pathname: string, 
 
 /**
  * Whether a missing page file at `segments` is one of the page's own routes, answered with index.html, rather than a
- * missing asset: built assets live under `assets/`, and other files are named with a type the page serves.
+ * missing asset: built assets live under `assets/`, and other files are named with a type the page serves. So a page
+ * route whose last segment ends in such an extension (`.js`, `.json`, `.png`, ... from the MIME table) answers 404;
+ * page routes must not end that way. A dot elsewhere, as in a disc key `f.<hex>`, is fine.
  */
 function isPageRoute(segments: readonly string[]): boolean {
   if (segments[0] === 'assets') return false;

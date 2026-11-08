@@ -64,8 +64,12 @@ export interface HelperApi {
   fontUrl(release: string, name: string): string;
   /** The saved record for the session (null when none) and the cached files it names that are gone. */
   record(): Promise<RecordAnswer>;
-  /** Saves the record; answers it as stored, with `savedAt` set by the server. */
-  saveRecord(record: SubtitleRecord): Promise<SubtitleRecord>;
+  /**
+   * Saves the record; answers it as stored, with `savedAt` set by the server. A record saved for another episode list
+   * of the playlist is replaced only with `replace`; without it the save rejects with `other-episode-spec` (that
+   * list in `details.episodeSpec`).
+   */
+  saveRecord(record: SubtitleRecord, replace?: boolean): Promise<SubtitleRecord>;
   /**
    * The disc as Seikou's engine opens it from the backend's NAS-compatible disc API: its manifest, an absolute base
    * URL (the engine reads from its worker, which resolves nothing against the page) and the run's token, which the
@@ -185,7 +189,7 @@ export function createApi(base: string, token: string, sessionId: string, fetchI
     },
     fontUrl: (release, name) => `${root}${sessionPath}/releases/${enc(release)}/fonts/${enc(name)}?${q({ t: token })}`,
     record: () => request('GET', `${sessionPath}/record`),
-    saveRecord: (record) => request('PUT', `${sessionPath}/record`, record),
+    saveRecord: (record, replace) => request('PUT', `${sessionPath}/record${replace === true ? '?replace=1' : ''}`, record),
     async remoteDisc(discKey) {
       const manifest = await request<DiscManifest>('GET', `/api/discs/${enc(discKey)}/manifest`);
       const base = new URL(`${root}/api/discs/${enc(discKey)}/`, root === '' ? location.href : undefined).href;

@@ -17,22 +17,23 @@ interface Entry {
 
 /**
  * Keeps the 16 kHz PCM of the most recently used episodes (`keep` of them; a 24-minute episode is about 46 MB) and
- * decodes the others through `load`, one decode at a time. Concurrent requests for the same episode share one
- * decode. A request whose signal aborts rejects with the signal's reason at once; the decode itself is aborted only
+ * decodes the others through `load`, one decode at a time. An episode is named by a key `K`: its 1-based number by
+ * default, or anything compared with `===` that tells episodes apart, such as one naming a helper session and an
+ * episode. Concurrent requests for the same episode share one decode. A request whose signal aborts rejects with the signal's reason at once; the decode itself is aborted only
  * when every request waiting on it has gone. A failed or aborted decode is forgotten, so the next request tries again.
  */
-export class EpisodeAudioCache {
-  private readonly entries = new Map<number, Entry>();
+export class EpisodeAudioCache<K = number> {
+  private readonly entries = new Map<K, Entry>();
   private readonly decodes = new Semaphore(1);
 
-  /** `load` decodes an episode (1-based) and must stop with a rejection when its signal aborts. */
+  /** `load` decodes the episode a key names and must stop with a rejection when its signal aborts. */
   constructor(
-    private readonly load: (episode: number, signal?: AbortSignal) => Promise<Int16Array>,
+    private readonly load: (episode: K, signal?: AbortSignal) => Promise<Int16Array>,
     private readonly keep = 2,
   ) {}
 
   /** The episode's PCM, decoded now or kept from before. */
-  get(episode: number, signal?: AbortSignal): Promise<Int16Array> {
+  get(episode: K, signal?: AbortSignal): Promise<Int16Array> {
     signal?.throwIfAborted();
     let entry = this.entries.get(episode);
     if (entry) {
@@ -46,7 +47,7 @@ export class EpisodeAudioCache {
     return this.wait(entry, signal);
   }
 
-  private start(episode: number): Entry {
+  private start(episode: K): Entry {
     const controller = new AbortController();
     const pcm = this.decodes.run(() => this.load(episode, controller.signal), controller.signal);
     const entry: Entry = { pcm, controller, waiters: 0, done: false };

@@ -21,9 +21,11 @@ const MAX_RECORD_BYTES = 2 * 1024 * 1024;
  *                 starts fresh; saving then overwrites the broken file.
  *   PUT /record   body: a record. It is validated, its disc key, playlist and episode spec must equal the session's
  *                 (409 `session-mismatch`), `savedAt` is set to the server's clock, and the stored record is
- *                 answered. Errors: 400 `bad-record` with `message` and `path` (the JSON path of the first bad
- *                 field; a body that is not JSON has path `$`), 409 `session-mismatch`, 413 `too-large` over
- *                 2 MB (with `Connection: close`).
+ *                 answered. A record saved for another episode list of the playlist is replaced only with
+ *                 `?replace=1`; without it the answer is 409 `other-episode-spec` with that list as `episodeSpec`.
+ *                 Errors: 400 `bad-record` with `message` and `path` (the JSON path of the first bad field; a body
+ *                 that is not JSON has path `$`), 409 `session-mismatch` or `other-episode-spec`, 413 `too-large`
+ *                 over 2 MB (with `Connection: close`).
  */
 export const recordRoutes: RouteTable = [
   [
@@ -71,8 +73,26 @@ export const recordRoutes: RouteTable = [
       if (parsed.disc.key !== session.discKey || parsed.playlist !== session.playlistId || parsed.episodeSpec !== session.episodeSpec) {
         return httpError(res, 409, 'session-mismatch', 'The record is for another disc, playlist or episode list.');
       }
+      const store = new RecordStore(app.dataDir);
+      const replace = new URL(req.url ?? '/', 'http://helper.invalid').searchParams.get('replace') === '1';
+      if (!replace) {
+        // a record another episode list of this playlist saved is replaced only when the page says so
+        let stored = null;
+        try {
+          stored = await store.read(session.discKey, session.playlistId);
+        } catch (e) {
+          if (!(e instanceof RecordError)) throw e; // an unreadable file is replaced, as before
+        }
+        if (stored && stored.episodeSpec !== session.episodeSpec) {
+          return json(res, 409, {
+            error: 'other-episode-spec',
+            message: `Subtitle choices are saved for episodes ${stored.episodeSpec}; saving here replaces them.`,
+            episodeSpec: stored.episodeSpec,
+          });
+        }
+      }
       const record = { ...parsed, savedAt: new Date().toISOString() };
-      await new RecordStore(app.dataDir).write(record);
+      await store.write(record);
       json(res, 200, record);
     }),
   ],

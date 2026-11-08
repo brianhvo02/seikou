@@ -138,7 +138,11 @@ export class SessionStore {
     return this.sessions.get(id) ?? null;
   }
 
-  /** The folder of the disc with `key` when a session is on it, else null. */
+  /**
+   * The folder of the disc with `key` when a session is on it, else null. Two copies of one disc in different folders
+   * have the same key (it is the content's fingerprint, and their bytes are identical), so they share one entry: the
+   * folder of the copy a session was last made on.
+   */
   byDiscKey(key: string): string | null {
     return this.discDirs.get(key) ?? null;
   }

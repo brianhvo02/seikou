@@ -57,6 +57,25 @@ describe('helper sessions', () => {
     expect(refused.status).toBe(409);
   });
 
+  it("a session does not replace another episode list's record unless asked to", async () => {
+    const inOther = (init?: Parameters<RouteFixture['send']>[1]) => fixture.send(`/api/sessions/${other}/record`, init);
+    expect((await fixture.call('/record', { method: 'PUT', body: JSON.stringify(record('1-3,4-5')) })).status).toBe(200);
+
+    const refused = await inOther({ method: 'PUT', body: JSON.stringify(record('1-5')) });
+    expect(refused.status).toBe(409);
+    expect(jsonOf<{ error: string; episodeSpec: string }>(refused)).toMatchObject({ error: 'other-episode-spec', episodeSpec: '1-3,4-5' });
+    // the first session's record is intact
+    expect(jsonOf<RecordBody>(await fixture.call('/record')).record?.episodeSpec).toBe('1-3,4-5');
+    expect(jsonOf<{ otherEpisodeSpec?: string }>(await inOther()).otherEpisodeSpec).toBe('1-3,4-5');
+
+    const replaced = await fixture.send(`/api/sessions/${other}/record?replace=1`, { method: 'PUT', body: JSON.stringify(record('1-5')) });
+    expect(replaced.status).toBe(200);
+    expect(jsonOf<RecordBody>(await inOther()).record?.episodeSpec).toBe('1-5');
+    const first = jsonOf<RecordBody & { otherEpisodeSpec?: string }>(await fixture.call('/record'));
+    expect(first.record).toBeNull();
+    expect(first.otherEpisodeSpec).toBe('1-5');
+  });
+
   it('the same triple returns the same session', async () => {
     const again = await fixture.send('/api/sessions', {
       method: 'POST',

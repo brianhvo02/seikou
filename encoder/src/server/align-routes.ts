@@ -14,6 +14,7 @@ import type { EpisodePlan } from '../plan/episodes';
 import type { CachedTrack } from '../subs/release-cache';
 import { DiscRequestError, episodePlans } from './disc-routes';
 import { releaseCacheOf } from './fansub-routes';
+import { sessionsOf } from './sessions';
 import { httpError, json, sessionRoute, type AppContext, type HelperSession, type RouteTable } from './http';
 
 // The line-up half of the helper's API: an episode's chosen track is lined up against the disc's own audio, decoded
@@ -41,23 +42,38 @@ export interface AlignAnswer {
 const FRAME_MS = 10;
 /** Speech runs closer than this are drawn as one span. */
 const JOIN_GAP_MS = 200;
-/** Episode decodes kept in memory; one 24-minute episode is about 46 MB. */
+/** Episode decodes kept in memory, across every session; one 24-minute episode is about 46 MB. */
 const KEEP_EPISODES = 2;
 
 const TOOLS_MISSING = 'Alignment needs VapourSynth with BestSource (vspipe)';
 
-const audioCaches = new WeakMap<HelperSession, EpisodeAudioCache>();
+const audioCaches = new WeakMap<AppContext, EpisodeAudioCache<string>>();
 
-/** The session's decoded episodes, decoded through vspipe with BestSource's index kept under `<data>/bestsource`. */
-function audioCacheOf(app: AppContext, session: HelperSession, plans: readonly EpisodePlan[]): EpisodeAudioCache {
-  let cache = audioCaches.get(session);
+/** The key of a session's episode (1-based) in the app's decoded-audio cache. */
+export function episodeAudioKey(session: HelperSession, episode: number): string {
+  return `${session.id}/${episode}`;
+}
+
+/**
+ * The app's decoded episodes, keyed by `episodeAudioKey`: one cache for every session, so the last two decodes are
+ * kept whatever session they belong to. Episodes are decoded through vspipe with BestSource's index kept under
+ * `<data>/bestsource`; decoding without the tools rejects.
+ */
+export function episodeAudioCacheOf(app: AppContext): EpisodeAudioCache<string> {
+  let cache = audioCaches.get(app);
   if (!cache) {
-    const tools = app.tools;
-    if (tools === null) throw new Error('no tools to decode with');
     // The encode keeps its index in the same folder, so the line-up's indexing is not done twice.
     const cacheDir = join(app.dataDir, 'bestsource');
-    cache = new EpisodeAudioCache((episode, signal) => decodeEpisodeAudio16k(plans[episode - 1]!, tools, cacheDir, signal), KEEP_EPISODES);
-    audioCaches.set(session, cache);
+    cache = new EpisodeAudioCache<string>(async (key, signal) => {
+      const tools = app.tools;
+      if (tools === null) throw new Error('no tools to decode with');
+      const [id, episode] = key.split('/');
+      const session = sessionsOf(app).get(id!);
+      if (session === null) throw new Error(`no session ${id}`);
+      const plans = await episodePlans(session);
+      return decodeEpisodeAudio16k(plans[Number(episode) - 1]!, tools, cacheDir, signal);
+    }, KEEP_EPISODES);
+    audioCaches.set(app, cache);
   }
   return cache;
 }
@@ -177,8 +193,8 @@ function timingOf(raw: string | null): FansubAlignment | null {
  *                                  JSON of a `FansubAlignment`; absent means the track's own timing)
  *
  * Episodes are numbered from 1 in the session's episode list. The first align of an episode decodes its audio through
- * vspipe (tens of seconds; BestSource indexes the clips on the very first run); the last two decodes are kept. A client
- * that goes away stops a decode nobody else waits for. Errors: 400 `bad-request`, 404 `not-found` (episode, release,
+ * vspipe (tens of seconds; BestSource indexes the clips on the very first run); the last two decodes, of any
+ * session, are kept. A client that goes away stops a decode nobody else waits for. Errors: 400 `bad-request`, 404 `not-found` (episode, release,
  * file or track), 422 as `GET /episodes`, 503 `tools-missing` when vspipe or BestSource is missing.
  */
 export const alignRoutes: RouteTable = [
@@ -213,7 +229,7 @@ export const alignRoutes: RouteTable = [
       let pcm16k: Int16Array;
       let alignment: FansubAlignment;
       try {
-        pcm16k = await audioCacheOf(app, session, plans).get(episode, signal);
+        pcm16k = await episodeAudioCacheOf(app).get(episodeAudioKey(session, episode), signal);
         alignment = await alignAudio(episodeReader(pcm16k), durationMs, chosen.text, signal, { label: `episode ${episode}` });
       } catch (e) {
         if (signal.aborted) return; // nobody to answer

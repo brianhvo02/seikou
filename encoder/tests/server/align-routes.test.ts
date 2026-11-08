@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { FansubAlignment } from '@seikou/nas/nas-api';
 import { EpisodeAudioCache } from '../../src/audio/episode-audio-cache';
+import { episodeAudioCacheOf, episodeAudioKey } from '../../src/server/align-routes';
+import type { AppContext, HelperSession } from '../../src/server/http';
 import { haveTools, toolPaths } from '../helpers/tools';
 import { jsonOf, startRouteFixture, type RouteFixture } from './route-fixture';
 
@@ -127,6 +129,26 @@ describe('EpisodeAudioCache', () => {
     expect(calls).toEqual([1, 2, 3]);
     await cache.get(2);
     expect(calls).toEqual([1, 2, 3, 2]);
+  });
+
+  it('one cache per app keeps the last two decodes of every session together', async () => {
+    const app = { dataDir: '/nowhere' } as AppContext;
+    expect(episodeAudioCacheOf(app)).toBe(episodeAudioCacheOf(app));
+    expect(episodeAudioCacheOf(app)).not.toBe(episodeAudioCacheOf({ dataDir: '/nowhere' } as AppContext));
+    const a = { id: 'aaaaaaaaaaaaaaaa' } as HelperSession;
+    const b = { id: 'bbbbbbbbbbbbbbbb' } as HelperSession;
+    expect(episodeAudioKey(a, 1)).not.toBe(episodeAudioKey(b, 1));
+    const calls: string[] = [];
+    const cache = new EpisodeAudioCache<string>(async (key) => {
+      calls.push(key);
+      return new Int16Array(1);
+    }, 2);
+    await cache.get(episodeAudioKey(a, 1));
+    await cache.get(episodeAudioKey(b, 1));
+    await cache.get(episodeAudioKey(a, 2)); // drops a's episode 1: the budget is shared
+    await cache.get(episodeAudioKey(b, 1));
+    await cache.get(episodeAudioKey(a, 1));
+    expect(calls).toEqual([episodeAudioKey(a, 1), episodeAudioKey(b, 1), episodeAudioKey(a, 2), episodeAudioKey(a, 1)]);
   });
 
   it('runs one decode at a time', async () => {

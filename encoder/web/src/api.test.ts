@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
+import type { SubtitleRecord } from './api-types';
 import { ApiError, base64UrlJson, createApi, helperSessionId, type FetchLike } from './api';
 
 interface Call {
@@ -89,6 +90,15 @@ describe('createApi', () => {
     await api.record();
     await api.remoteDisc('f.ab').catch(() => undefined);
     expect(calls.map((c) => c.url)).toEqual([S, `${S}/episodes`, `${S}/record`, '/api/discs/f.ab/manifest']);
+  });
+
+  it('asks to replace a record of another episode list only when told to', async () => {
+    const { fetch, calls } = recorder(() => ok({}));
+    const api = createApi('', 'secret', SID, fetch);
+    const rec = { episodeSpec: '1-5' } as unknown as SubtitleRecord;
+    await api.saveRecord(rec);
+    await api.saveRecord(rec, true);
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([`PUT ${S}/record`, `PUT ${S}/record?replace=1`]);
   });
 
   it('encodes timing as unpadded base64url JSON', () => {

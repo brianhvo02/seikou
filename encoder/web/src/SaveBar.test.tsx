@@ -156,6 +156,35 @@ describe('SaveBar', () => {
     expect(saveRecord.mock.calls[0]![0].episodes.map((e) => e.metadata.title)).toEqual(['01', '02']);
   });
 
+  it('says choices are saved for another episode list, and Save replaces them only after saying so', async () => {
+    const saveRecord = vi.fn(async (r: SubtitleRecord, _replace?: boolean) => ({ ...r, savedAt: '2026-11-07T10:00:00.000Z' }));
+    const api = fakeApi({ record: vi.fn(async () => ({ record: null, missing: [], otherEpisodeSpec: '1-5' })), saveRecord });
+    render(<App api={api} />);
+    expect(await screen.findByText('Subtitle choices are saved for episodes 1-5; saving here replaces them.')).toBeTruthy();
+    await waitFor(() => expect(saveButton().disabled).toBe(false));
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(screen.getByRole('status').textContent).toMatch(/^Saved at /));
+    expect(saveRecord.mock.calls[0]![1]).toBe(true);
+    expect(screen.queryByText(/saving here replaces them/)).toBeNull();
+  });
+
+  it('asks before replacing choices another episode list saved meanwhile', async () => {
+    const saveRecord = vi.fn(async (r: SubtitleRecord, replace?: boolean) =>
+      replace === true
+        ? { ...r, savedAt: '2026-11-07T10:00:00.000Z' }
+        : Promise.reject(new ApiError(409, 'other-episode-spec', 'Choices are saved for another episode list.', { episodeSpec: '1-5' })),
+    );
+    render(<App api={fakeApi({ saveRecord })} />);
+    await waitFor(() => expect(saveButton().disabled).toBe(false));
+    fireEvent.click(saveButton());
+    expect(await screen.findByText('Subtitle choices are saved for episodes 1-5; saving here replaces them.')).toBeTruthy();
+    expect(saveRecord).toHaveBeenCalledTimes(1);
+    expect(saveRecord.mock.calls[0]![1]).not.toBe(true);
+    fireEvent.click(saveButton());
+    await waitFor(() => expect(screen.getByRole('status').textContent).toMatch(/^Saved at /));
+    expect(saveRecord.mock.calls[1]![1]).toBe(true);
+  });
+
   it("shows the server's message when saving fails", async () => {
     const saveRecord = vi.fn(async () => Promise.reject(new ApiError(400, 'bad-record', 'episodes[0].tracks[0].language: expected a three-letter code')));
     render(<App api={fakeApi({ saveRecord })} />);

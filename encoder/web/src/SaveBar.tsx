@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { useEffect, useRef, useState, type Dispatch, type ReactNode } from 'react';
-import type { HelperApi } from './api';
+import { ApiError, type HelperApi } from './api';
 import type { EpisodesAnswer, RecordAnswer, RecordRelease, ReleaseAnswer, SessionInfo, SubtitleRecord } from './api-types';
 import { currentForm, fromRecord, releaseOf, toRecord, type HelperAction, type HelperState } from './helper-model';
 
@@ -55,8 +55,10 @@ function toshoIdOf(key: string): number | null {
  * Tosho, puts it back in the pool and restores the saved choices of the episodes that use it (`restoreRelease`),
  * leaving the rest of the page as the user has it; the user's own files cannot be fetched, so it asks to add them
  * again. While an episode with no file now had tracks from a saved release that is missing and not back in the pool,
- * Save is off, because it would write the record without its tracks. Save writes `toRecord` of the state and answers
- * "Saved at <time>" or the server's message. Renders the button row (with `children` first) and, below it, the status
+ * Save is off, because it would write the record without its tracks. When the disc's playlist has choices saved for
+ * another episode list (said on load, or by a save the backend refused for it), a line says so and that saving here
+ * replaces them, and only then does Save ask the backend to replace them. Save writes `toRecord` of the state and
+ * answers "Saved at <time>" or the server's message. Renders the button row (with `children` first) and, below it, the status
  * and any missing release.
  */
 export function SaveBar({ api, state, dispatch, session, episodes, children }: SaveBarProps) {
@@ -68,6 +70,8 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
   const [goneIds, setGoneIds] = useState<readonly string[]>([]);
   // id of the release being fetched again
   const [fetching, setFetching] = useState<string | null>(null);
+  // the episode list another save of this playlist was made for; while it is shown, Save replaces that save
+  const [otherSpec, setOtherSpec] = useState<string | null>(null);
   const dirty = useRef(state.dirty);
   dirty.current = state.dirty;
 
@@ -87,6 +91,7 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
         setStatus({ ok: false, text: 'The saved choices for this disc could not be read, so the helper starts fresh. Saving replaces them.' });
         return;
       }
+      if (answer.otherEpisodeSpec !== undefined) setOtherSpec(answer.otherEpisodeSpec);
       if (answer.record === null) return;
       const record = currentForm(answer.record);
       const offset = record.anilist?.episodeOffset ?? 0;
@@ -115,14 +120,20 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
     if (session === null || episodes === null) return;
     setSaving(true);
     try {
-      const stored = await api.saveRecord(toRecord(state, session, episodes));
+      const stored = await api.saveRecord(toRecord(state, session, episodes), otherSpec !== null);
+      setOtherSpec(null);
       dispatch({ type: 'saved' });
       setSaved(stored);
       setMissing([]);
       setGoneIds([]);
       setStatus({ ok: true, text: `Saved at ${timeOf(stored.savedAt)}` });
     } catch (e) {
-      setStatus({ ok: false, text: messageOf(e) });
+      const spec = e instanceof ApiError && e.code === 'other-episode-spec' ? e.details.episodeSpec : undefined;
+      if (typeof spec === 'string') {
+        // nothing was saved: the line below now says what saving again replaces
+        setOtherSpec(spec);
+        setStatus(null);
+      } else setStatus({ ok: false, text: messageOf(e) });
     } finally {
       setSaving(false);
     }
@@ -161,8 +172,9 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
           Save for encoding
         </button>
       </div>
-      {(status !== null || gone.length > 0) && (
+      {(status !== null || gone.length > 0 || otherSpec !== null) && (
         <div className="save-notes">
+          {otherSpec !== null && <p className="save-status">{`Subtitle choices are saved for episodes ${otherSpec}; saving here replaces them.`}</p>}
           {status !== null && (
             <p className={status.ok ? 'save-status muted' : 'save-status error'} role="status">
               {status.text}
