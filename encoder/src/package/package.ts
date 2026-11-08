@@ -93,7 +93,9 @@ function assTime(ms: number): string {
  * subtitles): `codecPrivate` is the script without its events, and each block holds one event as
  * `ReadOrder,Layer,Style,Name,MarginL,MarginR,MarginV,Effect,Text`, its start being the block's
  * time and its end the time plus BlockDuration. The events become Dialogue lines in ReadOrder order
- * (the script's own order), with times rounded to centiseconds, placed right after the `[Events]`
+ * (the script's own order), with times rounded to centiseconds (the ASS format's precision; the
+ * MKV's blocks are in milliseconds, so a time that is not a multiple of 10 ms, such as one moved by a
+ * nudge of a few milliseconds, lands up to 5 ms from the MKV's), placed right after the `[Events]`
  * section's Format line, which is expected to read `Layer, Start, End, ...` (a section and Format
  * line are added when the header has none). Lines end as the header's do. Throws `PackageError` for
  * a block with fewer than nine fields or a ReadOrder that is not a number.
