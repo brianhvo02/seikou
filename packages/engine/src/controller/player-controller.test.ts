@@ -499,6 +499,21 @@ describe('PlayerController', () => {
     expect(c.getSnapshot().notices).toEqual([{ code: 'audio-output', message: 'Audio output could not start: no audio device' }]);
   });
 
+  it('startAudio resolves once the ring has been posted to the engine', async () => {
+    const worker = new FakeWorker();
+    const c = new PlayerController(worker, new FakeAudio());
+    await c.startAudio();
+    expect(worker.posted.some((m) => (m as { type: string }).type === 'attachAudio')).toBe(true);
+  });
+
+  it('startAudio resolves (not rejects) when audio cannot start', async () => {
+    const audio = new FakeAudio();
+    audio.fail = true;
+    const c = new PlayerController(new FakeWorker(), audio);
+    await expect(c.startAudio()).resolves.toBeUndefined();
+    expect(c.getSnapshot().notices).toHaveLength(1);
+  });
+
   it('attaches the ring after a retry when the first audio start failed', async () => {
     const worker = new FakeWorker();
     const audio = new FakeAudio();

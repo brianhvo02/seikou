@@ -59,7 +59,9 @@ export async function showAt(controller: PlayerLike, api: HelperApi, session: Se
     controller.seek(timeUs);
     return;
   }
-  const opening = api.remoteDisc(session.discKey).then((spec) => {
+  // The engine gives a playlist sound only when its audio output is attached before the playlist starts, so the
+  // output is started, and waited for, before the disc opens.
+  const opening = Promise.all([api.remoteDisc(session.discKey), controller.startAudio()]).then(([spec]) => {
     controller.openRemote(spec, undefined, undefined, undefined, { playlistId: session.playlistId, timeUs, hdmv: null, playback: null });
   });
   opens.set(controller, opening);

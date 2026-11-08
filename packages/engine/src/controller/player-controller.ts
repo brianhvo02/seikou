@@ -389,9 +389,14 @@ export class PlayerController {
     this.post({ type: 'resize', width, height });
   }
 
-  /** Call from user-gesture handlers so the AudioContext is allowed to start. */
-  startAudio(): void {
-    this.audio.ensureStarted().then(
+  /**
+   * Call from user-gesture handlers so the AudioContext is allowed to start. Resolves once the audio ring has been
+   * posted to the engine (or at once when it already was), and also when audio could not start (a notice says why);
+   * it never rejects. A host that opens a disc right after should wait for it: a playlist that starts before the ring
+   * arrives plays without sound until the next playlist.
+   */
+  startAudio(): Promise<void> {
+    return this.audio.ensureStarted().then(
       (ring) => {
         if (this.audioAttached) return;
         this.audioAttached = true;
