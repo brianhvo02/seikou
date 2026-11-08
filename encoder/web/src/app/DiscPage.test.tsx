@@ -56,6 +56,15 @@ describe('DiscPage', () => {
     expect(link.getAttribute('href')).toBe(`/disc/f.${'b'.repeat(32)}/00800`);
   });
 
+  it('names other copies of the disc with the folder name and the full path as a title', async () => {
+    const copy = { ...listed[0]!, otherPaths: [{ relPath: 'LANTERN_COPY', root: '/media/old' }] };
+    const api = fakeApi([copy]);
+    vi.mocked(api.library).mockResolvedValue({ ...library([copy]), roots: ['/media/discs', '/media/old'] });
+    render(<DiscPage api={api} discKey={KEY} />);
+    const note = await screen.findByText('Also at old / LANTERN_COPY');
+    expect(note.getAttribute('title')).toBe('/media/old');
+  });
+
   it('says so when the disc is not in the library, and links back to it', async () => {
     render(<DiscPage api={fakeApi([])} discKey={KEY} />);
     expect((await screen.findByRole('alert')).textContent).toContain('not in the library');

@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 import type { LibraryDiscInfo } from '../api-types';
 
 /** The last folder name of a path (the whole text when it has none). */
-function folderName(path: string): string {
+export function folderName(path: string): string {
   const parts = path.split(/[\\/]/).filter((p) => p !== '');
   return parts[parts.length - 1] ?? path;
 }
@@ -18,6 +18,14 @@ export function placeText(disc: Pick<LibraryDiscInfo, 'label' | 'relPath' | 'roo
   if (rootCount <= 1) return same ? '' : disc.relPath;
   const root = folderName(disc.root);
   return same ? root : `${root} / ${disc.relPath}`;
+}
+
+/**
+ * Where another copy of a disc is, as the line "Also at ..." shows it: the path under its library folder, led by the
+ * folder's name when there are several folders.
+ */
+export function otherPlaceText(other: { readonly relPath: string; readonly root: string }, rootCount: number): string {
+  return rootCount <= 1 ? other.relPath : `${folderName(other.root)} / ${other.relPath}`;
 }
 
 /** Sets the document's title while the calling page is on screen. */

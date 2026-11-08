@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { LibraryAnswer, LibraryDiscInfo } from '../api-types';
 import type { AppApi } from './app-api';
-import { placeText, useDocumentTitle } from './place';
+import { folderName, otherPlaceText, placeText, useDocumentTitle } from './place';
 import { Link } from './router';
 
 /** What the page needs: the backend client. */
@@ -17,7 +17,7 @@ export interface LibraryPageProps {
 export function filterDiscs(discs: readonly LibraryDiscInfo[], text: string): LibraryDiscInfo[] {
   const words = text.toLowerCase().split(/\s+/).filter((w) => w !== '');
   return discs.filter((d) => {
-    const hay = `${d.label} ${d.relPath}`.toLowerCase();
+    const hay = [d.label, d.relPath, ...d.otherPaths.flatMap((o) => [o.relPath, folderName(o.root)])].join(' ').toLowerCase();
     return words.every((w) => hay.includes(w));
   });
 }
@@ -218,8 +218,8 @@ export function LibraryPage({ api, pollMs = SCAN_POLL_MS }: LibraryPageProps) {
                     <span className="disc-name">{d.label}</span>
                     {placeText(d, library.roots.length) !== '' && <span className="disc-path muted">{placeText(d, library.roots.length)}</span>}
                     {d.otherPaths.map((o) => (
-                      <span key={`${o.root}|${o.relPath}`} className="disc-path muted">
-                        Also at {o.relPath} ({o.root})
+                      <span key={`${o.root}|${o.relPath}`} className="disc-path muted" title={o.root}>
+                        Also at {otherPlaceText(o, library.roots.length)}
                       </span>
                     ))}
                   </Link>

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { ApiError } from '../api';
 import type { LibraryDiscInfo, PlaylistSummary } from '../api-types';
 import type { AppApi } from './app-api';
-import { placeText, useDocumentTitle } from './place';
+import { otherPlaceText, placeText, useDocumentTitle } from './place';
 import { Link } from './router';
 
 /** What the page needs: the backend client and the disc's key. */
@@ -105,8 +105,8 @@ export function DiscPage({ api, discKey }: DiscPageProps) {
       <h1 className="page-title disc-title">{disc.label}</h1>
       {place !== '' && <p className="muted">{place}</p>}
       {disc.otherPaths.map((o) => (
-        <p key={`${o.root}|${o.relPath}`} className="muted">
-          Also at {o.relPath} ({o.root})
+        <p key={`${o.root}|${o.relPath}`} className="muted" title={o.root}>
+          Also at {otherPlaceText(o, loaded.rootCount)}
         </p>
       ))}
       {playlists.length === 0 ? (

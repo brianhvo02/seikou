@@ -66,7 +66,25 @@ describe('LibraryPage', () => {
       discs: [disc('LANTERN_HARBOR_D1', { otherPaths: [{ relPath: 'backup/LANTERN_COPY', root: '/media/old' }] })],
     });
     render(<LibraryPage api={api} />);
-    expect(await screen.findByText('Also at backup/LANTERN_COPY (/media/old)')).toBeTruthy();
+    const note = await screen.findByText('Also at backup/LANTERN_COPY');
+    expect(note.getAttribute('title')).toBe('/media/old');
+  });
+
+  it('with several roots the note names the other copy folder, and the filter searches other copies', async () => {
+    const api = fakeApi({
+      roots: ['/media/one', '/media/old'],
+      savedRoots: ['/media/one', '/media/old'],
+      discs: [
+        disc('LANTERN_HARBOR_D1', { root: '/media/one', otherPaths: [{ relPath: 'LANTERN_COPY', root: '/media/old' }] }),
+        disc('PAPER_KITE_D1'),
+      ],
+    });
+    render(<LibraryPage api={api} />);
+    const note = await screen.findByText('Also at old / LANTERN_COPY');
+    expect(note.getAttribute('title')).toBe('/media/old');
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Filter discs' }), { target: { value: 'lantern_copy' } });
+    expect(screen.getByText('LANTERN_HARBOR_D1')).toBeTruthy();
+    expect(screen.queryByText('PAPER_KITE_D1')).toBeNull();
   });
 
   it('with several roots the path line starts with the root, and does not repeat the name', async () => {
