@@ -151,6 +151,10 @@ export const Id = {
   CueTrack: 0xf7,
   /** RFC 9559 §5.1.5.1.2.2: offset of the cluster from the start of the Segment's data. */
   CueClusterPosition: 0xf1,
+  /** RFC 9559 §5.1.5.1.2.3: position of the referenced SimpleBlock or BlockGroup inside its Cluster, 0 being the first byte of the Cluster's data. */
+  CueRelativePosition: 0xf0,
+  /** RFC 9559 §5.1.5.1.2.4: how long the referenced block lasts, in Segment ticks (milliseconds here); subtitle cues carry it so a seek finds events still on screen. */
+  CueDuration: 0xb2,
   /** RFC 8794 §11.3.2: padding that readers skip; the writer reserves space with it and patches it later. */
   Void: 0xec,
 } as const;

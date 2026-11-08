@@ -86,6 +86,21 @@ async function writeAtomically(file: string, data: string | Uint8Array): Promise
 }
 
 /**
+ * Reads the release stored under `key` in the data directory `dataDir` without a `ReleaseCache` (which needs the
+ * download clients), for readers such as the encode. Null when none is stored, when its `release.json` cannot be
+ * read, or when the key is not one the cache makes (so no key can leave `releases/`). A record's `release.id` is
+ * such a key.
+ */
+export async function readCachedRelease(dataDir: string, key: string): Promise<CachedRelease | null> {
+  if (!KEY_PATTERN.test(key)) return null;
+  try {
+    return JSON.parse(await readFile(join(resolve(dataDir), 'releases', key, 'release.json'), 'utf8')) as CachedRelease;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Stores releases under `<data>/releases/<key>/` and fonts under `<data>/fonts/<sha256>.<ext>`. A release's
  * `release.json` is written last, so a release is either complete or absent. Fonts are shared between releases.
  */
@@ -199,12 +214,7 @@ export class ReleaseCache {
 
   /** The stored release for `key`, or null when none is stored (or the key is not one the cache makes). */
   async get(key: string): Promise<CachedRelease | null> {
-    if (!KEY_PATTERN.test(key)) return null;
-    try {
-      return JSON.parse(await readFile(join(this.root, 'releases', key, 'release.json'), 'utf8')) as CachedRelease;
-    } catch {
-      return null;
-    }
+    return readCachedRelease(this.root, key);
   }
 
   /** The bytes of a cached file by its path relative to the data directory; throws for a path outside it. */

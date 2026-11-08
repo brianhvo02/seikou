@@ -66,6 +66,34 @@ function child(n: EbmlNode, id: number): EbmlNode | undefined {
   return n.children?.find((c) => c.id === id);
 }
 
+interface CueEntry {
+  timeMs: number;
+  track: number;
+  clusterPos: number;
+  relPos?: number;
+  durationMs: number | undefined;
+}
+
+/** Every CueTrackPositions with its CuePoint's CueTime, in file order. */
+function cueEntries(t: EbmlNode): CueEntry[] {
+  return findAll(t, Id.CuePoint).flatMap((p) => {
+    const timeMs = Number(uintOf(find(p, Id.CueTime)));
+    return p
+      .children!.filter((c) => c.id === Id.CueTrackPositions)
+      .map((ctp) => {
+        const rel = child(ctp, Id.CueRelativePosition);
+        const dur = child(ctp, Id.CueDuration);
+        return {
+          timeMs,
+          track: Number(uintOf(child(ctp, Id.CueTrack)!)),
+          clusterPos: Number(uintOf(child(ctp, Id.CueClusterPosition)!)),
+          ...(rel !== undefined ? { relPos: Number(uintOf(rel)) } : {}),
+          durationMs: dur !== undefined ? Number(uintOf(dur)) : undefined,
+        };
+      });
+  });
+}
+
 describe('writeMkv', () => {
   const dir = mkdtempSync(join(tmpdir(), 'encoding-tools-mkv-'));
   const out = join(dir, 'w.mkv');
@@ -132,8 +160,9 @@ describe('writeMkv', () => {
     expect(uintOf(find(t, Id.CodecDelay))).toBe((BigInt(ogg.head.preSkip) * 1_000_000_000n) / 48000n);
     expect(findAll(t, Id.ChapterTimeStart).map(uintOf)).toEqual([0n, 166_833_333n]);
     expect(findAll(t, Id.Cluster)).toHaveLength(3);
-    expect(findAll(t, Id.CuePoint)).toHaveLength(3);
-    expect(findAll(t, Id.CueClusterPosition).map(uintOf)).toEqual(
+    const videoCues = cueEntries(t).filter((c) => c.track === 1);
+    expect(videoCues).toHaveLength(3);
+    expect(videoCues.map((c) => BigInt(c.clusterPos))).toEqual(
       findAll(t, Id.Cluster).map((c) => BigInt(c.offset - segmentDataStart(t))),
     );
     for (const cluster of findAll(t, Id.Cluster)) expect(firstBlockIsVideoKeyframe(cluster)).toBe(true);
@@ -228,6 +257,31 @@ describe('writeMkv', () => {
     for (const s of seeks) expect(find(t, s.id).offset - base).toBe(s.pos);
   });
 
+  it('writes a cue for every subtitle block that points at the block itself', () => {
+    const t = parseMkv(readFileSync(out));
+    const times = findAll(t, Id.CuePoint).map((p) => Number(uintOf(find(p, Id.CueTime))));
+    for (let i = 1; i < times.length; i++) expect(times[i]!).toBeGreaterThan(times[i - 1]!);
+    const subCues = cueEntries(t).filter((c) => c.track === 4 || c.track === 5);
+    expect(subCues.map((c) => ({ track: c.track, timeMs: c.timeMs, durationMs: c.durationMs }))).toEqual([
+      { track: 5, timeMs: 50, durationMs: undefined },
+      { track: 4, timeMs: 100, durationMs: 200 },
+      { track: 5, timeMs: 260, durationMs: undefined },
+      { track: 4, timeMs: 300, durationMs: 150 },
+    ]);
+    const base = segmentDataStart(t);
+    const clusters = findAll(t, Id.Cluster);
+    for (const c of subCues) {
+      const cluster = clusters.find((cl) => cl.offset - base === c.clusterPos);
+      expect(cluster).toBeDefined();
+      expect(c.relPos).toBeDefined();
+      // CueRelativePosition counts from the first byte of the Cluster's data.
+      const el = cluster!.children!.find((k) => k.offset === cluster!.offset + cluster!.headerLength + c.relPos!);
+      expect(el).toBeDefined();
+      const [block] = blocksInOrder({ ...t, children: [{ ...cluster!, children: [find(cluster!, Id.Timestamp), el!] }] });
+      expect({ track: block!.track, timeMs: block!.timeMs }).toEqual({ track: c.track, timeMs: c.timeMs });
+    }
+  });
+
   it('orders blocks by time across tracks', () => {
     const blocks = blocksInOrder(parseMkv(readFileSync(out)));
     expect(blocks).toHaveLength(10 + 26 + 26 + 2 + 2);
@@ -294,8 +348,14 @@ describe('writeMkv with subtitles far from video key frames', () => {
     expect(last.map((b) => ({ track: b.track, timeMs: b.timeMs, durationMs: b.durationMs }))).toEqual([
       { track: 3, timeMs: 40_000, durationMs: 2_000 },
     ]);
-    // Cues point only at the clusters that open with a video key frame.
-    expect(findAll(t, Id.CuePoint)).toHaveLength(3);
+    // Video cues point only at the clusters that open with a video key frame; every subtitle block has its own cue.
+    const cues = cueEntries(t);
+    expect(cues.filter((c) => c.track === 1)).toHaveLength(3);
+    expect(cues.filter((c) => c.track === 3).map((c) => ({ timeMs: c.timeMs, durationMs: c.durationMs }))).toEqual([
+      { timeMs: 100, durationMs: 500 },
+      { timeMs: 40_000, durationMs: 2_000 },
+    ]);
+    expect(cues.find((c) => c.timeMs === 40_000)!.clusterPos).toBe(clusters[3]!.offset - segmentDataStart(t));
     // No attachments: neither the element nor its SeekHead entry.
     expect(findAll(t, Id.Attachments)).toEqual([]);
     expect(findAll(t, Id.SeekID).map((s) => Number(uintOf(s)))).toEqual([Id.Info, Id.Tracks, Id.Cues]);

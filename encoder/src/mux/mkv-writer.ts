@@ -29,9 +29,9 @@ import type { OpusPacket } from './ogg';
 //   Chapters     one edition with one ChapterAtom per chapter, when there are any (§5.1.7),
 //   Cluster ...  blocks of every track in timestamp order; a cluster opens at each video key frame,
 //                and also at any block too far from its cluster's timestamp (§5.1.3),
-//   Cues         one seek point per cluster that opens with a video key frame, written last because
-//                their positions are only known once the clusters are (§5.1.5; §6.4 explains why
-//                Cues usually come last).
+//   Cues         one seek point per cluster that opens with a video key frame, and one per subtitle
+//                block (below), written last because their positions are only known once the
+//                clusters are (§5.1.5; §6.4 explains why Cues usually come last).
 // The Segment size, the SeekHead and the Info Duration are not known when writing starts, so the
 // writer leaves room (an 8-byte size field, a Void element of `SEEK_HEAD_SIZE` bytes, a duration
 // of 0) and overwrites them in place at the end. The Void keeps every later byte offset fixed:
@@ -42,8 +42,17 @@ import type { OpusPacket } from './ogg';
 // §11.1). Block timestamps are 16-bit signed millisecond offsets from their cluster's Timestamp
 // (§10.1, §11.2). Blocks are written in timestamp order, so an offset is never negative; a block
 // more than 32,767 ms after its cluster's timestamp (a subtitle long after the last key frame, for
-// example) opens a new cluster at its own timestamp. Such a cluster gets no Cue, because a player
-// cannot start decoding video there.
+// example) opens a new cluster at its own timestamp. Such a cluster gets no video Cue, because a
+// player cannot start decoding video there.
+//
+// Subtitle cues: a player that seeks to time t starts reading at the cluster of the video cue
+// before t, so an event that began in an earlier cluster and is still on screen at t would be
+// missed. Every subtitle block therefore gets its own cue: CueTrack (§5.1.5.1.2.1), the block's
+// cluster as CueClusterPosition (§5.1.5.1.2.2), the block's place inside that cluster as
+// CueRelativePosition (§5.1.5.1.2.3, counted from the first byte of the cluster's data, which is
+// the cluster's Timestamp element), and, for a block with a BlockDuration, CueDuration
+// (§5.1.5.1.2.4). Cue points are written in CueTime order; cues at one time share a CuePoint, with
+// one CueTrackPositions each (video first, then subtitle tracks in track order).
 
 /** Name, language and default flag of one track, written on every TrackEntry. */
 export interface TrackLabel {
@@ -387,6 +396,42 @@ interface AudioState {
   endNs: bigint;
 }
 
+/** One CueTrackPositions to write: a video key frame's cluster or one subtitle block. */
+interface CueEntry {
+  ms: number;
+  track: number;
+  /** The cluster's offset from the start of the Segment's data. */
+  clusterPos: number;
+  /** Subtitle blocks only: the block's offset from the first byte of its cluster's data. */
+  relativePos?: number;
+  /** Subtitle blocks with a BlockDuration only. */
+  durationMs?: number;
+}
+
+// Groups the entries by time into CuePoints, in CueTime order; entries at one time keep the order
+// they were made in (the order the blocks were written: video, then subtitles in track order).
+function cuesElement(entries: readonly CueEntry[]): Uint8Array {
+  const sorted = entries.map((e, i) => ({ e, i })).sort((a, b) => a.e.ms - b.e.ms || a.i - b.i).map((x) => x.e);
+  const points: Uint8Array[] = [];
+  for (let i = 0; i < sorted.length; ) {
+    const ms = sorted[i]!.ms;
+    const positions: Uint8Array[] = [];
+    for (; i < sorted.length && sorted[i]!.ms === ms; i++) {
+      const e = sorted[i]!;
+      positions.push(
+        master(Id.CueTrackPositions, [
+          uint(Id.CueTrack, e.track),
+          uint(Id.CueClusterPosition, e.clusterPos),
+          ...(e.relativePos !== undefined ? [uint(Id.CueRelativePosition, e.relativePos)] : []),
+          ...(e.durationMs !== undefined ? [uint(Id.CueDuration, e.durationMs)] : []),
+        ]),
+      );
+    }
+    points.push(master(Id.CuePoint, [uint(Id.CueTime, ms), ...positions]));
+  }
+  return master(Id.Cues, points);
+}
+
 interface SubtitleState {
   track: MkvSubtitleTrack;
   number: number;
@@ -400,6 +445,8 @@ interface SubtitleState {
  * timestamp order; at equal timestamps the video comes first, then the audio tracks, then the
  * subtitle tracks, each in input order. A cluster opens at every video key frame, and at any block
  * whose offset from its cluster's timestamp would not fit the block's signed 16-bit field.
+ * The Cues hold one point per cluster that opens with a video key frame and one per subtitle block,
+ * so a player that seeks finds subtitle events that started before the seek point.
  * Audio blocks are SimpleBlocks (every Opus packet decodes independently, so each carries the
  * key-frame flag), except a last packet that needs end trimming, which becomes a BlockGroup so it
  * can carry DiscardPadding. Subtitle blocks with a duration are BlockGroups with BlockDuration;
@@ -454,7 +501,7 @@ export async function writeMkv(path: string, input: MkvInput): Promise<MkvResult
       await w.append(chaptersElement(input.chapters));
     }
 
-    const cues: { ms: number; clusterPos: number }[] = [];
+    const cues: CueEntry[] = [];
     let cluster: OpenCluster | null = null;
     let clusters = 0;
     let videoCount = 0;
@@ -473,7 +520,7 @@ export async function writeMkv(path: string, input: MkvInput): Promise<MkvResult
       const c: OpenCluster = { startPos: w.pos, timestamp: ms, parts: [], bytes: 0 };
       cluster = c;
       clusters++;
-      if (cued) cues.push({ ms, clusterPos: w.pos - base });
+      if (cued) cues.push({ ms, track: VIDEO_TRACK, clusterPos: w.pos - base });
       return c;
     };
     // The cluster a block at `ms` goes into: the open one, or a new one when the offset would not fit.
@@ -561,6 +608,13 @@ export async function writeMkv(path: string, input: MkvInput): Promise<MkvResult
         const s = pick.s;
         const b = s.track.blocks[s.next]!;
         const c = await clusterFor(bestMs);
+        cues.push({
+          ms: bestMs,
+          track: s.number,
+          clusterPos: c.startPos - base,
+          relativePos: uint(Id.Timestamp, c.timestamp).length + c.bytes,
+          ...(b.durationMs !== undefined ? { durationMs: b.durationMs } : {}),
+        });
         if (b.durationMs !== undefined) {
           const block = binary(Id.Block, blockPayload(s.number, bestMs - c.timestamp, 0x00, b.data));
           addToCluster(c, master(Id.BlockGroup, [block, uint(Id.BlockDuration, b.durationMs)]));
@@ -574,17 +628,7 @@ export async function writeMkv(path: string, input: MkvInput): Promise<MkvResult
     if (videoCount === 0) throw new Error('no video packets');
 
     const cuesPos = w.pos - base;
-    await w.append(
-      master(
-        Id.Cues,
-        cues.map((c) =>
-          master(Id.CuePoint, [
-            uint(Id.CueTime, c.ms),
-            master(Id.CueTrackPositions, [uint(Id.CueTrack, VIDEO_TRACK), uint(Id.CueClusterPosition, c.clusterPos)]),
-          ]),
-        ),
-      ),
-    );
+    await w.append(cuesElement(cues));
 
     let durationNs = framesToNs(lastVideoIndex + 1, video);
     for (const a of audios) if (a.endNs > durationNs) durationNs = a.endNs;
