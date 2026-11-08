@@ -234,12 +234,12 @@ let service: LevelService;
 let capacity: Capacity;
 
 function makeService(
-  options: { readAheadMs?: number; waitFilmMs?: number; log?: (message: string) => void; discs?: (id: string) => Promise<LevelDiscSource | null>; backend?: EncoderBackend; codecs?: ReadonlySet<'h264' | 'hevc'> } = {},
+  options: { readAheadMs?: number; waitFilmMs?: number; log?: (message: string) => void; discs?: (id: string) => Promise<LevelDiscSource | null>; backend?: EncoderBackend; codecs?: ReadonlySet<'h264' | 'hevc'>; cache?: SegmentCache } = {},
 ): LevelService {
   capacity = new Capacity({ h264: 190, hevc: 100 }, clock.now);
   return new LevelService({
     discs: options.discs ?? (async (id) => (id === DISC_ID ? folderDiscSource(DISC_DIR, { id, name: 'Starfall Wanderer' }) : null)),
-    cache: new SegmentCache(join(scratch, 'transcode'), 1 << 30),
+    cache: options.cache ?? new SegmentCache(join(scratch, 'transcode'), 1 << 30),
     capacity,
     backend: options.backend ?? fake.backend,
     ...(options.backend ? {} : { spawn: fake.spawn }),
@@ -843,6 +843,38 @@ describe('LevelService: fix round 1', () => {
     expect(results.length).toBe(2);
     expect(Buffer.isBuffer((results[1] as [string, unknown])[1])).toBe(true);
     expect(fake.runs.length).toBeLessThanOrEqual(2);
+  });
+
+  it('starts one encoder run for two reads that come together, at the first of them', async () => {
+    // A cache whose lookups of interval 0 answer late: the runner's own pump, started by the second read's
+    // position, then looks for work before the first read is known to wait on the encoder.
+    let releaseGet!: () => void;
+    const held = new Promise<void>((resolve) => (releaseGet = resolve));
+    class SlowCache extends SegmentCache {
+      override async get(key: string, index: number): Promise<Buffer | null> {
+        if (index === 0) await held;
+        return super.get(key, index);
+      }
+      override async has(key: string, index: number): Promise<boolean> {
+        if (index === 0) await held;
+        return super.has(key, index);
+      }
+    }
+    service.close();
+    service = makeService({ cache: new SlowCache(join(scratch, 'transcode'), 1 << 30) });
+    const l = layout(await levelManifest());
+    const zero = readInterval(l, 0);
+    const one = readInterval(l, 1);
+    await new Promise((r) => setTimeout(r, 50)); // the pump has had its chance
+    releaseGet();
+    await vi.waitFor(() => expect(fake.runs.length).toBeGreaterThan(0));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(fake.runs.length).toBe(1);
+    expect(fake.runs[0]!.child.killed).toBe(false);
+    fake.runs[0]!.step(3);
+    expect(scan(await bytesOf(zero)).videoPts[0]).toBe(epFrame(l.pts45[0]!));
+    expect(scan(await bytesOf(one)).videoPts[0]).toBe(epFrame(l.pts45[1]!));
+    expect(fake.runs.length).toBe(1);
   });
 
   it('fails the waiting reads when the encoder fails, then backs off for 5 s (Minor 2)', async () => {

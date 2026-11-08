@@ -259,11 +259,14 @@ export class ClipRunner {
     if (w.settled || this.waiters.get(index) !== w) return;
     if (bytes) {
       this.settle(index, bytes);
+      // A later read may have held back for this one; with nothing to encode here, it is its turn.
+      void this.pump();
       return;
     }
     const failed = unfittableOf(this.deps.cache).get(`${key}#${index}`);
     if (failed) {
       this.reject(index, failed);
+      void this.pump();
       return;
     }
     if (this.closed) return;
@@ -274,7 +277,17 @@ export class ClipRunner {
       this.reject(index, new RetryLater(`levels: encoding failed less than ${FAILURE_BACKOFF_MS / 1000} s ago`));
       return;
     }
+    // Reads that come together (a player's read-ahead) look the cache up in any order: a run started here for a later
+    // interval would be restarted at once by the earlier one. The earlier read starts the run, or pumps once its
+    // interval turns out cached.
+    if (this.earlierLooking(index)) return;
     this.startRun(index);
+  }
+
+  /** Whether a read before `index` is still looking the cache up (neither answered nor waiting on the encoder). */
+  private earlierLooking(index: number): boolean {
+    for (const [i, w] of this.waiters) if (i < index && !w.settled && !w.encoding) return true;
+    return false;
   }
 
   private backingOff(): boolean {
@@ -335,6 +348,7 @@ export class ClipRunner {
       for (const [index, w] of this.waiters) if (w.encoding && !w.settled && (waiting === null || index < waiting)) waiting = index;
       if (waiting !== null) from = Math.min(from, waiting);
       if (from >= intervals.length) return;
+      if (this.earlierLooking(from)) return; // that read starts the run, or pumps again
       const lead = this.film[from]! - (this.film[this.head] ?? 0);
       if (waiting !== null || lead < this.deps.readAheadMs / 2) this.startRun(from);
     } catch (err) {
