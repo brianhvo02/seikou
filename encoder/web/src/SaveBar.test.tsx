@@ -201,6 +201,20 @@ describe('SaveBar', () => {
     expect(saveRecord.mock.calls[1]![1]).toBe(true);
   });
 
+  it('warns that a queued encode uses the choices a save would replace', async () => {
+    const queued = 'A queued encode uses the current choices; it will stop with a mismatch unless you queue it again.';
+    const api = fakeApi({ record: vi.fn(async () => ({ record: null, missing: [], otherEpisodeSpec: '1-5', queuedJobs: 1 })) });
+    render(<App api={api} />);
+    expect(await screen.findByText(`Subtitle choices are saved for episodes 1-5; saving here replaces them. ${queued}`)).toBeTruthy();
+    cleanup();
+    // Learnt from a refused save too.
+    const saveRecord = vi.fn(async () => Promise.reject(new ApiError(409, 'other-episode-spec', 'Choices are saved for another episode list.', { episodeSpec: '1-5', queuedJobs: 2 })));
+    render(<App api={fakeApi({ saveRecord })} />);
+    await waitFor(() => expect(saveButton().disabled).toBe(false));
+    fireEvent.click(saveButton());
+    expect(await screen.findByText(`Subtitle choices are saved for episodes 1-5; saving here replaces them. ${queued}`)).toBeTruthy();
+  });
+
   it("shows the server's message when saving fails", async () => {
     const saveRecord = vi.fn(async () => Promise.reject(new ApiError(400, 'bad-record', 'episodes[0].tracks[0].language: expected a three-letter code')));
     render(<App api={fakeApi({ saveRecord })} />);

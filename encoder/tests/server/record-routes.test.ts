@@ -2,6 +2,7 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { DEFAULT_SETTINGS } from '../../src/server/profiles';
 import type { SubtitleRecord } from '../../src/subs/record';
 import { fx } from '../paths';
 import { jsonOf, startRouteFixture, type RouteFixture } from './route-fixture';
@@ -130,5 +131,68 @@ describe('record routes', () => {
     expect(got.record?.episodeSpec).toBe('1-3,4-5');
     const saved = await fixture.call('/record', { method: 'PUT', body: JSON.stringify(record({ episodeSpec: '1-3,4-' })) });
     expect(saved.status).toBe(200);
+  });
+});
+
+describe('record routes and queued encodes', () => {
+  let fixture: RouteFixture;
+  let discKey: string;
+  beforeAll(async () => {
+    fixture = await startRouteFixture();
+    discKey = fixture.discKey;
+  });
+  afterAll(() => fixture.stop());
+
+  /** A stored encode job of the speech disc's playlist 00000. */
+  const job = (id: string, state: string, episodeSpec: string, noSubtitles = false): Record<string, unknown> => ({
+    id,
+    kind: 'encode',
+    disc: { key: discKey, label: 'disc-speech', dir: fx('fixtures/disc-speech') },
+    playlist: '00000',
+    episodeSpec,
+    settings: DEFAULT_SETTINGS,
+    outDir: join(fixture.dataDir, 'output', id),
+    noSubtitles,
+    state,
+    paused: false,
+    createdAt: '2026-11-08T10:00:00.000Z',
+    episodes: [],
+    recordSavedAt: null,
+    cli: '',
+  });
+
+  it('a save that replaces choices a queued or interrupted encode uses says how many there are', async () => {
+    const record: SubtitleRecord = {
+      disc: { key: discKey, label: 'Lantern Harbor' },
+      playlist: '00000',
+      episodeSpec: '1-3,4-5',
+      anilist: null,
+      releases: [],
+      fonts: [],
+      episodes: [1, 2].map((index) => ({ index, title: `Part ${index}`, tracks: [], metadata: { title: `Part ${index}`, video: { name: '', language: 'jpn' }, audio: [], chapters: [] } })),
+      savedAt: '',
+    };
+    expect((await fixture.call('/record', { method: 'PUT', body: JSON.stringify(record) })).status).toBe(200);
+    writeFileSync(
+      join(fixture.dataDir, 'jobs.json'),
+      JSON.stringify({
+        jobs: [
+          job('0000000000000001', 'queued', '1-3,4-'),
+          job('0000000000000002', 'interrupted', '1-3,4-5'),
+          // These do not count: finished, without subtitles, or another episode list.
+          job('0000000000000003', 'done', '1-3,4-5'),
+          job('0000000000000004', 'queued', '1-3,4-5', true),
+          job('0000000000000005', 'queued', '1-5'),
+        ],
+      }),
+    );
+    const other = await fixture.server.sessions.create({ discDir: fx('fixtures/disc-speech'), playlistId: '00000', episodeSpec: '1-2,3-5' });
+    const got = jsonOf<{ otherEpisodeSpec?: string; queuedJobs?: number }>(await fixture.send(`/api/sessions/${other.id}/record`));
+    expect(got).toMatchObject({ otherEpisodeSpec: '1-3,4-5', queuedJobs: 2 });
+    const refused = await fixture.send(`/api/sessions/${other.id}/record`, { method: 'PUT', body: JSON.stringify({ ...record, episodeSpec: '1-2,3-5' }) });
+    expect(refused.status).toBe(409);
+    expect(jsonOf(refused)).toMatchObject({ error: 'other-episode-spec', episodeSpec: '1-3,4-5', queuedJobs: 2 });
+    // The session whose list the record is for has nothing to replace, so it says nothing.
+    expect(jsonOf<{ queuedJobs?: number }>(await fixture.call('/record')).queuedJobs).toBeUndefined();
   });
 });

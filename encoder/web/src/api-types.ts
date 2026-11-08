@@ -327,6 +327,8 @@ export interface RecordAnswer {
   readonly error?: { readonly code: 'record-unreadable'; readonly message: string };
   /** Set when the disc and playlist have a saved record for another episode list (its spec); `record` is then null. */
   readonly otherEpisodeSpec?: string;
+  /** With `otherEpisodeSpec`: how many queued or interrupted encodes use that record, and stop with a mismatch once it is replaced. */
+  readonly queuedJobs?: number;
 }
 
 /** One disc in `GET /api/library`. */

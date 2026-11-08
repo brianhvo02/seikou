@@ -401,6 +401,26 @@ export class JobStore {
   }
 }
 
+/**
+ * How many encode jobs in `dataDir`'s queue are queued or interrupted and will read the subtitle record of `discKey`'s
+ * playlist `playlistId` for the episode list `episodeSpec` (written any way that cuts its `chapters` the same). Such a
+ * job stops with a record mismatch once that record is replaced by one for another list. Read from `jobs.json`, so it
+ * counts the queue whichever process runs it; an unreadable file counts none.
+ */
+export async function jobsUsingRecord(dataDir: string, discKey: string, playlistId: string, episodeSpec: string, chapters: number): Promise<number> {
+  const loaded = await new JobStore(dataDir).load();
+  if (loaded.jobs === null) return 0;
+  return loaded.jobs.filter(
+    (j) =>
+      j.kind === 'encode' &&
+      !j.noSubtitles &&
+      (j.state === 'queued' || j.state === 'interrupted') &&
+      j.disc.key === discKey &&
+      j.playlist === playlistId &&
+      sameListOrFalse(j.episodeSpec, episodeSpec, chapters),
+  ).length;
+}
+
 /** The job that is running and how to stop it. */
 interface Current {
   readonly job: Job;

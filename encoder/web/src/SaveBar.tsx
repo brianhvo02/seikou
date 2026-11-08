@@ -48,6 +48,9 @@ function toshoIdOf(key: string): number | null {
   return m ? Number(m[1]) : null;
 }
 
+/** Said with the line about replacing saved choices when a queued or interrupted encode uses them. */
+const QUEUED_JOBS_WARNING = 'A queued encode uses the current choices; it will stop with a mismatch unless you queue it again.';
+
 /**
  * Save for encoding, and what the saved record says when the page loads. Once the run is known it asks for the saved
  * record and, when there is one, for each of its releases again, and restores the record with the releases that came
@@ -58,7 +61,7 @@ function toshoIdOf(key: string): number | null {
  * again. While an episode with no file now had tracks from a saved release that is missing and not back in the pool,
  * Save is off, because it would write the record without its tracks. When the disc's playlist has choices saved for
  * another episode list (said on load, or by a save the backend refused for it), a line says so and that saving here
- * replaces them, and only then does Save ask the backend to replace them. Save writes `toRecord` of the state and
+ * replaces them (and, when a queued or interrupted encode uses them, that it will stop with a mismatch), and only then does Save ask the backend to replace them. Save writes `toRecord` of the state and
  * answers "Saved at <time>" or the server's message. "Queue encode" opens the queue dialog for the run's playlist and episode
  * list; it is on once a record is saved and nothing has changed since. Renders the button row (with `children` first) and, below it, the status
  * and any missing release.
@@ -74,6 +77,8 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
   const [fetching, setFetching] = useState<string | null>(null);
   // the episode list another save of this playlist was made for; while it is shown, Save replaces that save
   const [otherSpec, setOtherSpec] = useState<string | null>(null);
+  // how many queued or interrupted encodes use the choices that save would replace
+  const [queuedJobs, setQueuedJobs] = useState(0);
   const dirty = useRef(state.dirty);
   dirty.current = state.dirty;
 
@@ -93,7 +98,10 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
         setStatus({ ok: false, text: 'The saved choices for this disc could not be read, so the helper starts fresh. Saving replaces them.' });
         return;
       }
-      if (answer.otherEpisodeSpec !== undefined) setOtherSpec(answer.otherEpisodeSpec);
+      if (answer.otherEpisodeSpec !== undefined) {
+        setOtherSpec(answer.otherEpisodeSpec);
+        setQueuedJobs(answer.queuedJobs ?? 0);
+      }
       if (answer.record === null) return;
       const record = currentForm(answer.record);
       const offset = record.anilist?.episodeOffset ?? 0;
@@ -124,6 +132,7 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
     try {
       const stored = await api.saveRecord(toRecord(state, session, episodes), otherSpec !== null);
       setOtherSpec(null);
+      setQueuedJobs(0);
       dispatch({ type: 'saved' });
       setSaved(stored);
       setMissing([]);
@@ -134,6 +143,8 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
       if (typeof spec === 'string') {
         // nothing was saved: the line below now says what saving again replaces
         setOtherSpec(spec);
+        const jobs = e instanceof ApiError ? e.details.queuedJobs : undefined;
+        setQueuedJobs(typeof jobs === 'number' ? jobs : 0);
         setStatus(null);
       } else setStatus({ ok: false, text: messageOf(e) });
     } finally {
@@ -188,7 +199,12 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
       </div>
       {(status !== null || gone.length > 0 || otherSpec !== null) && (
         <div className="save-notes">
-          {otherSpec !== null && <p className="save-status">{`Subtitle choices are saved for episodes ${otherSpec}; saving here replaces them.`}</p>}
+          {otherSpec !== null && (
+            <p className="save-status">
+              {`Subtitle choices are saved for episodes ${otherSpec}; saving here replaces them.`}
+              {queuedJobs > 0 && ` ${QUEUED_JOBS_WARNING}`}
+            </p>
+          )}
           {status !== null && (
             <p className={status.ok ? 'save-status muted' : 'save-status error'} role="status">
               {status.text}
