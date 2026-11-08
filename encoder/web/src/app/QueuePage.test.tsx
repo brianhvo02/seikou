@@ -127,6 +127,23 @@ describe('QueuePage', () => {
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('jobs.json is damaged.'));
   });
 
+  it('shows the message when another app runs the queue', async () => {
+    const text = 'Another seikou-encode app (pid 4242) runs the encode queue of this data folder.';
+    const api = fakeApi({
+      jobs: vi.fn(async () => {
+        throw new ApiError(409, 'queue-elsewhere', text);
+      }),
+    });
+    const store = createJobsStore(api, { eventSource: FakeEventSource as unknown as EventSourceCtor });
+    render(
+      <JobsProvider store={store}>
+        <QueuePage api={api} />
+      </JobsProvider>,
+    );
+    act(() => FakeEventSource.made[0]!.fail());
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(text));
+  });
+
   it('says a job is not in the queue', () => {
     setup(fakeApi(), [makeJob()], 'ffffffffffffffff');
     expect(screen.getByText(/not in the queue/)).toBeTruthy();

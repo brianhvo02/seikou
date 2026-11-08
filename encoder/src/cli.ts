@@ -15,6 +15,7 @@ import { loadEncodeRecord, MissingSubtitleFilesError, NoAudioChosenError, Record
 import { ChainError } from './pipeline/chain';
 import { EpisodeSpecError, parseEpisodeSpec } from './plan/episodes';
 import { startJobRunner } from './server/jobs';
+import { takeJobsLock } from './server/jobs-lock';
 import { startHelperServer, type AppContext } from './server/server';
 import { createSources } from './server/sources';
 import { appDataDir } from './subs/app-data';
@@ -26,6 +27,9 @@ class UsageError extends Error {}
 
 /** Thrown by `serve` when the helper page has not been built; the command line answers it with exit code 3. */
 class WebDirMissingError extends Error {}
+
+/** Thrown by `app` when another process runs the data folder's encode queue; the command line answers it with exit code 1. */
+class QueueElsewhereError extends Error {}
 
 const USAGE = `Usage:
   seikou-encode plan <disc> [--playlist ID]
@@ -108,7 +112,7 @@ function toolsOrNull(): ToolPaths | null {
 
 /**
  * Starts the app on the library `roots` with no session and its encode queue, prints its address and runs until
- * stopped.
+ * stopped. It refuses to start (`QueueElsewhereError`) while another process holds the data folder's queue lock.
  */
 async function app(roots: readonly string[], port: number, open: boolean): Promise<void> {
   const real: string[] = [];
@@ -118,14 +122,23 @@ async function app(roots: readonly string[], port: number, open: boolean): Promi
     real.push(dir);
   }
   const webDir = builtWebDir();
-  if (real.length === 0 && (await appSettings(appDataDir()).read()).roots.length === 0) {
-    console.log('No library folders are set. Add one in the app, or start with --root DIR.');
-  }
-  const tools = toolsOrNull();
+  const dataDir = appDataDir();
+  const attempt = takeJobsLock(dataDir);
+  if ('heldBy' in attempt) throw new QueueElsewhereError(`Another seikou-encode app (pid ${attempt.heldBy}) is using the data folder ${dataDir}.`);
   const token = randomBytes(32).toString('hex');
-  const context: AppContext = { dataDir: appDataDir(), token, webDir, tools, sources: createSources(process.env, fetch), roots: real };
-  const server = await startHelperServer(context, port);
-  const runner = startJobRunner(context);
+  let context: AppContext;
+  let server: Awaited<ReturnType<typeof startHelperServer>>;
+  try {
+    if (real.length === 0 && (await appSettings(dataDir).read()).roots.length === 0) {
+      console.log('No library folders are set. Add one in the app, or start with --root DIR.');
+    }
+    context = { dataDir, token, webDir, tools: toolsOrNull(), sources: createSources(process.env, fetch), roots: real };
+    server = await startHelperServer(context, port);
+  } catch (err) {
+    attempt.lock.release();
+    throw err;
+  }
+  const runner = startJobRunner(context, {}, attempt.lock);
   const url = `${server.url}?t=${token}`;
   console.log(`App: ${url}`);
   if (open) openInBrowser(url);
@@ -160,6 +173,10 @@ async function serve(
   const context: AppContext = { dataDir: appDataDir(), token, webDir, tools, sources: createSources(process.env, fetch), roots: [] };
   const server = await startHelperServer(context, port);
   const runner = startJobRunner(context);
+  await runner.ready;
+  if (runner.queueElsewhere !== null) {
+    console.log(`The encode queue runs in another seikou-encode app (pid ${runner.queueElsewhere}); this helper can't queue encodes.`);
+  }
   let session;
   try {
     session = await server.sessions.create({ discDir, playlistId, episodeSpec: episodes });
@@ -297,7 +314,8 @@ export function printEncodeEvent(e: EncodeEvent): void {
 
 /**
  * Runs the command line and returns the process exit code: 0 success, 1 encode or packaging failure (`package` on a
- * file that is not a readable Matroska file with an AV1 track, too), 2 usage
+ * file that is not a readable Matroska file with an AV1 track, too; `app` when another process runs the data folder's
+ * encode queue), 2 usage
  * error, bad episode list or a saved record that does not fit the encode (another playlist or episode list, or an
  * episode with no audio stream ticked), 3 required tools missing (or, for `serve` and `app`, the page not built). Output goes to stdout and stderr; nothing
  * is thrown.
@@ -324,6 +342,10 @@ export async function main(argv: string[]): Promise<number> {
       return 1;
     }
     if (err instanceof MissingSubtitleFilesError) {
+      console.error(err.message);
+      return 1;
+    }
+    if (err instanceof QueueElsewhereError) {
       console.error(err.message);
       return 1;
     }

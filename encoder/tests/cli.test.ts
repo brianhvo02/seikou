@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -217,6 +217,36 @@ describe('app', () => {
       });
       expect(out.split('\n').filter((l) => /No library folders are set/.test(l))).toHaveLength(1);
       child.removeAllListeners('exit');
+    } finally {
+      child.kill('SIGKILL');
+    }
+  }, 60_000);
+
+  it('a second app on the same data folder refuses to start, naming the first one', async () => {
+    const webDir = mkdtempSync(join(tmpdir(), 'et-app-twice-'));
+    writeFileSync(join(webDir, 'index.html'), '<!doctype html><title>app</title>');
+    const env = { ...process.env, SEIKOU_ENCODE_WEB_DIR: webDir, SEIKOU_ENCODE_DATA: webDir };
+    const args = ['--import', 'tsx', fx('src/cli.ts'), 'app', '--no-open', '--port', '0'];
+    const child = spawn(process.execPath, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    try {
+      let out = '';
+      await new Promise<void>((resolveOut, reject) => {
+        child.once('exit', (code) => reject(new Error(`exited ${String(code)}: ${out}`)));
+        child.stdout.on('data', (d: Buffer) => {
+          out += d.toString();
+          if (/App: http/.test(out)) resolveOut();
+        });
+      });
+      child.removeAllListeners('exit');
+      const second = spawnSync(process.execPath, args, { env, encoding: 'utf8' });
+      expect(second.status).toBe(1);
+      const lines = second.stderr.trim().split('\n');
+      expect(lines).toEqual([`Another seikou-encode app (pid ${String(child.pid)}) is using the data folder ${webDir}.`]);
+      // The first one still runs, and stops cleanly, taking its lock with it.
+      const code = new Promise<number | null>((r) => child.once('exit', (c) => r(c)));
+      child.kill('SIGINT');
+      expect(await code).toBe(0);
+      expect(existsSync(join(webDir, 'jobs.lock'))).toBe(false);
     } finally {
       child.kill('SIGKILL');
     }

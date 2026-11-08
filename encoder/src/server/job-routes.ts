@@ -87,8 +87,8 @@ const jobEvents: Route = async (req, res, _match, app) => {
   const runner = jobRunnerOf(app);
   await runner.ready;
   // Refused before the stream opens: an empty list would look like an empty queue.
-  const unreadable = runner.unreadableError;
-  if (unreadable !== null) return refuse(res, unreadable);
+  const unavailable = runner.unavailableError;
+  if (unavailable !== null) return refuse(res, unavailable);
   res.writeHead(200, { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', Connection: 'keep-alive' });
   const send = (event: string, data: unknown): void => {
     res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -145,6 +145,8 @@ async function serveUnder(
 const serveOutput: Route = async (req, res, match, app) => {
   const runner = jobRunnerOf(app);
   await runner.ready;
+  const unavailable = runner.unavailableError;
+  if (unavailable !== null) return refuse(res, unavailable);
   const job = runner.get(idOf(match[1]!));
   if (job === null) return httpError(res, 404, 'not-found', 'There is no such job.');
   await serveUnder(req, res, job.outDir, match[2]!.split('/').map(idOf), (file) => OUTPUT_TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream');
@@ -157,6 +159,8 @@ const serveOutput: Route = async (req, res, match, app) => {
 const serveSample: Route = async (req, res, match, app) => {
   const runner = jobRunnerOf(app);
   await runner.ready;
+  const unavailable = runner.unavailableError;
+  if (unavailable !== null) return refuse(res, unavailable);
   const job = runner.get(idOf(match[1]!));
   if (job === null || job.kind !== 'test') return httpError(res, 404, 'not-found', 'There is no such test.');
   const profile = idOf(match[2]!);
@@ -184,7 +188,9 @@ const serveSample: Route = async (req, res, match, app) => {
  *
  * Refusals are `{ error, message, ... }` (see `JobRunner.add`); an unknown job answers 404 `not-found`. While
  * `jobs.json` cannot be read, every job route, the list and the event stream included, answers 500 `jobs-unreadable`
- * (the stream before it opens, so a browser's EventSource fails and does not reconnect), never an empty queue.
+ * (the stream before it opens, so a browser's EventSource fails and does not reconnect), never an empty queue. While
+ * another process holds the data folder's queue lock (a `serve` started beside an `app`), every route that reads or
+ * changes the queue answers 409 `queue-elsewhere` with a message saying so, the same way.
  */
 export const jobRoutes: RouteTable = [
   [
@@ -193,8 +199,8 @@ export const jobRoutes: RouteTable = [
     async (_req, res, _match, app) => {
       const runner = jobRunnerOf(app);
       await runner.ready;
-      const unreadable = runner.unreadableError;
-      if (unreadable !== null) return refuse(res, unreadable);
+      const unavailable = runner.unavailableError;
+      if (unavailable !== null) return refuse(res, unavailable);
       json(res, 200, { jobs: runner.list() });
     },
   ],

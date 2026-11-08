@@ -30,7 +30,7 @@ export interface AppApi {
   updateProfile(id: string, name: string, settings: EncodeSettings): Promise<Profile>;
   /** Deletes a stored profile. */
   deleteProfile(id: string): Promise<void>;
-  /** The queue, oldest first; rejects with `ApiError` code `jobs-unreadable` while the queue file is damaged. */
+  /** The queue, oldest first; rejects with `ApiError` code `jobs-unreadable` while the queue file is damaged, `queue-elsewhere` while another process runs it. */
   jobs(): Promise<Job[]>;
   /** Queues an encode; rejects with `ApiError` (`record-mismatch` carries `recordEpisodeSpec` and `episodeSpec` in `details`). */
   createJob(job: NewJob): Promise<Job>;

@@ -262,6 +262,7 @@ describe('test jobs in the runner', () => {
     const stored = JSON.parse(readFileSync(join(fx.dataDir, 'jobs.json'), 'utf8')) as { jobs: Job[] };
     expect(stored.jobs[0]!.test!.results).toEqual(outcome(['a']).results);
     // A fresh runner reads them back.
+    await runner.shutdown();
     const again = startJobRunner(fx.app, deps);
     await again.ready;
     expect(again.get(job.id)!.test).toEqual(done.test);

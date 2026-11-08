@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
+import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { request } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -211,6 +212,8 @@ describe('the job runner', () => {
     writeFileSync(join(outRoot, 'a', 'show-02.mkv.partial'), 'old partial');
     writeFileSync(join(outRoot, 'a', 'unrelated.mkv.partial'), 'not this job');
     writeFileSync(join(outRoot, 'a', 'show-01.mkv'), 'a finished file the job never saw');
+    // The dead process's lock names a pid that no longer exists.
+    writeFileSync(join(fx.dataDir, 'jobs.lock'), `${spawnSync(process.execPath, ['-e', '']).pid}\n`);
     const after = new JobRunner(fx.app, deps());
     await after.start();
     const job = after.get(a.id)!;

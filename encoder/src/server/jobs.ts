@@ -13,6 +13,7 @@ import { loadEncodeRecord, MissingSubtitleFilesError, NoAudioChosenError, Record
 import { RecordError, RecordStore, type SubtitleRecord } from '../subs/record';
 import type { AppContext } from './http';
 import { libraryOf } from './library';
+import { takeJobsLock, type JobsLock } from './jobs-lock';
 import { parseSettings, ProfileError, type EncodeSettings } from './profiles';
 import { discOf, sessionsOf } from './sessions';
 import { parseTestProfiles, planTest, runTestEncode, testDirOf, TestInputError, type TestOutcome, type TestPlan } from './test-encode';
@@ -393,15 +394,21 @@ export class JobRunner {
   private stopping = false;
   private active: Promise<void> | null = null;
   private current: Current | null = null;
+  /** The pid of the process that runs this data folder's queue instead, when `start` could not take the lock. */
+  private elsewhere: number | null = null;
   /** When each episode's last progress report was sent, by `<jobId>:<episode>`. */
   private readonly lastProgress = new Map<string, number>();
   /** When each running episode's encode started, by `<jobId>:<episode>`, for its speed. */
   private readonly episodeStarts = new Map<string, number>();
 
-  /** The runner of `app`, with `deps` replacing the defaults it names. Call `start` before anything else. */
+  /**
+   * The runner of `app`, with `deps` replacing the defaults it names. `lock` is the data folder's queue lock when the
+   * caller has taken it already; otherwise `start` takes it. Call `start` before anything else.
+   */
   constructor(
     private readonly app: AppContext,
     deps: Partial<JobRunnerDeps> = {},
+    private lock: JobsLock | null = null,
   ) {
     this.store = new JobStore(app.dataDir);
     this.deps = {
@@ -424,9 +431,22 @@ export class JobRunner {
    * `packaging-failed`), removes the sample folder of every test job that is or becomes `interrupted`, and starts the
    * queue. A damaged file leaves the queue empty, is logged, and refuses every
    * change with 500 `jobs-unreadable`.
+   *
+   * First it takes the data folder's queue lock (`takeJobsLock`) unless it was given one. When another live process
+   * holds it, this runner loads nothing and runs nothing: `queueElsewhere` names that process, and every call is
+   * refused with 409 `queue-elsewhere`.
    */
   start(): Promise<void> {
     this.ready = (async () => {
+      if (this.lock === null) {
+        const attempt = takeJobsLock(this.app.dataDir);
+        if ('heldBy' in attempt) {
+          this.elsewhere = attempt.heldBy;
+          this.deps.log(`Another seikou-encode (pid ${attempt.heldBy}) runs the encode queue of ${this.app.dataDir}; this one runs no encodes.`);
+          return;
+        }
+        this.lock = attempt.lock;
+      }
       const loaded = await this.store.load();
       if (loaded.jobs === null) {
         this.writable = false;
@@ -475,7 +495,7 @@ export class JobRunner {
    */
   async add(input: JobInput): Promise<Job> {
     await this.ready;
-    if (!this.writable) throw this.unreadable();
+    this.checkAvailable();
     const kind = input.kind ?? 'encode';
     if (kind !== 'encode' && kind !== 'test') throw new JobError(400, 'bad-request', 'A job kind is "encode" or "test".');
     const { discKey, playlistId, episodeSpec } = input;
@@ -565,6 +585,7 @@ export class JobRunner {
    */
   async cancel(id: string): Promise<Job> {
     await this.ready;
+    this.checkElsewhere();
     const job = this.find(id);
     if (this.current?.job === job) {
       this.current.controller.abort();
@@ -589,6 +610,7 @@ export class JobRunner {
    */
   async retry(id: string): Promise<Job> {
     await this.ready;
+    this.checkElsewhere();
     const job = this.find(id);
     if (!RETRYABLE.has(job.state)) throw new JobError(409, 'not-retryable', 'Only a failed, interrupted or cancelled job can be retried.');
     if (!this.writable) throw this.unreadable();
@@ -611,6 +633,7 @@ export class JobRunner {
    */
   async remove(id: string): Promise<void> {
     await this.ready;
+    this.checkElsewhere();
     const job = this.find(id);
     if (!FINISHED.has(job.state)) throw new JobError(409, 'not-finished', 'Cancel the job before removing it.');
     if (!this.writable) throw this.unreadable();
@@ -628,6 +651,7 @@ export class JobRunner {
   /** The last `lines` lines of a job's log (at most `MAX_LOG_TAIL`). 404 `not-found`. */
   async logTail(id: string, lines: number): Promise<string[]> {
     await this.ready;
+    this.checkElsewhere();
     const job = this.find(id);
     let text: string;
     try {
@@ -643,17 +667,22 @@ export class JobRunner {
 
   /**
    * Stops the runner for the process to exit: no job starts any more, and a running job is aborted, waited for (every
-   * tool exited, its partial file removed) and saved as `interrupted`, so it can be retried.
+   * tool exited, its partial file removed) and saved as `interrupted`, so it can be retried. Then the queue lock is
+   * released.
    */
   async shutdown(): Promise<void> {
     // Set before any await: a tool killed by the same Ctrl-C can fail the encode at any moment from now on.
     this.stopping = true;
-    await this.ready;
-    if (this.current !== null) {
-      this.current.controller.abort();
-      await this.current.done;
+    try {
+      await this.ready;
+      if (this.current !== null) {
+        this.current.controller.abort();
+        await this.current.done;
+      }
+      await this.active;
+    } finally {
+      this.lock?.release();
     }
-    await this.active;
   }
 
   /** The job with `id`, or a 404 `JobError`. */
@@ -663,9 +692,37 @@ export class JobRunner {
     return job;
   }
 
-  /** The error every call answers while `jobs.json` cannot be read, or null when it can. */
-  get unreadableError(): JobError | null {
+  /** The pid of the process that runs this data folder's queue instead of this runner, or null when this one runs it. */
+  get queueElsewhere(): number | null {
+    return this.elsewhere;
+  }
+
+  /**
+   * The error every call answers while this runner cannot serve the queue: 409 `queue-elsewhere` when another process
+   * runs it, 500 `jobs-unreadable` while `jobs.json` cannot be read; null otherwise.
+   */
+  get unavailableError(): JobError | null {
+    if (this.elsewhere !== null) return this.elsewhereError(this.elsewhere);
     return this.writable ? null : this.unreadable();
+  }
+
+  private elsewhereError(pid: number): JobError {
+    return new JobError(
+      409,
+      'queue-elsewhere',
+      `Another seikou-encode app (pid ${pid}) runs the encode queue of this data folder, so encodes can't be queued or shown here. Use that app's Queue page.`,
+    );
+  }
+
+  /** Throws `queue-elsewhere` when another process runs the queue. */
+  private checkElsewhere(): void {
+    if (this.elsewhere !== null) throw this.elsewhereError(this.elsewhere);
+  }
+
+  /** Throws the error of `unavailableError`, if any. */
+  private checkAvailable(): void {
+    const error = this.unavailableError;
+    if (error !== null) throw error;
   }
 
   private unreadable(): JobError {
@@ -1049,9 +1106,12 @@ export class JobRunner {
 
 const runners = new WeakMap<AppContext, JobRunner>();
 
-/** Makes the job runner of `app` with `deps`, starts it (see `JobRunner.start`) and keeps it as the app's runner. */
-export function startJobRunner(app: AppContext, deps: Partial<JobRunnerDeps> = {}): JobRunner {
-  const runner = new JobRunner(app, deps);
+/**
+ * Makes the job runner of `app` with `deps`, starts it (see `JobRunner.start`) and keeps it as the app's runner.
+ * `lock` is the data folder's queue lock when the caller took it already.
+ */
+export function startJobRunner(app: AppContext, deps: Partial<JobRunnerDeps> = {}, lock: JobsLock | null = null): JobRunner {
+  const runner = new JobRunner(app, deps, lock);
   runners.set(app, runner);
   void runner.start();
   return runner;
