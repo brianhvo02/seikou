@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Id } from '../../src/mux/mkv-ids';
 import { NotMatroskaError, readMkv } from '../../src/mux/mkv-reader';
-import { packageEpisode, type EpisodeManifest } from '../../src/package/package';
+import { packageEpisode, safeName, type EpisodeManifest } from '../../src/package/package';
 import { blocksInOrder, find, findAll, parseMkv, stringOf, uintOf } from '../helpers/ebml-reader';
 import { ffprobePath, haveFfprobe } from '../helpers/tools';
 import { FONT, SCRIPT, writeEpisodeMkv } from './episode-mkv';
@@ -120,6 +120,16 @@ describe('packageEpisode', () => {
     await expect(packageEpisode(cut, out)).rejects.toThrow();
     expect(existsSync(out)).toBe(false);
     expect(readdirSync(join(dir, 'web'))).toEqual(['ep-01']);
+  });
+
+  it('cuts a long font name to 200 bytes of UTF-8 without splitting a character', () => {
+    const name = `${'星'.repeat(100)}.ttf`; // 300 bytes of kanji plus the extension
+    const safe = safeName(name, 'font-1');
+    expect(Buffer.byteLength(safe, 'utf8')).toBeLessThanOrEqual(200);
+    expect(safe).toBe(`${'星'.repeat(65)}.ttf`);
+    expect(Buffer.from(safe, 'utf8').toString('utf8')).toBe(safe);
+    expect(safeName('../.hidden\u0001.otf', 'font-1')).toBe('_.hidden_.otf');
+    expect(safeName('...', 'font-1')).toBe('font-1');
   });
 
   it('packaging again replaces the directory', async () => {

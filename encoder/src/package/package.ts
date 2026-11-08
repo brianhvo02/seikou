@@ -50,11 +50,27 @@ function isFont(a: MkvAttachment): boolean {
   return type.startsWith('font/') || LEGACY_FONT_TYPES.has(type) || FONT_EXTENSIONS.has(extname(a.name).toLowerCase());
 }
 
-/** A file name safe to write inside the directory: no separators, control characters or leading dots. */
-function safeName(name: string, fallback: string): string {
+const MAX_NAME_BYTES = 200;
+
+/**
+ * A file name safe to write inside the directory: separators and control characters become `_`,
+ * leading dots go, and a name over 200 bytes of UTF-8 keeps its last whole code points that fit (so
+ * the extension stays), never splitting one. `fallback` stands in for a name left empty.
+ */
+export function safeName(name: string, fallback: string): string {
   // eslint-disable-next-line no-control-regex
-  const cleaned = name.replace(/[/\\\x00-\x1f\x7f]/g, '_').replace(/^\.+/, '').slice(-200);
-  return cleaned === '' ? fallback : cleaned;
+  const cleaned = name.replace(/[/\\\x00-\x1f\x7f]/g, '_').replace(/^\.+/, '');
+  const points = Array.from(cleaned);
+  let bytes = 0;
+  let from = points.length;
+  while (from > 0) {
+    const size = Buffer.byteLength(points[from - 1]!, 'utf8');
+    if (bytes + size > MAX_NAME_BYTES) break;
+    bytes += size;
+    from--;
+  }
+  const kept = points.slice(from).join('').replace(/^\.+/, '');
+  return kept === '' ? fallback : kept;
 }
 
 function languageTag(language: string): string {
@@ -128,18 +144,27 @@ export function rebuildAss(codecPrivate: Uint8Array, blocks: readonly SubtitleBl
   return [...before, ...dialogue, ...lines.slice(insertAt)].join('');
 }
 
-/** The subtitle blocks of every ASS and PGS track, copied out of the clusters, and the end of the latest block of any track. */
-async function collectSubtitles(mkv: ParsedMkv, tracks: ReadonlySet<number>): Promise<{ blocks: Map<number, SubtitleBlock[]>; endMs: number }> {
+/**
+ * One pass over the blocks: the subtitle blocks of every ASS and PGS track, copied out of the
+ * clusters, the number of blocks of every track (which the WebM remux needs) and the end of the
+ * latest block of any track.
+ */
+async function scanBlocks(
+  mkv: ParsedMkv,
+  tracks: ReadonlySet<number>,
+): Promise<{ blocks: Map<number, SubtitleBlock[]>; counts: Map<number, number>; endMs: number }> {
   const blocks = new Map<number, SubtitleBlock[]>();
   for (const t of tracks) blocks.set(t, []);
+  const counts = new Map<number, number>();
   let endMs = 0;
   for await (const b of mkv.blocks()) {
+    counts.set(b.track, (counts.get(b.track) ?? 0) + 1);
     endMs = Math.max(endMs, b.timeMs + (b.durationMs ?? 0));
     const list = blocks.get(b.track);
     if (list === undefined) continue;
     list.push({ timeMs: b.timeMs, ...(b.durationMs !== undefined ? { durationMs: b.durationMs } : {}), data: new Uint8Array(b.data) });
   }
-  return { blocks, endMs };
+  return { blocks, counts, endMs };
 }
 
 async function* iterate<T>(items: readonly T[]): AsyncGenerator<T> {
@@ -177,7 +202,7 @@ export async function packageEpisode(mkvPath: string, outDir: string): Promise<E
   await mkdir(dirname(outDir), { recursive: true });
   const tmp = await mkdtemp(join(dirname(outDir), `.${basename(outDir)}.partial-`));
   try {
-    const { blocks, endMs } = await collectSubtitles(mkv, new Set([...ass, ...pgs].map((t) => t.number)));
+    const { blocks, counts, endMs } = await scanBlocks(mkv, new Set([...ass, ...pgs].map((t) => t.number)));
     const durationMs = Math.round(mkv.durationMs ?? endMs);
 
     const subtitles: EpisodeManifest['subtitles'] = [];
@@ -211,7 +236,7 @@ export async function packageEpisode(mkvPath: string, outDir: string): Promise<E
     }
 
     await writeFile(join(tmp, 'chapters.vtt'), toVtt(mkv.chapters, durationMs));
-    await writeWebm(mkv, join(tmp, 'video.webm'));
+    await writeWebm(mkv, join(tmp, 'video.webm'), { blockCounts: counts });
 
     const manifest: EpisodeManifest = {
       title: mkv.title ?? basename(mkvPath, extname(mkvPath)),
