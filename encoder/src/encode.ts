@@ -13,9 +13,10 @@ import { audioChain, ChainError, videoChain, type Chain, type ToolPaths } from '
 import { buildAudioScript, buildVideoScript } from './pipeline/vpy';
 import { WavGuardError } from './pipeline/wav-guard';
 import { loadEncodeRecord, NoAudioChosenError } from './subs/encode-record';
+import { episodeSubtitleTracks } from './subs/episode-subtitles';
 import { selectAudio, type SelectedAudio } from './plan/audio-streams';
 import { parseEpisodeSpec, planEpisodes, type EpisodePlan } from './plan/episodes';
-import type { RecordMetadata } from './subs/record';
+import type { RecordMetadata, SubtitleRecord } from './subs/record';
 
 /** Everything `encodeEpisodes` needs. */
 export interface EncodeOptions {
@@ -40,12 +41,18 @@ export interface EncodeOptions {
   /** Where BestSource keeps its index files; created if missing and reused between runs. */
   cacheDir: string;
   tools: ToolPaths;
-  /** Written to the MKV's Info element as the segment title. */
+  /** Written to the MKV's Info element as the segment title when the record names none for the episode. */
   title?: string;
   /** The app data directory, where the helper's saved subtitle records and fetched files live. */
   dataDir: string;
   /** Ignore the helper's saved record and encode without its subtitle choices. */
   noSubtitles: boolean;
+  /**
+   * The record to follow, already loaded and checked by `loadEncodeRecord`: a caller that loaded it passes it so the
+   * encode uses exactly what it checked, and `null` means no record. When left out, `encodeEpisodes` loads it itself
+   * (honouring `noSubtitles`).
+   */
+  record?: SubtitleRecord | null;
   /** Leave the disc's PG subtitle streams out of the MKV. */
   noPgs: boolean;
   /** When set, each finished episode is also packaged for the web player into a folder of its name under this directory. */
@@ -149,8 +156,11 @@ function chainFailure(chains: Chain[]): Promise<ChainError | WavGuardError | nul
  * languages; a stream it does not list is left out with a `log` event), else every audio stream of
  * the playlist in STN order; each becomes an Opus track (160 kb/s up to two channels, 320 above,
  * `opusBitrate` for all when set). The video track takes the record's name and language when there
- * is a record. The disc's PG subtitle streams follow as `S_HDMV/PGS` tracks (`episodePgsTracks`) unless
- * `noPgs` is set. Every episode is planned before the first is encoded. When any chain fails the others
+ * is a record. The MKV's title is the record's episode title, else `title`; chapter titles are the record's, else
+ * `Chapter n`. With a record, its ticked ASS tracks (retimed by the saved shift or split and the nudge) and fonts
+ * are muxed after the audio (`episodeSubtitleTracks`), then the disc's PG subtitle streams as `S_HDMV/PGS` tracks
+ * (`episodePgsTracks`) unless `noPgs` is set. `record` is read once: the CLI passes the one it checked, so what is
+ * encoded cannot change in between. Every episode is planned before the first is encoded. When any chain fails the others
  * are stopped, the episode's partial file is deleted and the error thrown is the chain's own
  * (`ChainError` from a tool, `WavGuardError` when a decoded stream's channels or rate differ from the
  * playlist's) when there is one, since a downstream parse error is usually its symptom; episodes
@@ -163,14 +173,17 @@ export async function encodeEpisodes(
 ): Promise<string[]> {
   const playlist = await loadPlaylist(resolve(o.discDir), o.playlistId);
   const specs = parseEpisodeSpec(o.episodes, playlist.chapters.length);
-  // The record is checked before anything is planned; later steps read the subtitle choices from it.
-  const record = await loadEncodeRecord({
-    discDir: resolve(o.discDir),
-    playlistId: o.playlistId,
-    episodeSpec: o.episodes,
-    dataDir: o.dataDir,
-    noSubtitles: o.noSubtitles,
-  });
+  // The record is checked before anything is planned; later steps read the subtitle choices from it, and only from this one read.
+  const record =
+    o.record !== undefined
+      ? o.record
+      : await loadEncodeRecord({
+          discDir: resolve(o.discDir),
+          playlistId: o.playlistId,
+          episodeSpec: o.episodes,
+          dataDir: o.dataDir,
+          noSubtitles: o.noSubtitles,
+        });
   const probes = new Map<string, ClipProbe>();
   for (const item of playlist.items) {
     if (!probes.has(item.clipId)) probes.set(item.clipId, await probeClip(item));
@@ -198,6 +211,8 @@ export async function encodeEpisodes(
     onEvent({ kind: 'episode-start', episode: plan.index, message: `Encoding episode ${plan.index}`, path: outPath });
 
     // Read before any tool starts: the PG streams come straight from the disc and need no cleanup when they fail.
+    // ASS tracks come first, then the disc's PGS tracks.
+    const ass = record === null ? { tracks: [], attachments: [] } : await episodeSubtitleTracks(record, plan.index, Number(plan.durationNs / 1_000_000n), o.dataDir);
     const pgs = o.noPgs ? [] : await episodePgsTracks(plan, playlist, (message) => onEvent({ kind: 'log', episode: plan.index, message }));
     const tmp = await mkdtemp(join(tmpdir(), 'encoding-tools-'));
     const chains: Chain[] = [];
@@ -228,7 +243,7 @@ export async function encodeEpisodes(
       const [ivf, ...oggs] = await Promise.all([readIvf(video.stream), ...audioChains.map((c) => readOggOpus(c.stream))]);
       const seq = await ivf.sequenceHeader;
       await writeMkv(outPath, {
-        title: o.title,
+        title: metadata?.title || o.title,
         video: {
           width: plan.video.width,
           height: plan.video.height,
@@ -252,9 +267,9 @@ export async function encodeEpisodes(
           packets: ogg.packets,
           end: ogg.end,
         })),
-        subtitles: pgs,
-        attachments: [],
-        chapters: plan.chapters,
+        subtitles: [...ass.tracks, ...pgs],
+        attachments: ass.attachments,
+        chapters: plan.chapters.map((c, i) => ({ ...c, title: metadata?.chapters[i] || c.title })),
       });
       await Promise.all(chains.map((c) => c.done));
     } catch (err) {

@@ -23,11 +23,20 @@ npm run seikou-encode -- encode encoder/fixtures/disc1 --playlist 00000 --episod
 npm run seikou-encode -- serve encoder/fixtures/disc1 --playlist 00000 --episodes "1-2,3-4"
 ```
 
-`--episodes` is a comma-separated list of ascending, non-overlapping chapter ranges, one episode each. Options: `--name PATTERN` (default `episode-{n}`, `{n}` is the episode number padded to 2 digits), `--crf N` (25), `--preset N` (4), `--svt-args "..."` (extra SVT-AV1 arguments), `--opus-bitrate N` (for every audio stream; by default 160 for mono or stereo, 320 otherwise), `--title T`, `--cache DIR` (where BestSource keeps its index files; default `bestsource/` in the data directory below), `--no-subtitles` (ignore the helper's saved record), `--no-pgs` (leave the disc's PG streams out) and `--web DIR` (also package each episode for the web player).
+`--episodes` is a comma-separated list of ascending, non-overlapping chapter ranges, one episode each. Options: `--name PATTERN` (default `episode-{n}`, `{n}` is the episode number padded to 2 digits), `--crf N` (25), `--preset N` (4), `--svt-args "..."` (extra SVT-AV1 arguments), `--opus-bitrate N` (for every audio stream; by default 160 for mono or stereo, 320 otherwise), `--title T` (the MKV's title when the record names none for the episode), `--cache DIR` (where BestSource keeps its index files; default `bestsource/` in the data directory below), `--no-subtitles` (ignore the helper's saved record: no ASS tracks, fonts, titles or names, and every audio stream goes in) and `--no-pgs` (leave the disc's PG streams out). Packaging for the web player (`--web`) is coming.
 
 `encode` reads the record the helper saved for the disc and playlist from the data directory. It must have been saved for the same playlist and `--episodes` list, or the command stops with exit code 2 and says so (re-save it in the helper, or pass `--no-subtitles`). If the record ticks no audio stream for an episode, it stops with exit code 2 naming the episode. If subtitle or font files the record names are gone from the data directory, it stops with exit code 1 naming the release. With no saved record it encodes without the helper's subtitle choices.
 
 Audio: each audio stream of the episode becomes its own Opus track, decoded by BestSource and encoded by its own opusenc (160 kb/s for mono or stereo, 320 kb/s above, or `--opus-bitrate` for every stream). With a saved record the episode's audio list decides which streams go in, in what order and under what names and languages, and the first is the default; a stream of the playlist the record does not list is left out with a warning. Without one, every audio stream of the playlist goes in, in the order of the playlist's stream table, named after its language (`jpn` is `Japanese`), the first default. Before a stream is encoded its decoded channel count and sample rate are checked against what the playlist says about it; a mismatch (BestSource decoding another stream than planned) stops the episode with exit code 1 and names the PID.
+
+What each MKV carries, in track order:
+
+1. The video track, AV1, named and tagged with the record's video name and language (empty and `und` without a record).
+2. One Opus track per audio stream (see above).
+3. With a saved record, one `S_TEXT/ASS` track per subtitle track the record leaves ticked, in the record's order, named and tagged as the record says; the first is the default. Each script is retimed as the helper previewed it (the saved shift or split, then the nudge), with zero at the episode's first video frame; events that end before the episode starts or begin after it ends are dropped.
+4. The disc's PG subtitle streams as `S_HDMV/PGS` tracks, one per stream of the playlist, named `<Language> (disc)`, never default; `--no-pgs` leaves them out. The record holds no PGS choices.
+
+Besides tracks: the record's fonts are attached (`font/ttf`, `font/otf`, `font/collection`, `font/woff` or `font/woff2` by extension) when an ASS track is, named as the release lists them; the MKV's title is the record's episode title, else `--title`, else none; chapters take the record's names, else `Chapter n`. `encode` reads the record once and encodes exactly that.
 
 Output layout:
 
@@ -47,7 +56,7 @@ out/
 2. **Episodes.** One row per disc episode with its AniList title: the release file it uses, which of that file's tracks to keep, or "No subtitles".
 3. **Line up.** Each episode's tracks are lined up against the disc's audio (decoded by VapourSynth and BestSource, as the encode decodes it): a single shift, a split at a cut, or "Could not line up" when the episode has too little dialogue or the answer is not confident. The episode plays in Seikou's engine with the retimed track and the release's fonts, and the nudge moves the subtitles live: `[` and `]` by 42 ms, `{` and `}` by 10 ms, or the buttons. Accept, use the release's own timing, or skip the episode.
 
-Details sets each episode's MKV title, the video, audio and subtitle tracks' names, languages and order, and the chapter titles. "Save for encoding" writes the record; opening the helper again for the same disc and playlist restores it. The record is what the encode will read to put the subtitles, fonts and names in the MKV (so far `encode` takes the audio tracks' choices, names and languages and the video's name and language from it; subtitles, fonts, titles and chapter names are not yet read).
+Details sets each episode's MKV title, the video, audio and subtitle tracks' names, languages and order, and the chapter titles. "Save for encoding" writes the record; opening the helper again for the same disc and playlist restores it. `encode` reads the record to put the subtitles, fonts, names, languages and chapter titles in each episode's MKV.
 
 The page is built separately from the CLI: `npm run encoder:web:build` writes `encoder/web/dist`. Rebuild it after changing anything in `encoder/web/` or in the Seikou packages it bundles. `npm run encoder:web:dev` serves it with hot reload against a running `serve` (see [`web/README.md`](web/README.md)).
 

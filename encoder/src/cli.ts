@@ -177,7 +177,7 @@ async function run(argv: string[]): Promise<void> {
     // A saved record that does not fit this encode is a usage error too, whether or not the tools are installed.
     const dataDir = appDataDir();
     const noSubtitles = values['no-subtitles'] === true;
-    await loadEncodeRecord({ discDir: resolve(disc), playlistId: values.playlist, episodeSpec: values.episodes, dataDir, noSubtitles });
+    const record = await loadEncodeRecord({ discDir: resolve(disc), playlistId: values.playlist, episodeSpec: values.episodes, dataDir, noSubtitles });
     const tools = findTools();
     await encodeEpisodes(
       {
@@ -195,6 +195,7 @@ async function run(argv: string[]): Promise<void> {
         title: values.title,
         dataDir,
         noSubtitles,
+        record,
         noPgs: values['no-pgs'] === true,
         webDir: values.web === undefined ? undefined : resolve(values.web),
       },

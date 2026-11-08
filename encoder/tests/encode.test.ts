@@ -4,12 +4,15 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { FetchCache } from '@seikou/fansubs/fetch-cache';
+import { fixtureFansubSources } from '@seikou/fansubs/fixture-sources';
 import { discKeyOfFolder } from '../src/disc/disc-key';
 import { encodeEpisodes, opusArgs, svtArgs, type EncodeEvent, type EncodeOptions } from '../src/encode';
 import { NoAudioChosenError } from '../src/subs/encode-record';
-import { RecordStore } from '../src/subs/record';
+import { RecordStore, type SubtitleRecord } from '../src/subs/record';
+import { ReleaseCache } from '../src/subs/release-cache';
 import { Id } from '../src/mux/mkv-ids';
-import { countVideoBlocks, find, findAll, floatOf, parseMkv, stringOf, uintOf } from './helpers/ebml-reader';
+import { blocksInOrder, countVideoBlocks, find, findAll, floatOf, parseMkv, stringOf, uintOf } from './helpers/ebml-reader';
 import { loadPlaylist } from '../src/disc/playlist';
 import { probeClip } from '../src/disc/probe';
 import { ffprobePath, haveFfprobe, haveTools, toolPaths } from './helpers/tools';
@@ -215,4 +218,116 @@ it('refuses, before any tool starts, an episode whose ticked audio streams are a
   expect(err).toBeInstanceOf(NoAudioChosenError);
   expect((err as Error).message).toBe('Episode 1 has no audio stream ticked in the saved choices; tick one in the helper or pass --no-subtitles');
   expect(existsSync(join(out, 'mkv'))).toBe(false);
+});
+
+/** Every track of `file` as the Matroska reader sees it, in file order. */
+function trackSummary(file: string): { codec: string; name: string; language: string; isDefault: boolean }[] {
+  return findAll(parseMkv(readFileSync(file)), Id.TrackEntry).map((t) => ({
+    codec: stringOf(find(t, Id.CodecID)),
+    name: stringOf(find(t, Id.Name)),
+    language: stringOf(find(t, Id.Language)),
+    isDefault: uintOf(find(t, Id.FlagDefault)) === 1n,
+  }));
+}
+
+describe.skipIf(!haveTools)('end to end on disc-speech with a saved record', () => {
+  it('encodes disc-speech episode 1 with the saved record', async () => {
+    const out = mkdtempSync(join(tmpdir(), 'et-'));
+    const discDir = fx('fixtures/disc-speech');
+    const dataDir = join(out, 'data');
+    const fansubs = fx('tests/fixtures/fansubs');
+    const release = await new ReleaseCache(dataDir, { tosho: fixtureFansubSources(fansubs).tosho, fetchCache: new FetchCache(join(out, 'fetch'), 1 << 30) }).fetchTosho(7001);
+    const [ep1, ep2] = release.files;
+    const { key, label } = await discKeyOfFolder(discDir);
+    const audio = [{ pid: 0x1100, name: 'Original', language: 'jpn', included: true }];
+    const tracksOf = (file: typeof ep1, shiftMs: number, nudgeMs: number): SubtitleRecord['episodes'][number]['tracks'] =>
+      file!.tracks.map((t) => ({ file: t.path, kind: t.kind, language: 'eng', name: t.kind === 'full' ? 'English (GroupA)' : 'Signs (GroupA)', shiftMs, nudgeMs, split: null, included: true }));
+    await new RecordStore(dataDir).write({
+      disc: { key, label },
+      playlist: '00000',
+      episodeSpec: '1-3,4-5',
+      anilist: null,
+      release: { source: 'tosho', id: release.key, group: release.group, label: release.label },
+      fonts: release.fonts.map((f) => f.path),
+      episodes: [
+        { index: 1, title: 'Arrival', tracks: tracksOf(ep1, 1200, 42), metadata: { title: 'Lantern Harbor - 01 - Arrival', video: { name: 'Lantern Harbor', language: 'jpn' }, audio, chapters: ['Cold open', '', 'Closing'] } },
+        { index: 2, title: 'Departure', tracks: tracksOf(ep2, 0, 0).slice(0, 1), metadata: { title: 'Lantern Harbor - 02', video: { name: '', language: 'jpn' }, audio, chapters: [] } },
+      ],
+      savedAt: '2026-11-07T00:00:00Z',
+    });
+    const opts: EncodeOptions = { discDir, playlistId: '00000', episodes: '1-3,4-5', outDir: join(out, 'mkv'), namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], cacheDir: join(out, 'cache'), tools: toolPaths()!, dataDir, noSubtitles: false, noPgs: false, title: 'Ignored' };
+    const [p1, p2] = await encodeEpisodes(opts, () => {});
+    const tree = parseMkv(readFileSync(p1!));
+    expect(stringOf(find(tree, Id.Title))).toBe('Lantern Harbor - 01 - Arrival');
+    expect(trackSummary(p1!)).toEqual([
+      { codec: 'V_AV1', name: 'Lantern Harbor', language: 'jpn', isDefault: true },
+      { codec: 'A_OPUS', name: 'Original', language: 'jpn', isDefault: true },
+      { codec: 'S_TEXT/ASS', name: 'English (GroupA)', language: 'eng', isDefault: true },
+      { codec: 'S_TEXT/ASS', name: 'Signs (GroupA)', language: 'eng', isDefault: false },
+    ]);
+    const files = findAll(tree, Id.AttachedFile);
+    expect(files.map((f) => [stringOf(find(f, Id.FileName)), stringOf(find(f, Id.FileMediaType))])).toEqual([['DejaVuSansMono.ttf', 'font/ttf']]);
+    expect(findAll(tree, Id.ChapString).map(stringOf)).toEqual(['Cold open', 'Chapter 2', 'Closing']);
+    // The fixture's first Full line starts at 0:00:00.00; the shift (1200 ms) and the nudge (42 ms) move it to 1242 ms.
+    const first = blocksInOrder(tree).find((b) => b.track === 3)!;
+    expect(first.timeMs).toBe(1242);
+    // The second episode has only its own Full track and its own title.
+    const tree2 = parseMkv(readFileSync(p2!));
+    expect(stringOf(find(tree2, Id.Title))).toBe('Lantern Harbor - 02');
+    expect(trackSummary(p2!).map((t) => t.codec)).toEqual(['V_AV1', 'A_OPUS', 'S_TEXT/ASS']);
+    if (haveFfprobe) {
+      const names: Record<string, string> = { V_AV1: 'av1', A_OPUS: 'opus', 'S_TEXT/ASS': 'ass' };
+      for (const p of [p1!, p2!]) {
+        const j = JSON.parse(execFileSync(ffprobePath!, ['-v', 'error', '-show_entries', 'stream=codec_type,codec_name', '-of', 'json', p], { encoding: 'utf8' })) as { streams: { codec_type: string; codec_name: string }[] };
+        expect(j.streams.filter((s) => s.codec_type !== 'attachment').map((s) => s.codec_name)).toEqual(trackSummary(p).map((t) => names[t.codec]));
+        expect(j.streams.filter((s) => s.codec_type === 'attachment')).toHaveLength(1);
+      }
+    }
+  }, 600_000);
+});
+
+describe.skipIf(!haveTools)('end to end on disc-subs', () => {
+  const opts = (out: string, noPgs: boolean): EncodeOptions => ({ discDir: fx('fixtures/disc-subs'), playlistId: '00000', episodes: '1-', outDir: out, namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], cacheDir: join(out, 'cache'), tools: toolPaths()!, dataDir: join(out, 'data'), noSubtitles: false, noPgs });
+
+  it('encodes disc-subs with its two PGS tracks', async () => {
+    const out = mkdtempSync(join(tmpdir(), 'et-'));
+    const [p] = await encodeEpisodes(opts(out, false), () => {});
+    expect(trackSummary(p!)).toEqual([
+      { codec: 'V_AV1', name: '', language: 'und', isDefault: true },
+      { codec: 'A_OPUS', name: 'English', language: 'eng', isDefault: true },
+      { codec: 'S_HDMV/PGS', name: 'English (disc)', language: 'eng', isDefault: false },
+      { codec: 'S_HDMV/PGS', name: 'Japanese (disc)', language: 'jpn', isDefault: false },
+    ]);
+    if (haveFfprobe) {
+      const j = JSON.parse(execFileSync(ffprobePath!, ['-v', 'error', '-show_entries', 'stream=codec_name', '-of', 'json', p!], { encoding: 'utf8' })) as { streams: { codec_name: string }[] };
+      expect(j.streams.map((s) => s.codec_name)).toEqual(['av1', 'opus', 'hdmv_pgs_subtitle', 'hdmv_pgs_subtitle']);
+    }
+  }, 600_000);
+
+  it('--no-pgs leaves them out', async () => {
+    const out = mkdtempSync(join(tmpdir(), 'et-'));
+    const [p] = await encodeEpisodes(opts(out, true), () => {});
+    expect(trackSummary(p!).map((t) => t.codec)).toEqual(['V_AV1', 'A_OPUS']);
+  }, 600_000);
+});
+
+it('follows the record it is given and does not read the saved one again', async () => {
+  const out = mkdtempSync(join(tmpdir(), 'et-'));
+  const discDir = fx('fixtures/disc3');
+  const { key, label } = await discKeyOfFolder(discDir);
+  // A saved record that would be refused (no audio ticked) if it were read again.
+  await new RecordStore(join(out, 'data')).write({
+    disc: { key, label },
+    playlist: '00000',
+    episodeSpec: '1-',
+    anilist: null,
+    release: null,
+    fonts: [],
+    episodes: [{ index: 1, title: 'x', tracks: [], metadata: { title: 'x', video: { name: '', language: 'jpn' }, audio: [{ pid: 0x1100, name: 'A', language: 'jpn', included: false }], chapters: [] } }],
+    savedAt: '2026-11-07T00:00:00Z',
+  });
+  const missing = { vspipe: '/nonexistent/vspipe', svt: '/nonexistent/SvtAv1EncApp', opusenc: '/nonexistent/opusenc' };
+  const opts: EncodeOptions = { discDir, playlistId: '00000', episodes: '1-', outDir: join(out, 'mkv'), namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], cacheDir: join(out, 'cache'), tools: missing, dataDir: join(out, 'data'), noSubtitles: false, noPgs: true, record: null };
+  const err = await encodeEpisodes(opts, () => {}).catch((e: unknown) => e);
+  expect(err).not.toBeInstanceOf(NoAudioChosenError);
 });
