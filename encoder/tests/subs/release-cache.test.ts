@@ -102,6 +102,22 @@ describe('ReleaseCache', () => {
     expect(b.key).toBe(a.key);
   });
 
+  it('addLocal stores the upload again when a stored track or font file is gone', async () => {
+    const font = await cache.read((await cache.fetchTosho(7001)).fonts[0]!.path);
+    const upload = [
+      { name: 'a.ass', bytes: enc(ASS) },
+      { name: 'Mine.ttf', bytes: font },
+    ];
+    const first = await cache.addLocal(upload);
+    const track = first.files[0]!.tracks[0]!.path;
+    await rm(join(dir, 'data', track));
+    expect(await cache.addLocal(upload)).toEqual(first);
+    expect(existsSync(join(dir, 'data', track))).toBe(true);
+    await rm(join(dir, 'data', first.fonts[0]!.path));
+    expect(await cache.addLocal(upload)).toEqual(first);
+    expect(existsSync(join(dir, 'data', first.fonts[0]!.path))).toBe(true);
+  });
+
   it('a Tosho 404 rejects with NotFoundOnTosho', async () => {
     await expect(cache.fetchTosho(1)).rejects.toBeInstanceOf(NotFoundOnTosho);
   });

@@ -154,7 +154,8 @@ export class ReleaseCache {
   /**
    * Stores the user's own files: `.ass`, `.ssa` and `.srt` subtitles (at most 5 MB each; SRT becomes ASS) and fonts
    * (at most 50 MB together). Each subtitle file becomes one release file with one track named after it. The key
-   * depends on the names and bytes, so the same upload is stored once. Throws `UploadRejected` naming the file for a
+   * depends on the names and bytes, so the same upload is stored once; a stored upload with a track or font file gone
+   * is stored again over the old one. Throws `UploadRejected` naming the file for a
    * wrong extension or size or when no subtitle file is present, and `SubtitleEncodingError` for text that is not
    * UTF-8 or UTF-16 with a BOM.
    */
@@ -181,7 +182,7 @@ export class ReleaseCache {
     for (const f of sorted) hash.update(f.name).update('\0').update(String(f.bytes.length)).update('\0').update(f.bytes);
     const key = `local-${hash.digest('hex').slice(0, 16)}`;
     const stored = await this.get(key);
-    if (stored) return stored;
+    if (stored && (await this.complete(stored))) return stored;
     const releaseFiles: CachedReleaseFile[] = [];
     for (const [i, f] of subs.entries()) {
       const text = decodeSubtitleText(f.bytes);
