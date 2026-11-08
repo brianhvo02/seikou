@@ -2,6 +2,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiError } from '../api';
 import type { LibraryAnswer, PlaylistDetail } from '../api-types';
 import type { PlayerLike } from '../player/use-controller';
 import type { AppApi } from './app-api';
@@ -181,5 +182,28 @@ describe('EpisodesPage', () => {
     expect(await screen.findByText('Scanning the library…')).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
     expect(await screen.findByRole('heading', { name: 'LANTERN_HARBOR_D1' }, { timeout: 3000 })).toBeTruthy();
+  });
+
+  it('lands on not-in-library when the scan ends without the disc after a poll began', async () => {
+    const api = fakeApi(detail(), []);
+    let scanning = true;
+    setTimeout(() => (scanning = false), 300);
+    api.library = vi.fn(async () => ({ roots: [], savedRoots: [], runRoots: [], unreadableRoots: [], scanning, discs: [] }));
+    api.playlist = vi.fn(async () => {
+      throw new ApiError(404, 'disc-changed', 'The helper serves no disc with that key.');
+    });
+    render(<EpisodesPage api={api} discKey={KEY} playlistId="00800" controller={fakeController()} />);
+    expect(await screen.findByText('Scanning the library…')).toBeTruthy();
+    expect((await screen.findByRole('alert', {}, { timeout: 3000 })).textContent).toContain('not in the library');
+    expect(screen.queryByText('Scanning the library…')).toBeNull();
+  });
+
+  it('says the disc is not in the library when the scan is already over', async () => {
+    const api = fakeApi(detail(), []);
+    api.playlist = vi.fn(async () => {
+      throw new ApiError(404, 'disc-changed', 'The helper serves no disc with that key.');
+    });
+    render(<EpisodesPage api={api} discKey={KEY} playlistId="00800" controller={fakeController()} />);
+    expect((await screen.findByRole('alert')).textContent).toContain('not in the library');
   });
 });

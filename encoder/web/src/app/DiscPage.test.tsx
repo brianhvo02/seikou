@@ -120,4 +120,18 @@ describe('DiscPage', () => {
     render(<DiscPage api={api} discKey={KEY} />);
     expect((await screen.findByRole('alert')).textContent).toContain('not in the library');
   });
+
+  it('lands on not-in-library when the scan ends without the disc after a poll began', async () => {
+    const api = fakeApi([]);
+    let scanning = true;
+    setTimeout(() => (scanning = false), 300);
+    api.library = vi.fn(async () => ({ ...library([]), scanning }));
+    api.playlists = vi.fn(async () => {
+      throw new ApiError(404, 'disc-changed', 'The helper serves no disc with that key.');
+    });
+    render(<DiscPage api={api} discKey={KEY} />);
+    expect(await screen.findByText('Scanning the library…')).toBeTruthy();
+    expect((await screen.findByRole('alert', {}, { timeout: 3000 })).textContent).toContain('not in the library');
+    expect(screen.queryByText('Scanning the library…')).toBeNull();
+  });
 });

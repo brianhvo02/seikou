@@ -88,7 +88,10 @@ export function DiscPage({ api, discKey }: DiscPageProps) {
       (e: unknown) => {
         if (!live) return;
         const unknownDisc = e instanceof ApiError && e.code === 'disc-changed';
-        const fail = (): void => setError({ message: e instanceof Error ? e.message : String(e), unknownDisc });
+        const fail = (): void => {
+          setScanning(false);
+          setError({ message: e instanceof Error ? e.message : String(e), unknownDisc });
+        };
         if (!unknownDisc) return fail();
         // the disc may only be missing because the scan has not reached it yet
         api.library().then(

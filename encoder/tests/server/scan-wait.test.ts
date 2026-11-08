@@ -16,6 +16,7 @@ describe('a disc key asked for while the library is being scanned', () => {
   let dataDir: string;
   let server: HelperServer;
   let app: AppContext;
+  let scanned: Promise<void> = Promise.resolve();
 
   beforeEach(async () => {
     tree = mkdtempSync(join(tmpdir(), 'scan-wait-tree-'));
@@ -25,6 +26,7 @@ describe('a disc key asked for while the library is being scanned', () => {
     server = await startHelperServer(app);
   });
   afterEach(async () => {
+    await scanned;
     vi.restoreAllMocks();
     await server.close();
     rmSync(tree, { recursive: true, force: true });
@@ -46,7 +48,7 @@ describe('a disc key asked for while the library is being scanned', () => {
     let release!: () => void;
     const gate = new Promise<string[]>((resolve) => (release = () => resolve([tree])));
     vi.spyOn(Library.prototype, 'roots').mockImplementation(() => gate);
-    void libraryOf(app).scan();
+    scanned = libraryOf(app).scan();
     expect(libraryOf(app).scanning).toBe(true);
     return release;
   }

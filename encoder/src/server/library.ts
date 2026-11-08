@@ -162,8 +162,11 @@ export class Library {
     const running = this.running;
     if (running === null) return;
     let timer: NodeJS.Timeout | undefined;
-    await Promise.race([running, new Promise<void>((r) => (timer = setTimeout(r, timeoutMs)))]);
-    clearTimeout(timer);
+    try {
+      await Promise.race([running, new Promise<void>((r) => (timer = setTimeout(r, timeoutMs)))]);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** The folder of the library disc with `key` in the last complete scan, else null. */

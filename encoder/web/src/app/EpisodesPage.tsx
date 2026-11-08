@@ -58,6 +58,7 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
   useDocumentTitle(loaded?.disc ? `${loaded.disc.label} · ${playlistId}` : 'Seikou encoder');
 
   const fail = (e: unknown): void => {
+    setScanning(false);
     setError({ message: e instanceof Error ? e.message : String(e), unknownDisc: e instanceof ApiError && e.code === 'disc-changed' });
   };
 
