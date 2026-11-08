@@ -1,31 +1,32 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { createHash } from 'node:crypto';
-import { readFile, realpath, stat } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import type { ServerResponse } from 'node:http';
-import { basename, dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { parseMpls } from '@seikou/bdmv/mpls-parser';
-import type { DiscManifest } from '@seikou/nas/nas-api';
-// Seikou's NAS server builds manifests and resolves disc paths this way; the helper answers exactly as the NAS does,
-// so the engine opens the disc through the same RemoteSource.
-import { buildManifest, resolveDiscFile } from '../../../server/src/manifest';
-import { discKeyOfFolder } from '../disc/disc-key';
+// Seikou's NAS server resolves disc paths this way; the helper answers exactly as the NAS does, so the engine opens
+// the disc through the same RemoteSource.
+import { resolveDiscFile } from '../../../server/src/manifest';
 import { bdmvRoot, listPlaylists, loadPlaylist } from '../disc/playlist';
 import { readPlaylistPmts } from '../disc/pmt';
 import { probeClip, type ClipProbe } from '../disc/probe';
 import { firstStnAudio } from '../plan/audio-streams';
 import { EpisodeSpecError, firstFramePlaylistUs, parseEpisodeSpec, planEpisodes, type EpisodePlan, type EpisodeSpec } from '../plan/episodes';
-import { httpError, json, sendFile, type HelperContext, type Route, type RouteTable } from './http';
+import { httpError, json, sendFile, sessionRoute, type AppContext, type HelperSession, type Route, type RouteTable } from './http';
+import { discOf, sessionsOf, type DiscInfo } from './sessions';
 
-// The disc half of the helper's API: the session, and the NAS disc API (manifest with inlined metadata, range reads)
-// for the one disc this run serves, plus the playlist list and the episode plan in playlist time.
+// The disc half of the helper's API: the NAS disc API (manifest with inlined metadata, range reads) for every disc a
+// session is on, and, per session, what the session is about, the disc's playlists and the episode plan in playlist
+// time.
 
-/** What the page learns first: which disc and episode list this run is about, and whether alignment can run. */
+/** What the page learns first: which disc and episode list the session is about, and whether alignment can run. */
 export interface SessionInfo {
   /** The disc's key (`f.<content fingerprint>`, or `d.<id>` for a disc with no streams), the `<discKey>` of the disc routes. */
   readonly discKey: string;
   /** The disc folder's name, for the page's heading. */
   readonly label: string;
+  /** Five-digit playlist name. */
   readonly playlistId: string;
+  /** The episode list as typed. */
   readonly episodeSpec: string;
   /** Whether the external tools alignment needs were found. */
   readonly toolsReady: boolean;
@@ -48,6 +49,7 @@ export interface EpisodeTimes {
 
 /** A main-path audio stream of the playlist's first play item, in the order players number them. */
 export interface AudioStreamInfo {
+  /** The stream's PID. */
   readonly pid: number;
   /** STN stream coding type (0x80 LPCM, 0x81 AC-3, 0x83 TrueHD, ...). */
   readonly codingType: number;
@@ -55,37 +57,31 @@ export interface AudioStreamInfo {
   readonly language: string;
 }
 
-/** The answer of `GET /api/episodes`. */
+/** The answer of `GET /api/sessions/<id>/episodes`. */
 export interface EpisodesAnswer {
+  /** The session's episodes in order. */
   readonly episodes: readonly EpisodeTimes[];
+  /** The playlist's main-path audio streams. */
   readonly audio: readonly AudioStreamInfo[];
   /** Main-path PG (subtitle) streams of the first play item. */
   readonly pgCount: number;
 }
 
-/** What one run knows about its disc, worked out once. */
-interface DiscState {
-  /** Real path of the folder that holds BDMV. */
-  readonly root: string;
-  readonly label: string;
-  readonly key: string;
-  readonly manifest: DiscManifest;
-  /** The episode plan, worked out on first use (it reads the start of each clip). */
-  episodes: Promise<PlannedEpisodes> | null;
-}
-
-/** The episode plan as the encoder will cut it, and the answer of `GET /api/episodes` made from it. */
+/** The episode plan as the encoder will cut it, and the answer of `GET /api/sessions/<id>/episodes` made from it. */
 interface PlannedEpisodes {
   readonly plans: readonly EpisodePlan[];
   readonly answer: EpisodesAnswer;
 }
 
-const states = new WeakMap<HelperContext, Promise<DiscState>>();
+/** Each session's episode plan, worked out on first use (it reads the start of each clip). */
+const planned = new WeakMap<HelperSession, Promise<PlannedEpisodes>>();
 
 /** A request the session cannot answer from the disc, as a 4xx with a code (`status`, `code`) to answer. */
 export class DiscRequestError extends Error {
   constructor(
+    /** The HTTP status. */
     readonly status: number,
+    /** The error code. */
     readonly code: string,
     message: string,
   ) {
@@ -93,46 +89,23 @@ export class DiscRequestError extends Error {
   }
 }
 
-async function loadState(ctx: HelperContext): Promise<DiscState> {
-  const given = await realpath(ctx.discDir);
-  const root = basename(given).toUpperCase() === 'BDMV' ? dirname(given) : given;
-  const { key, label } = await discKeyOfFolder(root);
-  // The manifest's id is the folder's own hash, not the key, as the NAS gives manifests an id of their own.
-  const id16 = createHash('sha256').update(root).digest('hex').slice(0, 16);
-  const manifest = await buildManifest(root, { id: id16, name: label });
-  return { root, label, key, manifest, episodes: null };
+/** What `GET /api/sessions/<id>` answers for `session`. */
+export async function sessionInfo(app: AppContext, session: HelperSession): Promise<SessionInfo> {
+  const { label } = await discOf(app, session.discDir);
+  return { discKey: session.discKey, label, playlistId: session.playlistId, episodeSpec: session.episodeSpec, toolsReady: app.tools !== null };
 }
 
-function stateOf(ctx: HelperContext): Promise<DiscState> {
-  let state = states.get(ctx);
-  if (!state) {
-    state = loadState(ctx);
-    states.set(ctx, state);
-    state.catch(() => states.delete(ctx)); // a failed read is tried again on the next request
-  }
-  return state;
-}
-
-/**
- * Reads the disc of `ctx` once and keeps what the disc routes answer from: its key, label and manifest. The server
- * calls it before listening, so a folder that is not a disc fails the start. Rejects when the folder is missing or
- * has no `BDMV/index.bdmv`.
- */
-export async function prepareDisc(ctx: HelperContext): Promise<SessionInfo> {
-  const { key, label } = await stateOf(ctx);
-  return { discKey: key, label, playlistId: ctx.playlistId, episodeSpec: ctx.episodeSpec, toolsReady: ctx.tools !== null };
-}
-
-async function planTimes(ctx: HelperContext, root: string): Promise<PlannedEpisodes> {
-  const playlist = await loadPlaylist(root, ctx.playlistId);
+async function planTimes(session: HelperSession): Promise<PlannedEpisodes> {
+  const root = session.discDir;
+  const playlist = await loadPlaylist(root, session.playlistId);
   let specs: EpisodeSpec[];
   try {
-    specs = parseEpisodeSpec(ctx.episodeSpec, playlist.chapters.length);
+    specs = parseEpisodeSpec(session.episodeSpec, playlist.chapters.length);
   } catch (e) {
     if (e instanceof EpisodeSpecError) throw new DiscRequestError(422, 'bad-episode-spec', e.message);
     throw e;
   }
-  if (playlist.items[0]?.audioPids[0] === undefined) throw new DiscRequestError(422, 'no-audio', `Playlist ${ctx.playlistId} has no audio stream`);
+  if (playlist.items[0]?.audioPids[0] === undefined) throw new DiscRequestError(422, 'no-audio', `Playlist ${session.playlistId} has no audio stream`);
   const probes = new Map<string, ClipProbe>();
   for (const item of playlist.items) if (!probes.has(item.clipId)) probes.set(item.clipId, await probeClip(item));
   // Alignment listens to the playlist's first STN audio stream, which BestSource finds through each clip's PMT.
@@ -152,39 +125,49 @@ async function planTimes(ctx: HelperContext, root: string): Promise<PlannedEpiso
 
   // Languages and PG streams come from the playlist's STN table: the clip-info file lists every stream of the clip,
   // the STN only the ones a player offers, in its numbering.
-  const mpls = parseMpls(new Uint8Array(await readFile(join(bdmvRoot(root), 'PLAYLIST', `${ctx.playlistId}.mpls`))));
+  const mpls = parseMpls(new Uint8Array(await readFile(join(bdmvRoot(root), 'PLAYLIST', `${session.playlistId}.mpls`))));
   const stn = mpls.playItems[0]!.stn;
   const audio = stn.audio.filter((e) => !e.subPath).map((e) => ({ pid: e.pid, codingType: e.codingType, language: e.lang }));
   return { plans, answer: { episodes, audio, pgCount: stn.pg.filter((e) => !e.subPath).length } };
 }
 
-/** The run's episode plan, worked out once and shared by every route; a failure is tried again on the next call. */
-async function plannedEpisodes(ctx: HelperContext): Promise<PlannedEpisodes> {
-  const state = await stateOf(ctx);
-  if (!state.episodes) {
-    const planned = planTimes(ctx, state.root);
-    state.episodes = planned;
-    planned.catch(() => {
-      if (state.episodes === planned) state.episodes = null;
+/** The session's episode plan, worked out once and shared by every route; a failure is tried again on the next call. */
+function plannedEpisodes(session: HelperSession): Promise<PlannedEpisodes> {
+  let plan = planned.get(session);
+  if (!plan) {
+    const working = planTimes(session);
+    plan = working;
+    planned.set(session, working);
+    working.catch(() => {
+      if (planned.get(session) === working) planned.delete(session);
     });
   }
-  return state.episodes;
+  return plan;
 }
 
 /**
- * The encoder's plan of each episode of the run, in episode order (index 0 is episode 1), the same plan
- * `GET /api/episodes` answers from. Rejects with `DiscRequestError` (422 `bad-episode-spec` or `no-audio`) when the
- * episode list does not fit the playlist or the playlist has no audio.
+ * The encoder's plan of each episode of the session, in episode order (index 0 is episode 1), the same plan
+ * `GET /api/sessions/<id>/episodes` answers from. Rejects with `DiscRequestError` (422 `bad-episode-spec` or
+ * `no-audio`) when the episode list does not fit the playlist or the playlist has no audio.
  */
-export async function episodePlans(ctx: HelperContext): Promise<readonly EpisodePlan[]> {
-  return (await plannedEpisodes(ctx)).plans;
+export async function episodePlans(session: HelperSession): Promise<readonly EpisodePlan[]> {
+  return (await plannedEpisodes(session)).plans;
 }
 
-/** The disc key capture of a disc route, or an answered 404 `disc-changed` when it names another disc. */
-async function sameDisc(ctx: HelperContext, res: ServerResponse, captured: string): Promise<DiscState | null> {
-  const state = await stateOf(ctx);
-  if (decodeURIComponent(captured) === state.key) return state;
-  httpError(res, 404, 'disc-changed', 'This run of the helper serves another disc.');
+/** The disc a disc route's key capture names, or an answered 404 `disc-changed` when the backend knows no such disc. */
+async function knownDisc(app: AppContext, res: ServerResponse, captured: string): Promise<DiscInfo | null> {
+  let key: string;
+  try {
+    key = decodeURIComponent(captured);
+  } catch {
+    key = '';
+  }
+  const dir = sessionsOf(app).byDiscKey(key);
+  if (dir !== null) {
+    const disc = await discOf(app, dir);
+    if (disc.key === key) return disc;
+  }
+  httpError(res, 404, 'disc-changed', 'The helper serves no disc with that key.');
   return null;
 }
 
@@ -192,11 +175,11 @@ async function sameDisc(ctx: HelperContext, res: ServerResponse, captured: strin
 const FILE_PATH = /^\/api\/discs\/([^/]+)\/files\/(.+)$/;
 
 /** Answers a disc file, whole or one range; the path is matched in any case under BDMV or CERTIFICATE. */
-const serveDiscFile: Route = async (req, res, match, ctx) => {
-  const state = await sameDisc(ctx, res, match[1]!);
-  if (!state) return;
+const serveDiscFile: Route = async (req, res, match, app) => {
+  const disc = await knownDisc(app, res, match[1]!);
+  if (!disc) return;
   const rel = match[2]!.split('/').map(decodeURIComponent).join('/');
-  const file = await resolveDiscFile(state.root, rel);
+  const file = await resolveDiscFile(disc.root, rel);
   let size: number | null = null;
   if (file) {
     try {
@@ -210,46 +193,47 @@ const serveDiscFile: Route = async (req, res, match, ctx) => {
 };
 
 /**
- * The disc routes. Paths are matched still percent-encoded:
+ * The app's disc routes, for every disc a session is on. Paths are matched still percent-encoded:
  *
- *   GET /api/session                       SessionInfo
  *   GET /api/discs/<discKey>/manifest      DiscManifest, as Seikou's NAS answers it
  *   GET|HEAD /api/discs/<discKey>/files/<path>   the file (any case, under BDMV or CERTIFICATE), whole or one Range
- *   GET /api/playlists                     every playlist with its length (45 kHz) and clips
- *   GET /api/episodes                      EpisodesAnswer
  *
- * Another disc key answers 404 `disc-changed` (the engine then says the disc changed); a missing file 404 `not-found`.
+ * An unknown disc key answers 404 `disc-changed` (the engine then says the disc changed); a missing file 404
+ * `not-found`.
  */
 export const discRoutes: RouteTable = [
-  ['GET', /^\/api\/session$/, async (_req, res, _match, ctx) => json(res, 200, await prepareDisc(ctx))],
   [
     'GET',
     /^\/api\/discs\/([^/]+)\/manifest$/,
-    async (_req, res, match, ctx) => {
-      const state = await sameDisc(ctx, res, match[1]!);
-      if (state) json(res, 200, state.manifest);
+    async (_req, res, match, app) => {
+      const disc = await knownDisc(app, res, match[1]!);
+      if (disc) json(res, 200, disc.manifest);
     },
   ],
   ['GET', FILE_PATH, serveDiscFile],
   ['HEAD', FILE_PATH, serveDiscFile],
+];
+
+/**
+ * A session's disc routes, under `/api/sessions/<id>`:
+ *
+ *   GET (the session itself)   SessionInfo
+ *   GET /playlists             every playlist of the session's disc with its length (45 kHz) and clips
+ *   GET /episodes              EpisodesAnswer; 422 `bad-episode-spec` or `no-audio`
+ */
+export const discSessionRoutes: RouteTable = [
+  ['GET', /^$/, sessionRoute(async (_req, res, _match, app, session) => json(res, 200, await sessionInfo(app, session)))],
+  ['GET', /^\/playlists$/, sessionRoute(async (_req, res, _match, _app, session) => json(res, 200, await listPlaylists(session.discDir)))],
   [
     'GET',
-    /^\/api\/playlists$/,
-    async (_req, res, _match, ctx) => {
-      const { root } = await stateOf(ctx);
-      json(res, 200, await listPlaylists(root));
-    },
-  ],
-  [
-    'GET',
-    /^\/api\/episodes$/,
-    async (_req, res, _match, ctx) => {
+    /^\/episodes$/,
+    sessionRoute(async (_req, res, _match, _app, session) => {
       try {
-        json(res, 200, (await plannedEpisodes(ctx)).answer);
+        json(res, 200, (await plannedEpisodes(session)).answer);
       } catch (e) {
         if (e instanceof DiscRequestError) return httpError(res, e.status, e.code, e.message);
         throw e;
       }
-    },
+    }),
   ],
 ];

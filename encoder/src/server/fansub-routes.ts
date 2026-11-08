@@ -11,7 +11,7 @@ import { ReleaseCache, UploadRejected, type CachedRelease } from '../subs/releas
 import { matchRelease } from '../subs/release-match';
 import { SubtitleEncodingError } from '../subs/srt-to-ass';
 import { DiscRequestError, episodePlans } from './disc-routes';
-import { httpError, json, type HelperContext, type RouteTable } from './http';
+import { httpError, json, sessionRoute, type AppContext, type HelperSession, type RouteTable } from './http';
 import { answerUnavailable } from './title-routes';
 
 // The fansub half of the helper's API: SeaDex's recommendations for the show the user picked, Anime Tosho search and
@@ -25,19 +25,21 @@ const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
 const MAX_BATCH_FILES = 200;
 const BATCH_PATTERN = /^[0-9a-f]{16}$/;
 
-const caches = new WeakMap<HelperContext, ReleaseCache>();
+const caches = new WeakMap<AppContext, ReleaseCache>();
 
-/** The one `ReleaseCache` of this run, made on first use from the context's data directory and Anime Tosho source; every route that reads releases shares it. */
-export function releaseCacheOf(ctx: HelperContext): ReleaseCache {
-  let cache = caches.get(ctx);
+/**
+ * The one `ReleaseCache` of the app, made on first use from its data directory and Anime Tosho source; every route
+ * of every session that reads releases shares it.
+ */
+export function releaseCacheOf(app: AppContext): ReleaseCache {
+  let cache = caches.get(app);
   if (!cache) {
-    const fetchCache = new FetchCache(join(ctx.dataDir, 'cache', 'fansubs'), FETCH_CACHE_BYTES);
-    cache = new ReleaseCache(ctx.dataDir, { tosho: ctx.sources.tosho, fetchCache });
-    caches.set(ctx, cache);
+    const fetchCache = new FetchCache(join(app.dataDir, 'cache', 'fansubs'), FETCH_CACHE_BYTES);
+    cache = new ReleaseCache(app.dataDir, { tosho: app.sources.tosho, fetchCache });
+    caches.set(app, cache);
   }
   return cache;
 }
-
 
 /** The request's query parameters. */
 function queryOf(req: IncomingMessage): URLSearchParams {
@@ -52,14 +54,14 @@ function offsetOf(req: IncomingMessage): number | null {
 }
 
 /**
- * Answers `release` with its `match` against the session's episodes, 1 to N for the N episodes of the run's plan
- * (`episodePlans`, the one `GET /api/episodes` answers from); an episode list the playlist cannot hold answers as
- * that route does (422 `bad-episode-spec` or `no-audio`).
+ * Answers `release` with its `match` against the session's episodes, 1 to N for the N episodes of its plan
+ * (`episodePlans`, the one `GET /api/sessions/<id>/episodes` answers from); a playlist the plan cannot be made for
+ * answers as that route does (422 `bad-episode-spec` or `no-audio`).
  */
-async function answerRelease(res: ServerResponse, ctx: HelperContext, release: CachedRelease, offset: number): Promise<void> {
+async function answerRelease(res: ServerResponse, session: HelperSession, release: CachedRelease, offset: number): Promise<void> {
   let count: number;
   try {
-    count = (await episodePlans(ctx)).length;
+    count = (await episodePlans(session)).length;
   } catch (e) {
     if (e instanceof DiscRequestError) return httpError(res, e.status, e.code, e.message);
     throw e;
@@ -102,7 +104,7 @@ function tooLarge(res: ServerResponse): void {
 }
 
 /** The folder a batch's files wait in until commit. */
-const batchDir = (ctx: HelperContext, batch: string): string => join(ctx.dataDir, 'uploads', batch);
+const batchDir = (app: AppContext, batch: string): string => join(app.dataDir, 'uploads', batch);
 
 interface SeaDexRow {
   readonly group: string;
@@ -115,17 +117,17 @@ interface SeaDexRow {
 }
 
 /**
- * The fansub routes:
+ * A session's fansub routes, under `/api/sessions/<id>`:
  *
- *   GET  /api/fansubs/seadex?anilist=<id>     `{ notes, comparison, url, releases }`: the public releases in
- *                                             `rankReleases` order, then the private-tracker ones, each with its
- *                                             Anime Tosho id (`toshoId`) or why it has none (`unavailable`)
- *   GET  /api/fansubs/search?q=               Anime Tosho releases `{ toshoId, title, date }[]`, date in epoch seconds
- *   POST /api/fansubs/fetch?offset=           body `{ toshoId }`; the cached release plus `match`
- *   PUT  /api/uploads/<batch>/<name>          one raw file of an upload batch (`batch`: 16 lower-case hex digits)
- *   POST /api/uploads/<batch>/commit?offset=  stores the batch as a local release and removes it; answers as fetch does
- *   GET  /api/releases/<key>?offset=          a cached release plus `match`
- *   GET  /api/releases/<key>/fonts/<name>     a font of the release
+ *   GET  /fansubs/seadex?anilist=<id>     `{ notes, comparison, url, releases }`: the public releases in
+ *                                         `rankReleases` order, then the private-tracker ones, each with its
+ *                                         Anime Tosho id (`toshoId`) or why it has none (`unavailable`)
+ *   GET  /fansubs/search?q=               Anime Tosho releases `{ toshoId, title, date }[]`, date in epoch seconds
+ *   POST /fansubs/fetch?offset=           body `{ toshoId }`; the cached release plus `match`
+ *   PUT  /uploads/<batch>/<name>          one raw file of an upload batch (`batch`: 16 lower-case hex digits)
+ *   POST /uploads/<batch>/commit?offset=  stores the batch as a local release and removes it; answers as fetch does
+ *   GET  /releases/<key>?offset=          a cached release plus `match`
+ *   GET  /releases/<key>/fonts/<name>     a font of the release
  *
  * `match` is `matchRelease` of the release's files against the session's episodes 1 to N, with `offset` as the
  * episode offset. Errors: 400 `bad-request` or `empty-query`, 404 `not-on-tosho` or `not-found`, 413 `too-large`,
@@ -134,16 +136,16 @@ interface SeaDexRow {
 export const fansubRoutes: RouteTable = [
   [
     'GET',
-    /^\/api\/fansubs\/seadex$/,
-    async (req, res, _match, ctx) => {
+    /^\/fansubs\/seadex$/,
+    sessionRoute(async (req, res, _match, app) => {
       const raw = queryOf(req).get('anilist') ?? '';
       if (!/^\d{1,9}$/.test(raw)) return httpError(res, 400, 'bad-request', 'anilist must be an AniList id.');
       const alId = Number(raw);
       await upstream(res, 'seadex', async () => {
-        const entry = await ctx.sources.seadex.entry(alId, { urgent: true });
+        const entry = await app.sources.seadex.entry(alId, { urgent: true });
         const releases: SeaDexRow[] = [];
         const row = async (r: SeaDexRelease): Promise<SeaDexRow> => {
-          const toshoId = r.infoHash === null ? null : ((await ctx.sources.tosho.byHash(r.infoHash, { urgent: true }))?.id ?? null);
+          const toshoId = r.infoHash === null ? null : ((await app.sources.tosho.byHash(r.infoHash, { urgent: true }))?.id ?? null);
           const unavailable = r.infoHash === null ? 'private-tracker' : toshoId === null ? 'not-on-tosho' : null;
           return { group: r.group, tracker: r.tracker, isBest: r.isBest, dualAudio: r.dualAudio, tags: r.tags, toshoId, unavailable };
         };
@@ -153,24 +155,24 @@ export const fansubRoutes: RouteTable = [
         }
         json(res, 200, { notes: entry?.notes ?? '', comparison: entry?.comparison ?? '', url: `https://releases.moe/${alId}/`, releases });
       });
-    },
+    }),
   ],
   [
     'GET',
-    /^\/api\/fansubs\/search$/,
-    async (req, res, _match, ctx) => {
+    /^\/fansubs\/search$/,
+    sessionRoute(async (req, res, _match, app) => {
       const q = queryOf(req).get('q')?.trim() ?? '';
       if (q === '') return httpError(res, 400, 'empty-query', 'Type something to search for.');
       await upstream(res, 'tosho', async () => {
-        const found = await ctx.sources.tosho.search(q, { urgent: true });
+        const found = await app.sources.tosho.search(q, { urgent: true });
         json(res, 200, found.map((r) => ({ toshoId: r.id, title: r.title, date: r.date })));
       });
-    },
+    }),
   ],
   [
     'POST',
-    /^\/api\/fansubs\/fetch$/,
-    async (req, res, _match, ctx) => {
+    /^\/fansubs\/fetch$/,
+    sessionRoute(async (req, res, _match, app, session) => {
       const offset = offsetOf(req);
       if (offset === null) return httpError(res, 400, 'bad-request', 'offset must be a whole number.');
       const bytes = await readBody(req, 16 * 1024);
@@ -185,19 +187,19 @@ export const fansubRoutes: RouteTable = [
         return httpError(res, 400, 'bad-request', 'The body must be { "toshoId": <number> }.');
       }
       const id = toshoId;
-      await upstream(res, 'tosho', async () => answerRelease(res, ctx, await releaseCacheOf(ctx).fetchTosho(id), offset));
-    },
+      await upstream(res, 'tosho', async () => answerRelease(res, session, await releaseCacheOf(app).fetchTosho(id), offset));
+    }),
   ],
   [
     'PUT',
-    /^\/api\/uploads\/([^/]+)\/([^/]+)$/,
-    async (req, res, match, ctx) => {
+    /^\/uploads\/([^/]+)\/([^/]+)$/,
+    sessionRoute(async (req, res, match, app) => {
       const batch = decode(match[1]!);
       const name = decode(match[2]!);
       if (batch === null || !BATCH_PATTERN.test(batch) || name === null || !plainName(name)) {
         return httpError(res, 400, 'bad-request', 'Bad batch or file name.');
       }
-      const dir = batchDir(ctx, batch);
+      const dir = batchDir(app, batch);
       const present = await readdir(dir).catch(() => [] as string[]);
       if (present.length >= MAX_BATCH_FILES && !present.includes(name)) {
         return httpError(res, 400, 'bad-request', 'Too many files in one upload.');
@@ -207,21 +209,21 @@ export const fansubRoutes: RouteTable = [
       await mkdir(dir, { recursive: true });
       await writeFile(join(dir, name), body);
       json(res, 200, { name, size: body.length });
-    },
+    }),
   ],
   [
     'POST',
-    /^\/api\/uploads\/([^/]+)\/commit$/,
-    async (req, res, match, ctx) => {
+    /^\/uploads\/([^/]+)\/commit$/,
+    sessionRoute(async (req, res, match, app, session) => {
       const batch = decode(match[1]!);
       const offset = offsetOf(req);
       if (batch === null || !BATCH_PATTERN.test(batch) || offset === null) return httpError(res, 400, 'bad-request', 'Bad batch or offset.');
-      const dir = batchDir(ctx, batch);
+      const dir = batchDir(app, batch);
       let release: CachedRelease;
       try {
         const names = await readdir(dir).catch(() => [] as string[]);
         const files = await Promise.all(names.map(async (name) => ({ name, bytes: new Uint8Array(await readFile(join(dir, name))) })));
-        release = await releaseCacheOf(ctx).addLocal(files);
+        release = await releaseCacheOf(app).addLocal(files);
       } catch (e) {
         // the batch goes before the answer, so a retry never finds it half removed
         await rm(dir, { recursive: true, force: true });
@@ -230,25 +232,25 @@ export const fansubRoutes: RouteTable = [
         throw e;
       }
       await rm(dir, { recursive: true, force: true });
-      await answerRelease(res, ctx, release, offset);
-    },
+      await answerRelease(res, session, release, offset);
+    }),
   ],
   [
     'GET',
-    /^\/api\/releases\/([^/]+)$/,
-    async (req, res, match, ctx) => {
+    /^\/releases\/([^/]+)$/,
+    sessionRoute(async (req, res, match, app, session) => {
       const offset = offsetOf(req);
       if (offset === null) return httpError(res, 400, 'bad-request', 'offset must be a whole number.');
-      const release = await releaseCacheOf(ctx).get(decode(match[1]!) ?? '');
+      const release = await releaseCacheOf(app).get(decode(match[1]!) ?? '');
       if (!release) return httpError(res, 404, 'not-found', 'No such release.');
-      await answerRelease(res, ctx, release, offset);
-    },
+      await answerRelease(res, session, release, offset);
+    }),
   ],
   [
     'GET',
-    /^\/api\/releases\/([^/]+)\/fonts\/([^/]+)$/,
-    async (_req, res, match, ctx) => {
-      const cache = releaseCacheOf(ctx);
+    /^\/releases\/([^/]+)\/fonts\/([^/]+)$/,
+    sessionRoute(async (_req, res, match, app) => {
+      const cache = releaseCacheOf(app);
       const release = await cache.get(decode(match[1]!) ?? '');
       const name = decode(match[2]!);
       const font = release?.fonts.find((f) => f.name === name);
@@ -260,6 +262,6 @@ export const fansubRoutes: RouteTable = [
         'Cache-Control': 'no-store',
       });
       res.end(bytes);
-    },
+    }),
   ],
 ];

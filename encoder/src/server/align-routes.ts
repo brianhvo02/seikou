@@ -14,7 +14,7 @@ import type { EpisodePlan } from '../plan/episodes';
 import type { CachedTrack } from '../subs/release-cache';
 import { DiscRequestError, episodePlans } from './disc-routes';
 import { releaseCacheOf } from './fansub-routes';
-import { httpError, json, type HelperContext, type RouteTable } from './http';
+import { httpError, json, sessionRoute, type AppContext, type HelperSession, type RouteTable } from './http';
 
 // The line-up half of the helper's API: an episode's chosen track is lined up against the disc's own audio, decoded
 // through vspipe as the encode decodes it, and the page then fetches the track retimed with what was found.
@@ -25,7 +25,7 @@ export interface Span {
   readonly toMs: number;
 }
 
-/** The answer of `POST /api/episodes/<n>/align`. */
+/** The answer of `POST /api/sessions/<id>/episodes/<n>/align`. */
 export interface AlignAnswer {
   /** The timing found for the episode's tracks, or why there is none. */
   readonly alignment: FansubAlignment;
@@ -46,18 +46,18 @@ const KEEP_EPISODES = 2;
 
 const TOOLS_MISSING = 'Alignment needs VapourSynth with BestSource (vspipe)';
 
-const audioCaches = new WeakMap<HelperContext, EpisodeAudioCache>();
+const audioCaches = new WeakMap<HelperSession, EpisodeAudioCache>();
 
-/** The run's decoded episodes, decoded through vspipe with BestSource's index kept under `<data>/bestsource`. */
-function audioCacheOf(ctx: HelperContext, plans: readonly EpisodePlan[]): EpisodeAudioCache {
-  let cache = audioCaches.get(ctx);
+/** The session's decoded episodes, decoded through vspipe with BestSource's index kept under `<data>/bestsource`. */
+function audioCacheOf(app: AppContext, session: HelperSession, plans: readonly EpisodePlan[]): EpisodeAudioCache {
+  let cache = audioCaches.get(session);
   if (!cache) {
-    const tools = ctx.tools;
+    const tools = app.tools;
     if (tools === null) throw new Error('no tools to decode with');
     // The encode keeps its index in the same folder, so the line-up's indexing is not done twice.
-    const cacheDir = join(ctx.dataDir, 'bestsource');
+    const cacheDir = join(app.dataDir, 'bestsource');
     cache = new EpisodeAudioCache((episode, signal) => decodeEpisodeAudio16k(plans[episode - 1]!, tools, cacheDir, signal), KEEP_EPISODES);
-    audioCaches.set(ctx, cache);
+    audioCaches.set(session, cache);
   }
   return cache;
 }
@@ -97,11 +97,11 @@ function clientGone(res: ServerResponse): AbortSignal {
   return controller.signal;
 }
 
-/** The plan of episode `raw` (1-based, as captured), or null after answering 404 when the run has no such episode. */
-async function planOf(res: ServerResponse, ctx: HelperContext, raw: string): Promise<{ plans: readonly EpisodePlan[]; episode: number } | null> {
+/** The plan of episode `raw` (1-based, as captured), or null after answering 404 when the session has no such episode. */
+async function planOf(res: ServerResponse, session: HelperSession, raw: string): Promise<{ plans: readonly EpisodePlan[]; episode: number } | null> {
   let plans: readonly EpisodePlan[];
   try {
-    plans = await episodePlans(ctx);
+    plans = await episodePlans(session);
   } catch (e) {
     if (e instanceof DiscRequestError) {
       httpError(res, e.status, e.code, e.message);
@@ -111,15 +111,15 @@ async function planOf(res: ServerResponse, ctx: HelperContext, raw: string): Pro
   }
   const episode = Number(raw);
   if (!Number.isSafeInteger(episode) || episode < 1 || episode > plans.length) {
-    httpError(res, 404, 'not-found', 'This run has no such episode.');
+    httpError(res, 404, 'not-found', 'This session has no such episode.');
     return null;
   }
   return { plans, episode };
 }
 
 /** The tracks of a cached release's file, or null after answering 404 when the release or file is not cached. */
-async function tracksOf(res: ServerResponse, ctx: HelperContext, releaseKey: string, fileId: string): Promise<readonly CachedTrack[] | null> {
-  const release = await releaseCacheOf(ctx).get(releaseKey);
+async function tracksOf(res: ServerResponse, app: AppContext, releaseKey: string, fileId: string): Promise<readonly CachedTrack[] | null> {
+  const release = await releaseCacheOf(app).get(releaseKey);
   const file = release?.files.find((f) => f.id === fileId);
   if (!file) {
     httpError(res, 404, 'not-found', 'No such release or file.');
@@ -168,25 +168,25 @@ function timingOf(raw: string | null): FansubAlignment | null {
 }
 
 /**
- * The line-up routes:
+ * A session's line-up routes, under `/api/sessions/<id>`:
  *
- *   POST /api/episodes/<n>/align       body `{ release, fileId }`: lines the file's track with the most dialogue up
- *                                      against episode n's disc audio and answers `AlignAnswer`
- *   GET  /api/episodes/<n>/subtitle?release=&file=&track=&timing=
- *                                      the track as `text/plain; charset=utf-8`, retimed with `timing` (base64url
- *                                      JSON of a `FansubAlignment`; absent means the track's own timing)
+ *   POST /episodes/<n>/align       body `{ release, fileId }`: lines the file's track with the most dialogue up
+ *                                  against episode n's disc audio and answers `AlignAnswer`
+ *   GET  /episodes/<n>/subtitle?release=&file=&track=&timing=
+ *                                  the track as `text/plain; charset=utf-8`, retimed with `timing` (base64url
+ *                                  JSON of a `FansubAlignment`; absent means the track's own timing)
  *
- * Episodes are numbered from 1 in the run's episode list. The first align of an episode decodes its audio through
+ * Episodes are numbered from 1 in the session's episode list. The first align of an episode decodes its audio through
  * vspipe (tens of seconds; BestSource indexes the clips on the very first run); the last two decodes are kept. A client
  * that goes away stops a decode nobody else waits for. Errors: 400 `bad-request`, 404 `not-found` (episode, release,
- * file or track), 422 as `GET /api/episodes`, 503 `tools-missing` when vspipe or BestSource is missing.
+ * file or track), 422 as `GET /episodes`, 503 `tools-missing` when vspipe or BestSource is missing.
  */
 export const alignRoutes: RouteTable = [
   [
     'POST',
-    /^\/api\/episodes\/(\d{1,4})\/align$/,
-    async (req, res, match, ctx) => {
-      if (ctx.tools === null) return httpError(res, 503, 'tools-missing', TOOLS_MISSING);
+    /^\/episodes\/(\d{1,4})\/align$/,
+    sessionRoute(async (req, res, match, app, session) => {
+      if (app.tools === null) return httpError(res, 503, 'tools-missing', TOOLS_MISSING);
       const signal = clientGone(res);
       const bytes = await readBody(req, 16 * 1024);
       let body: unknown = null;
@@ -199,12 +199,12 @@ export const alignRoutes: RouteTable = [
       if (typeof release !== 'string' || typeof fileId !== 'string') {
         return httpError(res, 400, 'bad-request', 'The body must be { "release": <key>, "fileId": <id> }.');
       }
-      const found = await planOf(res, ctx, match[1]!);
+      const found = await planOf(res, session, match[1]!);
       if (!found) return;
-      const tracks = await tracksOf(res, ctx, release, fileId);
+      const tracks = await tracksOf(res, app, release, fileId);
       if (!tracks) return;
       if (tracks.length === 0) return httpError(res, 404, 'not-found', 'That file has no subtitle tracks.');
-      const cache = releaseCacheOf(ctx);
+      const cache = releaseCacheOf(app);
       const texts = await Promise.all(tracks.map(async (t) => ({ id: t.id, text: Buffer.from(await cache.read(t.path)).toString('utf8') })));
       const chosen = mostDialogue(texts);
 
@@ -213,7 +213,7 @@ export const alignRoutes: RouteTable = [
       let pcm16k: Int16Array;
       let alignment: FansubAlignment;
       try {
-        pcm16k = await audioCacheOf(ctx, plans).get(episode, signal);
+        pcm16k = await audioCacheOf(app, session, plans).get(episode, signal);
         alignment = await alignAudio(episodeReader(pcm16k), durationMs, chosen.text, signal, { label: `episode ${episode}` });
       } catch (e) {
         if (signal.aborted) return; // nobody to answer
@@ -226,12 +226,12 @@ export const alignRoutes: RouteTable = [
         dialogue: dialogueIntervals(chosen.text),
       };
       json(res, 200, answer);
-    },
+    }),
   ],
   [
     'GET',
-    /^\/api\/episodes\/(\d{1,4})\/subtitle$/,
-    async (req, res, match, ctx) => {
+    /^\/episodes\/(\d{1,4})\/subtitle$/,
+    sessionRoute(async (req, res, match, app, session) => {
       const query = queryOf(req);
       const releaseKey = query.get('release');
       const fileId = query.get('file');
@@ -241,12 +241,12 @@ export const alignRoutes: RouteTable = [
         return httpError(res, 400, 'bad-request', 'release, file and track are needed.');
       }
       if (timing === null) return httpError(res, 400, 'bad-request', 'timing must be base64url JSON of an alignment.');
-      if (!(await planOf(res, ctx, match[1]!))) return;
-      const tracks = await tracksOf(res, ctx, releaseKey, fileId);
+      if (!(await planOf(res, session, match[1]!))) return;
+      const tracks = await tracksOf(res, app, releaseKey, fileId);
       if (!tracks) return;
       const track = tracks.find((t) => t.id === trackId);
       if (!track) return httpError(res, 404, 'not-found', 'No such track.');
-      const bytes = await releaseCacheOf(ctx).read(track.path);
+      const bytes = await releaseCacheOf(app).read(track.path);
       const body = timing.kind === 'original' ? Buffer.from(bytes) : Buffer.from(retime(Buffer.from(bytes).toString('utf8'), timing), 'utf8');
       res.writeHead(200, {
         'Content-Type': 'text/plain; charset=utf-8',
@@ -254,6 +254,6 @@ export const alignRoutes: RouteTable = [
         'Cache-Control': 'no-store',
       });
       res.end(body);
-    },
+    }),
   ],
 ];

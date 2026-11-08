@@ -7,8 +7,8 @@ import type { SeaDex } from '@seikou/fansubs/seadex';
 import type { Tosho } from '@seikou/fansubs/tosho';
 import type { MetadataSource } from '@seikou/titles/sources';
 
-// The small HTTP vocabulary every route module of the helper backend shares: the context a route runs in, the shape
-// of a route, and the JSON and error answers.
+// The small HTTP vocabulary every route module of the helper backend shares: the app context and the helper session
+// a route runs in, the shape of a route, and the JSON and error answers.
 
 /** The outside services the helper asks. Tests and the offline mode pass recorded answers instead of the network. */
 export interface HelperSources {
@@ -39,34 +39,76 @@ export interface CoverSource {
   get(url: string, signal: AbortSignal): Promise<CoverImage>;
 }
 
-/** Everything one run of the helper serves: one disc, one playlist, one episode list. Fixed for the server's life. */
-export interface HelperContext {
-  /** The disc folder (the one holding BDMV) or its BDMV folder, as the user gave it. */
-  readonly discDir: string;
-  /** Five-digit playlist name, such as `00000`. */
-  readonly playlistId: string;
-  /** The episode list as the user typed it, such as `1-3,4-6` (see `parseEpisodeSpec`). */
-  readonly episodeSpec: string;
+/** What the backend holds for its whole life, whatever discs and helper sessions it serves. */
+export interface AppContext {
   /** Where records, fetched releases and caches are kept (see `appDataDir`). */
   readonly dataDir: string;
   /** The secret every `/api/` request must carry, as `Authorization: Bearer` or the `t` query parameter. */
   readonly token: string;
-  /** The built helper page, served at `/` without a token; null serves no page. */
+  /** The built page, served without a token; null serves no page. */
   readonly webDir: string | null;
   /** The external tools alignment needs, or null when they are not installed. */
   readonly tools: ToolPaths | null;
+  /** The outside services. */
   readonly sources: HelperSources;
+  /** The library folders the backend may read discs from; a disc opened by `serve` needs none. */
+  readonly roots: readonly string[];
+}
+
+/**
+ * One helper session: the subtitle helper working on one disc, one playlist and one episode list, fixed when the
+ * session is made. A session lives as long as the server.
+ */
+export interface HelperSession {
+  /** 16 lower-case hex digits, the `<id>` of `/api/sessions/<id>/...` and of the page's `/helper/<id>`. */
+  readonly id: string;
+  /** Real path of the disc folder (the one holding BDMV). */
+  readonly discDir: string;
+  /** The disc's key, the `<discKey>` of the disc routes and of the saved record. */
+  readonly discKey: string;
+  /** Five-digit playlist name, such as `00000`. */
+  readonly playlistId: string;
+  /** The episode list as the user typed it, such as `1-3,4-6` (see `parseEpisodeSpec`). */
+  readonly episodeSpec: string;
 }
 
 /**
  * One API route. `match` is the route's pattern run on the request's path (still percent-encoded, without the query),
- * so a route decodes its own captures. The request is already authorised and its path checked. A route must answer;
- * a rejection becomes a 500 `internal` answer when nothing has been sent yet.
+ * so a route decodes its own captures. The request is already authorised and its path checked. `session` is the
+ * helper session a session route was called under, null for an app route. A route must answer; a rejection becomes a
+ * 500 `internal` answer when nothing has been sent yet.
  */
-export type Route = (req: IncomingMessage, res: ServerResponse, match: RegExpExecArray, ctx: HelperContext) => Promise<void>;
+export type Route = (
+  req: IncomingMessage,
+  res: ServerResponse,
+  match: RegExpExecArray,
+  app: AppContext,
+  session: HelperSession | null,
+) => Promise<void>;
 
-/** A route module's table: method (`GET`, `HEAD`, `PUT`, `POST`, ...), a pattern anchored on the whole path, and the route. */
+/** A route that runs only under a helper session. */
+export type SessionRoute = (
+  req: IncomingMessage,
+  res: ServerResponse,
+  match: RegExpExecArray,
+  app: AppContext,
+  session: HelperSession,
+) => Promise<void>;
+
+/**
+ * A route module's table: method (`GET`, `HEAD`, `PUT`, `POST`, ...), a pattern anchored on the whole path, and the
+ * route. An app table's patterns match the whole path (`/api/...`); a session table's match what follows
+ * `/api/sessions/<id>` (empty for the session itself, else starting with a slash).
+ */
 export type RouteTable = readonly (readonly [method: string, pattern: RegExp, route: Route])[];
+
+/** `route` as a `Route` for a session table, which the server always calls with a session. */
+export function sessionRoute(route: SessionRoute): Route {
+  return (req, res, match, app, session) => {
+    if (session === null) return Promise.reject(new Error('a session route was called without a session'));
+    return route(req, res, match, app, session);
+  };
+}
 
 /** Answers `body` as JSON with `status`; API answers are never cached. */
 export function json(res: ServerResponse, status: number, body: unknown): void {

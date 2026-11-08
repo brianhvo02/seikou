@@ -11,7 +11,7 @@ export type { FansubAlignment };
 /** What a subtitle track holds: the whole dialogue, or only signs, songs and forced lines. */
 export type TrackKind = 'full' | 'signs';
 
-/** `GET /api/session`: which disc and episode list this run serves. */
+/** `GET /api/sessions/<id>`: which disc and episode list the helper session is about. */
 export interface SessionInfo {
   /** The disc's key, the `<discKey>` of the disc routes and the name of the saved record. */
   readonly discKey: string;
@@ -47,9 +47,9 @@ export interface AudioStreamInfo {
   readonly language: string;
 }
 
-/** `GET /api/episodes`. */
+/** `GET /api/sessions/<id>/episodes`. */
 export interface EpisodesAnswer {
-  /** The run's episodes, in order. */
+  /** The session's episodes, in order. */
   readonly episodes: readonly EpisodeTimes[];
   /** Audio streams in the order players number them. */
   readonly audio: readonly AudioStreamInfo[];
@@ -96,7 +96,7 @@ export interface SeaDexRelease {
   readonly unavailable: null | 'private-tracker' | 'not-on-tosho';
 }
 
-/** `GET /api/fansubs/seadex`: SeaDex's entry for a show, best releases first. */
+/** `GET /api/sessions/<id>/fansubs/seadex`: SeaDex's entry for a show, best releases first. */
 export interface SeaDexAnswer {
   /** SeaDex's notes as plain text; empty when none. */
   readonly notes: string;
@@ -184,11 +184,11 @@ export interface MatchRow {
   readonly candidates: readonly string[];
 }
 
-/** A release's files matched to the run's episodes. */
+/** A release's files matched to the session's episodes. */
 export interface ReleaseMatch {
-  /** One row per episode of the run, in order. */
+  /** One row per episode of the session, in order. */
   readonly rows: readonly MatchRow[];
-  /** Extras, unnumbered files and numbers outside the run. */
+  /** Extras, unnumbered files and numbers outside the session. */
   readonly unmatched: readonly CachedReleaseFile[];
 }
 
@@ -203,7 +203,7 @@ export interface Span {
   readonly toMs: number;
 }
 
-/** `POST /api/episodes/<n>/align`. */
+/** `POST /api/sessions/<id>/episodes/<n>/align`. */
 export interface AlignAnswer {
   /** The timing found for the episode's tracks, or why there is none. */
   readonly alignment: FansubAlignment;
@@ -275,7 +275,7 @@ export interface RecordMetadata {
 
 /** One episode in the saved record. */
 export interface RecordEpisode {
-  /** 1-based position in the run's episode list. */
+  /** 1-based position in the session's episode list. */
   readonly index: number;
   /** The episode's own title (AniList's, or `Episode n`). */
   readonly title: string;
@@ -299,7 +299,7 @@ export interface SubtitleRecord {
   readonly releases: readonly RecordRelease[];
   /** Font files the tracks use: the fonts of every release in `releases`, each once. */
   readonly fonts: readonly string[];
-  /** The run's episodes in index order. */
+  /** The session's episodes in index order. */
   readonly episodes: readonly RecordEpisode[];
   /** When it was saved (ISO 8601 UTC). The server sets it; the page sends an empty string. */
   readonly savedAt: string;
@@ -317,7 +317,7 @@ export interface SingleReleaseRecord extends Omit<SubtitleRecord, 'releases' | '
   readonly episodes: readonly (Omit<RecordEpisode, 'tracks'> & { readonly tracks: readonly Omit<RecordTrack, 'release'>[] })[];
 }
 
-/** `GET /api/record`. */
+/** `GET /api/sessions/<id>/record`. */
 export interface RecordAnswer {
   /** The saved record (a single-release one from an older backend is read through `currentForm`), or null when none was saved or the file was unreadable. */
   readonly record: SubtitleRecord | SingleReleaseRecord | null;
@@ -325,4 +325,6 @@ export interface RecordAnswer {
   readonly missing: readonly { readonly id: string | null; readonly release: string; readonly files: readonly string[] }[];
   /** Set when a record file exists but could not be read; the page then starts fresh. */
   readonly error?: { readonly code: 'record-unreadable'; readonly message: string };
+  /** Set when the disc and playlist have a saved record for another episode list (its spec); `record` is then null. */
+  readonly otherEpisodeSpec?: string;
 }

@@ -5,21 +5,29 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net';
 import { extname, join, sep } from 'node:path';
 import { alignRoutes } from './align-routes';
-import { discRoutes, prepareDisc } from './disc-routes';
+import { discRoutes, discSessionRoutes } from './disc-routes';
 import { fansubRoutes } from './fansub-routes';
-import { httpError, sendFile, type HelperContext, type RouteTable } from './http';
+import { httpError, sendFile, type AppContext, type HelperSession, type RouteTable } from './http';
 import { recordRoutes } from './record-routes';
+import { sessionsOf, sessionStoreRoutes, type SessionStore } from './sessions';
 import { titleRoutes } from './title-routes';
 
-export type { HelperContext, HelperSources, Route, RouteTable } from './http';
+export type { AppContext, HelperSession, HelperSources, Route, RouteTable } from './http';
+export type { SessionStore } from './sessions';
 
 // The helper backend: a plain Node HTTP server on 127.0.0.1 that serves the helper page and its API. It is reachable
 // only from this machine, but any web page the user opens can still send requests to it, so every API request needs
 // the run's token, and the Host header must name the server itself, which stops a page that rebinds its own name to
 // 127.0.0.1 (DNS rebinding) from reading the answers.
 
-/** Every route the API answers, in match order. */
-const ROUTES: RouteTable = [...discRoutes, ...titleRoutes, ...fansubRoutes, ...alignRoutes, ...recordRoutes];
+/** The app's routes, matched on the whole path, in match order. */
+const APP_ROUTES: RouteTable = [...sessionStoreRoutes, ...discRoutes];
+
+/** A helper session's routes, matched on what follows `/api/sessions/<id>`, in match order. */
+const SESSION_ROUTES: RouteTable = [...discSessionRoutes, ...titleRoutes, ...fansubRoutes, ...alignRoutes, ...recordRoutes];
+
+/** `/api/sessions/<id>` and what follows it. */
+const SESSION_PATH = /^\/api\/sessions\/([^/]+)(\/.*)?$/;
 
 /**
  * Cross-origin isolation on every answer: the page needs SharedArrayBuffer for the engine, and the API's answers are
@@ -53,7 +61,10 @@ const MIME: Readonly<Record<string, string>> = {
 export interface HelperServer {
   /** `http://127.0.0.1:<port>/`, ending with a slash. */
   readonly url: string;
+  /** The port it listens on. */
   readonly port: number;
+  /** The server's helper sessions; `serve` makes its one session here. */
+  readonly sessions: SessionStore;
   /** Stops listening and drops open connections. */
   close(): Promise<void>;
 }
@@ -111,23 +122,53 @@ function containedFile(dir: string, rel: string): { path: string; size: number }
   }
 }
 
-async function api(req: IncomingMessage, res: ServerResponse, pathname: string, query: URLSearchParams, ctx: HelperContext): Promise<void> {
-  if (!tokenMatches(requestToken(req, query), ctx.token)) return httpError(res, 401, 'unauthorized');
+/** Runs the first route of `table` whose pattern matches `path` and whose method is the request's; 405 or 404 else. */
+function dispatch(
+  req: IncomingMessage,
+  res: ServerResponse,
+  table: RouteTable,
+  path: string,
+  app: AppContext,
+  session: HelperSession | null,
+): Promise<void> {
   let pathMatched = false;
-  for (const [method, pattern, route] of ROUTES) {
-    const match = pattern.exec(pathname);
+  for (const [method, pattern, route] of table) {
+    const match = pattern.exec(path);
     if (!match) continue;
     pathMatched = true;
-    if (method === req.method) return route(req, res, match, ctx);
+    if (method === req.method) return route(req, res, match, app, session);
   }
-  if (pathMatched) return httpError(res, 405, 'method-not-allowed');
-  httpError(res, 404, 'not-found');
+  httpError(res, pathMatched ? 405 : 404, pathMatched ? 'method-not-allowed' : 'not-found');
+  return Promise.resolve();
+}
+
+async function api(req: IncomingMessage, res: ServerResponse, pathname: string, query: URLSearchParams, app: AppContext): Promise<void> {
+  if (!tokenMatches(requestToken(req, query), app.token)) return httpError(res, 401, 'unauthorized');
+  const inSession = SESSION_PATH.exec(pathname);
+  if (!inSession) return dispatch(req, res, APP_ROUTES, pathname, app, null);
+  const session = sessionsOf(app).get(decodeURIComponent(inSession[1]!));
+  if (!session) return httpError(res, 404, 'no-session', 'No helper session has that id; sessions end when seikou-encode stops.');
+  return dispatch(req, res, SESSION_ROUTES, inSession[2] ?? '', app, session);
+}
+
+/**
+ * Whether a missing page file at `segments` is one of the page's own routes, answered with index.html, rather than a
+ * missing asset: built assets live under `assets/`, and other files are named with a type the page serves.
+ */
+function isPageRoute(segments: readonly string[]): boolean {
+  if (segments[0] === 'assets') return false;
+  const last = segments[segments.length - 1] ?? '';
+  return MIME[extname(last).toLowerCase()] === undefined;
 }
 
 function servePage(req: IncomingMessage, res: ServerResponse, webDir: string | null, segments: readonly string[]): void {
   if (req.method !== 'GET' && req.method !== 'HEAD') return httpError(res, 405, 'method-not-allowed');
-  const rel = segments.length === 0 ? 'index.html' : segments.join('/');
-  const file = webDir === null ? null : containedFile(webDir, rel);
+  let rel = segments.length === 0 ? 'index.html' : segments.join('/');
+  let file = webDir === null ? null : containedFile(webDir, rel);
+  if (!file && webDir !== null && isPageRoute(segments)) {
+    rel = 'index.html';
+    file = containedFile(webDir, rel);
+  }
   if (!file) return httpError(res, 404, 'not-found');
   // no-cache: a rebuilt page shows on reload
   sendFile(req, res, file.path, file.size, {
@@ -137,18 +178,19 @@ function servePage(req: IncomingMessage, res: ServerResponse, webDir: string | n
 }
 
 /**
- * Starts the helper backend for `ctx` on 127.0.0.1 at `port` (0 picks a free one). The disc is read first, so the
- * promise rejects when `ctx.discDir` is not a Blu-ray folder, and when the port cannot be bound.
+ * Starts the backend for `app` on 127.0.0.1 at `port` (0 picks a free one), with no helper session yet (make them
+ * through `sessions`). Rejects when the port cannot be bound.
  *
  * Every answer carries the cross-origin isolation headers. Requests whose Host is not this server answer 403
  * `bad-host`; paths with an empty, `.` or `..` segment answer 400 `bad-path`. Under `/api/` a request without the
- * run's token answers 401 `unauthorized`, an unknown path 404 `not-found`, a known path with another method 405;
- * API answers are never cached. Anything else is a file of `ctx.webDir` (`/` is its index.html), served without a
- * token. A route that throws answers 500 `internal`.
+ * run's token answers 401 `unauthorized`, an unknown path 404 `not-found`, a known path with another method 405, a
+ * path under `/api/sessions/<id>` with an id no session has 404 `no-session`; API answers are never cached. Anything
+ * else is a file of `app.webDir` (`/` is its index.html), served without a token; a `GET` of a path that is no file
+ * there and no asset (see `isPageRoute`) answers index.html, so the page's own routes load the page. A route that
+ * throws answers 500 `internal`.
  */
-export async function startHelperServer(ctx: HelperContext, port = 0): Promise<HelperServer> {
-  await prepareDisc(ctx);
-  const webDir = ctx.webDir === null ? null : realpathSync(ctx.webDir);
+export async function startHelperServer(app: AppContext, port = 0): Promise<HelperServer> {
+  const webDir = app.webDir === null ? null : realpathSync(app.webDir);
   let boundPort = 0;
 
   const server = createServer((req, res) => {
@@ -159,7 +201,7 @@ export async function startHelperServer(ctx: HelperContext, port = 0): Promise<H
     const segments = safeSegments(pathname);
     if (!segments) return httpError(res, 400, 'bad-path');
     if (segments[0] !== 'api') return servePage(req, res, webDir, segments);
-    api(req, res, pathname, new URLSearchParams(search), ctx).catch((e: unknown) => {
+    api(req, res, pathname, new URLSearchParams(search), app).catch((e: unknown) => {
       if (res.headersSent) return void res.destroy();
       httpError(res, 500, 'internal', e instanceof Error ? e.message : String(e));
     });
@@ -176,6 +218,7 @@ export async function startHelperServer(ctx: HelperContext, port = 0): Promise<H
   return {
     url: `http://127.0.0.1:${boundPort}/`,
     port: boundPort,
+    sessions: sessionsOf(app),
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.close((e) => (e ? reject(e) : resolve()));

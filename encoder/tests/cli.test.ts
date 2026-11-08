@@ -144,7 +144,7 @@ describe('serve', () => {
         child.once('exit', (code) => reject(new Error(`exited ${String(code)}: ${out}`)));
         child.stdout.on('data', (d: Buffer) => {
           out += d.toString();
-          const m = /Helper: (http:\/\/127\.0\.0\.1:\d+\/\?t=[0-9a-f]{64})/.exec(out);
+          const m = /Helper: (http:\/\/127\.0\.0\.1:\d+\/helper\/[0-9a-f]{16}\?t=[0-9a-f]{64})/.exec(out);
           if (m) resolveUrl(m[1]!);
         });
       });
@@ -152,8 +152,9 @@ describe('serve', () => {
       const page = await fetch(url);
       expect(page.status).toBe(200);
       expect(await page.text()).toContain('<title>helper</title>');
-      expect((await fetch(new URL('/api/playlists', url))).status).toBe(401);
-      expect((await fetch(new URL(`/api/playlists${new URL(url).search}`, url))).status).toBe(200);
+      const sessionPlaylists = `/api/sessions/${new URL(url).pathname.split('/')[2]}/playlists`;
+      expect((await fetch(new URL(sessionPlaylists, url))).status).toBe(401);
+      expect((await fetch(new URL(`${sessionPlaylists}${new URL(url).search}`, url))).status).toBe(200);
       const code = new Promise<number | null>((r) => child.once('exit', (c) => r(c)));
       child.kill('SIGINT');
       expect(await code).toBe(0);

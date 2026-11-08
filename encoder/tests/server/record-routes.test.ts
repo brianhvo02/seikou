@@ -16,7 +16,7 @@ describe('record routes', () => {
   let discKey: string;
   beforeAll(async () => {
     fixture = await startRouteFixture();
-    discKey = jsonOf<{ discKey: string }>(await fixture.send('/api/session')).discKey;
+    discKey = jsonOf<{ discKey: string }>(await fixture.call('')).discKey;
   });
   afterAll(() => fixture.stop());
 
@@ -39,11 +39,11 @@ describe('record routes', () => {
     ...over,
   });
   const put = (body: unknown): ReturnType<RouteFixture['send']> =>
-    fixture.send('/api/record', { method: 'PUT', body: typeof body === 'string' ? body : JSON.stringify(body) });
+    fixture.call('/record', { method: 'PUT', body: typeof body === 'string' ? body : JSON.stringify(body) });
   const recordFile = (): string => join(fixture.dataDir, 'subtitles', discKey, '00000.json');
 
   it('no record yet answers null', async () => {
-    const reply = await fixture.send('/api/record');
+    const reply = await fixture.call('/record');
     expect(reply.status).toBe(200);
     expect(jsonOf<GetAnswer>(reply)).toEqual({ record: null, missing: [] });
   });
@@ -55,7 +55,7 @@ describe('record routes', () => {
     const stored = jsonOf<SubtitleRecord>(reply);
     expect(Date.parse(stored.savedAt)).toBeGreaterThanOrEqual(before - 1000);
     expect(stored.episodes[0]!.title).toBe('One');
-    const got = jsonOf<GetAnswer>(await fixture.send('/api/record'));
+    const got = jsonOf<GetAnswer>(await fixture.call('/record'));
     expect(got.record).toEqual(stored);
   });
 
@@ -89,9 +89,9 @@ describe('record routes', () => {
       writeFileSync(join(fixture.dataDir, f), 'x');
     }
     expect((await put(record())).status).toBe(200);
-    expect(jsonOf<GetAnswer>(await fixture.send('/api/record')).missing).toEqual([]);
+    expect(jsonOf<GetAnswer>(await fixture.call('/record')).missing).toEqual([]);
     rmSync(join(fixture.dataDir, 'tracks/one.ass'));
-    const got = jsonOf<GetAnswer>(await fixture.send('/api/record'));
+    const got = jsonOf<GetAnswer>(await fixture.call('/record'));
     expect(got.missing).toEqual([{ id: 'tosho-7001', release: 'GroupA release', files: ['tracks/one.ass'] }]);
   });
 
@@ -103,16 +103,16 @@ describe('record routes', () => {
     const stored = jsonOf<SubtitleRecord>(await put(two));
     expect(stored.releases.map((r) => r.id)).toEqual(['tosho-7001', 'local-0123456789abcdef']);
     expect(stored.episodes.map((e) => e.tracks[0]!.release)).toEqual(['tosho-7001', 'local-0123456789abcdef']);
-    expect(jsonOf<GetAnswer>(await fixture.send('/api/record')).record).toEqual(stored);
+    expect(jsonOf<GetAnswer>(await fixture.call('/record')).record).toEqual(stored);
   });
 
   it('an unreadable record file answers null with an error, and saving overwrites it', async () => {
     writeFileSync(recordFile(), '{ broken');
-    const got = jsonOf<GetAnswer>(await fixture.send('/api/record'));
+    const got = jsonOf<GetAnswer>(await fixture.call('/record'));
     expect(got.record).toBeNull();
     expect(got.missing).toEqual([]);
     expect(got.error?.code).toBe('record-unreadable');
     expect((await put(record())).status).toBe(200);
-    expect(jsonOf<GetAnswer>(await fixture.send('/api/record')).record).not.toBeNull();
+    expect(jsonOf<GetAnswer>(await fixture.call('/record')).record).not.toBeNull();
   });
 });

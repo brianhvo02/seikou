@@ -107,19 +107,17 @@ async function serve(
   }
   const token = randomBytes(32).toString('hex');
   const server = await startHelperServer(
-    {
-      discDir,
-      playlistId,
-      episodeSpec: episodes,
-      dataDir: appDataDir(),
-      token,
-      webDir,
-      tools,
-      sources: createSources(process.env, fetch),
-    },
+    { dataDir: appDataDir(), token, webDir, tools, sources: createSources(process.env, fetch), roots: [] },
     port,
   );
-  const url = `${server.url}?t=${token}`;
+  let session;
+  try {
+    session = await server.sessions.create({ discDir, playlistId, episodeSpec: episodes });
+  } catch (err) {
+    await server.close();
+    throw err;
+  }
+  const url = `${server.url}helper/${session.id}?t=${token}`;
   console.log(`Helper: ${url}`);
   if (open) openInBrowser(url);
   await untilStopped();
