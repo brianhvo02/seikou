@@ -247,6 +247,42 @@ describe('the job runner', () => {
     await expect(runner.retry(job.id)).rejects.toMatchObject({ status: 409, code: 'not-retryable' });
   });
 
+  it('retry finds a disc that moved, and says so plainly when it is gone', async () => {
+    const shelf = realpathSync(mkdtempSync(join(tmpdir(), 'jobs-moved-')));
+    try {
+      const first = join(shelf, 'A', 'Lantern Harbor');
+      cpSync(fixturePath('fixtures/disc-speech'), first, { recursive: true });
+      const session = await sessionsOf(fx.app).create({ discDir: first, playlistId: '00000', episodeSpec: '1-3,4-5' });
+      const runner = startJobRunner(fx.app, deps());
+      await runner.ready;
+      const job = await runner.add(input({ discKey: session.discKey }));
+      expect(job.disc.dir).toBe(first);
+      (await fake.next()).reject(new Error('vspipe failed'));
+      await until(() => runner.get(job.id)!.state === 'failed', 'failure');
+      // The disc moves; a helper opened on its new folder makes the key known there.
+      const second = join(shelf, 'B', 'Lantern Harbor');
+      mkdirSync(join(shelf, 'B'));
+      renameSync(first, second);
+      await sessionsOf(fx.app).create({ discDir: second, playlistId: '00000', episodeSpec: '1-3,4-5' });
+      const retried = await runner.retry(job.id);
+      expect(retried.disc.dir).toBe(second);
+      expect(retried.cli).toContain(`'${second}'`);
+      expect((await fake.next()).options.discDir).toBe(second);
+      expect(readFileSync(join(fx.dataDir, 'jobs', `${job.id}.log`), 'utf8')).toContain(`The disc is now at ${second}`);
+      await runner.cancel(job.id);
+      // Gone from everywhere the app knows: the retry is refused with a plain message.
+      renameSync(second, join(shelf, 'elsewhere'));
+      await expect(runner.retry(job.id)).rejects.toMatchObject({
+        status: 409,
+        code: 'disc-missing',
+        message: `The disc for this job isn't at ${second} any more and isn't in the library; rescan or queue it again.`,
+      });
+      expect(runner.get(job.id)!.state).toBe('cancelled');
+    } finally {
+      rmSync(shelf, { recursive: true, force: true });
+    }
+  });
+
   it('a packaging failure is retried by packaging only', async () => {
     const runner = startJobRunner(fx.app, deps());
     await runner.ready;

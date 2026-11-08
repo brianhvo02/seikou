@@ -2,7 +2,7 @@
 import { randomBytes } from 'node:crypto';
 import { EventEmitter } from 'node:events';
 import { appendFileSync, mkdirSync } from 'node:fs';
-import { readFile, realpath, rm, unlink, mkdir } from 'node:fs/promises';
+import { readFile, realpath, rm, stat, unlink, mkdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { replaceAtomically } from '@seikou/titles';
@@ -57,8 +57,11 @@ export interface Job {
   readonly id: string;
   /** What the job does. */
   readonly kind: JobKind;
-  /** The disc: its key, its folder's name and the real path of the folder holding BDMV. */
-  readonly disc: { readonly key: string; readonly label: string; readonly dir: string };
+  /**
+   * The disc: its key, its folder's name and the real path of the folder holding BDMV. A retry moves `dir` to where the
+   * disc is found by its key when the folder no longer holds the disc.
+   */
+  disc: { readonly key: string; readonly label: string; readonly dir: string };
   /** Five-digit playlist name. */
   readonly playlist: string;
   /** The episode list as it was given. */
@@ -89,7 +92,7 @@ export interface Job {
   /** The `savedAt` of the subtitle record the job's episodes were encoded with; null with no record or before the first run. */
   recordSavedAt: string | null;
   /** The equivalent `seikou-encode encode …` command, quoted for a POSIX shell; empty for a test job. */
-  readonly cli: string;
+  cli: string;
   /** A test job's profiles, stretches, episode lengths and, once it is done, its measurements; absent on an encode job. */
   test?: TestPlan;
 }
@@ -263,6 +266,15 @@ export function namesCollide(a: string, b: string): boolean {
   for (let n = 1; n <= NAME_CHECK_EPISODES; n++) names.add(episodeName(a, n).toLowerCase());
   for (let n = 1; n <= NAME_CHECK_EPISODES; n++) if (names.has(episodeName(b, n).toLowerCase())) return true;
   return false;
+}
+
+/** Whether `dir` holds a disc: a `BDMV/index.bdmv` file. */
+async function holdsDisc(dir: string): Promise<boolean> {
+  try {
+    return (await stat(join(dir, 'BDMV', 'index.bdmv'))).isFile();
+  } catch {
+    return false;
+  }
 }
 
 /** Checks one stored job's shape; throws on anything that is not a job this runner wrote. */
@@ -645,7 +657,10 @@ export class JobRunner {
   /**
    * Queues a failed, interrupted or cancelled job again. It encodes only the episodes not done (an episode whose
    * packaging failed is packaged again from its MKV, not encoded); when the subtitle record was saved again since the
-   * job's first run, every episode is encoded again. 404 `not-found`; 409 `not-retryable` for any other state.
+   * job's first run, every episode is encoded again. When the job's disc folder no longer holds `BDMV/index.bdmv`, the
+   * disc is looked up again by its key (in the helper sessions and the library, waiting for a running scan); found, the
+   * job's folder and command move there; not found, the retry is refused with 409 `disc-missing`. 404 `not-found`; 409
+   * `not-retryable` for any other state.
    */
   async retry(id: string): Promise<Job> {
     await this.ready;
@@ -653,6 +668,7 @@ export class JobRunner {
     const job = this.find(id);
     if (!RETRYABLE.has(job.state)) throw new JobError(409, 'not-retryable', 'Only a failed, interrupted or cancelled job can be retried.');
     if (!this.writable) throw this.unreadable();
+    await this.findMovedDisc(job);
     job.state = 'queued';
     job.paused = false;
     delete job.error;
@@ -680,6 +696,31 @@ export class JobRunner {
     this.persist();
     await rm(this.logFile(job.id), { force: true });
     if (job.kind === 'test') await this.removeTestFolder(job);
+  }
+
+  /**
+   * Points `job` at its disc's folder again when the folder it was queued from no longer holds the disc: the folder the
+   * helper sessions or the library know for its key now. Throws 409 `disc-missing` when neither knows one.
+   */
+  private async findMovedDisc(job: Job): Promise<void> {
+    if (await holdsDisc(job.disc.dir)) return;
+    const candidates = [await sessionsOf(this.app).discDirOf(job.disc.key), libraryOf(this.app).dirOf(job.disc.key)];
+    let found: string | null = null;
+    for (const dir of candidates) {
+      if (dir !== null && (await holdsDisc(dir))) {
+        found = dir;
+        break;
+      }
+    }
+    if (found === null) {
+      throw new JobError(409, 'disc-missing', `The disc for this job isn't at ${job.disc.dir} any more and isn't in the library; rescan or queue it again.`);
+    }
+    const from = job.disc.dir;
+    job.disc = { ...job.disc, dir: found };
+    if (job.kind === 'encode') {
+      job.cli = jobCli({ discDir: found, playlistId: job.playlist, episodeSpec: job.episodeSpec, outDir: job.outDir, noSubtitles: job.noSubtitles, settings: job.settings });
+    }
+    this.appendLog(job, `The disc is now at ${found} (it was at ${from}).`);
   }
 
   /** Deletes a test job's sample folder, `<data>/tests/<id>`, worked out from its id rather than the stored path. */
