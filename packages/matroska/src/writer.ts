@@ -1,7 +1,4 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { randomBytes } from 'node:crypto';
-import { open, type FileHandle } from 'node:fs/promises';
-import { frameDurationNs, framesToNs, videoMs } from '../plan/timing';
 import {
   ascii,
   binary,
@@ -16,9 +13,9 @@ import {
   vintFixed8,
   voidElement,
 } from './ebml';
-import type { Av1Packet } from './ivf';
-import { Id } from './mkv-ids';
-import type { OpusPacket } from './ogg';
+import { Id } from './ids';
+import type { MkvSink } from './io';
+import { frameDurationNs, framesToNs, videoMs } from './timing';
 
 // File layout (RFC 9559 §6 describes the allowed orderings; §25.3.1 the layout a muxer is
 // recommended to produce): EBML header, then one Segment holding, in this order,
@@ -53,6 +50,26 @@ import type { OpusPacket } from './ogg';
 // the cluster's Timestamp element), and, for a block with a BlockDuration, CueDuration
 // (§5.1.5.1.2.4). Cue points are written in CueTime order; cues at one time share a CuePoint, with
 // one CueTrackPositions each (video first, then subtitle tracks in track order).
+
+/** One Opus packet to mux. */
+export interface AudioPacket {
+  /** The packet's bytes. */
+  data: Uint8Array;
+  /** Cumulative position in 48 kHz samples from 0 over packets; the pre-skip is not subtracted. */
+  pts48: number;
+  /** Samples at 48 kHz the packet decodes to. */
+  durationSamples: number;
+}
+
+/** One video temporal unit to mux. */
+export interface VideoPacket {
+  /** 0-based position in the stream; the frame's presentation time is derived from it and the frame rate. */
+  index: number;
+  /** The temporal unit with its temporal delimiter OBU removed. */
+  data: Uint8Array;
+  /** True when the unit starts with a key frame. */
+  keyframe: boolean;
+}
 
 /** Name, language and default flag of one track, written on every TrackEntry. */
 export interface TrackLabel {
@@ -93,14 +110,14 @@ export interface AudioTrackInfo {
 export type MkvAudioTrack = AudioTrackInfo &
   TrackLabel & {
     /** Packets in order; each is stamped from its 48 kHz sample position. */
-    packets: AsyncIterable<OpusPacket>;
+    packets: AsyncIterable<AudioPacket>;
     /** Resolves after `packets` is consumed; its `discardPadding48` samples at the end of the last packet are marked as DiscardPadding. */
     end: Promise<{ discardPadding48: number }>;
   };
 
 /** One subtitle event or display set, placed on the MKV's timeline. */
 export interface SubtitleBlock {
-  /** Start in milliseconds from the first video frame: a whole number, 0 or more (`writeMkv` throws a RangeError otherwise). */
+  /** Start in milliseconds from the first video frame: a whole number, 0 or more (`writeMatroska` throws a RangeError otherwise). */
   timeMs: number;
   /** Length in whole milliseconds. When given the block is a BlockGroup with BlockDuration (RFC 9559 §5.1.3.5.3); otherwise a SimpleBlock that lasts until the track's next block. */
   durationMs?: number;
@@ -123,7 +140,7 @@ export type MkvSubtitleTrack = TrackLabel & {
   isForced?: boolean;
   /** Stored as CodecPrivate when given. */
   codecPrivate?: Uint8Array;
-  /** Sorted by `timeMs` (equal times keep their order); `writeMkv` throws otherwise. */
+  /** Sorted by `timeMs` (equal times keep their order); `writeMatroska` throws otherwise. */
   blocks: readonly SubtitleBlock[];
 };
 
@@ -148,19 +165,19 @@ export interface MkvChapter {
  * One video packet to mux: an AV1 temporal unit, timed by its index and the frame rate unless
  * `timeMs` gives its timestamp directly (a remux copies the source's timestamps this way).
  */
-export type MkvVideoPacket = Av1Packet & {
+export type MkvVideoPacket = VideoPacket & {
   /** Whole milliseconds from the Segment's start, in place of `videoMs(index)`. */
   timeMs?: number;
 };
 
 /**
- * What `writeMkv` muxes. Track numbers follow this order: the video is track 1, the audio tracks
+ * What `writeMatroska` muxes. Track numbers follow this order: the video is track 1, the audio tracks
  * come next in array order, then the subtitle tracks in array order.
  */
 export interface MkvInput {
   /**
    * The EBML DocType (RFC 8794 §11.2.6), `matroska` by default. `webm` follows the WebM container
-   * guidelines: no subtitle tracks and no attachments (`writeMkv` throws when given any), and
+   * guidelines: no subtitle tracks and no attachments (`writeMatroska` throws when given any), and
    * chapters without EditionUID, EditionFlagDefault or ChapterFlagEnabled, which WebM does not
    * list. The Opus elements WebM's table predates (CodecDelay, SeekPreRoll, DiscardPadding) are kept,
    * since the Matroska Opus mapping needs them and WebM players read them.
@@ -181,7 +198,7 @@ export interface MkvInput {
   chapters: MkvChapter[];
 }
 
-/** What `writeMkv` reports about the file it wrote. */
+/** What `writeMatroska` reports about the file it wrote. */
 export interface MkvResult {
   /** The Segment duration: the latest of the video's end (the last frame's time plus one frame) and each audio track's end (pre-skip and end padding excluded). Subtitle blocks do not extend it. */
   durationNs: bigint;
@@ -211,21 +228,18 @@ interface OpenCluster {
   bytes: number;
 }
 
+/** Tracks the append position over a sink. */
 class PositionalWriter {
   pos = 0;
 
-  constructor(private readonly fh: FileHandle) {}
+  constructor(private readonly sink: MkvSink) {}
 
-  async writeAt(data: Uint8Array, position: number): Promise<void> {
-    let done = 0;
-    while (done < data.length) {
-      const { bytesWritten } = await this.fh.write(data, done, data.length - done, position + done);
-      done += bytesWritten;
-    }
+  writeAt(data: Uint8Array, position: number): Promise<void> {
+    return this.sink.writeAt(position, data);
   }
 
   async append(data: Uint8Array): Promise<void> {
-    await this.writeAt(data, this.pos);
+    await this.sink.write(data);
     this.pos += data.length;
   }
 }
@@ -307,7 +321,7 @@ function trackEntries(input: MkvInput): Uint8Array {
 
 function randomUid(taken: Set<bigint>): bigint {
   for (;;) {
-    const uid = randomBytes(8).readBigUInt64BE(0);
+    const uid = new DataView(crypto.getRandomValues(new Uint8Array(8)).buffer).getBigUint64(0, false);
     if (uid !== 0n && !taken.has(uid)) {
       taken.add(uid);
       return uid;
@@ -411,7 +425,7 @@ class Lookahead<T> {
 interface AudioState {
   track: MkvAudioTrack;
   number: number;
-  look: Lookahead<OpusPacket>;
+  look: Lookahead<AudioPacket>;
   count: number;
   endNs: bigint;
 }
@@ -459,7 +473,7 @@ interface SubtitleState {
 }
 
 /**
- * Writes an MKV file at `path` from encoded packets, streaming: packets are consumed as they
+ * Writes a Matroska or WebM file through `sink` from encoded packets, streaming: packets are consumed as they
  * arrive and written cluster by cluster, so memory use is one cluster (plus the attachments and
  * subtitle blocks, which the input already holds). The blocks of every track are interleaved in
  * timestamp order; at equal timestamps the video comes first, then the audio tracks, then the
@@ -471,23 +485,22 @@ interface SubtitleState {
  * key-frame flag), except a last packet that needs end trimming, which becomes a BlockGroup so it
  * can carry DiscardPadding. Subtitle blocks with a duration are BlockGroups with BlockDuration;
  * those without are SimpleBlocks with the key-frame flag.
- * The file is overwritten if it exists; on error it is left partial (the caller deletes it).
- * Throws before opening the file when a subtitle block's time is negative or not a whole number
+ * `sink` is closed when writing ends, also on an error, and then holds a partial file (the caller
+ * deletes it). Throws before anything is written when a subtitle block's time is negative or not a whole number
  * of milliseconds (RangeError: the caller drops or clamps events before the first video frame) or
  * a track's blocks are out of time order, and when a `webm` input has subtitle tracks or
  * attachments; throws while writing when there are no video packets or the first video packet is
  * not a key frame.
  */
-export async function writeMkv(path: string, input: MkvInput): Promise<MkvResult> {
+export async function writeMatroska(sink: MkvSink, input: MkvInput): Promise<MkvResult> {
   const { video } = input;
   const docType = input.docType ?? 'matroska';
-  if (docType === 'webm' && (input.subtitles.length > 0 || input.attachments.length > 0)) {
-    throw new Error('a WebM file carries no subtitle tracks and no attachments');
-  }
-  checkSubtitleBlocks(input.subtitles);
-  const fh = await open(path, 'w');
   try {
-    const w = new PositionalWriter(fh);
+    if (docType === 'webm' && (input.subtitles.length > 0 || input.attachments.length > 0)) {
+      throw new Error('a WebM file carries no subtitle tracks and no attachments');
+    }
+    checkSubtitleBlocks(input.subtitles);
+    const w = new PositionalWriter(sink);
     await w.append(ebmlHeader(docType));
     await w.append(idBytes(Id.Segment));
     const segmentSizePos = w.pos;
@@ -537,8 +550,7 @@ export async function writeMkv(path: string, input: MkvInput): Promise<MkvResult
       if (cluster === null) return;
       const ts = uint(Id.Timestamp, cluster.timestamp);
       const header = concat([idBytes(Id.Cluster), vintFixed8(ts.length + cluster.bytes), ts]);
-      await w.writeAt(concat([header, ...cluster.parts]), cluster.startPos);
-      w.pos = cluster.startPos + header.length + cluster.bytes;
+      await w.append(concat([header, ...cluster.parts]));
       cluster = null;
     };
     const openCluster = async (ms: number, cued: boolean): Promise<OpenCluster> => {
@@ -684,6 +696,6 @@ export async function writeMkv(path: string, input: MkvInput): Promise<MkvResult
       clusters,
     };
   } finally {
-    await fh.close();
+    await sink.close();
   }
 }

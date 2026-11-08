@@ -4,7 +4,7 @@ import { open } from 'node:fs/promises';
 import type { ByteSource } from '@seikou/bdmv/byte-source';
 import { findEpAfter, findEpBefore, stcSpnRange } from '@seikou/bdmv/clpi-parser';
 import { M2tsReader } from '@seikou/bdmv/demux/m2ts-reader';
-import type { MkvSubtitleTrack, SubtitleBlock } from '../mux/mkv-writer';
+import type { MkvSubtitleTrack, SubtitleBlock } from '@seikou/matroska';
 import { languageName } from '../plan/audio-streams';
 import type { EpisodePlan, Segment } from '../plan/episodes';
 import type { Playlist, PlaylistItem } from './playlist';

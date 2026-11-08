@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import type { MkvChapter } from '../mux/mkv-writer';
+import type { MkvChapter } from '@seikou/matroska';
 
 // WebVTT (W3C WebVTT: The Web Video Text Tracks Format): the file starts with the line `WEBVTT`,
 // then cues separated by blank lines. A cue is an optional identifier line, a timing line

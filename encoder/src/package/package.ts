@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { lstat, mkdir, mkdtemp, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, join } from 'node:path';
-import { readMkv, type ParsedMkv } from '../mux/mkv-reader';
-import type { MkvAttachment, SubtitleBlock } from '../mux/mkv-writer';
+import { type ParsedMkv } from '@seikou/matroska';
+import { readMkv } from '../mux/mkv-file';
+import type { MkvAttachment, SubtitleBlock } from '@seikou/matroska';
 import { toSup } from './sup';
 import { toVtt } from './vtt';
 import { webmTracks, writeWebm } from './webm';

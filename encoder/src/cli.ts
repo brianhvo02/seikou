@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { listPlaylists, loadPlaylist } from './disc/playlist';
 import { encodeEpisodes, type EncodeEvent } from './encode';
-import { MkvReadError } from './mux/mkv-reader';
+import { MkvReadError } from '@seikou/matroska';
 import { packageEpisode, PackageError } from './package/package';
 import { SupError } from './package/sup';
 import { WebmError } from './package/webm';

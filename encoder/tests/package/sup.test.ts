@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { expect, it } from 'vitest';
-import type { SubtitleBlock } from '../../src/mux/mkv-writer';
+import type { SubtitleBlock } from '@seikou/matroska';
 import { SupError, toSup } from '../../src/package/sup';
 
 async function* of(blocks: SubtitleBlock[]): AsyncGenerator<SubtitleBlock> {

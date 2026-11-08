@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import type { MkvBlock, MkvTrack, ParsedMkv } from '../mux/mkv-reader';
-import { writeMkv, type MkvAudioTrack, type MkvVideoPacket } from '../mux/mkv-writer';
+import type { MkvBlock, MkvTrack, ParsedMkv } from '@seikou/matroska';
+import { type MkvAudioTrack, type MkvVideoPacket } from '@seikou/matroska';
+import { writeMkv } from '../mux/mkv-file';
 import { opusPacketDuration, type OpusPacket } from '../mux/ogg';
 
 // A WebM file (WebM container guidelines) is a Matroska file with DocType `webm` and a restricted

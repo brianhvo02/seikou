@@ -5,8 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readIvf } from '../../src/mux/ivf';
-import { Id } from '../../src/mux/mkv-ids';
-import { writeMkv, type MkvInput, type MkvResult } from '../../src/mux/mkv-writer';
+import { Id } from '@seikou/matroska';
+import { type MkvInput, type MkvResult } from '@seikou/matroska';
+import { writeMkv } from '../../src/mux/mkv-file';
 import { readOggOpus, type OggOpusStream } from '../../src/mux/ogg';
 import {
   blocksInOrder,

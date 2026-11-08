@@ -14,7 +14,7 @@ fail() { echo "package-smoke: $*" >&2; exit 1; }
 npm init -y >/dev/null
 # The engine's own @seikou dependencies are unpublished, so they are installed from the repo as well.
 npm install --no-audit --no-fund --install-links \
-  "file:$repo/packages/bdmv" "file:$repo/packages/ass" "file:$repo/packages/nas" "file:$repo/packages/pg" \
+  "file:$repo/packages/bdmv" "file:$repo/packages/ass" "file:$repo/packages/nas" "file:$repo/packages/pg" "file:$repo/packages/matroska" \
   "file:$repo/packages/engine" "file:$repo/packages/titles" "file:$repo/packages/fansubs" >/dev/null
 
 # Every barrel under a strict tsc, as a TypeScript consumer compiles them. The packages ship sources, so their own
@@ -29,10 +29,11 @@ import * as ass from '@seikou/ass';
 import * as bdmv from '@seikou/bdmv';
 import * as engine from '@seikou/engine';
 import * as fansubs from '@seikou/fansubs';
+import * as matroska from '@seikou/matroska';
 import * as nas from '@seikou/nas';
 import * as pg from '@seikou/pg';
 import * as titles from '@seikou/titles';
-export const barrels = [ass, bdmv, engine, fansubs, nas, pg, titles];
+export const barrels = [ass, bdmv, engine, fansubs, matroska, nas, pg, titles];
 TS
 cat > tsconfig.json <<'JSON'
 {

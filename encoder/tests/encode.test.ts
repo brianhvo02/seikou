@@ -12,7 +12,7 @@ import { EpisodeSpecError } from '../src/plan/episodes';
 import { NoAudioChosenError } from '../src/subs/encode-record';
 import { RecordStore, type SubtitleRecord } from '../src/subs/record';
 import { ReleaseCache } from '../src/subs/release-cache';
-import { Id } from '../src/mux/mkv-ids';
+import { Id } from '@seikou/matroska';
 import { blocksInOrder, countVideoBlocks, find, findAll, floatOf, parseMkv, stringOf, uintOf } from './helpers/ebml-reader';
 import { loadPlaylist } from '../src/disc/playlist';
 import { probeClip } from '../src/disc/probe';

@@ -3,7 +3,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { MkvReadError, NotMatroskaError, readMkv, type MkvBlock, type ParsedMkv } from '../../src/mux/mkv-reader';
+import { MkvReadError, NotMatroskaError, type MkvBlock, type ParsedMkv } from '@seikou/matroska';
+import { readMkv } from '../../src/mux/mkv-file';
 import { blocksInOrder, parseMkv } from '../helpers/ebml-reader';
 import { FONT, PGS_SET, writeEpisodeMkv } from './episode-mkv';
 
@@ -51,7 +52,7 @@ describe('readMkv', () => {
   it('streams every block in file order with its time, key-frame flag and duration', () => {
     const expected = blocksInOrder(parseMkv(readFileSync(path)));
     expect(blocks.map((b) => [b.track, b.timeMs, b.durationMs, Buffer.from(b.data).toString('hex')])).toEqual(
-      expected.map((b) => [b.track, b.timeMs, b.durationMs, b.data.toString('hex')]),
+      expected.map((b) => [b.track, b.timeMs, b.durationMs, Buffer.from(b.data).toString('hex')]),
     );
     expect(blocks.find((b) => b.track === 1)!.keyframe).toBe(true);
     expect(blocks.filter((b) => b.track === 6).map((b) => [b.timeMs, Buffer.from(b.data)])).toEqual([

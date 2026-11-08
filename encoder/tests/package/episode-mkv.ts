@@ -2,7 +2,8 @@
 import { createReadStream } from 'node:fs';
 import { assToMatroska } from '../../src/mux/ass-track';
 import { readIvf } from '../../src/mux/ivf';
-import { writeMkv, type MkvResult } from '../../src/mux/mkv-writer';
+import { type MkvResult } from '@seikou/matroska';
+import { writeMkv } from '../../src/mux/mkv-file';
 import { readOggOpus } from '../../src/mux/ogg';
 import { fx } from '../paths';
 

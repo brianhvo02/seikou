@@ -1,0 +1,6 @@
+@seikou/matroska
+Copyright (C) 2026  Seikou contributors
+Licensed under LGPL-3.0-or-later; see LICENSE and COPYING (the GNU GPL, which the LGPL supplements).
+
+All files in this package are original Seikou code, not ports of other projects. They follow
+the Matroska specification (RFC 9559) and the EBML specification (RFC 8794).

@@ -4,8 +4,9 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Id } from '../../src/mux/mkv-ids';
-import { NotMatroskaError, readMkv } from '../../src/mux/mkv-reader';
+import { Id } from '@seikou/matroska';
+import { NotMatroskaError } from '@seikou/matroska';
+import { readMkv } from '../../src/mux/mkv-file';
 import { packageEpisode, PackageError, safeName, type EpisodeManifest } from '../../src/package/package';
 import { blocksInOrder, find, findAll, parseMkv, stringOf, uintOf } from '../helpers/ebml-reader';
 import { ffprobePath, haveFfprobe } from '../helpers/tools';
@@ -41,7 +42,7 @@ describe('packageEpisode', () => {
     // The blocks are the MKV's video and audio blocks, unchanged and at the same times.
     const source = blocksInOrder(parseMkv(readFileSync(mkv))).filter((b) => b.track <= 3);
     const remuxed = blocksInOrder(t);
-    expect(remuxed.map((b) => [b.track, b.timeMs, b.data.toString('hex')])).toEqual(source.map((b) => [b.track, b.timeMs, b.data.toString('hex')]));
+    expect(remuxed.map((b) => [b.track, b.timeMs, Buffer.from(b.data).toString('hex')])).toEqual(source.map((b) => [b.track, b.timeMs, Buffer.from(b.data).toString('hex')]));
     const mkvInfo = await readMkv(mkv);
     expect(stringOf(find(t, Id.Title))).toBe(mkvInfo.title);
     if (haveFfprobe) {

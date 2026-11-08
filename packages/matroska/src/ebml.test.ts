@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { ascii, uint, vint, vintFixed8, voidElement } from '../../src/mux/ebml';
-import { Id } from '../../src/mux/mkv-ids';
+import { ascii, uint, vint, vintFixed8, voidElement } from './ebml';
+import { Id } from './ids';
 
 describe('ebml', () => {
   it('encodes vints and elements', () => {

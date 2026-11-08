@@ -5,7 +5,7 @@ import { basename, extname, join } from 'node:path';
 import { retime } from '@seikou/fansubs/retime';
 import type { FansubAlignment } from '@seikou/nas/nas-api';
 import { assToMatroska } from '../mux/ass-track';
-import type { MkvAttachment, MkvSubtitleTrack } from '../mux/mkv-writer';
+import type { MkvAttachment, MkvSubtitleTrack } from '@seikou/matroska';
 import type { RecordTrack, SubtitleRecord } from './record';
 import { readCachedRelease } from './release-cache';
 import { decodeSubtitleText } from './srt-to-ass';

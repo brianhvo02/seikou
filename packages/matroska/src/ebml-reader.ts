@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { Id } from './mkv-ids';
+import { Id } from './ids';
 
 // Reading EBML (RFC 8794). Every element is an Element ID (§5), an Element Data Size (§6) and that
 // many bytes of data. Both are variable-length integers whose first byte's leading zero bits give
@@ -62,7 +62,7 @@ export interface EbmlNode {
   /** Children of a master element. */
   children?: EbmlNode[];
   /** Data of any other element (a view into the parsed buffer, not a copy). */
-  bytes?: Buffer;
+  bytes?: Uint8Array;
 }
 
 /** The Matroska master elements (RFC 9559 §5.1) the tree parser descends into; every other element keeps its raw bytes. */
@@ -93,7 +93,7 @@ const MASTERS = new Set<number>([
  * Parses the elements between `start` and `end` of `buf` into a tree, descending into the Matroska
  * master elements. Throws `EbmlError` when an element runs past `end` or has an unknown size.
  */
-export function parseElements(buf: Buffer, start: number, end: number): EbmlNode[] {
+export function parseElements(buf: Uint8Array, start: number, end: number): EbmlNode[] {
   const nodes: EbmlNode[] = [];
   let pos = start;
   while (pos < end) {
@@ -111,8 +111,8 @@ export function parseElements(buf: Buffer, start: number, end: number): EbmlNode
   return nodes;
 }
 
-/** Parses a whole file held in memory into a synthetic root whose children are the top-level elements. Meant for small files and tests; `readMkv` streams large ones. */
-export function parseMkv(buf: Buffer): EbmlNode {
+/** Parses a whole file held in memory into a synthetic root whose children are the top-level elements. Meant for small files and tests; `readMatroska` streams large ones. */
+export function parseMkv(buf: Uint8Array): EbmlNode {
   return { id: -1, size: buf.length, offset: 0, headerLength: 0, children: parseElements(buf, 0, buf.length) };
 }
 
@@ -151,12 +151,13 @@ export function uintOf(n: EbmlNode): bigint {
 /** A Float element's value (RFC 8794 §7.3): 4 or 8 bytes big-endian, 0 for an empty element. */
 export function floatOf(n: EbmlNode): number {
   if (n.bytes!.length === 0) return 0;
-  return n.bytes!.length === 4 ? n.bytes!.readFloatBE(0) : n.bytes!.readDoubleBE(0);
+  const view = new DataView(n.bytes!.buffer, n.bytes!.byteOffset, n.bytes!.length);
+  return n.bytes!.length === 4 ? view.getFloat32(0, false) : view.getFloat64(0, false);
 }
 
 /** A String or UTF-8 element's value (RFC 8794 §7.4, §7.5), with any trailing NUL padding removed. */
 export function stringOf(n: EbmlNode): string {
-  return n.bytes!.toString('utf8').replace(/\0+$/, '');
+  return new TextDecoder().decode(n.bytes!).replace(/\0+$/, '');
 }
 
 /** Offset of the first byte after the Segment size field. */
@@ -185,13 +186,13 @@ export interface BlockInfo {
   flags: number;
   /** BlockDuration of a BlockGroup, when present. */
   durationMs?: number;
-  data: Buffer;
+  data: Uint8Array;
 }
 
 /**
  * Every block of a parsed tree in file order, with the cluster timestamp added to its relative one
  * (RFC 9559 §10.1). Assumes track numbers under 127 (a 1-byte track field) and a TimestampScale of
- * 1,000,000, as `writeMkv` writes them.
+ * 1,000,000, as `writeMatroska` writes them.
  */
 export function blocksInOrder(tree: EbmlNode): BlockInfo[] {
   const out: BlockInfo[] = [];
@@ -210,7 +211,7 @@ export function blocksInOrder(tree: EbmlNode): BlockInfo[] {
       const b = block.bytes!;
       out.push({
         track: b[0]! & 0x7f,
-        timeMs: base + b.readInt16BE(1),
+        timeMs: base + new DataView(b.buffer, b.byteOffset, b.length).getInt16(1, false),
         kind: c.id === Id.SimpleBlock ? 'simple' : 'group',
         flags: b[3]!,
         ...(durationMs !== undefined ? { durationMs } : {}),

@@ -6,7 +6,7 @@
  * `ReadOrder,Layer,Style,Name,MarginL,MarginR,MarginV,Effect,Text`, its Start and End moved into the block's
  * timestamp and BlockDuration.
  */
-import type { SubtitleBlock } from './mkv-writer';
+import type { SubtitleBlock } from '@seikou/matroska';
 
 /** The `[Events]` Format line every CodecPrivate carries: Layer, Start and End first, as Matroska readers expect. */
 const EVENT_FORMAT = ['Layer', 'Start', 'End', 'Style', 'Name', 'MarginL', 'MarginR', 'MarginV', 'Effect', 'Text'];

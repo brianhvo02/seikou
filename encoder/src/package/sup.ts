@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import type { SubtitleBlock } from '../mux/mkv-writer';
+import type { SubtitleBlock } from '@seikou/matroska';
 
 // The `.sup` file is the PGS stream as Blu-ray authoring tools exchange it: the segments of every
 // display set in order, each preceded by a 10-byte header of the magic "PG" (0x50 0x47), the

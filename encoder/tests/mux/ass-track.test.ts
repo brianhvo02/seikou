@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { assToMatroska } from '../../src/mux/ass-track';
 import { readIvf } from '../../src/mux/ivf';
-import { writeMkv } from '../../src/mux/mkv-writer';
+import { writeMkv } from '../../src/mux/mkv-file';
 import { ffmpegPath } from '../helpers/tools';
 import { fx } from '../paths';
 

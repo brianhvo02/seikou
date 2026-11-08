@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { Id } from './mkv-ids';
+import { Id } from './ids';
 
 // EBML (RFC 8794) is the binary container syntax Matroska is built on. A file is a tree of
 // elements, each written as: Element ID (§5), Element Data Size (§6), then that many bytes of data.
