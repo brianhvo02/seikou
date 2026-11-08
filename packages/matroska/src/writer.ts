@@ -19,11 +19,12 @@ import { frameDurationNs, framesToNs, videoMs } from './timing';
 
 // File layout (RFC 9559 §6 describes the allowed orderings; §25.3.1 the layout a muxer is
 // recommended to produce): EBML header, then one Segment holding, in this order,
-//   SeekHead     index of where Info, Tracks, Attachments, Chapters and Cues start (§5.1.1),
+//   SeekHead     index of where Info, Tracks, Attachments, Chapters, Tags and Cues start (§5.1.1),
 //   Info         timestamp scale, duration, application names, title (§5.1.2),
 //   Tracks       one video TrackEntry, then one per audio track, then one per subtitle track (§5.1.4),
 //   Attachments  one AttachedFile per attachment, when there are any (§5.1.6),
 //   Chapters     one edition with one ChapterAtom per chapter, when there are any (§5.1.7),
+//   Tags         one Tag of Segment-wide SimpleTags, when there are any (§5.1.8),
 //   Cluster ...  blocks of every track in timestamp order; a cluster opens at each video key frame,
 //                and also at any block too far from its cluster's timestamp (§5.1.3),
 //   Cues         one seek point per cluster that opens with a video key frame, and one per subtitle
@@ -156,9 +157,12 @@ export interface MkvAttachment {
 
 /** One chapter on the MKV's timeline. */
 export interface MkvChapter {
+  /** Written as the ChapterString of the chapter's ChapterDisplay. */
   title: string;
   /** Start in nanoseconds from the first video frame. */
   startNs: bigint;
+  /** Written as ChapterTimeEnd (RFC 9559 §5.1.7.1.4.4) when given; otherwise the chapter has no end. */
+  endNs?: bigint;
 }
 
 /**
@@ -185,6 +189,13 @@ export interface MkvInput {
   docType?: 'matroska' | 'webm';
   /** Segment title. */
   title?: string;
+  /** Written as MuxingApp and WritingApp (RFC 9559 §5.1.2.3, §5.1.2.4), printable ASCII; `@seikou/matroska` by default. */
+  appName?: string;
+  /**
+   * Segment-level tags (RFC 9559 §5.1.8): one Tag with TargetTypeValue 50 holding one SimpleTag per
+   * entry, TagName the key and TagString the value. Nothing is written when empty or absent.
+   */
+  tags?: Readonly<Record<string, string>>;
   video: VideoTrackInfo & TrackLabel;
   /** Video packets, one temporal unit per shown frame, in presentation order (AV1 temporal units already are). The first must be a key frame. Packet i gets timestamp `videoMs(i)`, or its own `timeMs`. */
   videoPackets: AsyncIterable<MkvVideoPacket>;
@@ -210,10 +221,10 @@ export interface MkvResult {
   clusters: number;
 }
 
-// Bytes reserved for the SeekHead: five Seek entries of under 25 bytes each plus the SeekHead
+// Bytes reserved for the SeekHead: six Seek entries of under 25 bytes each plus the SeekHead
 // header fit inside it, and the unused part is rewritten as a Void.
 const SEEK_HEAD_SIZE = 160;
-const APP_NAME = 'seikou-encode';
+const DEFAULT_APP_NAME = '@seikou/matroska';
 const VIDEO_TRACK = 1;
 const TRACK_TYPE_VIDEO = 1;
 const TRACK_TYPE_AUDIO = 2;
@@ -353,10 +364,20 @@ function chaptersElement(chapters: readonly MkvChapter[], webm: boolean): Uint8A
         master(Id.ChapterAtom, [
           uint(Id.ChapterUID, i + 1),
           uint(Id.ChapterTimeStart, c.startNs),
+          ...(c.endNs !== undefined ? [uint(Id.ChapterTimeEnd, c.endNs)] : []),
           ...(webm ? [] : [uint(Id.ChapterFlagEnabled, 1)]),
           master(Id.ChapterDisplay, [utf8(Id.ChapString, c.title), ascii(Id.ChapLanguage, 'und')]),
         ]),
       ),
+    ]),
+  ]);
+}
+
+function tagsElement(tags: Readonly<Record<string, string>>): Uint8Array {
+  return master(Id.Tags, [
+    master(Id.Tag, [
+      master(Id.Targets, [uint(Id.TargetTypeValue, 50)]),
+      ...Object.entries(tags).map(([name, value]) => master(Id.SimpleTag, [utf8(Id.TagName, name), utf8(Id.TagString, value)])),
     ]),
   ]);
 }
@@ -389,6 +410,20 @@ function checkSubtitleBlocks(subtitles: readonly MkvSubtitleTrack[]): void {
       prev = b.timeMs;
     }
   }
+}
+
+/**
+ * Checks what `writeMatroska` can check without reading packets: a `webm` input has no subtitle
+ * tracks or attachments, and every subtitle block has a whole, non-negative time and duration and
+ * comes in time order. Throws the same errors `writeMatroska` does (RangeError for a bad time or
+ * duration). A caller that opens a file for `writeMatroska` runs it first, so a bad input leaves
+ * an existing file alone.
+ */
+export function checkMatroskaInput(input: Pick<MkvInput, 'docType' | 'subtitles' | 'attachments'>): void {
+  if (input.docType === 'webm' && (input.subtitles.length > 0 || input.attachments.length > 0)) {
+    throw new Error('a WebM file carries no subtitle tracks and no attachments');
+  }
+  checkSubtitleBlocks(input.subtitles);
 }
 
 /** Reads one packet ahead so the last one is known before it is written. */
@@ -495,11 +530,9 @@ interface SubtitleState {
 export async function writeMatroska(sink: MkvSink, input: MkvInput): Promise<MkvResult> {
   const { video } = input;
   const docType = input.docType ?? 'matroska';
+  const appName = input.appName ?? DEFAULT_APP_NAME;
   try {
-    if (docType === 'webm' && (input.subtitles.length > 0 || input.attachments.length > 0)) {
-      throw new Error('a WebM file carries no subtitle tracks and no attachments');
-    }
-    checkSubtitleBlocks(input.subtitles);
+    checkMatroskaInput(input);
     const w = new PositionalWriter(sink);
     await w.append(ebmlHeader(docType));
     await w.append(idBytes(Id.Segment));
@@ -514,8 +547,8 @@ export async function writeMatroska(sink: MkvSink, input: MkvInput): Promise<Mkv
     const infoChildren = [
       uint(Id.TimestampScale, 1_000_000),
       float64(Id.Duration, 0),
-      ascii(Id.MuxingApp, APP_NAME),
-      ascii(Id.WritingApp, APP_NAME),
+      ascii(Id.MuxingApp, appName),
+      ascii(Id.WritingApp, appName),
       ...(input.title !== undefined ? [utf8(Id.Title, input.title)] : []),
     ];
     const info = master(Id.Info, infoChildren);
@@ -537,6 +570,12 @@ export async function writeMatroska(sink: MkvSink, input: MkvInput): Promise<Mkv
     if (input.chapters.length > 0) {
       chaptersPos = w.pos - base;
       await w.append(chaptersElement(input.chapters, docType === 'webm'));
+    }
+
+    let tagsPos: number | null = null;
+    if (input.tags !== undefined && Object.keys(input.tags).length > 0) {
+      tagsPos = w.pos - base;
+      await w.append(tagsElement(input.tags));
     }
 
     const cues: CueEntry[] = [];
@@ -681,6 +720,7 @@ export async function writeMatroska(sink: MkvSink, input: MkvInput): Promise<Mkv
       seek(Id.Tracks, tracksPos),
       ...(attachmentsPos !== null ? [seek(Id.Attachments, attachmentsPos)] : []),
       ...(chaptersPos !== null ? [seek(Id.Chapters, chaptersPos)] : []),
+      ...(tagsPos !== null ? [seek(Id.Tags, tagsPos)] : []),
       seek(Id.Cues, cuesPos),
     ]);
     await w.writeAt(concat([seekHead, voidElement(SEEK_HEAD_SIZE - seekHead.length)]), seekHeadPos);

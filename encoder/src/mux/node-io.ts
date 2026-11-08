@@ -10,6 +10,7 @@ export async function nodeRangeReader(path: string): Promise<RangeReader> {
   const size = (await stat(path)).size;
   return {
     size,
+    name: path,
     async read(offset, length, signal) {
       signal?.throwIfAborted();
       const buf = new Uint8Array(Math.max(0, Math.min(length, size - offset)));

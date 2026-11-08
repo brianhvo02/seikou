@@ -2,6 +2,8 @@
 
 /** A source of bytes read by position: a file, an HTTP resource read with range requests, a blob. */
 export interface RangeReader {
+  /** What to call the source in error messages (a file path or a URL); the readers' errors end with it when present. */
+  readonly name?: string;
   /** Total length in bytes. */
   readonly size: number;
   /**

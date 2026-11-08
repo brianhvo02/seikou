@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { childOf, EbmlError, floatOf, parseElements, readElementHeader, stringOf, uintOf, type EbmlNode } from './ebml-reader';
+import { childOf, floatOf, type EbmlNode } from './ebml-reader';
+import { MkvReadError, NotMatroskaError } from './errors';
 import { Id } from './ids';
 import type { RangeReader } from './io';
+import { chapterAtoms, clusterBlockList, frameDurations, locateSegment, MAX_CLUSTER_BYTES, parseOrThrow, readAt, stringChild, trackOf, uintChild, withName, type BlockContext } from './parse';
 import type { MkvAttachment, MkvChapter } from './writer';
+
+export { MkvReadError, NotMatroskaError };
 
 // Reading a Matroska file (RFC 9559) without loading it whole. The EBML header (RFC 8794 §11.2)
 // names the document type. The Segment's top-level elements are then visited one header at a
@@ -10,12 +14,6 @@ import type { MkvAttachment, MkvChapter } from './writer';
 // parsed in full; each Cluster (§5.1.3) is only located, and is read later, one at a time, when the
 // blocks are iterated. Everything else (SeekHead, Cues, Tags, Void) is skipped. The order of the
 // top-level elements does not matter, since every one is visited before any block is read.
-
-/** Thrown when a file cannot be read as Matroska: truncated, malformed, or using a feature this reader does not take (lacing, unknown sizes). */
-export class MkvReadError extends Error {}
-
-/** Thrown when a file is not Matroska at all: no EBML header, or an EBML DocType other than `matroska` or `webm`. */
-export class NotMatroskaError extends MkvReadError {}
 
 /** One TrackEntry (RFC 9559 §5.1.4.1), with each element's default filled in when it is absent. */
 export interface MkvTrack {
@@ -86,122 +84,6 @@ export interface ParsedMkv {
 }
 
 const LEVEL1_READ = new Set<number>([Id.Info, Id.Tracks, Id.Attachments, Id.Chapters]);
-const HEADER_PROBE = 16;
-/** A cluster is read whole; a larger one than this is refused rather than allocated. */
-const MAX_CLUSTER_BYTES = 1 << 30;
-
-async function readAt(reader: RangeReader, position: number, length: number): Promise<Uint8Array> {
-  if (length === 0 || position >= reader.size) return new Uint8Array(0);
-  const first = await reader.read(position, length);
-  if (first.length >= length || first.length === 0) return first;
-  const out = new Uint8Array(length);
-  out.set(first);
-  let done = first.length;
-  while (done < length) {
-    const more = await reader.read(position + done, length - done);
-    if (more.length === 0) break;
-    out.set(more, done);
-    done += more.length;
-  }
-  return out.subarray(0, done);
-}
-
-function parseOrThrow(buf: Uint8Array, what: string): EbmlNode[] {
-  try {
-    return parseElements(buf, 0, buf.length);
-  } catch (err) {
-    if (err instanceof EbmlError) throw new MkvReadError(`${what}: ${err.message}`);
-    throw err;
-  }
-}
-
-function uintChild(n: EbmlNode, id: number): bigint | undefined {
-  const c = childOf(n, id);
-  return c === undefined ? undefined : uintOf(c);
-}
-
-function stringChild(n: EbmlNode, id: number): string | undefined {
-  const c = childOf(n, id);
-  return c === undefined ? undefined : stringOf(c);
-}
-
-/** A Signed Integer element's value (RFC 8794 §7.1): two's complement, big-endian. */
-function sintOf(n: EbmlNode): bigint {
-  const bytes = n.bytes!;
-  return bytes.length === 0 ? 0n : BigInt.asIntN(bytes.length * 8, uintOf(n));
-}
-
-function trackOf(entry: EbmlNode): MkvTrack {
-  const number = uintChild(entry, Id.TrackNumber);
-  const codecId = stringChild(entry, Id.CodecID);
-  if (number === undefined || number === 0n || codecId === undefined) throw new MkvReadError('a TrackEntry has no TrackNumber or CodecID');
-  const priv = childOf(entry, Id.CodecPrivate);
-  const dd = uintChild(entry, Id.DefaultDuration);
-  const video = childOf(entry, Id.Video);
-  const audio = childOf(entry, Id.Audio);
-  const sampling = audio === undefined ? undefined : childOf(audio, Id.SamplingFrequency);
-  return {
-    number: Number(number),
-    type: Number(uintChild(entry, Id.TrackType) ?? 0n),
-    codecId,
-    ...(priv !== undefined ? { codecPrivate: new Uint8Array(priv.bytes!) } : {}),
-    name: stringChild(entry, Id.Name) ?? '',
-    language: stringChild(entry, Id.Language) ?? 'eng',
-    isDefault: (uintChild(entry, Id.FlagDefault) ?? 1n) !== 0n,
-    isForced: (uintChild(entry, Id.FlagForced) ?? 0n) !== 0n,
-    ...(dd !== undefined ? { defaultDurationNs: dd } : {}),
-    codecDelayNs: uintChild(entry, Id.CodecDelay) ?? 0n,
-    seekPreRollNs: uintChild(entry, Id.SeekPreRoll) ?? 0n,
-    ...(video !== undefined
-      ? { video: { width: Number(uintChild(video, Id.PixelWidth) ?? 0n), height: Number(uintChild(video, Id.PixelHeight) ?? 0n) } }
-      : {}),
-    ...(audio !== undefined
-      ? { audio: { channels: Number(uintChild(audio, Id.Channels) ?? 1n), sampleRate: sampling === undefined ? 8000 : floatOf(sampling) } }
-      : {}),
-  };
-}
-
-function chaptersOf(chapters: EbmlNode | undefined): MkvChapter[] {
-  const editions = chapters?.children?.filter((c) => c.id === Id.EditionEntry) ?? [];
-  const edition = editions.find((e) => uintChild(e, Id.EditionFlagDefault) === 1n) ?? editions[0];
-  const out: MkvChapter[] = [];
-  for (const atom of edition?.children?.filter((c) => c.id === Id.ChapterAtom) ?? []) {
-    if (uintChild(atom, Id.ChapterFlagHidden) === 1n || uintChild(atom, Id.ChapterFlagEnabled) === 0n) continue;
-    const start = uintChild(atom, Id.ChapterTimeStart);
-    if (start === undefined) continue;
-    const display = childOf(atom, Id.ChapterDisplay);
-    out.push({ title: (display && stringChild(display, Id.ChapString)) ?? '', startNs: start });
-  }
-  return out.sort((a, b) => (a.startNs < b.startNs ? -1 : a.startNs > b.startNs ? 1 : 0));
-}
-
-/** Track number of a block header: an EBML variable-size integer with its marker removed (RFC 9559 §10.1). */
-function blockTrack(b: Uint8Array): { track: number; length: number } {
-  const first = b[0];
-  if (first === undefined || first === 0) throw new MkvReadError('a block has a bad track number');
-  const length = Math.clz32(first) - 23;
-  if (b.length < length + 3) throw new MkvReadError('a block is shorter than its header');
-  let track = first & ((1 << (8 - length)) - 1);
-  for (let i = 1; i < length; i++) track = track * 256 + b[i]!;
-  return { track, length };
-}
-
-function blockOf(clusterTicks: number, scale: number, block: Uint8Array, simple: boolean, group?: EbmlNode): MkvBlock {
-  const { track, length } = blockTrack(block);
-  const rel = new DataView(block.buffer, block.byteOffset, block.length).getInt16(length, false);
-  const flags = block[length + 2]!;
-  if ((flags & 0x06) !== 0) throw new MkvReadError(`a block of track ${track} uses lacing, which is not supported`);
-  const duration = group === undefined ? undefined : uintChild(group, Id.BlockDuration);
-  const padding = group === undefined ? undefined : childOf(group, Id.DiscardPadding);
-  return {
-    track,
-    timeMs: ((clusterTicks + rel) * scale) / 1e6,
-    keyframe: simple ? (flags & 0x80) !== 0 : childOf(group!, Id.ReferenceBlock) === undefined,
-    ...(duration !== undefined ? { durationMs: (Number(duration) * scale) / 1e6 } : {}),
-    ...(padding !== undefined ? { discardPaddingNs: sintOf(padding) } : {}),
-    data: block.subarray(length + 3),
-  };
-}
 
 interface ClusterRef {
   /** Offset of the cluster's data (after its id and size). */
@@ -209,22 +91,12 @@ interface ClusterRef {
   size: number;
 }
 
-async function* clusterBlocks(reader: RangeReader, clusters: readonly ClusterRef[], scale: number): AsyncGenerator<MkvBlock> {
+async function* clusterBlocks(reader: RangeReader, clusters: readonly ClusterRef[], ctx: BlockContext): AsyncGenerator<MkvBlock> {
   for (const c of clusters) {
     if (c.size > MAX_CLUSTER_BYTES) throw new MkvReadError(`a cluster of ${c.size} bytes is too large to read`);
     const buf = await readAt(reader, c.dataPos, c.size);
     if (buf.length < c.size) throw new MkvReadError('the file ends inside a cluster (truncated?)');
-    const children = parseOrThrow(buf, 'cluster');
-    const ts = children.find((n) => n.id === Id.Timestamp);
-    if (ts === undefined) throw new MkvReadError('a cluster has no Timestamp');
-    const ticks = Number(uintOf(ts));
-    for (const n of children) {
-      if (n.id === Id.SimpleBlock) yield blockOf(ticks, scale, n.bytes!, true);
-      else if (n.id === Id.BlockGroup) {
-        const block = childOf(n, Id.Block);
-        if (block !== undefined) yield blockOf(ticks, scale, block.bytes!, false, n);
-      }
-    }
+    yield* clusterBlockList(ctx, buf);
   }
 }
 
@@ -234,49 +106,19 @@ async function* clusterBlocks(reader: RangeReader, clusters: readonly ClusterRef
  * later through `blocks()`. Throws `NotMatroskaError` when the file does not start with an EBML
  * header naming `matroska` or `webm`, and `MkvReadError` when the file is truncated (a Segment or
  * element that runs past the end), malformed, has no Info or Tracks, or uses an unknown-size
- * element (RFC 8794 §6.2) at the Segment's top level.
+ * element (RFC 8794 §6.2) at the Segment's top level. Error messages end with `reader.name` in
+ * parentheses when the reader has one.
  */
 export async function readMatroska(reader: RangeReader): Promise<ParsedMkv> {
-  const fileSize = reader.size;
-  const headerAt = async (pos: number): Promise<ReturnType<typeof readElementHeader>> => {
-    try {
-      return readElementHeader(await readAt(reader, pos, HEADER_PROBE), 0);
-    } catch (err) {
-      if (err instanceof EbmlError) throw new MkvReadError(`at byte ${pos}: ${err.message}`);
-      throw err;
-    }
-  };
-
-  let ebml: ReturnType<typeof readElementHeader>;
   try {
-    ebml = readElementHeader(await readAt(reader, 0, HEADER_PROBE), 0);
+    return await readDescription(reader);
   } catch (err) {
-    if (err instanceof EbmlError) throw new NotMatroskaError('the file is not a Matroska file (no EBML header)');
-    throw err;
+    throw withName(err, reader);
   }
-  if (ebml === null || ebml.id !== Id.EBML || ebml.size === null || ebml.size > 4096) {
-    throw new NotMatroskaError('the file is not a Matroska file (no EBML header)');
-  }
-  const headerBytes = await readAt(reader, ebml.headerLength, ebml.size);
-  if (headerBytes.length < ebml.size) throw new NotMatroskaError(`the file is not a Matroska file (its EBML header is cut short)`);
-  let docType: string | undefined;
-  try {
-    const dt = parseElements(headerBytes, 0, headerBytes.length).find((n) => n.id === Id.DocType);
-    docType = dt === undefined ? undefined : stringOf(dt);
-  } catch (err) {
-    if (err instanceof EbmlError) throw new NotMatroskaError(`the file is not a Matroska file (bad EBML header)`);
-    throw err;
-  }
-  if (docType !== 'matroska' && docType !== 'webm') {
-    throw new NotMatroskaError(`the file is not a Matroska file (its EBML DocType is ${docType === undefined ? 'missing' : `"${docType}"`})`);
-  }
+}
 
-  const segPos = ebml.headerLength + ebml.size;
-  const seg = await headerAt(segPos);
-  if (seg === null || seg.id !== Id.Segment) throw new MkvReadError(`the file has no Segment after its EBML header`);
-  const segStart = segPos + seg.headerLength;
-  const segEnd = seg.size === null ? fileSize : segStart + seg.size;
-  if (segEnd > fileSize) throw new MkvReadError(`the file ends before its Segment does (truncated?)`);
+async function readDescription(reader: RangeReader): Promise<ParsedMkv> {
+  const { docType, segStart, segEnd, headerAt } = await locateSegment(reader);
 
   const level1 = new Map<number, EbmlNode>();
   const clusters: ClusterRef[] = [];
@@ -295,8 +137,8 @@ export async function readMatroska(reader: RangeReader): Promise<ParsedMkv> {
   }
 
   const info = level1.get(Id.Info);
-  const tracks = level1.get(Id.Tracks);
-  if (info === undefined || tracks === undefined) throw new MkvReadError(`the file has no ${info === undefined ? 'Info' : 'Tracks'} element`);
+  const tracksEl = level1.get(Id.Tracks);
+  if (info === undefined || tracksEl === undefined) throw new MkvReadError(`the file has no ${info === undefined ? 'Info' : 'Tracks'} element`);
   const scale = Number(uintChild(info, Id.TimestampScale) ?? 1_000_000n);
   const duration = childOf(info, Id.Duration);
   const title = stringChild(info, Id.Title);
@@ -307,14 +149,18 @@ export async function readMatroska(reader: RangeReader): Promise<ParsedMkv> {
       mediaType: stringChild(f, Id.FileMediaType) ?? 'application/octet-stream',
       data: new Uint8Array(childOf(f, Id.FileData)?.bytes ?? new Uint8Array(0)),
     }));
+  const tracks = (tracksEl.children ?? []).filter((n) => n.id === Id.TrackEntry).map(trackOf);
 
   return {
     docType,
     ...(title !== undefined ? { title } : {}),
     ...(duration !== undefined ? { durationMs: (floatOf(duration) * scale) / 1e6 } : {}),
-    tracks: (tracks.children ?? []).filter((n) => n.id === Id.TrackEntry).map(trackOf),
+    tracks,
     attachments,
-    chapters: chaptersOf(level1.get(Id.Chapters)),
-    blocks: () => clusterBlocks(reader, clusters, scale),
+    chapters: chapterAtoms(level1.get(Id.Chapters)).map((atom) => {
+      const display = childOf(atom, Id.ChapterDisplay);
+      return { title: (display && stringChild(display, Id.ChapString)) ?? '', startNs: uintChild(atom, Id.ChapterTimeStart)! };
+    }),
+    blocks: () => clusterBlocks(reader, clusters, { scale, allowLacing: false, frameMs: frameDurations(tracks) }),
   };
 }

@@ -45,7 +45,7 @@ export function readElementHeader(buf: Uint8Array, pos: number): ElementHeader |
     if (b !== 0xff) allOnes = false;
     size = size * 256 + b;
   }
-  if (!Number.isSafeInteger(size)) throw new EbmlError(`element size at byte ${pos + idLen} is too large`);
+  if (!allOnes && !Number.isSafeInteger(size)) throw new EbmlError(`element size at byte ${pos + idLen} is too large`);
   return { id, size: allOnes ? null : size, headerLength: idLen + sizeLen };
 }
 
@@ -87,6 +87,10 @@ const MASTERS = new Set<number>([
   Id.Cues,
   Id.CuePoint,
   Id.CueTrackPositions,
+  Id.Tags,
+  Id.Tag,
+  Id.Targets,
+  Id.SimpleTag,
 ]);
 
 /**

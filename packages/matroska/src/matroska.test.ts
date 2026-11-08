@@ -4,7 +4,7 @@ import { blocksInOrder, find, findAll, parseMkv, stringOf, uintOf } from './ebml
 import { Id } from './ids';
 import { MkvReadError, NotMatroskaError, readMatroska, type MkvBlock } from './reader';
 import { memoryReader, memorySink } from './test-io';
-import { writeMatroska, type MkvInput } from './writer';
+import { checkMatroskaInput, writeMatroska, type MkvInput } from './writer';
 
 const enc = new TextEncoder();
 
@@ -90,6 +90,22 @@ describe('writeMatroska and readMatroska', () => {
       { title: 'Opening', startNs: 0n },
       { title: 'Part A', startNs: 200_000_000n },
     ]);
+  });
+
+  it('names the application: package-neutral by default, or what the input says', async () => {
+    const tree = parseMkv(await written());
+    expect(stringOf(find(tree, Id.MuxingApp))).toBe('@seikou/matroska');
+    expect(stringOf(find(tree, Id.WritingApp))).toBe('@seikou/matroska');
+    const named = parseMkv(await written({ appName: 'seikou-encode' }));
+    expect(stringOf(find(named, Id.MuxingApp))).toBe('seikou-encode');
+    expect(stringOf(find(named, Id.WritingApp))).toBe('seikou-encode');
+  });
+
+  it('checkMatroskaInput throws what writeMatroska would, before anything is written', () => {
+    const bad = input({ subtitles: [{ name: 'S', language: 'eng', isDefault: true, codecId: 'S_TEXT/ASS', blocks: [{ timeMs: -1, data: new Uint8Array(1) }] }] });
+    expect(() => checkMatroskaInput(bad)).toThrow(RangeError);
+    expect(() => checkMatroskaInput(input({ docType: 'webm' }))).toThrow(/WebM/);
+    expect(() => checkMatroskaInput(input())).not.toThrow();
   });
 
   it('blocks come back in timestamp order with their data and flags', async () => {

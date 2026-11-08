@@ -121,6 +121,8 @@ export const Id = {
    * enabled. The writer sets it to 1, which is also what a reader assumes when it is absent.
    */
   ChapterFlagEnabled: 0x4598,
+  /** RFC 9559 §5.1.7.1.4.4: chapter end in nanoseconds. The writer sets it only when a chapter gives one. */
+  ChapterTimeEnd: 0x92,
   /** RFC 9559 §5.1.7.1.4.5: 1 hides the chapter from a player's chapter list. The writer never sets it; the reader skips such chapters. */
   ChapterFlagHidden: 0x98,
   /** RFC 9559 §5.1.7.1.4.9: master element holding one chapter title in one language. */
@@ -161,6 +163,22 @@ export const Id = {
   CueRelativePosition: 0xf0,
   /** RFC 9559 §5.1.5.1.2.4: how long the referenced block lasts, in Segment ticks (milliseconds here); subtitle cues carry it so a seek finds events still on screen. */
   CueDuration: 0xb2,
+  /** RFC 9559 §5.1.8: master element holding the tags. */
+  Tags: 0x1254c367,
+  /** RFC 9559 §5.1.8.1: one tag: a Targets element and the SimpleTags that apply to it. */
+  Tag: 0x7373,
+  /** RFC 9559 §5.1.8.1.1: what the tag applies to; empty or with only a TargetTypeValue it applies to the whole Segment. */
+  Targets: 0x63c0,
+  /** RFC 9559 §5.1.8.1.1.1: the level a tag applies to (50 is the album, episode or movie as a whole). */
+  TargetTypeValue: 0x68ca,
+  /** RFC 9559 §5.1.8.1.1.2: a name for the level, such as `EPISODE`. */
+  TargetType: 0x63ca,
+  /** RFC 9559 §5.1.8.1.2: one name and value pair. */
+  SimpleTag: 0x67c8,
+  /** RFC 9559 §5.1.8.1.2.1: the tag's name, UTF-8. */
+  TagName: 0x45a3,
+  /** RFC 9559 §5.1.8.1.2.4: the tag's value, UTF-8. */
+  TagString: 0x4487,
   /** RFC 8794 §11.3.2: padding that readers skip; the writer reserves space with it and patches it later. */
   Void: 0xec,
 } as const;
