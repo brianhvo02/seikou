@@ -1,7 +1,7 @@
 # Subtitle Helper and Seikou Packages: Design
 
 Date: 2026-11-07
-Status: Milestone 2 (backend and helper) done on 2026-11-07: `seikou-encode serve`, the helper page, the saved record, and its end-to-end check (`playwright.encoder.config.ts`). Milestone 3 (the encode reads the record, every ticked audio stream, ASS tracks and fonts, PGS passthrough, `package` and `encode --web`) is done on 2026-11-07; its check on a real disc is pending.
+Status: Milestone 2 (backend and helper) done on 2026-11-07: `seikou-encode serve`, the helper page, the saved record, and its end-to-end check (`playwright.encoder.config.ts`). Milestone 3 (the encode reads the record, every ticked audio stream, ASS tracks and fonts, PGS passthrough, `package` and `encode --web`) is done on 2026-11-07, and its check on a real disc (a six-clip, three-audio-stream playlist with a PGS track) passed the same day.
 Parent: `2026-11-06-encoding-tools-design.md` (M1 shipped on 2026-11-06 and confirmed on a real disc). This document replaces that spec's milestone 2 and reorders milestones 3 to 5.
 
 ## 1. Intent
