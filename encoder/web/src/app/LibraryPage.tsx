@@ -2,12 +2,15 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { LibraryAnswer, LibraryDiscInfo } from '../api-types';
 import type { AppApi } from './app-api';
+import { placeText, useDocumentTitle } from './place';
 import { Link } from './router';
 
 /** What the page needs: the backend client. */
 export interface LibraryPageProps {
   /** The backend client. */
   readonly api: AppApi;
+  /** Milliseconds between requests while a scan runs; one second unless a test says otherwise. */
+  readonly pollMs?: number;
 }
 
 /** The discs whose name or path holds every word of `text`, in any letter case; all of them for blank text. */
@@ -28,13 +31,16 @@ function playlistWords(n: number): string {
 }
 
 interface RootsEditorProps {
+  /** The saved folders: the only ones the editor changes and sends. */
   readonly roots: readonly string[];
+  /** Folders only this run's command line gave. */
+  readonly runRoots: readonly string[];
   readonly unreadable: readonly string[];
   readonly onSave: (roots: readonly string[]) => Promise<void>;
 }
 
 /** The library folders: each with Remove, and a field to add one. */
-function RootsEditor({ roots, unreadable, onSave }: RootsEditorProps) {
+function RootsEditor({ roots, runRoots, unreadable, onSave }: RootsEditorProps) {
   const [path, setPath] = useState('');
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
@@ -63,7 +69,7 @@ function RootsEditor({ roots, unreadable, onSave }: RootsEditorProps) {
   return (
     <section className="roots" aria-labelledby="roots-heading">
       <h2 id="roots-heading">Library folders</h2>
-      {roots.length > 0 && (
+      {roots.length + runRoots.length > 0 && (
         <ul className="root-list">
           {roots.map((r) => (
             <li key={r}>
@@ -72,6 +78,13 @@ function RootsEditor({ roots, unreadable, onSave }: RootsEditorProps) {
               <button type="button" disabled={busy} aria-label={`Remove ${r}`} onClick={() => void save(roots.filter((x) => x !== r))}>
                 Remove
               </button>
+            </li>
+          ))}
+          {runRoots.map((r) => (
+            <li key={r}>
+              <span className="root-path">{r}</span>
+              {unreadable.includes(r) && <span className="mark mark-warn">Cannot be read</span>}
+              <span className="muted">From the command line, this run only</span>
             </li>
           ))}
         </ul>
@@ -100,7 +113,8 @@ function RootsEditor({ roots, unreadable, onSave }: RootsEditorProps) {
  * for one; a folder that cannot be read is named while its discs from the last scan stay listed. While a scan runs the
  * page asks again every second.
  */
-export function LibraryPage({ api }: LibraryPageProps) {
+export function LibraryPage({ api, pollMs = SCAN_POLL_MS }: LibraryPageProps) {
+  useDocumentTitle('Seikou encoder');
   const [library, setLibrary] = useState<LibraryAnswer | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
@@ -118,12 +132,14 @@ export function LibraryPage({ api }: LibraryPageProps) {
     void load();
   }, [load]);
 
+  // a poll that fails leaves the last answer (still scanning) in place, so the next poll is scheduled from a counter
   const scanning = library?.scanning === true;
+  const [polls, setPolls] = useState(0);
   useEffect(() => {
     if (!scanning) return;
-    const timer = setTimeout(() => void load(), SCAN_POLL_MS);
+    const timer = setTimeout(() => void load().then(() => setPolls((n) => n + 1)), pollMs);
     return () => clearTimeout(timer);
-  }, [scanning, library, load]);
+  }, [scanning, polls, load, pollMs]);
 
   const rescan = async () => {
     try {
@@ -200,7 +216,12 @@ export function LibraryPage({ api }: LibraryPageProps) {
                 <li key={d.key}>
                   <Link to={{ kind: 'disc', discKey: d.key }} className="disc-link">
                     <span className="disc-name">{d.label}</span>
-                    <span className="disc-path muted">{d.relPath}</span>
+                    {placeText(d, library.roots.length) !== '' && <span className="disc-path muted">{placeText(d, library.roots.length)}</span>}
+                    {d.otherPaths.map((o) => (
+                      <span key={`${o.root}|${o.relPath}`} className="disc-path muted">
+                        Also at {o.relPath} ({o.root})
+                      </span>
+                    ))}
                   </Link>
                   <span className="disc-facts">
                     <span className="num muted">{playlistWords(d.playlistCount)}</span>
@@ -213,7 +234,7 @@ export function LibraryPage({ api }: LibraryPageProps) {
         </>
       )}
 
-      <RootsEditor roots={library.roots} unreadable={library.unreadableRoots} onSave={saveRoots} />
+      <RootsEditor roots={library.savedRoots} runRoots={library.runRoots} unreadable={library.unreadableRoots} onSave={saveRoots} />
     </main>
   );
 }

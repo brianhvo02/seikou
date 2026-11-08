@@ -343,12 +343,18 @@ export interface LibraryDiscInfo {
   readonly playlistCount: number;
   /** The playlists (five digits) that have a saved subtitle record. */
   readonly recordPlaylists: readonly string[];
+  /** Other folders holding a disc with the same key (copies of it); the disc is listed once, at its first folder. */
+  readonly otherPaths: readonly { readonly relPath: string; readonly root: string }[];
 }
 
 /** `GET /api/library`: the library folders and the discs found under them. */
 export interface LibraryAnswer {
   /** The library folders, saved ones first, then those the run was given. */
   readonly roots: readonly string[];
+  /** The roots saved in the settings, the ones the page edits. */
+  readonly savedRoots: readonly string[];
+  /** The roots only this run's command line gave: scanned, never saved, not removable from the page. */
+  readonly runRoots: readonly string[];
   /** The folders the last scan could not read; their discs from the scan before stay in `discs`. */
   readonly unreadableRoots: readonly string[];
   /** Whether a scan is running; `discs` is then the last complete scan. */

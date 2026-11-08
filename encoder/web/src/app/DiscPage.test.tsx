@@ -2,7 +2,8 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { PlaylistSummary } from '../api-types';
+import type { LibraryAnswer, PlaylistSummary } from '../api-types';
+import { ApiError } from '../api';
 import type { AppApi } from './app-api';
 import { DiscPage } from './DiscPage';
 
@@ -16,14 +17,22 @@ const playlists: PlaylistSummary[] = [
   { id: '00002', durationMs: 1_500_000, clips: 2, chapters: 5, likelyMain: false },
 ];
 
-function fakeApi(): AppApi {
+const library = (discs: LibraryAnswer['discs']): LibraryAnswer => ({
+  roots: ['/media/discs'],
+  savedRoots: ['/media/discs'],
+  runRoots: [],
+  unreadableRoots: [],
+  scanning: false,
+  discs,
+});
+
+const listed: LibraryAnswer['discs'] = [
+  { key: KEY, label: 'LANTERN_HARBOR_D1', relPath: 'LANTERN_HARBOR_D1', root: '/media/discs', playlistCount: 3, recordPlaylists: ['00800'], otherPaths: [] },
+];
+
+function fakeApi(discs: LibraryAnswer['discs'] = listed): AppApi {
   return {
-    library: vi.fn(async () => ({
-      roots: ['/media/discs'],
-      unreadableRoots: [],
-      scanning: false,
-      discs: [{ key: KEY, label: 'LANTERN_HARBOR_D1', relPath: 'LANTERN_HARBOR_D1', root: '/media/discs', playlistCount: 3, recordPlaylists: ['00800'] }],
-    })),
+    library: vi.fn(async () => library(discs)),
     rescan: vi.fn(async () => undefined),
     setRoots: vi.fn(async (r) => r),
     playlists: vi.fn(async () => playlists),
@@ -34,6 +43,7 @@ describe('DiscPage', () => {
   it('the disc page lists playlists longest first and links to episodes', async () => {
     render(<DiscPage api={fakeApi()} discKey={KEY} />);
     expect(await screen.findByRole('heading', { name: 'LANTERN_HARBOR_D1' })).toBeTruthy();
+    expect(document.title).toBe('LANTERN_HARBOR_D1');
     const rows = screen.getAllByRole('listitem');
     expect(rows.map((r) => within(r).getByTestId('playlist-id').textContent)).toEqual(['00800', '00002', '00001']);
     expect(within(rows[0]!).getByText('1:12:30')).toBeTruthy();
@@ -46,12 +56,28 @@ describe('DiscPage', () => {
     expect(link.getAttribute('href')).toBe(`/disc/f.${'b'.repeat(32)}/00800`);
   });
 
-  it('says so when the disc is not in the library', async () => {
+  it('says so when the disc is not in the library, and links back to it', async () => {
+    render(<DiscPage api={fakeApi([])} discKey={KEY} />);
+    expect((await screen.findByRole('alert')).textContent).toContain('not in the library');
+    expect(screen.getByRole('link', { name: 'Back to the library' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Disc' })).toBeNull();
+  });
+
+  it('says the same when the backend does not know the disc', async () => {
     const api = fakeApi();
     api.playlists = vi.fn(async () => {
-      throw new Error('disc-changed');
+      throw new ApiError(404, 'disc-changed', 'The disc changed.');
     });
     render(<DiscPage api={api} discKey={KEY} />);
-    expect((await screen.findByRole('alert')).textContent).toContain('disc-changed');
+    expect((await screen.findByRole('alert')).textContent).toContain('not in the library');
+  });
+
+  it('shows the error when the playlists cannot be read', async () => {
+    const api = fakeApi();
+    api.playlists = vi.fn(async () => {
+      throw new Error('the app is not answering');
+    });
+    render(<DiscPage api={api} discKey={KEY} />);
+    expect((await screen.findByRole('alert')).textContent).toContain('the app is not answering');
   });
 });

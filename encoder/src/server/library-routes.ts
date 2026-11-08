@@ -14,6 +14,11 @@ import { libraryOf, type LibraryDisc } from './library';
 
 /** A library disc as the page sees it: the scan's entry without the folder's path, plus what the page lists it with. */
 export interface LibraryDiscAnswer extends Omit<LibraryDisc, 'dir'> {
+  /**
+   * Other folders that hold a disc with the same key (copies of it, which share a key on purpose); empty for most
+   * discs. The disc is listed once, at the folder the disc routes read.
+   */
+  readonly otherPaths: readonly { readonly relPath: string; readonly root: string }[];
   /** How many playlists the disc has; 0 when its PLAYLIST folder cannot be read. */
   readonly playlistCount: number;
   /** The playlists (five digits, sorted) that have a saved subtitle record. */
@@ -24,6 +29,10 @@ export interface LibraryDiscAnswer extends Omit<LibraryDisc, 'dir'> {
 export interface LibraryAnswer {
   /** The folders the library is scanned under: the saved ones and those this run was given. */
   readonly roots: readonly string[];
+  /** The roots saved in the settings, the ones the page edits. */
+  readonly savedRoots: readonly string[];
+  /** The roots only this run's command line gave: scanned, never saved, not removable from the page. */
+  readonly runRoots: readonly string[];
   /** The roots that could not be read in the last scan (missing, unmounted, no permission); their discs found before stay listed. */
   readonly unreadableRoots: readonly string[];
   /** Whether a scan is running; `discs` is then the last complete scan. */
@@ -124,14 +133,20 @@ export const libraryRoutes: RouteTable = [
       const library = libraryOf(app);
       if (!library.scanned) await Promise.race([library.scan(), new Promise<void>((r) => setTimeout(r, FIRST_SCAN_WAIT_MS).unref())]);
       const roots = await library.roots();
+      const savedRoots = (await appSettings(app.dataDir).read()).roots;
+      const runRoots = roots.filter((r) => !savedRoots.includes(r));
+      // one entry per key, at the first folder (the one the disc routes read); the rest are named as other places
+      const byKey = new Map<string, LibraryDisc[]>();
+      for (const d of library.discs) byKey.set(d.key, [...(byKey.get(d.key) ?? []), d]);
       const discs = await Promise.all(
-        library.discs.map(async ({ dir, ...disc }): Promise<LibraryDiscAnswer> => ({
+        [...byKey.values()].map(async ([{ dir, ...disc }, ...others]): Promise<LibraryDiscAnswer> => ({
           ...disc,
+          otherPaths: others.map((o) => ({ relPath: o.relPath, root: o.root })),
           playlistCount: await playlistCount(dir),
           recordPlaylists: await recordPlaylists(app.dataDir, disc.key),
         })),
       );
-      const answer: LibraryAnswer = { roots, unreadableRoots: library.unreadableRoots, scanning: library.scanning, discs };
+      const answer: LibraryAnswer = { roots, savedRoots, runRoots, unreadableRoots: library.unreadableRoots, scanning: library.scanning, discs };
       json(res, 200, answer);
     },
   ],

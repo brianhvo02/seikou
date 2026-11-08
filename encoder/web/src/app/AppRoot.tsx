@@ -6,6 +6,7 @@ import { createAppApi } from './app-api';
 import { AppShell } from './AppShell';
 import { DiscPage } from './DiscPage';
 import { LibraryPage } from './LibraryPage';
+import { useDocumentTitle } from './place';
 import { Link, useRoute } from './router';
 
 /** What the root needs. */
@@ -16,6 +17,7 @@ export interface AppRootProps {
 
 /** A page that is not built yet: its name inside the shell. */
 function Placeholder({ title, children }: { readonly title: string; readonly children?: string }) {
+  useDocumentTitle('Seikou encoder');
   return (
     <main className="content wide">
       <h1 className="page-title">{title}</h1>
@@ -24,9 +26,23 @@ function Placeholder({ title, children }: { readonly title: string; readonly chi
   );
 }
 
+/** The page for an address the app has no page for. */
+function NotFound() {
+  useDocumentTitle('Seikou encoder');
+  return (
+    <main className="content wide">
+      <h1 className="page-title">Page not found</h1>
+      <p>
+        <Link to={{ kind: 'library' }}>Go to the library</Link>
+      </p>
+    </main>
+  );
+}
+
 /** The helper of one session, its client made once per session. */
 function HelperRoute({ token, sessionId }: { readonly token: string; readonly sessionId: string }) {
   const api = useMemo(() => createApi('', token, sessionId), [token, sessionId]);
+  useDocumentTitle('Subtitle helper');
   return <App api={api} />;
 }
 
@@ -64,14 +80,7 @@ export function AppRoot({ token }: AppRootProps) {
       page = <Placeholder title="Test results" />;
       break;
     case 'notFound':
-      page = (
-        <main className="content wide">
-          <h1 className="page-title">Page not found</h1>
-          <p>
-            <Link to={{ kind: 'library' }}>Go to the library</Link>
-          </p>
-        </main>
-      );
+      page = <NotFound />;
       break;
   }
   return <AppShell route={route}>{page}</AppShell>;
