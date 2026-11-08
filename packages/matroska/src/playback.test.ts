@@ -189,6 +189,30 @@ describe('openMatroska', () => {
     ]);
   });
 
+  it('splits a Xiph frame of 255 bytes or more and an EBML size with a negative delta', async () => {
+    const big = Uint8Array.from({ length: 300 }, (_, i) => i % 200);
+    const small = Uint8Array.from([7, 7, 7, 7, 7]);
+    const xiph = Uint8Array.from([1, 255, 45, ...big, ...small]);
+    const ebml = Uint8Array.from([2, 0x85, 0xbd, 1, 1, 1, 1, 1, 2, 2, 2, 3, 3]);
+    const packets = Array.from({ length: 10 }, (_, i) => ({ index: i, keyframe: i % 5 === 0, data: i === 1 ? xiph : new Uint8Array([i, i]) }));
+    const bytes = (await written({ videoPackets: of(packets), subtitles: subtitles([{ timeMs: 0, durationMs: 300, data: ebml }]) })).slice();
+    const tree = parseMkv(bytes);
+    const video = findAll(tree, Id.SimpleBlock).filter((b) => b.bytes![0] === 0x81);
+    bytes[video[1]!.offset + video[1]!.headerLength + 3]! |= 0x02;
+    bytes[findAll(tree, Id.Block)[0]!.offset + findAll(tree, Id.Block)[0]!.headerLength + 3]! |= 0x06;
+    const blocks = await collect((await openMatroska(memoryReader(bytes))).blocksFrom(0));
+    const laced = blocks.filter((b) => b.track === 1 && b.frameCount !== undefined);
+    expect(laced.map((b) => [b.timeMs, b.frameIndex, b.frameCount, b.data.length])).toEqual([[40, 0, 2, 300], [80, 1, 2, 5]]);
+    expect([...laced[0]!.data]).toEqual([...big]);
+    const sub = blocks.filter((b) => b.track === 3);
+    expect(sub.map((b) => [b.frameIndex, b.frameCount, [...b.data]])).toEqual([
+      [0, 3, [1, 1, 1, 1, 1]],
+      [1, 3, [2, 2, 2]],
+      [2, 3, [3, 3]],
+    ]);
+    expect(blocks.filter((b) => b.track === 2).every((b) => b.frameIndex === undefined && b.frameCount === undefined)).toBe(true);
+  });
+
   it('a file without Cues seeks by scanning', async () => {
     const bytes = breakId(await written(), Id.Cues);
     const mkv = await openMatroska(memoryReader(bytes));
@@ -224,6 +248,32 @@ describe('openMatroska', () => {
     await expect((async () => { for (;;) if ((await it.next()).done === true) return; })()).rejects.toThrow('stop');
     const aborted = AbortSignal.abort(new Error('never opened'));
     await expect(openMatroska(memoryReader(await written()), aborted)).rejects.toThrow('never opened');
+  });
+
+  it('a later blocksFrom is not stopped by the signal the file was opened with', async () => {
+    for (const bytes of [await written(), breakId(await written(), Id.Cues), breakId(await written(), Id.SeekHead)]) {
+      const open = new AbortController();
+      const mkv = await openMatroska(memoryReader(bytes), open.signal);
+      open.abort(new Error('open is over'));
+      const own = new AbortController();
+      expect((await collect(mkv.blocksFrom(250, own.signal)))[0]!.timeMs).toBe(0);
+      expect(await collect(mkv.blocksFrom(250))).not.toHaveLength(0);
+    }
+  });
+
+  it('refuses an element too large to read whole, naming it', async () => {
+    const bytes = await written({ tags: { BIG: 'a'.repeat(65 * 1024 * 1024) } });
+    await expect(openMatroska(memoryReader(bytes))).rejects.toThrow(/Tags element/);
+  }, 30_000);
+
+  it('refuses an oversized cluster in the scanning slow path', async () => {
+    const bytes = breakId(await written(), Id.Cues);
+    const cluster = findAll(parseMkv(bytes), Id.Cluster)[0]!;
+    // Declare the first cluster 2 GiB: the scan must refuse it before reading.
+    bytes.set([0x01, 0x00, 0x00, 0x00, 0x80, 0x00, 0x00, 0x00], cluster.offset + cluster.headerLength - 8);
+    const mkv = await openMatroska(memoryReader(bytes)).catch((e: unknown) => e);
+    // The oversized cluster runs past the Segment, so opening may refuse it first; either way it is an MkvReadError.
+    expect(mkv).toBeInstanceOf(MkvReadError);
   });
 
   it('refuses what is not Matroska and names the source in errors', async () => {

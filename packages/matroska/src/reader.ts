@@ -57,6 +57,15 @@ export interface MkvBlock {
   durationMs?: number;
   /** The BlockGroup's DiscardPadding (§5.1.3.5.7) in nanoseconds, when present. */
   discardPaddingNs?: bigint;
+  /**
+   * For a frame of a laced block (`openMatroska` only): its place among the block's frames and their
+   * number. A laced frame's `timeMs` is spaced by the track's DefaultDuration, else by an equal
+   * share of the BlockDuration, else every frame has the block's time; a caller that needs the
+   * real spacing (an Opus packet's length from its TOC byte) works it out from these. Both are
+   * absent for a block that is not laced.
+   */
+  frameIndex?: number;
+  frameCount?: number;
   /** The frame data after the block header (a view into the cluster just read). */
   data: Uint8Array;
 }

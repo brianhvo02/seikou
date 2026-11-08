@@ -69,7 +69,7 @@ export function sintOf(n: EbmlNode): bigint {
 }
 
 /** Reads the element header at `pos`; null at the end of the data. */
-export type HeaderAt = (pos: number) => Promise<ElementHeader | null>;
+export type HeaderAt = (pos: number, signal?: AbortSignal) => Promise<ElementHeader | null>;
 
 /** Where the Segment's children are, after the EBML header has been checked. */
 export interface SegmentLocation {
@@ -88,9 +88,9 @@ export interface SegmentLocation {
  */
 export async function locateSegment(reader: RangeReader, signal?: AbortSignal): Promise<SegmentLocation> {
   const fileSize = reader.size;
-  const headerAt: HeaderAt = async (pos) => {
+  const headerAt: HeaderAt = async (pos, readSignal) => {
     try {
-      return readElementHeader(await readAt(reader, pos, HEADER_PROBE, signal), 0);
+      return readElementHeader(await readAt(reader, pos, HEADER_PROBE, readSignal), 0);
     } catch (err) {
       if (err instanceof EbmlError) throw new MkvReadError(`at byte ${pos}: ${err.message}`);
       throw err;
@@ -122,7 +122,7 @@ export async function locateSegment(reader: RangeReader, signal?: AbortSignal): 
   }
 
   const segPos = ebml.headerLength + ebml.size;
-  const seg = await headerAt(segPos);
+  const seg = await headerAt(segPos, signal);
   if (seg === null || seg.id !== Id.Segment) throw new MkvReadError('the file has no Segment after its EBML header');
   const segStart = segPos + seg.headerLength;
   const segEnd = seg.size === null ? fileSize : segStart + seg.size;
@@ -286,6 +286,8 @@ function blocksOfBlock(ctx: BlockContext, clusterTicks: number, block: Uint8Arra
     timeMs: timeMs + i * (each ?? 0),
     keyframe,
     ...(each !== undefined ? { durationMs: each } : {}),
+    frameIndex: i,
+    frameCount: frames.length,
     // DiscardPadding trims the end of the last frame.
     ...(padding !== undefined && i === frames.length - 1 ? { discardPaddingNs: sintOf(padding) } : {}),
     data,

@@ -44,6 +44,8 @@ await writeMatroska(sink, {
 });
 ```
 
+A laced block comes out one frame per `MkvBlock`, with `frameIndex` and `frameCount` set. Frame times are spaced by the track's DefaultDuration, else by an equal share of the block's BlockDuration; with neither (Opus audio written by `writeMatroska` has no DefaultDuration), every frame carries the block's own time, and a caller that needs the real spacing, such as an Opus packet's length from its TOC byte, works it out from `frameIndex` and `frameCount`.
+
 The `timing.ts` helpers (`videoMs`, `framesToNs`, `frameDurationNs`) are exported because packet times and chapter times must fall on the same frame grid: a video packet's timestamp is `videoMs(index, video)` in whole milliseconds, and a chapter that starts at a frame is `framesToNs(frame, video)`, which the reader rounds back to that same millisecond. Computing both through these functions keeps a chapter's start equal to its frame's block time.
 
 The EBML element writers and the tree reader the tests use are exported too.

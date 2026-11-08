@@ -90,6 +90,8 @@ interface ClusterRef {
   size: number;
 }
 
+/** Info, Tracks, Chapters, Tags and Cues are read whole; one larger than this is refused. */
+const MAX_ELEMENT_BYTES = 64 * 1024 * 1024;
 const SEEK_TARGETS = new Set<number>([Id.Info, Id.Tracks, Id.Attachments, Id.Chapters, Id.Tags, Id.Cues]);
 /** Top-level elements looked at for a SeekHead before giving up and scanning. */
 const SEEK_HEAD_SEARCH = 8;
@@ -101,11 +103,11 @@ interface Scan {
 }
 
 /** Visits every top-level element header, noting where the elements of interest and the clusters are. */
-async function scanTopLevel(segStart: number, segEnd: number, headerAt: HeaderAt): Promise<Scan> {
+async function scanTopLevel(segStart: number, segEnd: number, headerAt: HeaderAt, signal?: AbortSignal): Promise<Scan> {
   const found = new Map<number, number>();
   const clusters: ClusterRef[] = [];
   for (let pos = segStart; pos < segEnd; ) {
-    const h = await headerAt(pos);
+    const h = await headerAt(pos, signal);
     if (h === null) throw new MkvReadError(`the file ends inside an element header at byte ${pos} (truncated?)`);
     if (h.size === null) throw new MkvReadError(`the file has an element of unknown size at byte ${pos}, which is not supported`);
     const dataPos = pos + h.headerLength;
@@ -120,7 +122,7 @@ async function scanTopLevel(segStart: number, segEnd: number, headerAt: HeaderAt
 /** Reads the SeekHead if one of the first few top-level elements is one: element id to absolute offset. */
 async function readSeekHead(reader: RangeReader, segStart: number, segEnd: number, headerAt: HeaderAt, signal?: AbortSignal): Promise<Map<number, number> | null> {
   for (let pos = segStart, n = 0; pos < segEnd && n < SEEK_HEAD_SEARCH; n++) {
-    const h = await headerAt(pos);
+    const h = await headerAt(pos, signal);
     if (h === null || h.size === null) return null;
     const dataPos = pos + h.headerLength;
     if (dataPos + h.size > segEnd) return null;
@@ -143,14 +145,15 @@ async function readSeekHead(reader: RangeReader, segStart: number, segEnd: numbe
 }
 
 /** Whether an element with id `id` starts at `pos` with a known size that stays inside the Segment. */
-async function startsWith(headerAt: HeaderAt, pos: number, id: number, segEnd: number): Promise<boolean> {
+async function startsWith(headerAt: HeaderAt, pos: number, id: number, segEnd: number, signal?: AbortSignal): Promise<boolean> {
   if (pos < 0 || pos >= segEnd) return false;
-  const h = await headerAt(pos);
+  const h = await headerAt(pos, signal);
   return h !== null && h.id === id && h.size !== null && pos + h.headerLength + h.size <= segEnd;
 }
 
 async function readMaster(reader: RangeReader, headerAt: HeaderAt, pos: number, signal?: AbortSignal): Promise<EbmlNode> {
-  const h = (await headerAt(pos))!;
+  const h = (await headerAt(pos, signal))!;
+  if (h.size! > MAX_ELEMENT_BYTES) throw new MkvReadError(`the ${Object.entries(Id).find(([, v]) => v === h.id)?.[0] ?? h.id.toString(16)} element at byte ${pos} is ${h.size} bytes, more than the ${MAX_ELEMENT_BYTES} this reader takes`);
   const dataPos = pos + h.headerLength;
   const data = await readAt(reader, dataPos, h.size!, signal);
   if (data.length < h.size!) throw new MkvReadError(`element ${h.id.toString(16)} at byte ${pos} is cut short`);
@@ -163,11 +166,11 @@ function decodeText(bytes: Uint8Array): string {
 
 /** Reads the Attachments element's small children and notes where each FileData is, without reading it. */
 async function readAttachments(reader: RangeReader, headerAt: HeaderAt, pos: number, signal?: AbortSignal): Promise<MkvAttachedFile[]> {
-  const top = (await headerAt(pos))!;
+  const top = (await headerAt(pos, signal))!;
   const topEnd = pos + top.headerLength + top.size!;
   const out: MkvAttachedFile[] = [];
   const childHeader = async (p: number, end: number): Promise<ElementHeader> => {
-    const h = await headerAt(p);
+    const h = await headerAt(p, signal);
     if (h === null || h.size === null || p + h.headerLength + h.size > end) throw new MkvReadError(`an Attachments element at byte ${p} is malformed`);
     return h;
   };
@@ -283,11 +286,11 @@ async function open(reader: RangeReader, signal?: AbortSignal): Promise<Matroska
   let clusters: ClusterRef[] | null = null;
   if (positions !== null) {
     let ok = positions.has(Id.Info) && positions.has(Id.Tracks);
-    for (const [id, pos] of positions) if (ok && SEEK_TARGETS.has(id) && !(await startsWith(headerAt, pos, id, segEnd))) ok = false;
+    for (const [id, pos] of positions) if (ok && SEEK_TARGETS.has(id) && !(await startsWith(headerAt, pos, id, segEnd, signal))) ok = false;
     if (!ok) positions = null;
   }
   if (positions === null) {
-    const scan = await scanTopLevel(segStart, segEnd, headerAt);
+    const scan = await scanTopLevel(segStart, segEnd, headerAt, signal);
     positions = scan.found;
     clusters = scan.clusters;
   }
@@ -319,7 +322,7 @@ async function open(reader: RangeReader, signal?: AbortSignal): Promise<Matroska
   // Every cluster from the one at `pos`, in file order.
   async function* clustersFrom(pos: number, signal?: AbortSignal): AsyncGenerator<MkvBlock> {
     while (pos < segEnd) {
-      const h = await headerAt(pos);
+      const h = await headerAt(pos, signal);
       if (h === null) throw new MkvReadError(`the file ends inside an element header at byte ${pos} (truncated?)`);
       if (h.size === null) throw new MkvReadError(`the file has an element of unknown size at byte ${pos}, which is not supported`);
       const dataPos = pos + h.headerLength;
@@ -346,11 +349,12 @@ async function open(reader: RangeReader, signal?: AbortSignal): Promise<Matroska
 
   // Without a usable video cue: reads the clusters from the start up to the time to find the same place the Cues would give.
   async function* scanned(timeMs: number, signal?: AbortSignal): AsyncGenerator<MkvBlock> {
-    clusters ??= (await scanTopLevel(segStart, segEnd, headerAt)).clusters;
+    clusters ??= (await scanTopLevel(segStart, segEnd, headerAt, signal)).clusters;
     let videoStart: number | undefined;
     let subtitleStart: number | undefined;
     for (let i = 0; i < clusters.length; i++) {
       const c = clusters[i]!;
+      if (c.size > MAX_CLUSTER_BYTES) throw new MkvReadError(`a cluster of ${c.size} bytes is too large to read`);
       const buf = await readAt(reader, c.dataPos, c.size, signal);
       if (buf.length < c.size) throw new MkvReadError('the file ends inside a cluster (truncated?)');
       const list = clusterBlockList(ctx, buf);
