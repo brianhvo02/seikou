@@ -154,6 +154,18 @@ export class Library {
     return this.unreadable;
   }
 
+  /**
+   * Resolves when no scan is running: at once when none is, else when the one running ends or after `timeoutMs`,
+   * whichever comes first.
+   */
+  async idle(timeoutMs: number): Promise<void> {
+    const running = this.running;
+    if (running === null) return;
+    let timer: NodeJS.Timeout | undefined;
+    await Promise.race([running, new Promise<void>((r) => (timer = setTimeout(r, timeoutMs)))]);
+    clearTimeout(timer);
+  }
+
   /** The folder of the library disc with `key` in the last complete scan, else null. */
   dirOf(key: string): string | null {
     return this.byKey.get(key) ?? null;

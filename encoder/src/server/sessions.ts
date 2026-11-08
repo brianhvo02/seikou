@@ -16,6 +16,9 @@ import { libraryOf } from './library';
 // keeps each such session, under an id of its own, for the server's life. The discs the sessions are on are read
 // once and kept here too, so every disc route finds a disc by its key.
 
+/** The longest a request waits for a running library scan to find a disc key it does not know yet. */
+const SCAN_WAIT_MS = 60_000;
+
 /** What the backend knows about one disc, read once. */
 export interface DiscInfo {
   /** Real path of the folder that holds BDMV. */
@@ -147,6 +150,19 @@ export class SessionStore {
   byDiscKey(key: string): string | null {
     return this.discDirs.get(key) ?? libraryOf(this.app).dirOf(key);
   }
+
+  /**
+   * `byDiscKey`, but a key nobody knows yet while a library scan is running waits for the scan to end (at most
+   * `SCAN_WAIT_MS`) and is looked up again, since the library is incomplete until then.
+   */
+  async discDirOf(key: string): Promise<string | null> {
+    const known = this.byDiscKey(key);
+    if (known !== null) return known;
+    const library = libraryOf(this.app);
+    if (!library.scanning) return null;
+    await library.idle(SCAN_WAIT_MS);
+    return this.byDiscKey(key);
+  }
 }
 
 const stores = new WeakMap<AppContext, SessionStore>();
@@ -196,7 +212,7 @@ export const sessionStoreRoutes: RouteTable = [
         return httpError(res, 400, 'bad-request', 'The body must be { "discKey", "playlistId", "episodeSpec" }.');
       }
       const store = sessionsOf(app);
-      const discDir = store.byDiscKey(discKey);
+      const discDir = await store.discDirOf(discKey);
       if (discDir === null) return httpError(res, 404, 'not-found', 'No disc the backend knows has that key.');
       try {
         const session = await store.create({ discDir, playlistId, episodeSpec });

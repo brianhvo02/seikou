@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { ApiError } from '../api';
 import type { LibraryDiscInfo, PlaylistSummary } from '../api-types';
 import type { AppApi } from './app-api';
-import { otherPlaceText, placeText, useDocumentTitle } from './place';
+import { otherPlaceText, placeText, SCAN_POLL_MS, useDocumentTitle } from './place';
 import { Link } from './router';
 
 /** What the page needs: the backend client and the disc's key. */
@@ -46,33 +46,68 @@ export function NotInLibrary() {
   );
 }
 
+/** What a page shows while the library scan is still looking for its disc. */
+export function ScanningLibrary() {
+  return (
+    <main className="content wide">
+      <p className="muted" role="status">
+        Scanning the library…
+      </p>
+    </main>
+  );
+}
+
 /**
  * The Disc page: the disc's name and place, then its playlists longest first with length, clips and chapters, a mark on
  * the likely main one and on those with saved subtitle choices, and a link from each to its Episodes page. A disc the
- * library does not hold says so and links back to the Library.
+ * library does not hold says so and links back to the Library, but only once the scan is over: while the library is
+ * still being scanned the page says so and asks again every second.
  */
 export function DiscPage({ api, discKey }: DiscPageProps) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [tick, setTick] = useState(0);
   const [error, setError] = useState<{ readonly message: string; readonly unknownDisc: boolean } | null>(null);
   useDocumentTitle(loaded?.disc?.label ?? 'Seikou encoder');
 
   useEffect(() => {
     let live = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const again = (): void => {
+      setScanning(true);
+      timer = setTimeout(() => setTick((t) => t + 1), SCAN_POLL_MS);
+    };
     Promise.all([api.library(), api.playlists(discKey)]).then(
       ([library, playlists]) => {
         if (!live) return;
+        if (library.scanning && !library.discs.some((d) => d.key === discKey)) return again();
+        setScanning(false);
         const sorted = [...playlists].sort((a, b) => b.durationMs - a.durationMs || a.id.localeCompare(b.id));
         setLoaded({ disc: library.discs.find((d) => d.key === discKey) ?? null, rootCount: library.roots.length, playlists: sorted });
       },
       (e: unknown) => {
-        if (live) setError({ message: e instanceof Error ? e.message : String(e), unknownDisc: e instanceof ApiError && e.code === 'disc-changed' });
+        if (!live) return;
+        const unknownDisc = e instanceof ApiError && e.code === 'disc-changed';
+        const fail = (): void => setError({ message: e instanceof Error ? e.message : String(e), unknownDisc });
+        if (!unknownDisc) return fail();
+        // the disc may only be missing because the scan has not reached it yet
+        api.library().then(
+          (library) => {
+            if (live) library.scanning ? again() : fail();
+          },
+          () => {
+            if (live) fail();
+          },
+        );
       },
     );
     return () => {
       live = false;
+      clearTimeout(timer);
     };
-  }, [api, discKey]);
+  }, [api, discKey, tick]);
 
+  if (scanning) return <ScanningLibrary />;
   if (error !== null) {
     if (error.unknownDisc) return <NotInLibrary />;
     return (

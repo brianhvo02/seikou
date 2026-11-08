@@ -162,7 +162,7 @@ export async function knownDisc(app: AppContext, res: ServerResponse, captured: 
   } catch {
     key = '';
   }
-  const dir = sessionsOf(app).byDiscKey(key);
+  const dir = await sessionsOf(app).discDirOf(key);
   if (dir !== null) {
     const disc = await discOf(app, dir);
     if (disc.key === key) return disc;

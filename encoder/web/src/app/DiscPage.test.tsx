@@ -96,4 +96,28 @@ describe('DiscPage', () => {
     render(<DiscPage api={api} discKey={KEY} />);
     expect((await screen.findByRole('alert')).textContent).toContain('the app is not answering');
   });
+
+  it('says the library is being scanned, not that the disc is missing, until the scan ends', async () => {
+    const api = fakeApi();
+    let scanning = true;
+    setTimeout(() => (scanning = false), 300);
+    api.library = vi.fn(async () => ({ ...library(scanning ? [] : listed), scanning }));
+    api.playlists = vi.fn(async () => {
+      if (scanning) throw new ApiError(404, 'disc-changed', 'The helper serves no disc with that key.');
+      return playlists;
+    });
+    render(<DiscPage api={api} discKey={KEY} />);
+    expect(await screen.findByText('Scanning the library…')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(await screen.findByRole('heading', { name: 'LANTERN_HARBOR_D1' }, { timeout: 3000 })).toBeTruthy();
+  });
+
+  it('says the disc is not in the library once the scan is over', async () => {
+    const api = fakeApi([]);
+    api.playlists = vi.fn(async () => {
+      throw new ApiError(404, 'disc-changed', 'The helper serves no disc with that key.');
+    });
+    render(<DiscPage api={api} discKey={KEY} />);
+    expect((await screen.findByRole('alert')).textContent).toContain('not in the library');
+  });
 });

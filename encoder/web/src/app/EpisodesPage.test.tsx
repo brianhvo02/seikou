@@ -171,4 +171,15 @@ describe('EpisodesPage', () => {
     expect(screen.queryByText(/Untick Skip/)).toBeNull();
     expect((screen.getByRole('button', { name: 'Choose subtitles' }) as HTMLButtonElement).disabled).toBe(true);
   });
+
+  it('says the library is being scanned until the scan ends, then opens the page', async () => {
+    const api = fakeApi();
+    const listed = (await api.library()).discs;
+    let calls = 0;
+    api.library = vi.fn(async () => ({ roots: [], savedRoots: [], runRoots: [], unreadableRoots: [], scanning: calls === 0, discs: calls++ === 0 ? [] : listed }));
+    render(<EpisodesPage api={api} discKey={KEY} playlistId="00800" controller={fakeController()} />);
+    expect(await screen.findByText('Scanning the library…')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(await screen.findByRole('heading', { name: 'LANTERN_HARBOR_D1' }, { timeout: 3000 })).toBeTruthy();
+  });
 });

@@ -6,9 +6,9 @@ import { Player } from '../player/Player';
 import { showAt, type PlayerLike } from '../player/use-controller';
 import type { AppApi } from './app-api';
 import { ChapterList } from './ChapterList';
-import { formatLength, NotInLibrary } from './DiscPage';
+import { formatLength, NotInLibrary, ScanningLibrary } from './DiscPage';
 import { episodeLengths, episodesOf, fromSpec, normalize, toSpec, type Grouping } from './grouping';
-import { useDocumentTitle } from './place';
+import { SCAN_POLL_MS, useDocumentTitle } from './place';
 import { Link, navigate, routeHref } from './router';
 
 /** What the page needs: the backend client, the engine and the playlist to group. */
@@ -47,6 +47,8 @@ const chaptersText = (from: number, to: number): string => (from === to ? `chapt
  */
 export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesPageProps) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const [tick, setTick] = useState(0);
   const [error, setError] = useState<{ readonly message: string; readonly unknownDisc: boolean } | null>(null);
   const [grouping, setGrouping] = useState<Grouping>(EMPTY);
   const [text, setText] = useState('');
@@ -61,19 +63,41 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
 
   useEffect(() => {
     let live = true;
-    Promise.all([api.library(), api.playlist(discKey, playlistId)]).then(([library, playlist]) => {
-      if (!live) return;
-      const start = initialGrouping(playlist.record, playlist.chapters.length);
-      setGrouping(start);
-      setText(toSpec(episodesOf(start, playlist.chapters.length), playlist.chapters.length));
-      setLoaded({ disc: library.discs.find((d) => d.key === discKey) ?? null, playlist });
-    }, (e: unknown) => {
-      if (live) fail(e);
-    });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const again = (): void => {
+      setScanning(true);
+      timer = setTimeout(() => setTick((t) => t + 1), SCAN_POLL_MS);
+    };
+    Promise.all([api.library(), api.playlist(discKey, playlistId)]).then(
+      ([library, playlist]) => {
+        if (!live) return;
+        const disc = library.discs.find((d) => d.key === discKey) ?? null;
+        if (disc === null && library.scanning) return again();
+        setScanning(false);
+        const start = initialGrouping(playlist.record, playlist.chapters.length);
+        setGrouping(start);
+        setText(toSpec(episodesOf(start, playlist.chapters.length), playlist.chapters.length));
+        setLoaded({ disc, playlist });
+      },
+      (e: unknown) => {
+        if (!live) return;
+        if (!(e instanceof ApiError && e.code === 'disc-changed')) return fail(e);
+        // the disc may only be missing because the scan has not reached it yet
+        api.library().then(
+          (library) => {
+            if (live) library.scanning ? again() : fail(e);
+          },
+          () => {
+            if (live) fail(e);
+          },
+        );
+      },
+    );
     return () => {
       live = false;
+      clearTimeout(timer);
     };
-  }, [api, discKey, playlistId]);
+  }, [api, discKey, playlistId, tick]);
 
   const shown = useMemo(() => ({ discKey, playlistId }), [discKey, playlistId]);
   const ready = loaded !== null && loaded.disc !== null;
@@ -88,6 +112,7 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
     };
   }, [ready, controller, api, shown]);
 
+  if (scanning) return <ScanningLibrary />;
   if (error !== null) {
     if (error.unknownDisc) return <NotInLibrary />;
     return (

@@ -34,3 +34,6 @@ export function useDocumentTitle(title: string): void {
     document.title = title;
   }, [title]);
 }
+
+/** How often a page that waits for the library scan asks again, in milliseconds. */
+export const SCAN_POLL_MS = 1000;
