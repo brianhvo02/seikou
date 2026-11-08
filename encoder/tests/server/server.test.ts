@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { request, type IncomingHttpHeaders } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -217,5 +217,48 @@ describe('helper server', () => {
       expect(reply.headers['cross-origin-resource-policy']).toBe('same-origin');
     }
     for (const reply of replies.slice(1)) expect(reply.headers['cache-control']).toBe('no-store');
+  });
+});
+
+describe('episode start times', () => {
+  /** Moves playlist 00000's mark `n` (1-based) of the disc in `dir` by `ticks45`. */
+  function shiftMark(dir: string, n: number, ticks45: number): void {
+    const file = join(dir, 'BDMV', 'PLAYLIST', '00000.mpls');
+    const mpls = readFileSync(file);
+    const marks = mpls.readUInt32BE(12);
+    // PlayListMark: length (4), count (2), then 14-byte entries with the 45 kHz time at byte 4.
+    const at = marks + 6 + (n - 1) * 14 + 4;
+    mpls.writeUInt32BE(mpls.readUInt32BE(at) + ticks45, at);
+    writeFileSync(file, mpls);
+  }
+
+  it("an episode whose chapter mark falls between frames starts at its first frame's time", async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'helper-disc-'));
+    const data = mkdtempSync(join(tmpdir(), 'helper-data-'));
+    cpSync(fx('fixtures/disc-speech'), dir, { recursive: true });
+    shiftMark(dir, 4, 1000); // episode 2's first mark, 22.2 ms (about half a frame) later
+    const fansubs = fixtureFansubSources(FANSUBS);
+    const anilist = fixtureAniList(FANSUBS);
+    const own = await startHelperServer({
+      discDir: dir,
+      playlistId: '00000',
+      episodeSpec: '1-3,4-5',
+      dataDir: data,
+      token: TOKEN,
+      webDir: null,
+      tools: null,
+      sources: { seadex: fansubs.seadex, tosho: fansubs.tosho, anilist: anilist.source, episodes: anilist.episodes },
+    });
+    try {
+      const reply = await fetch(`http://127.0.0.1:${own.port}/api/episodes`, { headers: auth });
+      const second = ((await reply.json()) as { episodes: { startUs: number; chapters: { startUs: number }[] }[] }).episodes[1]!;
+      expect(second.startUs).not.toBe(90_022_222);
+      expect(Math.abs(second.startUs - (90_000_000 + FRAME_US))).toBeLessThanOrEqual(1);
+      expect(second.chapters[0]!.startUs).toBe(second.startUs);
+    } finally {
+      await own.close();
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(data, { recursive: true, force: true });
+    }
   });
 });

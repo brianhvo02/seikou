@@ -13,7 +13,7 @@ The planner decides exactly which frames and which audio samples of which clips 
 ## API
 
 - `parseEpisodeSpec(text, chapterCount)` returns `EpisodeSpec[]` and throws `EpisodeSpecError` for a bad list.
-- `planEpisodes(playlist, probes, specs, audioPid)` returns one `EpisodePlan` per spec: segments, chapters, frame count, duration, and the video and audio attributes.
+- `planEpisodes(playlist, probes, specs, audioPid)` returns one `EpisodePlan` per spec: segments, chapters, frame count, duration, and the video and audio attributes. `firstFramePlaylistUs(playlist, plan)` is the playlist time of a plan's first frame, in microseconds.
 - `timing.ts`: `frameAt`, `sampleAt`, `framesToNs`, `frameDurationNs`, `videoMs`. Units are in the names (`*45`, `*90`, `*Ns`, `*Ms`).
 
 ## Where to look

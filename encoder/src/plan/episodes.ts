@@ -166,6 +166,25 @@ function planEpisode(
 }
 
 /**
+ * Playlist time, in microseconds rounded to the nearest, of `plan`'s first frame: where the encoded episode's zero
+ * falls in the playlist. It differs from the episode's first chapter mark when the mark lies between two frames,
+ * since the planner rounds the mark to the nearest frame. `playlist` is the playlist `plan` was made from.
+ */
+export function firstFramePlaylistUs(playlist: Pick<Playlist, 'items'>, plan: EpisodePlan): number {
+  const first = plan.segments[0];
+  if (!first) throw new Error(`Episode ${plan.index} has no segments`);
+  let itemStart45 = 0;
+  for (const item of playlist.items) {
+    if (item === first.item) break;
+    itemStart45 += item.outTime45 - item.inTime45;
+  }
+  const { firstPts90, fpsNum, fpsDen } = plan.video;
+  // The frame's clip time is firstPts90 + frame * fpsDen / fpsNum seconds; the item's played range starts at inTime45.
+  const clipOffsetUs = (((itemStart45 - first.item.inTime45) * 2 + firstPts90) * 1000) / 90;
+  return Math.round(clipOffsetUs + (first.videoFrames[0] * fpsDen * 1_000_000) / fpsNum);
+}
+
+/**
  * Plans one episode per spec. An episode runs from its first chapter to the start of the chapter
  * after its last (or the end of the playlist). Chapters between ranges that no spec covers are
  * skipped. `probes` holds a probe for every clip the playlist plays, keyed by clip id, and

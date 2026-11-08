@@ -29,7 +29,7 @@ export interface SessionInfo {
 export interface EpisodeTimes {
   /** 1-based position in the episode list. */
   readonly index: number;
-  /** Microseconds of playlist time where the episode starts. */
+  /** Microseconds of playlist time of the episode's first frame, where its encode, alignment and retimed track count from. */
   readonly startUs: number;
   /** The episode's length in microseconds. */
   readonly durationUs: number;

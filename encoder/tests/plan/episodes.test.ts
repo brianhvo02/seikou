@@ -2,7 +2,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { loadPlaylist, type Playlist } from '../../src/disc/playlist';
 import { probeClip, type ClipProbe } from '../../src/disc/probe';
-import { EpisodeSpecError, parseEpisodeSpec, planEpisodes } from '../../src/plan/episodes';
+import { EpisodeSpecError, firstFramePlaylistUs, parseEpisodeSpec, planEpisodes } from '../../src/plan/episodes';
 import { fx } from '../paths';
 
 let p: Playlist;
@@ -87,6 +87,20 @@ describe('planEpisodes', () => {
   it('rounds a mark to the nearest frame and puts the chapter on the millisecond block grid', () => {
     // 1000 ticks at 45 kHz = 22.2 ms rounds to frame 1 (41.708 ms), whose block timestamp is 42 ms.
     expect(plansFor('1-', [450000, 451000])[0].chapters[1].startNs).toBe(42000000n);
+  });
+
+  it("gives an episode's first frame in playlist time, not its chapter mark", () => {
+    // Episode 2's mark is 1000 ticks (22.2 ms) into the playlist; it starts at frame 1, 1001/24000 s in.
+    const plans = plansFor('1,2', [450000, 451000]);
+    const playlist = { items: [plans[0].segments[0].item] } as unknown as Playlist;
+    expect(plans[1].segments[0].videoFrames[0]).toBe(1);
+    expect(firstFramePlaylistUs(playlist, plans[1])).toBe(41708);
+    expect(firstFramePlaylistUs(playlist, plans[0])).toBe(0);
+  });
+
+  it('counts the items before the first frame in playlist time', () => {
+    const plans = planEpisodes(p, probes, parseEpisodeSpec('1-2,3-4', 4), 4352);
+    expect(firstFramePlaylistUs(p, plans[1])).toBe(Math.round(((p.items[0].outTime45 - p.items[0].inTime45) * 1e6) / 45000));
   });
 
   it('throws naming the clip and PID when the audio PID is missing', () => {

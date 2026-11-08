@@ -11,7 +11,7 @@ import type { DiscManifest } from '@seikou/nas/nas-api';
 import { buildManifest, resolveDiscFile } from '../../../server/src/manifest';
 import { bdmvRoot, listPlaylists, loadPlaylist } from '../disc/playlist';
 import { probeClip, type ClipProbe } from '../disc/probe';
-import { EpisodeSpecError, parseEpisodeSpec, planEpisodes, type EpisodePlan, type EpisodeSpec } from '../plan/episodes';
+import { EpisodeSpecError, firstFramePlaylistUs, parseEpisodeSpec, planEpisodes, type EpisodePlan, type EpisodeSpec } from '../plan/episodes';
 import { httpError, json, sendFile, type HelperContext, type Route, type RouteTable } from './http';
 
 // The disc half of the helper's API: the session, and the NAS disc API (manifest with inlined metadata, range reads)
@@ -33,7 +33,10 @@ export interface SessionInfo {
 export interface EpisodeTimes {
   /** 1-based position in the episode list. */
   readonly index: number;
-  /** Microseconds of playlist time: the start of the episode's first chapter. */
+  /**
+   * Microseconds of playlist time: the episode's first frame, the zero of the encode, the alignment and the retimed
+   * track (its first chapter mark rounded to the nearest frame).
+   */
   readonly startUs: number;
   /** Microseconds: the episode's whole frames at the video's rate. */
   readonly durationUs: number;
@@ -119,11 +122,6 @@ export async function prepareDisc(ctx: HelperContext): Promise<SessionInfo> {
   return { discKey: key, label, playlistId: ctx.playlistId, episodeSpec: ctx.episodeSpec, toolsReady: ctx.tools !== null };
 }
 
-/** 45 kHz ticks as microseconds. */
-function usOf45(ticks45: number): number {
-  return Math.round((ticks45 * 1_000_000) / 45_000);
-}
-
 async function planTimes(ctx: HelperContext, root: string): Promise<PlannedEpisodes> {
   const playlist = await loadPlaylist(root, ctx.playlistId);
   let specs: EpisodeSpec[];
@@ -140,8 +138,8 @@ async function planTimes(ctx: HelperContext, root: string): Promise<PlannedEpiso
   for (const item of playlist.items) if (!probes.has(item.clipId)) probes.set(item.clipId, await probeClip(item));
   const plans = planEpisodes(playlist, probes, specs, audioPid);
 
-  const episodes = plans.map((plan, i): EpisodeTimes => {
-    const startUs = usOf45(playlist.chapters[specs[i]!.from - 1]!.start45);
+  const episodes = plans.map((plan): EpisodeTimes => {
+    const startUs = firstFramePlaylistUs(playlist, plan);
     return {
       index: plan.index,
       startUs,
