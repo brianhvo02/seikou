@@ -2,7 +2,7 @@
 import { ApiError, errorOf, type FetchLike } from '../api';
 import type { RemoteDiscSpec } from '@seikou/engine';
 import type { DiscManifest } from '@seikou/nas/nas-api';
-import type { EncodeSettings, Job, LibraryAnswer, NewJob, PlaylistDetail, PlaylistSummary, Profile } from '../api-types';
+import type { EncodeSettings, Job, LibraryAnswer, NewJob, NewTest, PlaylistDetail, PlaylistSummary, Profile } from '../api-types';
 
 // The app pages' client for the backend's library routes, carrying the run's token.
 
@@ -34,6 +34,8 @@ export interface AppApi {
   jobs(): Promise<Job[]>;
   /** Queues an encode; rejects with `ApiError` (`record-mismatch` carries `recordEpisodeSpec` and `episodeSpec` in `details`). */
   createJob(job: NewJob): Promise<Job>;
+  /** Queues a test encode of one to three profiles; it runs ahead of the encodes. */
+  createTest(test: NewTest): Promise<Job>;
   /** Stops a queued or running job; resolves with the job once it has stopped. */
   cancelJob(id: string): Promise<Job>;
   /** Queues a failed, interrupted or cancelled job again. */
@@ -48,6 +50,8 @@ export interface AppApi {
   jobEventsUrl(): string;
   /** The address of a file a job wrote (`path` is relative to its output folder), with the token in its query. */
   outputUrl(jobId: string, path: string): string;
+  /** The address of sample `n` (from 1) of a test's profile, with the token in its query. */
+  sampleUrl(jobId: string, profileId: string, n: number): string;
 }
 
 /** The client for the backend at `base` (an origin, or `''` for the page's own) with the run's `token`, sent as `Authorization: Bearer`. */
@@ -117,6 +121,7 @@ export function createAppApi(base: string, token: string, fetchImpl: FetchLike =
       return (await request<{ jobs: Job[] }>('GET', '/api/jobs')).jobs;
     },
     createJob: (job) => request('POST', '/api/jobs', { kind: 'encode', ...job }),
+    createTest: (test) => request('POST', '/api/jobs', { kind: 'test', ...test }),
     cancelJob: (id) => request('POST', `/api/jobs/${encodeURIComponent(id)}/cancel`),
     retryJob: (id) => request('POST', `/api/jobs/${encodeURIComponent(id)}/retry`),
     async removeJob(id) {
@@ -131,5 +136,7 @@ export function createAppApi(base: string, token: string, fetchImpl: FetchLike =
     jobEventsUrl: () => `${root}/api/jobs/events?t=${encodeURIComponent(token)}`,
     outputUrl: (jobId, path) =>
       `${root}/api/outputs/${encodeURIComponent(jobId)}/${path.split('/').map(encodeURIComponent).join('/')}?t=${encodeURIComponent(token)}`,
+    sampleUrl: (jobId, profileId, n) =>
+      `${root}/api/tests/${encodeURIComponent(jobId)}/${encodeURIComponent(profileId)}/${n}.webm?t=${encodeURIComponent(token)}`,
   };
 }

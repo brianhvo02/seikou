@@ -21,6 +21,8 @@ export type Route =
       readonly spec: string;
       /** Encode without the saved subtitle choices. */
       readonly noSubtitles: boolean;
+      /** The id of the profile to start with, such as the one a test encode picked; the first profile when left out. */
+      readonly profile?: string;
     }
   | { readonly kind: 'notFound' };
 
@@ -28,7 +30,7 @@ const enc = encodeURIComponent;
 
 /**
  * The route of an address: `/` the library, `/disc/<key>`, `/disc/<key>/<playlist>` (episodes), `/helper/<session>`,
- * `/settings`, `/test/<job>`, `/queue`, `/queue/new?disc=&playlist=&spec=[&noSubtitles=1]` and `/queue/<job>`.
+ * `/settings`, `/test/<job>`, `/queue`, `/queue/new?disc=&playlist=&spec=[&noSubtitles=1][&profile=<id>]` and `/queue/<job>`.
  * Anything else, and `/queue/new` without its three parameters, is `notFound`.
  */
 export function parseRoute(pathname: string, search = ''): Route {
@@ -54,7 +56,10 @@ export function parseRoute(pathname: string, search = ''): Route {
       const discKey = q.get('disc');
       const playlistId = q.get('playlist');
       const spec = q.get('spec');
-      if (discKey && playlistId && spec) return { kind: 'queueNew', discKey, playlistId, spec, noSubtitles: q.get('noSubtitles') === '1' };
+      const profile = q.get('profile');
+      if (discKey && playlistId && spec) {
+        return { kind: 'queueNew', discKey, playlistId, spec, noSubtitles: q.get('noSubtitles') === '1', ...(profile ? { profile } : {}) };
+      }
       return { kind: 'notFound' };
     }
     if (parts.length === 2) return { kind: 'job', jobId: seg(1) };
@@ -100,6 +105,7 @@ export function routeHref(route: Route, search = ''): string {
       q.set('playlist', route.playlistId);
       q.set('spec', route.spec);
       if (route.noSubtitles) q.set('noSubtitles', '1');
+      if (route.profile !== undefined) q.set('profile', route.profile);
       break;
   }
   const query = q.toString();

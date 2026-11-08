@@ -59,9 +59,14 @@ const unused = (): never => {
 };
 
 /** The queue methods of `AppApi` for a test of another page, which never calls them. */
-export const UNUSED_JOB_API: Pick<AppApi, 'jobs' | 'createJob' | 'cancelJob' | 'retryJob' | 'removeJob' | 'jobLog' | 'jobDefaults' | 'jobEventsUrl' | 'outputUrl'> = {
+export const UNUSED_JOB_API: Pick<
+  AppApi,
+  'jobs' | 'createJob' | 'createTest' | 'cancelJob' | 'retryJob' | 'removeJob' | 'jobLog' | 'jobDefaults' | 'jobEventsUrl' | 'outputUrl' | 'sampleUrl'
+> = {
   jobs: unused,
   createJob: unused,
+  createTest: unused,
+  sampleUrl: unused,
   cancelJob: unused,
   retryJob: unused,
   removeJob: unused,

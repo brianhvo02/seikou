@@ -8,6 +8,7 @@ import { episodeName, type EncodeEvent, type EncodeOptions } from '../../src/enc
 import { DEFAULT_SETTINGS, type EncodeSettings } from '../../src/server/profiles';
 import { JobRunner, jobCli, startJobRunner, type Job, type JobProgress, type JobRunnerDeps } from '../../src/server/jobs';
 import { safePathSegment } from '../../src/server/job-routes';
+import type { TestOutcome } from '../../src/server/test-encode';
 import { sessionsOf } from '../../src/server/sessions';
 import { appSettings } from '../../src/subs/app-settings';
 import { RecordStore, type SubtitleRecord } from '../../src/subs/record';
@@ -78,7 +79,7 @@ const settings = (over: Partial<EncodeSettings> = {}): EncodeSettings => ({ ...D
 
 let fx: RouteFixture;
 let fake: FakeEncoder;
-let tests: { job: Job; signal: AbortSignal; onEvent: (e: EncodeEvent) => void; resolve: () => void; reject: (e: unknown) => void }[];
+let tests: { job: Job; signal: AbortSignal; onEvent: (e: EncodeEvent) => void; resolve: (outcome?: TestOutcome) => void; reject: (e: unknown) => void }[];
 let packaged: [string, string][];
 let clock: number;
 let outRoot: string;
@@ -87,8 +88,8 @@ function deps(over: Partial<JobRunnerDeps> = {}): Partial<JobRunnerDeps> {
   return {
     encode: fake.encode,
     runTest: (job, signal, onEvent) =>
-      new Promise<void>((resolve, reject) => {
-        tests.push({ job, signal, onEvent, resolve, reject });
+      new Promise<TestOutcome>((resolve, reject) => {
+        tests.push({ job, signal, onEvent, resolve: (outcome) => resolve(outcome ?? { audioStreams: 1, results: [] }), reject });
         signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')), { once: true });
       }),
     packageEpisode: async (mkv, out) => {
@@ -312,7 +313,7 @@ describe('the job runner', () => {
     await runner.ready;
     const job = await runner.add(input());
     const first = await fake.next();
-    const test = await runner.add(input({ kind: 'test' }));
+    const test = await runner.add(input({ kind: 'test', profiles: [{ id: 'default', name: 'Default', settings: settings() }] }));
     expect(test.outDir).toBe(join(fx.dataDir, 'tests', test.id));
     expect(tests).toHaveLength(0);
     FakeEncoder.complete(first);
@@ -330,7 +331,7 @@ describe('the job runner', () => {
     await until(() => runner.get(job.id)!.state === 'done', 'done');
     expect(fake.calls.map((c) => c.episode)).toEqual([1, 2]);
     // With nothing running, a test starts at once.
-    await runner.add(input({ kind: 'test' }));
+    await runner.add(input({ kind: 'test', profiles: [{ id: 'default', name: 'Default', settings: settings() }] }));
     await until(() => tests.length === 2, 'the second test to start');
   });
 

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api';
 import type { LibraryAnswer, PlaylistDetail, Profile } from '../api-types';
@@ -51,11 +51,11 @@ describe('QueueDialog', () => {
     render(<QueueDialog api={api} {...props} />);
     await screen.findByText('LANTERN_HARBOR_D1', { selector: 'p' });
     expect(screen.getByText(/2 episodes/)).toBeTruthy();
-    expect(screen.getByText(/CRF 25/)).toBeTruthy();
+    expect(screen.getByText(/CRF 25, preset 4, film grain 4, Opus/)).toBeTruthy();
     const folder = (await screen.findByLabelText('Output folder')) as HTMLInputElement;
     await waitFor(() => expect(folder.value).toBe('/data/output/LANTERN_HARBOR_D1/00001'));
     fireEvent.change(screen.getByLabelText('Settings profile'), { target: { value: 'ab12' } });
-    expect(screen.getByText(/CRF 32/)).toBeTruthy();
+    expect(screen.getByText(/CRF 32, preset 4, film grain 4, Opus/)).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Queue encode' }));
     await waitFor(() =>
       expect(api.createJob).toHaveBeenCalledWith({
@@ -145,9 +145,56 @@ describe('QueueDialog', () => {
     const api = fakeApi({ profiles: vi.fn(async () => Promise.reject(new ApiError(500, 'boom', 'No profiles.'))) });
     render(<QueueDialog api={api} {...props} />);
     await screen.findByLabelText('Output folder');
-    expect(screen.getByText(/CRF 25/)).toBeTruthy();
+    expect(screen.getByText(/CRF 25, preset 4, film grain 4, Opus/)).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Queue encode' }));
     await waitFor(() => expect(api.createJob).toHaveBeenCalledWith(expect.objectContaining({ settings: DEFAULT_TEST_SETTINGS })));
+  });
+
+  it('starts on the profile the route names', async () => {
+    const api = fakeApi();
+    render(<QueueDialog api={api} {...props} profile="ab12" />);
+    await screen.findByLabelText('Output folder');
+    expect((screen.getByLabelText('Settings profile') as HTMLSelectElement).value).toBe('ab12');
+    fireEvent.click(screen.getByRole('button', { name: 'Queue encode' }));
+    await waitFor(() => expect(api.createJob).toHaveBeenCalledWith(expect.objectContaining({ settings: small.settings })));
+  });
+
+  it('runs a test encode of the ticked profiles first and opens its page', async () => {
+    const createTest = vi.fn(async () => makeJob({ id: 'dddddddddddddddd', kind: 'test', cli: '' }));
+    const api = fakeApi({ createTest });
+    render(<QueueDialog api={api} {...props} />);
+    await screen.findByLabelText('Output folder');
+    const group = screen.getByRole('group', { name: 'Run a test encode first' });
+    const boxes = within(group).getAllByRole('checkbox') as HTMLInputElement[];
+    expect(boxes.map((b) => b.checked)).toEqual([true, false]);
+    fireEvent.click(within(group).getByLabelText('Small files'));
+    fireEvent.click(within(group).getByRole('button', { name: 'Run test encode' }));
+    await waitFor(() =>
+      expect(createTest).toHaveBeenCalledWith({
+        discKey: key,
+        playlistId: '00001',
+        episodeSpec: '1-3,4-6',
+        profiles: [
+          { id: 'default', name: 'Default', settings: standard.settings },
+          { id: 'ab12', name: 'Small files', settings: small.settings },
+        ],
+        noSubtitles: false,
+      }),
+    );
+    await waitFor(() => expect(location.pathname).toBe('/test/dddddddddddddddd'));
+    expect(api.createJob).not.toHaveBeenCalled();
+  });
+
+  it('lets a test take at most three profiles and needs one', async () => {
+    const many: Profile[] = [standard, small, { ...small, id: 'cd34', name: 'Tiny' }, { ...small, id: 'ef56', name: 'Huge' }];
+    render(<QueueDialog api={fakeApi({ profiles: vi.fn(async () => many) })} {...props} />);
+    await screen.findByLabelText('Output folder');
+    const group = screen.getByRole('group', { name: 'Run a test encode first' });
+    fireEvent.click(within(group).getByLabelText('Small files'));
+    fireEvent.click(within(group).getByLabelText('Tiny'));
+    expect((within(group).getByLabelText('Huge') as HTMLInputElement).disabled).toBe(true);
+    for (const name of ['Default', 'Small files', 'Tiny']) fireEvent.click(within(group).getByLabelText(name));
+    expect((within(group).getByRole('button', { name: 'Run test encode' }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

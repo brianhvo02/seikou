@@ -2,6 +2,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { ApiError } from '../api';
 import type { ChapterInfo, Profile } from '../api-types';
+import { MAX_TEST_PROFILES, testSummary } from './test-model';
 import type { AppApi } from './app-api';
 import { formatLength } from './DiscPage';
 import { episodeLengths, episodesOf, fromSpec } from './grouping';
@@ -21,6 +22,8 @@ export interface QueueDialogProps {
   readonly spec: string;
   /** Whether the "Encode without subtitles" box starts ticked. */
   readonly noSubtitles: boolean;
+  /** The profile to start with, by id; the first profile when left out or unknown. */
+  readonly profile?: string | undefined;
 }
 
 interface Loaded {
@@ -52,7 +55,7 @@ const text = (v: unknown, fallback: string): string => (typeof v === 'string' ? 
  * when the saved subtitle choices are for another episode list the alert says both lists and offers to encode without
  * subtitles or to open the helper for this list.
  */
-export function QueueDialog({ api, discKey, playlistId, spec, noSubtitles: startNoSubtitles }: QueueDialogProps) {
+export function QueueDialog({ api, discKey, playlistId, spec, noSubtitles: startNoSubtitles, profile: startProfile }: QueueDialogProps) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [profileId, setProfileId] = useState('default');
@@ -62,6 +65,8 @@ export function QueueDialog({ api, discKey, playlistId, spec, noSubtitles: start
   const [folderError, setFolderError] = useState<string | null>(null);
   const [alertText, setAlertText] = useState<string | null>(null);
   const [mismatch, setMismatch] = useState<Mismatch | null>(null);
+  const [testIds, setTestIds] = useState<readonly string[]>([]);
+  const [testError, setTestError] = useState<string | null>(null);
   useDocumentTitle(loaded?.label ? `${loaded.label} · queue an encode` : 'Queue an encode · Seikou encoder');
 
   useEffect(() => {
@@ -82,7 +87,9 @@ export function QueueDialog({ api, discKey, playlistId, spec, noSubtitles: start
       ([library, playlist, profiles, suggested]) => {
         if (!live) return;
         setLoaded({ label: library.discs.find((d) => d.key === discKey)?.label ?? null, chapters: playlist.chapters, profiles, folderSuggested: suggested !== null });
-        setProfileId(profiles[0]?.id ?? 'default');
+        const first = profiles.find((p) => p.id === startProfile) ?? profiles[0];
+        setProfileId(first?.id ?? 'default');
+        setTestIds(first === undefined ? [] : [first.id]);
         setOutDir(suggested ?? '');
       },
       (e: unknown) => {
@@ -92,7 +99,7 @@ export function QueueDialog({ api, discKey, playlistId, spec, noSubtitles: start
     return () => {
       live = false;
     };
-  }, [api, discKey, playlistId]);
+  }, [api, discKey, playlistId, startProfile]);
 
   if (loadError !== null) {
     return (
@@ -149,6 +156,29 @@ export function QueueDialog({ api, discKey, playlistId, spec, noSubtitles: start
     );
   };
 
+  const toggleTest = (id: string): void =>
+    setTestIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : ids.length < MAX_TEST_PROFILES ? [...ids, id] : ids));
+
+  const runTest = async (): Promise<void> => {
+    const chosen = loaded.profiles.filter((p) => testIds.includes(p.id));
+    if (chosen.length === 0) return;
+    setBusy(true);
+    setTestError(null);
+    try {
+      const job = await api.createTest({
+        discKey,
+        playlistId,
+        episodeSpec: spec,
+        profiles: chosen.map((p) => ({ id: p.id, name: p.name, settings: p.settings })),
+        noSubtitles,
+      });
+      navigate(routeHref({ kind: 'test', jobId: job.id }, location.search));
+    } catch (e) {
+      setBusy(false);
+      setTestError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const onSubmit = (e: FormEvent): void => {
     e.preventDefault();
     void submit(noSubtitles);
@@ -192,6 +222,48 @@ export function QueueDialog({ api, discKey, playlistId, spec, noSubtitles: start
           </select>
           {profile !== undefined && <span className="hint">{profileSummary(profile.settings)}</span>}
         </div>
+
+        <fieldset className="field queue-test" aria-labelledby="queue-test-legend">
+          <legend className="field-label" id="queue-test-legend">
+            Run a test encode first
+          </legend>
+          <span className="hint">
+            Encodes five short stretches of the first episode with each ticked profile (up to {MAX_TEST_PROFILES}), so you can watch them side by side
+            and compare the size each would make.
+          </span>
+          <div className="queue-test-profiles">
+            {loaded.profiles.map((p) => {
+              const ticked = testIds.includes(p.id);
+              return (
+                <div key={p.id} className="queue-test-profile">
+                  <label className="check">
+                    <input
+                      type="checkbox"
+                      checked={ticked}
+                      disabled={busy || (!ticked && testIds.length >= MAX_TEST_PROFILES)}
+                      aria-describedby={`queue-test-${p.id}`}
+                      onChange={() => toggleTest(p.id)}
+                    />
+                    <span>{p.name}</span>
+                  </label>
+                  <span className="hint" id={`queue-test-${p.id}`}>
+                    {testSummary(p.settings)}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          {testError !== null && (
+            <span className="error field-error" role="alert">
+              {testError}
+            </span>
+          )}
+          <div className="actions">
+            <button type="button" className="quiet" disabled={busy || testIds.length === 0} onClick={() => void runTest()}>
+              Run test encode
+            </button>
+          </div>
+        </fieldset>
 
         <div className="field">
           <label className="field-label" htmlFor="queue-out">

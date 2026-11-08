@@ -486,7 +486,7 @@ export interface Job {
   readonly startedAt?: string;
   /** ISO 8601 time the job last finished, failed or stopped. */
   readonly finishedAt?: string;
-  /** The episodes in order (none for a test). */
+  /** The episodes in order; for a test, one entry per sample encode (stretch by stretch, each with every profile). */
   readonly episodes: readonly JobEpisode[];
   /** Why the job failed. */
   readonly error?: string;
@@ -494,6 +494,56 @@ export interface Job {
   readonly recordSavedAt: string | null;
   /** The equivalent `seikou-encode encode …` command, quoted for a shell; empty for a test. */
   readonly cli: string;
+  /** A test job's profiles, stretches and measurements; absent on an encode. */
+  readonly test?: TestPlan;
+}
+
+/** One profile a test encodes with. */
+export interface TestProfile {
+  /** The profile's id; the samples' folder name. */
+  readonly id: string;
+  /** The profile's name. */
+  readonly name: string;
+  /** The settings the samples were encoded with. */
+  readonly settings: EncodeSettings;
+}
+
+/** What one profile's samples measured. */
+export interface TestProfileResult {
+  /** The profile's id. */
+  readonly id: string;
+  /** Video bytes per second of the profile's samples. */
+  readonly videoBytesPerSecond: number;
+  /** Bytes per second of the shared audio sample (one stream). */
+  readonly audioBytesPerSecond: number;
+}
+
+/** What a test job holds besides what every job has. */
+export interface TestPlan {
+  /** The profiles compared, in order. */
+  readonly profiles: readonly TestProfile[];
+  /** The stretches of playlist time sampled, in milliseconds; sample `n` (from 1) is stretch `n`. */
+  readonly stretches: readonly { readonly startMs: number; readonly endMs: number }[];
+  /** Each episode's length in seconds. */
+  readonly episodeSeconds: readonly number[];
+  /** How many audio streams an encode of the episodes writes; null until the test has run. */
+  readonly audioStreams: number | null;
+  /** Each profile's measurements in profile order; null until the test is done. */
+  readonly results: readonly TestProfileResult[] | null;
+}
+
+/** What `POST /api/jobs` takes for a test encode. */
+export interface NewTest {
+  /** The disc's key. */
+  readonly discKey: string;
+  /** Five-digit playlist name. */
+  readonly playlistId: string;
+  /** The episode list. */
+  readonly episodeSpec: string;
+  /** One to three profiles to compare. */
+  readonly profiles: readonly TestProfile[];
+  /** Whether the encode the test prepares would leave the saved subtitle choices out (it changes how many audio streams it writes). */
+  readonly noSubtitles: boolean;
 }
 
 /** A progress report for one episode of a running job, sent at most once a second. */

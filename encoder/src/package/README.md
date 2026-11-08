@@ -27,7 +27,7 @@ This area turns a finished episode MKV into the files a browser player needs. Br
 ## API
 
 - `packageEpisode(mkvPath, outDir)` writes the directory and returns its `EpisodeManifest` (`title`, `video { file, width, height }`, `audio { index, name, language, default }[]`, `subtitles { file, name, language, default }[]`, `pgs { file, name, language }[]`, `fonts`, `chapters`), the content of `episode.json`.
-- `writeWebm(mkv, path, { blockCounts, maxQueuedBytes })`, `countBlocks(mkv)` and `webmTracks(mkv)`, `safeName(name, fallback)`, `rebuildAss(codecPrivate, blocks)`, `toSup(blocks)`, `toVtt(chapters, durationMs)`.
+- `writeWebm(mkv, path, { blockCounts, maxQueuedBytes, audioFrom })` (`audioFrom` takes the Opus tracks from another file, read in a pass of its own), `countBlocks(mkv)` and `webmTracks(mkv)`, `safeName(name, fallback)`, `rebuildAss(codecPrivate, blocks)`, `toSup(blocks)`, `toVtt(chapters, durationMs)`.
 - Errors: `NotMatroskaError` and `MkvReadError` (from `readMkv`), `WebmError` (no AV1 track, or a track missing what its codec needs), `PackageError` (an ASS block that is not a Matroska ASS event, or an output path holding something other than a package), `SupError` (a PGS block that does not split into whole segments).
 
 ## Where to look

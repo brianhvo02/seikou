@@ -1948,3 +1948,182 @@ button.quiet.danger {
   margin-top: 8px;
   align-items: center;
 }
+
+/* Queue dialog: the test encode's profiles */
+.queue-test {
+  border: 0;
+  padding: 0;
+  margin-inline: 0;
+  min-width: 0;
+}
+
+.queue-test legend {
+  padding: 0;
+}
+
+.queue-test-profiles {
+  display: grid;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.queue-test-profile {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+}
+
+.queue-test .actions {
+  margin-top: 6px;
+}
+
+/* Test page: rows are stretches, columns are profiles; one column below 700 px, where each video names its profile */
+.test-page > p,
+.test-progress,
+.test-stopped {
+  max-width: var(--column);
+}
+
+.test-progress,
+.test-stopped,
+.test-note {
+  margin-top: 18px;
+}
+
+.test-progress progress {
+  display: block;
+  width: 100%;
+  height: 6px;
+  margin-top: 6px;
+  accent-color: var(--accent);
+}
+
+.test-progress .actions,
+.test-stopped .actions {
+  margin-top: 10px;
+  align-items: center;
+}
+
+.test-grid {
+  margin-top: 16px;
+}
+
+.test-columns,
+.sample-videos {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px 16px;
+}
+
+.test-head h2,
+.test-foot h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  font-stretch: 88%;
+  overflow-wrap: anywhere;
+}
+
+.test-head p {
+  font-size: 13px;
+}
+
+.test-heads {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.sample-row {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.sample-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-bottom: 10px;
+}
+
+.sample-at {
+  font-weight: 600;
+  min-width: 4ch;
+}
+
+.sample-play {
+  min-width: 5.5em;
+}
+
+.sample-seek {
+  flex: 1 1 10rem;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+
+.sample-clock {
+  font-size: 13px;
+}
+
+.sample {
+  margin: 0;
+  min-width: 0;
+}
+
+.sample video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 4px;
+}
+
+.sample figcaption {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+.test-feet {
+  margin-top: 16px;
+}
+
+.test-foot {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+}
+
+.test-sizes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.test-sizes li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.test-foot .primary {
+  justify-self: start;
+}
+
+.test-log {
+  margin-top: 20px;
+}
+
+@media (min-width: 700px) {
+  .test-columns,
+  .sample-videos {
+    grid-template-columns: repeat(var(--cols, 1), minmax(0, 1fr));
+  }
+
+  /* the column heads name the profiles above the videos */
+  .sample figcaption {
+    display: none;
+  }
+}

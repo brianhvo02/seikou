@@ -6,7 +6,7 @@ import { episodePgsTracks } from './disc/pgs';
 import { loadPlaylist } from './disc/playlist';
 import { readPlaylistPmts } from './disc/pmt';
 import { probeClip, type ClipProbe } from './disc/probe';
-import { writeMkv } from './mux/mkv-writer';
+import { writeMkv, type MkvAttachment, type MkvSubtitleTrack } from './mux/mkv-writer';
 import { packageEpisode } from './package/package';
 import { readIvf } from './mux/ivf';
 import { readOggOpus } from './mux/ogg';
@@ -186,6 +186,145 @@ function chainFailure(chains: Chain[]): Promise<ChainError | WavGuardError | nul
   });
 }
 
+/** One stretch of a playlist to encode into one MKV, as `encodePlan` takes it. */
+export interface PlanEncodeOptions extends Pick<EncodeOptions, 'crf' | 'preset' | 'filmGrain' | 'extraSvtArgs' | 'opusBitrate' | 'tools' | 'signal' | 'now'> {
+  /** What to cut: from `planEpisodes` or `planRanges`. Its `index` is the episode number the events carry. */
+  plan: EpisodePlan;
+  /**
+   * The audio streams to encode, each an Opus track: `audio[i]` is cut from the plan's audio stream `i`, so it may
+   * be shorter than the plan's list (an empty list encodes the video alone).
+   */
+  audio: readonly SelectedAudio[];
+  /** The MKV to write; it is written as `<outPath>.partial` and renamed once complete. */
+  outPath: string;
+  /** Where BestSource keeps its index files; must exist. */
+  cacheDir: string;
+  /** The MKV's segment title. */
+  title?: string | undefined;
+  /** The helper record's labels for this episode: the video track's name and language and the chapter titles. */
+  metadata?: RecordMetadata | null;
+  /** Subtitle tracks muxed after the audio. */
+  subtitles?: MkvSubtitleTrack[];
+  /** Attachments, such as fonts. */
+  attachments?: MkvAttachment[];
+}
+
+/**
+ * Encodes one plan into one MKV: the video through SVT-AV1 and each of `o.audio` through opusenc, each stream its own
+ * chain of tools joined by pipes, muxed as they arrive, with only small scripts written to a temporary folder. The
+ * file is written to `<outPath>.partial` and renamed to `outPath` once complete, so an earlier file of that name
+ * survives a failure. `progress` events count the video packets written, at most once a second, and a closing one at
+ * 100% follows the rename. When any chain fails the others are stopped, every tool has exited and the partial file is
+ * removed before the error is thrown: the chain's own (`ChainError`, `WavGuardError`) when there is one, since a
+ * downstream parse error is usually its symptom. `o.signal` aborts the same way and rejects with an `AbortError`.
+ */
+export async function encodePlan(o: PlanEncodeOptions, onEvent: (e: EncodeEvent) => void): Promise<void> {
+  const isAborted = (): boolean => o.signal?.aborted === true;
+  const now = o.now ?? Date.now;
+  const { plan, audio, outPath } = o;
+  const cacheDir = o.cacheDir;
+  const metadata = o.metadata ?? null;
+  const partialPath = `${outPath}.partial`;
+  if (isAborted()) throw abortError();
+  const tmp = await mkdtemp(join(tmpdir(), 'encoding-tools-'));
+  const chains: Chain[] = [];
+  // The first real failure of a chain: an abort that arrives later does not replace it.
+  let chainError: ChainError | WavGuardError | null = null;
+  const onAbort = (): void => {
+    for (const c of chains) c.abort(abortError());
+  };
+  try {
+    const videoScript = join(tmp, 'video.vpy');
+    await writeFile(videoScript, buildVideoScript(plan, { cacheDir }));
+    const audioScripts = audio.map((_, i) => join(tmp, `audio-${i + 1}.vpy`));
+    for (const [i, script] of audioScripts.entries()) await writeFile(script, buildAudioScript(plan, { cacheDir }, i));
+
+    // The signal is checked again here, after every await that can let it arrive and before any tool starts.
+    if (isAborted()) throw abortError();
+
+    // Every chain starts before any reader awaits, and each audio stream has its own: the writer pulls
+    // the tracks in timestamp order, and one producer feeding several pipes would stall on whichever
+    // pipe the writer is not reading. A failure in any chain stops the others at once.
+    const video = videoChain(o.tools, videoScript, svtArgs(o));
+    chains.push(video);
+    const audioChains = audio.map((a, i) => {
+      const chain = audioChain(o.tools, audioScripts[i]!, opusArgs(a.channels, o.opusBitrate), a);
+      chains.push(chain);
+      return chain;
+    });
+    for (const c of chains) {
+      c.done.catch((e: unknown) => {
+        if (chainError === null && isChainFailure(e)) chainError = e;
+        for (const other of chains) if (other !== c) other.abort(e instanceof Error ? e : new Error(String(e)));
+      });
+    }
+
+    o.signal?.addEventListener('abort', onAbort, { once: true });
+    if (isAborted()) onAbort();
+
+    // Every reader must attach before any await: Node discards the unread stdout of a child that
+    // exits while nobody is reading, which would lose a short audio stream while video starts up.
+    const [ivf, ...oggs] = await Promise.all([readIvf(video.stream), ...audioChains.map((c) => readOggOpus(c.stream))]);
+    const seq = await ivf.sequenceHeader;
+    let framesDone = 0;
+    let lastProgress = now();
+    await writeMkv(partialPath, {
+      title: o.title,
+      video: {
+        width: plan.video.width,
+        height: plan.video.height,
+        fpsNum: plan.video.fpsNum,
+        fpsDen: plan.video.fpsDen,
+        codecPrivate: seq.av1C,
+        name: metadata?.video.name ?? '',
+        language: metadata?.video.language || 'und',
+        isDefault: true,
+      },
+      videoPackets: counting(ivf.packets, () => {
+        framesDone += 1;
+        const t = now();
+        // The closing event at 100% is sent once the episode is complete.
+        if (t - lastProgress < PROGRESS_INTERVAL_MS || framesDone >= plan.frameCount) return;
+        lastProgress = t;
+        onEvent({ kind: 'progress', episode: plan.index, message: `Episode ${plan.index}: ${framesDone} of ${plan.frameCount} frames`, framesDone, frames: plan.frameCount });
+      }),
+      audio: oggs.map((ogg, i) => ({
+        channels: ogg.head.channels,
+        sampleRate: 48000,
+        codecPrivate: ogg.head.raw,
+        codecDelayNs: (BigInt(ogg.head.preSkip) * 1_000_000_000n) / 48000n,
+        seekPreRollNs: 80_000_000n,
+        name: audio[i]!.name,
+        language: audio[i]!.language,
+        isDefault: audio[i]!.isDefault,
+        packets: ogg.packets,
+        end: ogg.end,
+      })),
+      subtitles: o.subtitles ?? [],
+      attachments: o.attachments ?? [],
+      chapters: plan.chapters.map((c, i) => ({ ...c, title: metadata?.chapters[i] || c.title })),
+    });
+    await Promise.all(chains.map((c) => c.done));
+    // A finished file of the same name is replaced only now, by the rename.
+    await rename(partialPath, outPath);
+  } catch (err) {
+    const wasAborted = isAborted() && chainError === null && !isChainFailure(err);
+    const toolError = wasAborted || isChainFailure(err) ? null : await chainFailure(chains);
+    for (const c of chains) c.abort(err instanceof Error ? err : new Error(String(err)));
+    // Leave no process behind: the partial file is removed only once every tool has exited.
+    await Promise.all(chains.map((c) => c.exited));
+    // The tools are gone; closing the pipes' read ends frees their descriptors.
+    for (const c of chains) c.stream.destroy();
+    await unlink(partialPath).catch(() => {});
+    await rm(tmp, { recursive: true, force: true });
+    throw wasAborted ? abortError() : toolError ?? err;
+  } finally {
+    o.signal?.removeEventListener('abort', onAbort);
+  }
+  await rm(tmp, { recursive: true, force: true });
+  onEvent({ kind: 'progress', episode: plan.index, message: `Episode ${plan.index}: ${plan.frameCount} of ${plan.frameCount} frames`, framesDone: plan.frameCount, frames: plan.frameCount });
+}
+
 /**
  * Cuts and encodes each requested episode of a playlist into `<outDir>/<name>.mkv`, one at a time,
  * and returns the output paths. Video and every chosen audio stream are encoded through pipes (see
@@ -273,7 +412,6 @@ export async function encodeEpisodes(
   for (const { plan, audio, metadata } of episodes) {
     const name = episodeName(o.namePattern, plan.index);
     const outPath = join(o.outDir, `${name}.mkv`);
-    const partialPath = `${outPath}.partial`;
     if (isAborted()) throw abortError();
     onEvent({ kind: 'episode-start', episode: plan.index, message: `Encoding episode ${plan.index}`, path: outPath });
 
@@ -281,103 +419,27 @@ export async function encodeEpisodes(
     // ASS tracks come first, then the disc's PGS tracks.
     const ass = subtitles.get(plan.index) ?? { tracks: [], attachments: [] };
     const pgs = o.noPgs ? [] : await episodePgsTracks(plan, playlist, (message) => onEvent({ kind: 'log', episode: plan.index, message }));
-    const tmp = await mkdtemp(join(tmpdir(), 'encoding-tools-'));
-    const chains: Chain[] = [];
-    // The first real failure of a chain: an abort that arrives later does not replace it.
-    let chainError: ChainError | WavGuardError | null = null;
-    const onAbort = (): void => {
-      for (const c of chains) c.abort(abortError());
-    };
-    try {
-      const videoScript = join(tmp, 'video.vpy');
-      await writeFile(videoScript, buildVideoScript(plan, { cacheDir }));
-      const audioScripts = audio.map((_, i) => join(tmp, `audio-${i + 1}.vpy`));
-      for (const [i, script] of audioScripts.entries()) await writeFile(script, buildAudioScript(plan, { cacheDir }, i));
-
-      // The signal is checked again here, after every await that can let it arrive and before any tool starts.
-      if (isAborted()) throw abortError();
-
-      // Every chain starts before any reader awaits, and each audio stream has its own: the writer pulls
-      // the tracks in timestamp order, and one producer feeding several pipes would stall on whichever
-      // pipe the writer is not reading. A failure in any chain stops the others at once.
-      const video = videoChain(o.tools, videoScript, svtArgs(o));
-      chains.push(video);
-      const audioChains = audio.map((a, i) => {
-        const chain = audioChain(o.tools, audioScripts[i]!, opusArgs(a.channels, o.opusBitrate), a);
-        chains.push(chain);
-        return chain;
-      });
-      for (const c of chains) {
-        c.done.catch((e: unknown) => {
-          if (chainError === null && isChainFailure(e)) chainError = e;
-          for (const other of chains) if (other !== c) other.abort(e instanceof Error ? e : new Error(String(e)));
-        });
-      }
-
-      o.signal?.addEventListener('abort', onAbort, { once: true });
-      if (isAborted()) onAbort();
-
-      // Every reader must attach before any await: Node discards the unread stdout of a child that
-      // exits while nobody is reading, which would lose a short audio stream while video starts up.
-      const [ivf, ...oggs] = await Promise.all([readIvf(video.stream), ...audioChains.map((c) => readOggOpus(c.stream))]);
-      const seq = await ivf.sequenceHeader;
-      let framesDone = 0;
-      let lastProgress = now();
-      await writeMkv(partialPath, {
+    await encodePlan(
+      {
+        plan,
+        audio,
+        outPath,
+        crf: o.crf,
+        preset: o.preset,
+        filmGrain: o.filmGrain,
+        extraSvtArgs: o.extraSvtArgs,
+        opusBitrate: o.opusBitrate,
+        cacheDir,
+        tools: o.tools,
+        signal: o.signal,
+        now,
         title: metadata?.title || o.title,
-        video: {
-          width: plan.video.width,
-          height: plan.video.height,
-          fpsNum: plan.video.fpsNum,
-          fpsDen: plan.video.fpsDen,
-          codecPrivate: seq.av1C,
-          name: metadata?.video.name ?? '',
-          language: metadata?.video.language || 'und',
-          isDefault: true,
-        },
-        videoPackets: counting(ivf.packets, () => {
-          framesDone += 1;
-          const t = now();
-          // The closing event at 100% is sent once the episode is complete.
-          if (t - lastProgress < PROGRESS_INTERVAL_MS || framesDone >= plan.frameCount) return;
-          lastProgress = t;
-          onEvent({ kind: 'progress', episode: plan.index, message: `Episode ${plan.index}: ${framesDone} of ${plan.frameCount} frames`, framesDone, frames: plan.frameCount });
-        }),
-        audio: oggs.map((ogg, i) => ({
-          channels: ogg.head.channels,
-          sampleRate: 48000,
-          codecPrivate: ogg.head.raw,
-          codecDelayNs: (BigInt(ogg.head.preSkip) * 1_000_000_000n) / 48000n,
-          seekPreRollNs: 80_000_000n,
-          name: audio[i]!.name,
-          language: audio[i]!.language,
-          isDefault: audio[i]!.isDefault,
-          packets: ogg.packets,
-          end: ogg.end,
-        })),
+        metadata,
         subtitles: [...ass.tracks, ...pgs],
         attachments: ass.attachments,
-        chapters: plan.chapters.map((c, i) => ({ ...c, title: metadata?.chapters[i] || c.title })),
-      });
-      await Promise.all(chains.map((c) => c.done));
-      // A finished file of the same name is replaced only now, by the rename.
-      await rename(partialPath, outPath);
-    } catch (err) {
-      const wasAborted = isAborted() && chainError === null && !isChainFailure(err);
-      const toolError = wasAborted || isChainFailure(err) ? null : await chainFailure(chains);
-      for (const c of chains) c.abort(err instanceof Error ? err : new Error(String(err)));
-      // Leave no process behind: the partial file is removed only once every tool has exited.
-      await Promise.all(chains.map((c) => c.exited));
-      // The tools are gone; closing the pipes' read ends frees their descriptors.
-      for (const c of chains) c.stream.destroy();
-      await unlink(partialPath).catch(() => {});
-      await rm(tmp, { recursive: true, force: true });
-      throw wasAborted ? abortError() : toolError ?? err;
-    } finally {
-      o.signal?.removeEventListener('abort', onAbort);
-    }
-    await rm(tmp, { recursive: true, force: true });
-    onEvent({ kind: 'progress', episode: plan.index, message: `Episode ${plan.index}: ${plan.frameCount} of ${plan.frameCount} frames`, framesDone: plan.frameCount, frames: plan.frameCount });
+      },
+      onEvent,
+    );
     if (isAborted()) throw abortError();
     if (o.webDir !== undefined) {
       // The MKV is complete and kept even when packaging fails: `package` can be run on it again.

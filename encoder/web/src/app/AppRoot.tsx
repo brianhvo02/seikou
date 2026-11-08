@@ -16,22 +16,12 @@ import { QueuePage } from './QueuePage';
 import { useDocumentTitle } from './place';
 import { Link, useRoute } from './router';
 import { SettingsPage } from './SettingsPage';
+import { TestPage } from './TestPage';
 
 /** What the root needs. */
 export interface AppRootProps {
   /** The run's token, read from the address `seikou-encode app` printed. */
   readonly token: string;
-}
-
-/** A page that is not built yet: its name inside the shell. */
-function Placeholder({ title, children }: { readonly title: string; readonly children?: string }) {
-  useDocumentTitle('Seikou encoder');
-  return (
-    <main className="content wide">
-      <h1 className="page-title">{title}</h1>
-      <p className="muted">{children ?? 'This page is not ready yet.'}</p>
-    </main>
-  );
 }
 
 /** The page for an address the app has no page for. */
@@ -87,13 +77,23 @@ export function AppRoot({ token }: AppRootProps) {
       page = <QueuePage api={appApi} />;
       break;
     case 'queueNew':
-      page = <QueueDialog key={`${route.discKey}/${route.playlistId}/${route.spec}/${route.noSubtitles}`} api={appApi} discKey={route.discKey} playlistId={route.playlistId} spec={route.spec} noSubtitles={route.noSubtitles} />;
+      page = (
+        <QueueDialog
+          key={`${route.discKey}/${route.playlistId}/${route.spec}/${route.noSubtitles}/${route.profile ?? ''}`}
+          api={appApi}
+          discKey={route.discKey}
+          playlistId={route.playlistId}
+          spec={route.spec}
+          noSubtitles={route.noSubtitles}
+          profile={route.profile}
+        />
+      );
       break;
     case 'job':
       page = <QueuePage api={appApi} jobId={route.jobId} />;
       break;
     case 'test':
-      page = <Placeholder title="Test results" />;
+      page = <TestPage api={appApi} jobId={route.jobId} />;
       break;
     case 'notFound':
       page = <NotFound />;

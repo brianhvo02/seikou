@@ -16,6 +16,7 @@ const routes: readonly Route[] = [
   { kind: 'job', jobId: 'job-1' },
   { kind: 'queueNew', discKey: KEY, playlistId: '00800', spec: '1-3,4-6', noSubtitles: false },
   { kind: 'queueNew', discKey: KEY, playlistId: '00800', spec: '1-3,4-6', noSubtitles: true },
+  { kind: 'queueNew', discKey: KEY, playlistId: '00800', spec: '1-3,4-6', noSubtitles: false, profile: 'ab12' },
 ];
 
 describe('router', () => {

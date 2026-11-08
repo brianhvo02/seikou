@@ -15,6 +15,7 @@ import type { AppContext } from './http';
 import { libraryOf } from './library';
 import { parseSettings, ProfileError, type EncodeSettings } from './profiles';
 import { discOf, sessionsOf } from './sessions';
+import { parseTestProfiles, planTest, runTestEncode, testDirOf, TestInputError, type TestOutcome, type TestPlan } from './test-encode';
 
 // The encode queue: jobs kept in `<data>/jobs.json`, run one at a time in this process. A job encodes one disc
 // playlist's episodes into one output folder with a copy of the settings it was queued with. The runner encodes one
@@ -76,7 +77,10 @@ export interface Job {
   startedAt?: string;
   /** When it last finished, failed or stopped. */
   finishedAt?: string;
-  /** The episodes, in order (empty for a test job). */
+  /**
+   * The episodes, in order. For a test job, one entry per sample encode, numbered as the test's progress units:
+   * stretch by stretch, each with every profile in order.
+   */
   episodes: JobEpisode[];
   /** Why the job failed. */
   error?: string;
@@ -84,6 +88,8 @@ export interface Job {
   recordSavedAt: string | null;
   /** The equivalent `seikou-encode encode …` command, quoted for a POSIX shell; empty for a test job. */
   readonly cli: string;
+  /** A test job's profiles, stretches, episode lengths and, once it is done, its measurements; absent on an encode job. */
+  test?: TestPlan;
 }
 
 /** What a job is queued from; the routes pass the request body's fields as they are, and `add` checks them. */
@@ -96,8 +102,10 @@ export interface JobInput {
   readonly playlistId: unknown;
   /** The episode list. */
   readonly episodeSpec: unknown;
-  /** The settings (see `parseSettings`). */
-  readonly settings: unknown;
+  /** The settings (see `parseSettings`); ignored for a test job, which takes its first profile's. */
+  readonly settings?: unknown;
+  /** A test job's one to three profiles, each `{ id, name, settings }` (see `parseTestProfiles`). */
+  readonly profiles?: unknown;
   /** An absolute folder; ignored for a test job. */
   readonly outDir?: unknown;
   /** Leave the saved subtitle record out (and skip its check). */
@@ -137,11 +145,12 @@ export class JobError extends Error {
 }
 
 /**
- * Runs a test job: encodes its samples into `job.outDir` and reports through `onEvent` as an encode does (its
- * `progress` events reach the progress stream). It must stop, with every tool exited, and reject when `signal` aborts.
- * Resolving marks the job done; rejecting marks it failed (or cancelled, when `signal` aborted).
+ * Runs a test job: encodes its samples into `job.outDir` and reports through `onEvent` as an encode does, each event's
+ * `episode` the number of a sample encode in `job.episodes` (its `progress` events reach the progress stream). It must
+ * stop, with every tool exited, and reject when `signal` aborts. Resolving marks the job done and stores the outcome in
+ * `job.test`; rejecting marks it failed (or cancelled, when `signal` aborted).
  */
-export type TestRunner = (job: Job, signal: AbortSignal, onEvent: (e: EncodeEvent) => void) => Promise<void>;
+export type TestRunner = (job: Job, signal: AbortSignal, onEvent: (e: EncodeEvent) => void) => Promise<TestOutcome>;
 
 /** What the runner does its work with; tests replace them. */
 export interface JobRunnerDeps {
@@ -149,7 +158,7 @@ export interface JobRunnerDeps {
   readonly encode: (options: EncodeOptions, onEvent: (e: EncodeEvent) => void) => Promise<string[]>;
   /** Packages a finished MKV for the web player, for an episode whose packaging failed. Default `packageEpisode`. */
   readonly packageEpisode: (mkvPath: string, outDir: string) => Promise<unknown>;
-  /** Runs a test job. The default fails the job: test encodes need a runner of their own. */
+  /** Runs a test job. Default `runTestEncode` with the app's data folder and tools. */
   readonly runTest: TestRunner;
   /** The clock, in milliseconds since the epoch: times in jobs, log lines and the progress pacing. */
   readonly now: () => number;
@@ -165,8 +174,6 @@ const FINISHED: ReadonlySet<JobState> = new Set(['done', 'failed', 'interrupted'
 const RETRYABLE: ReadonlySet<JobState> = new Set(['failed', 'interrupted', 'cancelled']);
 const JOB_STATES: ReadonlySet<string> = new Set(['queued', 'running', ...FINISHED]);
 const EPISODE_STATES: ReadonlySet<string> = new Set(['queued', 'running', 'done', 'packaging-failed', 'failed']);
-
-const defaultRunTest: TestRunner = () => Promise.reject(new Error('Test encodes are not available in this version of seikou-encode.'));
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -271,11 +278,43 @@ function parseStoredJob(value: unknown): Job {
     recordSavedAt: j.recordSavedAt === null || j.recordSavedAt === undefined ? null : str(j.recordSavedAt, 'recordSavedAt'),
     cli: typeof j.cli === 'string' ? j.cli : '',
   };
+  if (j.test !== undefined) job.test = parseStoredTest(j.test);
   for (const key of ['startedAt', 'finishedAt', 'error'] as const) {
     const v = optStr(j[key], key);
     if (v !== undefined) job[key] = v;
   }
   return job;
+}
+
+/** Checks a stored test plan; throws on anything this runner did not write. */
+function parseStoredTest(value: unknown): TestPlan {
+  if (typeof value !== 'object' || value === null) throw new Error('job test is not an object');
+  const t = value as Record<string, unknown>;
+  const num = (v: unknown): number => {
+    if (typeof v !== 'number' || !Number.isFinite(v)) throw new Error('job test holds a bad number');
+    return v;
+  };
+  if (!Array.isArray(t.stretches) || !Array.isArray(t.episodeSeconds)) throw new Error('job test lacks its stretches');
+  if (t.results !== null && t.results !== undefined && !Array.isArray(t.results)) throw new Error('bad test results');
+  const stretches = t.stretches.map((r: unknown) => {
+    const range = r as Record<string, unknown> | null;
+    if (typeof range !== 'object' || range === null) throw new Error('bad stretch');
+    return { startMs: num(range.startMs), endMs: num(range.endMs) };
+  });
+  const results = Array.isArray(t.results)
+    ? t.results.map((r: unknown) => {
+        const x = r as Record<string, unknown> | null;
+        if (typeof x !== 'object' || x === null || typeof x.id !== 'string') throw new Error('bad test result');
+        return { id: x.id, videoBytesPerSecond: num(x.videoBytesPerSecond), audioBytesPerSecond: num(x.audioBytesPerSecond) };
+      })
+    : null;
+  return {
+    profiles: parseTestProfiles(t.profiles),
+    stretches,
+    episodeSeconds: t.episodeSeconds.map(num),
+    audioStreams: t.audioStreams === null || t.audioStreams === undefined ? null : num(t.audioStreams),
+    results,
+  };
 }
 
 /**
@@ -368,7 +407,10 @@ export class JobRunner {
     this.deps = {
       encode: encodeEpisodes,
       packageEpisode,
-      runTest: defaultRunTest,
+      runTest: (job, signal, onEvent) => {
+        if (job.test === undefined) return Promise.reject(new Error('The job is not a test.'));
+        return runTestEncode({ ...job, test: job.test }, { dataDir: app.dataDir, tools: app.tools }, signal, onEvent);
+      },
       now: Date.now,
       log: (m) => console.error(m),
       ...deps,
@@ -398,6 +440,7 @@ export class JobRunner {
         job.finishedAt = this.iso();
         for (const ep of job.episodes) this.settleStopped(job, ep, 'The app stopped before this episode was packaged.');
         await this.removePartials(job);
+        if (job.kind === 'test') await this.removeTestFolder(job);
         this.appendLog(job, 'Interrupted: the app stopped while the job was running.');
       }
       this.loaded = true;
@@ -440,25 +483,38 @@ export class JobRunner {
     const noSubtitles = input.noSubtitles ?? false;
     if (typeof noSubtitles !== 'boolean') throw new JobError(400, 'bad-request', 'noSubtitles must be true or false.');
     let settings: EncodeSettings;
+    let profiles: TestPlan['profiles'] = [];
     try {
-      settings = parseSettings(input.settings);
+      if (kind === 'test') {
+        profiles = parseTestProfiles(input.profiles);
+        settings = profiles[0]!.settings;
+      } else {
+        settings = parseSettings(input.settings);
+      }
     } catch (e) {
       if (e instanceof ProfileError) throw new JobError(e.status, e.code, e.message, e.field === undefined ? {} : { field: e.field });
+      if (e instanceof TestInputError) {
+        const isSetting = e.field !== undefined && e.field !== 'profiles';
+        throw new JobError(400, isSetting ? 'bad-setting' : 'bad-request', e.message, e.field === undefined ? {} : { field: e.field });
+      }
       throw e;
     }
     const dir = await sessionsOf(this.app).discDirOf(discKey);
     if (dir === null) throw new JobError(404, 'not-found', 'No disc the app knows has that key.');
     const disc = await discOf(this.app, dir);
-    let chapters: number;
+    let playlist: Awaited<ReturnType<typeof loadPlaylist>>;
     try {
-      chapters = (await loadPlaylist(disc.root, playlistId)).chapters.length;
+      playlist = await loadPlaylist(disc.root, playlistId);
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code === 'ENOENT') throw new JobError(404, 'not-found', `The disc has no playlist ${playlistId}.`);
       throw e;
     }
+    const chapters = playlist.chapters.length;
     let episodeCount: number;
+    let test: TestPlan | undefined;
     try {
       episodeCount = parseEpisodeSpec(episodeSpec, chapters).length;
+      if (kind === 'test') test = { profiles, ...planTest(playlist, episodeSpec), audioStreams: null, results: null };
     } catch (e) {
       if (e instanceof EpisodeSpecError) throw new JobError(400, 'bad-episode-spec', e.message);
       throw e;
@@ -466,7 +522,7 @@ export class JobRunner {
     const id = randomBytes(8).toString('hex');
     let outDir: string;
     if (kind === 'test') {
-      outDir = join(this.app.dataDir, 'tests', id);
+      outDir = testDirOf(this.app.dataDir, id);
     } else {
       outDir = await this.checkOutputFolder(input.outDir, disc.root);
       if (!noSubtitles) await this.checkRecord(disc.root, disc.key, playlistId, episodeSpec, chapters);
@@ -485,15 +541,16 @@ export class JobRunner {
       state: 'queued',
       paused: false,
       createdAt: this.iso(),
-      episodes:
-        kind === 'test'
-          ? []
-          : Array.from({ length: episodeCount }, (_, i): JobEpisode => ({ index: i + 1, state: 'queued', framesDone: 0, frames: 0, encoded: false })),
+      episodes: Array.from(
+        { length: test === undefined ? episodeCount : test.stretches.length * test.profiles.length },
+        (_, i): JobEpisode => ({ index: i + 1, state: 'queued', framesDone: 0, frames: 0, encoded: false }),
+      ),
       recordSavedAt: null,
       cli: kind === 'test' ? '' : jobCli({ discDir: disc.root, playlistId, episodeSpec, outDir, noSubtitles, settings }),
     };
+    if (test !== undefined) job.test = test;
     this.jobs.push(job);
-    this.appendLog(job, `Queued: ${kind === 'test' ? 'test' : job.cli}`);
+    this.appendLog(job, `Queued: ${test !== undefined ? `test of ${test.profiles.map((p) => p.name).join(', ')}` : job.cli}`);
     this.persist();
     this.pump();
     return structuredClone(job);
@@ -545,7 +602,10 @@ export class JobRunner {
     return structuredClone(job);
   }
 
-  /** Removes a finished job from the queue, and its log; its output files stay. 404 `not-found`; 409 `not-finished`. */
+  /**
+   * Removes a finished job from the queue, and its log; an encode's output files stay, a test's sample folder is
+   * deleted. 404 `not-found`; 409 `not-finished`.
+   */
   async remove(id: string): Promise<void> {
     await this.ready;
     const job = this.find(id);
@@ -554,6 +614,12 @@ export class JobRunner {
     this.jobs = this.jobs.filter((j) => j !== job);
     this.persist();
     await rm(this.logFile(job.id), { force: true });
+    if (job.kind === 'test') await this.removeTestFolder(job);
+  }
+
+  /** Deletes a test job's sample folder, `<data>/tests/<id>`, worked out from its id rather than the stored path. */
+  private async removeTestFolder(job: Job): Promise<void> {
+    await rm(testDirOf(this.app.dataDir, job.id), { recursive: true, force: true });
   }
 
   /** The last `lines` lines of a job's log (at most `MAX_LOG_TAIL`). 404 `not-found`. */
@@ -751,7 +817,7 @@ export class JobRunner {
       this.persist();
       try {
         if (job.kind === 'test') {
-          await this.deps.runTest(structuredClone(job), controller.signal, (e) => this.onEvent(job, e));
+          await this.runTestJob(job, controller.signal);
         } else if ((await this.runEncode(job, controller.signal, firstRun)) === 'paused') {
           job.state = 'queued';
           job.paused = true;
@@ -781,6 +847,27 @@ export class JobRunner {
       }
     })();
     return current.done;
+  }
+
+  /** Runs a test job from scratch: an empty sample folder, every unit waiting, no results; then stores what it measured. */
+  private async runTestJob(job: Job, signal: AbortSignal): Promise<void> {
+    await this.removeTestFolder(job);
+    await mkdir(testDirOf(this.app.dataDir, job.id), { recursive: true });
+    for (const ep of job.episodes) {
+      this.resetEpisode(ep);
+      ep.frames = 0;
+      delete ep.path;
+    }
+    if (job.test !== undefined) {
+      job.test.results = null;
+      job.test.audioStreams = null;
+    }
+    this.persist();
+    const outcome = await this.deps.runTest(structuredClone(job), signal, (e) => this.onEvent(job, e));
+    if (job.test !== undefined) {
+      job.test.audioStreams = outcome.audioStreams;
+      job.test.results = outcome.results;
+    }
   }
 
   /** Encodes the episodes a job still needs, one per call; 'paused' when it stopped early for a test job. */
@@ -888,10 +975,16 @@ export class JobRunner {
     const ep = job.episodes.find((x) => x.index === e.episode);
     switch (e.kind) {
       case 'log':
-        this.appendLog(job, `Episode ${e.episode}: ${e.message}`);
+        this.appendLog(job, e.episode > 0 ? `${job.kind === 'test' ? 'Sample encode' : 'Episode'} ${e.episode}: ${e.message}` : e.message);
         return;
       case 'episode-start':
         if (ep && e.path !== undefined) ep.path = e.path;
+        if (ep && job.kind === 'test') {
+          // A test's units start only here: the runner does not call the encoder for each of them itself.
+          this.resetEpisode(ep);
+          ep.state = 'running';
+          this.persist();
+        }
         this.appendLog(job, e.message);
         return;
       case 'progress':
@@ -924,7 +1017,8 @@ export class JobRunner {
     if (ep) {
       ep.framesDone = framesDone;
       ep.frames = frames;
-      if (frames > 0 && framesDone >= frames && !ep.encoded) {
+      // A test's sample is done only once it is packaged, which its `episode-done` says.
+      if (frames > 0 && framesDone >= frames && !ep.encoded && job.kind === 'encode') {
         // The closing event comes after the rename: the MKV is complete.
         ep.encoded = true;
         ep.path ??= this.mkvPath(job, ep);
