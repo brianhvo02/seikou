@@ -46,6 +46,19 @@ function chainIds(en: Entry): string[] {
   const links = tv ? ['PREQUEL', 'SEQUEL'] : ['PREQUEL', 'SEQUEL', 'PARENT', 'SIDE_STORY', 'SUMMARY'];
   return en.relations.filter((r) => links.includes(r.type) && TV_FORMATS.has(r.format ?? '')).map((r) => r.id);
 }
+const isNullableString = (v: unknown): v is string | null => v === null || typeof v === 'string';
+const isNullableNumber = (v: unknown): v is number | null => v === null || (typeof v === 'number' && Number.isFinite(v));
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+/** A stored encode entry with the fields the encodes catalogue reads, all of the right shape. */
+function isStoredEntry(id: string, en: unknown): en is Entry {
+  if (!/^anilist:\d+$/.test(id) || !isRecord(en) || en.id !== id || !isNullableString(en.format) || !isNullableNumber(en.year)) return false;
+  if (en.startDate !== undefined && !isNullableNumber(en.startDate)) return false;
+  const names = en.names;
+  if (!isRecord(names) || !isNullableString(names.english) || !isNullableString(names.romaji) || !isNullableString(names.native)) return false;
+  if (en.poster !== null && !(isRecord(en.poster) && typeof en.poster.small === 'string' && typeof en.poster.large === 'string')) return false;
+  return Array.isArray(en.relations) && en.relations.every((r) =>
+    isRecord(r) && typeof r.type === 'string' && typeof r.id === 'string' && isNullableString(r.format) && isNullableNumber(r.startDate));
+}
 /** Posters of lookup results kept for `GET art/<id>`, at most (ruling T9e). */
 const MAX_LOOKUP_ART = 500;
 /** A run saves and publishes its progress after this many groups, or this long, whichever comes first (ruling F4). */
@@ -202,7 +215,8 @@ export class TitleService {
   private readonly encodeArt = new Map<string, { small: string; large: string }>();
   /** AniList entries loaded for the encodes catalogue, kept in memory. */
   private readonly encodeEntries = new Map<string, Entry>();
-  private readonly encodeWanted = new Set<string>();
+  /** Ids to fetch for the encodes, each with its place in the walk that wanted it (1 for a start id). */
+  private readonly encodeWanted = new Map<string, number>();
   private readonly encodeFailedAt = new Map<string, number>();
   private encodeFetching: Promise<void> | null = null;
   private encodeEntriesDirty = false;
@@ -328,12 +342,12 @@ export class TitleService {
   /**
    * The AniList entries of `ids` and of the TV PREQUEL/SEQUEL chains they sit on (a film's story links to TV entries
    * too), from what is known (filed entries, the matcher's cache, earlier loads), by AniList number. Never waits for the
-   * network: entries not known yet are fetched in the background through the paced source, and the catalogue is
-   * rebuilt when they arrive, so the next call has them. A lookup that found nothing is not repeated for ten minutes.
+   * network: entries not known yet are fetched in the background through the paced source, so a later call has them.
+   * A lookup that found nothing is not repeated for ten minutes. Held entries off every chain of `ids` are dropped.
    */
   entriesFor(ids: readonly number[]): ReadonlyMap<number, Entry> {
     const out = new Map<number, Entry>();
-    const missing = new Set<string>();
+    const missing = new Map<string, number>();
     const walked = new Set<string>();
     for (const start of ids) {
       const queue = [`anilist:${start}`];
@@ -345,14 +359,14 @@ export class TitleService {
         count++;
         const en = this.knownEntry(id);
         if (!en) {
-          missing.add(id);
+          if (!missing.has(id)) missing.set(id, count);
           continue;
         }
         out.set(Number(id.slice('anilist:'.length)), en);
         for (const next of chainIds(en)) if (!walked.has(next)) queue.push(next);
       }
     }
-    if (ids.length > 0) this.pruneEncodeEntries(walked);
+    if (ids.length > 0) this.pruneEncodeEntries(this.chainsOf(ids));
     this.fetchMissing(missing);
     return out;
   }
@@ -362,20 +376,51 @@ export class TitleService {
     return this.entries.get(id)?.value ?? this.cache.get(`anilist-entry:${id}`)?.value[0] ?? this.encodeEntries.get(id);
   }
 
-  /** Starts the background fetch of `ids` (one at a time, so the source's pacing holds); a second call adds to it. */
-  private fetchMissing(ids: ReadonlySet<string>): void {
+  /**
+   * Every id on the chains of `ids` as the held entries' own relations draw them, with no limit and no network: from a
+   * start id along `chainIds`, and back to any held TV entry whose prequel or sequel is on the chain (so an entry past
+   * an id that isn't held stays on it). Entries outside it are the ones no encode reaches.
+   */
+  private chainsOf(ids: readonly number[]): Set<string> {
+    const keep = new Set<string>();
+    const expand = (start: string): void => {
+      const queue = [start];
+      while (queue.length > 0) {
+        const id = queue.shift()!;
+        if (keep.has(id)) continue;
+        keep.add(id);
+        const en = this.knownEntry(id);
+        if (en) for (const next of chainIds(en)) if (!keep.has(next)) queue.push(next);
+      }
+    };
+    for (const n of ids) expand(`anilist:${n}`);
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const [id, en] of this.encodeEntries) {
+        if (keep.has(id) || !TV_FORMATS.has(en.format ?? '') || !chainIds(en).some((next) => keep.has(next))) continue;
+        expand(id);
+        grew = true;
+      }
+    }
+    return keep;
+  }
+
+  /**
+   * Starts the background fetch of `ids` (one at a time, so the source's pacing holds); a second call adds to it. Each id
+   * carries its place in the walk, and a loaded entry's chain is followed only as far as the walk reads a chain.
+   */
+  private fetchMissing(ids: ReadonlyMap<string, number>): void {
     const now = this.now();
-    for (const id of ids) {
+    for (const [id, place] of ids) {
       const failed = this.encodeFailedAt.get(id);
       if (failed !== undefined && now - failed < ENCODE_RETRY_MS) continue;
-      this.encodeWanted.add(id);
+      this.encodeWanted.set(id, Math.min(place, this.encodeWanted.get(id) ?? place));
     }
     if (this.encodeFetching || this.encodeWanted.size === 0) return;
     this.encodeFetching = (async () => {
-      let loaded = 0;
       try {
-        while (this.encodeWanted.size > 0 && loaded < MAX_CHAIN_ENTRIES * 2) {
-          const id = this.encodeWanted.values().next().value!;
+        while (this.encodeWanted.size > 0) {
+          const [id, place] = this.encodeWanted.entries().next().value!;
           this.encodeWanted.delete(id);
           if (this.knownEntry(id)) continue;
           const src = this.sourceFor(id);
@@ -386,9 +431,11 @@ export class TitleService {
               continue;
             }
             this.encodeEntries.set(id, en);
-            loaded++;
             this.encodeEntriesDirty = true;
-            for (const next of chainIds(en)) if (!this.knownEntry(next)) this.encodeWanted.add(next);
+            if (place >= MAX_CHAIN_ENTRIES) continue;
+            for (const next of chainIds(en)) {
+              if (!this.knownEntry(next) && !this.encodeWanted.has(next)) this.encodeWanted.set(next, place + 1);
+            }
           } catch (err) {
             // an unexpected error is backed off like a miss, so a request doesn't retry it every time
             if (!(err instanceof SourceUnavailable)) console.error('loading an entry for the encodes failed', err);
@@ -404,7 +451,7 @@ export class TitleService {
     })();
   }
 
-  /** Drops loaded encode entries outside `keep` (the encode index's ids and their chains) and saves if any went. */
+  /** Drops loaded encode entries outside `keep` (the chains of the encode index's ids) and saves if any went. */
   private pruneEncodeEntries(keep: ReadonlySet<string>): void {
     for (const id of [...this.encodeEntries.keys()]) {
       if (keep.has(id)) continue;
@@ -430,7 +477,7 @@ export class TitleService {
       const data = JSON.parse(readFileSync(this.encodeFile, 'utf8')) as { version?: unknown; entries?: unknown };
       if (data.version !== 1 || typeof data.entries !== 'object' || data.entries === null) return;
       for (const [id, en] of Object.entries(data.entries)) {
-        if (/^anilist:\d+$/.test(id) && typeof en === 'object' && en !== null && (en as Entry).id === id && Array.isArray((en as Entry).relations)) this.encodeEntries.set(id, en as Entry);
+        if (isStoredEntry(id, en)) this.encodeEntries.set(id, en);
       }
     } catch {
       // absent or unreadable: fetched again

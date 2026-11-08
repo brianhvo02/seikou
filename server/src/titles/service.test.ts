@@ -620,6 +620,89 @@ describe('TitleService', () => {
     expect([...third.entriesFor([950]).keys()]).toEqual([]);
   });
 
+  describe('stored encode entries', () => {
+    const tvRel = (type: string, n: number) => ({ type, id: `anilist:${n}`, format: 'TV', startDate: null });
+    /** A TV chain of `n` entries from anilist:1000, each linked to its neighbours. */
+    const chain = (n: number): Entry[] => Array.from({ length: n }, (_, i) => entry(`anilist:${1000 + i}`, { english: `Comet ${i + 1}` }, {
+      relations: [...(i > 0 ? [tvRel('PREQUEL', 1000 + i - 1)] : []), ...(i < n - 1 ? [tvRel('SEQUEL', 1000 + i + 1)] : [])],
+    }));
+    const store = (es: readonly Entry[]): void => {
+      writeFileSync(join(dir, 'encode-entries.json'), JSON.stringify({ version: 1, entries: Object.fromEntries(es.map((en) => [en.id, en])) }));
+    };
+    const storedIds = (): string[] =>
+      Object.keys((JSON.parse(readFileSync(join(dir, 'encode-entries.json'), 'utf8')) as { entries: Record<string, unknown> }).entries).sort();
+
+    it('pruning keeps the entries beyond an intermediate the walk could not reach', async () => {
+      const [a, , c] = chain(3); // 1001 is neither stored nor fetchable
+      store([a!, c!]);
+      const anilist = fake({});
+      anilist.failIds.add('anilist:1001');
+      const s = service({ evidence: () => [], anilist });
+      s.entriesFor([1000]);
+      await s.encodeEntriesIdle();
+      expect(anilist.calls).toEqual(['entry:anilist:1001']);
+      s.entriesFor([1000]); // 1001 in backoff now
+      await s.encodeEntriesIdle();
+      s.close();
+      expect(storedIds()).toEqual(['anilist:1000', 'anilist:1002']);
+    });
+
+    it('pruning keeps every stored member of a chain longer than the walk goes', async () => {
+      const long = chain(35);
+      store(long);
+      const offline = fake({});
+      offline.down = true;
+      const s = service({ evidence: () => [], anilist: offline });
+      expect(s.entriesFor([1000]).size).toBe(30);
+      await s.encodeEntriesIdle();
+      s.close();
+      expect(storedIds()).toHaveLength(35);
+      const again = service({ evidence: () => [], anilist: offline });
+      expect(again.entriesFor([1034]).has(1000)).toBe(false); // the walk's limit from the other end
+      expect(again.entriesFor([1034]).has(1005)).toBe(true);
+    });
+
+    it('pruning drops a stored entry no encode reaches', async () => {
+      const [a, b] = chain(2);
+      const lone = entry('anilist:2000', { english: 'Elsewhere' });
+      store([a!, b!, lone]);
+      const s = service({ evidence: () => [], anilist: fake({}) });
+      s.entriesFor([1001]);
+      await s.encodeEntriesIdle();
+      s.close();
+      expect(storedIds()).toEqual(['anilist:1000', 'anilist:1001']);
+    });
+
+    it('the background fetch follows a chain no further than the walk reads it', async () => {
+      const anilist = fake({}, chain(40));
+      const s = service({ evidence: () => [], anilist });
+      s.entriesFor([1000]);
+      await s.encodeEntriesIdle();
+      expect(anilist.calls).toHaveLength(30);
+      expect(s.entriesFor([1000]).size).toBe(30);
+      await s.encodeEntriesIdle();
+      expect(anilist.calls).toHaveLength(30);
+    });
+
+    it.each([
+      ['no names', { names: null }],
+      ['a name that is not text', { names: { english: 5, romaji: null, native: null, synonyms: [] } }],
+      ['a bad format', { format: 7 }],
+      ['a bad year', { year: 'soon' }],
+      ['a bad start date', { startDate: 'soon' }],
+      ['a bad relation', { relations: [{ type: 'SEQUEL', id: 3 }] }],
+      ['a bad poster', { poster: { small: 'x' } }],
+    ])('skips a stored entry with %s and keeps the rest', (_, bad) => {
+      const good = entry('anilist:3000', { english: 'Good' });
+      const broken = { ...entry('anilist:3001', { english: 'Broken' }), ...bad };
+      writeFileSync(join(dir, 'encode-entries.json'), JSON.stringify({ version: 1, entries: { [good.id]: good, [broken.id]: broken } }));
+      const offline = fake({});
+      offline.down = true;
+      const s = service({ evidence: () => [], anilist: offline });
+      expect([...s.entriesFor([3000, 3001]).keys()]).toEqual([3000]);
+    });
+  });
+
   it('entriesFor backs off an id whose lookup throws something unexpected', async () => {
     const anilist = fake({});
     anilist.entry = async (id: string) => { anilist.calls.push(`entry:${id}`); throw new Error('boom'); };
