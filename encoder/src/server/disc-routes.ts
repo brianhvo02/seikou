@@ -155,7 +155,7 @@ export async function episodePlans(session: HelperSession): Promise<readonly Epi
 }
 
 /** The disc a disc route's key capture names, or an answered 404 `disc-changed` when the backend knows no such disc. */
-async function knownDisc(app: AppContext, res: ServerResponse, captured: string): Promise<DiscInfo | null> {
+export async function knownDisc(app: AppContext, res: ServerResponse, captured: string): Promise<DiscInfo | null> {
   let key: string;
   try {
     key = decodeURIComponent(captured);

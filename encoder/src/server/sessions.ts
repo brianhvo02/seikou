@@ -10,6 +10,7 @@ import { discKeyOfFolder } from '../disc/disc-key';
 import { loadPlaylist } from '../disc/playlist';
 import { EpisodeSpecError, parseEpisodeSpec } from '../plan/episodes';
 import { httpError, json, type AppContext, type HelperSession, type RouteTable } from './http';
+import { libraryOf } from './library';
 
 // Helper sessions: the backend opens the subtitle helper on any disc, playlist and episode list it is asked for, and
 // keeps each such session, under an id of its own, for the server's life. The discs the sessions are on are read
@@ -139,12 +140,12 @@ export class SessionStore {
   }
 
   /**
-   * The folder of the disc with `key` when a session is on it, else null. Two copies of one disc in different folders
+   * The folder of the disc with `key` when a session is on it or the last library scan found it, else null. Two copies of one disc in different folders
    * have the same key (it is the content's fingerprint, and their bytes are identical), so they share one entry: the
    * folder of the copy a session was last made on.
    */
   byDiscKey(key: string): string | null {
-    return this.discDirs.get(key) ?? null;
+    return this.discDirs.get(key) ?? libraryOf(this.app).dirOf(key);
   }
 }
 
@@ -167,7 +168,7 @@ const MAX_SESSION_BODY = 16 * 1024;
  * The session routes of the app:
  *
  *   POST /api/sessions   body `{ discKey, playlistId, episodeSpec }`; answers `{ id }`, the same id for the same three
- *                        values. The disc must be one a session is already on (404 `not-found` otherwise). Errors:
+ *                        values. The disc must be one a session is on or the library holds (404 `not-found` otherwise). Errors:
  *                        400 `bad-request` (a malformed body or playlist id), 400 `bad-episode-spec`, 404 `not-found`
  *                        (disc or playlist), 413 `too-large`.
  *

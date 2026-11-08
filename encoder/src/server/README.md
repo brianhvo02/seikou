@@ -30,7 +30,12 @@ The server listens on `127.0.0.1` only, so nothing else on the network can reach
 
 | Method | Path | Answer |
 | --- | --- | --- |
-| POST | `/api/sessions` | body `{ discKey, playlistId, episodeSpec }`; `{ id }`, the same id for the same three values; the disc must be one a session is already on; 400 `bad-request` (malformed body or playlist id) or `bad-episode-spec`, 404 `not-found` (disc or playlist), 413 `too-large` |
+| GET | `/api/library` | `{ roots, scanning, discs: [{ key, label, relPath, root, playlistCount, recordPlaylists }] }`: the last complete scan (the first request starts the first scan and waits a moment for it, then answers with what there is and `scanning: true`); `recordPlaylists` are the playlists with a saved subtitle record |
+| POST | `/api/library/rescan` | starts a scan, or joins the running one; 202 `{ scanning: true }` |
+| PUT | `/api/settings/roots` | body `{ roots: [absolute folder paths] }`; saves them, starts a scan, answers `{ roots }` (saved and run roots); 400 `bad-request` or `bad-root`, 413 `too-large` |
+| GET | `/api/discs/<discKey>/playlists` | `{ playlists: [{ id, durationMs, clips, chapters, likelyMain }] }`, longest first; `likelyMain`: at least 20 minutes and 4 chapters, or the longest |
+| GET | `/api/discs/<discKey>/playlists/<id>` | `{ id, durationMs, chapters: [{ index, startMs, lengthMs }], record }`, `record` being `{ episodeSpec }` of the saved subtitle record or null; 400 `bad-request` for an id that is not five digits, 404 `not-found` |
+| POST | `/api/sessions` | body `{ discKey, playlistId, episodeSpec }`; `{ id }`, the same id for the same three values; the disc must be one a session is on or the library holds; 400 `bad-request` (malformed body or playlist id) or `bad-episode-spec`, 404 `not-found` (disc or playlist), 413 `too-large` |
 | GET | `/api/sessions/<id>` | `{ discKey, label, playlistId, episodeSpec, toolsReady }`; `label` is the disc folder's name |
 | GET | `/api/discs/<discKey>/manifest` | the NAS `DiscManifest` |
 | GET, HEAD | `/api/discs/<discKey>/files/<path>` | the file, whole (200) or one `Range` (206); 416 past the end; 404 `not-found` for a missing file |
@@ -56,13 +61,14 @@ Episodes are numbered from 1 in the session's episode list, and their times are 
 
 There is no automatic lookup of the show from the disc: the AniList id is whatever the user searched for and picked. A failing or throttled upstream answers 503 `source-unavailable` with the failing `source` (`anilist`, `seadex` or `tosho`); an Anime Tosho release that does not exist answers 404 `not-on-tosho`. Uploads wait in `<data>/uploads/<batch>/` until commit.
 
-A `<discKey>` of no disc a session is on answers 404 `disc-changed`, which the engine reports as a changed disc. An `<id>` no session has answers 404 `no-session`.
+A `<discKey>` of no disc a session is on or the library holds answers 404 `disc-changed`, which the engine reports as a changed disc. An `<id>` no session has answers 404 `no-session`.
 
 ## Where to look
 
 - `server.ts`: the listener, the Host, path and token checks, routing (app and session tables) and the page's files.
 - `http.ts`: the app context, session and route types and the answer helpers.
 - `sessions.ts`: the helper sessions, the discs they are on, and `POST /api/sessions`.
+- `library.ts`: the disc library (`scanLibrary`, and `Library` per app, `libraryOf(app)`: the last complete scan of the saved and run roots, one scan at a time). `library-routes.ts`: its routes, the playlists and chapters of a disc and the roots setting (`subs/app-settings.ts` keeps `settings.json`).
 - `disc-routes.ts`: the NAS disc API, and a session's info, playlists and episode times.
 - `title-routes.ts`: the AniList search, episode titles and covers.
 - `covers.ts`: fetching a cover (`createCoverSource`: https only, a size cap, a timeout, image types only).

@@ -104,7 +104,9 @@ The encoder keeps what it learns and downloads in one directory: saved subtitle 
 
 `SEIKOU_ENCODE_FIXTURE=<folder>` makes `serve` read SeaDex, Anime Tosho and AniList answers and AniList covers from recorded files in that folder (`seadex.json`, `tosho.json`, `anilist.json`, `files/`, `covers/`) instead of the network. It is for tests; `encoder/tests/fixtures/fansubs/` is an example with made-up titles.
 
-Exit codes: 0 success, 1 encode or packaging failure, 2 usage error, bad episode spec, a saved record that does not match the encode (including one with no entry for an episode) or that ticks no audio stream for an episode, 3 required tools missing (for `serve`, the helper page not built).
+Exit codes: 0 success, 1 encode or packaging failure, 2 usage error, bad episode spec, a saved record that does not match the encode (including one with no entry for an episode) or that ticks no audio stream for an episode, 3 required tools missing (for `serve` and `app`, the page not built).
+
+`app [--root DIR]… [--port N] [--no-open]` starts the same backend with no helper session and opens its front page, printing `App: http://127.0.0.1:<port>/?t=<token>`. The page's disc library is every folder holding `BDMV/index.bdmv` up to four folders below the library folders: the ones saved in `settings.json` in the data directory (set from the page) and the `--root` folders of this run, which are not saved. A link that leads out of a library folder is not followed. It needs the built page like `serve` does, and runs until Ctrl-C.
 
 ## Where it sits in Seikou
 

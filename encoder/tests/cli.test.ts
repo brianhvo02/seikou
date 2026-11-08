@@ -164,6 +164,53 @@ describe('serve', () => {
   }, 60_000);
 });
 
+describe('app', () => {
+  it('starts without a disc argument, lists the library of its roots, and stops on SIGINT', async () => {
+    const webDir = mkdtempSync(join(tmpdir(), 'et-app-'));
+    writeFileSync(join(webDir, 'index.html'), '<!doctype html><title>app</title>');
+    const child = spawn(process.execPath, ['--import', 'tsx', fx('src/cli.ts'), 'app', '--root', fx('fixtures'), '--no-open', '--port', '0'], {
+      env: { ...process.env, SEIKOU_ENCODE_WEB_DIR: webDir, SEIKOU_ENCODE_DATA: webDir },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    try {
+      let out = '';
+      const url = await new Promise<string>((resolveUrl, reject) => {
+        child.once('exit', (code) => reject(new Error(`exited ${String(code)}: ${out}`)));
+        child.stdout.on('data', (d: Buffer) => {
+          out += d.toString();
+          const m = /App: (http:\/\/127\.0\.0\.1:\d+\/\?t=[0-9a-f]{64})/.exec(out);
+          if (m) resolveUrl(m[1]!);
+        });
+      });
+      child.removeAllListeners('exit');
+      expect((await fetch(url)).status).toBe(200);
+      const api = new URL(`/api/library${new URL(url).search}`, url);
+      let body: { discs: { label: string }[] } = { discs: [] };
+      for (let i = 0; i < 100 && body.discs.length === 0; i++) {
+        body = (await (await fetch(api)).json()) as typeof body;
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(body.discs.map((d) => d.label)).toContain('disc1');
+      const code = new Promise<number | null>((r) => child.once('exit', (c) => r(c)));
+      child.kill('SIGINT');
+      expect(await code).toBe(0);
+    } finally {
+      child.kill('SIGKILL');
+    }
+  }, 60_000);
+
+  it('without a built page exits 3', () => {
+    const empty = mkdtempSync(join(tmpdir(), 'et-app-empty-'));
+    let err: { status?: number } = {};
+    try {
+      execFileSync('npx', ['tsx', fx('src/cli.ts'), 'app', '--no-open'], { stdio: 'pipe', env: { ...process.env, SEIKOU_ENCODE_WEB_DIR: empty, SEIKOU_ENCODE_DATA: empty } });
+    } catch (e) {
+      err = e as typeof err;
+    }
+    expect(err.status).toBe(3);
+  }, 60_000);
+});
+
 describe('bestsourceCacheDir', () => {
   it('defaults to the data directory and honours --cache', () => {
     expect(bestsourceCacheDir(undefined, { SEIKOU_ENCODE_DATA: '/data/x' })).toBe('/data/x/bestsource');

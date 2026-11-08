@@ -8,6 +8,7 @@ import { alignRoutes } from './align-routes';
 import { discRoutes, discSessionRoutes } from './disc-routes';
 import { fansubRoutes } from './fansub-routes';
 import { httpError, sendFile, type AppContext, type HelperSession, type RouteTable } from './http';
+import { libraryRoutes } from './library-routes';
 import { recordRoutes } from './record-routes';
 import { sessionsOf, sessionStoreRoutes, type SessionStore } from './sessions';
 import { titleRoutes } from './title-routes';
@@ -21,7 +22,7 @@ export type { SessionStore } from './sessions';
 // 127.0.0.1 (DNS rebinding) from reading the answers.
 
 /** The app's routes, matched on the whole path, in match order. */
-const APP_ROUTES: RouteTable = [...sessionStoreRoutes, ...discRoutes];
+const APP_ROUTES: RouteTable = [...sessionStoreRoutes, ...discRoutes, ...libraryRoutes];
 
 /** A helper session's routes, matched on what follows `/api/sessions/<id>`, in match order. */
 const SESSION_ROUTES: RouteTable = [...discSessionRoutes, ...titleRoutes, ...fansubRoutes, ...alignRoutes, ...recordRoutes];

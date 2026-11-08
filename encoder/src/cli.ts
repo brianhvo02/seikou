@@ -31,7 +31,8 @@ const USAGE = `Usage:
       [--name PATTERN] [--crf N] [--preset N] [--svt-args "..."] [--opus-bitrate N] [--title T] [--cache DIR]
       [--no-subtitles] [--no-pgs] [--web DIR]
   seikou-encode package <episode.mkv> --out DIR
-  seikou-encode serve <disc> --playlist ID --episodes SPEC [--port N] [--no-open]`;
+  seikou-encode serve <disc> --playlist ID --episodes SPEC [--port N] [--no-open]
+  seikou-encode app [--root DIR]... [--port N] [--no-open]`;
 
 const pad = (n: number, w: number): string => String(n).padStart(w, '0');
 
@@ -83,6 +84,48 @@ function untilStopped(): Promise<void> {
   });
 }
 
+/** The built helper page's folder; throws `WebDirMissingError` when it holds no index.html. */
+function builtWebDir(): string {
+  const webDir = helperWebDir(process.env);
+  if (statSync(join(webDir, 'index.html'), { throwIfNoEntry: false })?.isFile() !== true) {
+    throw new WebDirMissingError(`The helper page is not built (no index.html in ${webDir}); run npm run encoder:web:build first`);
+  }
+  return webDir;
+}
+
+/** The external tools, or null (with a note printed) when some are missing. */
+function toolsOrNull(): ToolPaths | null {
+  try {
+    return findTools();
+  } catch (err) {
+    if (!(err instanceof ToolsError)) throw err;
+    console.log(`Alignment is unavailable: ${err.message.split('\n')[0]}`);
+    return null;
+  }
+}
+
+/** Starts the app on the library `roots` with no session, prints its address and runs until stopped. */
+async function app(roots: readonly string[], port: number, open: boolean): Promise<void> {
+  const real: string[] = [];
+  for (const root of roots) {
+    const dir = resolve(root);
+    if (statSync(dir, { throwIfNoEntry: false })?.isDirectory() !== true) throw new UsageError(`--root ${root} is not a folder`);
+    real.push(dir);
+  }
+  const webDir = builtWebDir();
+  const tools = toolsOrNull();
+  const token = randomBytes(32).toString('hex');
+  const server = await startHelperServer(
+    { dataDir: appDataDir(), token, webDir, tools, sources: createSources(process.env, fetch), roots: real },
+    port,
+  );
+  const url = `${server.url}?t=${token}`;
+  console.log(`App: ${url}`);
+  if (open) openInBrowser(url);
+  await untilStopped();
+  await server.close();
+}
+
 async function serve(
   disc: string,
   playlistId: string,
@@ -94,17 +137,8 @@ async function serve(
   // A bad episode spec is a usage error whether or not the page is built.
   const playlist = await loadPlaylist(discDir, playlistId);
   parseEpisodeSpec(episodes, playlist.chapters.length);
-  const webDir = helperWebDir(process.env);
-  if (statSync(join(webDir, 'index.html'), { throwIfNoEntry: false })?.isFile() !== true) {
-    throw new WebDirMissingError(`The helper page is not built (no index.html in ${webDir}); run npm run encoder:web:build first`);
-  }
-  let tools: ToolPaths | null = null;
-  try {
-    tools = findTools();
-  } catch (err) {
-    if (!(err instanceof ToolsError)) throw err;
-    console.log(`Alignment is unavailable: ${err.message.split('\n')[0]}`);
-  }
+  const webDir = builtWebDir();
+  const tools = toolsOrNull();
   const token = randomBytes(32).toString('hex');
   const server = await startHelperServer(
     { dataDir: appDataDir(), token, webDir, tools, sources: createSources(process.env, fetch), roots: [] },
@@ -140,6 +174,7 @@ async function run(argv: string[]): Promise<void> {
       title: { type: 'string' },
       cache: { type: 'string' },
       port: { type: 'string' },
+      root: { type: 'string', multiple: true },
       'no-open': { type: 'boolean' },
       'no-subtitles': { type: 'boolean' },
       'no-pgs': { type: 'boolean' },
@@ -147,6 +182,12 @@ async function run(argv: string[]): Promise<void> {
     },
   });
   const [command, disc] = positionals;
+  if (command === 'app') {
+    if (positionals.length > 1) throw new UsageError('expected: app [--root DIR]… [--port N] [--no-open]');
+    const port = values.port === undefined ? 0 : intOption(values.port, 'port');
+    await app(values.root ?? [], port, values['no-open'] !== true);
+    return;
+  }
   if (command === 'package') {
     if (disc === undefined || positionals.length > 2) throw new UsageError('expected: package <episode.mkv> --out DIR');
     if (values.out === undefined) throw new UsageError('--out is required');
@@ -234,7 +275,7 @@ async function run(argv: string[]): Promise<void> {
  * Runs the command line and returns the process exit code: 0 success, 1 encode or packaging failure (`package` on a
  * file that is not a readable Matroska file with an AV1 track, too), 2 usage
  * error, bad episode list or a saved record that does not fit the encode (another playlist or episode list, or an
- * episode with no audio stream ticked), 3 required tools missing (or, for `serve`, the helper page not built). Output goes to stdout and stderr; nothing
+ * episode with no audio stream ticked), 3 required tools missing (or, for `serve` and `app`, the page not built). Output goes to stdout and stderr; nothing
  * is thrown.
  */
 export async function main(argv: string[]): Promise<number> {
