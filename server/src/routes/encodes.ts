@@ -32,7 +32,7 @@ const notFound = (): Response => json(404, { error: 'not found' });
  * `GET|HEAD /api/encodes/<id>/files/EPISODE.MKV` (the file or a `Range` of it). With that base the engine reads an
  * encode as it reads a NAS disc. Without `encodes` only `status` answers, with `configured: false`.
  * The library: `GET /api/encodes/shows` (`{ shows: { id, name, poster, episodeCount }[], unfiled? }`, `unfiled`, the files
- * the index could not file, for owners only) and `GET /api/encodes/shows/<id>` (an `EncodeShow`), grouped by AniList as
+ * the index could not file, as paths under `ENCODES_DIR`, for owners only) and `GET /api/encodes/shows/<id>` (an `EncodeShow`), grouped by AniList as
  * the disc catalogue is. They answer from the entries the title service has cached and never wait for AniList.
  */
 export function encodeRoutes(auth: Auth, encodes: EncodeIndex | undefined, titles: TitleLibrary | undefined, waitMs = FIRST_SCAN_WAIT_MS, uploads?: UploadStore): Handler {
@@ -124,7 +124,7 @@ export function encodeRoutes(auth: Auth, encodes: EncodeIndex | undefined, title
       return show ? json(200, show) : notFound();
     }
     const shows = built.shows.map((s) => ({ id: s.id, name: s.name, poster: s.poster, episodeCount: s.seasons.reduce((n, x) => n + x.episodes.length, 0) }));
-    return json(200, { shows, ...(device.owner ? { unfiled: encodes.unfiled() } : {}) });
+    return json(200, { shows, ...(device.owner ? { unfiled: encodes.unfiled().map((u) => ({ path: encodes.relativePath(u.path), size: u.size })) } : {}) });
   };
 
   const read: Handler = async (req, url) => {

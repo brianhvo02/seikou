@@ -137,6 +137,12 @@ export class EncodeIndex {
     return join(this.opts.dir, ...rel.split('/'));
   }
 
+  /** A path under the encodes folder as the folder names it (`/`-separated), or the path itself when it is elsewhere. */
+  relativePath(path: string): string {
+    const rel = relative(this.opts.dir, path);
+    return rel === '' || rel.startsWith('..') || isAbsolute(rel) ? path : rel.split(sep).join('/');
+  }
+
   /** Builds the lists from the file records. */
   private resolve(): void {
     const winners = new Map<string, { rel: string; record: FileRecord; entry: StoredEntry }>();

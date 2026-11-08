@@ -8,6 +8,14 @@ what would change that decision.
 - **Rejected: demux PID peek.** Skipping unwanted PIDs before parsing measured
   103 ms vs 105 ms per 400 MB, which is no gain, so it was not kept.
 
+## Encodes library
+
+- **A show's id can change once its AniList chain has loaded.** An encodes show is named by its series' root AniList
+  entry. While a prequel isn't loaded yet (entries come from AniList in the background, one at a time), the show is
+  rooted at the earliest entry known, and its id changes when the real root arrives, as a disc title's does (ruling
+  T7h). The list is read again on a 404, so a stale link recovers. *Revisit if* ids need to outlive the chain loading
+  (a stored alias from the old id to the new one).
+
 ## Video
 
 - **Interlaced H.264 (1080i) is decoded in software and shown without deinterlacing.** Chrome's hardware decoders

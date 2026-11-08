@@ -205,6 +205,8 @@ export class TitleService {
   private readonly encodeWanted = new Set<string>();
   private readonly encodeFailedAt = new Map<string, number>();
   private encodeFetching: Promise<void> | null = null;
+  private encodeEntriesDirty = false;
+  private readonly encodeFile: string;
   /** A hash of what metadata.json holds, besides `lastRunAt`, so a run that changed nothing doesn't write it (M1). */
   private savedHash: string | null = null;
 
@@ -213,6 +215,8 @@ export class TitleService {
     this.art = opts.art;
     mkdirSync(opts.dataDir, { recursive: true });
     this.file = join(opts.dataDir, 'metadata.json');
+    this.encodeFile = join(opts.dataDir, 'encode-entries.json');
+    this.loadEncodeEntries();
     this.load();
     this.rebuild();
     this.arm();
@@ -348,6 +352,7 @@ export class TitleService {
         for (const next of chainIds(en)) if (!walked.has(next)) queue.push(next);
       }
     }
+    if (ids.length > 0) this.pruneEncodeEntries(walked);
     this.fetchMissing(missing);
     return out;
   }
@@ -382,20 +387,54 @@ export class TitleService {
             }
             this.encodeEntries.set(id, en);
             loaded++;
+            this.encodeEntriesDirty = true;
             for (const next of chainIds(en)) if (!this.knownEntry(next)) this.encodeWanted.add(next);
           } catch (err) {
-            if (!(err instanceof SourceUnavailable)) throw err;
+            // an unexpected error is backed off like a miss, so a request doesn't retry it every time
+            if (!(err instanceof SourceUnavailable)) console.error('loading an entry for the encodes failed', err);
             this.encodeFailedAt.set(id, this.now());
           }
         }
-      } catch (err) {
-        console.error('loading entries for the encodes failed', err);
       } finally {
         this.encodeWanted.clear();
         this.encodeFetching = null;
-        if (loaded > 0) this.rebuild();
+        // the disc catalogue doesn't change when these arrive; the encodes catalogue is built per request
+        if (this.encodeEntriesDirty) this.saveEncodeEntries();
       }
     })();
+  }
+
+  /** Drops loaded encode entries outside `keep` (the encode index's ids and their chains) and saves if any went. */
+  private pruneEncodeEntries(keep: ReadonlySet<string>): void {
+    for (const id of [...this.encodeEntries.keys()]) {
+      if (keep.has(id)) continue;
+      this.encodeEntries.delete(id);
+      this.encodeEntriesDirty = true;
+    }
+    if (this.encodeEntriesDirty && !this.encodeFetching) this.saveEncodeEntries();
+  }
+
+  /** Writes `encode-entries.json` (its own file: matching runs rebuild and prune metadata.json); a failure is logged. */
+  private saveEncodeEntries(): void {
+    try {
+      replaceAtomically(this.encodeFile, JSON.stringify({ version: 1, entries: Object.fromEntries(this.encodeEntries) }));
+      this.encodeEntriesDirty = false;
+    } catch (err) {
+      console.error('saving encode-entries.json failed', err);
+    }
+  }
+
+  /** Reads `encode-entries.json`; a missing or malformed file leaves the entries to be fetched again. */
+  private loadEncodeEntries(): void {
+    try {
+      const data = JSON.parse(readFileSync(this.encodeFile, 'utf8')) as { version?: unknown; entries?: unknown };
+      if (data.version !== 1 || typeof data.entries !== 'object' || data.entries === null) return;
+      for (const [id, en] of Object.entries(data.entries)) {
+        if (/^anilist:\d+$/.test(id) && typeof en === 'object' && en !== null && (en as Entry).id === id && Array.isArray((en as Entry).relations)) this.encodeEntries.set(id, en as Entry);
+      }
+    } catch {
+      // absent or unreadable: fetched again
+    }
   }
 
   /** Registers the posters an encodes catalogue names (art id to source URLs), for `encodeArtUrls`; the newest 500 stay. */

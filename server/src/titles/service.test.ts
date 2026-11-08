@@ -598,6 +598,41 @@ describe('TitleService', () => {
     expect(anilist.calls).toEqual(['entry:anilist:5', 'entry:anilist:5']);
   });
 
+  it('loaded encode entries survive a restart with no source, and pruning drops an entry no encode references', async () => {
+    const rel = (type: string, id: string) => ({ type, id, format: 'TV', startDate: null });
+    const a = entry('anilist:900', { english: 'Comet One' }, { relations: [rel('SEQUEL', 'anilist:901')] });
+    const b = entry('anilist:901', { english: 'Comet Two' }, { relations: [rel('PREQUEL', 'anilist:900')] });
+    const c = entry('anilist:950', { english: 'Other' });
+    const anilist = fake({}, [a, b, c]);
+    const s = service({ evidence: () => [], anilist });
+    s.entriesFor([901, 950]);
+    await s.encodeEntriesIdle();
+    s.close();
+    const offline = fake({});
+    offline.down = true;
+    const again = service({ evidence: () => [], anilist: offline });
+    expect([...again.entriesFor([901, 950]).keys()].sort()).toEqual([900, 901, 950]);
+    await again.encodeEntriesIdle();
+    expect(offline.calls).toEqual([]);
+    // 950 is no longer referenced: gone from memory and from the file
+    expect([...again.entriesFor([901]).keys()].sort()).toEqual([900, 901]);
+    const third = service({ evidence: () => [], anilist: offline });
+    expect([...third.entriesFor([950]).keys()]).toEqual([]);
+  });
+
+  it('entriesFor backs off an id whose lookup throws something unexpected', async () => {
+    const anilist = fake({});
+    anilist.entry = async (id: string) => { anilist.calls.push(`entry:${id}`); throw new Error('boom'); };
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const s = service({ evidence: () => [], anilist });
+    s.entriesFor([7]);
+    await s.encodeEntriesIdle();
+    s.entriesFor([7]);
+    await s.encodeEntriesIdle();
+    error.mockRestore();
+    expect(anilist.calls).toEqual(['entry:anilist:7']);
+  });
+
   it('takes the gate from the owner, else the config', () => {
     const owner = new OwnerStore(dir);
     const s = new TitleService({

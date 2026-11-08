@@ -226,7 +226,7 @@ describe('encodes routes', () => {
       const owner = await token('Owner', true);
       const guest = await token('Guest', false);
       const seen = (await (await library('shows', owner)).json()) as { unfiled?: { path: string; size: number }[] };
-      expect(seen.unfiled?.map((u) => u.size)).toEqual([10]);
+      expect(seen.unfiled).toEqual([{ path: 'loose.mkv', size: 10 }]);
       expect(((await (await library('shows', guest)).json()) as { unfiled?: unknown }).unfiled).toBeUndefined();
     });
 
