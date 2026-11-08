@@ -34,7 +34,9 @@ export interface EncodeIndexOptions {
   dataDir: string;
   log: (message: string) => void;
   /** Called with a file's path (relative to `dir`) each time the file is read; tests count these. */
-  onRead?: (relativePath: string) => void;
+  onRead?: (relativePath: string) => void | Promise<void>;
+  /** Writes the index file; default `replaceAtomically` (tests make it fail). */
+  writeIndex?: (file: string, json: string) => void;
   /** A file modified more recently than this is left for the next scan (a copy in progress). Default 10 s. */
   settleMs?: number;
   now?: () => number;
@@ -46,6 +48,8 @@ export interface EncodeIndexState {
   scanning: boolean;
   /** The folder is missing or unreadable; the last good list is still served. */
   rootMissing: boolean;
+  /** The folder is readable but holds no MKV while the index has entries (an unmounted drive?); the last list is served. */
+  rootEmpty: boolean;
   /** The message of a scan that failed, else null. */
   scanError: string | null;
 }
@@ -95,6 +99,8 @@ export class EncodeIndex {
   private firstScan: Promise<void> | null = null;
   private firstSettled = false;
   private rootProblem: string | null = null;
+  private rootEmpty = false;
+  private closed = false;
   private scanError: string | null = null;
 
   constructor(private readonly opts: EncodeIndexOptions) {
@@ -112,10 +118,17 @@ export class EncodeIndex {
     this.resolve();
   }
 
-  private save(): void {
+  private save(files: Map<string, FileRecord>): void {
     mkdirSync(this.opts.dataDir, { recursive: true });
-    const value: Persisted = { version: 1, files: Object.fromEntries(this.files) };
-    replaceAtomically(this.file, JSON.stringify(value));
+    const value: Persisted = { version: 1, files: Object.fromEntries(files) };
+    (this.opts.writeIndex ?? replaceAtomically)(this.file, JSON.stringify(value));
+  }
+
+  /** Writes `files` to disk first, then makes them the list served; a failed write leaves both as they were. */
+  private commit(files: Map<string, FileRecord>): void {
+    this.save(files);
+    this.files = files;
+    this.resolve();
   }
 
   private abs(rel: string): string {
@@ -149,7 +162,7 @@ export class EncodeIndex {
   }
 
   private async read(rel: string, size: number, mtimeMs: number): Promise<FileRecord> {
-    this.opts.onRead?.(rel);
+    await this.opts.onRead?.(rel);
     try {
       const mkv = await withFileReader(this.abs(rel), (reader) => openMatroska(reader));
       const anilistId = whole(mkv.tags.ANILIST_ID);
@@ -206,6 +219,7 @@ export class EncodeIndex {
 
   /** Reads the folder; files unchanged since the last scan are not read again. Overlapping calls share one scan. */
   scan(): Promise<void> {
+    if (this.closed) return Promise.resolve();
     this.scanning ??= this.doScan()
       .catch((err: unknown) => {
         this.scanError = err instanceof Error ? err.message : String(err);
@@ -238,6 +252,13 @@ export class EncodeIndex {
       return;
     }
     this.rootProblem = null;
+    if (found.length === 0 && this.files.size > 0) {
+      // Readable but empty, as a failed mount leaves its mountpoint: keep the list. Removing encodes on purpose goes through the delete route.
+      if (!this.rootEmpty) this.opts.log(`encodes: ${this.opts.dir} holds no MKV files; keeping the last index`);
+      this.rootEmpty = true;
+      return;
+    }
+    this.rootEmpty = false;
     this.scanError = null;
     const settleMs = this.opts.settleMs ?? DEFAULT_SETTLE_MS;
     const now = (this.opts.now ?? Date.now)();
@@ -258,13 +279,16 @@ export class EncodeIndex {
     }
     // a folder we couldn't read keeps what it held
     for (const [rel, record] of this.files) if (!next.has(rel) && skipped.some((d) => rel.startsWith(`${d}/`))) next.set(rel, record);
-    this.files = next;
-    this.resolve();
-    this.save();
+    this.commit(next);
+  }
+
+  /** Stops further scans (shutdown). */
+  close(): void {
+    this.closed = true;
   }
 
   state(): EncodeIndexState {
-    return { scanning: !this.firstSettled, rootMissing: this.rootProblem !== null, scanError: this.scanError };
+    return { scanning: !this.firstSettled, rootMissing: this.rootProblem !== null, rootEmpty: this.rootEmpty, scanError: this.scanError };
   }
 
   /** True once the first scan has finished (well or not: see `state`); false after `ms`, or when none was started. */
@@ -295,15 +319,24 @@ export class EncodeIndex {
 
   /** Reads one file (say, one just uploaded) into the index; throws when it names no AniList id and episode. */
   async add(path: string): Promise<EncodeEntry> {
-    const real = await realpath(path);
-    const rel = posix(relative(await realpath(this.opts.dir), real));
+    let root: string;
+    try {
+      root = await realpath(this.opts.dir);
+    } catch {
+      throw new Error('the encodes folder is missing');
+    }
+    let real: string;
+    try {
+      real = await realpath(path);
+    } catch {
+      throw new Error('no such file');
+    }
+    const rel = posix(relative(root, real));
     if (rel === '' || rel === '..' || rel.startsWith('../') || isAbsolute(rel) || rel.split('/').some((seg) => seg.startsWith('.'))) throw new Error('not inside the encodes folder');
     const s = await stat(real);
     const record = await this.read(rel, s.size, s.mtimeMs);
     if (!record.entry) throw new Error('the file names no AniList id and episode in its tags');
-    this.files.set(rel, record);
-    this.resolve();
-    this.save();
+    this.commit(new Map(this.files).set(rel, record));
     return this.get(record.entry.id)!;
   }
 
@@ -312,8 +345,8 @@ export class EncodeIndex {
     const entry = this.get(id);
     if (!entry) return;
     await rm(entry.path, { force: true });
-    this.files.delete(posix(relative(this.opts.dir, entry.path)));
-    this.resolve();
-    this.save();
+    const files = new Map(this.files);
+    files.delete(posix(relative(this.opts.dir, entry.path)));
+    this.commit(files);
   }
 }

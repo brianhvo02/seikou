@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { appendFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -117,6 +117,49 @@ describe('encodes routes', () => {
     expect(r.headers.get('retry-after')).toBe('5');
     expect(await r.json()).toEqual({ error: 'indexing' });
     expect(await (await get('status', t)).json()).toEqual({ configured: true, scanning: true });
+  });
+
+  it('answers 503 when a slow first scan outlasts the wait, then serves once it is done', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const data = join(tmp, 'data');
+    const dir = join(tmp, 'encodes');
+    mkdirSync(join(dir, '990001'), { recursive: true });
+    cpSync(join(FIXTURE, '1.mkv'), join(dir, '990001/1.mkv'));
+    const slow = new EncodeIndex({ dir, dataDir: data, log: () => {}, settleMs: 0, onRead: () => gate });
+    void slow.scan();
+    auth = new Auth(new Store(data), Date.now);
+    const library = new Library([], join(data, 'library.json'), { scanPauseMs: 0 });
+    const server = createServer(appHandlers({ auth, library, bdjStore: new BdjStore(data), publicBase: 'https://nas.example/bluray/api/', encodes: slow, encodesWaitMs: 30 }));
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    close = () => { server.close(); server.closeAllConnections(); };
+    const t = await token('Owner', true);
+    expect((await get('990001-1/manifest', t)).status).toBe(503);
+    release();
+    await slow.ready(2000);
+    expect((await get('990001-1/manifest', t)).status).toBe(200);
+  });
+
+  it('status carries scanError and rootEmpty', async () => {
+    const index = (await start(true, { waitMs: 2000 }))!;
+    const t = await token('Owner', true);
+    await index.ready(2000);
+    rmSync(join(tmp, 'encodes', '990001'), { recursive: true });
+    await index.scan();
+    expect(await (await get('status', t)).json()).toEqual({ configured: true, count: 1, rootEmpty: true });
+  });
+
+  it('the manifest size is the live size of the file', async () => {
+    const index = (await start(true, { waitMs: 2000 }))!;
+    const t = await token('Owner', true);
+    await index.ready(2000);
+    const file = join(tmp, 'encodes/990001/1.mkv');
+    appendFileSync(file, Buffer.alloc(1000));
+    const manifest = (await (await get('990001-1/manifest', t)).json()) as DiscManifest;
+    expect(manifest.files[0]!.size).toBe(statSync(file).size);
+    const served = await get('990001-1/files/EPISODE.MKV', t);
+    expect((await served.arrayBuffer()).byteLength).toBe(manifest.files[0]!.size);
   });
 
   it('status reports a missing folder', async () => {

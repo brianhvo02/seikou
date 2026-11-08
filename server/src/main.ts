@@ -248,6 +248,7 @@ async function serve(config: Config): Promise<void> {
   const server = createServer(handlers);
   const stopRtc = rendezvous && config.rendezvousUrl !== undefined ? startRtc(config, config.rendezvousUrl, rendezvous, handlers, auth, relay) : async () => {};
 
+  let encodesTimer: NodeJS.Timeout | undefined;
   const scheduleScans = (): void => {
     const run = (): void => {
       library.scan().catch((err: unknown) => console.error('library scan failed', err));
@@ -271,12 +272,15 @@ async function serve(config: Config): Promise<void> {
         encodes.scan().catch((err: unknown) => console.error('encodes scan failed', err));
       };
       rescan();
-      setInterval(rescan, 10 * 60_000).unref();
+      encodesTimer = setInterval(rescan, 10 * 60_000);
+      encodesTimer.unref();
     }
   });
 
   for (const signal of ['SIGTERM', 'SIGINT'] as const) {
     process.on(signal, () => {
+      if (encodesTimer) clearInterval(encodesTimer);
+      encodes?.close();
       titles.close();
       fansubs.close();
       levels?.close();

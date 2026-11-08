@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
+import { stat } from 'node:fs/promises';
 import type { DiscManifest } from '@seikou/nas/nas-api';
 import type { Auth } from '../auth';
 import type { EncodeIndex } from '../encodes/index-store';
@@ -34,7 +35,7 @@ export function encodeRoutes(auth: Auth, encodes: EncodeIndex | undefined, title
       if (!encodes) return json(200, { configured: false, count: 0 });
       if (!(await encodes.ready(waitMs))) return json(200, { configured: true, scanning: true });
       const state = encodes.state();
-      return json(200, { configured: true, count: encodes.list().length, ...(state.rootMissing ? { rootMissing: true } : {}), ...(state.scanError !== null ? { scanError: state.scanError } : {}) });
+      return json(200, { configured: true, count: encodes.list().length, ...(state.rootMissing ? { rootMissing: true } : {}), ...(state.rootEmpty ? { rootEmpty: true } : {}), ...(state.scanError !== null ? { scanError: state.scanError } : {}) });
     }
     if (!encodes) return notFound();
     if (!(await encodes.ready(waitMs))) return json(503, { error: 'indexing' }, { 'Retry-After': '5' });
@@ -45,7 +46,14 @@ export function encodeRoutes(auth: Auth, encodes: EncodeIndex | undefined, title
       return json(200, detail);
     }
     if (action === 'manifest') {
-      const manifest: DiscManifest = { discId: entry.id, name: entry.episodeTitle ?? `Episode ${entry.episode}`, files: [{ path: 'EPISODE.MKV', size: entry.size }], inline: {} };
+      // the live size, so the engine's idea of the file and the bytes served agree while a file settles
+      let size: number;
+      try {
+        size = (await stat(entry.path)).size;
+      } catch {
+        return notFound();
+      }
+      const manifest: DiscManifest = { discId: entry.id, name: entry.episodeTitle ?? `Episode ${entry.episode}`, files: [{ path: 'EPISODE.MKV', size }], inline: {} };
       return json(200, manifest);
     }
     return serveFile(req, entry.path);

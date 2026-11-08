@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { chmodSync, cpSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, mkdirSync, symlinkSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -12,7 +12,7 @@ let data: string;
 let reads: string[];
 let logs: string[];
 
-const make = (settleMs = 0): EncodeIndex => new EncodeIndex({ dir, dataDir: data, log: (m) => logs.push(m), onRead: (p) => reads.push(p), settleMs });
+const make = (settleMs = 0): EncodeIndex => new EncodeIndex({ dir, dataDir: data, log: (m) => logs.push(m), onRead: (p) => { reads.push(p); }, settleMs });
 
 beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), 'encodes-'));
@@ -91,7 +91,7 @@ describe('EncodeIndex', () => {
     rmSync(dir, { recursive: true });
     const index = make();
     await index.scan();
-    expect(index.state()).toEqual({ scanning: false, rootMissing: true, scanError: null });
+    expect(index.state()).toEqual({ scanning: false, rootMissing: true, rootEmpty: false, scanError: null });
     expect(index.list()).toEqual([]);
     expect(logs.filter((l) => l.includes("can't be read")).length).toBe(1);
     await index.scan();
@@ -140,6 +140,54 @@ describe('EncodeIndex', () => {
     expect(later.list().map((e) => e.id)).toEqual(['990001-1']);
   });
 
+  it('keeps the index when the folder is readable but empty', async () => {
+    cpSync(join(FIXTURES, '1.mkv'), join(dir, '990001/1.mkv'));
+    const index = make();
+    await index.scan();
+    rmSync(join(dir, '990001'), { recursive: true });
+    await index.scan();
+    await index.scan();
+    expect(index.list().map((e) => e.id)).toEqual(['990001-1']);
+    expect(index.state().rootEmpty).toBe(true);
+    expect(logs.filter((l) => l.includes('holds no MKV')).length).toBe(1);
+    mkdirSync(join(dir, '990001'));
+    cpSync(join(FIXTURES, '2.mkv'), join(dir, '990001/2.mkv'));
+    await index.scan();
+    expect(index.state().rootEmpty).toBe(false);
+    expect(index.list().map((e) => e.id)).toEqual(['990001-2']);
+  });
+
+  it('keeps the old list and reports scanError when the index cannot be saved', async () => {
+    cpSync(join(FIXTURES, '1.mkv'), join(dir, '990001/1.mkv'));
+    let fail = false;
+    const index = new EncodeIndex({ dir, dataDir: data, log: () => {}, settleMs: 0, writeIndex: (f, j) => { if (fail) throw new Error('disk full'); writeFileSync(f, j); } });
+    await index.scan();
+    cpSync(join(FIXTURES, '2.mkv'), join(dir, '990001/2.mkv'));
+    fail = true;
+    await expect(index.scan()).rejects.toThrow('disk full');
+    expect(index.list().map((e) => e.id)).toEqual(['990001-1']);
+    expect(index.state().scanError).toBe('disk full');
+    fail = false;
+    await index.scan();
+    expect(index.list().map((e) => e.id)).toEqual(['990001-1', '990001-2']);
+    expect(index.state().scanError).toBeNull();
+  });
+
+  it('refuses a symlink inside the folder that points outside it', async () => {
+    const index = make();
+    await index.scan();
+    cpSync(join(FIXTURES, '1.mkv'), join(tmp, 'outside.mkv'));
+    symlinkSync(join(tmp, 'outside.mkv'), join(dir, '990001/link.mkv'));
+    await expect(index.add(join(dir, '990001/link.mkv'))).rejects.toThrow('not inside');
+  });
+
+  it('says so when the folder or the file is missing on add', async () => {
+    const index = make();
+    await expect(index.add(join(dir, '990001/none.mkv'))).rejects.toThrow('no such file');
+    rmSync(dir, { recursive: true });
+    await expect(index.add(join(dir, '990001/none.mkv'))).rejects.toThrow('the encodes folder is missing');
+  });
+
   it('refuses to add a file outside the folder', async () => {
     const index = make();
     await index.scan();
@@ -150,11 +198,12 @@ describe('EncodeIndex', () => {
 
   it('forgets a file that is gone', async () => {
     cpSync(join(FIXTURES, '1.mkv'), join(dir, '990001/1.mkv'));
+    cpSync(join(FIXTURES, '2.mkv'), join(dir, '990001/2.mkv'));
     const index = make();
     await index.scan();
     rmSync(join(dir, '990001/1.mkv'));
     await index.scan();
-    expect(index.list()).toEqual([]);
+    expect(index.list().map((e) => e.id)).toEqual(['990001-2']);
   });
 
   it('adds and removes one file', async () => {
