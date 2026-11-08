@@ -36,14 +36,14 @@ const release: ReleaseAnswer = {
   },
 };
 
-const recordTrack = (file: string) => ({ file, kind: 'full' as const, language: 'eng', name: 'GroupA full', shiftMs: 1200, nudgeMs: 0, split: null, included: true });
+const recordTrack = (file: string) => ({ file, release: 'tosho-7', kind: 'full' as const, language: 'eng', name: 'GroupA full', shiftMs: 1200, nudgeMs: 0, split: null, included: true });
 const meta = (title: string) => ({ title, video: { name: '', language: 'und' }, audio: [{ pid: 0x1100, name: 'Japanese', language: 'jpn', included: true }], chapters: ['Chapter 1'] });
 const record: SubtitleRecord = {
   disc: { key: session.discKey, label: session.label },
   playlist: '00000',
   episodeSpec: '1-3,4-5',
   anilist: { id: 900101, title: 'Lantern Harbor', episodeOffset: 0 },
-  release: { source: 'seadex', id: 'tosho-7', group: 'GroupA', label: release.label },
+  releases: [{ source: 'seadex', id: 'tosho-7', group: 'GroupA', label: release.label }],
   fonts: [],
   episodes: [
     { index: 1, title: 'Arrival', tracks: [recordTrack('releases/tosho-7/11-t1.ass')], metadata: meta('Harbor premiere') },
@@ -120,7 +120,7 @@ describe('SaveBar', () => {
   });
 
   it('says to add the files again when the missing release was the user own', async () => {
-    const local = { ...record, release: { source: 'local' as const, id: `local-${'b'.repeat(16)}`, group: '', label: 'Your files' } };
+    const local = { ...record, releases: [{ source: 'local' as const, id: `local-${'b'.repeat(16)}`, group: '', label: 'Your files' }] };
     const api = fakeApi({
       record: vi.fn(async () => ({ record: local, missing: [{ release: 'Your files', files: ['x.ass'] }] })),
       release: vi.fn(async () => Promise.reject(new ApiError(404, 'not-found', 'No such release.'))),

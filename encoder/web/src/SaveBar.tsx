@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { useEffect, useRef, useState, type Dispatch, type ReactNode } from 'react';
 import type { HelperApi } from './api';
-import type { EpisodesAnswer, RecordAnswer, ReleaseAnswer, SessionInfo, SubtitleRecord } from './api-types';
-import { fromRecord, toRecord, type HelperAction, type HelperState } from './helper-model';
+import type { EpisodesAnswer, RecordAnswer, RecordRelease, ReleaseAnswer, SessionInfo, SubtitleRecord } from './api-types';
+import { fromRecord, releaseOf, toRecord, type HelperAction, type HelperState } from './helper-model';
 
 /** What the save bar needs. `session` and `episodes` are null until the page has loaded them. */
 export interface SaveBarProps {
@@ -49,20 +49,22 @@ function toshoIdOf(key: string): number | null {
 
 /**
  * Save for encoding, and what the saved record says when the page loads. Once the run is known it asks for the
- * saved record and, when there is one, for its release again, and restores both with `fromRecord` (unless the user
- * has already changed something). When the record's release or some of its cached files are gone, it says so and
- * offers "Fetch <release> again", which fetches the release from Anime Tosho and restores the saved choices onto it;
- * the user's own files cannot be fetched, so it asks to add them again. While the saved release is missing and no
- * other release is picked, Save is off, because it would write the record without its release and tracks. Save
- * writes `toRecord` of the state and answers "Saved at <time>" or the server's message. Renders the button row (with
- * `children` first) and, below it, the status and any missing release.
+ * saved record and, when there is one, for each of its releases again, and restores the record with the releases
+ * that came back (`fromRecord`), unless the user has already changed something. When one of the record's releases or
+ * some of its cached files are gone, it names the first such release and offers "Fetch <release> again", which
+ * fetches it from Anime Tosho and restores the saved choices onto it and the releases already pooled; the user's own
+ * files cannot be fetched, so it asks to add them again. While a saved release is missing and the pool is empty, Save
+ * is off, because it would write the record without its releases and tracks. Save writes `toRecord` of the state and
+ * answers "Saved at <time>" or the server's message. Renders the button row (with `children` first) and, below it,
+ * the status and any missing release.
  */
 export function SaveBar({ api, state, dispatch, session, episodes, children }: SaveBarProps) {
   const [status, setStatus] = useState<Status | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<SubtitleRecord | null>(null);
   const [missing, setMissing] = useState<RecordAnswer['missing']>([]);
-  const [releaseGone, setReleaseGone] = useState(false);
+  // ids of the saved record's releases the backend no longer holds
+  const [goneIds, setGoneIds] = useState<readonly string[]>([]);
   const [fetching, setFetching] = useState(false);
   const dirty = useRef(state.dirty);
   dirty.current = state.dirty;
@@ -85,26 +87,22 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
       }
       const record = answer.record;
       if (record === null) return;
-      let release: ReleaseAnswer | null = null;
-      if (record.release !== null) {
-        try {
-          release = await api.release(record.release.id, record.anilist?.episodeOffset ?? 0);
-        } catch {
-          release = null;
-        }
-      }
+      const offset = record.anilist?.episodeOffset ?? 0;
+      const answers = await Promise.all(record.releases.map((r) => api.release(r.id, offset).catch((): ReleaseAnswer | null => null)));
       if (!live) return;
+      const found = answers.filter((a): a is ReleaseAnswer => a !== null);
+      const gone = record.releases.filter((_, i) => answers[i] === null).map((r) => r.id);
       setSaved(record);
       setMissing(answer.missing);
-      setReleaseGone(record.release !== null && release === null);
+      setGoneIds(gone);
       if (dirty.current) {
         setStatus({ ok: true, text: `Choices saved ${dateTimeOf(record.savedAt)} were found after you started. Reload the page to go back to them.` });
         return;
       }
-      dispatch({ type: 'load', state: fromRecord(record, release, episodes) });
+      dispatch({ type: 'load', state: fromRecord(record, found, episodes) });
       const when = dateTimeOf(record.savedAt);
-      const partly = record.release !== null && release === null;
-      setStatus({ ok: true, text: partly ? `Restored what was saved ${when}, except the release.` : `Restored the choices saved ${when}.` });
+      const partly = gone.length > 0;
+      setStatus({ ok: true, text: partly ? `Restored what was saved ${when}, except ${gone.length === 1 ? 'a release' : 'some releases'}.` : `Restored the choices saved ${when}.` });
     })();
     return () => {
       live = false;
@@ -119,7 +117,7 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
       dispatch({ type: 'saved' });
       setSaved(stored);
       setMissing([]);
-      setReleaseGone(false);
+      setGoneIds([]);
       setStatus({ ok: true, text: `Saved at ${timeOf(stored.savedAt)}` });
     } catch (e) {
       setStatus({ ok: false, text: messageOf(e) });
@@ -128,14 +126,15 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
     }
   };
 
-  const fetchAgain = async (record: SubtitleRecord, toshoId: number) => {
+  const fetchAgain = async (record: SubtitleRecord, gone: RecordRelease, toshoId: number) => {
     setFetching(true);
     try {
       const release = await api.fetchRelease(toshoId, record.anilist?.episodeOffset ?? 0);
-      dispatch({ type: 'load', state: fromRecord(record, release, episodes) });
-      setMissing([]);
-      setReleaseGone(false);
-      setStatus({ ok: true, text: `Fetched ${record.release?.label ?? 'the release'} again and restored the saved choices.` });
+      const pooled = state.releases.map((p) => p.release).filter((r) => r.key !== release.key);
+      dispatch({ type: 'load', state: fromRecord(record, [...pooled, release], episodes) });
+      setMissing((m) => m.filter((x) => x.release !== gone.label));
+      setGoneIds((ids) => ids.filter((id) => id !== gone.id));
+      setStatus({ ok: true, text: `Fetched ${gone.label} again and restored the saved choices.` });
     } catch (e) {
       setStatus({ ok: false, text: messageOf(e) });
     } finally {
@@ -143,14 +142,13 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
     }
   };
 
-  // the saved release is gone (or some of its files are) and the user has not picked another one
+  // the first saved release that is gone (or some of whose files are); one gone from the backend but back in the pool
+  // (added again in step 1) no longer counts
   const gone =
-    saved !== null && saved.release !== null && (releaseGone || missing.length > 0) && (state.release === null || state.release.key === saved.release.id)
-      ? saved.release
-      : null;
+    saved?.releases.find((r) => (goneIds.includes(r.id) && releaseOf(state, r.id) === null) || missing.some((m) => m.release === r.label)) ?? null;
   // saving now would write no release and no tracks over the saved ones
-  const blocked = gone !== null && state.release === null;
-  const goneFiles = missing.reduce((n, m) => n + m.files.length, 0);
+  const blocked = gone !== null && state.releases.length === 0;
+  const goneFiles = missing.filter((m) => m.release === gone?.label).reduce((n, m) => n + m.files.length, 0);
   const toshoId = gone === null ? null : toshoIdOf(gone.id);
 
   return (
@@ -178,7 +176,7 @@ export function SaveBar({ api, state, dispatch, session, episodes, children }: S
                 {blocked && ' Saving is off until the release is back, so the saved choices are not overwritten.'}
               </p>
               {toshoId !== null && (
-                <button type="button" className="quiet" disabled={fetching} onClick={() => void fetchAgain(saved, toshoId)}>
+                <button type="button" className="quiet" disabled={fetching} onClick={() => void fetchAgain(saved, gone, toshoId)}>
                   {fetching ? `Fetching ${gone.label}…` : `Fetch ${gone.label} again`}
                 </button>
               )}

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { HelperApi } from '../api';
 import type { CachedTrack, ReleaseAnswer, TitleHit } from '../api-types';
 import { initialState, reduce } from '../helper-model';
+import { fileValue } from './match-model';
 import { MatchStep } from './MatchStep';
 
 afterEach(cleanup);
@@ -57,7 +58,7 @@ function fakeApi(titles: Record<number, string>): HelperApi {
 function Harness({ api, offset = 0 }: { api: HelperApi; offset?: number }) {
   const [state, dispatch] = useReducer(reduce, initialState(), (s) => {
     const withTitle = reduce(reduce(s, { type: 'setTitle', title: hit }), { type: 'setOffset', offset });
-    return reduce(withTitle, { type: 'setRelease', release: answer, from: 'tosho' });
+    return reduce(withTitle, { type: 'addRelease', release: answer, from: 'tosho' });
   });
   return <MatchStep api={api} state={state} dispatch={dispatch} />;
 }
@@ -105,7 +106,7 @@ describe('MatchStep', () => {
     render(<Harness api={fakeApi({})} />);
     const list = screen.getByRole('list', { name: 'Not matched' });
     expect(within(list).getByText('Lantern Harbor - Special.mkv')).toBeTruthy();
-    fireEvent.change(within(rowOf(3)).getByRole('combobox'), { target: { value: 'f9' } });
+    fireEvent.change(within(rowOf(3)).getByRole('combobox'), { target: { value: fileValue('tosho-11', 'f9') } });
     await waitFor(() => expect(screen.queryByRole('list', { name: 'Not matched' })).toBeNull());
     expect(within(rowOf(3)).getAllByRole('checkbox', { name: /Full dialogue/ })).toHaveLength(1);
   });

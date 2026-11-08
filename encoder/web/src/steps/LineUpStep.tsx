@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type Dispatch } from 'react';
 import { ApiError, type HelperApi } from '../api';
 import type { AlignAnswer, CachedRelease, EpisodesAnswer, FansubAlignment, SessionInfo } from '../api-types';
-import type { HelperAction, HelperState } from '../helper-model';
+import { episodeFile, type HelperAction, type HelperState } from '../helper-model';
 import { Player } from '../player/Player';
 import { showAt, type PlayerLike } from '../player/use-controller';
 import { AlignmentStrip } from '../strip/AlignmentStrip';
@@ -26,7 +26,7 @@ import {
 export interface LineUpStepProps {
   /** The backend client: lining up, the retimed tracks, the fonts and the disc. */
   readonly api: HelperApi;
-  /** The page's state; the step reads the release, the match, the choices and the timings. */
+  /** The page's state; the step reads the choices, the pooled releases their files come from, and the timings. */
   readonly state: HelperState;
   /** Applies an action to the page's state (timings, nudges, accept, skip). */
   readonly dispatch: Dispatch<HelperAction>;
@@ -111,9 +111,11 @@ export function LineUpStep({ api, state, dispatch, session, episodes, controller
 
   const episode = episodes.episodes.find((e) => e.index === shown) ?? null;
   const choice = shown === null ? undefined : state.choices[shown];
-  const release = state.release;
-  const fileId = state.match.find((r) => r.episode === shown)?.fileId ?? null;
-  const file = release?.files.find((f) => f.id === fileId) ?? null;
+  // the episode's file, from whichever pooled release its choice names
+  const found = shown === null ? null : episodeFile(state, shown);
+  const release = found?.pooled.release ?? null;
+  const file = found?.file ?? null;
+  const fileId = file?.id ?? null;
   const chosen = file && choice !== undefined && choice !== 'none' ? file.tracks.filter((t) => choice.trackIds.includes(t.id)) : [];
   const hasTracks = shown !== null && release !== null && file !== null && chosen.length > 0;
 

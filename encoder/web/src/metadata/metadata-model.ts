@@ -56,7 +56,7 @@ export interface DefaultTrackInput {
   readonly kind: TrackKind;
   /** The release's language code for it; anything but three letters becomes `und`. */
   readonly language: string;
-  /** The release group; empty for the user's own files. */
+  /** The group of the release the track comes from (each episode's own); empty for the user's own files. */
   readonly group: string;
   /** The track's `CachedTrack.path`, which becomes `TrackDraft.key`; without it the key is the track's position. */
   readonly key?: string;

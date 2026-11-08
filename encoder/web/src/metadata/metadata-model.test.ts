@@ -44,6 +44,26 @@ describe('defaultMetadata', () => {
     expect(draft.episodes[3]!.title).toBe('03 - Fog');
   });
 
+  it("subtitle default names follow each episode's release group", () => {
+    const draft = defaultMetadata({
+      show: null,
+      episodes: [
+        { index: 1, title: null, chapterCount: 1 },
+        { index: 2, title: null, chapterCount: 1 },
+      ],
+      audio: [],
+      tracks: {
+        1: [{ name: 'English', kind: 'full', language: 'eng', group: 'GroupA', key: 'releases/tosho-1/10-t1.ass' }],
+        2: [
+          { name: 'English', kind: 'full', language: 'eng', group: 'GroupB', key: 'releases/tosho-2/10-t1.ass' },
+          { name: 'Signs', kind: 'signs', language: 'eng', group: 'GroupB', key: 'releases/tosho-2/10-t2.ass' },
+        ],
+      },
+    });
+    expect(draft.episodes[1]!.tracks.map((t) => t.name)).toEqual(['GroupA full']);
+    expect(draft.episodes[2]!.tracks.map((t) => t.name)).toEqual(['GroupB full', 'GroupB signs']);
+  });
+
   it('names tracks of a release without a group by kind alone', () => {
     expect(defaultTrackName('', 'full')).toBe('full');
     expect(defaultTrackName('GroupB', 'signs')).toBe('GroupB signs');

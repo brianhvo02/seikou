@@ -31,7 +31,7 @@ describe('lineup-model', () => {
   });
 
   it('moves on to the next episode still to check, wrapping round', () => {
-    const choices = { 1: { trackIds: ['2'] }, 2: 'none' as const, 3: { trackIds: ['2'] } };
+    const choices = { 1: { releaseKey: 'tosho-7', fileId: '11', trackIds: ['2'] }, 2: 'none' as const, 3: { releaseKey: 'tosho-7', fileId: '13', trackIds: ['2'] } };
     expect(nextEpisode([1, 2, 3], 1, choices, {})).toBe(3);
     expect(nextEpisode([1, 2, 3], 3, choices, {})).toBe(1);
     expect(nextEpisode([1, 2, 3], 3, choices, { 1: { alignment: { kind: 'original' }, nudgeMs: 0, accepted: true } })).toBe(3);

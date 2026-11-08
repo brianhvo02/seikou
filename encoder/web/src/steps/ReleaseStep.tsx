@@ -2,14 +2,14 @@
 import { useEffect, useRef, useState, type Dispatch, type FormEvent } from 'react';
 import type { HelperApi } from '../api';
 import type { ReleaseAnswer, SeaDexAnswer, SeaDexRelease, TitleHit, ToshoHit } from '../api-types';
-import type { HelperAction, HelperState, ReleaseSource } from '../helper-model';
+import { releaseOf, type HelperAction, type HelperState, type ReleaseSource } from '../helper-model';
 import { errorText, plural, releaseSummary } from './release-model';
 
 /** What step 1 needs: the backend client, the page's state and the dispatcher that changes it. */
 export interface ReleaseStepProps {
   /** The backend client. */
   readonly api: HelperApi;
-  /** The page's state; the step reads the show, the offset, the release and its match. */
+  /** The page's state; the step reads the show, the offset and the pooled releases. */
   readonly state: HelperState;
   /** Applies an action to the page's state. */
   readonly dispatch: Dispatch<HelperAction>;
@@ -61,10 +61,12 @@ function Problem({ text }: { text: string | null }) {
  * Step 1: the user searches AniList for the show and picks it, then picks a release for it from SeaDex, from an Anime
  * Tosho search or from their own files. SeaDex is asked only once a show is picked, and again whenever the picked show
  * changes; the Anime Tosho search and the user's own files need no show. A picked release is fetched at the episode
- * offset and handed to the page's state, which also holds the show and the offset. "Next" opens step 2.
+ * offset and added to the page's pool, which the state holds with the show and the offset; a new offset fetches every
+ * pooled release again. The newest pooled release is summarised. "Next" opens step 2.
  */
 export function ReleaseStep({ api, state, dispatch }: ReleaseStepProps) {
-  const { title, release, match, episodeOffset } = state;
+  const { title, releases, episodeOffset } = state;
+  const release = releases.at(-1)?.release ?? null;
   const alId = title?.alId ?? null;
 
   const [query, setQuery] = useState('');
@@ -169,7 +171,7 @@ export function ReleaseStep({ api, state, dispatch }: ReleaseStepProps) {
     onError(null);
     try {
       const answer = await get();
-      if (seq === fetchSeq.current) dispatch({ type: 'setRelease', release: answer, from });
+      if (seq === fetchSeq.current) dispatch({ type: 'addRelease', release: answer, from });
     } catch (err) {
       if (seq === fetchSeq.current) onError(errorText(err));
     } finally {
@@ -194,12 +196,26 @@ export function ReleaseStep({ api, state, dispatch }: ReleaseStepProps) {
     setOffsetError(null);
     if (n === episodeOffset) return;
     dispatch({ type: 'setOffset', offset: n });
-    if (release !== null && state.releaseSource !== null) {
-      void take(() => api.release(release.key, n), state.releaseSource, setFetchError);
+    if (releases.length > 0) void refetchPool(n);
+  };
+
+  /** Fetches every pooled release again at `offset` and adds each answer back, keeping the files that still fit. */
+  const refetchPool = async (offset: number) => {
+    const seq = ++fetchSeq.current;
+    setFetching(true);
+    setFetchError(null);
+    try {
+      const answers = await Promise.all(releases.map((p) => api.release(p.release.key, offset).then((answer) => ({ answer, from: p.source }))));
+      if (seq === fetchSeq.current) for (const { answer, from } of answers) dispatch({ type: 'addRelease', release: answer, from });
+    } catch (err) {
+      if (seq === fetchSeq.current) setFetchError(errorText(err));
+    } finally {
+      if (seq === fetchSeq.current) setFetching(false);
     }
   };
 
-  const isChosen = (r: SeaDexRelease) => release !== null && r.toshoId !== null && release.key === `tosho-${r.toshoId}`;
+  const isChosen = (r: SeaDexRelease) => r.toshoId !== null && releaseOf(state, `tosho-${r.toshoId}`) !== null;
+  const match = release?.match.rows ?? [];
   const summary = release === null ? null : releaseSummary(release, match);
 
   return (
@@ -321,7 +337,7 @@ export function ReleaseStep({ api, state, dispatch }: ReleaseStepProps) {
           <ul className="releases">
             {toshoHits.map((h) => (
               <li key={h.toshoId}>
-                <button type="button" className="release-row" aria-pressed={release?.key === `tosho-${h.toshoId}`} disabled={fetching} onClick={() => void pickToshoRelease(h.toshoId, 'tosho')}>
+                <button type="button" className="release-row" aria-pressed={releaseOf(state, `tosho-${h.toshoId}`) !== null} disabled={fetching} onClick={() => void pickToshoRelease(h.toshoId, 'tosho')}>
                   <span className="release-group">{h.title}</span>
                   <span className="release-tags muted num">{new Date(h.date * 1000).toISOString().slice(0, 10)}</span>
                 </button>

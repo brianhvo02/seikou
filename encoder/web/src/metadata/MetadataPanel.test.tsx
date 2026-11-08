@@ -50,7 +50,7 @@ const release: ReleaseAnswer = {
 
 function start(): HelperState {
   let s = reduce(initialState(), { type: 'setTitle', title: hit });
-  s = reduce(s, { type: 'setRelease', release, from: 'tosho' });
+  s = reduce(s, { type: 'addRelease', release, from: 'tosho' });
   return reduce(s, { type: 'fillDefaults', defaults: metadataDefaults(s, episodes, { 1: 'Arrival' }) });
 }
 

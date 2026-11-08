@@ -219,6 +219,8 @@ export interface AlignAnswer {
 export interface RecordTrack {
   /** The track's ASS file, relative to the data directory. */
   readonly file: string;
+  /** The id of the track's release in `SubtitleRecord.releases`. */
+  readonly release: string;
   /** Whether the track holds all dialogue or only signs and songs. */
   readonly kind: TrackKind;
   /** ISO 639-2 three-letter code. */
@@ -233,6 +235,18 @@ export interface RecordTrack {
   readonly split: readonly { readonly fromMs: number; readonly offsetMs: number }[] | null;
   /** False when the user left the track out. */
   readonly included: boolean;
+}
+
+/** A release the record's tracks came from. */
+export interface RecordRelease {
+  /** Where the release came from: SeaDex's list, an Anime Tosho search, or the user's own files. */
+  readonly source: 'seadex' | 'tosho' | 'local';
+  /** The backend's release key, such as `tosho-7`; a track's `release` names it. */
+  readonly id: string;
+  /** The release group; empty for the user's own files. */
+  readonly group: string;
+  /** A name to show. */
+  readonly label: string;
 }
 
 /** One audio stream's settings in the saved record. */
@@ -281,14 +295,26 @@ export interface SubtitleRecord {
   readonly episodeSpec: string;
   /** The show picked on AniList, and how many episodes the release numbers ahead of the disc. */
   readonly anilist: { readonly id: number; readonly title: string; readonly episodeOffset: number } | null;
-  /** The chosen release; `id` is the backend's release key. Null when there is none. */
-  readonly release: { readonly source: 'seadex' | 'tosho' | 'local'; readonly id: string; readonly group: string; readonly label: string } | null;
-  /** Font files the tracks use. */
+  /** Every release a saved track came from, in the order they were added; empty when no track is saved. */
+  readonly releases: readonly RecordRelease[];
+  /** Font files the tracks use: the fonts of every release in `releases`, each once. */
   readonly fonts: readonly string[];
   /** The run's episodes in index order. */
   readonly episodes: readonly RecordEpisode[];
   /** When it was saved (ISO 8601 UTC). The server sets it; the page sends an empty string. */
   readonly savedAt: string;
+}
+
+/**
+ * A record in the form saved before a record could hold several releases: one `release` (null when none was picked)
+ * and tracks that do not name theirs. The backend answers every record in the current form, so the page meets this
+ * one only from an older source; `fromRecord` reads it as a one-release record.
+ */
+export interface SingleReleaseRecord extends Omit<SubtitleRecord, 'releases' | 'episodes'> {
+  /** The one release every track came from; null when none was picked. */
+  readonly release: RecordRelease | null;
+  /** The episodes, whose tracks all belong to `release`. */
+  readonly episodes: readonly (Omit<RecordEpisode, 'tracks'> & { readonly tracks: readonly Omit<RecordTrack, 'release'>[] })[];
 }
 
 /** `GET /api/record`. */

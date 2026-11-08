@@ -115,7 +115,7 @@ function fakeController() {
 function Harness({ api, controller, tools = true }: { api: HelperApi; controller: PlayerLike; tools?: boolean }) {
   const [state, dispatch] = useReducer(reduce, initialState(), (s) => {
     const withTitle = reduce(s, { type: 'setTitle', title: hit });
-    return reduce(reduce(withTitle, { type: 'setRelease', release, from: 'tosho' }), { type: 'goTo', step: 3 });
+    return reduce(reduce(withTitle, { type: 'addRelease', release, from: 'tosho' }), { type: 'goTo', step: 3 });
   });
   return <LineUpStep api={api} state={state} dispatch={dispatch} session={session(tools)} episodes={episodes} controller={controller} />;
 }

@@ -78,13 +78,13 @@ export function App({ api }: AppProps) {
   // the metadata defaults follow the show, the release, the chosen tracks and AniList's episode titles; the fields
   // the user edited keep their values
   const titles = useEpisodeTitles(api, state.title?.alId ?? null);
-  const { title, release, match, choices } = state;
+  const { title, releases, choices } = state;
   const stateRef = useRef(state);
   stateRef.current = state;
   useEffect(() => {
     if (loaded === null) return;
     dispatch({ type: 'fillDefaults', defaults: metadataDefaults(stateRef.current, loaded.episodes, titles) });
-  }, [loaded, title, release, match, choices, titles]);
+  }, [loaded, title, releases, choices, titles]);
 
   const session = loaded?.session;
   const count = session ? episodeCount(session.episodeSpec) : 0;
