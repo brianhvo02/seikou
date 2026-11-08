@@ -13,6 +13,8 @@ function missedEventInput(): { input: ElementHandle; listening: () => boolean } 
       const value = fn({ addEventListener: (type, cb) => type === 'input' && listeners.push(cb) });
       return { evaluate: async (read: (v: unknown) => unknown) => read(value), dispose: async () => undefined };
     },
+    // a stand-in belongs to no frame, so setFolder has no page whose viewport it would resize
+    ownerFrame: async () => null,
     setInputFiles: () => {
       // Firefox fires the event before Playwright's own listener is in place: only listeners already attached see it
       for (const cb of listeners) cb();
