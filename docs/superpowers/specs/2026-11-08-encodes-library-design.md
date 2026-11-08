@@ -50,7 +50,7 @@ Anti-goals:
 ## 4. Constraints
 
 - Everything in `CLAUDE.md` holds, with one change the deploy and the constraints section must state: the server writes only to its data volume and to `/encodes` (a folder the owner binds writable); the library mounts stay read-only and the server never writes anywhere else under `/mnt`.
-- The engine changes stay in the packages and import nothing from `src/`. The Matroska reader is a package of its own, `@seikou/matroska` (the user's decision, 2026-11-08: useful to other people), the eighth workspace package: its own README, NOTICE, `LGPL-3.0-or-later`, in `npm run package-smoke`, and no dependency on the engine or on anything of Seikou's. The engine depends on it.
+- The engine changes stay in the packages and import nothing from `src/`. Matroska reading and writing are a package of their own, `@seikou/matroska` (the user's decisions, 2026-11-08: useful to other people; the encoder's Matroska writer and readers move into it and are extended for playback: byte-range reading, Cues for seeking, attachments, chapters, tags), the eighth workspace package: its own README, NOTICE, `LGPL-3.0-or-later`, in `npm run package-smoke`, and no dependency on the engine or on anything of Seikou's. The engine depends on it.
 - Licences: new files LGPL-3.0-or-later; if any Matroska code is ported from FFmpeg or libmatroska-derived code, it keeps its upstream licence and goes in a NOTICE as the rules say. The encoder already has its own Matroska writer; a reader written fresh is preferred.
 - Supported browsers as today (Safari 26, Chrome and Firefox stable and stable−2, Chrome Android). AV1 decode is hardware-dependent; the warning in §3.5 covers the rest.
 - The repo is public: made-up names in tests, fixtures and docs.
