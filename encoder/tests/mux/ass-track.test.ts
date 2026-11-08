@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { assToMatroska } from '../../src/mux/ass-track';
 import { readIvf } from '../../src/mux/ivf';
 import { writeMkv } from '../../src/mux/mkv-writer';
-import { ffprobePath, haveFfprobe } from '../helpers/tools';
+import { ffmpegPath } from '../helpers/tools';
 import { fx } from '../paths';
 
 const dec = new TextDecoder();
@@ -117,7 +117,7 @@ describe('assToMatroska', () => {
   });
 });
 
-describe.skipIf(!haveFfprobe)('assToMatroska with ffmpeg as the oracle', () => {
+describe.skipIf(ffmpegPath === null)('assToMatroska with ffmpeg as the oracle', () => {
   it('ffmpeg reads the events back with their times and text', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'ass-track-'));
     try {
@@ -139,9 +139,8 @@ describe.skipIf(!haveFfprobe)('assToMatroska with ffmpeg as the oracle', () => {
         attachments: [],
         chapters: [],
       });
-      const ffmpeg = join(ffprobePath!, '..', 'ffmpeg');
       const ass = join(dir, 'a.ass');
-      execFileSync(ffmpeg, ['-v', 'error', '-i', out, '-map', '0:s', '-c', 'copy', ass]);
+      execFileSync(ffmpegPath!, ['-v', 'error', '-i', out, '-map', '0:s', '-c', 'copy', ass]);
       const events = readFileSync(ass, 'utf8').split(/\r?\n/).filter((l) => l.startsWith('Dialogue:'));
       // ffmpeg's ASS muxer puts the events back in ReadOrder, which is the script's own order.
       expect(events).toEqual([

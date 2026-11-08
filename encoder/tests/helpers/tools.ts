@@ -59,3 +59,7 @@ export const haveTools: boolean = tools !== null && bestSourceLoads(tools.vspipe
 export const ffprobePath: string | null = findOnPath('ffprobe', process.env.ENCODING_TOOLS_FFPROBE);
 
 export const haveFfprobe: boolean = ffprobePath !== null;
+
+/** Resolved ffmpeg path (test oracle only), or null when absent. */
+export const ffmpegPath: string | null = findOnPath('ffmpeg', process.env.ENCODING_TOOLS_FFMPEG);
+

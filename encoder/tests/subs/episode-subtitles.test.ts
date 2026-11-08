@@ -82,6 +82,38 @@ describe('episodeSubtitleTracks', () => {
     ]);
   });
 
+  it('rounds the shift to centiseconds as the preview did, then adds the nudge in milliseconds', async () => {
+    put('releases/tosho-77/f1-t1.ass', SCRIPT);
+    // 10.00 s + 1208 ms is 11.21 s in the retimed copy the preview played.
+    const shifted = await episodeSubtitleTracks(record([track({ shiftMs: 1208, nudgeMs: 0 })]), 1, 1_440_000, dir);
+    expect(shifted.tracks[0]!.blocks.map((b) => b.timeMs)).toEqual([11_210, 101_210]);
+    const nudged = await episodeSubtitleTracks(record([track({ shiftMs: 1208, nudgeMs: -3 })]), 1, 1_440_000, dir);
+    expect(nudged.tracks[0]!.blocks.map((b) => b.timeMs)).toEqual([11_207, 101_207]);
+  });
+
+  it('rounds a split part to centiseconds too', async () => {
+    put('releases/tosho-77/f1-t1.ass', SCRIPT);
+    const split = [{ fromMs: 0, offsetMs: 1208 }];
+    const { tracks } = await episodeSubtitleTracks(record([track({ split })]), 1, 1_440_000, dir);
+    expect(tracks[0]!.blocks.map((b) => [b.timeMs, b.durationMs])).toEqual([
+      [11_210, 2000],
+      [101_210, 2000],
+    ]);
+  });
+
+  it('clamps at 0 before the nudge, as the preview did', async () => {
+    put(
+      'releases/tosho-77/f1-t1.ass',
+      SCRIPT.replace('Dialogue: 0,0:00:10.00,0:00:12.00', 'Dialogue: 0,0:00:00.50,0:00:02.00'),
+    );
+    // The shift takes the start to -0.50 s, which the retimed copy clamps to 0; the nudge then moves it to 300 ms.
+    const { tracks } = await episodeSubtitleTracks(record([track({ shiftMs: -1000, nudgeMs: 300 })]), 1, 1_440_000, dir);
+    expect(tracks[0]!.blocks.map((b) => [b.timeMs, b.durationMs])).toEqual([
+      [300, 1000],
+      [99_300, 2000],
+    ]);
+  });
+
   it("applies split parts by the event's start", async () => {
     put('releases/tosho-77/f1-t1.ass', SCRIPT);
     // Parts are chosen by the start in the script, before the nudge; shiftMs is not used when a split is set.

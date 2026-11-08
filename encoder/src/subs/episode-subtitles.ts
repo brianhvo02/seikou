@@ -2,6 +2,8 @@
 /** The ASS subtitle tracks and font attachments of one episode's MKV, built from the saved subtitle record. */
 import { readFile } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
+import { retime } from '@seikou/fansubs/retime';
+import type { FansubAlignment } from '@seikou/nas/nas-api';
 import { assToMatroska } from '../mux/ass-track';
 import type { MkvAttachment, MkvSubtitleTrack } from '../mux/mkv-writer';
 import type { RecordTrack, SubtitleRecord } from './record';
@@ -21,23 +23,13 @@ export const FONT_MEDIA_TYPES: Readonly<Record<string, string>> = {
 };
 
 /**
- * The offset in milliseconds to add to an event of `track` that starts at `startMs` in the script: the track's
- * alignment (the `split` part whose `fromMs` is the latest at or before the start, 0 before the first part; else
- * `shiftMs`) plus `nudgeMs`. Positive moves the event later. This is the rule `retime` in `@seikou/fansubs` applies
- * (the helper's preview runs the alignment and then the nudge through it), summed into one offset so the times are
- * rounded once, to whole milliseconds, instead of to centiseconds at each step.
+ * The alignment `retime` (from `@seikou/fansubs`) applies to `track`'s script: its `split` parts when it has any,
+ * else its `shiftMs` as one offset (0 for a track never lined up). The nudge is not part of it: the helper's preview
+ * plays the backend's retimed copy and adds the nudge on top in milliseconds, so the encode does the same.
  */
-export function trackOffset(track: Pick<RecordTrack, 'shiftMs' | 'nudgeMs' | 'split'>): (startMs: number) => number {
-  if (track.split !== null && track.split.length > 0) {
-    const parts = [...track.split].sort((a, b) => a.fromMs - b.fromMs);
-    return (startMs) => {
-      let offset = 0;
-      for (const p of parts) if (p.fromMs <= startMs) offset = p.offsetMs;
-      return offset + track.nudgeMs;
-    };
-  }
-  const offset = track.shiftMs + track.nudgeMs;
-  return () => offset;
+export function trackAlignment(track: Pick<RecordTrack, 'shiftMs' | 'split'>): FansubAlignment {
+  if (track.split !== null && track.split.length > 0) return { kind: 'split', parts: track.split, confidence: 1 };
+  return { kind: 'offset', offsetMs: track.shiftMs, confidence: 1 };
 }
 
 /** What `episodeSubtitleTracks` gives the muxer for one episode. */
@@ -54,8 +46,10 @@ export interface EpisodeSubtitles {
  * subtitles' zero, as in the helper's preview.
  *
  * Tracks: every track the user left ticked (`included`), in the record's order, as `S_TEXT/ASS` with the record's
- * name and language, timed by `trackOffset` and cut to the episode by `assToMatroska`'s rules. The first is the
- * default track; none is when nothing is ticked.
+ * name and language. Each is timed exactly as the helper previewed it: the script goes through `retime` with
+ * `trackAlignment(track)` (the split part chosen by the event's start in the script, the times clamped at 0 and
+ * rounded to centiseconds), then `nudgeMs` is added in milliseconds with no further rounding, and only then are
+ * `assToMatroska`'s drop and clamp rules applied. The first track is the default; none is when nothing is ticked.
  *
  * Attachments: the record's `fonts`, each with its media type from `FONT_MEDIA_TYPES` and its file name from the
  * cached release named by `record.release.id` (the first name the release lists for that pooled file), else the
@@ -75,8 +69,8 @@ export async function episodeSubtitleTracks(
 
   const tracks: MkvSubtitleTrack[] = [];
   for (const t of episode.tracks.filter((track) => track.included)) {
-    const script = decodeSubtitleText(await readFile(join(dataDir, t.file)));
-    const { codecPrivate, blocks } = assToMatroska(script, durationMs, trackOffset(t));
+    const aligned = retime(decodeSubtitleText(await readFile(join(dataDir, t.file))), trackAlignment(t));
+    const { codecPrivate, blocks } = assToMatroska(aligned, durationMs, () => t.nudgeMs);
     tracks.push({ codecId: 'S_TEXT/ASS', name: t.name, language: t.language, isDefault: tracks.length === 0, codecPrivate, blocks });
   }
   if (tracks.length === 0) return { tracks, attachments: [] };
