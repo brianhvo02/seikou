@@ -27,6 +27,9 @@ npm run seikou-encode -- package out/episode-01.mkv --out web/episode-01
 
 # Start the subtitle helper for a playlist and an episode list
 npm run seikou-encode -- serve encoder/fixtures/disc1 --playlist 00000 --episodes "1-2,3-4"
+
+# Start the app: disc library, episode grouping, subtitle helper, settings profiles and the encode queue
+npm run seikou-encode -- app --root /path/to/discs
 ```
 
 `--episodes` is a comma-separated list of ascending, non-overlapping chapter ranges, one episode each. Options: `--name PATTERN` (default `episode-{n}`, `{n}` is the episode number padded to 2 digits), `--crf N` (25), `--preset N` (4), `--film-grain N` (4, SVT-AV1's film-grain synthesis level), `--svt-args "..."` (extra SVT-AV1 arguments), `--opus-bitrate N` (for every audio stream; by default 160 for mono or stereo, 320 otherwise), `--title T` (the MKV's title when the record names none for the episode), `--cache DIR` (where BestSource keeps its index files; default `bestsource/` in the data directory below), `--no-subtitles` (ignore the helper's saved record: no ASS tracks, fonts, titles or names, and every audio stream goes in) and `--no-pgs` (leave the disc's PG streams out) and `--web DIR` (package each episode into `DIR/<name>/` as soon as its MKV is complete; see below).
@@ -100,7 +103,7 @@ The page is built separately from the CLI: `npm run encoder:web:build` writes `e
 
 ### Data directory
 
-The encoder keeps what it learns and downloads in one directory: saved subtitle records (`subtitles/<disc key>/<playlist>.json`), the app's settings profiles (`profiles.json`), the encode queue (`jobs.json`, logs in `jobs/`, test samples in `tests/`, and `output/`, a place for output folders), fetched fansub tracks and fonts, and the BestSource index files (`bestsource/`, shared by `serve` and `encode` so an encode reuses the index the line-up built). It is `~/Library/Application Support/seikou-encode` on macOS and `$XDG_DATA_HOME/seikou-encode` (default `~/.local/share/seikou-encode`) elsewhere; `SEIKOU_ENCODE_DATA` names another.
+The encoder keeps what it learns and downloads in one directory: saved subtitle records (`subtitles/<disc key>/<playlist>.json`), the app's library folders (`settings.json`), its settings profiles (`profiles.json`), the encode queue (`jobs.json`, logs in `jobs/`, test samples in `tests/`, and `output/`, a place for output folders), fetched fansub tracks and fonts, and the BestSource index files (`bestsource/`, shared by `serve` and `encode` so an encode reuses the index the line-up built). It is `~/Library/Application Support/seikou-encode` on macOS and `$XDG_DATA_HOME/seikou-encode` (default `~/.local/share/seikou-encode`) elsewhere; `SEIKOU_ENCODE_DATA` names another.
 
 ### Offline mode
 
@@ -109,6 +112,22 @@ The encoder keeps what it learns and downloads in one directory: saved subtitle 
 Exit codes: 0 success, 1 encode or packaging failure, 2 usage error, bad episode spec, a saved record that does not match the encode (including one with no entry for an episode) or that ticks no audio stream for an episode, 3 required tools missing (for `serve` and `app`, the page not built).
 
 `app [--root DIR]… [--port N] [--no-open]` starts the same backend with no helper session and opens its front page, printing `App: http://127.0.0.1:<port>/?t=<token>`. The page's disc library is every folder holding `BDMV/index.bdmv` up to four folders below the library folders: the ones saved in `settings.json` in the data directory (set from the page) and the `--root` folders of this run, which are not saved. A link that leads out of a library folder is not followed. With no saved folders and no `--root` it prints one line saying so (folders can be added in the app or with `--root DIR`). A folder that cannot be read (an unmounted drive) keeps the discs found under it in the last scan and is reported as unreadable. It needs the built page like `serve` does, and runs until Ctrl-C.
+
+### The app's pages
+
+The page has an app bar with Library, Queue and Settings links, and under it a line that says what is encoding (the disc, "episode n of m", the share done and the time left; it links to the job and is on every page, the helper's included).
+
+- **Library** (`/`): the discs found under the library folders, with a filter, Rescan, and the folders themselves (add or remove one; the `--root` folders of this run are not listed there).
+- **Disc** (`/disc/<key>`): the disc's playlists, longest first, with length, clips and chapters. "Likely main" marks the longest, and "Subtitle choices saved" a playlist the helper has a record for.
+- **Episodes** (`/disc/<key>/<playlist>`): the playlist plays in the page, and its chapters are listed with their start and length. A chapter's button jumps there; "Split after" cuts an episode after a chapter and "Skip" leaves a chapter out. The grouping is the same list `--episodes` takes (`1-3,4-`), editable as text. From here, "Choose subtitles" opens the helper for this grouping (`/helper/<session>`), "Queue encode" and "Encode without subtitles" open the queue dialog.
+- **Queue dialog** (`/queue/new?disc=&playlist=&spec=`): the settings profile, the output folder (suggested under `output/` in the data directory) and "Run a test encode first".
+- **Queue** (`/queue`, and `/queue/<id>` for a job): every job with its state, a bar per episode with speed and time left, the log, the equivalent command, and the output files; Cancel, Retry and Remove.
+- **Test** (`/test/<id>`): a test encode's samples side by side and each profile's projected sizes (see below).
+- **Settings** (`/settings`): the settings profiles.
+
+### Settings profiles
+
+A profile is a name and the encode settings: CRF, preset, film grain, extra SVT-AV1 arguments, Opus bitrate (or opusenc's default), whether the disc's PGS tracks go in, whether to also package for the web, and the file name pattern. The built-in `default` is CRF 25, preset 4, film grain 4, PGS on, no web package, `episode-{n}`, and cannot be changed or deleted. Others are made, edited and deleted on Settings and are kept in `profiles.json`. A job copies the profile's settings when it is queued, so a later edit changes only later jobs.
 
 ### Encode queue
 
@@ -157,6 +176,8 @@ npx playwright test -c playwright.encoder.config.ts
 ```
 
 It builds the page, starts `serve` on port 4195 with a temporary data directory and reads the address with its token from the output, so a running helper is never reused. Without VapourSynth and BestSource the line-up results are not checked and the test says so.
+
+The same command also runs the app's check (`tests/e2e/app.spec.ts`): `app` on port 4197 over a temporary library of copies of the speech disc and disc1 and its own data directory. It groups the speech disc's chapters into episodes, chooses subtitles in the helper, queues the encode into a temporary folder, watches the progress line and the finished queue and the MKVs, cancels a slow job and checks that no `.partial` file is left, and runs a test encode and plays a sample. The encode runs only where VapourSynth and BestSource are present, and the test says so when it does not.
 
 ## License
 

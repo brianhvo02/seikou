@@ -1,7 +1,7 @@
 # Encoder Jobs UI: Design
 
 Date: 2026-11-08
-Status: Draft for the user's review (the user skipped the questions; every decision below not quoted from an earlier spec is marked "designer's call")
+Status: Implemented on 2026-11-08 (plan `2026-11-08-m4-jobs-ui.md`)
 Parents: `2026-11-06-encoding-tools-design.md` (milestone 4: "Web UI and job runner. Disc browser, chapter grouping with a preview, encode queue, logs and progress, settings profiles (SilentAperture-style test-encode helper)") and `2026-11-07-subtitle-helper-design.md` (milestone 4 "Web UI for jobs", with the chapter-grouping preview the user asked for on 2026-11-07: "the playlist plays in `@seikou/engine` as in the helper, the chapter list shows each mark's time, a click jumps there, and the user groups chapters into episodes while watching").
 
 ## 1. Intent
