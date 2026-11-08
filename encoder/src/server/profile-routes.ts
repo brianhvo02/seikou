@@ -14,6 +14,15 @@ function refuse(res: ServerResponse, e: ProfileError): void {
   json(res, e.status, e.field === undefined ? { error: e.code, message: e.message } : { error: e.code, message: e.message, field: e.field });
 }
 
+/** The profile id a path names, percent-decoded; a bad escape names no profile, so it is the same as an unknown id. */
+function idOf(raw: string): string {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return '';
+  }
+}
+
 /** Reads a JSON body; undefined (after answering 413 or 400) when it is too large or not JSON. */
 async function bodyOf(req: IncomingMessage, res: ServerResponse): Promise<unknown> {
   const bytes = await readBody(req, MAX_BODY);
@@ -65,7 +74,7 @@ export const profileRoutes: RouteTable = [
       const body = await bodyOf(req, res);
       if (body === undefined) return;
       try {
-        json(res, 200, await profilesOf(app).update(decodeURIComponent(match[1]!), body));
+        json(res, 200, await profilesOf(app).update(idOf(match[1]!), body));
       } catch (e) {
         if (e instanceof ProfileError) return refuse(res, e);
         throw e;
@@ -77,7 +86,7 @@ export const profileRoutes: RouteTable = [
     /^\/api\/profiles\/([^/]+)$/,
     async (_req, res, match, app) => {
       try {
-        await profilesOf(app).remove(decodeURIComponent(match[1]!));
+        await profilesOf(app).remove(idOf(match[1]!));
         json(res, 200, { deleted: true });
       } catch (e) {
         if (e instanceof ProfileError) return refuse(res, e);

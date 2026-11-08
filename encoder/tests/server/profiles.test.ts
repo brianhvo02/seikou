@@ -66,6 +66,27 @@ describe('profiles', () => {
     expect((await post({ ...mine, settings: { ...mine.settings, namePattern: ' Show S01E{n} ' } })).status).toBe(201);
   });
 
+  it('refuses name patterns that make bad file names', async () => {
+    for (const namePattern of ['.{n}', '{n}.', 'a:{n}', 'a*{n}', 'a?{n}', 'a"{n}', 'a<{n}', 'a>{n}', 'a|{n}']) {
+      const res = await post({ ...mine, settings: { ...mine.settings, namePattern } });
+      expect(res.status).toBe(400);
+      expect(jsonOf(res)).toMatchObject({ error: 'bad-setting', field: 'namePattern' });
+    }
+  });
+
+  it('a bad percent-escape in the id is refused, not a crash', async () => {
+    for (const method of ['PUT', 'DELETE']) {
+      const res = await fx.send('/api/profiles/%E0%A4%A', { method, body: method === 'PUT' ? JSON.stringify(mine) : undefined });
+      // the server's path check answers before the route is reached
+      expect(res.status).toBe(400);
+    }
+  });
+
+  it('a non-numeric Opus bitrate sent as text is refused naming the field', async () => {
+    const res = await post({ ...mine, settings: { ...mine.settings, opusBitrate: 'abc' } });
+    expect(jsonOf(res)).toMatchObject({ field: 'opusBitrate' });
+  });
+
   it('refuses extra SVT arguments the encoder controls and names the argument', async () => {
     for (const args of [['--crf', '20'], ['--preset=3'], ['-i', 'x'], ['--film-grain', '5'], ['-b', 'x'], ['--output', 'x']]) {
       const res = await post({ ...mine, settings: { ...mine.settings, extraSvtArgs: args } });

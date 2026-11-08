@@ -75,6 +75,17 @@ describe('SettingsPage', () => {
     expect(((await screen.findByLabelText('Name')) as HTMLInputElement).value).toBe('Default (copy)');
   });
 
+  it('Duplicate can be used twice', async () => {
+    const api = fakeApi();
+    render(<SettingsPage api={api} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Duplicate Default' }));
+    await waitFor(() => expect(api.createProfile).toHaveBeenCalledTimes(1));
+    const again = screen.getByRole('button', { name: 'Duplicate Default' }) as HTMLButtonElement;
+    await waitFor(() => expect(again.disabled).toBe(false));
+    fireEvent.click(again);
+    await waitFor(() => expect(api.createProfile).toHaveBeenCalledTimes(2));
+  });
+
   it('deleting asks first', async () => {
     const api = fakeApi();
     render(<SettingsPage api={api} />);

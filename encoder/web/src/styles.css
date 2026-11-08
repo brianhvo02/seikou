@@ -1667,3 +1667,26 @@ button.quiet.danger {
   margin-top: 28px;
   max-width: var(--column);
 }
+
+/* keep the form inside the page's gutters: tracks may shrink below their content, and a checkbox is not a full-width field */
+.profile-form,
+.profile-form .field {
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+
+.profile-form .field input[type='checkbox'] {
+  width: auto;
+  flex: none;
+}
+
+.profile-form .field .check {
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+.profile-head,
+.profile-text,
+.page-head {
+  min-width: 0;
+}

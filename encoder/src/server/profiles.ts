@@ -122,6 +122,9 @@ export function parseSettings(value: unknown): EncodeSettings {
   if (/[\\/]/.test(namePattern) || namePattern.includes('..') || namePattern.includes('\0')) {
     throw bad('namePattern', 'The output name pattern must be a file name: no slashes and no "..".');
   }
+  if (namePattern.startsWith('.') || /[:*?"<>|]/.test(namePattern) || /[. ]$/.test(namePattern)) {
+    throw bad('namePattern', 'The output name pattern cannot start with a dot, end with a dot or space, or contain : * ? " < > |.');
+  }
   const args = s.extraSvtArgs;
   if (!Array.isArray(args) || !args.every((a) => typeof a === 'string' && a !== '')) {
     throw bad('extraSvtArgs', 'The extra SVT-AV1 arguments must be a list of words.');

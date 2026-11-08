@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { useCallback, useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ApiError } from '../api';
 import type { EncodeSettings, Profile } from '../api-types';
 import type { AppApi } from './app-api';
@@ -77,7 +77,8 @@ function settingsOf(d: Draft): EncodeSettings {
     preset: numberOf(d.preset),
     filmGrain: numberOf(d.filmGrain),
     extraSvtArgs: d.extraSvtArgs.split(/\s+/).filter((a) => a !== ''),
-    opusBitrate: d.opusBitrate.trim() === '' ? null : numberOf(d.opusBitrate),
+    // text that is not a number goes as typed, so the server refuses it and names the field (null would mean "default")
+    opusBitrate: d.opusBitrate.trim() === '' ? null : Number.isNaN(Number(d.opusBitrate)) ? (d.opusBitrate as never) : Number(d.opusBitrate),
     pgs: d.pgs,
     web: d.web,
     namePattern: d.namePattern,
@@ -179,7 +180,7 @@ function ProfileForm({ profile, onSave, onCancel }: FormProps) {
       {field(
         'extraSvtArgs',
         'Extra SVT-AV1 arguments',
-        "Separated by spaces and added after the encoder's own. Options set by the fields above are refused.",
+        "Separated by spaces and added after the encoder's own, so a value that contains a space isn't supported. Options set by the fields above are refused.",
         'text',
         { placeholder: '--lookahead 40', spellCheck: false },
       )}
@@ -215,16 +216,27 @@ function ProfileRow({ profile, editing, onEdit, onCancel, onSave, onDuplicate, o
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
+  /** False once the row is gone (a deleted profile), so a late answer sets no state. */
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
-  const run = async (action: () => Promise<void>) => {
+  const run =async (action: () => Promise<void>) => {
     setBusy(true);
     setProblem(null);
     try {
       await action();
     } catch (e) {
-      setProblem(e instanceof Error ? e.message : String(e));
-      setBusy(false);
-      setConfirming(false);
+      if (mounted.current) {
+        setProblem(e instanceof Error ? e.message : String(e));
+        setConfirming(false);
+      }
+    } finally {
+      if (mounted.current) setBusy(false);
     }
   };
 
