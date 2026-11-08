@@ -23,6 +23,7 @@ describe('loadConfig', () => {
       tmdbApiKey: null,
       discogsToken: null,
       titleLibrary: 'owners',
+      encodesDir: null,
       rtc: { port: 47998 },
       levels: { backend: 'qsv', cacheBytes: 50_000_000_000, ffmpegPath: 'ffmpeg', ffprobePath: 'ffprobe' },
       fansubs: { seadexUrl: 'https://seadex.moe', toshoFeedUrl: 'https://feed.animetosho.net', toshoUrl: 'https://animetosho.net', windowEnd: { hour: 8, minute: 0 }, storeBytes: 20_000_000_000, cacheBytes: 5_000_000_000, picksBytes: 2_000_000_000 },
@@ -43,6 +44,7 @@ describe('loadConfig', () => {
       tmdbApiKey: null,
       discogsToken: null,
       titleLibrary: 'owners',
+      encodesDir: null,
       rtc: { port: 47998 },
       levels: { backend: 'qsv', cacheBytes: 50_000_000_000, ffmpegPath: 'ffmpeg', ffprobePath: 'ffprobe' },
       fansubs: { seadexUrl: 'https://seadex.moe', toshoFeedUrl: 'https://feed.animetosho.net', toshoUrl: 'https://animetosho.net', windowEnd: { hour: 8, minute: 0 }, storeBytes: 20_000_000_000, cacheBytes: 5_000_000_000, picksBytes: 2_000_000_000 },
@@ -59,6 +61,8 @@ describe('loadConfig', () => {
 
   it('reads TMDB_API_KEY and TITLE_LIBRARY', () => {
     expect(loadConfig({ ...REQUIRED, TMDB_API_KEY: 'k123', TITLE_LIBRARY: 'everyone' })).toMatchObject({ tmdbApiKey: 'k123', titleLibrary: 'everyone' });
+    expect(loadConfig({ ...REQUIRED, ENCODES_DIR: '/encodes' }).encodesDir).toBe('/encodes');
+    expect(loadConfig({ ...REQUIRED, ENCODES_DIR: '' }).encodesDir).toBeNull();
     expect(loadConfig({ ...REQUIRED, TMDB_API_KEY: '', TITLE_LIBRARY: 'owners' })).toMatchObject({ tmdbApiKey: null, titleLibrary: 'owners' });
     expect(() => loadConfig({ ...REQUIRED, TITLE_LIBRARY: 'all' })).toThrow('TITLE_LIBRARY "all" is not owners or everyone');
   });

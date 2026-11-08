@@ -16,6 +16,8 @@ import { adminRoutes, bearerToken } from './routes/admin';
 import { bdjStoreRoutes } from './routes/bdj-store';
 import type { DiscActivity } from './disc-activity';
 import { discRoutes } from './routes/discs';
+import { encodeRoutes } from './routes/encodes';
+import type { EncodeIndex } from './encodes/index-store';
 import { libraryRoute } from './routes/library';
 import { pairRoutes } from './routes/pair';
 import type { RelayState } from './rtc/relay';
@@ -50,6 +52,8 @@ export interface AppOptions {
   lookupTimeoutMs?: number;
   /** The quality levels; without them (`LEVELS_BACKEND=off` or a failed GPU self-test) only the original is served. */
   levels?: LevelService;
+  /** The encodes folder's index (`ENCODES_DIR`); without it the encodes routes say it is not configured. */
+  encodes?: EncodeIndex;
   /** The parsed ISO trees, shared with the quality levels' disc sources. */
   isoTrees?: IsoTrees;
   /** Told of every disc file read, so background work can wait while someone watches. */
@@ -82,6 +86,7 @@ export function appHandlers(opts: AppOptions): Handler[] {
     }),
     libraryRoute(opts.library),
     ...(opts.titles ? [titleRoutes(auth, opts.titles, opts.relay, opts.nasId ?? null, opts.levels !== undefined)] : []),
+    encodeRoutes(opts.auth, opts.encodes, opts.titles),
     discRoutes(opts.library, opts.levels && { service: opts.levels, auth }, opts.isoTrees, opts.activity),
   ];
 }

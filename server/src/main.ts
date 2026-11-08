@@ -10,6 +10,7 @@ import { ownerCode, printNasId } from './cli';
 import { loadConfig } from './config';
 import type { Config } from './config';
 import { DiscActivity } from './disc-activity';
+import { EncodeIndex } from './encodes/index-store';
 import { libraryFansubDiscs } from './fansubs/disc-lookup';
 import { ffmpegAudioDecoder } from './fansubs/ffmpeg-decoder';
 import { FetchCache } from '@seikou/fansubs/fetch-cache';
@@ -242,7 +243,8 @@ async function serve(config: Config): Promise<void> {
   library.onScanned(() => {
     void titles.runNow().then(() => (nightly ? fansubs.startNightly() : undefined)).catch((err: unknown) => console.error('fansub pass failed', err));
   });
-  const handlers = appHandlers({ auth, library, bdjStore: new BdjStore(config.dataDir), playbackStore: new PlaybackStore(config.dataDir), subtitleStore, publicBase: config.publicBase, appUrl: config.appUrl, ...(config.rendezvousUrl !== undefined ? { rendezvousUrl: config.rendezvousUrl } : {}), registrar: rendezvous, trustProxy, titles: { service: titles, owner }, relay, nasId, isoTrees, ...(levels ? { levels } : {}), activity, fansubs: { service: fansubs, state: fansubState, seadex, tosho, picks, lookup } });
+  const encodes = config.encodesDir === null ? undefined : new EncodeIndex({ dir: config.encodesDir, dataDir: config.dataDir, log: console.log });
+  const handlers = appHandlers({ auth, library, ...(encodes ? { encodes } : {}), bdjStore: new BdjStore(config.dataDir), playbackStore: new PlaybackStore(config.dataDir), subtitleStore, publicBase: config.publicBase, appUrl: config.appUrl, ...(config.rendezvousUrl !== undefined ? { rendezvousUrl: config.rendezvousUrl } : {}), registrar: rendezvous, trustProxy, titles: { service: titles, owner }, relay, nasId, isoTrees, ...(levels ? { levels } : {}), activity, fansubs: { service: fansubs, state: fansubState, seadex, tosho, picks, lookup } });
   const server = createServer(handlers);
   const stopRtc = rendezvous && config.rendezvousUrl !== undefined ? startRtc(config, config.rendezvousUrl, rendezvous, handlers, auth, relay) : async () => {};
 
@@ -263,6 +265,7 @@ async function serve(config: Config): Promise<void> {
   server.listen(config.port, () => {
     console.log(`bluray-server listening on ${config.port}; roots: ${config.roots.map((r) => `${r.name}=${r.dir}`).join(', ')}`);
     scheduleScans();
+    encodes?.scan().catch((err: unknown) => console.error('encodes scan failed', err));
   });
 
   for (const signal of ['SIGTERM', 'SIGINT'] as const) {

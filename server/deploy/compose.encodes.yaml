@@ -1,0 +1,14 @@
+# Used with compose.yaml only when .env sets ENCODES_MOUNT, the host folder of encoded episodes:
+#   docker compose -f compose.yaml -f compose.encodes.yaml up -d
+# This is the one writable bind besides the data volume: the server adds uploaded episodes here and reads the tags
+# of the MKVs in it. It never moves or deletes a file it didn't upload. create_host_path: false means Docker never
+# makes a missing folder, so an unmounted drive stays missing instead of being replaced by an empty one.
+services:
+  bluray-server:
+    environment:
+      ENCODES_DIR: /encodes
+    volumes:
+      - type: bind
+        source: ${ENCODES_MOUNT}
+        target: /encodes
+        bind: { create_host_path: false }

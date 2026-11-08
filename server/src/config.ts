@@ -31,6 +31,8 @@ export interface Config {
   discogsToken: string | null;
   /** `TITLE_LIBRARY`: who gets the title routes until the owner sets it. */
   titleLibrary: 'owners' | 'everyone';
+  /** `ENCODES_DIR`: the folder of encoded episodes (the one place besides the data volume the server writes); null when unset or empty. */
+  encodesDir: string | null;
   /** The WebRTC route, served while `rendezvousUrl` is set. */
   rtc: RtcConfig;
   /** The quality levels' encoder (spec §6 of the lower-quality spec). */
@@ -79,7 +81,7 @@ export interface RtcConfig {
 /** The hosted player, which pairing links open unless `APP_URL` says otherwise. */
 export const DEFAULT_APP_URL = 'https://bluray.pages.dev/';
 
-/** Reads `LIBRARY_ROOTS` (comma-separated `name=dir` or `name=dir@group`), `DATA_DIR`, `PORT`, `NIGHTLY_SCAN_AT` (`HH:MM`), `SCAN_PAUSE_MS`, `PUBLIC_BASE` (required), `APP_URL`, `LOOKUP_CONTACT`, `TRUSTED_PROXY`, `RENDEZVOUS_URL`, `TMDB_API_KEY`, `DISCOGS_TOKEN`, `TITLE_LIBRARY`, `RTC_PORT`, `RTC_LAN_ADDRESS`, `RTC_ADVERTISE`, `LEVELS_BACKEND`, `TRANSCODE_CACHE_BYTES`, `FFMPEG_PATH` and `FFPROBE_PATH`. */
+/** Reads `LIBRARY_ROOTS` (comma-separated `name=dir` or `name=dir@group`), `DATA_DIR`, `PORT`, `NIGHTLY_SCAN_AT` (`HH:MM`), `SCAN_PAUSE_MS`, `PUBLIC_BASE` (required), `APP_URL`, `LOOKUP_CONTACT`, `TRUSTED_PROXY`, `RENDEZVOUS_URL`, `TMDB_API_KEY`, `DISCOGS_TOKEN`, `TITLE_LIBRARY`, `RTC_PORT`, `RTC_LAN_ADDRESS`, `RTC_ADVERTISE`, `LEVELS_BACKEND`, `TRANSCODE_CACHE_BYTES`, `ENCODES_DIR`, `FFMPEG_PATH` and `FFPROBE_PATH`. */
 export function loadConfig(env: Record<string, string | undefined>): Config {
   const roots = (env.LIBRARY_ROOTS ?? '')
     .split(',')
@@ -103,7 +105,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
   for (const { group } of roots) {
     if (group !== undefined && seen.has(group)) throw new Error(`LIBRARY_ROOTS group "${group}" is also a root name`);
   }
-  return { roots, dataDir: env.DATA_DIR ?? '/data', port: parsePort(env.PORT), nightlyScanAt: parseTime(env.NIGHTLY_SCAN_AT), scanPauseMs: parsePause(env.SCAN_PAUSE_MS), publicBase: parseBase(env.PUBLIC_BASE), appUrl: parseAppUrl(env.APP_URL), lookupContact: parseContact(env.LOOKUP_CONTACT), trustedProxy: parseProxy(env.TRUSTED_PROXY), rendezvousUrl: parseRendezvous(env.RENDEZVOUS_URL), tmdbApiKey: env.TMDB_API_KEY?.trim() || null, discogsToken: env.DISCOGS_TOKEN?.trim() || null, titleLibrary: parseTitleLibrary(env.TITLE_LIBRARY), rtc: parseRtc(env), levels: parseLevels(env), fansubs: parseFansubs(env) };
+  return { roots, dataDir: env.DATA_DIR ?? '/data', port: parsePort(env.PORT), nightlyScanAt: parseTime(env.NIGHTLY_SCAN_AT), scanPauseMs: parsePause(env.SCAN_PAUSE_MS), publicBase: parseBase(env.PUBLIC_BASE), appUrl: parseAppUrl(env.APP_URL), lookupContact: parseContact(env.LOOKUP_CONTACT), trustedProxy: parseProxy(env.TRUSTED_PROXY), rendezvousUrl: parseRendezvous(env.RENDEZVOUS_URL), tmdbApiKey: env.TMDB_API_KEY?.trim() || null, discogsToken: env.DISCOGS_TOKEN?.trim() || null, titleLibrary: parseTitleLibrary(env.TITLE_LIBRARY), encodesDir: env.ENCODES_DIR?.trim() || null, rtc: parseRtc(env), levels: parseLevels(env), fansubs: parseFansubs(env) };
 }
 
 function parseRtc(env: Record<string, string | undefined>): RtcConfig {

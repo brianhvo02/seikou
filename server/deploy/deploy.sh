@@ -110,7 +110,7 @@ docker buildx build --platform linux/amd64 --load \
 echo "==> Shipping the image to $HOST"
 docker save "bluray-server:$TAG" bluray-server:latest | gzip | ssh -- "$HOST" 'gunzip | docker load'
 
-echo "==> Writing $REMOTE_DIR/compose.yaml and compose.gpu.yaml and starting the service"
+echo "==> Writing $REMOTE_DIR/compose.yaml and compose.gpu.yaml (and compose.encodes.yaml when ENCODES_MOUNT is set) and starting the service"
 ssh -- "$HOST" "mkdir -p $REMOTE_DIR && cat > $REMOTE_DIR/compose.yaml" < server/deploy/compose.yaml
 ssh -- "$HOST" "cat > $REMOTE_DIR/compose.gpu.yaml" < server/deploy/compose.gpu.yaml
 # The GPU override only when the render node exists: a missing device would stop the container from starting, while
@@ -121,6 +121,15 @@ if ssh -- "$HOST" "test -e /dev/dri/renderD128"; then
   echo "    /dev/dri/renderD128 found: with compose.gpu.yaml (quality levels on the GPU)"
 else
   echo "    no /dev/dri/renderD128: without compose.gpu.yaml (Original only)"
+fi
+# The encodes folder (a writable bind) only when the NAS's .env sets ENCODES_MOUNT: without it the server has no
+# /encodes and the Encodes library is off.
+if printf '%s\n' "$ENV_KEYS" | grep -qx 'ENCODES_MOUNT'; then
+  ssh -- "$HOST" "cat > $REMOTE_DIR/compose.encodes.yaml" < server/deploy/compose.encodes.yaml
+  COMPOSE_FILES="$COMPOSE_FILES -f compose.encodes.yaml"
+  echo "    ENCODES_MOUNT set: with compose.encodes.yaml (the Encodes library)"
+else
+  echo "    no ENCODES_MOUNT in .env: without compose.encodes.yaml (no Encodes library)"
 fi
 # The NAS's own drive mounts and networks. With -f, Compose no longer picks it up by itself, so name it.
 if ssh -- "$HOST" "test -e $REMOTE_DIR/compose.override.yaml"; then

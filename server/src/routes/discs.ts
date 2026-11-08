@@ -71,7 +71,8 @@ function serveBytes(req: IncomingMessage, size: number, open: OpenBytes): Respon
   return bytes(req, open, 206, range.start, range.end, { 'Content-Range': `bytes ${range.start}-${range.end}/${size}` });
 }
 
-async function serveFile(req: IncomingMessage, file: string): Promise<Response> {
+/** The file at `file`, whole or the `Range` asked for (404 when it is gone). */
+export async function serveFile(req: IncomingMessage, file: string): Promise<Response> {
   let size: number;
   try {
     size = (await stat(file)).size;

@@ -29,6 +29,10 @@ The NAS files each disc under a title by itself. A series has seasons, each with
 
 If the owner has not opened the library to everyone, you see the folders only. Owners also see an **Unsorted** shelf (discs the NAS could not file) and a settings button.
 
+## Encoded episodes
+
+If the owner has set up an encodes folder (`ENCODES_MOUNT` in [Self-hosting](self-hosting.md)), the NAS also holds episodes encoded with the Seikou encoder. It reads each MKV's tags (the AniList id and episode number the encoder writes) and keeps an index. The player reads an episode from the NAS with range requests, as it reads a disc. MKVs whose tags name no episode stay in the folder, unlisted. The NAS never moves or deletes a file it didn't upload.
+
 ## Playing
 
 Choosing a disc opens a pre-flight screen. It measures your connection and shows:

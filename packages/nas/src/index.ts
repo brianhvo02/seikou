@@ -7,3 +7,4 @@ export * from './place-rules';
 export * from './pairing-code';
 export * from './cors-policy';
 export * from './rtc-wire';
+export * from './encode-id';

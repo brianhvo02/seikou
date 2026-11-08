@@ -23,7 +23,7 @@ The server scans the folders you name up to six levels deep, slowly, and again n
 - decrypted disc folders (`<disc>/BDMV/...`) and `.iso` files (read through a built-in UDF reader);
 - nothing it doesn't recognize; a disc whose files changed within the last hour is treated as still downloading and left out.
 
-Mounts are read-only, and the server writes only its data volume. Roots look like `name=dir`, optionally `name=dir@Group` (roots sharing a group show as one top-level folder). Paths are inside the container, under `/library`. Unmatched discs go to Unsorted, where the owner can file them by hand; matching uses AniList, TheDiscDB (bundled) and, with a key, TMDB.
+Library mounts are read-only. The server writes only its data volume and, if you set one up, the encodes folder (see Configure). Roots look like `name=dir`, optionally `name=dir@Group` (roots sharing a group show as one top-level folder). Paths are inside the container, under `/library`. Unmatched discs go to Unsorted, where the owner can file them by hand; matching uses AniList, TheDiscDB (bundled) and, with a key, TMDB.
 
 ## Configure
 
@@ -54,6 +54,7 @@ Edit `.env`. Empty values mean unset.
 | `FANSUB_STORE_BYTES`, `FANSUB_CACHE_BYTES` | Byte budgets of the stored fansub subtitles (default 20 GB) and of the download cache (default 5 GB). |
 | `FANSUB_PICKS_BYTES` | Byte budget of the subtitles viewers pick themselves from Anime Tosho (default 2 GB). When it is full, the picks used longest ago are removed first. |
 | `SEADEX_URL`, `TOSHO_FEED_URL`, `TOSHO_URL` | Where SeaDex and Anime Tosho are reached; `https` only (defaults `https://seadex.moe`, `https://feed.animetosho.net`, `https://animetosho.net`). |
+| `ENCODES_MOUNT` | Host folder for encoded episodes, bound writable at `/encodes` by `compose.encodes.yaml` (which also sets `ENCODES_DIR=/encodes`). Empty: no Encodes library. Put `.mkv` files from the Seikou encoder in `<anilist id>/<episode>.mkv` there; the server reads their tags at start and keeps an index in its data volume. It never moves or deletes a file it didn't upload. With `deploy.sh`, `compose.encodes.yaml` is added when this is set. By hand, name it: `docker compose -f compose.yaml -f compose.encodes.yaml up -d`. |
 | `RENDER_GID` | Group id of the render node on the host, for `compose.gpu.yaml` (`stat -c %g /dev/dri/renderD128`, default 993). |
 | `BLURAY_IMAGE` | Image, default `ghcr.io/brianhvo02/bluray-server:latest`. Pin a tag (a short commit hash) for a fixed version. |
 
@@ -177,7 +178,7 @@ docker run --rm -v <project>_bluray-data:/data -v "$PWD":/backup busybox tar czf
 
 Restore into the same volume with the service stopped: `docker run --rm -v <project>_bluray-data:/data -v "$PWD":/backup busybox tar xzf /backup/bluray-data.tgz -C /data`.
 
-Losing the volume unpairs every device and loses resume points and saved data (the library itself is read-only and untouched).
+Losing the volume unpairs every device and loses resume points and saved data (the library is read-only and untouched, and so are the encoded episodes).
 
 ## Update
 

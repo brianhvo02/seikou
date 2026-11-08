@@ -115,6 +115,8 @@ function startNasProxy(): void {
 export const NAS_ENV: Readonly<Record<string, string>> = {
   LIBRARY_ROOTS: `syn=${NAS_ROOT}`,
   DATA_DIR: join(NAS_E2E_DIR, 'data'),
+  // Encoded episodes (the fixtures' copies); the server scans them at start.
+  ENCODES_DIR: join(NAS_E2E_DIR, 'encodes'),
   PORT: String(NAS_PORT),
   PUBLIC_BASE: `http://localhost:${NAS_PORT}/api/`,
   RENDEZVOUS_URL,
@@ -265,6 +267,7 @@ async function main(): Promise<void> {
   rmSync(NAS_E2E_DIR, { recursive: true, force: true });
   mkdirSync(NAS_E2E_DIR, { recursive: true });
   cpSync(join(REPO, 'fixtures/synthetic'), NAS_ROOT, { recursive: true, preserveTimestamps: true });
+  cpSync(join(REPO, 'fixtures/encodes'), join(NAS_E2E_DIR, 'encodes'), { recursive: true, filter: (src) => !src.endsWith('README.md') });
   for (const project of PROJECTS) for (const name of [project, `${project}-open`]) restoreChangedDisc(name);
   for (const [folder, disc] of Object.entries(TITLE_DISCS)) cpSync(join(REPO, 'fixtures/synthetic', disc), join(NAS_ROOT, folder), { recursive: true, preserveTimestamps: true });
   const cover = join(NAS_ROOT, MUSIC_RELEASE, 'cover.png');
