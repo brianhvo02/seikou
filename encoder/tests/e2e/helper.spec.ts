@@ -102,7 +102,11 @@ test('pick a show and a release, match, line up, nudge, name a track, save and r
   await fileOf(page, 1).selectOption({ label: '[GroupB] Lantern Harbor - 01 (BD 1080p).mkv' });
   await expect(fileOf(page, 1).locator('option:checked')).toContainText('[GroupB]');
   await expect(fileOf(page, 2).locator('option:checked')).toContainText('[GroupA]');
+  // step 3 lines episode 1 up, and previews it, from GroupB's release
+  const alignAsked = page.waitForRequest((r) => new URL(r.url()).pathname === '/api/episodes/1/align');
+  const subtitleAsked = page.waitForRequest((r) => new URL(r.url()).pathname === '/api/episodes/1/subtitle', { timeout: 120_000 });
   await page.getByRole('button', { name: 'Next' }).click();
+  expect((await alignAsked).postDataJSON()).toMatchObject({ release: 'tosho-7002' });
 
   // Step 3, episode 1: lined up, playing, nudged a frame later
   await expect(page.getByRole('heading', { name: 'Episode 1', exact: true })).toBeVisible();
@@ -116,6 +120,7 @@ test('pick a show and a release, match, line up, nudge, name a track, save and r
 
   const later = page.getByRole('button', { name: 'Later by 42 ms' });
   await expect(later).toBeEnabled({ timeout: 60_000 });
+  expect(new URL((await subtitleAsked).url()).searchParams.get('release')).toBe('tosho-7002');
   const playButton = page.locator('.player-controls .play');
   if ((await playButton.textContent()) === 'Play') await playButton.click();
   await expect(playButton).toHaveText('Pause');
@@ -184,7 +189,10 @@ test('pick a show and a release, match, line up, nudge, name a track, save and r
     episodes: { index: number; tracks: { name: string; nudgeMs: number; release: string }[] }[];
   };
   expect(record.releases.map((r) => r.id).sort()).toEqual(['tosho-7001', 'tosho-7002']);
+  expect(record.releases.find((r) => r.id === 'tosho-7001')?.group).toBe('GroupA');
+  expect(record.releases.find((r) => r.id === 'tosho-7002')?.group).toBe('GroupB');
   const second = record.episodes.find((e) => e.index === 2);
+  expect(second?.tracks.length).toBeGreaterThan(0);
   for (const track of record.episodes.find((e) => e.index === 1)?.tracks ?? []) expect(track.release).toBe('tosho-7002');
   for (const track of second?.tracks ?? []) expect(track.release).toBe('tosho-7001');
   const first = record.episodes.find((e) => e.index === 1);
