@@ -106,7 +106,7 @@ export type HelperAction =
   | { readonly type: 'setOffset'; readonly offset: number }
   /**
    * Adds a release at the end of the pool, or replaces the pooled release with the same key in place (a fetch at
-   * another offset, or the same release found again). A replaced release keeps each episode's choice whose file still
+   * another offset, or the same release found again), keeping the source it was first added from. A replaced release keeps each episode's choice whose file still
    * fits that episode: the file is among the episode's candidates in the new match, or is a file no episode was or is
    * numbered for (an extra), with the tracks still in it; other episodes that used it lose their file, timing and
    * drafted tracks. Then every episode with no file (not one marked `none`) takes this release's matched file with all
@@ -292,7 +292,9 @@ function fillFrom(state: HelperState, release: ReleaseAnswer): HelperState {
 function addRelease(state: HelperState, release: ReleaseAnswer, from: ReleaseSource): HelperState {
   const key = release.key;
   const old = releaseOf(state, key);
-  const pooled: PooledRelease = { release, source: from };
+  // a release replaced in place keeps where it first came from, so re-picking a SeaDex release from the Anime Tosho
+  // search does not change whether a show change drops it
+  const pooled: PooledRelease = { release, source: old?.source ?? from };
   let next: HelperState = { ...state, releases: old ? state.releases.map((p) => (p === old ? pooled : p)) : [...state.releases, pooled] };
 
   if (old) {

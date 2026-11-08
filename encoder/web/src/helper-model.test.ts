@@ -254,6 +254,13 @@ describe('reduce', () => {
     expect(cleared.choices[1]).toBeUndefined();
   });
 
+  it('re-adding a pooled release in place keeps where it first came from', () => {
+    const again = reduce(withRelease(), { type: 'addRelease', release, from: 'tosho' });
+    expect(again.releases.map((p) => [p.release.key, p.source])).toEqual([['tosho-7', 'seadex']]);
+    // so a show change still drops it, as it would have before the re-pick
+    expect(reduce(again, { type: 'setTitle', title: { ...title, alId: 900102 } }).releases).toEqual([]);
+  });
+
   it('a show change drops SeaDex releases and keeps Tosho and own files', () => {
     const base = fill0(run(twoReleases(), { type: 'addRelease', release: own, from: 'local' }, { type: 'setTiming', episode: 1, alignment: { kind: 'original' } }));
     const after = fill0(reduce(base, { type: 'setTitle', title: { ...title, alId: 900102 } }));
