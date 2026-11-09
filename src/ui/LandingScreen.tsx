@@ -6,10 +6,12 @@ import { LibraryScreen, rememberedFolder } from './nas/LibraryScreen';
 import { PairScreen } from './nas/PairScreen';
 import type { PairLink } from './nas/pair-link';
 import { TitleLibrary } from './nas/TitleLibrary';
+import { EncodesLibrary } from './nas/EncodesLibrary';
+import { LibraryTabs } from './nas/LibraryTabs';
 import { NAS_MESSAGES, type NasClient } from './nas/nas-client';
 import { AppLink } from './help/HelpLink';
 import { useNasRoute, type NasHistory } from './nas/nas-history';
-import { nasRoutePath, type NasRoute } from './nas/nas-route';
+import { isEncodesRoute, nasRoutePath, type NasRoute } from './nas/nas-route';
 import type { PlayingRoute } from './nas/playing-route';
 import { Preflight } from './nas/Preflight';
 import type { NasPairing } from './nas/nas-store';
@@ -275,8 +277,10 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
   useEffect(() => {
     if (missingTitle !== null && routePath !== missingTitle) setMissingTitle(null);
   }, [missingTitle, routePath]);
+  /** The Encodes tab's screens: closed to a guest behind the gate, as the title routes are. */
+  const onEncodes = isEncodesRoute(shown);
   const guestOnTitleRoute =
-    shown !== null && (shown.kind === 'title' || shown.kind === 'season' || shown.kind === 'extras') && typeof access === 'object' && access !== null && !access.titles;
+    shown !== null && (shown.kind === 'title' || shown.kind === 'season' || shown.kind === 'extras' || onEncodes) && typeof access === 'object' && access !== null && !access.titles;
   const forgetNas = (): void => {
     setPairRequested(false);
     onPairLinkSpent?.();
@@ -454,6 +458,8 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
   const errorPaths = localError ? [] : (snapshot.error?.paths ?? []);
 
   /** Which NAS panel shows: the not-found screen, the pair screen, the paired line, or none while pairings load. */
+  /** Discs and Encodes, on every NAS screen of a paired device the title library is open to (a link's pre-flight has none). */
+  const showTabs = paired && browsing && playLink === null && !(typeof access === 'object' && access !== null && !access.titles);
   const nasPanel = pairing === undefined ? null : pairing === null && browsing && !pairRequested ? 'not-found' : pairing === null || pairRequested ? 'pair' : 'paired';
   const pairedLine = nasPanel === 'paired' && pairing && (
     <p className="status nas-paired" data-testid="nas-paired">
@@ -485,6 +491,7 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
           <img className="app-mark" src="/favicon.svg" alt="" width={32} height={32} />
           Seikou
         </h1>
+        {showTabs && <LibraryTabs history={history} route={shown} />}
         <div
           className={`drop-zone${dragging ? ' dragging' : ''}`}
           onDragOver={(e) => {
@@ -622,7 +629,10 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
         />
       )}
       {paired && shown !== null && playLink === null && !titleMissing && shown.kind !== 'folders' && (access === null || access === 'checking') && <p className="status">Loading…</p>}
-      {paired && shown !== null && playLink === null && !titleMissing && shown.kind !== 'folders' && typeof access === 'object' && access?.titles && (
+      {paired && isEncodesRoute(shown) && playLink === null && typeof access === 'object' && access?.titles && (
+        <EncodesLibrary nas={nas} history={history} owner={access.owner} route={shown} onClose={closeNas} />
+      )}
+      {paired && shown !== null && playLink === null && !titleMissing && !onEncodes && shown.kind !== 'folders' && typeof access === 'object' && access?.titles && (
         <TitleLibrary
           nas={nas}
           controller={controller}

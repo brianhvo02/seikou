@@ -7,6 +7,7 @@
 import { anilistSeries, artIdOf, isAnilistTv, storyParent } from './catalogue';
 import type { Series } from './catalogue';
 import type { Entry } from './sources';
+import type { EncodeEpisode, EncodeSeason, EncodeShow } from '@seikou/nas/nas-api';
 
 /** What the catalogue needs of an indexed encode (the server's `EncodeEntry` has all of it). */
 export interface EncodeEntryLike {
@@ -17,33 +18,7 @@ export interface EncodeEntryLike {
   readonly durationMs: number;
 }
 
-/** One episode of a season. */
-export interface EncodeEpisode {
-  readonly episode: number;
-  /** The encode's id, `<anilistId>-<episode>`. */
-  readonly id: string;
-  readonly title: string | null;
-  readonly durationMs: number;
-}
-
-/** One AniList entry with encodes: a TV season, a film, or another row (OVA, special). Only entries with encodes exist. */
-export interface EncodeSeason {
-  readonly anilistId: number;
-  readonly name: string;
-  readonly kind: 'season' | 'film' | 'other';
-  /** The place in the series' chain for a season, else null. */
-  readonly number: number | null;
-  readonly episodes: readonly EncodeEpisode[];
-}
-
-/** A show: a series' seasons then its films and others, or one film. `poster` is an art id, never a URL. */
-export interface EncodeShow {
-  /** The root AniList entry's id, as a string. */
-  readonly id: string;
-  readonly name: string;
-  readonly poster: string | null;
-  readonly seasons: readonly EncodeSeason[];
-}
+export type { EncodeEpisode, EncodeSeason, EncodeShow } from '@seikou/nas/nas-api';
 
 /** The built catalogue. */
 export interface EncodeCatalogue {

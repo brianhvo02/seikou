@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from 'react';
 import type { DiscRef, DiscSlot, EpisodeRef, FansubTitleState, PlaylistProgress, SeasonDetail, StoredSubtitle } from '@seikou/nas/nas-api';
 import { FansubEpisodePanel } from './FansubEpisodePanel';
 import { FansubLine } from './FansubLine';
@@ -67,6 +67,44 @@ export function DiscList({ season, discs, onOpen, owner }: DiscListProps): React
         );
       })}
     </ul>
+  );
+}
+
+interface EpisodeRowProps {
+  readonly number: number;
+  /** The episode's own title, after "Episode N"; null for none. */
+  readonly name: string | null;
+  /** Under the name: its length, its disc. */
+  readonly meta: string;
+  /** How far into the episode this person is, 0–100; null for no bar. */
+  readonly percent: number | null;
+  readonly onClick: () => void;
+  /** `data-*` attributes for the row (tests and focus find rows by them). */
+  readonly data?: Readonly<Record<string, string>>;
+  /** Shown after the name, before the progress bar (subtitle tags, a watched mark). */
+  readonly children?: ReactNode;
+}
+
+/** An episode's row: its number, "Episode N · title", a line under it and the progress bar; a click plays it. */
+export function EpisodeRow({ number, name, meta, percent, onClick, data = {}, children }: EpisodeRowProps): ReactElement {
+  const attrs = Object.fromEntries(Object.entries(data).map(([k, v]) => [`data-${k}`, v]));
+  return (
+    <button type="button" className="episode-row" data-testid="episode-row" data-number={number} {...attrs} onClick={onClick}>
+      <span className="episode-number">{number}</span>
+      <span className="title-row-text">
+        <span className="title-row-name">
+          Episode {number}
+          {name && <span className="title-muted"> · {name}</span>}
+        </span>
+        {meta && <span className="title-muted">{meta}</span>}
+      </span>
+      {children}
+      {percent !== null && (
+        <span className="episode-progress" data-testid="episode-progress" role="img" aria-label={`${percent}% watched`}>
+          <i style={{ width: `${percent}%` }} />
+        </span>
+      )}
+    </button>
   );
 }
 
@@ -219,15 +257,7 @@ export function SeasonScreen({ nas, titleId, seriesName, heading, season, season
             const reviewing = owner !== undefined && (tracks.length > 0 || fansub?.episodes[episodeKey]?.status === 'not-found');
             return (
               <li key={`${e.discId}:${e.playlistId}`} className={reviewing ? 'episode-item' : undefined}>
-                <button type="button" className="episode-row" data-testid="episode-row" data-number={e.number} onClick={() => playEpisode(e)}>
-                  <span className="episode-number">{e.number}</span>
-                  <span className="title-row-text">
-                    <span className="title-row-name">
-                      Episode {e.number}
-                      {e.name && <span className="title-muted"> · {e.name}</span>}
-                    </span>
-                    <span className="title-muted">{episodeMeta(season, e)}</span>
-                  </span>
+                <EpisodeRow number={e.number} name={e.name} meta={episodeMeta(season, e)} percent={percent} onClick={() => playEpisode(e)}>
                   {languages.length > 0 && (
                     <span className="episode-tags" aria-label={`Subtitles: ${languages.join(', ')}`}>
                       {[...new Set(languages.map(languageTag))].map((t) => (
@@ -237,12 +267,7 @@ export function SeasonScreen({ nas, titleId, seriesName, heading, season, season
                       ))}
                     </span>
                   )}
-                  {percent !== null && (
-                    <span className="episode-progress" data-testid="episode-progress" role="img" aria-label={`${percent}% watched`}>
-                      <i style={{ width: `${percent}%` }} />
-                    </span>
-                  )}
-                </button>
+                </EpisodeRow>
                 {reviewing && (
                   <button type="button" className="fansub-open" data-testid="fansub-open" aria-label={`Fansubs for episode ${e.number}`} aria-expanded={panelFor === e.number} aria-controls={`${ids}-fansubs-${e.number}`} onClick={() => setPanelFor(panelFor === e.number ? null : e.number)}>
                     {tracks.map((t) => (

@@ -1,4 +1,4 @@
-import type { CodeLookup, ContinueItem, DiscEntry, DiscManifest, DiscPlaces, DiscRef, EncodingNow, FansubPick, FansubPickRequest, FansubTitleState, FolderEntry, LevelAt, LevelInfo, OwnerChoice, OwnTitle, PlaybackPlace, PlaylistProgress, StoredSubtitle, SubtitleCreate, SubtitlePatch, TitleDetail, TitleKind, TitleSummary, ToshoReleaseFiles, ToshoSearchResult, UnsortedItem } from '@seikou/nas/nas-api';
+import type { CodeLookup, ContinueItem, DiscEntry, DiscManifest, DiscPlaces, DiscRef, EncodeShow, EncodeShowList, EncodesStatus, EncodingNow, FansubPick, FansubPickRequest, FansubTitleState, FolderEntry, LevelAt, LevelInfo, OwnerChoice, OwnTitle, PlaybackPlace, PlaylistProgress, StoredSubtitle, SubtitleCreate, SubtitlePatch, TitleDetail, TitleKind, TitleSummary, ToshoReleaseFiles, ToshoSearchResult, UnsortedItem } from '@seikou/nas/nas-api';
 import { PAIRING_CODE_LENGTH, formatCode, normalizeCode } from '@seikou/nas/pairing-code';
 import type { NasPairing, NasStore } from './nas-store';
 import { codeHashOf, isNasId, turnProofMessage } from '../../../rendezvous/src/protocol';
@@ -725,19 +725,43 @@ export class NasClient {
     await this.ok(placePath(discKey, playlistId), { method: 'DELETE' });
   }
 
-  /** The Continue watching row: unfinished places and Up next cards, newest first. */
-  async continueWatching(opts: { readonly timeoutMs?: number } = {}): Promise<ContinueItem[]> {
-    const res = await this.authed('me/playback', {}, false, opts.timeoutMs);
+  /**
+   * The Continue watching row: unfinished places and Up next cards, newest first; with `library: 'encodes'` the encodes'
+   * row (its cards carry `encodeId`), which answers 503 `indexing` during the first scan.
+   */
+  async continueWatching(opts: { readonly timeoutMs?: number; readonly library?: 'encodes' } = {}): Promise<ContinueItem[]> {
+    const res = await this.authed(opts.library ? `me/playback?library=${opts.library}` : 'me/playback', {}, false, opts.timeoutMs);
     if (!res.ok) throw await httpError(res);
     return (await res.json()) as ContinueItem[];
   }
 
-  /** A title's progress by disc id and playlist id; null when the title isn't open to this device (or unknown). */
-  async titleProgress(titleId: string): Promise<Record<string, Record<string, PlaylistProgress>> | null> {
-    const res = await this.authed(`me/playback/title/${encodeURIComponent(titleId)}`);
+  /**
+   * A title's progress by disc id and playlist id; null when the title isn't open to this device (or unknown). With
+   * `library: 'encodes'` an encodes show's, by encode id (its one playlist `mkv`).
+   */
+  async titleProgress(titleId: string, opts: { readonly library?: 'encodes' } = {}): Promise<Record<string, Record<string, PlaylistProgress>> | null> {
+    const res = await this.authed(`me/playback/title/${encodeURIComponent(titleId)}${opts.library ? `?library=${opts.library}` : ''}`);
     if (res.status === 404) return null;
     if (!res.ok) throw await httpError(res);
     return (await res.json()) as Record<string, Record<string, PlaylistProgress>>;
+  }
+
+  /** The encodes folder's state; `configured: false` when the NAS has none. */
+  async encodesStatus(): Promise<EncodesStatus> {
+    return (await this.json('encodes/status')) as EncodesStatus;
+  }
+
+  /** The encodes shows (and for owners the files left unfiled); 503 `indexing` (NasHttpError) during the first scan. */
+  async encodeShows(): Promise<EncodeShowList> {
+    return (await this.json('encodes/shows')) as EncodeShowList;
+  }
+
+  /** An encodes show; null when the NAS has no show by that id (its id may have changed: docs/known-issues.md). */
+  async encodeShow(id: string): Promise<EncodeShow | null> {
+    const res = await this.authed(`encodes/shows/${encodeURIComponent(id)}`);
+    if (res.status === 404) return null;
+    if (!res.ok) throw await httpError(res);
+    return (await res.json()) as EncodeShow;
   }
 
   /** The subtitles stored for a disc (owners also see those no longer attached). */

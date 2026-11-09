@@ -156,7 +156,15 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .theme-option:hover:not(:has(input:checked)) { color: var(--ice); }
 .theme-icon { display: none; }
 .app-bar .drop-zone { grid-area: drop; }
-.browsing .app-bar { grid-template-columns: auto 1fr auto; grid-template-areas: 'name drop help'; padding-bottom: 14px; border-bottom: 1px solid var(--rim); }
+.browsing .app-bar { --bar-pad-bottom: 14px; grid-template-columns: auto 1fr auto; grid-template-areas: 'name drop help'; padding-bottom: var(--bar-pad-bottom); border-bottom: 1px solid var(--rim); }
+.browsing .app-bar:has(.library-tabs) { grid-template-columns: auto auto 1fr auto; grid-template-areas: 'name tabs drop help'; }
+/* Discs and Encodes: at the bar's left on a wide screen, their underline standing on the bar's own rule */
+.library-tabs { grid-area: tabs; align-self: end; display: flex; gap: 4px; margin: 0 0 calc(-1px - var(--bar-pad-bottom)) 12px; }
+.library-tab { position: relative; padding: 10px 14px 13px; background: none; border: none; border-radius: 0; color: var(--mist); font-size: 1.02rem; font-weight: 550; }
+.library-tab:hover:not(:disabled) { background: none; color: var(--ice); }
+.library-tab[aria-current='page'] { color: var(--ice); }
+.library-tab[aria-current='page']::after { content: ''; position: absolute; left: 14px; right: 14px; bottom: 0; height: 2px; border-radius: 2px; background: var(--laser); }
+.library-tab:focus-visible { outline: 2px solid var(--laser); outline-offset: -4px; border-radius: var(--r-s); }
 .help-link { flex: none; color: var(--mist); text-decoration: none; font-weight: 550; padding: 6px 4px; border-radius: 6px; }
 .help-link:hover { color: var(--ice); }
 .app-foot { padding-top: 16px; border-top: 1px solid var(--rim); }
@@ -388,6 +396,30 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .disc-copy-folder { overflow-wrap: anywhere; }
 .disc-copy-owned, .owner-refile { display: flex; flex-direction: column; gap: 6px; }
 
+/* the Encodes tab: an empty shelf, the shows, a show's seasons and the files left unfiled */
+.encodes-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: clamp(40px, 10vh, 96px) 12px; text-align: center; }
+.encodes-empty strong { font-size: 1.15rem; font-weight: 650; }
+.encodes-empty p { margin: 0; max-width: 42ch; color: var(--mist); }
+.encodes-empty .title-link { align-self: center; }
+.encodes-shelf { position: relative; width: 120px; height: 72px; margin-bottom: 6px; }
+.encodes-shelf span { position: absolute; bottom: 0; width: 22px; border: 1px dashed var(--rim-strong); border-radius: 3px; }
+.encodes-shelf span:nth-child(1) { left: 14px; height: 58px; }
+.encodes-shelf span:nth-child(2) { left: 42px; height: 66px; }
+.encodes-shelf span:nth-child(3) { left: 74px; height: 52px; transform: rotate(-8deg); transform-origin: bottom right; }
+.encodes-shelf::after { content: ''; position: absolute; left: 0; right: 0; bottom: -2px; height: 2px; border-radius: 1px; background: var(--rim-strong); }
+.encodes-library .title-card .title-muted { margin-top: 2px; }
+.encode-show-poster { flex: none; width: 52px; aspect-ratio: 2 / 3; object-fit: cover; border-radius: var(--r-s); background: var(--deep); box-shadow: 0 0 0 1px var(--hairline); font-size: 0.85em; }
+.encode-season { display: flex; flex-direction: column; gap: 10px; }
+.encode-season-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }
+.encode-season-head .title-section { margin: 0; }
+.encode-episode { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.episode-watched { flex: none; padding: 2px 8px; border-radius: 999px; background: var(--mark-good); color: var(--ice); font-size: 0.82em; font-weight: 550; }
+.episode-resume { padding: 2px 14px; }
+.encodes-unfiled { display: flex; flex-direction: column; gap: 10px; }
+.encodes-unfiled > p { margin: 0; max-width: 70ch; }
+.encodes-unfiled-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; padding: 10px 14px; background: var(--deep); border-radius: var(--r-m); }
+.encodes-unfiled-path { min-width: 0; overflow-wrap: anywhere; }
+
 /* resume (spec 2026-10-20 mockups 1-3): the prompt, Continue watching, an episode's progress */
 .resume-prompt { display: flex; flex-direction: column; gap: 6px; padding: 18px 20px; background: var(--deep); border: 1px solid var(--rim-strong); border-radius: var(--r-l); }
 .resume-heading { margin: 0; font-size: 1.2rem; font-weight: 650; font-stretch: var(--narrow); }
@@ -588,7 +620,12 @@ code { font-family: var(--mono); font-size: 0.9em; }
   .app-bar { padding-top: max(14px, env(safe-area-inset-top)); }
   .browsing .app-bar { gap: 10px; padding-bottom: 10px; }
   /* the switch and Help leave no room for the disc picker beside the name: it takes its own row, as at home */
-  .browsing .app-bar { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'name help' 'drop drop'; }
+  .browsing .app-bar { --bar-pad-bottom: 10px; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'name help' 'drop drop'; }
+  .browsing .app-bar:has(.library-tabs) { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'name help' 'drop drop' 'tabs tabs'; }
+  /* on a phone the tabs take their own row under the bar, at full width */
+  .library-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-left: 0; }
+  .library-tab { font-size: 1rem; }
+  .library-tab[aria-current='page']::after { left: 22%; right: 22%; }
   .app-bar .app-tools { gap: 10px; }
   .theme-option { padding: 5px 8px; }
   .theme-word { display: none; }

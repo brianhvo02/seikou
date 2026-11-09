@@ -277,3 +277,57 @@ export interface LevelAt {
   readonly level: LevelId;
   readonly audio: number;
 }
+
+/* The encodes library (`/api/encodes/…`): the NAS's encoded episodes, grouped by AniList show. */
+
+/** One episode of a season. */
+export interface EncodeEpisode {
+  readonly episode: number;
+  /** The encode's id, `<anilistId>-<episode>`. */
+  readonly id: string;
+  readonly title: string | null;
+  readonly durationMs: number;
+}
+
+/** One AniList entry with encodes: a TV season, a film, or another row (OVA, special). Only entries with encodes exist. */
+export interface EncodeSeason {
+  readonly anilistId: number;
+  readonly name: string;
+  readonly kind: 'season' | 'film' | 'other';
+  /** The place in the series' chain for a season, else null. */
+  readonly number: number | null;
+  readonly episodes: readonly EncodeEpisode[];
+}
+
+/** A show: a series' seasons then its films and others, or one film. `poster` is an art id, never a URL. */
+export interface EncodeShow {
+  /** The root AniList entry's id, as a string. */
+  readonly id: string;
+  readonly name: string;
+  readonly poster: string | null;
+  readonly seasons: readonly EncodeSeason[];
+}
+
+/** `GET encodes/status`. `scanning` while the first scan runs; `rootMissing`, `rootEmpty` and `scanError` are the index's state. */
+export interface EncodesStatus {
+  readonly configured: boolean;
+  readonly count?: number;
+  readonly scanning?: boolean;
+  readonly rootMissing?: boolean;
+  readonly rootEmpty?: boolean;
+  readonly scanError?: string;
+}
+
+/** A show of `GET encodes/shows`. */
+export interface EncodeShowSummary {
+  readonly id: string;
+  readonly name: string;
+  readonly poster: string | null;
+  readonly episodeCount: number;
+}
+
+/** `GET encodes/shows`: the shows by name, and for owners the files the index could not file (paths under the encodes folder). */
+export interface EncodeShowList {
+  readonly shows: readonly EncodeShowSummary[];
+  readonly unfiled?: readonly { readonly path: string; readonly size: number }[];
+}

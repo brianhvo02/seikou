@@ -25,6 +25,12 @@ const ROUTES: NasRoute[] = [
   { kind: 'play', discKey: 'f.abc123', playlistId: null, timeS: 90, resume: false },
   { kind: 'play', discKey: 'f.abc123', playlistId: '00001', timeS: 0, resume: false },
   { kind: 'play', discKey: 'f.abc123', playlistId: '00001', timeS: 754, resume: true },
+  { kind: 'encodes', q: '' },
+  { kind: 'encodes', q: 'star fall & 100%' },
+  { kind: 'encodeShow', showId: '21' },
+  { kind: 'encodePlay', encodeId: '21-3', timeS: null, resume: false },
+  { kind: 'encodePlay', encodeId: '21-3', timeS: 754, resume: true },
+  { kind: 'encodePlay', encodeId: '21-3', timeS: 0, resume: false },
 ];
 
 describe('nas route', () => {
@@ -45,6 +51,19 @@ describe('nas route', () => {
       '/nas/play/f.1?pl=2&t=3',
     );
     expect(nasRoutePath({ kind: 'play', discKey: 'f.1', playlistId: '2', timeS: 60, resume: true })).toBe('/nas/play/f.1?pl=2&t=60&resume=1');
+  });
+
+  it('formats the encodes paths', () => {
+    expect(nasRoutePath({ kind: 'encodes', q: '' })).toBe('/nas/encodes');
+    expect(nasRoutePath({ kind: 'encodes', q: 'a b' })).toBe('/nas/encodes?q=a+b');
+    expect(nasRoutePath({ kind: 'encodeShow', showId: '21' })).toBe('/nas/encodes/show/21');
+    expect(nasRoutePath({ kind: 'encodePlay', encodeId: '21-3', timeS: null, resume: false })).toBe('/nas/encodes/play/21-3');
+    expect(nasRoutePath({ kind: 'encodePlay', encodeId: '21-3', timeS: 60.7, resume: true })).toBe('/nas/encodes/play/21-3?t=60&resume=1');
+  });
+
+  it('falls back to the encodes list for an unknown encodes path', () => {
+    expect(parseNasRoute(u('/nas/encodes/show'))).toEqual({ kind: 'encodes', q: '' });
+    expect(parseNasRoute(u('/nas/encodes/bogus/1'))).toEqual({ kind: 'encodes', q: '' });
   });
 
   it('treats /nas and /nas/ as the library', () => {

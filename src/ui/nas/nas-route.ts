@@ -12,10 +12,24 @@ export type NasRoute =
   /** An artist's page on the Music shelf, by the artist's grouping id. */
   | { kind: 'artist'; artistId: string }
   /** `resume`: from a Continue watching card, which resumes the place without asking (`&resume=1`). */
-  | { kind: 'play'; discKey: string; playlistId: string | null; timeS: number | null; resume: boolean };
+  | { kind: 'play'; discKey: string; playlistId: string | null; timeS: number | null; resume: boolean }
+  /** The Encodes tab: the encoded episodes' shows, filtered by `q`. */
+  | { kind: 'encodes'; q: string }
+  /** An encodes show, by its root AniList id (which can change once the chain has loaded: docs/known-issues.md). */
+  | { kind: 'encodeShow'; showId: string }
+  /** An encoded episode, `<anilistId>-<episode>`, from `timeS` when given; `resume` as for `play`. */
+  | { kind: 'encodePlay'; encodeId: string; timeS: number | null; resume: boolean };
+
+/** The Encodes tab's routes. */
+export type EncodesRoute = Extract<NasRoute, { kind: 'encodes' | 'encodeShow' | 'encodePlay' }>;
+
+export function isEncodesRoute(route: NasRoute | null): route is EncodesRoute {
+  return route !== null && (route.kind === 'encodes' || route.kind === 'encodeShow' || route.kind === 'encodePlay');
+}
 
 const SHELVES: readonly string[] = ['series', 'movie', 'music'];
 const LIBRARY: NasRoute = { kind: 'library', shelf: null, q: '' };
+const ENCODES: NasRoute = { kind: 'encodes', q: '' };
 
 function shelfOf(value: string | null): TitleKind | null {
   return value !== null && SHELVES.includes(value) ? (value as TitleKind) : null;
@@ -53,6 +67,11 @@ export function parseNasRoute(url: URL): NasRoute | null {
     return { kind: head };
   } else if (head === 'artist' && a && seg.length === 2) {
     return { kind: 'artist', artistId: a };
+  } else if (head === 'encodes') {
+    if (seg.length === 1) return { kind: 'encodes', q: params.get('q') ?? '' };
+    if (seg.length === 3 && a === 'show' && b) return { kind: 'encodeShow', showId: b };
+    if (seg.length === 3 && a === 'play' && b) return { kind: 'encodePlay', encodeId: b, timeS: timeOf(params.get('t')), resume: params.get('resume') === '1' };
+    return ENCODES;
   } else if (head === 'play' && a && seg.length === 2) {
     return { kind: 'play', discKey: a, playlistId: params.get('pl') || null, timeS: timeOf(params.get('t')), resume: params.get('resume') === '1' };
   }
@@ -92,6 +111,17 @@ export function nasRoutePath(route: NasRoute): string {
       if (route.resume) p.set('resume', '1');
       const s = p.toString();
       return `/nas/play/${enc(route.discKey)}${s ? `?${s}` : ''}`;
+    }
+    case 'encodes':
+      return route.q ? `/nas/encodes?${new URLSearchParams({ q: route.q }).toString()}` : '/nas/encodes';
+    case 'encodeShow':
+      return `/nas/encodes/show/${enc(route.showId)}`;
+    case 'encodePlay': {
+      const p = new URLSearchParams();
+      if (route.timeS !== null) p.set('t', String(Math.floor(route.timeS)));
+      if (route.resume) p.set('resume', '1');
+      const s = p.toString();
+      return `/nas/encodes/play/${enc(route.encodeId)}${s ? `?${s}` : ''}`;
     }
   }
 }
