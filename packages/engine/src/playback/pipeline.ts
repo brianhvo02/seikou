@@ -33,6 +33,8 @@ export interface PipelineUnit {
   readonly dtsUs?: number;
   /** False when the PTS lies outside the play item's in/out range. */
   readonly inRange: boolean;
+  /** The container's key-frame flag (a Matroska block's); absent for M2TS, whose decoders find key units themselves. */
+  readonly key?: boolean;
 }
 
 export interface PipelineAudioUnit extends PipelineUnit {
@@ -59,6 +61,30 @@ export interface PipelineSinks {
   failed(err: unknown): void;
 }
 
+/**
+ * What the player drives a session's reads through: the M2TS reader (PlaybackPipeline) or an encode's Matroska reader
+ * (EncodePipeline). Both feed PipelineSinks.
+ */
+export interface SessionPipeline {
+  /** Starts reading at `fromUs` (playlist time), stopping any read under way. */
+  start(fromUs: number): void;
+  /** Stops reading; a read in flight is cancelled. */
+  stop(): void;
+  /** Takes effect on the next play item read (or start()). */
+  setPgStream(pid: number | null): void;
+  /** Takes effect on the next start(). */
+  setAudioStream(stream: number | null): void;
+  /** Takes effect on the next start(). */
+  setIgStream(stream: number | null): void;
+  /** The file being read and its rate in bytes per second, for the NAS start-up read-ahead; null between reads. */
+  readonly reading: { readonly path: string; readonly recordingRate: number } | null;
+  /** Playlist time the data delivered so far has surely reached, or null when unknown. */
+  readonly readUs: number | null;
+  /** After ended(): the playlist time the reads delivered up to, or null. */
+  readonly doneUs: number | null;
+  readonly stats: DemuxStats;
+}
+
 export interface PipelineConfig {
   readonly source: ByteSource;
   readonly timeline: Timeline;
@@ -75,7 +101,7 @@ export interface PipelineConfig {
 }
 
 /** Reads a playlist's clips in order from a start time and feeds access units to the sinks. */
-export class PlaybackPipeline {
+export class PlaybackPipeline implements SessionPipeline {
   private generation = 0;
   private corruptPackets = 0;
   private continuityErrors = 0;

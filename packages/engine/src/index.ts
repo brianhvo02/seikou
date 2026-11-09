@@ -13,6 +13,8 @@ export { PlayerController, INITIAL_SNAPSHOT, type PlayerSnapshot, type Notice, t
 export { PlatformSession } from './controller/platform-session';
 export {
   BDJ_STORAGE_MESSAGE,
+  ENCODE_FILE,
+  ENCODE_PLAYLIST_ID,
   NO_PICTURE_MESSAGE,
   type AudioTrack,
   type BdjMemoryTelemetry,
@@ -20,6 +22,7 @@ export {
   type BdjTelemetry,
   type BufferRequest,
   type ChannelsLabel,
+  type EncodeSpec,
   type EngineCommand,
   type EngineEvent,
   type ErrorCode,

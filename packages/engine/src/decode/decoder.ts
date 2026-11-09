@@ -2,6 +2,10 @@ export interface StreamConfig {
   readonly codingType: number;
   /** First access unit of the stream; video uses its SPS to build the codec string. */
   readonly firstUnit?: Uint8Array;
+  /** The first unit's key-frame flag from the container (Matroska), for codecs whose units carry none the decoder reads. */
+  readonly key?: boolean;
+  /** The track's CodecPrivate (Matroska): AV1's av1C record, which the codec string comes from. */
+  readonly codecPrivate?: Uint8Array;
 }
 
 /** Common shape of every decoder (WebCodecs now; WASM fallbacks in later milestones). */

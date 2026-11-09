@@ -4,7 +4,7 @@ import type { PlaylistSummary } from '../disc/open-disc';
 import type { UoOp } from '../hdmv/uo-mask';
 import type { Chapter } from '../nav/timeline';
 import type { MemoryProfileName } from '../memory-profile';
-import type { AudioTrack, BufferRequest, EngineCommand, EngineEvent, ErrorCode, MenuKey, PlaceState, PlaybackState, ShaderSetData, ShaderState, StartPoint, SubtitleChoice, Telemetry } from '../protocol';
+import type { AudioTrack, BufferRequest, EncodeSpec, EngineCommand, EngineEvent, ErrorCode, MenuKey, PlaceState, PlaybackState, ShaderSetData, ShaderState, StartPoint, SubtitleChoice, Telemetry } from '../protocol';
 import { trackLabel } from './language';
 import { DROP_WARN_RATE, DropMeter } from './drop-meter';
 
@@ -38,6 +38,8 @@ export interface PlayerSnapshot {
   readonly remoteDisc: boolean;
   /** The open NAS disc is read over WebRTC (its base is `rtc://`), so its connection may be relayed. */
   readonly rtcDisc: boolean;
+  /** The id of the encoded episode open (openEncode); null while a disc is open, or nothing. */
+  readonly encodeId: string | null;
   /** Clicks on an HDMV menu that hit no button, counted since the page loaded (a touch that missed shows the controls). */
   readonly menuTapMisses: number;
   readonly warnings: readonly string[];
@@ -119,6 +121,7 @@ export const INITIAL_SNAPSHOT: PlayerSnapshot = {
   bdjRemoteOpenedInMenu: false,
   remoteDisc: false,
   rtcDisc: false,
+  encodeId: null,
   menuTapMisses: 0,
   warnings: [],
   currentPlaylistId: null,
@@ -172,7 +175,7 @@ export function reduceEvent(s: PlayerSnapshot, e: EngineEvent): PlayerSnapshot {
     case 'fetchPortClosed':
       return s; // handled by the controller
     case 'unsupported':
-      return withNotice(s, { code: e.noPicture ? 'no-picture' : `unsupported-${e.kind}`, message: e.message });
+      return withNotice(s, { code: e.noPicture ? 'no-picture' : e.reason === 'av1' ? 'unsupported-av1' : `unsupported-${e.kind}`, message: e.message });
     case 'error':
       return { ...s, error: { code: e.code, message: e.message, paths: e.paths } };
     case 'telemetry':
@@ -465,6 +468,22 @@ export class PlayerController {
     this.startAudio();
     this.update({ ...INITIAL_SNAPSHOT, volume: this.snapshot.volume, muted: this.snapshot.muted, readAheadCache: this.snapshot.readAheadCache, engineState: 'loading', remoteDisc: true, rtcDisc: spec.base.startsWith('rtc://') });
     this.post({ type: 'open', disc: spec, ...(bufferFirst ? { bufferFirst } : {}), ...(start ? { start } : {}) }, spec.fetchPort ? [spec.fetchPort] : []);
+  }
+
+  /**
+   * An encoded episode on the NAS, played from `startUs` (from the start without it). It is read as a NAS disc is:
+   * `refreshToken` answers the engine's token requests, and a spec's fetch port (the WebRTC route) is transferred, with
+   * `release` run once the engine has closed it. encodeId is set until another disc opens or this one closes.
+   */
+  openEncode(spec: EncodeSpec, refreshToken?: () => Promise<string>, startUs?: number, release?: () => void): void {
+    this.opens++;
+    this.supersedeServings();
+    this.refreshToken = refreshToken ?? null;
+    if (spec.fetchPort) this.servings.push({ release: release ?? null, timer: null });
+    else release?.();
+    this.startAudio();
+    this.update({ ...INITIAL_SNAPSHOT, volume: this.snapshot.volume, muted: this.snapshot.muted, readAheadCache: this.snapshot.readAheadCache, engineState: 'loading', remoteDisc: true, rtcDisc: spec.base.startsWith('rtc://'), encodeId: spec.encodeId });
+    this.post({ type: 'openEncode', encode: spec, ...(startUs !== undefined ? { startUs } : {}) }, spec.fetchPort ? [spec.fetchPort] : []);
   }
 
   /**

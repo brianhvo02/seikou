@@ -12,6 +12,7 @@
   "dependencies": {
     "@seikou/ass": "*",
     "@seikou/bdmv": "*",
+    "@seikou/matroska": "*",
     "@seikou/nas": "*",
     "@seikou/pg": "*"
   }

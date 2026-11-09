@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { INTERLACED_SPS, PROGRESSIVE_SPS, TEST_PPS, avcAu } from '../../../../tests/helpers/h264-units';
 import { CodingType } from '@seikou/bdmv/stream-types';
 import { DecoderError, UnsupportedCodecError } from './decoder';
-import { WebCodecsVideoDecoder, type VideoCodecApi, type VideoDecoderLike } from './video-decoder';
+import { CODING_AV1 } from './av1';
+import { WebCodecsVideoDecoder, canStartStream, type VideoCodecApi, type VideoDecoderLike } from './video-decoder';
 
 interface FakeFrame {
   timestamp: number;
@@ -454,5 +455,50 @@ describe('WebCodecsVideoDecoder', () => {
     await dec.configure({ codingType: CodingType.AVC, firstUnit: avcAu({ idr: true }) });
     dec.decode({ data: avcAu({ idr: true }), ptsUs: 0, discard: false });
     expect(created[0].frames[0].closed).toBe(true);
+  });
+});
+
+describe('WebCodecsVideoDecoder with AV1 from Matroska', () => {
+  /** The av1C record of fixtures/encodes/990001/1.mkv: main profile, level 2.1 (index 1), main tier, 10-bit. */
+  const AV1C = new Uint8Array([0x81, 0x01, 0x4c, 0x00, 0x0a, 0x0f, 0x02, 0x00, 0x00, 0x0d, 0x26, 0x27, 0xfb, 0x38, 0x95, 0xf2, 0xa0, 0x20, 0x20, 0x20, 0x80]);
+  /** A temporal unit as Matroska stores it: OBUs with sizes, no start codes (a sequence header, then a frame). */
+  const KEY_TU = new Uint8Array([0x0a, 0x02, 0x00, 0x00, 0x32, 0x01, 0x10]);
+  const DELTA_TU = new Uint8Array([0x32, 0x01, 0x30]);
+
+  it('configures with the codec string from the av1C record and no Annex-B parsing', async () => {
+    const { api, created, checked } = setup();
+    const dec = new WebCodecsVideoDecoder(api);
+    await dec.configure({ codingType: CODING_AV1, firstUnit: KEY_TU, key: true, codecPrivate: AV1C });
+    expect(checked.map((c) => c.codec)).toEqual(['av01.0.01M.10']);
+    expect(created[0].config?.codec).toBe('av01.0.01M.10');
+  });
+
+  it("marks chunks key or delta by the block's key-frame flag, passing the temporal unit unchanged", async () => {
+    const { api, created } = setup();
+    const dec = new WebCodecsVideoDecoder(api);
+    await dec.configure({ codingType: CODING_AV1, firstUnit: KEY_TU, key: true, codecPrivate: AV1C });
+    dec.decode({ data: DELTA_TU, ptsUs: 0, discard: false, key: false });
+    dec.decode({ data: KEY_TU, ptsUs: 41_708, discard: false, key: true });
+    dec.decode({ data: DELTA_TU, ptsUs: 83_417, discard: false, key: false });
+    expect(created[0].chunks.map((c) => [c.type, c.timestamp])).toEqual([
+      ['key', 41_708],
+      ['delta', 83_417],
+    ]);
+    expect(created[0].chunks[0]!.data).toBe(KEY_TU);
+  });
+
+  it('says AV1 is unsupported when the browser has no decoder for it', async () => {
+    const { api } = setup(false);
+    const err = await new WebCodecsVideoDecoder(api).configure({ codingType: CODING_AV1, firstUnit: KEY_TU, key: true, codecPrivate: AV1C }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(UnsupportedCodecError);
+    expect((err as UnsupportedCodecError).codingType).toBe(CODING_AV1);
+    expect((err as Error).message).toBe("This browser can't play AV1 video.");
+  });
+
+  it('starts a stream at a key block, and never without the av1C record', async () => {
+    expect(canStartStream(CODING_AV1, DELTA_TU, false)).toBe(false);
+    expect(canStartStream(CODING_AV1, KEY_TU, true)).toBe(true);
+    const { api } = setup();
+    await expect(new WebCodecsVideoDecoder(api).configure({ codingType: CODING_AV1, firstUnit: KEY_TU, key: true })).rejects.toThrow('av1C');
   });
 });

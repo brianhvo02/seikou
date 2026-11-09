@@ -104,6 +104,31 @@ describe('playlist lifecycle', () => {
     expect([c.getSnapshot().remoteDisc, c.getSnapshot().rtcDisc]).toEqual([false, false]);
   });
 
+  it('opens an encode: the command carries the spec, its fetch port is transferred, and encodeId is set until another disc opens', () => {
+    const worker = new FakeWorker();
+    const c = new PlayerController(worker, new FakeAudio());
+    const { port1 } = new MessageChannel();
+    const encode = { base: 'rtc://nas1/api/encodes/e1/', token: 't', manifest: { discId: 'e1', name: 'e1', files: [{ path: 'EPISODE.MKV', size: 10 }], inline: {} }, encodeId: 'e1', fetchPort: port1 };
+    expect(INITIAL_SNAPSHOT.encodeId).toBeNull();
+    c.openEncode(encode, undefined, 12_000_000);
+    expect(worker.posted.at(-1)).toEqual({ type: 'openEncode', encode, startUs: 12_000_000 });
+    expect(worker.transfers.at(-1)).toEqual([port1]);
+    expect(c.getSnapshot()).toMatchObject({ encodeId: 'e1', remoteDisc: true, rtcDisc: true, engineState: 'loading' });
+    c.open([]);
+    expect(c.getSnapshot().encodeId).toBeNull();
+    c.openEncode({ ...encode, fetchPort: undefined });
+    c.closeDisc();
+    expect(c.getSnapshot().encodeId).toBeNull();
+    port1.close();
+  });
+
+  it('keeps chapter names and shows the AV1 warning as its own notice', () => {
+    let s = reduceEvent(INITIAL_SNAPSHOT, { type: 'chapters', playlistId: 'mkv', durationUs: 60_000_000, chapters: [{ index: 0, startUs: 0, name: 'Avant' }] });
+    expect(s.chapters).toEqual([{ index: 0, startUs: 0, name: 'Avant' }]);
+    s = reduceEvent(s, { type: 'unsupported', kind: 'video', codec: 'AV1', message: "This browser can't play AV1 video.", reason: 'av1' });
+    expect(s.notices).toEqual([{ code: 'unsupported-av1', message: "This browser can't play AV1 video." }]);
+  });
+
   it('levelSwitch goes switching, then idle or the error', () => {
     const worker = new FakeWorker();
     const c = new PlayerController(worker, new FakeAudio());

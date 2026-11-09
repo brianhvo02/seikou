@@ -2,12 +2,15 @@ import { CodingType, codingName } from '@seikou/bdmv/stream-types';
 import { DecoderError, UnsupportedCodecError, type Decoder, type StreamConfig } from './decoder';
 import { analyzeAvc, avcCodecString, avcIsInterlaced, avcPpsId, type AccessUnitInfo } from '@seikou/bdmv/codecs/h264';
 import { analyzeHevc, hevcCodecStrings } from '@seikou/bdmv/codecs/hevc';
+import { CODING_AV1, av1CodecString } from './av1';
 
 export interface VideoUnit {
   readonly data: Uint8Array;
   readonly ptsUs: number;
   /** Decode for reference but never present (e.g. before a seek target or outside the play item). */
   readonly discard: boolean;
+  /** The container's key-frame flag (a Matroska block's), for codecs whose units carry no random access marker the decoder reads. */
+  readonly key?: boolean;
 }
 
 export interface VideoDecoderLike {
@@ -32,10 +35,21 @@ export const browserVideoCodecApi: VideoCodecApi = {
   makeChunk: (init) => new EncodedVideoChunk(init),
 };
 
+/** The message of the UnsupportedCodecError for AV1 video the browser can't decode (an encoded episode). */
+export const AV1_UNSUPPORTED_MESSAGE = "This browser can't play AV1 video.";
+
 interface CodecOps {
-  analyze(data: Uint8Array): AccessUnitInfo;
-  /** Candidate codec strings in order of preference; the first one the browser supports is used. */
-  codecStrings(sps: Uint8Array): readonly string[];
+  /** `key`: the container's key-frame flag, which codecs configured from CodecPrivate go by. */
+  analyze(data: Uint8Array, key?: boolean): AccessUnitInfo;
+  /**
+   * Candidate codec strings in order of preference; the first one the browser supports is used. They come from the
+   * SPS of the first unit, or from the track's CodecPrivate for a codec with `fromCodecPrivate`.
+   */
+  codecStrings(params: Uint8Array): readonly string[];
+  /** The codec strings come from the track's CodecPrivate (StreamConfig.codecPrivate), not from the stream. */
+  readonly fromCodecPrivate?: true;
+  /** The message when the browser supports none of the codec strings. */
+  readonly unsupportedMessage?: string;
   /** Chrome's hardware decoders reject interlaced streams ("Decoding error"); its software decoder handles them. */
   needsSoftware?(sps: Uint8Array): boolean;
   /**
@@ -48,7 +62,15 @@ interface CodecOps {
 const CODECS: ReadonlyMap<number, CodecOps> = new Map<number, CodecOps>([
   [CodingType.AVC, { analyze: analyzeAvc, codecStrings: (sps) => [avcCodecString(sps)], needsSoftware: avcIsInterlaced, ppsId: avcPpsId }],
   [CodingType.HEVC, { analyze: analyzeHevc, codecStrings: hevcCodecStrings }],
+  // Matroska's AV1 blocks are temporal units of OBUs (no start codes, no temporal delimiter); a key block's starts
+  // with the sequence header, so WebCodecs needs no description
+  [CODING_AV1, { analyze: av1Unit, codecStrings: (av1c) => [av1CodecString(av1c)], fromCodecPrivate: true, unsupportedMessage: AV1_UNSUPPORTED_MESSAGE }],
 ]);
+
+/** An AV1 temporal unit, taken as it is: a key unit when the container says so. */
+function av1Unit(data: Uint8Array, key?: boolean): AccessUnitInfo {
+  return { key: key === true, idr: key === true, sps: null, pps: [], data };
+}
 
 const HEVC_UNSUPPORTED_MESSAGE = "This device can't decode HEVC (4K) video.";
 const MAX_CONSECUTIVE_ERRORS = 3;
@@ -62,6 +84,16 @@ export function isSupportedVideoCoding(codingType: number): boolean {
 
 export function hasSps(codingType: number, data: Uint8Array): boolean {
   return (CODECS.get(codingType)?.analyze(data).sps ?? null) !== null;
+}
+
+/**
+ * Whether the decoder can be configured at this unit: one with an SPS, or for a codec configured from CodecPrivate
+ * (AV1), a key unit (`key`, the container's flag).
+ */
+export function canStartStream(codingType: number, data: Uint8Array, key?: boolean): boolean {
+  const ops = CODECS.get(codingType);
+  if (!ops) return false;
+  return ops.fromCodecPrivate ? key === true : ops.analyze(data).sps !== null;
 }
 
 function toDomException(err: unknown): DOMException {
@@ -116,12 +148,19 @@ export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
     const ops = CODECS.get(config.codingType);
     if (!ops) throw new UnsupportedCodecError(config.codingType, `${codingName(config.codingType)} video is not supported.`);
     if (!config.firstUnit) throw new Error('video configure() needs the first access unit');
-    const info = ops.analyze(config.firstUnit);
-    if (!info.sps) throw new Error('first video access unit has no SPS');
-    const software = ops.needsSoftware?.(info.sps) === true;
+    let params: Uint8Array;
+    if (ops.fromCodecPrivate) {
+      if (!config.codecPrivate) throw new Error('the AV1 track has no av1C record (CodecPrivate)');
+      params = config.codecPrivate;
+    } else {
+      const info = ops.analyze(config.firstUnit);
+      if (!info.sps) throw new Error('first video access unit has no SPS');
+      params = info.sps;
+    }
+    const software = ops.needsSoftware?.(params) === true;
     this.closed = false;
     let vdc: VideoDecoderConfig | null = null;
-    for (const codec of ops.codecStrings(info.sps)) {
+    for (const codec of ops.codecStrings(params)) {
       const candidate: VideoDecoderConfig = { codec };
       if (software) candidate.hardwareAcceleration = 'prefer-software';
       // a rejection (e.g. a codec string the browser can't parse) counts as unsupported
@@ -134,9 +173,10 @@ export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
     }
     if (!vdc) {
       const message =
-        config.codingType === CodingType.HEVC
+        ops.unsupportedMessage ??
+        (config.codingType === CodingType.HEVC
           ? HEVC_UNSUPPORTED_MESSAGE
-          : `This browser cannot decode ${codingName(config.codingType)} (${ops.codecStrings(info.sps).join(', ')}).`;
+          : `This browser cannot decode ${codingName(config.codingType)} (${ops.codecStrings(params).join(', ')}).`);
       throw new UnsupportedCodecError(config.codingType, message);
     }
     this.codingType = config.codingType;
@@ -155,7 +195,7 @@ export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
     const decoder = this.decoder;
     const ops = this.ops;
     if (!decoder || !ops || decoder.state !== 'configured') return;
-    const info = ops.analyze(unit.data);
+    const info = ops.analyze(unit.data, unit.key);
     this.watchPps(info.pps);
     const startsSequence = this.needKey;
     if (startsSequence) {

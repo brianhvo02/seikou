@@ -27,6 +27,8 @@ export interface TimelineItem {
 export interface Chapter {
   readonly index: number;
   readonly startUs: number;
+  /** The chapter's name (an encoded episode's Matroska chapters); disc chapters have none. */
+  readonly name?: string;
 }
 
 export interface ItemPosition {

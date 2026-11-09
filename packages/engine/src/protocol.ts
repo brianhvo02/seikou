@@ -2,6 +2,7 @@ import type { MemoryProfileName } from './memory-profile';
 import type { JvmMemoryStats } from './bdj-types';
 import type { ClockMode } from './clock/master-clock';
 import type { DiscErrorCode } from '@seikou/bdmv/byte-source';
+import type { DiscManifest } from '@seikou/nas/nas-api';
 import type { DiscSpec, RemoteDiscSpec } from './disc/disc-spec';
 import type { RemoteFailure } from './disc/http-transport';
 import type { PlaylistSummary } from './disc/open-disc';
@@ -173,6 +174,30 @@ export interface PlaceState {
   readonly gprs: Record<number, number> | null;
 }
 
+/**
+ * An encoded episode on the NAS (a Matroska file of AV1 video): read like a NAS disc, through the same transport, token
+ * refresh and fetch port, from its API base. Structured-cloneable (a fetch port is transferred).
+ */
+export interface EncodeSpec {
+  /** The encode's API base, ending with '/': `https://…/bluray/api/encodes/<id>/`, or `rtc://<nasId>/api/encodes/<id>/`. */
+  readonly base: string;
+  readonly token: string;
+  /** The encode's manifest: one file, `EPISODE.MKV`, with its size. */
+  readonly manifest: DiscManifest;
+  /** Extra query parameters for every files request (without the '?'). */
+  readonly query?: string;
+  /** As RemoteDiscSpec's: the WebRTC route's port, in the message's transfer list. */
+  readonly fetchPort?: MessagePort;
+  /** The encode's id on the NAS. */
+  readonly encodeId: string;
+}
+
+/** The path of an encode's Matroska file in its manifest. */
+export const ENCODE_FILE = 'EPISODE.MKV';
+
+/** The playlist id an encode's chapters and time are reported under (it has no playlists). */
+export const ENCODE_PLAYLIST_ID = 'mkv';
+
 export type EngineCommand =
   /**
    * `bufferFirst` (a NAS disc, buffer first): the disc's playlists are read, then the playlist is fetched into the
@@ -183,6 +208,12 @@ export type EngineCommand =
    * `start`: the disc opens at that place instead of running First Play (or BD-J); startFailed says when it can't.
    */
   | { readonly type: 'open'; readonly disc: DiscSpec; readonly bufferFirst?: BufferRequest; readonly start?: StartPoint }
+  /**
+   * Opens an encoded episode in place of the open disc and plays it from `startUs` (from the start without it; a time at
+   * or past its end plays from the start, with startFailed 'past-end'). Its chapters are reported under the playlist id
+   * 'mkv'. A close or another open replaces it.
+   */
+  | { readonly type: 'openEncode'; readonly encode: EncodeSpec; readonly startUs?: number }
   /** Answered at once (not queued) with placeState. */
   | { readonly type: 'readPlace' }
   /**
@@ -322,9 +353,10 @@ export type EngineEvent =
   /**
    * A stream the browser can't decode. With `noPicture` (kind 'video', NO_PICTURE_MESSAGE): the playlist plays without a
    * picture; sent once per disc, it is the disc-level notice 'no-picture'. Otherwise it is the playlist's notice
-   * 'unsupported-<kind>'.
+   * 'unsupported-<kind>'. With `reason` 'av1' (kind 'video', codec 'AV1'): an encoded episode's AV1 video can't be decoded
+   * here, so nothing plays.
    */
-  | { readonly type: 'unsupported'; readonly kind: 'video' | 'audio'; readonly codec: string; readonly message: string; readonly noPicture?: true }
+  | { readonly type: 'unsupported'; readonly kind: 'video' | 'audio'; readonly codec: string; readonly message: string; readonly noPicture?: true; readonly reason?: 'av1' }
   | { readonly type: 'error'; readonly code: ErrorCode; readonly message: string; readonly paths: readonly string[] }
   | { readonly type: 'telemetry'; readonly telemetry: Telemetry }
   /** The current playlist was torn down (a new pick, a failed pick, or close). */

@@ -37,7 +37,11 @@ import { MasterClock } from './clock/master-clock';
 import { Decimator } from './decode/decimator';
 import { UnsupportedCodecError, type DecoderError } from './decode/decoder';
 import { type AudioDecodeResult, type AudioDecoder, type AudioDecoderFactory } from './decode/audio-decoder';
-import { WebCodecsVideoDecoder, hasSps, isSupportedVideoCoding, type VideoCodecApi, type VideoUnit } from './decode/video-decoder';
+import { WebCodecsVideoDecoder, canStartStream, isSupportedVideoCoding, type VideoCodecApi, type VideoUnit } from './decode/video-decoder';
+import { CODING_AV1 } from './decode/av1';
+import { EncodePipeline } from './encode/encode-pipeline';
+import { encodeChapters, encodePlayItem, encodeTimeline, encodeVideoTrack, openEncodeFile } from './encode/encode-session';
+import { MkvReadError, NotMatroskaError, type MatroskaFile } from '@seikou/matroska';
 import { SOURCE_PACKET_SIZE, TS_PACKET_SIZE } from '@seikou/bdmv/demux/constants';
 import { M2tsReader } from '@seikou/bdmv/demux/m2ts-reader';
 import { DiscError } from '@seikou/bdmv/byte-source';
@@ -59,7 +63,7 @@ import { Navigator, type IgUnit, type NavigatorEvent, type PlaybackPort, type Pl
 import { itemPackets, lookupSpn, markTitlePkt, nextPlaymark } from './nav/packets';
 import { PgStreamControl } from './nav/subtitles';
 import { Timeline, type Chapter } from './nav/timeline';
-import { PlaybackPipeline, type PipelineAudioUnit, type PipelineUnit } from './playback/pipeline';
+import { PlaybackPipeline, type PipelineAudioUnit, type PipelineUnit, type SessionPipeline } from './playback/pipeline';
 import { bufferRanges } from './playback/buffer-ranges';
 import { PLAYABLE_AUDIO, audioEntryFor, chooseStreams } from './playback/stream-selection';
 import { audioTracks } from './playback/tracks';
@@ -71,7 +75,7 @@ import { AssRenderer } from '@seikou/ass/renderer';
 import { MEMORY_PROFILES, type MemoryProfile, type MemoryProfileName } from './memory-profile';
 import type { Mat3 } from '@seikou/ass/transform';
 import type { AssTrack } from '@seikou/ass/types';
-import { BDJ_STORAGE_MESSAGE, NO_PICTURE_MESSAGE, type AudioTrack, type BufferRequest, type BdjMemoryTelemetry, type EngineCommand, type EngineEvent, type FileData, type MenuKey, type NoticeCode, type PlaceState, type PlaybackState, type ShaderSetData, type StartPoint, type SubtitleChoice } from './protocol';
+import { BDJ_STORAGE_MESSAGE, ENCODE_FILE, ENCODE_PLAYLIST_ID, NO_PICTURE_MESSAGE, type AudioTrack, type EncodeSpec, type BufferRequest, type BdjMemoryTelemetry, type EngineCommand, type EngineEvent, type FileData, type MenuKey, type NoticeCode, type PlaceState, type PlaybackState, type ShaderSetData, type StartPoint, type SubtitleChoice } from './protocol';
 import type { CompositorLike, TextRendererLike } from './render/compositor';
 import { ShaderStage } from './shaders/stage';
 import { UNAVAILABLE, type ShaderBackend } from './shaders/webgl-backend';
@@ -295,7 +299,10 @@ interface Session {
   readonly videoCodingType: number;
   /** Null when the browser can't decode the video (MPEG-2, VC-1): the playlist plays without a picture, as in libbluray. */
   readonly decoder: WebCodecsVideoDecoder | null;
-  readonly pipeline: PlaybackPipeline;
+  /** The M2TS reader, or an encoded episode's Matroska reader. */
+  readonly pipeline: SessionPipeline;
+  /** The video track's CodecPrivate (an encode's av1C record), which its decoder is configured from; null for a disc. */
+  readonly videoCodecPrivate: Uint8Array | null;
   readonly playItems: readonly PlayItem[];
   /** 1-based STN audio stream number; null when the playlist has no playable audio. */
   audioStream: number | null;
@@ -543,7 +550,7 @@ export class Player {
       return Promise.resolve();
     }
     // a disc opening (buffering first, reading its metadata, or queued to) is dropped unopened by what comes after it
-    if ((cmd.type === 'open' || cmd.type === 'close') && this.openHold) {
+    if ((cmd.type === 'open' || cmd.type === 'openEncode' || cmd.type === 'close') && this.openHold) {
       this.openHold.abandoned = true;
       this.openHold.release();
       this.openHold = null;
@@ -563,6 +570,9 @@ export class Player {
       switch (cmd.type) {
         case 'open':
           await this.open(cmd.disc, cmd.bufferFirst, this.holds.get(cmd) ?? null, cmd.start ?? null);
+          break;
+        case 'openEncode':
+          await this.openEncode(cmd.encode, cmd.startUs ?? 0);
           break;
         case 'remoteToken':
         case 'cancelBuffer':
@@ -901,6 +911,132 @@ export class Player {
   }
 
   /**
+   * Opens an encoded episode in place of the open disc: its Matroska file is read through a NAS source like a disc's
+   * (the same transport, token refresh and fetch port; no read-ahead cache), then plays from `startUs`.
+   */
+  private async openEncode(spec: EncodeSpec, startUs: number): Promise<void> {
+    this.openedAtMs = this.deps.nowMs();
+    this.bdjStartup = null;
+    this.noPictureNotice = 'unsent';
+    this.missingAudioLogged = new Set();
+    this.bdjStorageNotice = false;
+    this.stopBdj();
+    this.dropEarlyBdj();
+    this.stopNavigator();
+    this.teardownSession();
+    this.dropRemote();
+    this.stopPg();
+    this.pgRegs = null;
+    this.source = null;
+    this.disc = null;
+    this.resetTextSubtitles();
+    this.emitSubtitles();
+    this.setState('loading');
+    const { encodeId: _encodeId, ...remote } = spec;
+    const source = this.createSource({ kind: 'remote', ...remote }, false);
+    let file: MatroskaFile;
+    try {
+      file = await openEncodeFile(source, ENCODE_FILE);
+    } catch (err) {
+      this.dropRemote();
+      throw err;
+    }
+    this.source = source;
+    await this.playEncode(file, source.size(ENCODE_FILE), startUs);
+  }
+
+  /** The encode's session: its AV1 track through EncodePipeline, on a one-item timeline spanning the file. */
+  private async playEncode(file: MatroskaFile, size: number, startUs: number): Promise<void> {
+    ++this.openGeneration;
+    this.teardownSession();
+    const video = encodeVideoTrack(file);
+    if (!video) {
+      this.deps.emit({ type: 'error', code: 'no-video', message: 'This episode has no AV1 video track.', paths: [] });
+      this.setState('error');
+      return;
+    }
+    const item = encodePlayItem(Math.round(file.durationMs * 1000));
+    const timeline = encodeTimeline(item);
+    let t = Math.max(0, startUs);
+    if (!(t < timeline.durationUs)) {
+      this.deps.emit({ type: 'startFailed', reason: 'past-end' });
+      t = 0;
+    }
+    this.navEndReported = null;
+    this.releaseBdjStill();
+    this.navNextMark = -1;
+    this.navItem = 0;
+    const decoder = new WebCodecsVideoDecoder(this.deps.videoCodecApi);
+    const ref: { current: Session | null } = { current: null };
+    const pipeline = new EncodePipeline(
+      { file, videoTrack: video.number, path: ENCODE_FILE, size, durationUs: timeline.durationUs },
+      {
+        video: (u) => {
+          if (ref.current && u.inRange && u.ptsUs > ref.current.videoReadUs) ref.current.videoReadUs = u.ptsUs;
+          if (ref.current) this.onVideoUnit(ref.current, u);
+        },
+        audio: () => undefined,
+        isFull: () => ref.current !== null && this.isFull(ref.current),
+        ended: () => {
+          if (ref.current) this.onPipelineEnded(ref.current);
+        },
+        failed: (err) => {
+          if (ref.current && ref.current === this.session) this.fail(err);
+        },
+      },
+    );
+    const session: Session = {
+      playlistId: ENCODE_PLAYLIST_ID,
+      owner: 'user',
+      timeline,
+      chapters: encodeChapters(file),
+      tracks: [],
+      videoCodingType: CODING_AV1,
+      decoder,
+      pipeline,
+      videoCodecPrivate: video.codecPrivate ?? null,
+      playItems: [item],
+      audioStream: null,
+      audioDecoders: new Map(),
+      audioDecoderLoads: new Map(),
+      audioErrorsInRow: 0,
+      failedAudioTypes: new Set(),
+      audioErrorDisabled: false,
+      audioActive: false,
+      decimator: null,
+      videoState: 'unconfigured',
+      pendingVideo: [],
+      dropBeforeUs: 0,
+      audioReadUs: -Infinity,
+      videoReadUs: -Infinity,
+      deliveredEndUs: -Infinity,
+      readEndUs: -Infinity,
+      blankComposited: false,
+      eof: false,
+      flushed: false,
+      flushStarted: false,
+      audioStalledBeat: null,
+      audioRecoveryQueued: false,
+    };
+    ref.current = session;
+    decoder.onOutput = (frame) => {
+      if (this.session === session) {
+        this.codedWidth = frame.codedWidth;
+        this.presenter.push(frame);
+      } else frame.close();
+    };
+    decoder.onError = (err) => this.onDecoderError(session, err);
+    this.session = session;
+    this.audioDecodeErrors = 0;
+    this.audioCodec = null;
+    this.sentPgTracks = '';
+    this.compositor?.startPlaylist?.(true);
+    this.deps.emit({ type: 'chapters', playlistId: ENCODE_PLAYLIST_ID, durationUs: timeline.durationUs, chapters: session.chapters });
+    this.emitTracks(session);
+    await this.startAt(t, true);
+  }
+
+  /**
    * Opens the disc at a saved place instead of its First Play. With an HDMV title and the disc's movie objects, the
    * title resumes on its saved registers at the playlist (Navigator.resumeTitle); when the title never plays that
    * playlist, or without them (BD-J discs too, with BD-J off), the playlist plays directly with PSRs 1–3 on the private
@@ -961,7 +1097,7 @@ export class Player {
   }
 
   /** The disc's bytes; a NAS disc's waits show a notice, and its 401s ask the controller for a fresh token. */
-  private createSource(spec: DiscSpec): FileSource | RemoteSource {
+  private createSource(spec: DiscSpec, cache = true): FileSource | RemoteSource {
     if (spec.kind === 'remote' && spec.fetchPort) {
       const { fetchPort, ...rest } = spec;
       this.discPort = { port: fetchPort, fetch: portFetch(fetchPort) };
@@ -984,7 +1120,7 @@ export class Player {
     if (source instanceof RemoteSource) {
       this.remote = source;
       this.tokens = tokens;
-      if (spec.kind === 'remote') this.cache = this.openCache(source, spec.manifest);
+      if (spec.kind === 'remote' && cache) this.cache = this.openCache(source, spec.manifest);
     } else if (this.deps.readAheadCacheRoot) {
       void ReadAheadCache.clearAll(this.deps.readAheadCacheRoot).catch(() => undefined); // another disc opened
     }
@@ -2213,6 +2349,7 @@ export class Player {
       videoCodingType: choice.video.codingType,
       decoder,
       pipeline,
+      videoCodecPrivate: null,
       playItems: mpls.playItems,
       audioStream: audioIndex,
       audioDecoders: new Map(),
@@ -2743,7 +2880,7 @@ export class Player {
   private onVideoUnit(s: Session, u: PipelineUnit): void {
     const decoder = s.decoder;
     if (!decoder) return; // no picture: the pipeline does not read the video PID
-    const unit: VideoUnit = { data: u.data, ptsUs: u.ptsUs, discard: !u.inRange || u.ptsUs < s.dropBeforeUs };
+    const unit: VideoUnit = { data: u.data, ptsUs: u.ptsUs, discard: !u.inRange || u.ptsUs < s.dropBeforeUs, ...(u.key !== undefined ? { key: u.key } : {}) };
     switch (s.videoState) {
       case 'configured':
         s.pendingVideo.push(unit);
@@ -2755,10 +2892,10 @@ export class Player {
         s.pendingVideo.push(unit);
         return;
       case 'unconfigured':
-        if (!hasSps(s.videoCodingType, u.data)) return;
+        if (!canStartStream(s.videoCodingType, u.data, u.key)) return;
         s.videoState = 'configuring';
         s.pendingVideo.push(unit);
-        decoder.configure({ codingType: s.videoCodingType, firstUnit: u.data }).then(
+        decoder.configure({ codingType: s.videoCodingType, firstUnit: u.data, ...(u.key !== undefined ? { key: u.key } : {}), ...(s.videoCodecPrivate ? { codecPrivate: s.videoCodecPrivate } : {}) }).then(
           () => {
             if (this.session !== s) {
               decoder.close(); // configure() finished after teardown and opened a fresh decoder
@@ -3154,8 +3291,12 @@ export class Player {
   private reportError(err: unknown): void {
     if (err instanceof DiscError) {
       this.deps.emit({ type: 'error', code: err instanceof RemoteDiscError ? err.reason : err.code, message: err.message, paths: err.paths });
+    } else if (err instanceof UnsupportedCodecError && err.codingType === CODING_AV1) {
+      this.deps.emit({ type: 'unsupported', kind: 'video', codec: 'AV1', message: err.message, reason: 'av1' });
     } else if (err instanceof UnsupportedCodecError) {
       this.deps.emit({ type: 'unsupported', kind: isVideoCoding(err.codingType) ? 'video' : 'audio', codec: codingName(err.codingType), message: err.message });
+    } else if (err instanceof MkvReadError || err instanceof NotMatroskaError) {
+      this.deps.emit({ type: 'error', code: 'corrupt-disc', message: `The episode's file is damaged: ${err.message}`, paths: [] });
     } else if (err instanceof ParseError) {
       this.deps.emit({ type: 'error', code: 'corrupt-disc', message: `The disc data is damaged: ${err.message}`, paths: [] });
     } else {
