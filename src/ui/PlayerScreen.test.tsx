@@ -74,6 +74,8 @@ function setup(snapshot: PlayerSnapshot, nasOver: Record<string, unknown> = {}) 
     finishNow: vi.fn(async () => finished),
     end: vi.fn(),
     begin: vi.fn(),
+    noteStoredSubtitle: vi.fn(),
+    noteFansubPick: vi.fn(),
   } as unknown as PlaceSaver;
   const nas = {
     encodeShow: vi.fn(async (id: string) => (id === '100' ? SHOW : null)),
@@ -251,5 +253,7 @@ describe('the player for an encoded episode', () => {
     fireEvent.click(item);
     await waitFor(() => expect(t.controller.setSubtitleStart).toHaveBeenCalledWith(0, -1440 * S));
     expect(t.controller.selectSubtitle).toHaveBeenCalledWith({ kind: 'text' });
+    // noted for the place with the disc and playlist it belongs to, so a resume finds it again
+    expect(t.places.noteStoredSubtitle).toHaveBeenCalledWith('ep2.ass', 'sub-1', 10, 'en', { discKey: key, playlistId: '00000' });
   });
 });

@@ -379,7 +379,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
   const encodePlacement = (s: StoredSubtitle): PickPlacement | undefined => {
     if (encodeId === null) return undefined;
     const startUs = encodeSources?.stored.find((x) => x.subtitle.id === s.id)?.startUs ?? 0;
-    return { playlistId: ENCODE_PLAYLIST_ID, startUs: () => startUs };
+    return { playlistId: ENCODE_PLAYLIST_ID, startUs: () => startUs, source: { discKey: s.attachment.discKey, playlistId: s.attachment.playlistId } };
   };
   const [launchSettings] = useState(
     () =>
@@ -387,7 +387,12 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
         controller,
         places,
         ...(nas && storedPicker
-          ? { nas, pickStored: (s: StoredSubtitle) => pickStoredWith(storedPicker, s), pickFansub: (req: FansubPickRequest, origin: FansubOrigin) => pickFansubWith(storedPicker, req, origin) }
+          ? {
+              nas,
+              pickStored: (s: StoredSubtitle, at?: PickPlacement) => pickStoredWith(storedPicker, s, at),
+              pickFansub: (req: FansubPickRequest, origin: FansubOrigin, at?: PickPlacement) => pickFansubWith(storedPicker, req, origin, at),
+              loadEncodeSubtitles: (id: string) => loadEncodeSubtitles(nas, id),
+            }
           : {}),
         onStoredSubtitle: (id: string) => {
           setStoredActive(id);
@@ -432,7 +437,11 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
               // the search's pick replaces any files still being re-added for a resume
               launchSettings.supersede();
               const req = { fileId, track: t.track, discKey: encodeSource.discKey, playlistId: encodeSource.playlistId };
-              const at: PickPlacement = { playlistId: ENCODE_PLAYLIST_ID, startUs: (p) => encodePickStartUs(p, encodeSource.episodeStartMs) };
+              const at: PickPlacement = {
+                playlistId: ENCODE_PLAYLIST_ID,
+                startUs: (p) => encodePickStartUs(p, encodeSource.episodeStartMs),
+                source: { discKey: encodeSource.discKey, playlistId: encodeSource.playlistId },
+              };
               return pickFansubWith(storedPicker, req, { releaseId, trackName: t.name }, at).then((p) => p !== null);
             },
             active: fansubHere,

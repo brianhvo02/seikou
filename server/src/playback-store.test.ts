@@ -123,6 +123,15 @@ describe('isPlaybackPlace', () => {
     expect(isPlaybackPlace(withFile({ fansub: { ...fansub, trackName: 'x'.repeat(257) } }))).toBe(false);
     expect(isPlaybackPlace(withFile({ fansub: null }))).toBe(false);
   });
+  it("takes an encoded episode's NAS subtitle source and refuses a malformed one", () => {
+    const source = { discKey: `f.${'A'.repeat(32)}`, playlistId: '00010' };
+    expect(isPlaybackPlace(withFile({ subtitleId: 's1', language: 'en', source }))).toBe(true);
+    expect(isPlaybackPlace(withFile({ subtitleId: 's1', source: { ...source, discKey: '' } }))).toBe(false);
+    expect(isPlaybackPlace(withFile({ subtitleId: 's1', source: { ...source, discKey: 'x'.repeat(65) } }))).toBe(false);
+    expect(isPlaybackPlace(withFile({ subtitleId: 's1', source: { ...source, playlistId: '../x' } }))).toBe(false);
+    expect(isPlaybackPlace(withFile({ subtitleId: 's1', source: { discKey: source.discKey } }))).toBe(false);
+    expect(isPlaybackPlace(withFile({ subtitleId: 's1', source: null }))).toBe(false);
+  });
 });
 
 describe('encode places', () => {

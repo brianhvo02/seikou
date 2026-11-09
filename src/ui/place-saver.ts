@@ -1,4 +1,4 @@
-import type { DiscPlaces, PlaceFansub, PlaceSettings, PlaybackPlace } from '@seikou/nas/nas-api';
+import type { DiscPlaces, PlaceFansub, PlaceSettings, PlaceSubtitleSource, PlaybackPlace } from '@seikou/nas/nas-api';
 import type { PlaceState } from '@seikou/engine/protocol';
 import { isFontName, pickedSubtitles, splitPick } from '@seikou/engine/controller/drop-files';
 import type { PlayerSnapshot } from '@seikou/engine/controller/player-controller';
@@ -212,19 +212,22 @@ export class PlaceSaver {
 
   /**
    * A subtitle from the NAS became the text set (picked, or added again on a resume): its id, size and language, by the
-   * file's name, so places keep it.
+   * file's name, so places keep it. On an encoded episode, `source` is the disc and playlist it is attached to.
    */
-  noteStoredSubtitle(fileName: string, id: string, size: number, language: string): void {
+  noteStoredSubtitle(fileName: string, id: string, size: number, language: string, source?: PlaceSubtitleSource): void {
     if (!this.target) return; // no disc is being saved
     this.stored.clear();
-    this.stored.set(fileName, { id, size, language });
+    this.stored.set(fileName, { id, size, language, ...(source ? { source } : {}) });
   }
 
-  /** A viewer's own Anime Tosho pick became the text set (picked, or picked again on a resume or for Up next). */
-  noteFansubPick(fileName: string, fansub: PlaceFansub, size: number, language: string): void {
+  /**
+   * A viewer's own Anime Tosho pick became the text set (picked, or picked again on a resume or for Up next). On an
+   * encoded episode, `source` is the disc and playlist it was lined up on.
+   */
+  noteFansubPick(fileName: string, fansub: PlaceFansub, size: number, language: string, source?: PlaceSubtitleSource): void {
     if (!this.target) return;
     this.stored.clear();
-    this.stored.set(fileName, { fansub, size, language });
+    this.stored.set(fileName, { fansub, size, language, ...(source ? { source } : {}) });
   }
 
   /** The stored subtitle noted for the text set, by file name. */

@@ -600,6 +600,24 @@ describe('PlaceSaver', () => {
     ]);
   });
 
+  it("saves an encoded episode's NAS subtitle with its source disc and playlist", async () => {
+    const target = { discKey: 'e.100.3', discId: '100-3', chosen: 'mkv', mainPlaylistId: 'mkv', encode: true };
+    const source = { discKey: `f.${'C'.repeat(32)}`, playlistId: '00010' };
+    const fansub = { releaseId: 7001, fileId: 7101, track: 0, trackName: 'Full' };
+    for (const note of [
+      (t: ReturnType<typeof setup>) => t.saver.noteStoredSubtitle('ep1.ass', 'sub-1', 120, 'en', source),
+      (t: ReturnType<typeof setup>) => t.saver.noteFansubPick('ep1.ass', fansub, 120, 'en', source),
+    ]) {
+      const t = setup({ target });
+      t.show({ currentPlaylistId: 'mkv' });
+      note(t);
+      const files: TextFileInfo[] = [{ name: 'ep1.ass', format: 'ass', cues: 1, startUs: -60 * S, offsetMs: 0 }];
+      t.show({ subtitles: { pg: [], text: { files, missingFonts: [], episodeStarts: [] }, selected: 'text', scale: 1 } });
+      await settle();
+      expect(t.nas.sent.at(-1)!.place.settings.textFiles[0]).toMatchObject({ name: 'ep1.ass', startUs: -60 * S, source });
+    }
+  });
+
   it('keeps the stored subtitle and sizes in the save a close starts, though the disc ends before it is written', async () => {
     const t = setup();
     await t.saver.addTextFiles([new File(['abc'], 'mine.srt')]);

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 import { normalizeCode } from '@seikou/nas/pairing-code';
-import { NAS_E2E_DIR, NAS_ENV, NAS_PORT, SERVER } from './nas-server';
+import { ENCODE_SOURCE_KEY, NAS_E2E_DIR, NAS_ENV, NAS_PORT, SERVER } from './nas-server';
 import { telemetry } from './telemetry';
 
 // The encodes library against the NAS stand-in (tests/e2e/nas-server.ts), which serves copies of fixtures/encodes: the
@@ -269,6 +269,67 @@ test('reopening an episode left part-way offers to resume it', async ({ page, br
   await page.getByTestId('resume-at').click();
   await expect(player(page)).toHaveAttribute('data-state', 'playing', { timeout: 20_000 });
   expect(await shownTimeS(page)).toBeGreaterThanOrEqual(20);
+});
+
+test('a stored subtitle picked on an episode comes back when it is resumed', async ({ page, browserName }) => {
+  test.setTimeout(120_000);
+  await skipWithoutAv1(page);
+  // the source disc's playlist, whose first chapter starts episode 1: a chapter upload there is offered on the episode
+  const resolved = await ownerApi(`discs/resolve/${encodeURIComponent(ENCODE_SOURCE_KEY)}`);
+  expect(resolved.status, 'the source disc on the stand-in').toBe(200);
+  const discId = ((await resolved.json()) as { disc: { id: string } }).disc.id;
+  const created = await ownerApi('subtitles', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: `Encode pick ${browserName}`, language: 'en', for: { kind: 'chapter', discId, playlistId: '00000', chapter: 0 } }),
+  });
+  expect(created.status).toBe(201);
+  const { id } = (await created.json()) as { id: string };
+  try {
+    const file = await ownerApi(`subtitles/${encodeURIComponent(id)}/file/ep1.ass`, { method: 'PUT', body: readFileSync(join(REPO_ROOT, 'tests/e2e/fixtures/ep1.ass')) });
+    expect(file.status).toBe(200);
+
+    await pair(page, browserName);
+    await openShow(page);
+    await openEpisode(page, EPISODE_ONE);
+    await page.getByTestId('encode-preflight-play').click();
+    await expect(player(page)).toHaveAttribute('data-state', 'playing', { timeout: 20_000 });
+    await page.mouse.move(300, 300);
+    await page.getByTestId('subtitle-menu').click();
+    const row = page.getByTestId(`subtitle-stored-${id}`);
+    await expect(row).toHaveText(`Encode pick ${browserName} · English`, { timeout: 10_000 });
+    await row.click();
+    await page.getByTestId('subtitle-menu').click();
+    await expect(page.getByTestId('subtitle-file-0')).toContainText('ep1.ass', { timeout: 10_000 });
+    await expect(row).toHaveAttribute('aria-checked', 'true');
+    await page.keyboard.press('Escape');
+
+    // leave it part-way: the place keeps the pick with the disc and playlist it belongs to
+    await jumpToChapter(page, 'Part A');
+    await expect.poll(() => shownTimeS(page), { timeout: 10_000 }).toBeGreaterThanOrEqual(20);
+    await page.mouse.move(300, 300);
+    await page.getByTestId('close-episode').click();
+    await expect
+      .poll(async () => {
+        const res = await ownerApi('me/playback/e.990001.1');
+        if (!res.ok) return null;
+        const place = ((await res.json()) as { places: Record<string, { timeUs: number; settings: { textFiles: { subtitleId?: string; source?: unknown }[] } }> }).places.mkv;
+        return place && place.timeUs >= 20 * S ? (place.settings.textFiles.find((f) => f.subtitleId === id)?.source ?? null) : null;
+      }, { timeout: 15_000 })
+      .toEqual({ discKey: ENCODE_SOURCE_KEY, playlistId: '00000' });
+
+    // a fresh page resumes it with the subtitle back
+    await page.goto(`/nas/encodes/play/${EPISODE_ONE}?telemetry=1`);
+    await expect(page.getByTestId('resume-at')).toBeVisible({ timeout: 15_000 });
+    await page.getByTestId('resume-at').click();
+    await expect(player(page)).toHaveAttribute('data-state', 'playing', { timeout: 20_000 });
+    await page.mouse.move(300, 300);
+    await page.getByTestId('subtitle-menu').click();
+    await expect(page.getByTestId('subtitle-file-0')).toContainText('ep1.ass', { timeout: 15_000 });
+    await expect(page.getByTestId('subtitle-text')).toHaveAttribute('aria-checked', 'true');
+    await expect(page.getByTestId(`subtitle-stored-${id}`)).toHaveAttribute('aria-checked', 'true');
+  } finally {
+    await ownerApi(`subtitles/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  }
 });
 
 /** Episode 1's file as a third episode: its EPISODE tag's value and its title rewritten in place (same lengths). */

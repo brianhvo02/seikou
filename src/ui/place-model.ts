@@ -1,4 +1,4 @@
-import type { PlaceFansub, PlaceSettings, PlaybackPlace, PlaceTextFile } from '@seikou/nas/nas-api';
+import type { PlaceFansub, PlaceSettings, PlaceSubtitleSource, PlaybackPlace, PlaceTextFile } from '@seikou/nas/nas-api';
 import type { AudioTrack, PgTrack, PlaceState, StartPoint } from '@seikou/engine/protocol';
 import type { PlayerSnapshot } from '@seikou/engine/controller/player-controller';
 import { formatTime } from './format';
@@ -46,7 +46,7 @@ export function isFinished(s: {
  * A subtitle from the NAS that is in the text set: a stored one (StoredSubtitle's id) or a viewer's own Anime Tosho
  * pick (its release, file and track), with its file size and language.
  */
-export type StoredSubtitleNote = { readonly size: number; readonly language: string } & ({ readonly id: string } | { readonly fansub: PlaceFansub });
+export type StoredSubtitleNote = { readonly size: number; readonly language: string; readonly source?: PlaceSubtitleSource } & ({ readonly id: string } | { readonly fansub: PlaceFansub });
 
 export function buildPlace(input: {
   readonly discKey: string; readonly discId: string; readonly snapshot: PlayerSnapshot; readonly place: PlaceState;
@@ -65,8 +65,9 @@ export function buildPlace(input: {
     pgLanguage: typeof sel === 'object' ? (s.subtitles?.pg.find((t) => t.index === sel.pg)?.language || null) : null,
     textFiles: (s.subtitles?.text?.files ?? []).map((f): PlaceTextFile => {
       const stored = input.storedSubtitles?.[f.name];
-      if (stored && 'fansub' in stored) return { name: f.name, size: stored.size, startUs: f.startUs, offsetMs: f.offsetMs, language: stored.language, fansub: stored.fansub };
-      if (stored) return { name: f.name, size: stored.size, startUs: f.startUs, offsetMs: f.offsetMs, subtitleId: stored.id, language: stored.language };
+      const source = stored?.source ? { source: stored.source } : {};
+      if (stored && 'fansub' in stored) return { name: f.name, size: stored.size, startUs: f.startUs, offsetMs: f.offsetMs, language: stored.language, fansub: stored.fansub, ...source };
+      if (stored) return { name: f.name, size: stored.size, startUs: f.startUs, offsetMs: f.offsetMs, subtitleId: stored.id, language: stored.language, ...source };
       return { name: f.name, size: input.textFileSizes?.[f.name] ?? 0, startUs: f.startUs, offsetMs: f.offsetMs };
     }),
     audioLanguage: audio && audio.language !== '' ? audio.language : null,

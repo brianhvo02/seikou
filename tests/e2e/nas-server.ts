@@ -41,6 +41,15 @@ export const FANSUB_FIXTURE = join(REPO, 'tests/e2e/fixtures/fansubs');
 export const MUSIC_FIXTURE = join(REPO, 'tests/e2e/fixtures/nas-music.json');
 /** The Music shelf's release folder, recorded in MUSIC_FIXTURE by its catalogue number. */
 export const MUSIC_RELEASE = 'Music/[2024.05.01] Lantern Parade - Night Lights [CD][ZQCL-2468]';
+/**
+ * Where the stand-in puts the disc the encodes fixture was cut from (`encoder/fixtures/disc-speech`, whose key the
+ * episodes' `SEIKOU_DISC_KEY` tag names), so subtitles stored for its playlist reach the episodes. Nothing names it: it
+ * is an Unsorted disc.
+ */
+export const ENCODE_SOURCE_FOLDER = 'Encode source/disc-speech';
+/** The key of that disc, as the episodes' tags name it. */
+export const ENCODE_SOURCE_KEY = 'f.148C2FD8E35B72A696EB6FB331CB0AE7';
+
 /** Copies of synthetic discs in the folders the metadata fixture's titles match: root-relative folder → fixture disc. */
 export const TITLE_DISCS: Readonly<Record<string, string>> = {
   'Anime/Starfall Wanderer (星降りの旅人)/Starfall Wanderer Vol.1': 'disc1',
@@ -273,6 +282,8 @@ async function main(): Promise<void> {
   backdateTree(join(NAS_E2E_DIR, 'encodes'), new Date('2024-01-01T00:00:00Z'));
   for (const project of PROJECTS) for (const name of [project, `${project}-open`]) restoreChangedDisc(name);
   for (const [folder, disc] of Object.entries(TITLE_DISCS)) cpSync(join(REPO, 'fixtures/synthetic', disc), join(NAS_ROOT, folder), { recursive: true, preserveTimestamps: true });
+  cpSync(join(REPO, 'encoder/fixtures/disc-speech'), join(NAS_ROOT, ENCODE_SOURCE_FOLDER), { recursive: true });
+  backdateTree(join(NAS_ROOT, ENCODE_SOURCE_FOLDER, '..'), new Date('2024-01-01T00:00:00Z'));
   const cover = join(NAS_ROOT, MUSIC_RELEASE, 'cover.png');
   writeFileSync(cover, coverPng());
   for (const path of [cover, join(NAS_ROOT, MUSIC_RELEASE)]) utimesSync(path, new Date('2024-01-01T00:00:00Z'), new Date('2024-01-01T00:00:00Z'));

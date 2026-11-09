@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { FansubPick, FansubPickRequest, PlaceFansub, PlaceSettings, StoredSubtitle, ToshoReleaseFiles } from '@seikou/nas/nas-api';
+import type { EncodeDetail, FansubAlignment, FansubPick, FansubPickRequest, PlaceFansub, PlaceSettings, StoredSubtitle, ToshoReleaseFiles } from '@seikou/nas/nas-api';
+import type { EncodeSubtitleSources } from './nas/encode-subtitles';
 import { NasHttpError } from './nas/nas-client';
 import { PICK_FAILED } from './nas/tosho-search-model';
 import type { SubtitleChoice, TextFileInfo } from '@seikou/engine/protocol';
@@ -36,13 +37,17 @@ interface SetupOpts {
   pickAnswers?: (Error | null)[];
   /** `toshoRelease`'s answer (an Error: it fails). */
   release?: ToshoReleaseFiles | Error;
+  /** An encoded episode's subtitle sources (an Error: they fail to load); no loader when absent. */
+  encodeSources?: EncodeSubtitleSources | null | Error;
+  /** How the NAS lined each pick up. */
+  alignment?: FansubAlignment;
 }
 
 /** The NAS's answer to a pick: shaped as a stored subtitle, under its own id. */
-const fansubPick = (req: FansubPickRequest): FansubPick => ({
+const fansubPick = (req: FansubPickRequest, alignment: FansubAlignment = { kind: 'original' }): FansubPick => ({
   id: `pick-${req.fileId}-${req.track}`, name: 'GroupA', language: 'eng', offsetMs: 0, fileName: `pick-${req.fileId}.ass`, fileSize: 90, fonts: [{ name: 'Made Up Sans.ttf', size: 50 }],
   attachment: { kind: 'chapter', discKey: req.discKey, playlistId: req.playlistId, chapter: 0 }, uploadedAt: 1, pick: true,
-  source: { kind: 'fansub', group: 'GroupA', tracker: '', rank: 'other', toshoFileId: req.fileId, track: req.track, trackName: 'Full', alignment: { kind: 'original' }, linedUpOn: { discKey: req.discKey, playlistId: req.playlistId } },
+  source: { kind: 'fansub', group: 'GroupA', tracker: '', rank: 'other', toshoFileId: req.fileId, track: req.track, trackName: 'Full', alignment, linedUpOn: { discKey: req.discKey, playlistId: req.playlistId } },
 });
 
 function setup(launch: LaunchSettings | null, stored: StoredTextFile[] = [], opts: SetupOpts = {}) {
@@ -77,7 +82,7 @@ function setup(launch: LaunchSettings | null, stored: StoredTextFile[] = [], opt
       calls.push(['pickFansub', req.fileId, req.track, req.discKey, req.playlistId]);
       const answer = opts.pickAnswers?.shift();
       if (answer) throw answer;
-      return fansubPick(req);
+      return fansubPick(req, opts.alignment);
     },
     toshoRelease: async (id: number, key: string, playlistId: string) => {
       calls.push(['release', id, key, playlistId]);
@@ -94,19 +99,29 @@ function setup(launch: LaunchSettings | null, stored: StoredTextFile[] = [], opt
   const applier = new LaunchSettingsApplier({
     controller,
     nas,
-    pickStored: async (sub) => {
-      calls.push(['pick', sub.id]);
+    pickStored: async (sub, at) => {
+      calls.push(at ? ['pick', sub.id, at.playlistId, at.startUs(sub), at.source] : ['pick', sub.id]);
       return true;
     },
-    pickFansub: async (req, origin) => {
-      calls.push(['pickNextFansub', req.fileId, req.track, origin.releaseId, origin.trackName]);
+    pickFansub: async (req, origin, at) => {
+      const head = ['pickNextFansub', req.fileId, req.track, origin.releaseId, origin.trackName];
+      calls.push(at ? [...head, req.discKey, req.playlistId, at.playlistId, at.startUs(fansubPick(req, opts.alignment)), at.source] : head);
       return null;
     },
+    ...(opts.encodeSources === undefined
+      ? {}
+      : {
+          loadEncodeSubtitles: async (id: string) => {
+            calls.push(['loadEncode', id]);
+            if (opts.encodeSources instanceof Error) throw opts.encodeSources;
+            return opts.encodeSources!;
+          },
+        }),
     onFansubPick: (pick) => void calls.push(['activeFansub', pick.id]),
     onStoredSubtitle: (id) => void calls.push(['active', id]),
     places: {
-      noteStoredSubtitle: (name, id, size, language) => void calls.push(['note', name, id, size, language]),
-      noteFansubPick: (name, fansub, size, language) => void calls.push(['noteFansub', name, fansub, size, language]),
+      noteStoredSubtitle: (name, id, size, language, source) => void calls.push(source ? ['note', name, id, size, language, source] : ['note', name, id, size, language]),
+      noteFansubPick: (name, fansub, size, language, source) => void calls.push(source ? ['noteFansub', name, fansub, size, language, source] : ['noteFansub', name, fansub, size, language]),
       takeLaunchSettings: () => {
         const l = pending;
         pending = null;
@@ -501,5 +516,131 @@ describe("LaunchSettingsApplier with a viewer's Anime Tosho pick", () => {
       expect(t.calls.filter((c) => c[0] === 'pickNextFansub')).toEqual([]);
       expect(t.calls.filter((c) => c[0] === 'pick')).toEqual([['pick', 'sub-2en']]);
     }
+  });
+});
+
+describe('LaunchSettingsApplier on an encoded episode', () => {
+  const SOURCE_DISC = `f.${'C'.repeat(32)}`;
+  const source = { discKey: SOURCE_DISC, playlistId: '00010' };
+  /** Episode `n` of AniList 990001, cut from the source playlist at `startMs`. */
+  const entryOf = (n: number, startMs: number): EncodeDetail => ({
+    id: `990001-${n}`, anilistId: 990001, episode: n, episodeTitle: null, discKey: SOURCE_DISC, playlistId: '00010', episodeStartMs: startMs,
+    size: 1, mtimeMs: 1, durationMs: 1_440_000, chapters: [], tracks: [],
+  });
+  const onSource = (id: string, language: string, fileName: string): StoredSubtitle => ({
+    ...storedSub(id, language, '00010', fileName), attachment: { kind: 'episode', discKey: SOURCE_DISC, playlistId: '00010', titleId: 'anilist:990001', seasonId: 's1', episode: 1 },
+  });
+  const ep1Sub = onSource('src-en', 'en', 'source.en.ass');
+  const sources1: EncodeSubtitleSources = { entry: entryOf(1, 0), stored: [{ subtitle: ep1Sub, startUs: 0 }] };
+  const ep2en = onSource('src-en', 'en', 'source.en.ass');
+  const ep2fr = onSource('src-fr', 'fr', 'source.fr.ass');
+  const sources2: EncodeSubtitleSources = { entry: entryOf(2, 1_440_000), stored: [{ subtitle: ep2fr, startUs: -1_440_000_000 }, { subtitle: ep2en, startUs: -1_440_000_000 }] };
+  const fansub: PlaceFansub = { releaseId: 7001, fileId: 71, track: 0, trackName: 'Full' };
+  const release: ToshoReleaseFiles = {
+    release: { id: 7001, title: 'GroupA', date: 1, seadex: null },
+    files: [
+      { id: 71, name: 'ep1.mkv', episode: 1, tracks: [{ track: 0, language: 'eng', name: 'Full' }] },
+      { id: 72, name: 'ep2.mkv', episode: 2, tracks: [{ track: 0, language: 'eng', name: 'Signs' }, { track: 1, language: 'eng', name: 'Full' }] },
+    ],
+    matchedFileId: 71,
+  };
+  const lined: FansubAlignment = { kind: 'offset', offsetMs: 120, confidence: 0.9 };
+  const playing = (encodeId: string): Partial<PlayerSnapshot> => ({ engineState: 'playing', currentPlaylistId: 'mkv', encodeId });
+
+  describe('on a resume', () => {
+    it("fetches a stored pick again from the encode's sources, places it where the encode says, and notes it with its source", async () => {
+      const kept = { name: 'source.en.ass', size: 120, startUs: -1_440_000_000, offsetMs: 900, subtitleId: 'src-en', language: 'en', source };
+      const t = setup({ settings: { ...base, textFiles: [kept], textOn: true }, byLanguage: false }, [], { nasList: [], encodeSources: sources2 });
+      t.show(playing('990001-2'));
+      await settle();
+      expect(t.calls).toContainEqual(['loadEncode', '990001-2']);
+      // never looked up under the encode's own key
+      expect(t.calls.filter((c) => c[0] === 'list')).toEqual([]);
+      expect(t.loaded).toEqual([['source.en.ass', 'Made Up Sans.ttf']]);
+      expect(t.calls).toContainEqual(['note', 'source.en.ass', 'src-en', 120, 'en', source]);
+      expect(t.calls).toContainEqual(['active', 'src-en']);
+      t.show(listing(t.snap, 'source.en.ass'));
+      expect(t.calls.filter((c) => c[0] === 'start' || c[0] === 'shift')).toEqual([['start', 0, -1_440_000_000], ['shift', 0, 900]]);
+    });
+
+    it('picks an Anime Tosho pick again from its release, the file of the episode, lined up on the source, and places it in the episode', async () => {
+      const kept = { name: 'pick-72.ass', size: 90, startUs: -1_440_000_000, offsetMs: 300, language: 'eng', fansub: { ...fansub, fileId: 72, track: 1 }, source };
+      const t = setup({ settings: { ...base, textFiles: [kept], textOn: true }, byLanguage: false }, [], { nasList: [], encodeSources: sources2, release, alignment: lined });
+      t.show(playing('990001-2'));
+      await settle();
+      expect(t.calls.filter((c) => c[0] === 'release' || c[0] === 'pickFansub')).toEqual([['release', 7001, SOURCE_DISC, '00010'], ['pickFansub', 72, 1, SOURCE_DISC, '00010']]);
+      expect(t.loaded).toEqual([['pick-72.ass', 'Made Up Sans.ttf']]);
+      expect(t.calls).toContainEqual(['noteFansub', 'pick-72.ass', { ...fansub, fileId: 72, track: 1 }, 90, 'eng', source]);
+      t.show(listing(t.snap, 'pick-72.ass'));
+      expect(t.calls.filter((c) => c[0] === 'start' || c[0] === 'shift')).toEqual([['start', 0, -1_440_000_000], ['shift', 0, 300]]);
+    });
+
+    it('takes the source from the entry for a pick saved without one', async () => {
+      const kept = { name: 'pick-71.ass', size: 90, startUs: 0, offsetMs: 0, language: 'eng', fansub };
+      const t = setup({ settings: { ...base, textFiles: [kept], textOn: true }, byLanguage: false }, [], { nasList: [], encodeSources: sources1, release });
+      t.show(playing('990001-1'));
+      await settle();
+      expect(t.calls.filter((c) => c[0] === 'pickFansub')).toEqual([['pickFansub', 71, 0, SOURCE_DISC, '00010']]);
+      expect(t.loaded).toEqual([['pick-71.ass', 'Made Up Sans.ttf']]);
+    });
+
+    it('skips a pick it cannot have again and applies the rest', async () => {
+      const kept = { name: 'source.en.ass', size: 120, startUs: 0, offsetMs: 0, subtitleId: 'src-gone', language: 'en', source };
+      const local = { name: 'mine.srt', size: 2, startUs: null, offsetMs: 0 };
+      for (const encodeSources of [sources1, null, new Error('offline')]) {
+        const t = setup({ settings: { ...base, textFiles: [kept, local], textOn: true }, byLanguage: false }, [{ name: 'mine.srt', bytes: bytes(2) }], { nasList: [], encodeSources });
+        t.show(playing('990001-1'));
+        await settle();
+        expect(t.loaded).toEqual([['mine.srt']]);
+        expect(t.calls.filter((c) => c[0] === 'note')).toEqual([]);
+      }
+    });
+  });
+
+  // Up next (a card's settings) and Next episode (the finished place's, with the track names) carry alike
+  describe.each([
+    ['Up next', {}],
+    ['Next episode', { names: { audio: 'Japanese' } }],
+  ])('%s', (_, extra) => {
+    it("picks the next encode's stored subtitle in the same language, placed where that encode says", async () => {
+      const shown = { name: 'source.en.ass', size: 120, startUs: 0, offsetMs: 900, subtitleId: 'src-en', language: 'en', source };
+      const t = setup({ settings: { ...base, textFiles: [shown], textOn: true }, byLanguage: true, ...extra }, [], { nasList: [], encodeSources: sources2 });
+      t.show(playing('990001-2'));
+      await settle();
+      expect(t.calls).toContainEqual(['loadEncode', '990001-2']);
+      expect(t.calls.filter((c) => c[0] === 'pick')).toEqual([['pick', 'src-en', 'mkv', -1_440_000_000, source]]);
+      expect(t.calls.filter((c) => c[0] === 'list' || c[0] === 'subtitle')).toEqual([]);
+    });
+
+    it("picks the same-named track of the next episode's file in the release, lined up on that encode's source", async () => {
+      const shown = { name: 'pick-71.ass', size: 90, startUs: 0, offsetMs: 0, language: 'eng', fansub, source };
+      const t = setup({ settings: { ...base, textFiles: [shown], textOn: true }, byLanguage: true, ...extra }, [], { nasList: [], encodeSources: sources2, release, alignment: lined });
+      t.show(playing('990001-2'));
+      await settle();
+      expect(t.calls.filter((c) => c[0] === 'release')).toEqual([['release', 7001, SOURCE_DISC, '00010']]);
+      expect(t.calls.filter((c) => c[0] === 'pickNextFansub')).toEqual([['pickNextFansub', 72, 1, 7001, 'Full', SOURCE_DISC, '00010', 'mkv', -1_440_000_000, source]]);
+      expect(t.calls.filter((c) => c[0] === 'pick' || c[0] === 'subtitle')).toEqual([]);
+    });
+
+    it('with no such subtitle shows PG by language', async () => {
+      const shown = { name: 'source.de.ass', size: 120, startUs: 0, offsetMs: 0, subtitleId: 'src-de', language: 'de', source };
+      for (const encodeSources of [sources2, new Error('offline')]) {
+        const t = setup({ settings: { ...base, textFiles: [shown], textOn: true, pgLanguage: 'jpn', psr2: 0x80000001 }, byLanguage: true, ...extra }, [], { nasList: [], encodeSources });
+        t.show(playing('990001-2'));
+        await settle();
+        expect(t.calls.filter((c) => c[0] === 'pick')).toEqual([]);
+        expect(t.calls).toContainEqual(['subtitle', { kind: 'pg', stream: 2 }]);
+      }
+    });
+  });
+
+  it('leaves a disc as it was: its stored subtitles are listed under its own key', async () => {
+    const stored1 = { name: 'ep1.ass', size: 120, startUs: 0, offsetMs: 0, subtitleId: 'sub-1', language: 'en' };
+    const t = setup({ settings: { ...base, textFiles: [stored1], textOn: true }, byLanguage: false }, [], { nasList: [storedSub('sub-1', 'en', '00001', 'ep1.ass')], encodeSources: sources1 });
+    t.show({ engineState: 'playing', currentPlaylistId: '00001' });
+    await settle();
+    expect(t.calls).toContainEqual(['list', KEY, 3000]);
+    expect(t.calls.filter((c) => c[0] === 'loadEncode')).toEqual([]);
+    expect(t.calls).toContainEqual(['note', 'ep1.ass', 'sub-1', 120, 'en']);
   });
 });

@@ -1,4 +1,4 @@
-import type { FansubPick, FansubPickRequest, StoredSubtitle } from '@seikou/nas/nas-api';
+import type { FansubPick, FansubPickRequest, PlaceSubtitleSource, StoredSubtitle } from '@seikou/nas/nas-api';
 import { pickedSubtitles } from '@seikou/engine/controller/drop-files';
 import type { PlayerController, PlayerSnapshot } from '@seikou/engine/controller/player-controller';
 import type { PlaceSaver } from '../place-saver';
@@ -31,12 +31,13 @@ type WaitResult = 'listed' | 'timeout' | 'abandoned';
 /**
  * Where a pick goes when it is not placed on its own attachment's playlist: an encoded episode's, whose one playlist
  * (`playlistId`) is not the source disc's. `startUs` is the subtitle's place in it (`storedForEncode`,
- * `encodePickStartUs`). Such a pick is not noted for the place: a resume looks stored subtitles up by the place's own
- * disc key, which an encode's is not.
+ * `encodePickStartUs`). `source`, the disc and playlist the subtitle belongs to, is noted with the pick, so a resume
+ * and the next episode can find it again from the encode's own sources.
  */
 export interface PickPlacement {
   readonly playlistId: string;
   startUs(s: StoredSubtitle): number | null;
+  readonly source?: PlaceSubtitleSource;
 }
 
 /**
@@ -140,9 +141,8 @@ export class StoredSubtitlePicker {
     if (start !== null && start !== loaded.startUs) controller.setSubtitleStart(0, start);
     if (s.offsetMs !== loaded.offsetMs) controller.shiftSubtitleFile(0, s.offsetMs - loaded.offsetMs);
     controller.selectSubtitle({ kind: 'text' });
-    if (at) return true;
-    if (fansub) places.noteFansubPick(s.fileName, fansub, s.fileSize, s.language);
-    else if (s.pick !== true) places.noteStoredSubtitle(s.fileName, s.id, s.fileSize, s.language);
+    if (fansub) places.noteFansubPick(s.fileName, fansub, s.fileSize, s.language, at?.source);
+    else if (s.pick !== true) places.noteStoredSubtitle(s.fileName, s.id, s.fileSize, s.language, at?.source);
     return true;
   }
 

@@ -28,12 +28,16 @@ const index = (v: unknown): boolean => typeof v === 'number' && Number.isSafeInt
 const optionalFansub = (v: unknown): boolean => v === undefined
   || (isObject(v) && index(v.releaseId) && index(v.fileId) && index(v.track) && typeof v.trackName === 'string' && v.trackName.length <= 256);
 
+/** An encoded episode's NAS subtitle's source in a place: a disc key (1–64 chars) and a playlist id. */
+const optionalSource = (v: unknown): boolean => v === undefined
+  || (isObject(v) && optionalString(v.discKey, 64) && typeof v.discKey === 'string' && typeof v.playlistId === 'string' && isPlaylistId(v.playlistId));
+
 /**
  * A text file of a place; a stored subtitle's also carries its id (1–64 chars) and language (a BCP 47 tag, 1–35), and a
- * viewer's Anime Tosho pick its language and `fansub`.
+ * viewer's Anime Tosho pick its language and `fansub`; either, on an encoded episode, its `source`.
  */
 const isTextFile = (f: unknown): boolean => isObject(f) && typeof f.name === 'string' && f.name.length <= 512 && num(f.size) && (f.startUs === null || num(f.startUs)) && num(f.offsetMs)
-  && optionalString(f.subtitleId, 64) && optionalString(f.language, 35) && optionalFansub(f.fansub);
+  && optionalString(f.subtitleId, 64) && optionalString(f.language, 35) && optionalFansub(f.fansub) && optionalSource(f.source);
 
 function isSettings(v: unknown): v is PlaceSettings {
   return isObject(v) && strOrNull(v.audioLanguage) && strOrNull(v.pgLanguage) && Array.isArray(v.textFiles) && v.textFiles.length <= 64 && v.textFiles.every(isTextFile) && num(v.psr1) && num(v.psr2) && num(v.psr3) && typeof v.textOn === 'boolean'

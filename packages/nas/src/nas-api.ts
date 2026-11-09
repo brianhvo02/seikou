@@ -122,7 +122,14 @@ export interface PlaceTextFile {
   readonly subtitleId?: string; readonly language?: string;
   /** A viewer's own Anime Tosho pick: picked again from the NAS on a resume (its release listed first), carried by track name to Up next. */
   readonly fansub?: PlaceFansub;
+  /**
+   * On an encoded episode: the source disc and playlist the NAS subtitle belongs to (a stored subtitle's attachment, or
+   * where an Anime Tosho pick was lined up), since the encode's own key is not one the subtitle store knows.
+   */
+  readonly source?: PlaceSubtitleSource;
 }
+/** The disc and playlist a NAS subtitle shown on an encoded episode was made for. */
+export interface PlaceSubtitleSource { readonly discKey: string; readonly playlistId: string }
 /** The Anime Tosho release, file and track of a viewer's own pick. */
 export interface PlaceFansub { readonly releaseId: number; readonly fileId: number; readonly track: number; readonly trackName: string }
 export interface PlaceSettings { readonly audioLanguage: string | null; readonly pgLanguage: string | null; readonly textFiles: readonly PlaceTextFile[]; readonly psr1: number; readonly psr2: number; readonly psr3: number; readonly textOn: boolean; readonly textScale: number; readonly shaderSet: string | null; readonly volume: number; readonly muted: boolean }

@@ -19,12 +19,6 @@ what would change that decision.
   places (`d.`, `f.`) and encode places (`e.`) together, and evicts the oldest first, finished ones before unfinished.
   Watching a long series as encodes can so push out finished disc places (and then unfinished ones), which drops their
   Watched marks and Up next. *Revisit if* someone hits it: a cap per library, or a larger one.
-- **A NAS subtitle or Anime Tosho pick on an encode doesn't come back on resume.** An encode's picks from the NAS are
-  placed on the source disc's playlist (matched by `SEIKOU_DISC_KEY` and `SEIKOU_PLAYLIST`), but a place's subtitle
-  notes are looked up by the place's own key, an `e.` key the subtitle store doesn't know, so the player doesn't note
-  them (`PickPlacement` in `stored-subtitle-pick.ts`) and a resume brings back the MKV's own tracks and local files only.
-  Up next likewise carries the MKV's tracks by language, not a NAS pick. *Revisit if* viewers miss it: note the source
-  key with the pick and look it up there.
 - **An encode's Anime Tosho search lines a pick up on its source playlist, which may hold several episodes.** The NAS
   aligns the track against the whole playlist's audio, and the player moves it back by the episode's start
   (`encodePickStartUs`); a pick the NAS couldn't line up (no source disc on the NAS, or low confidence) keeps its own

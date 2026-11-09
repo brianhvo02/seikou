@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { FansubPick, FansubPickRequest, PlaceFansub, StoredSubtitle } from '@seikou/nas/nas-api';
+import type { FansubPick, FansubPickRequest, PlaceFansub, PlaceSubtitleSource, StoredSubtitle } from '@seikou/nas/nas-api';
 import { NasHttpError } from './nas-client';
 import { EPISODE_CHANGED, PICK_FAILED } from './tosho-search-model';
 import type { SubtitleChoice, TextFileInfo } from '@seikou/engine/protocol';
@@ -70,8 +70,10 @@ function setup(opts: { fetchFails?: boolean; loaded?: readonly TextFileInfo[]; f
     },
   };
   const places = {
-    noteStoredSubtitle: (name: string, id: string, size: number, language: string) => void calls.push(['note', name, id, size, language]),
-    noteFansubPick: (name: string, fansub: PlaceFansub, size: number, language: string) => void calls.push(['noteFansub', name, fansub, size, language]),
+    noteStoredSubtitle: (name: string, id: string, size: number, language: string, source?: PlaceSubtitleSource) =>
+      void calls.push(source ? ['note', name, id, size, language, source] : ['note', name, id, size, language]),
+    noteFansubPick: (name: string, fansub: PlaceFansub, size: number, language: string, source?: PlaceSubtitleSource) =>
+      void calls.push(source ? ['noteFansub', name, fansub, size, language, source] : ['noteFansub', name, fansub, size, language]),
   };
   const picker = new StoredSubtitlePicker({ nas, controller, places, snapshot: () => snap, log: () => {} });
   const pick = (s: StoredSubtitle) => picker.pick(s);
@@ -83,27 +85,31 @@ afterEach(() => {
 });
 
 describe('StoredSubtitlePicker on an encoded episode', () => {
-  it("places it where the encode says, on the encode's playlist, and notes nothing for the place", async () => {
+  it("places it where the encode says, on the encode's playlist, and notes it for the place with its source", async () => {
     const t = setup();
     t.show({ currentPlaylistId: 'mkv' });
-    const done = t.picker.pick(episodeSub, undefined, { playlistId: 'mkv', startUs: () => -60_000_000 });
+    const source = { discKey: KEY, playlistId: '00001' };
+    const done = t.picker.pick(episodeSub, undefined, { playlistId: 'mkv', startUs: () => -60_000_000, source });
     await settle();
     t.engineLists(file('ep1.ass'));
     expect(await done).toBe(true);
-    expect(t.calls.slice(2)).toEqual([['start', 0, -60_000_000], ['shift', 0, 400], ['select', { kind: 'text' }]]);
+    expect(t.calls.slice(2)).toEqual([['start', 0, -60_000_000], ['shift', 0, 400], ['select', { kind: 'text' }], ['note', 'ep1.ass', episodeSub.id, episodeSub.fileSize, episodeSub.language, source]]);
   });
 
   it('lines an Anime Tosho pick up on the source playlist while the encode plays, and places it from the pick', async () => {
     const t = setup();
     t.show({ currentPlaylistId: 'mkv' });
     const placedFrom: StoredSubtitle[] = [];
-    const placed = t.picker.pickFansub(pickRequest, { releaseId: 7001, trackName: 'Full' }, { playlistId: 'mkv', startUs: (s) => (placedFrom.push(s), 0) });
+    const source = { discKey: KEY, playlistId: '00001' };
+    const placed = t.picker.pickFansub(pickRequest, { releaseId: 7001, trackName: 'Full' }, { playlistId: 'mkv', startUs: (s) => (placedFrom.push(s), 0), source });
     await settle();
     t.engineLists(file('pick.ass'));
     expect(await placed).not.toBeNull();
     expect(placedFrom.map((s) => s.id)).toEqual(['pick-1']);
     expect(t.calls).toContainEqual(['select', { kind: 'text' }]);
-    expect(t.calls.filter((c) => c[0] === 'noteFansub' || c[0] === 'notice')).toEqual([]);
+    expect(t.calls.filter((c) => c[0] === 'noteFansub' || c[0] === 'notice')).toEqual([
+      ['noteFansub', 'pick.ass', { releaseId: 7001, fileId: 7101, track: 0, trackName: 'Full' }, 90, 'eng', source],
+    ]);
   });
 
   it('gives a pick up when another playlist than the encode plays', async () => {
