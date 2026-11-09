@@ -68,7 +68,7 @@ export function NextEpisodeButton({ countdown, seconds, paused = false, onNext, 
         <span className="chapter-action-label">{running && motionless ? `Next episode in ${left}` : 'Next episode'}</span>
       </button>
       {running && (
-        <button type="button" className="chapter-action-cancel" onClick={cancel}>
+        <button type="button" className="chapter-action-cancel" aria-label="Cancel next episode countdown" onClick={cancel}>
           Cancel
         </button>
       )}

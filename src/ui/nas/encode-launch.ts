@@ -7,11 +7,11 @@
 import { encodePlaceKey, parseEncodeId } from '@seikou/nas/encode-id';
 import { ENCODE_PLAYLIST } from '@seikou/nas/place-key';
 import type { PlayerController } from '@seikou/engine/controller/player-controller';
-import { LOCAL_DEVICE_NAME, type LaunchSettings, type PlaceSaver } from '../place-saver';
+import { LOCAL_DEVICE_NAME, type LaunchSettings, type PlaceSaver, type PlaceTarget } from '../place-saver';
 import { nasEncodeSpec } from './disc-spec';
 import { levelSessionOf } from './level-session';
 import type { NasClient } from './nas-client';
-import { pairingKey } from './nas-store';
+import { pairingKey, type NasPairing } from './nas-store';
 import type { PlayingRoute } from './playing-route';
 
 /** The copy shown, instead of opening an episode, on a device that can't decode AV1 (Task 12 settles its final form). */
@@ -53,12 +53,27 @@ export async function launchEncode(
   const { spec, release } = nasEncodeSpec(base, token, manifest, nas.discFetch, encodeId);
   playingRoute.startEncode(encodeId);
   controller.openEncode(spec, () => nas.freshSession(token).then((s) => (token = s.token)), opts.startUs, release);
-  places.begin(
-    {
-      discKey, discId: encodeId, remote: true, chosen: ENCODE_PLAYLIST, mainPlaylistId: ENCODE_PLAYLIST, encode: true,
-      deviceName: pairing?.deviceName ?? LOCAL_DEVICE_NAME, pairing: pairing ? pairingKey(pairing) : null,
-    },
-    opts.settings,
-  );
+  places.begin(encodePlaceTarget(discKey, encodeId, pairing), opts.settings);
   return true;
+}
+
+/** What the place saver saves an encode under: its `e.` key, its id, its one playlist, through `pairing`. */
+export function encodePlaceTarget(discKey: string, encodeId: string, pairing: NasPairing | null): PlaceTarget {
+  return {
+    discKey, discId: encodeId, remote: true, chosen: ENCODE_PLAYLIST, mainPlaylistId: ENCODE_PLAYLIST, encode: true,
+    deviceName: pairing?.deviceName ?? LOCAL_DEVICE_NAME, pairing: pairing ? pairingKey(pairing) : null,
+  };
+}
+
+/**
+ * Saves the open encode's places again, as finished (Next episode saved it finished, then the next episode didn't
+ * open), while it is still the one open under `opens`.
+ */
+export async function resumeFinishedPlaces(deps: Pick<EncodeLaunchDeps, 'nas' | 'controller' | 'places'>, encodeId: string, opens: number): Promise<void> {
+  const discKey = encodeKeyOf(encodeId);
+  if (discKey === null) return;
+  const pairing = await deps.nas.pairing();
+  const now = deps.controller.getSnapshot();
+  if (now.encodeId !== encodeId || deps.controller.discOpens !== opens) return;
+  deps.places.begin({ ...encodePlaceTarget(discKey, encodeId, pairing), finished: true });
 }

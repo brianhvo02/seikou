@@ -54,11 +54,11 @@ describe('NextEpisodeButton', () => {
     const onCancel = vi.fn();
     render(<NextEpisodeButton countdown seconds={10} onNext={onNext} onCancel={onCancel} reducedMotion={false} />);
     advance(3000);
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel next episode countdown' }));
     expect(onCancel).toHaveBeenCalledTimes(1);
     advance(20_000);
     expect(onNext).not.toHaveBeenCalled();
-    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Cancel next episode countdown' })).toBeNull();
     expect(screen.queryByTestId('next-episode-fill')).toBeNull();
     fireEvent.click(screen.getByTestId('next-episode'));
     expect(onNext).toHaveBeenCalledTimes(1);
@@ -68,7 +68,7 @@ describe('NextEpisodeButton', () => {
     const onNext = vi.fn();
     render(<NextEpisodeButton countdown={false} seconds={10} onNext={onNext} onCancel={vi.fn()} reducedMotion={false} />);
     expect(screen.getByTestId('next-episode').textContent).toBe('Next episode');
-    expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Cancel next episode countdown' })).toBeNull();
     expect(screen.queryByTestId('next-episode-fill')).toBeNull();
     advance(60_000);
     expect(onNext).not.toHaveBeenCalled();

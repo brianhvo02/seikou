@@ -272,6 +272,14 @@ describe('PlaceSaver', () => {
     expect(await t.saver.finishNow()).toBeNull();
   });
 
+  it('keeps every save of an episode begun again as finished, finished', async () => {
+    const t = setup({ target: { discKey: 'e.100.3', discId: '100-3', chosen: 'mkv', mainPlaylistId: 'mkv', encode: true, finished: true } });
+    t.show({ currentPlaylistId: 'mkv' });
+    t.show({ timeUs: 100 * S }); // a seek far from the end
+    await settle();
+    expect(t.store.saves.at(-1)).toMatchObject({ timeUs: 100 * S, finished: true });
+  });
+
   it('marks a place finished when its playlist ends', async () => {
     const t = setup();
     await t.play(10_000);

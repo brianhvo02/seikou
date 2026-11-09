@@ -31,7 +31,7 @@ const notFound = (): Response => json(404, { error: 'not found' });
  * `GET /api/encodes/<id>/manifest` (a `DiscManifest` with the one file `EPISODE.MKV`) and
  * `GET|HEAD /api/encodes/<id>/files/EPISODE.MKV` (the file or a `Range` of it). With that base the engine reads an
  * encode as it reads a NAS disc. Without `encodes` only `status` answers, with `configured: false`.
- * The library: `GET /api/encodes/shows` (`{ shows: { id, name, poster, episodeCount }[], unfiled? }`, `unfiled`, the files
+ * The library: `GET /api/encodes/shows` (`{ shows: { id, name, poster, episodeCount, anilistIds }[], unfiled? }`, `anilistIds` the AniList entries of a show's seasons, `unfiled`, the files
  * the index could not file, as paths under `ENCODES_DIR`, for owners only) and `GET /api/encodes/shows/<id>` (an `EncodeShow`), grouped by AniList as
  * the disc catalogue is. They answer from the entries the title service has cached and never wait for AniList.
  */
@@ -116,7 +116,9 @@ export function encodeRoutes(auth: Auth, encodes: EncodeIndex | undefined, title
       const show = built.show(match[1]);
       return show ? json(200, show) : notFound();
     }
-    const shows = built.shows.map((s) => ({ id: s.id, name: s.name, poster: s.poster, episodeCount: s.seasons.reduce((n, x) => n + x.episodes.length, 0) }));
+    const shows = built.shows.map((s) => ({
+      id: s.id, name: s.name, poster: s.poster, episodeCount: s.seasons.reduce((n, x) => n + x.episodes.length, 0), anilistIds: s.seasons.map((x) => x.anilistId),
+    }));
     return json(200, { shows, ...(device.owner ? { unfiled: encodes.unfiled().map((u) => ({ path: encodes.relativePath(u.path), size: u.size })) } : {}) });
   };
 

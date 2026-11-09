@@ -203,7 +203,7 @@ describe('encodes routes', () => {
       await index!.ready(5000);
       const t = await token('Guest', false);
       const list = (await (await library('shows', t)).json()) as { shows: unknown[]; unfiled?: unknown };
-      expect(list.shows).toEqual([expect.objectContaining({ id: '990001', name: 'Lantern Road', episodeCount: 2 })]);
+      expect(list.shows).toEqual([expect.objectContaining({ id: '990001', name: 'Lantern Road', episodeCount: 2, anilistIds: [990001] })]);
       expect(list.unfiled).toBeUndefined();
       const show = (await (await library('shows/990001', t)).json()) as { name: string; poster: string; seasons: { episodes: { id: string }[] }[] };
       expect(show.name).toBe('Lantern Road');

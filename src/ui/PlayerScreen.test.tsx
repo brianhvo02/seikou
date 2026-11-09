@@ -162,8 +162,41 @@ describe('the player for an encoded episode', () => {
       });
     const t = setup(snapshotAt('100-1', 1310 * S), { playerSettings: vi.fn(async () => ({ nextEpisodeCountdown: true })) });
     await flush(0); // the show and the setting arrive
-    expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Cancel next episode countdown' })).toBeTruthy();
     await flush(9_900);
+    expect(t.controller.openEncode).not.toHaveBeenCalled();
+    await flush(100);
+    await flush(0);
+    expect(t.controller.openEncode).toHaveBeenCalled();
+  });
+
+  it('when the next episode fails to open, the episode plays on with its places saved again, still finished', async () => {
+    const t = setup(snapshotAt('100-1', 1310 * S), { encodeManifest: vi.fn(async () => Promise.reject(new Error('The NAS is not reachable.'))) });
+    fireEvent.click(await screen.findByTestId('next-episode'));
+    await waitFor(() => expect(t.controller.showNotice).toHaveBeenCalledWith('next-episode', "Couldn't open the next episode: The NAS is not reachable."));
+    expect(t.controller.openEncode).not.toHaveBeenCalled();
+    expect(t.history.replace).toHaveBeenLastCalledWith({ kind: 'encodePlay', encodeId: '100-1', timeS: 1310, resume: false });
+    expect(t.playingRoute.encodeId).toBe('100-1');
+    await waitFor(() => expect(t.places.begin).toHaveBeenCalledWith(expect.objectContaining({ discKey: 'e.100.1', discId: '100-1', encode: true, finished: true })));
+    expect(t.controller.closeDisc).not.toHaveBeenCalled();
+  });
+
+  it('holds the countdown while the episode buffers or loads', async () => {
+    vi.useFakeTimers();
+    const flush = (ms: number): Promise<void> =>
+      act(async () => {
+        await vi.advanceTimersByTimeAsync(ms);
+      });
+    const t = setup(snapshotAt('100-1', 1310 * S), { playerSettings: vi.fn(async () => ({ nextEpisodeCountdown: true })) });
+    await flush(0);
+    await flush(4_000);
+    t.show(snapshotAt('100-1', 1314 * S, { engineState: 'buffering' }));
+    await flush(30_000);
+    t.show(snapshotAt('100-1', 1314 * S, { engineState: 'loading' }));
+    await flush(30_000);
+    expect(t.controller.openEncode).not.toHaveBeenCalled();
+    t.show(snapshotAt('100-1', 1314 * S));
+    await flush(5_900);
     expect(t.controller.openEncode).not.toHaveBeenCalled();
     await flush(100);
     await flush(0);

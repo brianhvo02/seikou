@@ -42,6 +42,8 @@ export interface PlaceTarget {
    * program state (mode `none`, no PSRs, GPRs or title), as the NAS requires of an encode's.
    */
   readonly encode?: boolean;
+  /** Already saved finished (Next episode moved on, then failed to open the next): every save stays finished. */
+  readonly finished?: boolean;
 }
 
 /**
@@ -399,7 +401,7 @@ export class PlaceSaver {
     const levelAudio = this.deps.levelAudio?.() ?? null;
     const place: PlaybackPlace = {
       ...built,
-      finished: built.finished || ended,
+      finished: built.finished || ended || t.finished === true,
       settings: { ...built.settings, ...(levelAudio === null ? {} : { psr1: levelAudio }), textFiles: built.settings.textFiles.slice(0, MAX_TEXT_FILES).map((f) => ({ ...f, name: f.name.slice(0, MAX_TEXT_FILE_NAME) })) },
     };
     const { store, nas } = this.deps;

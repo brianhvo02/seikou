@@ -20,8 +20,8 @@ const named = (c: { readonly name?: string } | undefined, name: string): boolean
 
 /**
  * The action at `timeUs`: during an `Opening`, skip to the next chapter's start; during an `Ending` with a chapter after
- * it, skip to that chapter; during an `Ending` with nothing after it, or during a `Preview` right after an `Ending`,
- * next-episode when `hasNext` (else null). Null everywhere else, and without chapters or a length.
+ * it, skip to that chapter; during an `Ending` with nothing after it, or during a `Preview` that comes anywhere after an
+ * `Ending`, next-episode when `hasNext` (else null). Null everywhere else, and without chapters or a length.
  */
 export function chapterAction(
   chapters: readonly { readonly startUs: number; readonly name?: string }[],
@@ -40,8 +40,13 @@ export function chapterAction(
     if (next) return { kind: 'skip-ending', toUs: next.startUs };
     return hasNext ? { kind: 'next-episode' } : null;
   }
-  if (named(here, 'preview') && named(chapters[at - 1], 'ending')) return hasNext ? { kind: 'next-episode' } : null;
+  if (named(here, 'preview') && chapters.slice(0, at).some((c) => named(c, 'ending'))) return hasNext ? { kind: 'next-episode' } : null;
   return null;
+}
+
+/** Whether the Next episode countdown holds: while playback is paused, buffering or loading. */
+export function countdownHeld(engineState: string): boolean {
+  return engineState === 'paused' || engineState === 'buffering' || engineState === 'loading';
 }
 
 /** A chapter list's row: "name · m:ss", with "Chapter N" for one without a name. */

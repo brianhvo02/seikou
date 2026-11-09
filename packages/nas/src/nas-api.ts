@@ -324,6 +324,8 @@ export interface EncodeShowSummary {
   readonly name: string;
   readonly poster: string | null;
   readonly episodeCount: number;
+  /** The AniList ids of the show's seasons, films and other entries: where an episode's show is found in one request. */
+  readonly anilistIds: readonly number[];
 }
 
 /** `GET encodes/shows`: the shows by name, and for owners the files the index could not file (paths under the encodes folder). */

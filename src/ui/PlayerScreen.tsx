@@ -28,10 +28,10 @@ import { defaultQuery, type FansubOrigin, type ToshoTrack } from './nas/tosho-se
 import type { ToshoSearch } from './ToshoSearch';
 import type { EncodeEpisode } from '@seikou/nas/nas-api';
 import { parseEncodeId } from '@seikou/nas/encode-id';
-import { chapterAction, type ChapterAction } from './chapter-actions';
+import { chapterAction, countdownHeld, type ChapterAction } from './chapter-actions';
 import { ChapterActionButton } from './ChapterActionButton';
 import { findEncodeShow, nextEpisode } from './nas/encodes-model';
-import { launchEncode } from './nas/encode-launch';
+import { launchEncode, resumeFinishedPlaces } from './nas/encode-launch';
 import type { TrackNames } from './place-model';
 
 const HIDE_CONTROLS_MS = 3000;
@@ -269,6 +269,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
     advancing.current = fromId;
     const to = nextUp.id;
     const names = playedTrackNames(from);
+    const opens = controller.discOpens;
     // The episode is saved finished before anything moves on, and nothing saves it after (a later save would undo it).
     const finishing = places.finishNow();
     places.end();
@@ -279,9 +280,11 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
       .then((finished) => launchEncode({ nas, controller, places, playingRoute }, to, finished ? { settings: { settings: finished.settings, byLanguage: true, names } } : {}))
       .catch((err: unknown) => {
         advancing.current = null;
-        if (controller.getSnapshot().encodeId === fromId) {
+        if (controller.getSnapshot().encodeId === fromId && controller.discOpens === opens) {
+          // the episode plays on: the address bar and its places follow it again (still finished, as it was saved)
           playingRoute.startEncode(fromId);
           history.replace({ kind: 'encodePlay', encodeId: fromId, timeS: Math.floor(controller.getSnapshot().timeUs / 1e6), resume: false });
+          void resumeFinishedPlaces({ nas, controller, places }, fromId, opens).catch((e: unknown) => console.warn('saving the episode again failed', e));
         }
         controller.showNotice('next-episode', `Couldn't open the next episode: ${err instanceof Error ? err.message : String(err)}`);
       });
@@ -849,7 +852,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
             key={`${encodeId}:${action.kind}`}
             action={action}
             countdown={countdown === true}
-            paused={snapshot.engineState === 'paused'}
+            paused={countdownHeld(snapshot.engineState)}
             onSkip={(us) => controller.seek(us)}
             onNext={goNext}
           />

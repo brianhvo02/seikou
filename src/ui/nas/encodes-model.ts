@@ -150,19 +150,15 @@ export function nextEpisode(show: EncodeShow, encodeId: string): EncodeEpisode |
 }
 
 /**
- * The show holding the episodes of AniList entry `anilistId`: the show rooted at that entry when there is one,
- * else the first show of the list that holds it; null for none.
+ * The show holding the episodes of AniList entry `anilistId`: the show list names each show's entries
+ * (`anilistIds`), so only that show is fetched. A list without them (a NAS from before) falls back to the show rooted
+ * at the entry. Null for none.
  */
 export async function findEncodeShow(nas: Pick<NasClient, 'encodeShow' | 'encodeShows'>, anilistId: number): Promise<EncodeShow | null> {
-  const own = await nas.encodeShow(String(anilistId));
-  if (own && own.seasons.some((s) => s.anilistId === anilistId)) return own;
   const { shows } = await nas.encodeShows();
-  for (const summary of shows) {
-    if (summary.id === String(anilistId)) continue;
-    const show = await nas.encodeShow(summary.id);
-    if (show && show.seasons.some((s) => s.anilistId === anilistId)) return show;
-  }
-  return null;
+  const listed = shows.find((s) => (s.anilistIds as readonly number[] | undefined)?.includes(anilistId));
+  const show = await nas.encodeShow(listed ? listed.id : String(anilistId));
+  return show && show.seasons.some((s) => s.anilistId === anilistId) ? show : null;
 }
 
 /** "24 min" for an episode's length; null when unknown. */

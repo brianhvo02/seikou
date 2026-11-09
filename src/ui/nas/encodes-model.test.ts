@@ -67,8 +67,8 @@ describe('indexing', () => {
 
 describe('the show grid', () => {
   const shows: EncodeShowSummary[] = [
-    { id: '100', name: 'Starfall Wanderer', poster: null, episodeCount: 12 },
-    { id: '200', name: 'Lantern Tide', poster: 'p', episodeCount: 1 },
+    { id: '100', name: 'Starfall Wanderer', poster: null, episodeCount: 12, anilistIds: [100] },
+    { id: '200', name: 'Lantern Tide', poster: 'p', episodeCount: 1, anilistIds: [200] },
   ];
   it('counts episodes', () => {
     expect(episodeCountLabel(1)).toBe('1 episode');
@@ -167,21 +167,31 @@ describe('the next episode', () => {
     expect(nextEpisode(show, '100-4')).toBeNull();
   });
 
-  it('finds the show holding an episode: its own season id first, else through the list', async () => {
+  it("finds the show holding an episode from the list's AniList ids, fetching only that show", async () => {
     const other: EncodeShow = { id: '300', name: 'Lantern Tide', poster: null, seasons: [] };
     const asked: string[] = [];
+    let listed = [
+      { id: '300', name: 'Lantern Tide', poster: null, episodeCount: 1, anilistIds: [300] },
+      { id: '100', name: 'Starfall Wanderer', poster: null, episodeCount: 5, anilistIds: [100, 103, 104, 101] },
+    ];
     const nas = {
       encodeShow: async (id: string) => {
         asked.push(id);
         return id === '100' ? SHOW : id === '300' ? other : null;
       },
-      encodeShows: async () => ({ shows: [{ id: '300', name: 'Lantern Tide', poster: null, episodeCount: 1 }, { id: '100', name: 'Starfall Wanderer', poster: null, episodeCount: 5 }] }),
+      encodeShows: async () => ({ shows: listed }),
     };
+    expect((await findEncodeShow(nas, 101))?.id).toBe('100');
+    expect(asked).toEqual(['100']);
+    asked.length = 0;
     expect((await findEncodeShow(nas, 100))?.id).toBe('100');
     expect(asked).toEqual(['100']);
     asked.length = 0;
-    expect((await findEncodeShow(nas, 101))?.id).toBe('100');
-    expect(asked).toEqual(['101', '300', '100']);
     expect(await findEncodeShow(nas, 999)).toBeNull();
+    expect(asked).toEqual(['999']);
+    // a NAS from before the ids: the show rooted at the entry
+    listed = listed.map(({ anilistIds: _ids, ...s }) => s) as typeof listed;
+    expect((await findEncodeShow(nas, 100))?.id).toBe('100');
+    expect(await findEncodeShow(nas, 101)).toBeNull();
   });
 });
