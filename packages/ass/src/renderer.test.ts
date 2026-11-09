@@ -114,6 +114,24 @@ describe('AssRenderer', () => {
     expect(r.visible(2_500_000, { ...OPTS, offsetUs: 1_000_000 })).toBe(true);
   });
 
+  it('draws events appended to its track after eventsAdded, keeping the cached ones', () => {
+    const track = script([ev('0:00:01.00', '0:00:03.00', 'first')]);
+    const { r, rendered } = renderer(track);
+    const { ctx } = fakeCtx();
+    r.render(ctx, 1_500_000, RECT, OPTS);
+    expect(rendered).toEqual([0]);
+    const later = script([ev('0:00:05.00', '0:00:06.00', 'later')]).events[0]!;
+    (track.events as typeof later[]).push({ ...later, readOrder: 1 });
+    expect(r.visible(5_500_000, OPTS)).toBe(false); // not indexed until told
+    r.eventsAdded();
+    expect(r.changed(1_500_000, OPTS)).toBe(true);
+    expect(r.visible(5_500_000, OPTS)).toBe(true);
+    r.render(ctx, 1_500_000, RECT, OPTS);
+    expect(rendered).toEqual([0]); // the first event's bitmap was kept
+    r.render(ctx, 5_500_000, RECT, OPTS);
+    expect(rendered).toEqual([0, 1]);
+  });
+
   it('counts drawn and animated events and times the draw', () => {
     const { r } = renderer();
     r.render(fakeCtx().ctx, 1_500_000, RECT, OPTS);

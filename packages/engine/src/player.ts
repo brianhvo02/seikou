@@ -39,9 +39,11 @@ import { UnsupportedCodecError, type DecoderError } from './decode/decoder';
 import { type AudioDecodeResult, type AudioDecoder, type AudioDecoderFactory } from './decode/audio-decoder';
 import { WebCodecsVideoDecoder, canStartStream, isSupportedVideoCoding, type VideoCodecApi, type VideoUnit } from './decode/video-decoder';
 import { CODING_AV1 } from './decode/av1';
-import { EncodePipeline } from './encode/encode-pipeline';
-import { encodeChapters, encodePlayItem, encodeTimeline, encodeVideoTrack, openEncodeFile } from './encode/encode-session';
-import { MkvReadError, NotMatroskaError, type MatroskaFile } from '@seikou/matroska';
+import { CODING_OPUS, OPUS_NAME, browserAudioDecoderApi, createOpusDecoder, opusTrackConfig, type AudioDecoderApi } from './decode/opus-decoder';
+import { EncodePipeline, type EncodeSubtitleUnit } from './encode/encode-pipeline';
+import { defaultAudioStream, encodeAudioTracks, encodeChapters, encodePlayItem, encodeTimeline, encodeVideoTrack, openEncodeFile } from './encode/encode-session';
+import { MkvAssTrack, PgsControl, defaultSubtitle, encodeSubtitleTracks, fontAttachments, resolveMkvAssFonts, shownSubtitle, type EncodeSubtitleTrack } from './encode/mkv-subtitles';
+import { MkvReadError, NotMatroskaError, type MatroskaFile, type MkvTrack } from '@seikou/matroska';
 import { SOURCE_PACKET_SIZE, TS_PACKET_SIZE } from '@seikou/bdmv/demux/constants';
 import { M2tsReader } from '@seikou/bdmv/demux/m2ts-reader';
 import { DiscError } from '@seikou/bdmv/byte-source';
@@ -54,6 +56,7 @@ import { RemoteDiscError, TokenRelay } from './disc/http-transport';
 import { checkStreamReadable, loadClips, openDisc, peekIndex, playlistPath, readBdid, streamPath, type DiscModel } from './disc/open-disc';
 import { CacheFill } from './disc/cache-fill';
 import type { DiscManifest } from '@seikou/nas/nas-api';
+import type { OverlayPlane } from '@seikou/pg';
 import { ReadAheadCache, SEGMENT_BYTES } from './disc/read-ahead-cache';
 import { RemoteSource } from './disc/remote-source';
 import { BdVk } from './graphics/graphics-controller';
@@ -71,11 +74,11 @@ import type { FontFile } from '@seikou/ass/font-tables';
 import { AssFonts, type FontLoader } from '@seikou/ass/fonts';
 import type { GlyphMeasurer } from '@seikou/ass/measure';
 import { looksLikeAss, parseAss } from '@seikou/ass/parse';
-import { AssRenderer } from '@seikou/ass/renderer';
+import { AssRenderer, type AssRendererDeps } from '@seikou/ass/renderer';
 import { MEMORY_PROFILES, type MemoryProfile, type MemoryProfileName } from './memory-profile';
 import type { Mat3 } from '@seikou/ass/transform';
 import type { AssTrack } from '@seikou/ass/types';
-import { BDJ_STORAGE_MESSAGE, ENCODE_FILE, ENCODE_PLAYLIST_ID, NO_PICTURE_MESSAGE, type AudioTrack, type EncodeSpec, type BufferRequest, type BdjMemoryTelemetry, type EngineCommand, type EngineEvent, type FileData, type MenuKey, type NoticeCode, type PlaceState, type PlaybackState, type ShaderSetData, type StartPoint, type SubtitleChoice } from './protocol';
+import { BDJ_STORAGE_MESSAGE, ENCODE_FILE, ENCODE_PLAYLIST_ID, NO_PICTURE_MESSAGE, type AudioTrack, type EncodeSpec, type BufferRequest, type BdjMemoryTelemetry, type EngineCommand, type EngineEvent, type FileData, type MenuKey, type NoticeCode, type PlaceState, type PgTrack, type PlaybackState, type ShaderSetData, type StartPoint, type SubtitleChoice } from './protocol';
 import type { CompositorLike, TextRendererLike } from './render/compositor';
 import { ShaderStage } from './shaders/stage';
 import { UNAVAILABLE, type ShaderBackend } from './shaders/webgl-backend';
@@ -112,6 +115,8 @@ export interface PlayerDeps {
   requestFrame(callback: () => void): void;
   createCompositor(canvas: OffscreenCanvas): CompositorLike;
   readonly createAudioDecoder: AudioDecoderFactory;
+  /** WebCodecs audio decoding, for an encoded episode's Opus; the browser's (if it has one) by default, null for none. */
+  readonly audioDecoderApi?: AudioDecoderApi | null;
   /** What ASS subtitles need from the browser (fonts, measuring, canvases); created once, when the first ASS file loads. */
   readonly createAssDeps?: () => Promise<AssDeps>;
   /** The GPU backend for video shaders, or why there is none; created once, when the first set is chosen. */
@@ -159,6 +164,29 @@ interface OpenHold {
   abandoned: boolean;
   readonly released: Promise<void>;
   release(): void;
+}
+
+/** The audio side of an encoded episode's session: its audio tracks by stream number and their decoders. */
+interface EncodeAudio {
+  /** TrackEntries of the AudioTracks (index 0 is stream 1). */
+  readonly entries: readonly MkvTrack[];
+  /** The decoder for an audio stream (a WebCodecs Opus decoder for that track). */
+  createDecoder(stream: number): Promise<AudioDecoder>;
+}
+
+/** An open encode's own subtitle tracks: the choice, the ASS tracks' events as read, and the PGS track that shows. */
+interface EncodeSubs {
+  readonly tracks: readonly EncodeSubtitleTrack[];
+  /** The tracks' TrackEntries, in the same order. */
+  readonly entries: readonly MkvTrack[];
+  /** The viewer's pick (1-based subtitle stream), 0 for off or for the added text files. */
+  choice: number;
+  /** Every ASS track by stream: their events are collected as their blocks are read, whichever shows. */
+  readonly ass: Map<number, MkvAssTrack>;
+  /** The PGS track that shows and its control; only its blocks are decoded. */
+  pgs: { readonly stream: number; readonly control: PgsControl } | null;
+  /** The ASS tracks' fonts (the attachments), once loaded. */
+  fonts: AssFonts | null;
 }
 
 function openHold(): OpenHold {
@@ -303,6 +331,8 @@ interface Session {
   readonly pipeline: SessionPipeline;
   /** The video track's CodecPrivate (an encode's av1C record), which its decoder is configured from; null for a disc. */
   readonly videoCodecPrivate: Uint8Array | null;
+  /** An encoded episode's audio, routed by track number (its play item's STN is empty); null for a disc. */
+  readonly encode: EncodeAudio | null;
   readonly playItems: readonly PlayItem[];
   /** 1-based STN audio stream number; null when the playlist has no playable audio. */
   audioStream: number | null;
@@ -336,6 +366,11 @@ interface Session {
   audioStalledBeat: number | null;
   /** A seek that moves playback back onto a recovered output is queued. */
   audioRecoveryQueued: boolean;
+}
+
+/** A coding type's name for notices and telemetry: Opus (an encode's) or a disc's. */
+function audioCodingName(codingType: number): string {
+  return codingType === CODING_OPUS ? OPUS_NAME : codingName(codingType);
 }
 
 function isMediaError(err: unknown): boolean {
@@ -460,6 +495,8 @@ export class Player {
   private sentPgTracks = '';
   /** The user's subtitle set; it belongs to the open disc (kept across playlists, dropped with the disc). */
   private textTrack: TextTrack | null = null;
+  /** The open encoded episode's own subtitles; null for a disc. */
+  private encodeSubs: EncodeSubs | null = null;
   private textOn = false;
   private textScale = 1;
   /** Bumped by every subtitle load and by closing the disc: a load that finds it changed is dropped. */
@@ -556,7 +593,7 @@ export class Player {
       this.openHold = null;
       this.stopFill();
     }
-    if (cmd.type === 'open') {
+    if (cmd.type === 'open' || cmd.type === 'openEncode') {
       const hold = openHold();
       this.holds.set(cmd, hold);
       this.openHold = hold;
@@ -572,7 +609,7 @@ export class Player {
           await this.open(cmd.disc, cmd.bufferFirst, this.holds.get(cmd) ?? null, cmd.start ?? null);
           break;
         case 'openEncode':
-          await this.openEncode(cmd.encode, cmd.startUs ?? 0);
+          await this.openEncode(cmd.encode, cmd.startUs ?? 0, this.holds.get(cmd) ?? null);
           break;
         case 'remoteToken':
         case 'cancelBuffer':
@@ -641,6 +678,7 @@ export class Player {
           this.notifySeeked(cmd.timeUs);
           // ASS collision memory belongs to what was on screen before the seek
           for (const f of this.textTrack?.files ?? []) if (f.renderer instanceof AssRenderer) f.renderer.reset();
+          for (const a of this.encodeSubs?.ass.values() ?? []) a.reset();
           await this.startAt(cmd.timeUs, this.wantPlaying);
           break;
         case 'selectAudio':
@@ -720,6 +758,7 @@ export class Player {
     const startup = this.bdjStartup;
     if ((frame || blank) && s.owner === 'bdj' && startup && startup.firstPlaylistMs !== null && startup.firstFrameMs === null) startup.firstFrameMs = this.sinceOpenMs();
     this.pg?.tick(now);
+    this.encodeSubs?.pgs?.control.tick(now);
     this.paint(frame, now);
     this.feedDecoder(s); // presenting freed decoded-frame slots
     const last = this.presenter.current;
@@ -743,10 +782,24 @@ export class Player {
   /** Redraws the current picture at once: the video and every plane over it. */
   private repaint(): void {
     this.compositor?.drawVideo(this.presenter.current);
-    if (this.pg) this.compositor?.drawPg?.(this.pg.plane);
-    if (this.textOn && this.textTrack) this.compositor?.drawText?.(this.textTrack.renderer, this.clock.nowUs(), this.textOptions());
+    const pg = this.pgPlane();
+    if (pg) this.compositor?.drawPg?.(pg);
+    const text = this.activeText();
+    if (text) this.compositor?.drawText?.(text, this.clock.nowUs(), this.textOptions());
     if (this.navigator?.igPlane) this.compositor?.drawIg?.(this.navigator.igPlane);
     if (this.bdj) this.compositor?.drawBdj?.(this.bdj.plane);
+  }
+
+  /** The PG plane that shows: the disc's PG stream, or an encode's PGS track. */
+  private pgPlane(): OverlayPlane | null {
+    return this.pg?.plane ?? this.encodeSubs?.pgs?.control.plane ?? null;
+  }
+
+  /** The text that shows: the added subtitle files when picked, else an encode's ASS track that shows. */
+  private activeText(): TextRendererLike | null {
+    if (this.textOn && this.textTrack) return this.textTrack.renderer;
+    const subs = this.encodeSubs;
+    return subs ? (subs.ass.get(this.shownEncodeSubtitle(subs)) ?? null) : null;
   }
 
   /**
@@ -756,16 +809,16 @@ export class Player {
    */
   private paint(frame: VideoFrame | null, nowUs: number): void {
     const nav = this.navigator;
-    const pg = this.pg?.plane ?? null;
+    const pg = this.pgPlane();
     const ig = nav?.igPlane ?? null;
     const bdj = this.bdj?.plane ?? null;
     const bdjChanged = bdj !== null && (bdj.pending() || this.bdjDirty);
     this.bdjDirty = false;
-    const text = this.textOn && this.compositor?.drawText ? this.textTrack : null;
+    const text = this.compositor?.drawText ? this.activeText() : null;
     const textOpts = this.textOptions();
     const pgChanged = pg !== null && pg.dirty() !== null;
     const igChanged = ig !== null && ig.dirty() !== null;
-    const textChanged = this.subtitlesDirty || (text !== null && text.renderer.changed(nowUs, textOpts));
+    const textChanged = this.subtitlesDirty || (text !== null && text.changed(nowUs, textOpts));
     this.subtitlesDirty = false;
     const changed = pgChanged || igChanged || textChanged || bdjChanged || this.shadersDirty || this.backgroundDirty;
     this.shadersDirty = false;
@@ -778,7 +831,7 @@ export class Player {
       if (this.compositor?.drawPg) this.compositor.drawPg(pg);
       else pg.takeDirty();
     }
-    if (text) this.compositor?.drawText?.(text.renderer, nowUs, textOpts);
+    if (text) this.compositor?.drawText?.(text, nowUs, textOpts);
     if (ig && (ig.hasContent || igChanged)) {
       if (this.compositor?.drawIg) this.compositor.drawIg(ig);
       else ig.takeDirty();
@@ -860,6 +913,7 @@ export class Player {
     this.stopNavigator();
     this.teardownSession();
     this.dropRemote();
+    this.dropEncode();
     this.setState('loading');
     const source = this.createSource(spec);
     // spec §4.7: the class library loads, and a BD-J First Play's worker boots, while the disc opens
@@ -912,45 +966,68 @@ export class Player {
 
   /**
    * Opens an encoded episode in place of the open disc: its Matroska file is read through a NAS source like a disc's
-   * (the same transport, token refresh and fetch port; no read-ahead cache), then plays from `startUs`.
+   * (the same transport, token refresh and fetch port; no read-ahead cache), then plays from `startUs`. Like a disc's
+   * open it holds an OpenHold: one dropped while queued (another open, an openEncode or a close came after it) opens
+   * nothing, and one dropped while its file opens stops there, leaving what came after it to replace the player's state.
    */
-  private async openEncode(spec: EncodeSpec, startUs: number): Promise<void> {
-    this.openedAtMs = this.deps.nowMs();
-    this.bdjStartup = null;
-    this.noPictureNotice = 'unsent';
-    this.missingAudioLogged = new Set();
-    this.bdjStorageNotice = false;
-    this.stopBdj();
-    this.dropEarlyBdj();
-    this.stopNavigator();
-    this.teardownSession();
-    this.dropRemote();
-    this.stopPg();
-    this.pgRegs = null;
-    this.source = null;
-    this.disc = null;
-    this.resetTextSubtitles();
-    this.emitSubtitles();
-    this.setState('loading');
-    const { encodeId: _encodeId, ...remote } = spec;
-    const source = this.createSource({ kind: 'remote', ...remote }, false);
-    let file: MatroskaFile;
+  private async openEncode(spec: EncodeSpec, startUs: number, hold: OpenHold | null): Promise<void> {
     try {
-      file = await openEncodeFile(source, ENCODE_FILE);
-    } catch (err) {
+      if (hold?.abandoned) {
+        spec.fetchPort?.close();
+        if (spec.fetchPort) this.deps.emit({ type: 'fetchPortClosed' });
+        return;
+      }
+      this.openedAtMs = this.deps.nowMs();
+      this.bdjStartup = null;
+      this.noPictureNotice = 'unsent';
+      this.missingAudioLogged = new Set();
+      this.bdjStorageNotice = false;
+      this.stopBdj();
+      this.dropEarlyBdj();
+      this.stopNavigator();
+      this.teardownSession();
       this.dropRemote();
-      throw err;
+      this.stopPg();
+      this.pgRegs = null;
+      this.source = null;
+      this.disc = null;
+      this.dropEncode();
+      this.resetTextSubtitles();
+      this.emitSubtitles();
+      this.setState('loading');
+      const { encodeId: _encodeId, ...remote } = spec;
+      const source = this.createSource({ kind: 'remote', ...remote }, false);
+      let file: MatroskaFile;
+      try {
+        file = await openEncodeFile(source, ENCODE_FILE);
+      } catch (err) {
+        this.dropRemote();
+        if (hold?.abandoned) return; // superseded meanwhile: nobody waits for this open's error
+        throw err;
+      }
+      if (hold?.abandoned) {
+        this.dropRemote();
+        return;
+      }
+      this.source = source;
+      await this.playEncode(file, source.size(ENCODE_FILE), startUs);
+    } finally {
+      if (this.openHold === hold) this.openHold = null;
     }
-    this.source = source;
-    await this.playEncode(file, source.size(ENCODE_FILE), startUs);
   }
 
-  /** The encode's session: its AV1 track through EncodePipeline, on a one-item timeline spanning the file. */
+  /**
+   * The encode's session: its AV1 track, its audio (the default track, else the first) and its subtitle tracks through
+   * EncodePipeline, on a one-item timeline spanning the file. With audio the master clock follows the ring, as for a
+   * disc; only an episode without playable audio runs on the wall clock.
+   */
   private async playEncode(file: MatroskaFile, size: number, startUs: number): Promise<void> {
     ++this.openGeneration;
     this.teardownSession();
     const video = encodeVideoTrack(file);
     if (!video) {
+      this.dropRemote(); // nothing will read it
+      this.source = null;
       this.deps.emit({ type: 'error', code: 'no-video', message: 'This episode has no AV1 video track.', paths: [] });
       this.setState('error');
       return;
@@ -966,16 +1043,45 @@ export class Player {
     this.releaseBdjStill();
     this.navNextMark = -1;
     this.navItem = 0;
+    const api = this.deps.audioDecoderApi === undefined ? browserAudioDecoderApi : this.deps.audioDecoderApi;
+    const audio = encodeAudioTracks(file, api !== null);
+    const audioStream = defaultAudioStream(audio.tracks, audio.entries);
+    const audioActive = audioStream !== null && this.ring !== null;
+    if (audioStream !== null && !this.ring) this.notice('audio-disabled', 'Audio output is not available, so video will play without sound.');
+    const subtitleTracks = encodeSubtitleTracks(file);
+    const subs: EncodeSubs = {
+      tracks: subtitleTracks,
+      entries: subtitleTracks.map((x) => x.track),
+      choice: defaultSubtitle(subtitleTracks.map((x) => x.track)),
+      ass: new Map(subtitleTracks.flatMap((x, i) => (x.kind === 'ass' ? [[i + 1, new MkvAssTrack(x.track.codecPrivate!)] as const] : []))),
+      pgs: null,
+      fonts: null,
+    };
+    this.encodeSubs = subs;
     const decoder = new WebCodecsVideoDecoder(this.deps.videoCodecApi);
     const ref: { current: Session | null } = { current: null };
     const pipeline = new EncodePipeline(
-      { file, videoTrack: video.number, path: ENCODE_FILE, size, durationUs: timeline.durationUs },
+      {
+        file,
+        videoTrack: video.number,
+        path: ENCODE_FILE,
+        size,
+        durationUs: timeline.durationUs,
+        audio: audio.entries.map((e) => ({ track: e.number, preRollUs: e.codecId === 'A_OPUS' ? opusTrackConfig(e).seekPreRollUs : 0 })),
+        subtitleTracks: subtitleTracks.map((x) => x.track.number),
+      },
       {
         video: (u) => {
           if (ref.current && u.inRange && u.ptsUs > ref.current.videoReadUs) ref.current.videoReadUs = u.ptsUs;
           if (ref.current) this.onVideoUnit(ref.current, u);
         },
-        audio: () => undefined,
+        audio: (u) => {
+          if (ref.current && u.ptsUs > ref.current.audioReadUs) ref.current.audioReadUs = u.ptsUs;
+          if (ref.current) this.onAudioUnit(ref.current, u);
+        },
+        subtitle: (u) => {
+          if (ref.current && ref.current === this.session) this.onEncodeSubtitle(subs, u);
+        },
         isFull: () => ref.current !== null && this.isFull(ref.current),
         ended: () => {
           if (ref.current) this.onPipelineEnded(ref.current);
@@ -990,19 +1096,23 @@ export class Player {
       owner: 'user',
       timeline,
       chapters: encodeChapters(file),
-      tracks: [],
+      tracks: audio.tracks,
       videoCodingType: CODING_AV1,
       decoder,
       pipeline,
       videoCodecPrivate: video.codecPrivate ?? null,
+      encode: {
+        entries: audio.entries,
+        createDecoder: (stream) => createOpusDecoder(api, opusTrackConfig(audio.entries[stream - 1]!)),
+      },
       playItems: [item],
-      audioStream: null,
+      audioStream,
       audioDecoders: new Map(),
       audioDecoderLoads: new Map(),
       audioErrorsInRow: 0,
       failedAudioTypes: new Set(),
       audioErrorDisabled: false,
-      audioActive: false,
+      audioActive,
       decimator: null,
       videoState: 'unconfigured',
       pendingVideo: [],
@@ -1031,9 +1141,90 @@ export class Player {
     this.audioCodec = null;
     this.sentPgTracks = '';
     this.compositor?.startPlaylist?.(true);
+    this.applyEncodeSubtitle(false);
+    if (subs.ass.size > 0) void this.loadEncodeFonts(subs, file);
     this.deps.emit({ type: 'chapters', playlistId: ENCODE_PLAYLIST_ID, durationUs: timeline.durationUs, chapters: session.chapters });
     this.emitTracks(session);
+    this.emitSubtitles();
     await this.startAt(t, true);
+  }
+
+  /** A block of one of the encode's subtitle tracks: an ASS event is added to its track; a PGS display set is decoded if its track shows. */
+  private onEncodeSubtitle(subs: EncodeSubs, u: EncodeSubtitleUnit): void {
+    if (subs !== this.encodeSubs) return;
+    const ass = subs.ass.get(u.stream);
+    if (ass) {
+      ass.add({ data: u.data, timeMs: u.ptsUs / 1000, ...(u.durationUs !== undefined ? { durationMs: u.durationUs / 1000 } : {}) });
+    } else if (subs.pgs?.stream === u.stream) {
+      subs.pgs.control.push(u.data, u.ptsUs);
+    }
+  }
+
+  /** The encode's subtitle stream that shows: the viewer's pick, else a forced track in the audio's language; none while the added files show. */
+  private shownEncodeSubtitle(subs: EncodeSubs): number {
+    if (this.textOn) return 0;
+    const s = this.session;
+    const entry = s?.encode && s.audioStream !== null ? s.encode.entries[s.audioStream - 1] : undefined;
+    return shownSubtitle(subs.entries, subs.choice, entry?.language ?? null);
+  }
+
+  /**
+   * Puts the encode's shown subtitle in place: a PGS track gets a fresh control, and with `restart` the read starts again
+   * at the current time, so the display set on screen comes back (as a disc's PG switch does). ASS tracks need no
+   * re-read: their events are collected whichever shows.
+   */
+  private applyEncodeSubtitle(restart: boolean): void {
+    const subs = this.encodeSubs;
+    if (!subs) return;
+    const shown = this.shownEncodeSubtitle(subs);
+    const pgs = subs.tracks[shown - 1]?.kind === 'pgs' ? shown : 0;
+    if ((subs.pgs?.stream ?? 0) === pgs) return;
+    subs.pgs?.control.seek();
+    subs.pgs = pgs > 0 ? { stream: pgs, control: new PgsControl() } : null;
+    const s = this.session;
+    if (restart && pgs > 0 && s) {
+      this.enqueue(async () => {
+        if (this.session === s) await this.startAt(this.clock.nowUs(), this.wantPlaying, 'keep');
+      });
+    }
+  }
+
+  /**
+   * The encode's fonts, loaded in the background while it plays (attachments can be large): the header's [Fonts], then
+   * the font attachments. Each ASS track gets its renderer once they are ready; until then it draws nothing.
+   */
+  private async loadEncodeFonts(subs: EncodeSubs, file: MatroskaFile): Promise<void> {
+    const pending = this.assDepsOnce();
+    if (!pending) return;
+    let fonts: AssFonts | null = null;
+    try {
+      const deps = await pending;
+      if (subs !== this.encodeSubs) return;
+      fonts = new AssFonts(deps.loader, deps.defaultFont);
+      const tracks = [...subs.ass.values()];
+      await fonts.add(tracks.flatMap((a) => a.track.fonts));
+      const attached = await Promise.all(fontAttachments(file.attachments).map(async (a) => ({ name: a.name, bytes: await a.data().catch(() => new Uint8Array(0)) })));
+      if (subs !== this.encodeSubs) return;
+      const { unreadable } = await fonts.add(attached);
+      for (const a of tracks) resolveMkvAssFonts(fonts, a.track);
+      await fonts.ready();
+      if (subs !== this.encodeSubs) return;
+      subs.fonts = fonts;
+      for (const a of tracks) a.attach(new AssRenderer(a.track, fonts, this.assRendererDeps(deps)), fonts);
+      fonts = null; // the encode owns them now (dropEncode disposes them)
+      if (unreadable.length) this.notice('subtitle-fonts', `Some font files could not be read: ${unreadable.join(', ')}`);
+      this.subtitlesDirty = true;
+    } catch (err) {
+      this.deps.log?.(`The episode's subtitle fonts could not be loaded: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      fonts?.dispose();
+    }
+  }
+
+  /** Forgets the encode's own subtitles (another open, or a close). */
+  private dropEncode(): void {
+    this.encodeSubs?.fonts?.dispose();
+    this.encodeSubs = null;
   }
 
   /**
@@ -2350,6 +2541,7 @@ export class Player {
       decoder,
       pipeline,
       videoCodecPrivate: null,
+      encode: null,
       playItems: mpls.playItems,
       audioStream: audioIndex,
       audioDecoders: new Map(),
@@ -2451,6 +2643,25 @@ export class Player {
    * stay), or Off. A change the disc's UO mask refuses changes nothing.
    */
   private selectSubtitle(choice: SubtitleChoice): void {
+    const subs = this.encodeSubs;
+    if (subs) {
+      // an encode: its own tracks by stream number, or the added files, one at a time
+      if (choice.kind === 'text') {
+        if (!this.textTrack) return;
+        this.textOn = true;
+        subs.choice = 0;
+      } else if (choice.kind === 'pg') {
+        if (!(choice.stream >= 1 && choice.stream <= subs.tracks.length)) return;
+        subs.choice = choice.stream;
+        this.textOn = false;
+      } else {
+        subs.choice = 0;
+        this.textOn = false;
+      }
+      this.applyEncodeSubtitle(true);
+      this.subtitlesChanged();
+      return;
+    }
     const pg = this.pg;
     if (choice.kind === 'text') {
       if (!this.textTrack) return;
@@ -2465,6 +2676,14 @@ export class Player {
       this.notice('uo-masked', UO_MASKED_MESSAGE);
     }
     this.subtitlesChanged();
+  }
+
+  /** What an AssRenderer draws with: the browser's pieces (AssDeps), this player's clock and its memory limits. */
+  private assRendererDeps(deps: AssDeps): AssRendererDeps {
+    return {
+      measurer: deps.measurer, createCanvas: deps.createCanvas, nowMs: () => this.deps.nowMs(), Path2D: deps.Path2D,
+      colorMatrix: 'video', limits: this.memory, canvasFilter: deps.canvasFilter, ...(deps.warp ? { warp: deps.warp } : {}),
+    };
   }
 
   private assDepsOnce(): Promise<AssDeps> | null {
@@ -2497,7 +2716,7 @@ export class Player {
    * fonts the ASS files name, places the files on the current playlist and selects the text track.
    */
   private async addTextSubtitles(files: readonly FileData[], encoding: string | undefined, fontFiles: readonly FileData[]): Promise<void> {
-    if (!this.disc) return;
+    if (!this.disc && !this.encodeSubs) return;
     const generation = ++this.textLoadGeneration;
     const decoded: { name: string; text: string }[] = [];
     const needsEncoding: string[] = [];
@@ -2547,7 +2766,7 @@ export class Player {
       unreadable = (await fonts.add(fontFiles.map((f) => ({ name: f.name, bytes: new Uint8Array(f.bytes) })))).unreadable;
       Player.resolveFamilies(fonts, assTracks);
       await fonts.ready();
-      if (generation !== this.textLoadGeneration || !this.disc) {
+      if (generation !== this.textLoadGeneration || (!this.disc && !this.encodeSubs)) {
         fonts.dispose();
         return;
       }
@@ -2557,10 +2776,7 @@ export class Player {
       ? { name: p.name, format: 'srt', cues: p.cues.length, renderer: new TextSubtitleRenderer(p.cues) }
       : {
         name: p.name, format: 'ass', cues: p.track.events.length,
-        renderer: new AssRenderer(p.track, fonts!, {
-          measurer: deps!.measurer, createCanvas: deps!.createCanvas, nowMs: () => this.deps.nowMs(), Path2D: deps!.Path2D,
-          colorMatrix: 'video', limits: this.memory, canvasFilter: deps!.canvasFilter, ...(deps!.warp ? { warp: deps!.warp } : {}),
-        }),
+        renderer: new AssRenderer(p.track, fonts!, this.assRendererDeps(deps!)),
       })));
     this.dropTextTrack();
     this.textTrack = { files: setFiles, renderer: new TextSetRenderer(new TextSet(setFiles)), fonts, assTracks, placedFor: null };
@@ -2625,9 +2841,12 @@ export class Player {
 
   private emitSubtitles(): void {
     const pg = this.pg;
-    const tracks = pg?.tracks() ?? [];
+    const subs = this.encodeSubs;
+    const tracks: PgTrack[] = subs
+      ? subs.tracks.map((x, i) => ({ index: i + 1, language: x.track.language === 'und' ? '' : x.track.language, ...(x.track.name ? { name: x.track.name } : {}) }))
+      : (pg?.tracks() ?? []);
     this.sentPgTracks = JSON.stringify(tracks);
-    const { stream, display } = pg?.selection ?? { stream: 0, display: false };
+    const { stream, display } = subs ? { stream: subs.choice, display: subs.choice > 0 } : (pg?.selection ?? { stream: 0, display: false });
     this.placeTextFiles();
     const track = this.textTrack;
     const placements = track?.renderer.set.placements() ?? [];
@@ -2679,6 +2898,7 @@ export class Player {
     this.seekGeneration++;
     s.pipeline.stop();
     this.pg?.seek();
+    this.encodeSubs?.pgs?.control.seek();
     s.decoder?.close();
     for (const d of s.audioDecoders.values()) d.close();
     s.audioDecoders.clear();
@@ -2717,12 +2937,23 @@ export class Player {
       this.deps.log?.(`Playlist ${s.playlistId} has no audio stream ${index}: ignored`);
     }
     if (!track?.playable) return;
+    if (s.encode) {
+      // an encode's decoder belongs to its track: the new track's loads in startAt
+      for (const d of s.audioDecoders.values()) d.close();
+      s.audioDecoders.clear();
+      s.audioDecoderLoads.clear();
+    }
     s.audioStream = index;
     if (!this.programRegs) this.pgRegs?.psrWrite(PSR.PRIMARY_AUDIO_ID, index);
     s.audioActive = this.ring !== null;
     s.audioErrorDisabled = false;
     s.audioStalledBeat = null;
     this.emitTracks(s);
+    if (this.encodeSubs) {
+      // a forced track follows the audio's language; the re-read below brings back a PGS one at once
+      this.applyEncodeSubtitle(false);
+      this.subtitlesChanged();
+    }
     await this.startAt(this.clock.nowUs(), this.wantPlaying, 'keep');
   }
 
@@ -2749,6 +2980,7 @@ export class Player {
     s.pipeline.stop();
     this.navigator?.seekGraphics(); // queued units from the old read position are dropped; the menu stays
     this.pg?.seek(); // GC_CTRL_PG_RESET in _seek_internal: the subtitle on screen goes
+    this.encodeSubs?.pgs?.control.seek();
     if (s.videoState === 'configured') s.decoder?.reset();
     s.pendingVideo = [];
     s.audioReadUs = -Infinity;
@@ -2843,6 +3075,7 @@ export class Player {
     this.teardownSession();
     this.stopPg();
     this.pgRegs = null;
+    this.dropEncode();
     this.resetTextSubtitles();
     this.emitSubtitles();
     this.dropRemote();
@@ -2918,12 +3151,14 @@ export class Player {
 
   /** Coding type of the selected audio stream in the play item containing `timeUs`, if playable. */
   private audioCodingTypeAt(s: Session, timeUs: number): number | null {
+    if (s.encode) return s.audioStream !== null && s.tracks[s.audioStream - 1]?.playable ? CODING_OPUS : null;
     const entry = audioEntryFor(s.playItems[s.timeline.locate(timeUs).item.index], s.audioStream);
     return entry && PLAYABLE_AUDIO.has(entry.codingType) ? entry.codingType : null;
   }
 
   /** Coding type of the selected audio stream in the first item after the one containing `timeUs` that has it, if playable. */
   private nextAudioCodingType(s: Session, timeUs: number): number | null {
+    if (s.encode) return null; // one item: audioCodingTypeAt answered
     for (let i = s.timeline.locate(timeUs).item.index + 1; i < s.playItems.length; i++) {
       const entry = audioEntryFor(s.playItems[i], s.audioStream);
       if (entry) return PLAYABLE_AUDIO.has(entry.codingType) ? entry.codingType : null;
@@ -2945,20 +3180,24 @@ export class Player {
   private fillMissingAudio(s: Session): void {
     const writer = this.audioWriter;
     if (!s.audioActive || !writer) return;
+    this.pullAudio(s); // an asynchronous decoder's output first, so silence never fills where its PCM goes
     const readUs = s.decoder ? s.videoReadUs : (s.pipeline.readUs ?? -Infinity);
     writer.fillSilenceTo(readUs - AUDIO_ABSENT_AFTER_US); // drains the queued chunks first
   }
 
-  /** One load per coding type per session; a decoder that arrives after teardown is closed. */
+  /**
+   * One load per coding type per session (an encode's: its selected track's Opus decoder); a decoder that arrives after
+   * teardown, or after an encode's audio switch dropped its load, is closed.
+   */
   private loadAudioDecoder(s: Session, codingType: number): Promise<AudioDecoder> {
     let load = s.audioDecoderLoads.get(codingType);
     if (!load) {
-      const p = this.deps.createAudioDecoder(codingType);
+      const p = s.encode && s.audioStream !== null ? s.encode.createDecoder(s.audioStream) : this.deps.createAudioDecoder(codingType);
       load = p;
       s.audioDecoderLoads.set(codingType, p);
       p.then(
         (d) => {
-          if (this.session === s) s.audioDecoders.set(codingType, d);
+          if (this.session === s && s.audioDecoderLoads.get(codingType) === p) s.audioDecoders.set(codingType, d);
           else d.close();
         },
         () => {
@@ -2970,9 +3209,10 @@ export class Player {
   }
 
   private audioUnavailable(s: Session, codingType: number, err: unknown): void {
-    const codec = codingName(codingType);
+    const codec = audioCodingName(codingType);
     const reason = err instanceof Error ? err.message : String(err);
-    this.deps.emit({ type: 'unsupported', kind: 'audio', codec, message: `${codec} audio can't be played (${reason}), so video will play without sound.` });
+    const message = codingType === CODING_OPUS && err instanceof UnsupportedCodecError ? err.message : `${codec} audio can't be played (${reason}), so video will play without sound.`;
+    this.deps.emit({ type: 'unsupported', kind: 'audio', codec, message });
     this.disableAudio(s, '', false); // also stops the ring (it still holds the previous track or position) and moves the clock to wall time
   }
 
@@ -2984,9 +3224,9 @@ export class Player {
       // A later item switched codec: load its decoder (ready for its next units); give up once if that is impossible.
       const type = u.codingType;
       if (s.failedAudioTypes.has(type)) return;
-      if (!PLAYABLE_AUDIO.has(type)) {
+      if (!PLAYABLE_AUDIO.has(type) && !(s.encode && type === CODING_OPUS)) {
         s.failedAudioTypes.add(type);
-        this.audioUnavailable(s, type, new Error(`${codingName(type)} audio is not supported.`));
+        this.audioUnavailable(s, type, new Error(`${audioCodingName(type)} audio is not supported.`));
         return;
       }
       const gen = this.seekGeneration;
@@ -3003,24 +3243,39 @@ export class Player {
       result = decoder.decode(u); // out-of-range units still go in, to keep decoder state continuous
     } catch (err) {
       if (!(err instanceof UnsupportedCodecError)) throw err;
-      this.deps.emit({ type: 'unsupported', kind: 'audio', codec: codingName(err.codingType), message: err.message });
+      this.deps.emit({ type: 'unsupported', kind: 'audio', codec: audioCodingName(err.codingType), message: err.message });
       this.disableAudio(s, err.message, false);
       return;
     }
+    this.writeAudio(s, result, u.codingType, u.inRange);
+  }
+
+  /** What an asynchronous decoder (an encode's Opus) put out since it was last asked, into the ring. */
+  private pullAudio(s: Session): void {
+    for (const [codingType, decoder] of s.audioDecoders) {
+      if (!decoder.takeOutput || !s.audioActive) continue;
+      this.writeAudio(s, decoder.takeOutput(), codingType, true);
+    }
+  }
+
+  /** Decoded PCM into the ring (at 48 kHz), counting failed frames: too many in a row turn audio off. */
+  private writeAudio(s: Session, result: AudioDecodeResult, codingType: number, inRange: boolean): void {
+    const writer = this.audioWriter;
+    if (!s.audioActive || !writer) return;
     if (result.failedFrames > 0) {
       this.audioDecodeErrors += result.failedFrames;
       s.audioErrorsInRow += result.failedFrames;
       if (s.audioErrorsInRow > MAX_AUDIO_ERRORS_IN_ROW) {
         s.audioErrorDisabled = true;
-        this.disableAudio(s, `The ${codingName(u.codingType)} audio is too damaged to play, so playback continues without sound.`);
+        this.disableAudio(s, `The ${audioCodingName(codingType)} audio is too damaged to play, so playback continues without sound.`);
         return;
       }
     }
     if (result.chunks.length > 0) {
       s.audioErrorsInRow = 0;
-      this.audioCodec = codingName(u.codingType);
+      this.audioCodec = audioCodingName(codingType);
     }
-    if (!u.inRange) return;
+    if (!inRange) return;
     for (let chunk of result.chunks) {
       if (chunk.sampleRate !== OUTPUT_SAMPLE_RATE) {
         const factor = chunk.sampleRate / OUTPUT_SAMPLE_RATE;
@@ -3073,6 +3328,8 @@ export class Player {
 
   private onPipelineEnded(s: Session): void {
     s.eof = true;
+    // an asynchronous decoder gives up what it holds; pullAudio hands it on
+    for (const d of s.audioDecoders.values()) void d.flush?.();
     // without a picture the video read counts as delivered too: up to the last item's OUT time when its data was all
     // there (an IG-only menu loop plays to its end), else as far as the reader knows
     if (!s.decoder) s.readEndUs = s.pipeline.doneUs ?? -Infinity;
@@ -3220,8 +3477,8 @@ export class Player {
         menu: this.menuActive && this.navRegs ? { page: this.navRegs.psrRead(PSR.MENU_PAGE_ID), selectedButton: this.navRegs.psrRead(PSR.SELECTED_BUTTON_ID), buttonsDrawn: this.igDraws } : null,
         igErrors: this.navigator?.igErrors ?? 0,
         soundsPlayed: this.soundsPlayed,
-        pg: this.pg?.shown ?? null,
-        pgErrors: this.pg?.errors ?? 0,
+        pg: this.pg?.shown ?? this.encodeSubs?.pgs?.control.shown ?? null,
+        pgErrors: this.pg?.errors ?? this.encodeSubs?.pgs?.control.errors ?? 0,
         textCue: this.textCueVisible(),
         textFile: this.textOn ? this.textTrack?.renderer.fileAt(this.clock.nowUs())?.file ?? null : null,
         ass: this.assStats(),
@@ -3253,12 +3510,12 @@ export class Player {
   }
 
   private textCueVisible(): boolean {
-    const track = this.textTrack;
-    return this.textOn && track !== null && track.renderer.visible(this.clock.nowUs(), this.textOptions());
+    return this.activeText()?.visible(this.clock.nowUs(), this.textOptions()) ?? false;
   }
 
   private assStats(): { events: number; animated: number; renderMs: number; overBudget: number; renders: number } | null {
-    const showing = this.textOn ? this.textTrack?.renderer.fileAt(this.clock.nowUs())?.renderer : undefined;
+    const text = this.activeText();
+    const showing = this.textOn ? this.textTrack?.renderer.fileAt(this.clock.nowUs())?.renderer : text instanceof MkvAssTrack ? text.renderer : undefined;
     return showing instanceof AssRenderer ? showing.stats() : null;
   }
 

@@ -231,6 +231,15 @@ export class AssRenderer implements TextRendererLike {
     this.dirty = true;
   }
 
+  /**
+   * Events were appended to the track's event list (a Matroska ASS track's blocks as they are read). Existing events
+   * keep their indices, so their cached bitmaps stay; the next changed() reports a change.
+   */
+  eventsAdded(): void {
+    this.builder.eventsAdded();
+    this.dirty = true;
+  }
+
   /** New fonts: drop layout and bitmap caches. */
   fontsChanged(): void {
     this.deps.measurer.reset?.();

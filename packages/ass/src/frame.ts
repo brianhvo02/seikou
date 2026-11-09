@@ -78,7 +78,7 @@ class IntervalIndex {
 }
 
 export class FrameBuilder {
-  private readonly index: IntervalIndex;
+  private index: IntervalIndex;
   private readonly animated = new Map<number, boolean>();
   private readonly memory = new CollisionMemory();
   private lastSettings: RenderSettings | null = null;
@@ -95,6 +95,14 @@ export class FrameBuilder {
   /** Forget collision memory (a seek; libass forgets it when reconfigured). */
   reset(): void {
     this.memory.clear();
+  }
+
+  /**
+   * Events were appended to the track (libass's ass_process_chunk, a Matroska block at a time): the time index is built
+   * again. Appending keeps every existing event's index, so collision memory and per-event state stay.
+   */
+  eventsAdded(): void {
+    this.index = new IntervalIndex(this.track);
   }
 
   private isAnimated(i: number): boolean {

@@ -25,6 +25,13 @@ export interface AudioDecoder {
   /** After a seek: drop buffered bytes and decoder state. */
   reset(): void;
   close(): void;
+  /**
+   * An asynchronous decoder (WebCodecs): the PCM that came out since the last decode() or takeOutput(). Its decode()
+   * returns what came out so far, so the player also asks here while no unit arrives (reading paused, the end).
+   */
+  takeOutput?(): AudioDecodeResult;
+  /** An asynchronous decoder: at the end of input, makes it give up what it holds (handed on by takeOutput). */
+  flush?(): Promise<void>;
 }
 
 export type AudioDecoderFactory = (codingType: number) => Promise<AudioDecoder>;

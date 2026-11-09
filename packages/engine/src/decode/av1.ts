@@ -20,6 +20,7 @@ export interface Av1Config {
   readonly highTier: boolean;
   /** 8, 10 or 12. */
   readonly bitDepth: number;
+  /** mono_chrome: the stream has luma only (the codec string's optional colour fields would say so; it leaves them out). */
   readonly monochrome: boolean;
 }
 

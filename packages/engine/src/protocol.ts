@@ -119,10 +119,12 @@ export interface TextFileInfo {
 }
 
 export interface PgTrack {
-  /** PG stream number (PSR2), 1-based. */
+  /** PG stream number (PSR2), 1-based; for an encoded episode, the 1-based position among its subtitle tracks (ASS and PGS). */
   readonly index: number;
-  /** ISO 639-2 code from the STN, or ''. */
+  /** ISO 639-2 code from the STN (an encode's: the track's Language), or ''. */
   readonly language: string;
+  /** An encoded episode's track Name, when it has one; discs have none. */
+  readonly name?: string;
 }
 
 export type SubtitleChoice = { readonly kind: 'pg'; readonly stream: number } | { readonly kind: 'text' } | { readonly kind: 'off' };
@@ -130,13 +132,15 @@ export type SubtitleChoice = { readonly kind: 'pg'; readonly stream: number } | 
 export type ChannelsLabel = 'mono' | 'stereo' | 'multichannel' | '';
 
 export interface AudioTrack {
-  /** 1-based position in the STN audio list. */
+  /** 1-based position in the STN audio list; for an encoded episode, the 1-based position among its audio tracks. */
   readonly index: number;
   readonly codec: string;
-  /** ISO 639-2 code from the STN, or '' if absent. */
+  /** ISO 639-2 code from the STN (an encode's: the track's Language), or '' if absent. */
   readonly language: string;
   readonly channels: ChannelsLabel;
   readonly playable: boolean;
+  /** An encoded episode's track Name, when it has one; discs have none. */
+  readonly name?: string;
 }
 
 /** Remote-control keys for disc menus (BD_VK_*); topMenu is a menu call. */
@@ -245,7 +249,12 @@ export type EngineCommand =
   | { readonly type: 'play' }
   | { readonly type: 'pause' }
   | { readonly type: 'seek'; readonly timeUs: number }
+  /** An AudioTrack's index: a disc's STN stream, or an encoded episode's audio track; playback goes on at the same time. */
   | { readonly type: 'selectAudio'; readonly index: number }
+  /**
+   * One subtitle choice at a time. For an encoded episode `{ kind: 'pg', stream }` picks its subtitle track `stream` (the
+   * index of the PgTrack the subtitles event lists, ASS or PGS alike), and `text` the added files.
+   */
   | { readonly type: 'selectSubtitle'; readonly choice: SubtitleChoice }
   /** An .srt file; `encoding` (a TextDecoder label) is used when the bytes are neither BOM-marked nor UTF-8. */
   /** A subtitle set (SRT and/or ASS files, placed at episode starts) with fonts for its ASS files; replaces the old set. */
