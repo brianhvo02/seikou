@@ -21,6 +21,8 @@ const PATH = 'EPISODE.MKV';
 /** One render step: five quanta of the ring at 48 kHz. */
 const STEP_MS = 640 / 48;
 
+type AudioMode = 'now' | 'later' | 'hang' | 'error';
+
 /** A fetch serving files the way the server's encode files route does: 206 for a single range. `gate` holds a base's reads back. */
 function encodeFetch(files: ReadonlyMap<string, Uint8Array>, reads: Array<{ base: string; start: number; end: number }>, gates: ReadonlyMap<string, Promise<void>> = new Map()): typeof fetch {
   return (async (input: string | URL | Request, init?: RequestInit) => {
@@ -78,10 +80,11 @@ function recordingCodecApi(supported: boolean): { api: VideoCodecApi; chunks: Ch
 }
 
 /**
- * A WebCodecs AudioDecoder stand-in: 960 frames of 0.25 per packet, given at once or (`later`) in a later task, as
- * browsers do; `decoders` lists each decoder's packet times.
+ * A WebCodecs AudioDecoder stand-in: 960 frames of 0.25 per packet, given at once, or (`later`) in a later task as
+ * browsers do; `hang` never gives anything, and `error` fails in a later task after its first packet, as WebCodecs
+ * does (error callback, then closed). `decoders` lists each decoder's packet times.
  */
-function recordingAudioApi(later = false): { api: AudioDecoderApi; decoders: number[][] } {
+function recordingAudioApi(mode: AudioMode = 'now'): { api: AudioDecoderApi; decoders: number[][] } {
   const decoders: number[][] = [];
   const api: AudioDecoderApi = {
     create(init) {
@@ -104,8 +107,14 @@ function recordingAudioApi(later = false): { api: AudioDecoderApi; decoders: num
             copyTo: (dest) => (dest as Float32Array).fill(0.25),
             close: () => undefined,
           };
-          if (later) setTimeout(() => d.state !== 'closed' && init.output(data), 0);
-          else init.output(data);
+          if (mode === 'later') setTimeout(() => d.state !== 'closed' && init.output(data), 0);
+          else if (mode === 'error') {
+            setTimeout(() => {
+              if (d.state === 'closed') return;
+              (d as { state: CodecState }).state = 'closed';
+              init.error(new DOMException('decoding failed', 'EncodingError'));
+            }, 0);
+          } else if (mode === 'now') init.output(data);
         },
         flush: async () => undefined,
         reset: () => {
@@ -204,8 +213,8 @@ interface HarnessOptions {
   /** Further encodes at other bases, and reads held back per base. */
   readonly more?: ReadonlyMap<string, Uint8Array>;
   readonly gates?: ReadonlyMap<string, Promise<void>>;
-  /** The fake AudioDecoder gives its output in a later task. */
-  readonly audioLater?: boolean;
+  /** How the fake AudioDecoder answers (`now` by default). */
+  readonly audioMode?: AudioMode;
 }
 
 async function harness(opts: HarnessOptions = {}) {
@@ -216,7 +225,7 @@ async function harness(opts: HarnessOptions = {}) {
   const clock = { ms: 1000 };
   const reads: Array<{ base: string; start: number; end: number }> = [];
   const codec = recordingCodecApi(opts.supported ?? true);
-  const audioApi = recordingAudioApi(opts.audioLater ?? false);
+  const audioApi = recordingAudioApi(opts.audioMode ?? 'now');
   const bytes = opts.bytes ?? FIXTURE;
   const files = new Map([[BASE, bytes], ...(opts.more ?? new Map())]);
   const player = new Player({
@@ -261,6 +270,7 @@ async function harness(opts: HarnessOptions = {}) {
     reads,
     codec,
     audioApi,
+    nowMs: () => clock.ms,
     spec: specFor(BASE, bytes.length),
     specFor,
     audible,
@@ -528,7 +538,7 @@ describe('an encoded episode\'s audio', () => {
   });
 
   it('loses no PCM to silence when the decoder gives its output in a later task, at open and after a seek', async () => {
-    const h = await harness({ audio: true, audioLater: true });
+    const h = await harness({ audio: true, audioMode: 'later' });
     await h.player.handle({ type: 'openEncode', encode: h.spec });
     await untilPlaying(h);
     await playTo(h, 2_000_000);
@@ -538,6 +548,27 @@ describe('an encoded episode\'s audio', () => {
     await playTo(h, 32_000_000);
     expect(h.audible.silentQuanta).toBe(0);
     expect(h.events.filter((e) => e.type === 'notice' && e.code === 'audio-disabled')).toEqual([]);
+  });
+
+  it('a decoder error at open turns audio off, and playback starts without it', async () => {
+    const h = await harness({ audio: true, audioMode: 'error' });
+    await h.player.handle({ type: 'openEncode', encode: h.spec });
+    await untilPlaying(h);
+    expect(h.events).toContainEqual(expect.objectContaining({ type: 'unsupported', kind: 'audio', codec: 'Opus' }));
+    const t = await playTo(h, 1_000_000);
+    expect(t.clockMode).toBe('wall');
+  });
+
+  it('a decoder that never answers holds the start for about a second, then playback goes on', async () => {
+    const h = await harness({ audio: true, audioMode: 'hang' });
+    const openedMs = h.nowMs();
+    await h.player.handle({ type: 'openEncode', encode: h.spec });
+    await untilPlaying(h);
+    const startedMs = h.nowMs() - openedMs;
+    expect(startedMs).toBeGreaterThanOrEqual(1000);
+    expect(startedMs).toBeLessThan(2500);
+    const at = await playTo(h, 1_500_000);
+    expect(at.clockMode).toBe('audio'); // on silence filled in once nothing is owed
   });
 
   it('switching audio track continues at the same time', async () => {

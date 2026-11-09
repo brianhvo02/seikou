@@ -149,6 +149,8 @@ describe('Opus through WebCodecs', () => {
     decoder.decode({ data: blocks[0]!.data, ptsUs: 0 });
     fake.fail();
     expect(() => decoder.decode({ data: blocks[1]!.data, ptsUs: 20_000 })).toThrow(UnsupportedCodecError);
+    expect(decoder.pendingFromUs()).toBeNull(); // a failed decoder owes nothing
+    expect(() => decoder.takeOutput()).toThrow(UnsupportedCodecError);
     expect(() => decoder.reset()).not.toThrow();
     expect(decoder.decode({ data: blocks[2]!.data, ptsUs: 40_000 }).chunks.map((c) => c.ptsUs)).toEqual([33_500]);
   });
@@ -159,6 +161,19 @@ describe('Opus through WebCodecs', () => {
     const [chunk] = decoder.decode({ data: blocks[1]!.data, ptsUs: 20_000, discardPaddingUs: 10_000 }).chunks;
     expect(chunk!.frames).toBe(960 - 480);
     expect(chunk!.stereo.length).toBe((960 - 480) * 2);
+  });
+
+  it('owes nothing for a packet submitted over a second ago', async () => {
+    const { track, blocks } = await fixtureOpus(2);
+    const clock = { ms: 0 };
+    const decoder = await createOpusDecoder(fakeAudioApi({ deferred: true }).api, opusTrackConfig(track), () => clock.ms);
+    decoder.decode({ data: blocks[0]!.data, ptsUs: 0 });
+    clock.ms = 500;
+    decoder.decode({ data: blocks[1]!.data, ptsUs: 20_000 });
+    clock.ms = 1000;
+    expect(decoder.pendingFromUs()).toBe(13_500); // the first is past its second
+    clock.ms = 1500;
+    expect(decoder.pendingFromUs()).toBeNull();
   });
 
   it('says from when PCM is still owed', async () => {

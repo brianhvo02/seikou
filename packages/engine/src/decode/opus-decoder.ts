@@ -123,9 +123,9 @@ function decoderConfig(config: OpusTrackConfig): AudioDecoderConfig {
 
 /**
  * Opens a WebCodecs decoder for an Opus track. Rejects with UnsupportedCodecError (CODING_OPUS) when the browser has no
- * WebCodecs audio (`api` null) or does not support the configuration.
+ * WebCodecs audio (`api` null) or does not support the configuration. `nowMs` is the wall clock owed packets are timed on.
  */
-export async function createOpusDecoder(api: AudioDecoderApi | null, config: OpusTrackConfig): Promise<OpusDecoder> {
+export async function createOpusDecoder(api: AudioDecoderApi | null, config: OpusTrackConfig, nowMs: () => number = () => performance.now()): Promise<OpusDecoder> {
   if (!api) throw new UnsupportedCodecError(CODING_OPUS, OPUS_UNSUPPORTED_MESSAGE);
   const cfg = decoderConfig(config);
   let supported = false;
@@ -135,8 +135,11 @@ export async function createOpusDecoder(api: AudioDecoderApi | null, config: Opu
     supported = false;
   }
   if (!supported) throw new UnsupportedCodecError(CODING_OPUS, OPUS_UNSUPPORTED_MESSAGE);
-  return new OpusDecoder(api, cfg, config.codecDelayUs);
+  return new OpusDecoder(api, cfg, config.codecDelayUs, nowMs);
 }
+
+/** A packet whose PCM has not come out this long after it was submitted is no longer waited for (a hung decoder). */
+export const OPUS_OWED_TIMEOUT_MS = 1000;
 
 // Vorbis channel order (RFC 7845 §5.1.1.2), per channel count: the weight of each channel in the left and right mix.
 const S = Math.SQRT1_2;
@@ -191,13 +194,14 @@ export class OpusDecoder implements AudioDecoder {
   private decoder: AudioDecoderLike;
   private queue: PcmChunk[] = [];
   private failure: string | null = null;
-  /** Packets submitted whose output has not come yet, in order: their timestamps and DiscardPadding (48 kHz samples). */
-  private pending: { readonly timestamp: number; readonly discardFrames: number }[] = [];
+  /** Packets submitted whose output has not come yet, in order: their timestamps, DiscardPadding (48 kHz samples) and when they went in. */
+  private pending: { readonly timestamp: number; readonly discardFrames: number; readonly submittedMs: number }[] = [];
 
   constructor(
     private readonly api: AudioDecoderApi,
     private readonly config: AudioDecoderConfig,
     private readonly codecDelayUs: number,
+    private readonly nowMs: () => number = () => performance.now(),
   ) {
     this.decoder = this.open();
   }
@@ -221,7 +225,9 @@ export class OpusDecoder implements AudioDecoder {
   }
 
   private accept(data: AudioDataLike): void {
-    // output comes in submission order: this one's packet and any before it (a packet that gave nothing) are done
+    // output comes in submission order: this one's packet and any before it (a packet that gave nothing) are done. This
+    // relies on an AudioData's timestamp being its chunk's, as the WebCodecs spec has it for audio decoders; the
+    // DiscardPadding is matched by that timestamp too.
     let discardFrames = 0;
     while (this.pending.length > 0 && this.pending[0]!.timestamp <= data.timestamp) {
       const done = this.pending.shift()!;
@@ -251,11 +257,15 @@ export class OpusDecoder implements AudioDecoder {
     this.queue.push({ ptsUs, sampleRate: data.sampleRate, frames: count, stereo: stereo.slice() });
   }
 
-  decode(unit: AudioUnit): AudioDecodeResult {
+  private throwFailure(): void {
     if (this.failure !== null) throw new UnsupportedCodecError(CODING_OPUS, `The Opus audio could not be decoded (${this.failure}), so the episode will play without sound.`);
+  }
+
+  decode(unit: AudioUnit): AudioDecodeResult {
+    this.throwFailure();
     if (this.decoder.state === 'configured') {
       const discardFrames = unit.discardPaddingUs ? Math.round((unit.discardPaddingUs * OUTPUT_RATE) / 1e6) : 0;
-      this.pending.push({ timestamp: unit.ptsUs, discardFrames });
+      this.pending.push({ timestamp: unit.ptsUs, discardFrames, submittedMs: this.nowMs() });
       this.decoder.decode(this.api.makeChunk({ type: 'key', timestamp: unit.ptsUs, data: unit.data }));
     }
     return this.takeOutput();
@@ -263,15 +273,23 @@ export class OpusDecoder implements AudioDecoder {
 
   /**
    * Episode time of the oldest packet submitted whose PCM has not come out yet, or null when none is waiting: the
-   * player fills no silence from there on, or the late PCM would land on it and be dropped.
+   * player fills no silence from there on, or the late PCM would land on it and be dropped. Nothing is owed by a decoder
+   * that failed or closed, nor by a packet submitted over OPUS_OWED_TIMEOUT_MS ago (a hung decoder): its PCM, if it
+   * ever comes, lands only where the ring has already passed.
    */
   pendingFromUs(): number | null {
-    const first = this.pending[0];
+    if (this.failure !== null || this.decoder.state === 'closed') return null;
+    const cutoff = this.nowMs() - OPUS_OWED_TIMEOUT_MS;
+    const first = this.pending.find((p) => p.submittedMs > cutoff);
     return first ? first.timestamp - this.codecDelayUs : null;
   }
 
-  /** The PCM that came out since the last decode() or takeOutput(). */
+  /**
+   * The PCM that came out since the last decode() or takeOutput(). Throws the decoder's failure (UnsupportedCodecError),
+   * so the player turns audio off without waiting for another unit.
+   */
   takeOutput(): AudioDecodeResult {
+    this.throwFailure();
     if (this.queue.length === 0) return { chunks: [], failedFrames: 0 };
     const chunks = this.queue;
     this.queue = [];

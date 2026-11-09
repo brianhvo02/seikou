@@ -1103,7 +1103,7 @@ export class Player {
       videoCodecPrivate: video.codecPrivate ?? null,
       encode: {
         entries: audio.entries,
-        createDecoder: (stream) => createOpusDecoder(api, opusTrackConfig(audio.entries[stream - 1]!)),
+        createDecoder: (stream) => createOpusDecoder(api, opusTrackConfig(audio.entries[stream - 1]!), () => this.deps.nowMs()),
       },
       playItems: [item],
       audioStream,
@@ -3250,19 +3250,34 @@ export class Player {
     try {
       result = decoder.decode(u); // out-of-range units still go in, to keep decoder state continuous
     } catch (err) {
-      if (!(err instanceof UnsupportedCodecError)) throw err;
-      this.deps.emit({ type: 'unsupported', kind: 'audio', codec: audioCodingName(err.codingType), message: err.message });
-      this.disableAudio(s, err.message, false);
+      this.audioDecoderFailed(s, err);
       return;
     }
     this.writeAudio(s, result, u.codingType, u.inRange);
   }
 
-  /** What an asynchronous decoder (an encode's Opus) put out since it was last asked, into the ring. */
+  /** A decoder's stream-level failure (UnsupportedCodecError): a notice, and the rest plays without sound. */
+  private audioDecoderFailed(s: Session, err: unknown): void {
+    if (!(err instanceof UnsupportedCodecError)) throw err;
+    this.deps.emit({ type: 'unsupported', kind: 'audio', codec: audioCodingName(err.codingType), message: err.message });
+    this.disableAudio(s, err.message, false);
+  }
+
+  /**
+   * What an asynchronous decoder (an encode's Opus) put out since it was last asked, into the ring; a failure it reports
+   * turns audio off at once (no further unit may come while the reader waits for audio).
+   */
   private pullAudio(s: Session): void {
     for (const [codingType, decoder] of s.audioDecoders) {
       if (!decoder.takeOutput || !s.audioActive) continue;
-      this.writeAudio(s, decoder.takeOutput(), codingType, true);
+      let result: AudioDecodeResult;
+      try {
+        result = decoder.takeOutput();
+      } catch (err) {
+        this.audioDecoderFailed(s, err);
+        return;
+      }
+      this.writeAudio(s, result, codingType, true);
     }
   }
 
@@ -3385,8 +3400,9 @@ export class Player {
       s.audioRecoveryQueued = true;
       void this.handle({ type: 'seek', timeUs: this.clock.nowUs() });
     }
+    if (s.audioActive && this.ring) this.fillMissingAudio(s); // the reader may be waiting or done: the ring is fed here too
+    // read after the feed: an asynchronous decoder's failure found there has just turned audio off (wall clock)
     const ring = s.audioActive ? this.ring : null;
-    if (ring) this.fillMissingAudio(s); // the reader may be waiting or done: the ring is fed here too
     if (this.state === 'buffering' && this.wantPlaying) {
       // a blocked reader counts as ready only once an asynchronous decoder (an encode's Opus) owes no PCM: its output
       // comes in a later task, and starting before it would play silence where it belongs
