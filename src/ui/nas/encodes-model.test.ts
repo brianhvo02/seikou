@@ -20,7 +20,7 @@ describe('the encodes empty states', () => {
   it('asks an owner without ENCODES_DIR to set ENCODES_MOUNT, with the help link', () => {
     const e = encodesEmptyState({ configured: false, count: 0 }, true, 0);
     expect(e).toMatchObject({ kind: 'unconfigured', help: '/help/nas#encodes' });
-    expect(e?.text).toContain('Set ENCODES_MOUNT on the NAS to hold encodes');
+    expect(e?.text).toBe('Set ENCODES_MOUNT on the NAS to hold encodes');
   });
 
   it('tells an owner with the folder and nothing in it to encode an episode', () => {
@@ -58,6 +58,10 @@ describe('indexing', () => {
     expect(indexingRetryMs(new NasHttpError(503, 'busy', { retryAfter: 3 }))).toBeNull();
     expect(indexingRetryMs(new NasHttpError(404, null))).toBeNull();
     expect(indexingRetryMs(new Error('x'))).toBeNull();
+  });
+
+  it('waits at most 60 s, whatever Retry-After says', () => {
+    expect(indexingRetryMs(new NasHttpError(503, 'indexing', { retryAfter: 3600 }))).toBe(60_000);
   });
 });
 

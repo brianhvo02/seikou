@@ -32,7 +32,7 @@ export type EncodesEmpty =
 export function encodesEmptyState(status: EncodesStatus | null, owner: boolean, showCount: number): EncodesEmpty | null {
   if (showCount > 0) return null;
   if (!owner) return { kind: 'guest', title: 'The library is currently empty.', text: 'Encoded episodes appear here once the owner adds them.' };
-  if (status?.configured !== true) return { kind: 'unconfigured', title: NO_ENCODES_YET, text: 'Set ENCODES_MOUNT on the NAS to hold encodes.', help: ENCODES_HELP };
+  if (status?.configured !== true) return { kind: 'unconfigured', title: NO_ENCODES_YET, text: 'Set ENCODES_MOUNT on the NAS to hold encodes', help: ENCODES_HELP };
   return { kind: 'owner-none', title: NO_ENCODES_YET, text: 'Encode an episode in Seikou encoder to add it here.' };
 }
 
@@ -46,10 +46,13 @@ export function ownerNotices(status: EncodesStatus | null, owner: boolean): stri
   return out;
 }
 
+/** A Retry-After longer than this is waited out for this long only. */
+const MAX_RETRY_S = 60;
+
 /** The wait before asking again when the NAS is still indexing (503 `indexing`, its `Retry-After`); null for any other error. */
 export function indexingRetryMs(err: unknown): number | null {
   if (!(err instanceof NasHttpError) || err.status !== 503 || err.code !== 'indexing') return null;
-  return (err.detail.retryAfter ?? 5) * 1000;
+  return Math.min(err.detail.retryAfter ?? 5, MAX_RETRY_S) * 1000;
 }
 
 export function episodeCountLabel(n: number): string {

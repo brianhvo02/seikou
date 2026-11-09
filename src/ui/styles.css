@@ -160,6 +160,7 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .browsing .app-bar:has(.library-tabs) { grid-template-columns: auto auto 1fr auto; grid-template-areas: 'name tabs drop help'; }
 /* Discs and Encodes: at the bar's left on a wide screen, their underline standing on the bar's own rule */
 .library-tabs { grid-area: tabs; align-self: end; display: flex; gap: 4px; margin: 0 0 calc(-1px - var(--bar-pad-bottom)) 12px; }
+.library-tabs.pending { visibility: hidden; }
 .library-tab { position: relative; padding: 10px 14px 13px; background: none; border: none; border-radius: 0; color: var(--mist); font-size: 1.02rem; font-weight: 550; }
 .library-tab:hover:not(:disabled) { background: none; color: var(--ice); }
 .library-tab[aria-current='page'] { color: var(--ice); }

@@ -7,7 +7,8 @@ import { PairScreen } from './nas/PairScreen';
 import type { PairLink } from './nas/pair-link';
 import { TitleLibrary } from './nas/TitleLibrary';
 import { EncodesLibrary } from './nas/EncodesLibrary';
-import { LibraryTabs } from './nas/LibraryTabs';
+import { LibraryTabs, NARROW_BAR } from './nas/LibraryTabs';
+import { useMediaQuery } from './media-query';
 import { NAS_MESSAGES, type NasClient } from './nas/nas-client';
 import { AppLink } from './help/HelpLink';
 import { useNasRoute, type NasHistory } from './nas/nas-history';
@@ -215,7 +216,8 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
    */
   const [access, setAccess] = useState<{ titles: boolean; owner: boolean } | 'checking' | null>(null);
   const browsing = route !== null;
-  const needsAccess = shown !== null && shown.kind !== 'folders' && shown.kind !== 'play';
+  // the folders ask too, though they show to everyone: whether the library tabs belong in the bar
+  const needsAccess = shown !== null && shown.kind !== 'play';
   const pairingKnown = pairing !== undefined && pairing !== null;
   useEffect(() => {
     if (!browsing) setAccess(null);
@@ -460,6 +462,11 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
   /** Which NAS panel shows: the not-found screen, the pair screen, the paired line, or none while pairings load. */
   /** Discs and Encodes, on every NAS screen of a paired device the title library is open to (a link's pre-flight has none). */
   const showTabs = paired && browsing && playLink === null && !(typeof access === 'object' && access !== null && !access.titles);
+  /** Until `me` says the title library is open, the tabs' room is kept but they don't show (a guest behind the gate never sees them). */
+  const tabsReady = typeof access === 'object' && access !== null && access.titles;
+  // One element, where its layout reads it: at the bar's left on a wide screen, after the tools on a phone (its own row).
+  const narrowBar = useMediaQuery(NARROW_BAR);
+  const tabs = showTabs && <LibraryTabs history={history} route={shown} pending={!tabsReady} />;
   const nasPanel = pairing === undefined ? null : pairing === null && browsing && !pairRequested ? 'not-found' : pairing === null || pairRequested ? 'pair' : 'paired';
   const pairedLine = nasPanel === 'paired' && pairing && (
     <p className="status nas-paired" data-testid="nas-paired">
@@ -491,7 +498,7 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
           <img className="app-mark" src="/favicon.svg" alt="" width={32} height={32} />
           Seikou
         </h1>
-        {showTabs && <LibraryTabs history={history} route={shown} />}
+        {!narrowBar && tabs}
         <div
           className={`drop-zone${dragging ? ' dragging' : ''}`}
           onDragOver={(e) => {
@@ -524,6 +531,7 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
             Help
           </AppLink>
         </div>
+        {narrowBar && tabs}
       </header>
       {!capabilities.core.ok && (
         <div className="error-banner" role="alert">

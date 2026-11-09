@@ -268,6 +268,9 @@ async function main(): Promise<void> {
   mkdirSync(NAS_E2E_DIR, { recursive: true });
   cpSync(join(REPO, 'fixtures/synthetic'), NAS_ROOT, { recursive: true, preserveTimestamps: true });
   cpSync(join(REPO, 'fixtures/encodes'), join(NAS_E2E_DIR, 'encodes'), { recursive: true, filter: (src) => !src.endsWith('README.md') });
+  // The encodes index leaves a file written in the last 10 s for its next scan (a copy in progress), 10 minutes on:
+  // in the past, the copies are listed by the scan at start.
+  backdateTree(join(NAS_E2E_DIR, 'encodes'), new Date('2024-01-01T00:00:00Z'));
   for (const project of PROJECTS) for (const name of [project, `${project}-open`]) restoreChangedDisc(name);
   for (const [folder, disc] of Object.entries(TITLE_DISCS)) cpSync(join(REPO, 'fixtures/synthetic', disc), join(NAS_ROOT, folder), { recursive: true, preserveTimestamps: true });
   const cover = join(NAS_ROOT, MUSIC_RELEASE, 'cover.png');

@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { useEffect, useState, type ReactElement } from 'react';
+import { useEffect, useRef, useState, type ReactElement } from 'react';
 import type { EncodeShow } from '@seikou/nas/nas-api';
 import { durationLabel, episodeMark, INDEXING_COPY, indexingRetryMs, showContaining, showGroups, type EncodeProgress } from './encodes-model';
 import type { NasClient } from './nas-client';
 import type { NasHistory } from './nas-history';
 import type { NasRoute } from './nas-route';
+import { NasNotFound } from './NasNotFound';
 import { Poster } from './Poster';
 import { EpisodeRow } from './SeasonScreen';
 import { formatTime } from '../format';
@@ -24,13 +25,15 @@ const message = (err: unknown): string => (err instanceof Error ? err.message : 
 
 /**
  * A show whose id answered 404: its AniList chain loaded and it is rooted at another entry now (docs/known-issues.md).
- * The show list is read again and the show whose seasons hold the old id is the one; null for none.
+ * The show list is read again and the show whose seasons hold the old id is the one; null for none. It stops asking
+ * once `live()` is false (the screen left).
  */
-async function findMoved(nas: Pick<NasClient, 'encodeShow' | 'encodeShows'>, showId: string): Promise<string | null> {
+async function findMoved(nas: Pick<NasClient, 'encodeShow' | 'encodeShows'>, showId: string, live: () => boolean): Promise<string | null> {
   const anilistId = /^\d+$/.test(showId) ? Number(showId) : undefined;
   if (anilistId === undefined) return null;
   const { shows } = await nas.encodeShows();
   for (const s of shows.slice(0, RESOLVE_LIMIT)) {
+    if (!live()) return null;
     const detail = await nas.encodeShow(s.id);
     if (detail && showContaining([detail], { anilistId }) !== null) return detail.id;
   }
@@ -43,6 +46,9 @@ export function EncodeShowScreen({ nas, history, showId }: EncodeShowScreenProps
   const [indexing, setIndexing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<EncodeProgress | null>(null);
+  /** The show answered 404 again after it was looked up once on this visit: the not-found screen, not another lookup. */
+  const [missing, setMissing] = useState(false);
+  const resolved = useRef(false);
 
   useEffect(() => {
     let live = true;
@@ -50,6 +56,7 @@ export function EncodeShowScreen({ nas, history, showId }: EncodeShowScreenProps
     setShow(null);
     setError(null);
     setProgress(null);
+    setMissing(false);
     const load = (): void => {
       nas.encodeShow(showId).then(
         async (found) => {
@@ -59,7 +66,12 @@ export function EncodeShowScreen({ nas, history, showId }: EncodeShowScreenProps
             setShow(found);
             return;
           }
-          const moved = await findMoved(nas, showId).catch(() => null);
+          if (resolved.current) {
+            setMissing(true);
+            return;
+          }
+          resolved.current = true;
+          const moved = await findMoved(nas, showId, () => live).catch(() => null);
           if (live) history.replace(moved !== null && moved !== showId ? { kind: 'encodeShow', showId: moved } : ENCODES);
         },
         (err: unknown) => {
@@ -95,6 +107,8 @@ export function EncodeShowScreen({ nas, history, showId }: EncodeShowScreenProps
   const back = (): void => history.back(ENCODES);
   const play = (encodeId: string, resumeUs: number | null): void =>
     history.push(resumeUs === null ? { kind: 'encodePlay', encodeId, timeS: null, resume: false } : { kind: 'encodePlay', encodeId, timeS: Math.floor(resumeUs / 1e6), resume: true });
+
+  if (missing) return <NasNotFound reason="missing" onLeave={() => history.replace(ENCODES)} />;
 
   if (!show) {
     return (

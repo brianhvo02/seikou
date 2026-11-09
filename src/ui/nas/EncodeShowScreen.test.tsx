@@ -44,7 +44,7 @@ describe('the encodes show screen', () => {
     render(<EncodeShowScreen nas={nas} history={history} showId="100" />);
     const groups = await screen.findAllByTestId('encode-season');
     expect(groups.map((g) => within(g).getByRole('heading').textContent)).toEqual(['Season 1', 'Season 2', 'Starfall Wanderer: Ember Road']);
-    expect(nas.titleProgress).toHaveBeenCalledWith('100', { library: 'encodes' });
+    await waitFor(() => expect(nas.titleProgress).toHaveBeenCalledWith('100', { library: 'encodes' }));
 
     const rows = within(groups[0]!).getAllByTestId('episode-row');
     expect(rows.map((r) => r.getAttribute('data-encode-id'))).toEqual(['100-1', '100-2']);
@@ -81,5 +81,38 @@ describe('the encodes show screen', () => {
     const history = fakeHistory();
     render(<EncodeShowScreen nas={nas} history={history} showId="100" />);
     await waitFor(() => expect(history.replace).toHaveBeenCalledWith({ kind: 'encodes', q: '' }));
+  });
+
+  it('shows not-found when the show it was sent to answers 404 too, without looking again', async () => {
+    const nas = fakeNas({
+      encodeShow: vi.fn(async () => null),
+      encodeShows: vi.fn(async () => ({ shows: [{ id: '90', name: 'Starfall Wanderer', poster: null, episodeCount: 4 }] })),
+    });
+    const history = fakeHistory();
+    const { rerender } = render(<EncodeShowScreen nas={nas} history={history} showId="100" />);
+    await waitFor(() => expect(history.replace).toHaveBeenCalledTimes(1));
+    // as if the lookup had found show 90, which then went too
+    rerender(<EncodeShowScreen nas={nas} history={history} showId="90" />);
+    expect(await screen.findByTestId('nas-not-found')).toBeTruthy();
+    expect(nas.encodeShows).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops looking once the screen is left', async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => (release = r));
+    const encodeShow = vi.fn(async (id: string) => {
+      if (id !== '100') await gate;
+      return null;
+    });
+    const shows = Array.from({ length: 5 }, (_, i) => ({ id: String(200 + i), name: `Show ${i}`, poster: null, episodeCount: 1 }));
+    const nas = fakeNas({ encodeShow, encodeShows: vi.fn(async () => ({ shows })) });
+    const history = fakeHistory();
+    const { unmount } = render(<EncodeShowScreen nas={nas} history={history} showId="100" />);
+    await waitFor(() => expect(encodeShow).toHaveBeenCalledWith('200'));
+    unmount();
+    release();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(encodeShow).toHaveBeenCalledTimes(2);
+    expect(history.replace).not.toHaveBeenCalled();
   });
 });

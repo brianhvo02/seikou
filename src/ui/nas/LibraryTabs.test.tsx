@@ -28,4 +28,13 @@ describe('the library tabs', () => {
     fireEvent.click(discs!);
     expect(history.push).toHaveBeenCalledWith({ kind: 'library', shelf: null, q: '' });
   });
+
+  it('keeps its room but shows nothing while pending', () => {
+    const history = { push: vi.fn() } as unknown as NasHistory;
+    render(<LibraryTabs history={history} route={null} pending />);
+    const nav = screen.getByTestId('library-tabs');
+    expect(nav.className).toContain('pending');
+    expect(nav.getAttribute('aria-hidden')).toBe('true');
+    expect(nav.hasAttribute('inert')).toBe(true);
+  });
 });
