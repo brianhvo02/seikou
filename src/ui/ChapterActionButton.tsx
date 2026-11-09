@@ -7,7 +7,8 @@ interface ChapterActionButtonProps {
   readonly action: ChapterAction;
   /** The person's Next episode countdown (off until the NAS has said). */
   readonly countdown: boolean;
-  readonly paused: boolean;
+  /** The countdown holds (countdownHeld: playback paused, buffering or loading). */
+  readonly held: boolean;
   onSkip(toUs: number): void;
   onNext(): void;
 }
@@ -16,9 +17,9 @@ interface ChapterActionButtonProps {
  * Skip opening, Skip ending or Next episode, at the bottom right of the picture above the control bar, clear of the
  * subtitles, which sit at the bottom centre.
  */
-export function ChapterActionButton({ action, countdown, paused, onSkip, onNext }: ChapterActionButtonProps): ReactElement {
+export function ChapterActionButton({ action, countdown, held, onSkip, onNext }: ChapterActionButtonProps): ReactElement {
   if (action.kind === 'next-episode') {
-    return <NextEpisodeButton countdown={countdown} seconds={10} paused={paused} onNext={onNext} onCancel={() => undefined} />;
+    return <NextEpisodeButton countdown={countdown} seconds={10} held={held} onNext={onNext} onCancel={() => undefined} />;
   }
   return (
     <div className="chapter-action">

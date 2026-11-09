@@ -8,8 +8,8 @@ interface NextEpisodeButtonProps {
   /** The person's "Next episode countdown" setting: the button drains and then starts the next episode by itself. */
   readonly countdown: boolean;
   readonly seconds: 10;
-  /** Playback is paused: so is the countdown. */
-  readonly paused?: boolean;
+  /** The countdown holds while this is true: playback paused, buffering or loading (countdownHeld). */
+  readonly held?: boolean;
   onNext(): void;
   onCancel(): void;
   /** Seconds as words instead of a draining fill; read from `prefers-reduced-motion` when absent. */
@@ -26,11 +26,11 @@ function prefersReducedMotion(): boolean {
 }
 
 /**
- * "Next episode" at the end of an encoded episode. With the countdown on, its fill drains over `seconds` (paused with
- * playback) and `onNext` runs when it is empty; Cancel beside it stops the countdown and leaves the button. With reduced
+ * "Next episode" at the end of an encoded episode. With the countdown on, its fill drains over `seconds` (holding
+ * while `held`) and `onNext` runs when it is empty; Cancel beside it stops the countdown and leaves the button. With reduced
  * motion the seconds left are counted in the label instead. Without the countdown it is a plain button.
  */
-export function NextEpisodeButton({ countdown, seconds, paused = false, onNext, onCancel, reducedMotion }: NextEpisodeButtonProps): ReactElement {
+export function NextEpisodeButton({ countdown, seconds, held = false, onNext, onCancel, reducedMotion }: NextEpisodeButtonProps): ReactElement {
   const totalMs = seconds * 1000;
   const [leftMs, setLeftMs] = useState(totalMs);
   const [cancelled, setCancelled] = useState(false);
@@ -41,10 +41,10 @@ export function NextEpisodeButton({ countdown, seconds, paused = false, onNext, 
   const running = countdown && !cancelled && !done;
 
   useEffect(() => {
-    if (!running || paused) return;
+    if (!running || held) return;
     const id = window.setInterval(() => setLeftMs((ms) => Math.max(0, ms - TICK_MS)), TICK_MS);
     return () => window.clearInterval(id);
-  }, [running, paused]);
+  }, [running, held]);
 
   useEffect(() => {
     if (!running || leftMs > 0) return;

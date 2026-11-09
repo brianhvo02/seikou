@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
+import type { PlaybackState } from '@seikou/engine/protocol';
 import { chapterAction, chapterLabel, countdownHeld } from './chapter-actions';
 
 const S = 1_000_000;
@@ -84,8 +85,10 @@ describe('chapterAction', () => {
 
 describe('countdownHeld', () => {
   it('holds while paused, buffering or loading, and runs while playing or ended', () => {
-    expect(['paused', 'buffering', 'loading'].map(countdownHeld)).toEqual([true, true, true]);
-    expect(['playing', 'ended'].map(countdownHeld)).toEqual([false, false]);
+    const held: PlaybackState[] = ['paused', 'buffering', 'loading'];
+    const running: PlaybackState[] = ['playing', 'ended'];
+    expect(held.map((s) => countdownHeld(s))).toEqual([true, true, true]);
+    expect(running.map((s) => countdownHeld(s))).toEqual([false, false]);
   });
 });
 

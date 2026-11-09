@@ -213,6 +213,30 @@ describe('encodes routes', () => {
       expect((await library('shows', null)).status).toBe(401);
     });
 
+    it("lists every season's AniList id of a show, and a guest behind a closed gate gets 404 for the list", async () => {
+      const second = tv(990002, 'Lantern Road Again');
+      known = new Map([
+        [990001, { ...tv(990001, 'Lantern Road'), relations: [{ type: 'SEQUEL', id: 'anilist:990002', format: 'TV', startDate: null }] }],
+        [990002, { ...second, year: 2021, relations: [{ type: 'PREQUEL', id: 'anilist:990001', format: 'TV', startDate: null }] }],
+      ]);
+      // a second season: episode 1 again, its one ANILIST_ID tag value rewritten in place (same length)
+      const bytes = readFileSync(join(FIXTURE, '1.mkv'));
+      const at = bytes.indexOf('990001');
+      expect(bytes.indexOf('990001', at + 1)).toBe(-1);
+      bytes.write('990002', at);
+      mkdirSync(join(tmp, 'encodes/990002'), { recursive: true });
+      writeFileSync(join(tmp, 'encodes/990002/1.mkv'), bytes);
+      const index = await start(true);
+      await index!.ready(5000);
+      const guest = await token('Guest', false);
+      const list = (await (await library('shows', guest)).json()) as { shows: { id: string; anilistIds: number[]; episodeCount: number }[] };
+      expect(list.shows).toEqual([expect.objectContaining({ id: '990001', episodeCount: 2, anilistIds: [990001, 990002] })]);
+      gate = 'owners';
+      expect((await library('shows', guest)).status).toBe(404);
+      const owner = await token('Owner', true);
+      expect((((await (await library('shows', owner)).json()) as { shows: { anilistIds: number[] }[] }).shows[0]!.anilistIds)).toEqual([990001, 990002]);
+    });
+
     it('a show whose metadata is not loaded yet is named by its AniList id', async () => {
       const index = await start(true);
       await index!.ready(5000);

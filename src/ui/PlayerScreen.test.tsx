@@ -135,6 +135,7 @@ describe('the player for an encoded episode', () => {
     await waitFor(() => expect(t.controller.openEncode).toHaveBeenCalled());
     expect(t.places.finishNow).toHaveBeenCalledTimes(1);
     expect(vi.mocked(t.places.end).mock.invocationCallOrder[0]!).toBeGreaterThan(vi.mocked(t.places.finishNow).mock.invocationCallOrder[0]!);
+    expect(t.places.end).toHaveBeenCalledWith({ keepNotes: true });
     expect(vi.mocked(t.controller.openEncode).mock.calls[0]![0]).toMatchObject({ encodeId: '100-2' });
     expect(t.places.begin).toHaveBeenCalledWith(expect.objectContaining({ discKey: 'e.100.2', encode: true }), { settings, byLanguage: true, names: { audio: 'Stereo', subtitle: 'Full' } });
     expect(t.history.replace).toHaveBeenCalledWith({ kind: 'encodePlay', encodeId: '100-2', timeS: null, resume: false });
@@ -177,7 +178,7 @@ describe('the player for an encoded episode', () => {
     expect(t.controller.openEncode).not.toHaveBeenCalled();
     expect(t.history.replace).toHaveBeenLastCalledWith({ kind: 'encodePlay', encodeId: '100-1', timeS: 1310, resume: false });
     expect(t.playingRoute.encodeId).toBe('100-1');
-    await waitFor(() => expect(t.places.begin).toHaveBeenCalledWith(expect.objectContaining({ discKey: 'e.100.1', discId: '100-1', encode: true, finished: true })));
+    await waitFor(() => expect(t.places.begin).toHaveBeenCalledWith(expect.objectContaining({ discKey: 'e.100.1', discId: '100-1', encode: true, finished: true }), undefined, { keepNotes: true }));
     expect(t.controller.closeDisc).not.toHaveBeenCalled();
   });
 

@@ -25,13 +25,17 @@ const message = (err: unknown): string => (err instanceof Error ? err.message : 
 
 /**
  * A show whose id answered 404: its AniList chain loaded and it is rooted at another entry now (docs/known-issues.md).
- * The show list is read again and the show whose seasons hold the old id is the one; null for none. It stops asking
- * once `live()` is false (the screen left).
+ * The show list is read again and the show whose seasons hold the old id is the one, from the list's `anilistIds` (or,
+ * from a NAS without them, by fetching its shows in turn); null for none. It stops asking once `live()` is false (the
+ * screen left).
  */
 async function findMoved(nas: Pick<NasClient, 'encodeShow' | 'encodeShows'>, showId: string, live: () => boolean): Promise<string | null> {
   const anilistId = /^\d+$/.test(showId) ? Number(showId) : undefined;
   if (anilistId === undefined) return null;
   const { shows } = await nas.encodeShows();
+  // the list names each show's AniList entries; a NAS from before them leaves them out, and its shows are walked
+  const ids = (s: (typeof shows)[number]): readonly number[] | undefined => s.anilistIds as readonly number[] | undefined;
+  if (shows.some((s) => ids(s) !== undefined)) return shows.find((s) => ids(s)?.includes(anilistId))?.id ?? null;
   for (const s of shows.slice(0, RESOLVE_LIMIT)) {
     if (!live()) return null;
     const detail = await nas.encodeShow(s.id);

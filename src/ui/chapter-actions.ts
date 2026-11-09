@@ -4,6 +4,7 @@
  * pure. Chapter names come from the MKV (the encoder writes Opening, Ending and Preview); they are matched without
  * regard to case or surrounding space.
  */
+import type { PlaybackState } from '@seikou/engine/protocol';
 import { formatTime } from './format';
 
 /** The action shown at the bottom right of the picture, or null for none. */
@@ -45,7 +46,7 @@ export function chapterAction(
 }
 
 /** Whether the Next episode countdown holds: while playback is paused, buffering or loading. */
-export function countdownHeld(engineState: string): boolean {
+export function countdownHeld(engineState: PlaybackState): boolean {
   return engineState === 'paused' || engineState === 'buffering' || engineState === 'loading';
 }
 

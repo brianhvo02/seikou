@@ -562,6 +562,31 @@ describe('PlaceSaver', () => {
     ]);
   });
 
+  it('keeps the text files and the stored subtitle through a pause and a re-begin that keep notes (a failed Next episode)', async () => {
+    const target = { discKey: 'e.100.3', discId: '100-3', chosen: 'mkv', mainPlaylistId: 'mkv', encode: true };
+    const t = setup({ target });
+    t.show({ currentPlaylistId: 'mkv' });
+    await t.saver.addTextFiles([new File(['abc'], 'mine.srt')]);
+    t.saver.noteStoredSubtitle('ep1.ass', 'sub-1', 120, 'en');
+    t.saver.end({ keepNotes: true });
+    t.saver.begin({ ...target, remote: true, deviceName: 'iPad', pairing: KEY_A, finished: true }, undefined, { keepNotes: true });
+    const files: TextFileInfo[] = [
+      { name: 'ep1.ass', format: 'ass', cues: 1, startUs: 0, offsetMs: 900 },
+      { name: 'mine.srt', format: 'srt', cues: 1, startUs: null, offsetMs: 0 },
+    ];
+    t.show({ subtitles: { pg: [], text: { files, missingFonts: [], episodeStarts: [] }, selected: 'text', scale: 1 } });
+    t.show({ timeUs: 100 * S });
+    await settle();
+    expect(t.nas.sent.at(-1)!.place).toMatchObject({ discKey: 'e.100.3', finished: true });
+    expect(t.nas.sent.at(-1)!.place.settings.textFiles).toEqual([
+      { name: 'ep1.ass', size: 120, startUs: 0, offsetMs: 900, subtitleId: 'sub-1', language: 'en' },
+      { name: 'mine.srt', size: 3, startUs: null, offsetMs: 0 },
+    ]);
+    // an ordinary begin (another disc or episode) starts with no notes
+    t.saver.begin({ ...target, remote: true, deviceName: 'iPad', pairing: KEY_A });
+    expect(t.saver.storedSubtitleNotes().size).toBe(0);
+  });
+
   it("saves a viewer's Anime Tosho pick with its release, file and track, never as a stored subtitle", async () => {
     const t = setup();
     t.saver.noteStoredSubtitle('ep1.ass', 'sub-1', 120, 'en');

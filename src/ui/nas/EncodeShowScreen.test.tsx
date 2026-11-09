@@ -69,15 +69,31 @@ describe('the encodes show screen', () => {
     const moved: EncodeShow = { ...SHOW, id: '90', seasons: [{ anilistId: 90, name: 'Starfall Wanderer Zero', kind: 'season', number: 1, episodes: [] }, ...SHOW.seasons] };
     const nas = fakeNas({
       encodeShow: vi.fn(async (id: string) => (id === '90' ? moved : id === '300' ? { id: '300', name: 'Lantern Tide', poster: null, seasons: [] } : null)),
+      encodeShows: vi.fn(async () => ({
+        shows: [{ id: '300', name: 'Lantern Tide', poster: null, episodeCount: 1, anilistIds: [300] }, { id: '90', name: 'Starfall Wanderer', poster: null, episodeCount: 4, anilistIds: [90, 100, 103, 101] }],
+      })),
+    });
+    const history = fakeHistory();
+    render(<EncodeShowScreen nas={nas} history={history} showId="100" />);
+    await waitFor(() => expect(history.replace).toHaveBeenCalledWith({ kind: 'encodeShow', showId: '90' }));
+    // found from the list's ids: no show was fetched to look
+    expect(vi.mocked(nas.encodeShow).mock.calls.map(([id]) => id).filter((id) => id !== '90')).toEqual(['100']);
+  });
+
+  it('follows a moved show on a NAS whose list has no AniList ids, by fetching its shows', async () => {
+    const moved: EncodeShow = { ...SHOW, id: '90', seasons: [{ anilistId: 90, name: 'Starfall Wanderer Zero', kind: 'season', number: 1, episodes: [] }, ...SHOW.seasons] };
+    const nas = fakeNas({
+      encodeShow: vi.fn(async (id: string) => (id === '90' ? moved : id === '300' ? { id: '300', name: 'Lantern Tide', poster: null, seasons: [] } : null)),
       encodeShows: vi.fn(async () => ({ shows: [{ id: '300', name: 'Lantern Tide', poster: null, episodeCount: 1 }, { id: '90', name: 'Starfall Wanderer', poster: null, episodeCount: 4 }] })),
     });
     const history = fakeHistory();
     render(<EncodeShowScreen nas={nas} history={history} showId="100" />);
     await waitFor(() => expect(history.replace).toHaveBeenCalledWith({ kind: 'encodeShow', showId: '90' }));
+    expect(nas.encodeShow).toHaveBeenCalledWith('300');
   });
 
   it('goes back to the list when no show holds it', async () => {
-    const nas = fakeNas({ encodeShow: vi.fn(async () => null), encodeShows: vi.fn(async () => ({ shows: [{ id: '300', name: 'Lantern Tide', poster: null, episodeCount: 1 }] })) });
+    const nas = fakeNas({ encodeShow: vi.fn(async () => null), encodeShows: vi.fn(async () => ({ shows: [{ id: '300', name: 'Lantern Tide', poster: null, episodeCount: 1, anilistIds: [300] }] })) });
     const history = fakeHistory();
     render(<EncodeShowScreen nas={nas} history={history} showId="100" />);
     await waitFor(() => expect(history.replace).toHaveBeenCalledWith({ kind: 'encodes', q: '' }));
@@ -86,7 +102,7 @@ describe('the encodes show screen', () => {
   it('shows not-found when the show it was sent to answers 404 too, without looking again', async () => {
     const nas = fakeNas({
       encodeShow: vi.fn(async () => null),
-      encodeShows: vi.fn(async () => ({ shows: [{ id: '90', name: 'Starfall Wanderer', poster: null, episodeCount: 4 }] })),
+      encodeShows: vi.fn(async () => ({ shows: [{ id: '90', name: 'Starfall Wanderer', poster: null, episodeCount: 4, anilistIds: [90, 100] }] })),
     });
     const history = fakeHistory();
     const { rerender } = render(<EncodeShowScreen nas={nas} history={history} showId="100" />);
@@ -97,6 +113,7 @@ describe('the encodes show screen', () => {
     expect(nas.encodeShows).toHaveBeenCalledTimes(1);
   });
 
+  // a NAS whose list has no AniList ids: only there does the lookup fetch shows in turn
   it('stops looking once the screen is left', async () => {
     let release: () => void = () => {};
     const gate = new Promise<void>((r) => (release = r));

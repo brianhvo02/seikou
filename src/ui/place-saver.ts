@@ -169,10 +169,11 @@ export class PlaceSaver {
 
   /**
    * Starts saving for the disc just opened (call it right after the controller's open). A local disc without a
-   * fingerprint (`d.` key, not remote) has nothing to be found by later, so nothing is saved for it.
+   * fingerprint (`d.` key, not remote) has nothing to be found by later, so nothing is saved for it. `keepNotes`:
+   * the same episode again (see `end`), with the text files' sizes and NAS subtitle noted for it kept.
    */
-  begin(target: PlaceTarget, launch?: LaunchSettings): void {
-    this.end();
+  begin(target: PlaceTarget, launch?: LaunchSettings, opts: { readonly keepNotes?: boolean } = {}): void {
+    this.end(opts);
     this.launch = launch ? { ...launch, discKey: target.discKey, opens: this.deps.discOpens() } : null;
     if (!target.remote && target.discKey.startsWith('d.')) return;
     this.target = { ...target, opens: this.deps.discOpens() };
@@ -180,13 +181,17 @@ export class PlaceSaver {
     void this.drainOutbox();
   }
 
-  /** Stops saving (the disc closes); saves already started still land. */
-  end(): void {
+  /**
+   * Stops saving (the disc closes); saves already started still land. With `keepNotes` the text files' sizes and the
+   * NAS subtitle noted stay, for a `begin` with `keepNotes` on the same episode (a Next episode that failed to open).
+   */
+  end(opts: { readonly keepNotes?: boolean } = {}): void {
     this.launch = null;
     this.stopTimer();
     this.target = null;
     this.seen = null;
     this.cached = null;
+    if (opts.keepNotes) return;
     this.sizes = {};
     this.stored.clear();
   }

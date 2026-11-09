@@ -75,5 +75,6 @@ export async function resumeFinishedPlaces(deps: Pick<EncodeLaunchDeps, 'nas' | 
   const pairing = await deps.nas.pairing();
   const now = deps.controller.getSnapshot();
   if (now.encodeId !== encodeId || deps.controller.discOpens !== opens) return;
-  deps.places.begin({ ...encodePlaceTarget(discKey, encodeId, pairing), finished: true });
+  // the notes Next episode kept (text files' sizes, the NAS subtitle) are this episode's still
+  deps.places.begin({ ...encodePlaceTarget(discKey, encodeId, pairing), finished: true }, undefined, { keepNotes: true });
 }

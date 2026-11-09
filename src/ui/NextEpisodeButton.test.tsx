@@ -35,11 +35,11 @@ describe('NextEpisodeButton', () => {
     expect(onNext).toHaveBeenCalledTimes(1);
   });
 
-  it('pauses while playback is paused', () => {
+  it('holds while held (playback paused, buffering or loading)', () => {
     const onNext = vi.fn();
     const { rerender } = render(<NextEpisodeButton countdown seconds={10} onNext={onNext} onCancel={vi.fn()} reducedMotion={false} />);
     advance(4000);
-    rerender(<NextEpisodeButton countdown seconds={10} paused onNext={onNext} onCancel={vi.fn()} reducedMotion={false} />);
+    rerender(<NextEpisodeButton countdown seconds={10} held onNext={onNext} onCancel={vi.fn()} reducedMotion={false} />);
     advance(30_000);
     expect(onNext).not.toHaveBeenCalled();
     rerender(<NextEpisodeButton countdown seconds={10} onNext={onNext} onCancel={vi.fn()} reducedMotion={false} />);

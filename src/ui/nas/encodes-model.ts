@@ -151,14 +151,29 @@ export function nextEpisode(show: EncodeShow, encodeId: string): EncodeEpisode |
 
 /**
  * The show holding the episodes of AniList entry `anilistId`: the show list names each show's entries
- * (`anilistIds`), so only that show is fetched. A list without them (a NAS from before) falls back to the show rooted
- * at the entry. Null for none.
+ * (`anilistIds`), so only that show is fetched. A list without them (a NAS from before them) is walked instead: the
+ * show rooted at the entry, then each show in turn until one holds it. Null for none.
  */
 export async function findEncodeShow(nas: Pick<NasClient, 'encodeShow' | 'encodeShows'>, anilistId: number): Promise<EncodeShow | null> {
+  const holds = (show: EncodeShow | null): show is EncodeShow => show !== null && show.seasons.some((s) => s.anilistId === anilistId);
   const { shows } = await nas.encodeShows();
-  const listed = shows.find((s) => (s.anilistIds as readonly number[] | undefined)?.includes(anilistId));
-  const show = await nas.encodeShow(listed ? listed.id : String(anilistId));
-  return show && show.seasons.some((s) => s.anilistId === anilistId) ? show : null;
+  // a NAS from before the ids leaves them out (the wire type says they are there)
+  const ids = (s: EncodeShowSummary): readonly number[] | undefined => s.anilistIds as readonly number[] | undefined;
+  if (shows.some((s) => ids(s) !== undefined)) {
+    const listed = shows.find((s) => ids(s)?.includes(anilistId));
+    if (!listed) return null;
+    const show = await nas.encodeShow(listed.id);
+    return holds(show) ? show : null;
+  }
+  const root = String(anilistId);
+  const own = await nas.encodeShow(root);
+  if (holds(own)) return own;
+  for (const summary of shows) {
+    if (summary.id === root) continue;
+    const show = await nas.encodeShow(summary.id);
+    if (holds(show)) return show;
+  }
+  return null;
 }
 
 /** "24 min" for an episode's length; null when unknown. */

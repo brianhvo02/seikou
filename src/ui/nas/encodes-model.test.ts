@@ -188,10 +188,18 @@ describe('the next episode', () => {
     expect(asked).toEqual(['100']);
     asked.length = 0;
     expect(await findEncodeShow(nas, 999)).toBeNull();
-    expect(asked).toEqual(['999']);
-    // a NAS from before the ids: the show rooted at the entry
+    expect(asked).toEqual([]);
+
+    // a NAS from before the ids: the show rooted at the entry, else each show in turn
     listed = listed.map(({ anilistIds: _ids, ...s }) => s) as typeof listed;
+    asked.length = 0;
     expect((await findEncodeShow(nas, 100))?.id).toBe('100');
-    expect(await findEncodeShow(nas, 101)).toBeNull();
+    expect(asked).toEqual(['100']);
+    asked.length = 0;
+    expect((await findEncodeShow(nas, 101))?.id).toBe('100');
+    expect(asked).toEqual(['101', '300', '100']);
+    asked.length = 0;
+    expect(await findEncodeShow(nas, 999)).toBeNull();
+    expect(asked).toEqual(['999', '300', '100']);
   });
 });

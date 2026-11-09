@@ -271,8 +271,9 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
     const names = playedTrackNames(from);
     const opens = controller.discOpens;
     // The episode is saved finished before anything moves on, and nothing saves it after (a later save would undo it).
+    // Its notes (text files' sizes, the NAS subtitle) stay, should the next episode fail to open and this one play on.
     const finishing = places.finishNow();
-    places.end();
+    places.end({ keepNotes: true });
     // The address bar goes to the next episode now; nothing follows the old one meanwhile.
     playingRoute.stop();
     history.replace({ kind: 'encodePlay', encodeId: to, timeS: null, resume: false });
@@ -852,7 +853,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
             key={`${encodeId}:${action.kind}`}
             action={action}
             countdown={countdown === true}
-            paused={countdownHeld(snapshot.engineState)}
+            held={countdownHeld(snapshot.engineState)}
             onSkip={(us) => controller.seek(us)}
             onNext={goNext}
           />
