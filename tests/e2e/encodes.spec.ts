@@ -275,9 +275,18 @@ test('a stored subtitle picked on an episode comes back when it is resumed', asy
   test.setTimeout(120_000);
   await skipWithoutAv1(page);
   // the source disc's playlist, whose first chapter starts episode 1: a chapter upload there is offered on the episode
-  const resolved = await ownerApi(`discs/resolve/${encodeURIComponent(ENCODE_SOURCE_KEY)}`);
-  expect(resolved.status, 'the source disc on the stand-in').toBe(200);
-  const discId = ((await resolved.json()) as { disc: { id: string } }).disc.id;
+  // (the library scan, which finds it, may still be running)
+  let discId = '';
+  await expect
+    .poll(
+      async () => {
+        const res = await ownerApi(`discs/resolve/${encodeURIComponent(ENCODE_SOURCE_KEY)}`);
+        if (res.ok) discId = ((await res.json()) as { disc: { id: string } }).disc.id;
+        return res.status;
+      },
+      { timeout: 60_000, message: 'the source disc on the stand-in' },
+    )
+    .toBe(200);
   const created = await ownerApi('subtitles', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: `Encode pick ${browserName}`, language: 'en', for: { kind: 'chapter', discId, playlistId: '00000', chapter: 0 } }),
