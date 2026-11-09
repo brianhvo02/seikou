@@ -1,4 +1,4 @@
-import type { DiscManifest, DiscSlot, EpisodeRef, SeasonDetail, StoredSubtitle, SubtitleCreate, SubtitleFor, SubtitlePatch } from '@seikou/nas/nas-api';
+import type { DiscManifest, DiscSlot, EncodeDetail, EpisodeRef, SeasonDetail, StoredSubtitle, SubtitleCreate, SubtitleFor, SubtitlePatch } from '@seikou/nas/nas-api';
 import { Timeline, type Chapter } from '@seikou/engine/nav/timeline';
 import { mainPlaylistId, playlistOf } from './library-model';
 import { NasHttpError, type NasClient } from './nas-client';
@@ -68,6 +68,56 @@ export function forPlaylist(subs: readonly StoredSubtitle[], discKey: string, pl
 export function startFor(s: StoredSubtitle, chapters: readonly { readonly startUs: number }[]): number | null {
   if (s.attachment.kind === 'episode') return 0;
   return chapters[s.attachment.chapter]?.startUs ?? null;
+}
+
+/** What `storedForEncode` reads of an encoded episode (`GET encodes/<id>`): the disc, playlist and start its tags name. */
+export type EncodeSourceTags = Pick<EncodeDetail, 'discKey' | 'playlistId' | 'episodeStartMs'>;
+
+/** A stored subtitle offered for an encoded episode, with where it is placed, in episode microseconds. */
+export interface EncodeStored {
+  readonly subtitle: StoredSubtitle;
+  readonly startUs: number;
+}
+
+/** How far a chapter's start may be from an episode's start in the source playlist and still be its first chapter. */
+const EPISODE_CHAPTER_TOLERANCE_MS = 1000;
+
+/** The source playlist's chapter that starts an episode (nearest `episodeStartMs`, within a second), or null. */
+export function episodeFirstChapter(chapterStartsMs: readonly number[], episodeStartMs: number): number | null {
+  let best: number | null = null;
+  for (let i = 0; i < chapterStartsMs.length; i++) {
+    const off = Math.abs(chapterStartsMs[i]! - episodeStartMs);
+    if (off <= EPISODE_CHAPTER_TOLERANCE_MS && (best === null || off < Math.abs(chapterStartsMs[best]! - episodeStartMs))) best = i;
+  }
+  return best;
+}
+
+/**
+ * The stored subtitles an encoded episode offers, matched by the source disc and playlist its tags name (never by
+ * AniList episode): an `episode` attachment there, placed back by the episode's start in the playlist (its times are
+ * the playlist's); a `chapter` attachment on the episode's first chapter, at the episode's start (its times are the
+ * chapter's). `sourceChaptersMs` are the source playlist's chapter starts; without them no chapter attachment is
+ * offered. An encode missing any of the three tags offers nothing.
+ */
+export function storedForEncode(items: readonly StoredSubtitle[], entry: EncodeSourceTags, sourceChaptersMs: readonly number[] | null): EncodeStored[] {
+  const { discKey, playlistId, episodeStartMs } = entry;
+  if (discKey === null || playlistId === null || episodeStartMs === null) return [];
+  const first = sourceChaptersMs ? episodeFirstChapter(sourceChaptersMs, episodeStartMs) : null;
+  const out: EncodeStored[] = [];
+  for (const s of forPlaylist(items, discKey, playlistId)) {
+    if (s.attachment.kind === 'episode') out.push({ subtitle: s, startUs: episodeStartMs === 0 ? 0 : -episodeStartMs * 1000 });
+    else if (first !== null && s.attachment.chapter === first) out.push({ subtitle: s, startUs: 0 });
+  }
+  return out;
+}
+
+/**
+ * Where a viewer's Anime Tosho pick for an encoded episode is placed: the NAS lined it up on the source playlist (its
+ * times are the playlist's, so back by the episode's start), or left it in its own timing (the episode's, at 0).
+ */
+export function encodePickStartUs(pick: StoredSubtitle, episodeStartMs: number): number {
+  const kind = pick.source?.alignment.kind;
+  return (kind === 'offset' || kind === 'split') && episodeStartMs !== 0 ? -episodeStartMs * 1000 : 0;
 }
 
 /** The first subtitle in a language (compared without case), or null. */

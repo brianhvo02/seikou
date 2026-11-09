@@ -31,8 +31,17 @@ export function detectAv1(env: Pick<VideoCapsEnv, 'isConfigSupported'>, codec?: 
   return probe(env, codec !== undefined && codec.startsWith('av01.') ? codec : AV1_PROBE_CODEC);
 }
 
-/** detectAv1 in this browser; never rejects. */
+/** Whether a page address's query carries the test-only `noav1` flag, which makes the AV1 check say unsupported. */
+export function noAv1Flag(search: string): boolean {
+  return new URLSearchParams(search).has('noav1');
+}
+
+/** `?noav1=1`, read once as the app loads (as the other test flags are): the address bar changes as the app navigates. */
+const NO_AV1 = typeof location !== 'undefined' && noAv1Flag(location.search);
+
+/** detectAv1 in this browser; never rejects. `?noav1=1` (test-only) makes it false. */
 export function av1Playable(codec?: string): Promise<boolean> {
+  if (NO_AV1) return Promise.resolve(false);
   try {
     return detectAv1(browserVideoCapsEnv(), codec);
   } catch {

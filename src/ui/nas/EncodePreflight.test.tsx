@@ -50,6 +50,7 @@ describe('the encode pre-flight', () => {
     render(<EncodePreflight nas={f.nas} controller={f.controller} places={f.saver} history={f.history} playingRoute={f.playingRoute} encodeId="100-3" startTimeS={null} resume={false} checkAv1={async () => false} />);
     expect((await screen.findByRole('alert')).textContent).toBe(AV1_UNSUPPORTED_COPY);
     expect(screen.queryByTestId('encode-preflight-play')).toBeNull();
+    expect(screen.getByRole('link', { name: 'About encodes' }).getAttribute('href')).toBe('/help/nas#encodes');
     fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     expect(f.history.back).toHaveBeenCalledWith({ kind: 'encodes', q: '' });
     expect(f.controller.openEncode).not.toHaveBeenCalled();

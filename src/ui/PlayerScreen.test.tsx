@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { EncodeShow, PlaceSettings, PlaybackPlace } from '@seikou/nas/nas-api';
+import type { EncodeDetail, EncodeShow, PlaceSettings, PlaybackPlace, StoredSubtitle } from '@seikou/nas/nas-api';
 import { INITIAL_SNAPSHOT, type PlayerController, type PlayerSnapshot } from '@seikou/engine/controller/player-controller';
 import type { NasClient } from './nas/nas-client';
 import type { NasHistory } from './nas/nas-history';
@@ -50,12 +50,13 @@ function snapshotAt(encodeId: string, timeUs: number, over: Partial<PlayerSnapsh
 
 function setup(snapshot: PlayerSnapshot, nasOver: Record<string, unknown> = {}) {
   let snap = snapshot;
+  const engineListeners = new Set<() => void>();
   const controller = {
     discOpens: 1,
     attachCanvas: vi.fn(),
     resize: vi.fn(),
     getSnapshot: () => snap,
-    subscribe: () => () => undefined,
+    subscribe: (l: () => void) => (engineListeners.add(l), () => void engineListeners.delete(l)),
     seek: vi.fn(),
     showNotice: vi.fn(),
     dismissNotice: vi.fn(),
@@ -76,6 +77,7 @@ function setup(snapshot: PlayerSnapshot, nasOver: Record<string, unknown> = {}) 
   } as unknown as PlaceSaver;
   const nas = {
     encodeShow: vi.fn(async (id: string) => (id === '100' ? SHOW : null)),
+    encode: vi.fn(async () => null),
     encodeShows: vi.fn(async () => ({ shows: [] })),
     playerSettings: vi.fn(async () => ({ nextEpisodeCountdown: false })),
     putPlayerSettings: vi.fn(async (s: unknown) => s),
@@ -113,6 +115,7 @@ function setup(snapshot: PlayerSnapshot, nasOver: Record<string, unknown> = {}) 
     show(s: PlayerSnapshot) {
       snap = s;
       r.rerender(view(s));
+      for (const l of [...engineListeners]) l();
     },
   };
 }
@@ -217,5 +220,36 @@ describe('the player for an encoded episode', () => {
     fireEvent.click(screen.getByTestId('close-episode'));
     expect(t.controller.closeDisc).toHaveBeenCalled();
     expect(t.history.back).toHaveBeenCalledWith({ kind: 'encodes', q: '' });
+  });
+
+  it("offers the source disc's stored episode subtitle and places it back by the episode's start", async () => {
+    const key = `f.${'D'.repeat(32)}`;
+    const stored: StoredSubtitle = {
+      id: 'sub-1', name: 'Fansub', language: 'en', offsetMs: 0, fileName: 'ep2.ass', fileSize: 10, fonts: [], uploadedAt: 1,
+      attachment: { kind: 'episode', discKey: key, playlistId: '00000', titleId: 't', seasonId: 's', episode: 2 },
+    };
+    const other: StoredSubtitle = { ...stored, id: 'sub-2', attachment: { ...stored.attachment, playlistId: '00001' } };
+    const entry: EncodeDetail = {
+      id: '100-2', anilistId: 100, episode: 2, episodeTitle: null, discKey: key, playlistId: '00000', episodeStartMs: 1440_000,
+      size: 1, mtimeMs: 1, durationMs: 1440_000, chapters: [], tracks: [],
+    };
+    const t = setup(snapshotAt('100-2', 10 * S), {
+      encode: vi.fn(async () => entry),
+      subtitlesForDisc: vi.fn(async () => [stored, other]),
+      subtitleFiles: vi.fn(async () => [new File(['[Script Info]'], 'ep2.ass')]),
+      searchTosho: vi.fn(async () => []),
+    });
+    const loaded = vi.fn(async () => {
+      const s = snapshotAt('100-2', 10 * S);
+      t.show({ ...s, subtitles: { ...s.subtitles!, text: { files: [{ name: 'ep2.ass', format: 'ass', cues: 1, startUs: null, offsetMs: 0 }], missingFonts: [], episodeStarts: [] } } });
+    });
+    Object.assign(t.controller, { loadSubtitleFiles: loaded, setSubtitleStart: vi.fn(), shiftSubtitleFile: vi.fn(), selectSubtitle: vi.fn() });
+    await waitFor(() => expect(t.nas.subtitlesForDisc).toHaveBeenCalledWith(key, expect.anything()));
+    fireEvent.click(screen.getByTestId('subtitle-menu'));
+    const item = await screen.findByTestId('subtitle-stored-sub-1');
+    expect(screen.queryByTestId('subtitle-stored-sub-2')).toBeNull();
+    fireEvent.click(item);
+    await waitFor(() => expect(t.controller.setSubtitleStart).toHaveBeenCalledWith(0, -1440 * S));
+    expect(t.controller.selectSubtitle).toHaveBeenCalledWith({ kind: 'text' });
   });
 });

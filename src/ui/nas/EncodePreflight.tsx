@@ -6,7 +6,8 @@ import type { PlayerController } from '@seikou/engine/controller/player-controll
 import type { LaunchSettings, PlaceSaver } from '../place-saver';
 import { av1Playable } from '../video-caps';
 import { durationLabel } from './encodes-model';
-import { AV1_UNSUPPORTED_COPY, encodeKeyOf, launchEncode } from './encode-launch';
+import { AV1_UNSUPPORTED_COPY, ENCODES_HELP_PATH, encodeKeyOf, launchEncode } from './encode-launch';
+import { AppLink } from '../help/HelpLink';
 import { PLACES_READ_TIMEOUT_MS, type NasClient } from './nas-client';
 import type { NasHistory } from './nas-history';
 import type { NasRoute } from './nas-route';
@@ -146,6 +147,9 @@ export function EncodePreflight({ nas, controller, places, history, playingRoute
           {AV1_UNSUPPORTED_COPY}
         </p>
         <div className="preflight-actions">
+          <AppLink history={history} to={ENCODES_HELP_PATH} className="title-link" testId="encode-av1-help">
+            About encodes
+          </AppLink>
           <button type="button" className="title-link" onClick={back}>
             Back
           </button>

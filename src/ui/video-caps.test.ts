@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectAv1, detectVideoCaps, loadVideoCaps, type VideoCapsEnv } from './video-caps';
+import { detectAv1, detectVideoCaps, loadVideoCaps, noAv1Flag, type VideoCapsEnv } from './video-caps';
 
 function env(over: Partial<VideoCapsEnv> = {}): VideoCapsEnv {
   return {
@@ -95,5 +95,14 @@ describe('detectAv1', () => {
   it('is false without a decoder, or when the probe throws', async () => {
     expect(await detectAv1(env({ isConfigSupported: undefined }))).toBe(false);
     expect(await detectAv1(env({ isConfigSupported: async () => { throw new Error('no'); } }))).toBe(false);
+  });
+});
+
+describe('noAv1Flag', () => {
+  it('is set by ?noav1 alone or among other flags, and not otherwise', () => {
+    expect(noAv1Flag('?noav1=1')).toBe(true);
+    expect(noAv1Flag('?telemetry=1&noav1=1')).toBe(true);
+    expect(noAv1Flag('?telemetry=1')).toBe(false);
+    expect(noAv1Flag('')).toBe(false);
   });
 });

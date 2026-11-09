@@ -14,8 +14,12 @@ import type { NasClient } from './nas-client';
 import { pairingKey, type NasPairing } from './nas-store';
 import type { PlayingRoute } from './playing-route';
 
-/** The copy shown, instead of opening an episode, on a device that can't decode AV1 (Task 12 settles its final form). */
-export const AV1_UNSUPPORTED_COPY = "This device can't play AV1 video, which these encodes use.";
+/** The copy shown, instead of opening an episode, on a device that can't decode AV1. */
+export const AV1_UNSUPPORTED_COPY =
+  "This device can't decode AV1 video, which encoded episodes use, so this episode can't play here. Current Chrome, Edge and Firefox play AV1; Safari needs a device that decodes AV1 in hardware (iPhone 15 Pro, an M3 Mac or later).";
+
+/** Where the AV1 warning's help link goes: the encodes section of the NAS page. */
+export const ENCODES_HELP_PATH = '/help/nas#encodes';
 
 /** What opening an encode needs. */
 export interface EncodeLaunchDeps {
@@ -44,8 +48,10 @@ export async function launchEncode(
   const { nas, controller, places, playingRoute } = deps;
   const discKey = encodeKeyOf(encodeId);
   if (discKey === null) throw new Error(`Not an encode id: ${encodeId}`);
-  controller.startAudio(); // inside the gesture, before anything is awaited
-  const [base, session, pairing, manifest] = await Promise.all([nas.encodeBase(encodeId), nas.session(), nas.pairing(), nas.encodeManifest(encodeId)]);
+  // Inside the gesture, before anything is awaited; and waited for (it never rejects), since an encode opens in moments
+  // and one that starts before the audio ring reaches the engine plays without sound.
+  const audio = controller.startAudio();
+  const [base, session, pairing, manifest] = await Promise.all([nas.encodeBase(encodeId), nas.session(), nas.pairing(), nas.encodeManifest(encodeId), audio]);
   if (opts.stillWanted && !opts.stillWanted()) return false;
   // The engine asks again only after the NAS refused the token it has, so that one is never handed back.
   let token = session.token;

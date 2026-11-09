@@ -29,6 +29,17 @@ export function replacesTextSet(files: readonly File[]): boolean {
 type WaitResult = 'listed' | 'timeout' | 'abandoned';
 
 /**
+ * Where a pick goes when it is not placed on its own attachment's playlist: an encoded episode's, whose one playlist
+ * (`playlistId`) is not the source disc's. `startUs` is the subtitle's place in it (`storedForEncode`,
+ * `encodePickStartUs`). Such a pick is not noted for the place: a resume looks stored subtitles up by the place's own
+ * disc key, which an encode's is not.
+ */
+export interface PickPlacement {
+  readonly playlistId: string;
+  startUs(s: StoredSubtitle): number | null;
+}
+
+/**
  * Picks subtitles stored on the NAS in the player, one at a time: the newest pick (or a local pick, `supersede`)
  * abandons an older one still fetching or waiting, which then applies nothing.
  */
@@ -52,22 +63,23 @@ export class StoredSubtitlePicker {
    * pick (`s.pick`) is noted with `origin`, the release it was listed from (so a resume can list it again) and its
    * track's listed name (so Up next can find it).
    */
-  pick(s: StoredSubtitle, origin?: FansubOrigin): Promise<boolean> {
+  pick(s: StoredSubtitle, origin?: FansubOrigin, at?: PickPlacement): Promise<boolean> {
     this.supersede();
-    return this.load(this.generation, s, origin);
+    return this.load(this.generation, s, origin, at);
   }
 
   /**
    * A viewer's pick from the Anime Tosho search: the NAS fetches the track and lines it up on this playlist, then it
    * loads as `pick` does. A refusal (too many fetches this hour, a file the NAS didn't list) shows PICK_FAILED and
-   * leaves the text set as it was; another playlist playing than `req`'s, before or after, shows EPISODE_CHANGED. The
-   * pick once placed, else null.
+   * leaves the text set as it was; another playlist playing than `req`'s (or `at`'s), before or after, shows
+   * EPISODE_CHANGED. The pick once placed, else null.
    */
-  async pickFansub(req: FansubPickRequest, origin: FansubOrigin): Promise<FansubPick | null> {
+  async pickFansub(req: FansubPickRequest, origin: FansubOrigin, at?: PickPlacement): Promise<FansubPick | null> {
     this.supersede();
     const gen = this.generation;
     const opens = this.deps.controller.discOpens;
-    if (this.deps.snapshot().currentPlaylistId !== req.playlistId) {
+    const playlistId = at?.playlistId ?? req.playlistId;
+    if (this.deps.snapshot().currentPlaylistId !== playlistId) {
       this.deps.controller.showNotice(FANSUB_NOTICE_CODE, EPISODE_CHANGED);
       return null;
     }
@@ -80,14 +92,14 @@ export class StoredSubtitlePicker {
       return null;
     }
     if (gen !== this.generation || this.deps.controller.discOpens !== opens) return null;
-    if (this.deps.snapshot().currentPlaylistId !== req.playlistId) {
+    if (this.deps.snapshot().currentPlaylistId !== playlistId) {
       this.deps.controller.showNotice(FANSUB_NOTICE_CODE, EPISODE_CHANGED);
       return null;
     }
-    return (await this.load(gen, picked, origin)) ? picked : null;
+    return (await this.load(gen, picked, origin, at)) ? picked : null;
   }
 
-  private async load(gen: number, s: StoredSubtitle, origin: FansubOrigin | undefined): Promise<boolean> {
+  private async load(gen: number, s: StoredSubtitle, origin: FansubOrigin | undefined, at: PickPlacement | undefined): Promise<boolean> {
     const { nas, controller, places } = this.deps;
     const opens = controller.discOpens;
     const current = (): boolean => gen === this.generation && controller.discOpens === opens;
@@ -122,12 +134,13 @@ export class StoredSubtitlePicker {
     if (result !== 'listed' || !current()) return false;
     const snap = this.deps.snapshot();
     // the playlist it is for has given way to another (a disc program moved on): nothing to place it on
-    if (snap.currentPlaylistId !== s.attachment.playlistId) return false;
+    if (snap.currentPlaylistId !== (at?.playlistId ?? s.attachment.playlistId)) return false;
     const loaded = snap.subtitles!.text!.files[0]!;
-    const start = startFor(s, snap.chapters);
+    const start = at ? at.startUs(s) : startFor(s, snap.chapters);
     if (start !== null && start !== loaded.startUs) controller.setSubtitleStart(0, start);
     if (s.offsetMs !== loaded.offsetMs) controller.shiftSubtitleFile(0, s.offsetMs - loaded.offsetMs);
     controller.selectSubtitle({ kind: 'text' });
+    if (at) return true;
     if (fansub) places.noteFansubPick(s.fileName, fansub, s.fileSize, s.language);
     else if (s.pick !== true) places.noteStoredSubtitle(s.fileName, s.id, s.fileSize, s.language);
     return true;

@@ -22,8 +22,10 @@ import { PlaylistPicker } from './PlaylistPicker';
 import { RemotePad } from './RemotePad';
 import type { MenuKey } from '@seikou/engine/protocol';
 import type { FansubPick, FansubPickRequest, LevelId, StoredSubtitle } from '@seikou/nas/nas-api';
-import { replacesTextSet, StoredSubtitlePicker } from './nas/stored-subtitle-pick';
-import { forPlaylist, STORED_LIST_TIMEOUT_MS } from './nas/subtitle-model';
+import { replacesTextSet, StoredSubtitlePicker, type PickPlacement } from './nas/stored-subtitle-pick';
+import { encodePickStartUs, forPlaylist, STORED_LIST_TIMEOUT_MS } from './nas/subtitle-model';
+import { hasSource, loadEncodeSubtitles, type EncodeSubtitleSources } from './nas/encode-subtitles';
+import { ENCODE_PLAYLIST_ID } from '@seikou/engine/protocol';
 import { defaultQuery, type FansubOrigin, type ToshoTrack } from './nas/tosho-search-model';
 import type { ToshoSearch } from './ToshoSearch';
 import type { EncodeEpisode } from '@seikou/nas/nas-api';
@@ -213,17 +215,18 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
 
   // An encoded episode: its show's next episode, the person's countdown setting, and the chapter action at this time.
   const encodeId = snapshot.encodeId;
-  const [nextOf, setNextOf] = useState<{ readonly encodeId: string; readonly next: EncodeEpisode | null } | null>(null);
+  const discOpens = controller.discOpens;
+  const [nextOf, setNextOf] = useState<{ readonly encodeId: string; readonly next: EncodeEpisode | null; readonly showName: string | null } | null>(null);
   useEffect(() => {
     if (!nas || encodeId === null) return;
     const parsed = parseEncodeId(encodeId);
     if (!parsed) return;
     let live = true;
     findEncodeShow(nas, parsed.anilistId).then(
-      (show) => live && setNextOf({ encodeId, next: show ? nextEpisode(show, encodeId) : null }),
+      (show) => live && setNextOf({ encodeId, next: show ? nextEpisode(show, encodeId) : null, showName: show?.name ?? null }),
       (err: unknown) => {
         console.warn('finding the next episode failed', err);
-        if (live) setNextOf({ encodeId, next: null });
+        if (live) setNextOf({ encodeId, next: null, showName: null });
       },
     );
     return () => {
@@ -231,6 +234,21 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
     };
   }, [nas, encodeId]);
   const nextUp = encodeId !== null && nextOf?.encodeId === encodeId ? nextOf.next : null;
+  // An encoded episode's Subtitles menu sources from the NAS: the stored uploads its source tags match, and the entry
+  // (those tags) for the Anime Tosho search.
+  const [encodeSubs, setEncodeSubs] = useState<{ readonly encodeId: string; readonly sources: EncodeSubtitleSources | null } | null>(null);
+  useEffect(() => {
+    if (!nas || encodeId === null) return;
+    let live = true;
+    loadEncodeSubtitles(nas, encodeId).then(
+      (sources) => live && setEncodeSubs({ encodeId, sources }),
+      (err: unknown) => console.warn("reading the episode's subtitle sources failed", err),
+    );
+    return () => {
+      live = false;
+    };
+  }, [nas, encodeId, discOpens]);
+  const encodeSources = encodeId !== null && encodeSubs?.encodeId === encodeId ? encodeSubs.sources : null;
   const [countdown, setCountdown] = useState<boolean | null>(null);
   const encodeOpen = encodeId !== null;
   useEffect(() => {
@@ -308,7 +326,6 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
 
   // A NAS disc's stored subtitles (piece 3), listed once per open; a local or disc-server disc has none.
   const nasDiscKey = nas ? playingRoute.discKey : null;
-  const discOpens = controller.discOpens;
   const [stored, setStored] = useState<{ readonly discKey: string; readonly items: readonly StoredSubtitle[] } | null>(null);
   const [storedActive, setStoredActive] = useState<string | null>(null);
   /** The viewer's Anime Tosho pick placed last (its file, and the file and track it is), checked in the search's tracks. */
@@ -330,9 +347,9 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
     };
   }, [nas, nasDiscKey, discOpens]);
   const [storedPicker] = useState(() => (nas ? new StoredSubtitlePicker({ nas, controller, places, snapshot: controller.getSnapshot }) : null));
-  /** A stored subtitle picked from the menu (or for Up next): checked once placed. */
-  const pickStoredWith = (picker: StoredSubtitlePicker, s: StoredSubtitle): Promise<boolean> =>
-    picker.pick(s).then((placed) => {
+  /** A stored subtitle picked from the menu (or for Up next): checked once placed. `at`: an encoded episode's placement. */
+  const pickStoredWith = (picker: StoredSubtitlePicker, s: StoredSubtitle, at?: PickPlacement): Promise<boolean> =>
+    picker.pick(s, undefined, at).then((placed) => {
       if (placed) {
         setStoredActive(s.id);
         setFansubActive(null);
@@ -340,8 +357,8 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
       return placed;
     });
   /** An Anime Tosho track lined up and loaded as the viewer's own pick (the search, or Up next): checked once placed. */
-  const pickFansubWith = (picker: StoredSubtitlePicker, req: FansubPickRequest, origin: FansubOrigin): Promise<FansubPick | null> =>
-    picker.pickFansub(req, origin).then((placed) => {
+  const pickFansubWith = (picker: StoredSubtitlePicker, req: FansubPickRequest, origin: FansubOrigin, at?: PickPlacement): Promise<FansubPick | null> =>
+    picker.pickFansub(req, origin, at).then((placed) => {
       if (placed) {
         setFansubActive({ fileName: placed.fileName, fileId: req.fileId, track: req.track });
         setStoredActive(null);
@@ -351,7 +368,13 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
   /** The menu's pick: it replaces any files still being re-added for a resume. */
   const pickStored = (s: StoredSubtitle): void => {
     launchSettings.supersede();
-    if (storedPicker) void pickStoredWith(storedPicker, s);
+    if (storedPicker) void pickStoredWith(storedPicker, s, encodePlacement(s));
+  };
+  /** An encoded episode's placement of a stored subtitle (`storedForEncode`); undefined for a disc's. */
+  const encodePlacement = (s: StoredSubtitle): PickPlacement | undefined => {
+    if (encodeId === null) return undefined;
+    const startUs = encodeSources?.stored.find((x) => x.subtitle.id === s.id)?.startUs ?? 0;
+    return { playlistId: ENCODE_PLAYLIST_ID, startUs: () => startUs };
   };
   const [launchSettings] = useState(
     () =>
@@ -373,7 +396,12 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
       }),
   );
   useEffect(() => launchSettings.observe(snapshot), [launchSettings, snapshot]);
-  const storedHere = stored && currentPlaylistId !== null ? forPlaylist(stored.items, stored.discKey, currentPlaylistId) : null;
+  const storedHere =
+    encodeId !== null
+      ? (encodeSources?.stored.map((x) => x.subtitle) ?? null)
+      : stored && currentPlaylistId !== null
+        ? forPlaylist(stored.items, stored.discKey, currentPlaylistId)
+        : null;
   // checked while its file is still the text set's (Remove takes it away)
   const storedActiveId = storedHere?.find((s) => s.id === storedActive && snapshot.subtitles?.text?.files.some((f) => f.name === s.fileName))?.id ?? null;
   const storedSubtitles = storedHere ? { items: storedHere, activeId: storedActiveId, onPick: pickStored } : null;
@@ -381,8 +409,31 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
   // when the disc was opened from it (this person sees titles), else the disc's name.
   const about = playingRoute.about;
   const fansubHere = fansubActive && snapshot.subtitles?.text?.files.some((f) => f.name === fansubActive.fileName) ? fansubActive : null;
+  // An encoded episode's search lines a pick up on its source disc's playlist (when the NAS has the disc; else the pick
+  // keeps its own timing), with the show's name to start the box, and the release's file of this episode's number.
+  const encodeSource = encodeSources && hasSource(encodeSources.entry) ? encodeSources.entry : null;
   const toshoSearch: ToshoSearch | null =
-    nas && storedPicker && nasDiscKey !== null && currentPlaylistId !== null
+    encodeId !== null
+      ? nas && storedPicker && encodeSource
+        ? {
+            query: defaultQuery(nextOf?.encodeId === encodeId ? nextOf.showName : null, ''),
+            search: (q) => nas.searchTosho(q),
+            release: (id) =>
+              nas.toshoRelease(id, encodeSource.discKey, encodeSource.playlistId).then((listed) => ({
+                ...listed,
+                matchedFileId: listed.files.find((f) => f.episode === encodeSource.episode)?.id ?? null,
+              })),
+            pick: (releaseId: number, fileId: number, t: ToshoTrack) => {
+              // the search's pick replaces any files still being re-added for a resume
+              launchSettings.supersede();
+              const req = { fileId, track: t.track, discKey: encodeSource.discKey, playlistId: encodeSource.playlistId };
+              const at: PickPlacement = { playlistId: ENCODE_PLAYLIST_ID, startUs: (p) => encodePickStartUs(p, encodeSource.episodeStartMs) };
+              return pickFansubWith(storedPicker, req, { releaseId, trackName: t.name }, at).then((p) => p !== null);
+            },
+            active: fansubHere,
+          }
+        : null
+      : nas && storedPicker && nasDiscKey !== null && currentPlaylistId !== null
       ? {
           query: defaultQuery(about?.title?.name ?? null, about?.discName ?? ''),
           search: (q) => nas.searchTosho(q, about?.title?.id),

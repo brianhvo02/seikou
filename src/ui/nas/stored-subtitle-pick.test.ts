@@ -82,6 +82,39 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+describe('StoredSubtitlePicker on an encoded episode', () => {
+  it("places it where the encode says, on the encode's playlist, and notes nothing for the place", async () => {
+    const t = setup();
+    t.show({ currentPlaylistId: 'mkv' });
+    const done = t.picker.pick(episodeSub, undefined, { playlistId: 'mkv', startUs: () => -60_000_000 });
+    await settle();
+    t.engineLists(file('ep1.ass'));
+    expect(await done).toBe(true);
+    expect(t.calls.slice(2)).toEqual([['start', 0, -60_000_000], ['shift', 0, 400], ['select', { kind: 'text' }]]);
+  });
+
+  it('lines an Anime Tosho pick up on the source playlist while the encode plays, and places it from the pick', async () => {
+    const t = setup();
+    t.show({ currentPlaylistId: 'mkv' });
+    const placedFrom: StoredSubtitle[] = [];
+    const placed = t.picker.pickFansub(pickRequest, { releaseId: 7001, trackName: 'Full' }, { playlistId: 'mkv', startUs: (s) => (placedFrom.push(s), 0) });
+    await settle();
+    t.engineLists(file('pick.ass'));
+    expect(await placed).not.toBeNull();
+    expect(placedFrom.map((s) => s.id)).toEqual(['pick-1']);
+    expect(t.calls).toContainEqual(['select', { kind: 'text' }]);
+    expect(t.calls.filter((c) => c[0] === 'noteFansub' || c[0] === 'notice')).toEqual([]);
+  });
+
+  it('gives a pick up when another playlist than the encode plays', async () => {
+    const t = setup();
+    const done = t.picker.pick(episodeSub, undefined, { playlistId: 'mkv', startUs: () => 0 });
+    await settle();
+    t.engineLists(file('ep1.ass'));
+    expect(await done).toBe(false);
+  });
+});
+
 describe('StoredSubtitlePicker', () => {
   it('loads the file with its fonts, then places an episode subtitle at 0 with its default offset, selects text and notes the id', async () => {
     const t = setup();

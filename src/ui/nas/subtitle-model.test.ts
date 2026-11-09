@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { StoredSubtitle } from '@seikou/nas/nas-api';
-import type { DiscManifest, SeasonDetail, SubtitleCreate } from '@seikou/nas/nas-api';
+import type { DiscManifest, FansubAlignment, SeasonDetail, SubtitleCreate } from '@seikou/nas/nas-api';
 import { CodingType } from '@seikou/bdmv/stream-types';
 import { buildMpls } from '../../../tests/helpers/bdmv-builders';
 import { NasHttpError } from './nas-client';
 import {
-  FONTS_LIMIT_BYTES, LANGUAGES, editPatch, offsetFrom, ownerListing, SUBTITLE_LIMIT_BYTES, forPlaylist, forSeason, formatOffset, languageTag, parseOffset, playlistChoices, sameLanguage, startFor,
+  FONTS_LIMIT_BYTES, LANGUAGES, editPatch, encodePickStartUs, episodeFirstChapter, offsetFrom, storedForEncode, ownerListing, SUBTITLE_LIMIT_BYTES, forPlaylist, forSeason, formatOffset, languageTag, parseOffset, playlistChoices, sameLanguage, startFor,
   subtitleErrorMessage, subtitleTarget, tagsByEpisode, uploadSubtitle, validateUpload, type SubtitleWriter,
 } from './subtitle-model';
 
@@ -331,5 +331,76 @@ describe('editPatch', () => {
   it('sends a changed place, which must be complete', () => {
     expect(editPatch(fields, place, { touched: true, attached: true })).toEqual({ ...fields, for: place });
     expect(editPatch(fields, 'Choose a chapter.', { touched: true, attached: true })).toEqual({ error: 'Choose a chapter.' });
+  });
+});
+
+describe('storedForEncode', () => {
+  const entry = { discKey: 'd.1', playlistId: '00001', episodeStartMs: 60_000 };
+  // the source playlist's chapters: the episode starts at the third (60 s)
+  const chapters = [0, 30_000, 60_000, 90_000];
+
+  it('offers an episode attachment on the same disc and playlist, placed back by the episode start', () => {
+    const a = sub('a', 'en', ep(2));
+    expect(storedForEncode([a], entry, null)).toEqual([{ subtitle: a, startUs: -60_000_000 }]);
+  });
+
+  it("offers a chapter attachment on the episode's first chapter at the encode's start", () => {
+    const a = sub('a', 'en', ch(2));
+    expect(storedForEncode([a], entry, chapters)).toEqual([{ subtitle: a, startUs: 0 }]);
+  });
+
+  it('takes the chapter starting within a second of the episode start', () => {
+    const a = sub('a', 'en', ch(2));
+    expect(storedForEncode([a], entry, [0, 30_000, 60_400, 90_000])).toEqual([{ subtitle: a, startUs: 0 }]);
+    expect(storedForEncode([a], entry, [0, 30_000, 61_500, 90_000])).toEqual([]);
+  });
+
+  it('leaves out chapter attachments on other chapters, and all of them without the source chapters', () => {
+    expect(storedForEncode([sub('a', 'en', ch(1)), sub('b', 'en', ch(3))], entry, chapters)).toEqual([]);
+    expect(storedForEncode([sub('a', 'en', ch(2))], entry, null)).toEqual([]);
+  });
+
+  it('leaves out other discs and playlists', () => {
+    const other = [sub('a', 'en', ep(2, 's1', '00002')), sub('b', 'en', { ...ep(2), discKey: 'd.2' } as StoredSubtitle['attachment']), sub('c', 'en', ch(2, '00002')), sub('d', 'en', ch(2, '00001', 'd.2'))];
+    expect(storedForEncode(other, entry, chapters)).toEqual([]);
+  });
+
+  it('offers nothing for an encode without its source tags', () => {
+    const items = [sub('a', 'en', ep(2)), sub('b', 'en', ch(2))];
+    expect(storedForEncode(items, { ...entry, discKey: null }, chapters)).toEqual([]);
+    expect(storedForEncode(items, { ...entry, playlistId: null }, chapters)).toEqual([]);
+    expect(storedForEncode(items, { ...entry, episodeStartMs: null }, chapters)).toEqual([]);
+  });
+
+  it('keeps the list order, and an episode starting at 0 is not moved', () => {
+    const a = sub('a', 'en', ch(0));
+    const b = sub('b', 'ja', ep(1));
+    expect(storedForEncode([b, a], { ...entry, episodeStartMs: 0 }, chapters)).toEqual([{ subtitle: b, startUs: 0 }, { subtitle: a, startUs: 0 }]);
+  });
+});
+
+describe('episodeFirstChapter', () => {
+  it('is the chapter starting nearest the episode start, within a second', () => {
+    expect(episodeFirstChapter([0, 30_000, 60_000], 0)).toBe(0);
+    expect(episodeFirstChapter([0, 30_000, 60_000], 59_200)).toBe(2);
+    expect(episodeFirstChapter([0, 30_000, 60_000], 45_000)).toBeNull();
+    expect(episodeFirstChapter([], 0)).toBeNull();
+  });
+});
+
+describe('encodePickStartUs', () => {
+  const pick = (alignment: FansubAlignment): StoredSubtitle => ({
+    ...sub('p', 'en', ch(0)),
+    pick: true,
+    source: { kind: 'fansub', group: 'g', tracker: '', rank: 'other', toshoFileId: 1, track: 0, trackName: 'English', alignment, linedUpOn: { discKey: 'd.1', playlistId: '00001' } },
+  });
+  it('places a pick lined up on the source playlist back by the episode start', () => {
+    expect(encodePickStartUs(pick({ kind: 'offset', offsetMs: 60_000, confidence: 0.9 }), 60_000)).toBe(-60_000_000);
+    expect(encodePickStartUs(pick({ kind: 'split', parts: [], confidence: 0.9 }), 60_000)).toBe(-60_000_000);
+  });
+  it("places one left in its own timing (not lined up) at the encode's start", () => {
+    expect(encodePickStartUs(pick({ kind: 'none', reason: 'low-confidence' }), 60_000)).toBe(0);
+    expect(encodePickStartUs(pick({ kind: 'original' }), 60_000)).toBe(0);
+    expect(encodePickStartUs(sub('p', 'en', ch(0)), 60_000)).toBe(0);
   });
 });

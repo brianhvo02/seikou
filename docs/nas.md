@@ -29,9 +29,32 @@ The NAS files each disc under a title by itself. A series has seasons, each with
 
 If the owner has not opened the library to everyone, you see the folders only. Owners also see an **Unsorted** shelf (discs the NAS could not file) and a settings button.
 
-## Encoded episodes
+## Encodes
 
-If the owner has set up an encodes folder (`ENCODES_MOUNT` in [Self-hosting](self-hosting.md)), the NAS also holds episodes encoded with the Seikou encoder. It reads each MKV's tags (the AniList id and episode number the encoder writes) and keeps an index. The player reads an episode from the NAS with range requests, as it reads a disc. MKVs whose tags name no episode stay in the folder, unlisted. The NAS never moves or deletes a file it didn't upload.
+The **Encodes** tab, beside **Discs** on the NAS screens, lists episodes encoded with the Seikou encoder: one MKV file per episode, with AV1 video, Opus audio, ASS and PGS subtitles, and named chapters. Episodes are grouped by show, using AniList: a show's seasons, then its films and other entries. **Continue watching** and **Up next** on this tab work as they do for discs, and places on encodes are kept apart from places on discs.
+
+### Setting it up (owner)
+
+Set `ENCODES_MOUNT` in the NAS's `.env` to a folder on the host and redeploy (see [Self-hosting](self-hosting.md)). Without it the tab shows "No encodes yet" and a link here. Episodes reach the folder in two ways:
+
+- **Uploaded from the encoder.** An owner device sends the file to the NAS over HTTPS (not over the WebRTC route). The upload can resume after a break, and the NAS checks the file's size and hash before filing it as `<AniList id>/<episode>.mkv`. A new upload of the same episode replaces the old file once it is complete.
+- **Placed by hand.** Copy MKVs the encoder wrote into the folder. The NAS reads their tags when it starts and keeps an index.
+
+The NAS reads each file's tags: the AniList id, the episode number, the episode title, and the disc and playlist it was encoded from. A file without an AniList id is listed under **Not filed**, for owners only. The NAS never moves or deletes a file it didn't upload.
+
+### Watching
+
+Choosing an episode opens a short pre-flight with **Play**, or **Resume at m:ss** and **Start from beginning** if you stopped part-way. In the player:
+
+- **Chapters** in the control bar lists the episode's chapters by name and jumps to one.
+- **Skip opening** shows during a chapter named Opening and jumps to the next chapter. **Skip ending** does the same during an Ending that has more after it.
+- **Next episode** shows during an Ending that nothing follows, or during a Preview after the Ending, and at the end of the episode. It opens the next episode of the show (the next number, then the next season), keeping your audio and subtitle choices by language. There is none after the show's last episode.
+- **Next episode countdown** in the player's **Settings** menu starts the next episode by itself after 10 seconds. The bar drains as it counts, and **Cancel** stops it. The setting is yours and follows you to your other devices.
+- **Subtitles** offers the episode's own tracks, subtitles stored on the NAS for the disc and playlist the episode came from (see below), **Search Anime Tosho…**, and your own files.
+
+### Devices that can't play AV1
+
+Encodes use AV1 video, decoded by the browser. Current Chrome, Edge and Firefox decode it. Safari decodes it only on devices with AV1 hardware: iPhone 15 Pro, Macs with an M3 chip, and later. On a device without it the player says so and opens nothing; the NAS doesn't convert encodes for such devices.
 
 ## Playing
 
@@ -70,7 +93,9 @@ The **Music** shelf lists artists. An artist has releases, and a release opens l
 
 ## Subtitles stored on the NAS
 
-The owner can upload `.srt` and `.ass` files, with their fonts, to the NAS and attach them to an episode or to one chapter of a playlist. In the player's **Subtitles** menu, a **From the NAS** group lists the ones for what you are playing, with their language. Pick one and it loads like a file you added yourself. A stored subtitle you used comes back when you resume.
+The owner can upload `.srt` and `.ass` files, with their fonts, to the NAS and attach them to an episode or to one chapter of a playlist. In the player's **Subtitles** menu, a **From the NAS** group lists the ones for what you are playing, with their language. Pick one and it loads like a file you added yourself. A stored subtitle you used comes back when you resume a disc.
+
+An encoded episode offers the stored subtitles of the disc and playlist it was encoded from: one attached to its episode, moved to the episode's start, and one attached to the chapter the episode starts at. Others are not offered. A stored subtitle or Anime Tosho pick you used on an encode doesn't come back when you resume it.
 
 Owners upload from a season or movie screen. A file must be an `.srt`, `.ass` or `.ssa` up to 5 MB.
 

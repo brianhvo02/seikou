@@ -9,7 +9,7 @@ Files: `990001/1.mkv` and `990001/2.mkv`, about 1.15 MB each (the font attachmen
 ## Both files
 
 - Tracks, in order (track numbers 1 to 4):
-  1. `V_AV1`, 1920x1080, no name, `und`, default
+  1. `V_AV1`, 640x360 (the size of the `disc-speech` video it is cut from), no name, `und`, default
   2. `A_OPUS`, stereo 48 kHz, name `Japanese`, language `jpn`, default
   3. `S_TEXT/ASS`, name `English`, language `eng`, default
   4. `S_HDMV/PGS`, name `English (disc)`, language `eng`, not default
