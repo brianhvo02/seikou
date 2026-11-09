@@ -78,13 +78,27 @@ class IntervalIndex {
 }
 
 export class FrameBuilder {
-  private index: IntervalIndex;
+  private indexValue: IntervalIndex;
+  /** Events were appended since the index was built: it is built again at the next query. */
+  private indexStale = false;
+  /** How many times the time index was built (tests). */
+  indexBuilds = 1;
   private readonly animated = new Map<number, boolean>();
   private readonly memory = new CollisionMemory();
   private lastSettings: RenderSettings | null = null;
 
   constructor(private readonly track: AssTrack, private readonly fonts: AssFonts, private readonly measurer: GlyphMeasurer) {
-    this.index = new IntervalIndex(track);
+    this.indexValue = new IntervalIndex(track);
+  }
+
+  /** The time index, built again once after events were appended. */
+  private get index(): IntervalIndex {
+    if (this.indexStale) {
+      this.indexValue = new IntervalIndex(this.track);
+      this.indexStale = false;
+      this.indexBuilds++;
+    }
+    return this.indexValue;
   }
 
   /** Indices (track order) of the events active at t. */
@@ -99,10 +113,11 @@ export class FrameBuilder {
 
   /**
    * Events were appended to the track (libass's ass_process_chunk, a Matroska block at a time): the time index is built
-   * again. Appending keeps every existing event's index, so collision memory and per-event state stay.
+   * again at the next query, once however many were appended. Appending keeps every existing event's index, so collision
+   * memory and per-event state stay.
    */
   eventsAdded(): void {
-    this.index = new IntervalIndex(this.track);
+    this.indexStale = true;
   }
 
   private isAnimated(i: number): boolean {

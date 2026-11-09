@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 export * from './types';
-export { parseAss, looksLikeAss, lookupStyle } from './parse';
+export { parseAss, parseAssCodecPrivate, parseChunkEvent, looksLikeAss, lookupStyle } from './parse';
 export { AssRenderer, type AssRendererDeps, type AssRenderStats } from './renderer';
 export { AssFonts, createFontFaceLoader, type FontLoader } from './fonts';
 export { readFontFile } from './font-tables';

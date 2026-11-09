@@ -49,6 +49,22 @@ describe('FrameBuilder', () => {
     expect(b.build(1500, SETTINGS).events[0]!.shiftY).toBe(0);
   });
 
+  it('builds its time index again once per query after events are appended, not once per event', () => {
+    const track = script(ev(0, '0:00:00.00', '0:00:01.00', 'first'));
+    const b = new FrameBuilder(track, fonts, createFixedMeasurer(0.5));
+    expect(b.indexBuilds).toBe(1);
+    const template = track.events[0]!;
+    for (let i = 1; i <= 500; i++) {
+      (track.events as (typeof template)[]).push({ ...template, readOrder: i, start: i * 1000, duration: 500 });
+      b.eventsAdded();
+    }
+    expect(b.indexBuilds).toBe(1); // nothing asked yet
+    expect(b.activeIndices(250_200)).toEqual([250]);
+    expect(b.activeIndices(400_100)).toEqual([400]);
+    expect(b.build(100, SETTINGS).events.map((e) => e.index)).toEqual([0]);
+    expect(b.indexBuilds).toBe(2);
+  });
+
   it('marks animated events', () => {
     const b = new FrameBuilder(script(ev(0, '0:00:00.00', '0:00:05.00', '{\\move(0,0,10,10)}a'), ev(0, '0:00:00.00', '0:00:05.00', '{\\b1}b'), ev(0, '0:00:00.00', '0:00:05.00', '{\\k20}c')), fonts, createFixedMeasurer(0.5));
     expect(b.build(100, SETTINGS).events.map((e) => e.animated)).toEqual([true, false, true]);

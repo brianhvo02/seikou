@@ -25,6 +25,8 @@ interface FakeAudio {
   readonly chunks: Array<{ timestamp: number; bytes: number }>;
   /** Outputs held back (deferred mode), with the decoder that made them. */
   readonly held: Array<() => void>;
+  /** Makes the newest decoder fail as WebCodecs does: error callback, then closed. */
+  fail(): void;
 }
 
 /** WebCodecs AudioDecoder stand-in: one AudioData of 960 frames per chunk, at once or held back until release. */
@@ -32,6 +34,7 @@ function fakeAudioApi(opts: { supported?: boolean; deferred?: boolean; channels?
   const configs: AudioDecoderConfig[] = [];
   const chunks: Array<{ timestamp: number; bytes: number }> = [];
   const held: Array<() => void> = [];
+  let failLast = (): void => undefined;
   const api: AudioDecoderApi = {
     create(init) {
       let channels = 2;
@@ -57,15 +60,20 @@ function fakeAudioApi(opts: { supported?: boolean; deferred?: boolean; channels?
           (d as { state: CodecState }).state = 'unconfigured';
         },
         close() {
+          if (d.state === 'closed') throw new DOMException('closed', 'InvalidStateError');
           (d as { state: CodecState }).state = 'closed';
         },
+      };
+      failLast = () => {
+        (d as { state: CodecState }).state = 'closed';
+        init.error(new DOMException('decoding failed', 'EncodingError'));
       };
       return d;
     },
     isConfigSupported: async (config) => ({ supported: opts.supported ?? true, config }),
     makeChunk: (init) => init as unknown as EncodedAudioChunk,
   };
-  return { api, configs, chunks, held };
+  return { api, configs, chunks, held, fail: () => failLast() };
 }
 
 /** Channel c holds (c + 1) / 10 in every frame. */
@@ -132,6 +140,39 @@ describe('Opus through WebCodecs', () => {
     await decoder.flush();
     expect(decoder.takeOutput().chunks.map((c) => c.ptsUs)).toEqual([33_500]);
     expect(fake.configs).toHaveLength(2); // configured again after the reset
+  });
+
+  it('a decode error, then a seek, opens a fresh decoder without throwing', async () => {
+    const { track, blocks } = await fixtureOpus(3);
+    const fake = fakeAudioApi();
+    const decoder = await createOpusDecoder(fake.api, opusTrackConfig(track));
+    decoder.decode({ data: blocks[0]!.data, ptsUs: 0 });
+    fake.fail();
+    expect(() => decoder.decode({ data: blocks[1]!.data, ptsUs: 20_000 })).toThrow(UnsupportedCodecError);
+    expect(() => decoder.reset()).not.toThrow();
+    expect(decoder.decode({ data: blocks[2]!.data, ptsUs: 40_000 }).chunks.map((c) => c.ptsUs)).toEqual([33_500]);
+  });
+
+  it('trims a block\'s DiscardPadding off the end of its output', async () => {
+    const { track, blocks } = await fixtureOpus(2);
+    const decoder = await createOpusDecoder(fakeAudioApi().api, opusTrackConfig(track));
+    const [chunk] = decoder.decode({ data: blocks[1]!.data, ptsUs: 20_000, discardPaddingUs: 10_000 }).chunks;
+    expect(chunk!.frames).toBe(960 - 480);
+    expect(chunk!.stereo.length).toBe((960 - 480) * 2);
+  });
+
+  it('says from when PCM is still owed', async () => {
+    const { track, blocks } = await fixtureOpus(2);
+    const decoder = await createOpusDecoder(fakeAudioApi({ deferred: true }).api, opusTrackConfig(track));
+    expect(decoder.pendingFromUs()).toBeNull();
+    decoder.decode({ data: blocks[0]!.data, ptsUs: 0 });
+    decoder.decode({ data: blocks[1]!.data, ptsUs: 20_000 });
+    expect(decoder.pendingFromUs()).toBe(-6500);
+    await decoder.flush();
+    expect(decoder.pendingFromUs()).toBeNull();
+    decoder.decode({ data: blocks[1]!.data, ptsUs: 40_000 });
+    decoder.reset();
+    expect(decoder.pendingFromUs()).toBeNull();
   });
 
   it('mixes more than two channels down to stereo and doubles mono', async () => {

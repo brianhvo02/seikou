@@ -140,7 +140,10 @@ export class EncodePipeline implements SessionPipeline {
         if (this.reached === null || ptsUs > this.reached) this.reached = ptsUs;
       } else if (audio && block.track === audio.track) {
         // every packet goes in (their output is placed by time); the ring drops what lies before the start
-        if (ptsUs >= audioFromUs) this.sinks.audio({ data: block.data, ptsUs, inRange: true, key: true, codingType: CODING_OPUS });
+        if (ptsUs >= audioFromUs) {
+          const padding = block.discardPaddingNs !== undefined && block.discardPaddingNs > 0n ? { discardPaddingUs: Number(block.discardPaddingNs) / 1000 } : {};
+          this.sinks.audio({ data: block.data, ptsUs, inRange: true, key: true, codingType: CODING_OPUS, ...padding });
+        }
       } else {
         const stream = subtitles.indexOf(block.track) + 1;
         if (stream > 0) this.sinks.subtitle({ stream, data: block.data, ptsUs, ...(block.durationMs !== undefined ? { durationUs: Math.round(block.durationMs * 1000) } : {}) });

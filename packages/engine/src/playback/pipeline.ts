@@ -41,6 +41,8 @@ export interface PipelineAudioUnit extends PipelineUnit {
   /** Coding type of the selected stream in this unit's play item. */
   readonly codingType: number;
   readonly streamIdExtension?: number;
+  /** A Matroska block's DiscardPadding in microseconds (an encode's last Opus packet). */
+  readonly discardPaddingUs?: number;
 }
 
 export interface PipelineSinks {

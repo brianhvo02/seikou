@@ -1053,7 +1053,7 @@ export class Player {
       tracks: subtitleTracks,
       entries: subtitleTracks.map((x) => x.track),
       choice: defaultSubtitle(subtitleTracks.map((x) => x.track)),
-      ass: new Map(subtitleTracks.flatMap((x, i) => (x.kind === 'ass' ? [[i + 1, new MkvAssTrack(x.track.codecPrivate!)] as const] : []))),
+      ass: new Map(subtitleTracks.flatMap((x, i) => (x.kind === 'ass' ? [[i + 1, new MkvAssTrack(x.track.codecPrivate!, x.track.defaultDurationNs !== undefined ? Number(x.track.defaultDurationNs) / 1e6 : undefined)] as const] : []))),
       pgs: null,
       fonts: null,
     };
@@ -1211,8 +1211,10 @@ export class Player {
       if (subs !== this.encodeSubs) return;
       subs.fonts = fonts;
       for (const a of tracks) a.attach(new AssRenderer(a.track, fonts, this.assRendererDeps(deps)), fonts);
+      const missing = fonts.missingFamilies();
       fonts = null; // the encode owns them now (dropEncode disposes them)
       if (unreadable.length) this.notice('subtitle-fonts', `Some font files could not be read: ${unreadable.join(', ')}`);
+      if (missing.length) this.notice('subtitle-fonts', `Some fonts are missing and were replaced: ${missing.join(', ')}`);
       this.subtitlesDirty = true;
     } catch (err) {
       this.deps.log?.(`The episode's subtitle fonts could not be loaded: ${err instanceof Error ? err.message : String(err)}`);
@@ -3182,7 +3184,13 @@ export class Player {
     if (!s.audioActive || !writer) return;
     this.pullAudio(s); // an asynchronous decoder's output first, so silence never fills where its PCM goes
     const readUs = s.decoder ? s.videoReadUs : (s.pipeline.readUs ?? -Infinity);
-    writer.fillSilenceTo(readUs - AUDIO_ABSENT_AFTER_US); // drains the queued chunks first
+    let untilUs = readUs - AUDIO_ABSENT_AFTER_US;
+    // an asynchronous decoder (an encode's Opus) may still owe PCM for units well behind the read: no silence over it
+    for (const d of s.audioDecoders.values()) {
+      const pending = d.pendingFromUs?.() ?? null;
+      if (pending !== null && pending < untilUs) untilUs = pending;
+    }
+    writer.fillSilenceTo(untilUs); // drains the queued chunks first
   }
 
   /**
@@ -3256,6 +3264,12 @@ export class Player {
       if (!decoder.takeOutput || !s.audioActive) continue;
       this.writeAudio(s, decoder.takeOutput(), codingType, true);
     }
+  }
+
+  /** An asynchronous decoder has been given units whose PCM has not come out yet. */
+  private audioOwed(s: Session): boolean {
+    for (const d of s.audioDecoders.values()) if ((d.pendingFromUs?.() ?? null) !== null) return true;
+    return false;
   }
 
   /** Decoded PCM into the ring (at 48 kHz), counting failed frames: too many in a row turn audio off. */
@@ -3374,10 +3388,12 @@ export class Player {
     const ring = s.audioActive ? this.ring : null;
     if (ring) this.fillMissingAudio(s); // the reader may be waiting or done: the ring is fed here too
     if (this.state === 'buffering' && this.wantPlaying) {
+      // a blocked reader counts as ready only once an asynchronous decoder (an encode's Opus) owes no PCM: its output
+      // comes in a later task, and starting before it would play silence where it belongs
       const audioReady =
         !ring ||
         s.eof ||
-        this.readerBlocked(s) ||
+        (this.readerBlocked(s) && !this.audioOwed(s)) ||
         (this.audioWriter?.queuedChunks ?? 0) > 0 ||
         (ring.buffered() * 1e6) / ring.sampleRate >= AUDIO_PREBUFFER_US;
       const videoReady = s.decoder === null || this.presenter.size > 0 || this.presenter.current !== null || s.eof || s.videoState === 'failed';

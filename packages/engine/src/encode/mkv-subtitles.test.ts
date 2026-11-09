@@ -80,6 +80,25 @@ describe('the MKV ASS track', () => {
     expect(ass.track.events[1]).toMatchObject({ readOrder: 9, start: 30_000, duration: 1000, text: 'x' });
     expect(ass.add({ ...first, data: new TextEncoder().encode('not a block') })).toBe(false);
   });
+
+  it('gives a block without BlockDuration the DefaultDuration, and skips it without one', async () => {
+    const { file } = await fixture();
+    const header = encodeSubtitleTracks(file)[0]!.track.codecPrivate!;
+    const line = new TextEncoder().encode('0,0,Default,,0,0,0,,no duration');
+    const without = new MkvAssTrack(header);
+    expect(without.add({ data: line, timeMs: 1000 })).toBe(false);
+    expect(without.track.events).toEqual([]);
+    const withDefault = new MkvAssTrack(header, 1500);
+    expect(withDefault.add({ data: line, timeMs: 1000 })).toBe(true);
+    expect(withDefault.track.events[0]).toMatchObject({ start: 1000, duration: 1500, text: 'no duration' });
+  });
+
+  it('reads blocks against a header with no [Events] Format by the default one', () => {
+    const ass = new MkvAssTrack(new TextEncoder().encode('[Script Info]\nScriptType: v4.00+\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize\nStyle: Sign,DejaVu Sans,30\n'));
+    expect(ass.add({ data: new TextEncoder().encode('3,1,Sign,Someone,0,0,0,,Hi, there'), timeMs: 2000, durationMs: 500 })).toBe(true);
+    expect(ass.track.events[0]).toMatchObject({ readOrder: 3, layer: 1, name: 'Someone', text: 'Hi, there', start: 2000, duration: 500 });
+    expect(ass.track.styles[ass.track.events[0]!.style]!.name).toBe('Sign');
+  });
 });
 
 describe('the MKV PGS track', () => {

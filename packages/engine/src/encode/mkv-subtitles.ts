@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { parseAss, type AssEvent, type AssFonts, type AssRenderer, type AssTrack, type Rect, type TextRendererLike, type TextRenderOptions } from '@seikou/ass';
+import { parseAssCodecPrivate, parseChunkEvent, type AssEvent, type AssFonts, type AssRenderer, type AssTrack, type Rect, type TextRendererLike, type TextRenderOptions } from '@seikou/ass';
 import type { MatroskaFile, MkvAttachedFile, MkvTrack } from '@seikou/matroska';
 import { OverlayPlane, PgRenderer, PgSegmentDecoder, type OverlayOp, type PgDisplaySet } from '@seikou/pg';
 
@@ -7,8 +7,9 @@ import { OverlayPlane, PgRenderer, PgSegmentDecoder, type OverlayOp, type PgDisp
 // (reading the whole file first would mean reading the episode):
 // - S_TEXT/ASS (Matroska codec specification): CodecPrivate is the script up to its [Events] Format line, and each block
 //   holds one Dialogue line as `ReadOrder, Layer, Style, Name, MarginL, MarginR, MarginV, Effect, Text`, with its start
-//   in the block's time and its length in BlockDuration. The script is rebuilt as the blocks come: each event once, by
-//   ReadOrder, appended to the track the renderer draws (as libass's ass_process_chunk does).
+//   in the block's time and its length in BlockDuration. The script is rebuilt as the blocks come: the header is parsed
+//   once (ass_process_codec_private), and each block's line against its event Format, each event once by ReadOrder,
+//   appended to the track the renderer draws (as libass's ass_process_chunk does).
 // - S_HDMV/PGS: each block holds one display set's segments with no PES header; they go to the PG segment decoder one
 //   segment at a time, and display sets are rendered into the PG plane when the clock reaches them, as on a disc.
 
@@ -83,17 +84,15 @@ const TEXT = new TextDecoder();
 export class MkvAssTrack implements TextRendererLike {
   /** The rebuilt script: the header's styles and settings, with the events read so far. */
   readonly track: AssTrack;
-  private readonly header: string;
   private readonly events: AssEvent[] = [];
   private readonly seen = new Set<number>();
   private rendererValue: AssRenderer | null = null;
   private fontsValue: AssFonts | null = null;
   private attachedChange = false;
 
-  constructor(codecPrivate: Uint8Array) {
-    this.header = TEXT.decode(codecPrivate).replace(/\s+$/, '');
-    const parsed = parseAss(this.header);
-    this.track = { ...parsed, events: this.events };
+  /** `defaultDurationMs`: the track's DefaultDuration, the length of a block that has no BlockDuration. */
+  constructor(codecPrivate: Uint8Array, private readonly defaultDurationMs?: number) {
+    this.track = { ...parseAssCodecPrivate(TEXT.decode(codecPrivate)), events: this.events };
   }
 
   /** The renderer, once attached. */
@@ -102,21 +101,22 @@ export class MkvAssTrack implements TextRendererLike {
   }
 
   /**
-   * Adds one block's event; false when it is not an ASS block or its ReadOrder was added before (a block read again
-   * after a seek). A block without BlockDuration gets no time on screen.
+   * Adds one block's event; false when it is not an ASS block, or its ReadOrder was added before (a block read again
+   * after a seek). A block without BlockDuration lasts the track's DefaultDuration; without that either, when the
+   * event ends is unknown (ASS events are always BlockGroups with a duration, so this is a malformed file) and the
+   * block is skipped.
    */
   add(block: { readonly data: Uint8Array; readonly timeMs: number; readonly durationMs?: number }): boolean {
-    const text = TEXT.decode(block.data);
-    const m = /^\s*(-?\d+)\s*,\s*(-?\d+)\s*,(.*)$/s.exec(text);
+    const durationMs = block.durationMs ?? this.defaultDurationMs;
+    if (durationMs === undefined) return false;
+    const text = TEXT.decode(block.data).replace(/[\r\n]+/g, ' ');
+    const m = /^\s*(-?\d+)\s*,/.exec(text);
     if (!m) return false;
     const readOrder = Number(m[1]);
     if (this.seen.has(readOrder)) return false;
-    // the line goes through the script parser with the header's Format, so styles and fields are read as for a file
-    const line = `Dialogue: ${m[2]},0:00:00.00,0:00:00.00,${m[3]!.replace(/[\r\n]+/g, ' ')}`;
-    const parsed = parseAss(`${this.header}\n${line}\n`).events[0];
-    if (!parsed) return false;
+    const event = parseChunkEvent(this.track, text, Math.round(block.timeMs), Math.max(0, Math.round(durationMs)));
+    if (!event) return false;
     this.seen.add(readOrder);
-    const event: AssEvent = { ...parsed, readOrder, start: Math.round(block.timeMs), duration: Math.max(0, Math.round(block.durationMs ?? 0)) };
     this.events.push(event);
     if (this.fontsValue) resolveEventFonts(this.fontsValue, event);
     this.rendererValue?.eventsAdded();

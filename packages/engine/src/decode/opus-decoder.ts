@@ -191,6 +191,8 @@ export class OpusDecoder implements AudioDecoder {
   private decoder: AudioDecoderLike;
   private queue: PcmChunk[] = [];
   private failure: string | null = null;
+  /** Packets submitted whose output has not come yet, in order: their timestamps and DiscardPadding (48 kHz samples). */
+  private pending: { readonly timestamp: number; readonly discardFrames: number }[] = [];
 
   constructor(
     private readonly api: AudioDecoderApi,
@@ -219,34 +221,53 @@ export class OpusDecoder implements AudioDecoder {
   }
 
   private accept(data: AudioDataLike): void {
-    const frames = data.numberOfFrames;
-    if (frames === 0) return;
+    // output comes in submission order: this one's packet and any before it (a packet that gave nothing) are done
+    let discardFrames = 0;
+    while (this.pending.length > 0 && this.pending[0]!.timestamp <= data.timestamp) {
+      const done = this.pending.shift()!;
+      if (done.timestamp === data.timestamp) discardFrames = done.discardFrames;
+    }
+    const total = data.numberOfFrames;
+    if (total === 0) return;
     const planes: Float32Array[] = [];
     for (let c = 0; c < data.numberOfChannels; c++) {
-      const plane = new Float32Array(frames);
+      const plane = new Float32Array(total);
       data.copyTo(plane, { planeIndex: c, format: 'f32-planar' });
       planes.push(plane);
     }
-    let stereo = toStereo(planes, frames);
+    // DiscardPadding (the last packet's end padding) comes off the end
+    let count = total - Math.min(total, Math.round((discardFrames * data.sampleRate) / OUTPUT_RATE));
+    if (count <= 0) return;
+    let stereo = toStereo(planes, total).subarray(0, count * 2);
     let ptsUs = data.timestamp - this.codecDelayUs;
-    let count = frames;
     if (ptsUs < 0) {
       // the pre-skip: samples before the episode's time 0
       const skip = Math.min(count, Math.round((-ptsUs * data.sampleRate) / 1e6));
       if (skip >= count) return;
-      stereo = stereo.slice(skip * 2);
+      stereo = stereo.subarray(skip * 2);
       count -= skip;
       ptsUs = 0;
     }
-    this.queue.push({ ptsUs, sampleRate: data.sampleRate, frames: count, stereo });
+    this.queue.push({ ptsUs, sampleRate: data.sampleRate, frames: count, stereo: stereo.slice() });
   }
 
   decode(unit: AudioUnit): AudioDecodeResult {
     if (this.failure !== null) throw new UnsupportedCodecError(CODING_OPUS, `The Opus audio could not be decoded (${this.failure}), so the episode will play without sound.`);
     if (this.decoder.state === 'configured') {
+      const discardFrames = unit.discardPaddingUs ? Math.round((unit.discardPaddingUs * OUTPUT_RATE) / 1e6) : 0;
+      this.pending.push({ timestamp: unit.ptsUs, discardFrames });
       this.decoder.decode(this.api.makeChunk({ type: 'key', timestamp: unit.ptsUs, data: unit.data }));
     }
     return this.takeOutput();
+  }
+
+  /**
+   * Episode time of the oldest packet submitted whose PCM has not come out yet, or null when none is waiting: the
+   * player fills no silence from there on, or the late PCM would land on it and be dropped.
+   */
+  pendingFromUs(): number | null {
+    const first = this.pending[0];
+    return first ? first.timestamp - this.codecDelayUs : null;
   }
 
   /** The PCM that came out since the last decode() or takeOutput(). */
@@ -266,16 +287,20 @@ export class OpusDecoder implements AudioDecoder {
     } catch {
       // reset or closed meanwhile: nothing to hand on
     }
+    // what the flush did not give will not come
+    if (decoder === this.decoder) this.pending = [];
   }
 
   reset(): void {
     this.queue = [];
-    this.decoder.close();
+    this.pending = [];
+    if (this.decoder.state !== 'closed') this.decoder.close(); // after a decoder error it is closed already
     this.decoder = this.open();
   }
 
   close(): void {
     this.queue = [];
+    this.pending = [];
     if (this.decoder.state !== 'closed') this.decoder.close();
   }
 }

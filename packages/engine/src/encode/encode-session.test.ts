@@ -77,8 +77,11 @@ function recordingCodecApi(supported: boolean): { api: VideoCodecApi; chunks: Ch
   return { api, chunks, configs };
 }
 
-/** A WebCodecs AudioDecoder stand-in: 960 frames of 0.25 per packet, given at once; `decoders` lists each decoder's packet times. */
-function recordingAudioApi(): { api: AudioDecoderApi; decoders: number[][] } {
+/**
+ * A WebCodecs AudioDecoder stand-in: 960 frames of 0.25 per packet, given at once or (`later`) in a later task, as
+ * browsers do; `decoders` lists each decoder's packet times.
+ */
+function recordingAudioApi(later = false): { api: AudioDecoderApi; decoders: number[][] } {
   const decoders: number[][] = [];
   const api: AudioDecoderApi = {
     create(init) {
@@ -101,7 +104,8 @@ function recordingAudioApi(): { api: AudioDecoderApi; decoders: number[][] } {
             copyTo: (dest) => (dest as Float32Array).fill(0.25),
             close: () => undefined,
           };
-          init.output(data);
+          if (later) setTimeout(() => d.state !== 'closed' && init.output(data), 0);
+          else init.output(data);
         },
         flush: async () => undefined,
         reset: () => {
@@ -136,6 +140,8 @@ interface RemuxOptions {
   readonly secondAudio?: { readonly name: string; readonly language: string };
   readonly ass?: { readonly isDefault?: boolean; readonly isForced?: boolean; readonly language?: string };
   readonly pgs?: { readonly isDefault?: boolean; readonly isForced?: boolean; readonly language?: string };
+  /** Leave the font attachment out. */
+  readonly noFonts?: boolean;
 }
 
 /** The fixture written again through @seikou/matroska with other tracks or flags (no re-encode). */
@@ -178,7 +184,7 @@ async function remux(opts: RemuxOptions): Promise<Uint8Array> {
     videoPackets: videoPackets(),
     audio,
     subtitles,
-    attachments: mkv.attachments,
+    attachments: opts.noFonts ? [] : mkv.attachments,
     chapters: mkv.chapters,
   });
   return sink.bytes();
@@ -198,6 +204,8 @@ interface HarnessOptions {
   /** Further encodes at other bases, and reads held back per base. */
   readonly more?: ReadonlyMap<string, Uint8Array>;
   readonly gates?: ReadonlyMap<string, Promise<void>>;
+  /** The fake AudioDecoder gives its output in a later task. */
+  readonly audioLater?: boolean;
 }
 
 async function harness(opts: HarnessOptions = {}) {
@@ -208,7 +216,7 @@ async function harness(opts: HarnessOptions = {}) {
   const clock = { ms: 1000 };
   const reads: Array<{ base: string; start: number; end: number }> = [];
   const codec = recordingCodecApi(opts.supported ?? true);
-  const audioApi = recordingAudioApi();
+  const audioApi = recordingAudioApi(opts.audioLater ?? false);
   const bytes = opts.bytes ?? FIXTURE;
   const files = new Map([[BASE, bytes], ...(opts.more ?? new Map())]);
   const player = new Player({
@@ -243,7 +251,8 @@ async function harness(opts: HarnessOptions = {}) {
   };
   const left = new Float32Array(128);
   const right = new Float32Array(128);
-  const audible = { frames: 0 };
+  /** Frames heard, and quanta played as silence, while the ring plays. */
+  const audible = { frames: 0, silentQuanta: 0 };
   return {
     player,
     events,
@@ -263,6 +272,7 @@ async function harness(opts: HarnessOptions = {}) {
             const playing = Atomics.load(views.control, Control.Playing) === 1;
             renderQuantum(views, left, right);
             if (playing && left.some((v) => v !== 0)) audible.frames += 128;
+            else if (playing) audible.silentQuanta++;
           }
         }
         player.tick();
@@ -517,6 +527,19 @@ describe('an encoded episode\'s audio', () => {
     expect(h.events.filter((e) => e.type === 'notice' && e.code === 'audio-disabled')).toEqual([]);
   });
 
+  it('loses no PCM to silence when the decoder gives its output in a later task, at open and after a seek', async () => {
+    const h = await harness({ audio: true, audioLater: true });
+    await h.player.handle({ type: 'openEncode', encode: h.spec });
+    await untilPlaying(h);
+    await playTo(h, 2_000_000);
+    expect(h.audible.frames).toBeGreaterThan(0);
+    expect(h.audible.silentQuanta).toBe(0);
+    await h.player.handle({ type: 'seek', timeUs: 30_000_000 });
+    await playTo(h, 32_000_000);
+    expect(h.audible.silentQuanta).toBe(0);
+    expect(h.events.filter((e) => e.type === 'notice' && e.code === 'audio-disabled')).toEqual([]);
+  });
+
   it('switching audio track continues at the same time', async () => {
     const bytes = await remux({ secondAudio: { name: 'English', language: 'eng' } });
     const h = await harness({ audio: true, bytes });
@@ -556,6 +579,21 @@ describe('an encoded episode\'s subtitles', () => {
     expect(on.some((t) => t.ass !== null)).toBe(true);
     const off = await telemetryBetween(h, 3_100_000, 4_000_000);
     expect(off.every((t) => !t.textCue)).toBe(true);
+  });
+
+  it('names the fonts an ASS track misses, and none when its attachments have them', async () => {
+    const fontNotices = (h: Harness) => h.events.filter((e) => e.type === 'notice' && e.code === 'subtitle-fonts');
+    const ok = await harness({ audio: true });
+    await ok.player.handle({ type: 'openEncode', encode: ok.spec });
+    await untilPlaying(ok);
+    await playTo(ok, 500_000);
+    expect(fontNotices(ok)).toEqual([]);
+    const h = await harness({ audio: true, bytes: await remux({ noFonts: true }) });
+    await h.player.handle({ type: 'openEncode', encode: h.spec });
+    await vi.waitFor(async () => {
+      await h.play(32);
+      expect(fontNotices(h)).toEqual([{ type: 'notice', code: 'subtitle-fonts', message: 'Some fonts are missing and were replaced: DejaVu Sans Mono' }]);
+    }, { timeout: 10_000, interval: 1 });
   });
 
   it('a subtitle on screen at the seek time shows after the seek', async () => {

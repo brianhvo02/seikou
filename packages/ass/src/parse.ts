@@ -179,10 +179,17 @@ export function lookupStyle(track: AssTrack, name: string): number {
   return lookupStyleIn(track.styles, track.defaultStyle, name);
 }
 
-/** process_event_tail: 0 when the event is complete, 1 when the line ran out before Text. */
-function processEventTail(t: Parser, event: Event, str: string): number {
+/** What process_event_tail reads an event with: the styles and the event Format. */
+interface EventContext { readonly styles: readonly AssStyle[]; readonly defaultStyle: number; readonly eventFormat?: string | null }
+
+/**
+ * process_event_tail: 0 when the event is complete, 1 when the line ran out before Text. `ignored` Format fields are
+ * skipped first (ass_process_chunk's 3: Layer, Start and End, which a Matroska block does not carry there).
+ */
+function processEventTail(t: EventContext, event: Event, str: string, ignored = 0): number {
   const p = cursor(str);
   const q = cursor(t.eventFormat!);
+  for (let i = 0; i < ignored; i++) if (nextToken(q, true) === null) return 1;
   let end = 0;
   for (;;) {
     let tname = nextToken(q, true);
@@ -444,8 +451,36 @@ export function parseAss(text: string): AssTrack {
     trackType: t.trackType, playResX: t.playResX, playResY: t.playResY, layoutResX: t.layoutResX, layoutResY: t.layoutResY,
     wrapStyle: t.wrapStyle, scaledBorderAndShadow: t.scaledBorderAndShadow, kerning: t.kerning, ycbcrMatrix: t.ycbcrMatrix,
     language: t.language, styles: t.styles, defaultStyle: t.defaultStyle, events: t.events, fonts: t.fonts,
-    skippedLines: t.skippedLines, eventLines: t.eventLines,
+    skippedLines: t.skippedLines, eventLines: t.eventLines, eventFormat: t.eventFormat,
   };
+}
+
+/**
+ * ass_process_codec_private: a Matroska track's CodecPrivate (the script up to its [Events] Format line) parsed as a
+ * script, with the default event Format of its type when it has none (libass's event_format_fallback).
+ */
+export function parseAssCodecPrivate(text: string): AssTrack {
+  const track = parseAss(text);
+  if (track.eventFormat) return track;
+  return { ...track, eventFormat: track.trackType === 'ssa' ? SSA_EVENT_FORMAT : ASS_EVENT_FORMAT };
+}
+
+/**
+ * ass_process_chunk's parsing of one Matroska block: `ReadOrder, Layer, ` then the track's event Format after its
+ * Layer, Start and End fields, read against the track's styles. The start and duration are the block's. Null when the
+ * track has no event Format (libass: "Event format header missing") or the line runs out before Text.
+ */
+export function parseChunkEvent(track: AssTrack, data: string, start: number, duration: number): AssEvent | null {
+  if (!track.eventFormat) return null;
+  const p = cursor(data);
+  const readOrder = nextToken(p, false);
+  const layer = nextToken(p, false);
+  if (readOrder === null || layer === null) return null;
+  const event: Event = { readOrder: Number.parseInt(readOrder, 10) || 0, layer: Number.parseInt(layer, 10) || 0, start: 0, duration: 0, style: 0, name: '', marginL: 0, marginR: 0, marginV: 0, effect: '', text: '' };
+  if (processEventTail(track, event, data.slice(p.i), 3) !== 0) return null;
+  event.start = start;
+  event.duration = duration;
+  return event;
 }
 
 /** A `[Script Info]`, `[V4+ Styles]` or `[V4 Styles]` section header within the first 4 KiB. */

@@ -90,4 +90,6 @@ export interface AssTrack {
   readonly skippedLines: number;
   /** Dialogue lines seen. */
   readonly eventLines: number;
+  /** The [Events] Format line's fields (the format events were read with), when the script has one. */
+  readonly eventFormat?: string | null;
 }

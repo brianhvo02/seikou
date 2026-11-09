@@ -11,6 +11,8 @@ export interface AudioUnit {
   /** Playlist time. */
   readonly ptsUs: number;
   readonly streamIdExtension?: number;
+  /** A Matroska block's DiscardPadding in microseconds: samples at the end of its output to drop. */
+  readonly discardPaddingUs?: number;
 }
 
 export interface AudioDecodeResult {
@@ -32,6 +34,11 @@ export interface AudioDecoder {
   takeOutput?(): AudioDecodeResult;
   /** An asynchronous decoder: at the end of input, makes it give up what it holds (handed on by takeOutput). */
   flush?(): Promise<void>;
+  /**
+   * An asynchronous decoder: the time of the oldest unit given to decode() whose PCM has not come out yet, or null.
+   * Silence for missing audio is never filled past it, so late PCM is not lost.
+   */
+  pendingFromUs?(): number | null;
 }
 
 export type AudioDecoderFactory = (codingType: number) => Promise<AudioDecoder>;
