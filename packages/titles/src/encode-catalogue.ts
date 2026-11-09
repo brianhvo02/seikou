@@ -7,6 +7,7 @@
 import { anilistSeries, artIdOf, isAnilistTv, storyParent } from './catalogue';
 import type { Series } from './catalogue';
 import type { Entry } from './sources';
+import { nextInShow } from './encode-next';
 import type { EncodeEpisode, EncodeSeason, EncodeShow } from '@seikou/nas/nas-api';
 
 /** What the catalogue needs of an indexed encode (the server's `EncodeEntry` has all of it). */
@@ -109,23 +110,8 @@ export function buildEncodeCatalogue(encodes: readonly EncodeEntryLike[], anilis
   return { shows, show: (id) => byId.get(id) ?? null, art };
 }
 
-/**
- * The encode that follows `encodeId`: the next episode number in its season, else the first episode of the next season
- * with encodes, else null. Films and other rows are not part of "next": none follows a film, and none follows the last
- * season.
- */
+/** The encode that follows `encodeId` in the show holding it, by `nextInShow`'s rule; null for none. */
 export function nextEncodeEpisode(catalogue: EncodeCatalogue, encodeId: string): string | null {
-  for (const show of catalogue.shows) {
-    for (let i = 0; i < show.seasons.length; i++) {
-      const season = show.seasons[i]!;
-      const at = season.episodes.findIndex((e) => e.id === encodeId);
-      if (at < 0) continue;
-      if (season.kind !== 'season') return null;
-      const same = season.episodes[at + 1];
-      if (same) return same.id;
-      const later = show.seasons.slice(i + 1).find((s) => s.kind === 'season' && s.episodes.length > 0);
-      return later?.episodes[0]?.id ?? null;
-    }
-  }
-  return null;
+  const show = catalogue.shows.find((s) => s.seasons.some((x) => x.episodes.some((e) => e.id === encodeId)));
+  return show ? (nextInShow(show, encodeId)?.id ?? null) : null;
 }

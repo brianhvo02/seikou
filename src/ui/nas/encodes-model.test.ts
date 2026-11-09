@@ -159,6 +159,13 @@ describe('the next episode', () => {
     expect(nextEpisode(SHOW, '999-1')).toBeNull();
   });
 
+  it('goes on within an other row, as the NAS\'s Up next does', () => {
+    const ova = { anilistId: 105, name: 'Starfall Wanderer OVA', kind: 'other' as const, number: null, episodes: [{ episode: 1, id: '105-1', title: null, durationMs: 1 }, { episode: 2, id: '105-2', title: null, durationMs: 1 }] };
+    const show: EncodeShow = { ...SHOW, seasons: [...SHOW.seasons, ova] };
+    expect(nextEpisode(show, '105-1')?.id).toBe('105-2');
+    expect(nextEpisode(show, '105-2')).toBeNull();
+  });
+
   it('goes by episode number, past a missing one', () => {
     const s1 = SHOW.seasons[0]!;
     const show: EncodeShow = { ...SHOW, seasons: [{ ...s1, episodes: [s1.episodes[1]!, { episode: 4, id: '100-4', title: null, durationMs: 1 }, s1.episodes[0]!] }] };

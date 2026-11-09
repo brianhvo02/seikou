@@ -88,13 +88,13 @@ export function folderCoverArtId(cover: FolderCover): string {
 
 const TV_FORMATS = new Set(['TV', 'TV_SHORT']);
 /** Relations that tie a film or OVA to a series; CHARACTER, OTHER and the like don't. */
-const STORY_LINKS =new Set(['SEQUEL', 'PREQUEL', 'PARENT', 'SIDE_STORY', 'SUMMARY']);
+const STORY_LINKS = new Set(['SEQUEL', 'PREQUEL', 'PARENT', 'SIDE_STORY', 'SUMMARY']);
 
 const naturalOrder = (a: string, b: string): number => a.localeCompare(b, undefined, { numeric: true });
 const lastSegment = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
 const hash = (text: string, length: number): string => createHash('sha256').update(text).digest('hex').slice(0, length);
 /** An AniList entry whose format is TV or TV_SHORT. */
-export const isAnilistTv =(en: Entry): boolean => en.source === 'anilist' && TV_FORMATS.has(en.format ?? '');
+export const isAnilistTv = (en: Entry): boolean => en.source === 'anilist' && TV_FORMATS.has(en.format ?? '');
 
 /** An AniList series: a chain of TV entries in start-date order, and each one's season number. */
 export interface Series {

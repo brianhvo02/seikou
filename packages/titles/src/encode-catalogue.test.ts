@@ -70,4 +70,11 @@ describe('nextEncodeEpisode', () => {
     expect(nextEncodeEpisode(cat, '990003-1')).toBeNull();
     expect(nextEncodeEpisode(cat, '1-1')).toBeNull();
   });
+
+  it('goes on within an OVA row, as the player does', () => {
+    const ova = entry(990004, 'Lantern Road OVA', 'OVA', [rel('SIDE_STORY', 990001, 'TV')]);
+    const cat = buildEncodeCatalogue([enc(990001, 1), enc(990004, 1), enc(990004, 2)], map(first, ova));
+    expect(nextEncodeEpisode(cat, '990004-1')).toBe('990004-2');
+    expect(nextEncodeEpisode(cat, '990004-2')).toBeNull();
+  });
 });

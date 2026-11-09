@@ -10,6 +10,7 @@ import { normalizeTitle } from '@seikou/nas/title-text';
 import { NasHttpError, type NasClient } from './nas-client';
 import type { NasRoute } from './nas-route';
 import { progressPercent } from './resume-model';
+import { nextInShow } from '@seikou/titles/encode-next';
 
 /** The help page section on setting up the encodes folder. */
 export const ENCODES_HELP = '/help/nas#encodes';
@@ -131,22 +132,9 @@ export function showContaining(shows: readonly EncodeShow[], from: { readonly an
   return null;
 }
 
-/**
- * The episode after `encodeId` in its show: the next episode number its entry has, else, for a TV season, the first
- * episode of the next season (in the show's order). Never a film, and none after a film, an other entry's last
- * episode or the last season's; null when the show doesn't hold the episode.
- */
+/** The episode after `encodeId` in its show, by the rule the NAS's Up next uses too (`nextInShow`). */
 export function nextEpisode(show: EncodeShow, encodeId: string): EncodeEpisode | null {
-  const at = show.seasons.findIndex((s) => s.episodes.some((e) => e.id === encodeId));
-  if (at < 0) return null;
-  const season = show.seasons[at]!;
-  if (season.kind === 'film') return null;
-  const current = season.episodes.find((e) => e.id === encodeId)!.episode;
-  const later = season.episodes.filter((e) => e.episode > current).sort((a, b) => a.episode - b.episode)[0];
-  if (later) return later;
-  if (season.kind !== 'season') return null;
-  const nextSeason = show.seasons.slice(at + 1).find((s) => s.kind === 'season' && s.episodes.length > 0);
-  return nextSeason ? ([...nextSeason.episodes].sort((a, b) => a.episode - b.episode)[0] ?? null) : null;
+  return nextInShow(show, encodeId);
 }
 
 /**
