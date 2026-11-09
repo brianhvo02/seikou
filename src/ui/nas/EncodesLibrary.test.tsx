@@ -73,7 +73,8 @@ describe('the Encodes tab', () => {
       .mockImplementationOnce(() => new Promise((r) => (resolve = r)));
     show(fakeNas({ configured: true, count: 2 }, shows), false);
     expect(await screen.findByText('Indexing the encodes…')).toBeTruthy();
-    await waitFor(() => expect(shows).toHaveBeenCalledTimes(2));
+    // a Retry-After under a second is waited out for a second
+    await waitFor(() => expect(shows).toHaveBeenCalledTimes(2), { timeout: 2500 });
     resolve(LIST);
     expect(await screen.findByText('Starfall Wanderer')).toBeTruthy();
     expect(screen.queryByText('Indexing the encodes…')).toBeNull();
