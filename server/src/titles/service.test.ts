@@ -584,6 +584,22 @@ describe('TitleService', () => {
     expect(anilist.calls.length).toBe(before);
   });
 
+  it('close stops the background fetch for entriesFor: nothing more is asked after it', async () => {
+    const rel = (type: string, id: string, format: string) => ({ type, id, format, startDate: null });
+    const a = entry('anilist:900', { english: 'Comet One' }, { relations: [rel('SEQUEL', 'anilist:901', 'TV')] });
+    const b = entry('anilist:901', { english: 'Comet Two' }, { relations: [rel('PREQUEL', 'anilist:900', 'TV')] });
+    const anilist = fake({}, [a, b]);
+    const s = service({ evidence: () => [], anilist });
+    s.entriesFor([901]);
+    s.close();
+    await s.encodeEntriesIdle();
+    // the lookup already under way finishes; its chain (anilist:900) is not followed
+    expect(anilist.calls).toEqual(['entry:anilist:901']);
+    s.entriesFor([5]);
+    await s.encodeEntriesIdle();
+    expect(anilist.calls).toEqual(['entry:anilist:901']);
+  });
+
   it('entriesFor does not ask again for an entry the source lacks until ten minutes pass', async () => {
     const anilist = fake({});
     const s = service({ evidence: () => [], anilist });

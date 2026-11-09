@@ -219,6 +219,8 @@ export class TitleService {
   private readonly encodeWanted = new Map<string, number>();
   private readonly encodeFailedAt = new Map<string, number>();
   private encodeFetching: Promise<void> | null = null;
+  /** Set by `close`: no background fetch starts or goes on after it. */
+  private closed = false;
   private encodeEntriesDirty = false;
   private readonly encodeFile: string;
   /** A hash of what metadata.json holds, besides `lastRunAt`, so a run that changed nothing doesn't write it (M1). */
@@ -410,6 +412,7 @@ export class TitleService {
    * carries its place in the walk, and a loaded entry's chain is followed only as far as the walk reads a chain.
    */
   private fetchMissing(ids: ReadonlyMap<string, number>): void {
+    if (this.closed) return;
     const now = this.now();
     for (const [id, place] of ids) {
       const failed = this.encodeFailedAt.get(id);
@@ -419,7 +422,7 @@ export class TitleService {
     if (this.encodeFetching || this.encodeWanted.size === 0) return;
     this.encodeFetching = (async () => {
       try {
-        while (this.encodeWanted.size > 0) {
+        while (!this.closed && this.encodeWanted.size > 0) {
           const [id, place] = this.encodeWanted.entries().next().value!;
           this.encodeWanted.delete(id);
           if (this.knownEntry(id)) continue;
@@ -518,8 +521,10 @@ export class TitleService {
     });
   }
 
-  /** Stops the schedule. */
+  /** Stops the schedule and the background fetch of encode entries (a lookup under way finishes; nothing follows it). */
   close(): void {
+    this.closed = true;
+    this.encodeWanted.clear();
     this.cancelTimer();
   }
 

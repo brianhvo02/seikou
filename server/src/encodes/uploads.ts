@@ -2,7 +2,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { lstat, mkdir, open, readFile, readdir, rename, rm, stat, statfs } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { openMatroska } from '@seikou/matroska';
 import { encodeId } from '@seikou/nas/encode-id';
 import { isCode, replaceAtomically } from '@seikou/titles/atomic-json';
@@ -86,6 +86,9 @@ export function missingRanges(ranges: readonly ByteRange[], size: number): ByteR
   return out;
 }
 
+/** Why an upload is refused while the encodes folder can't be trusted (the drive not mounted, say). */
+export const FOLDER_UNAVAILABLE_MESSAGE = "The encodes folder isn't available. Check that the drive is mounted, then try again.";
+
 const whole = (text: string | undefined): number | null => (text !== undefined && /^[1-9]\d{0,14}$/.test(text.trim()) ? Number(text.trim()) : null);
 
 /**
@@ -146,6 +149,24 @@ export class UploadStore {
     return Number(s.bavail) * Number(s.bsize);
   }
 
+  /**
+   * Refuses (503 `encodes-folder-unavailable`) when the encodes folder is missing or not a directory, or the index
+   * reports it missing or empty while it still lists episodes: an upload must never land on the empty mountpoint of an
+   * unmounted drive. The folder itself is never made here.
+   */
+  private async checkFolder(): Promise<void> {
+    const refuse = (): UploadError => new UploadError(503, 'encodes-folder-unavailable', { message: FOLDER_UNAVAILABLE_MESSAGE });
+    try {
+      if (!(await stat(this.opts.dir)).isDirectory()) throw refuse();
+    } catch (err) {
+      if (err instanceof UploadError) throw err;
+      if (isCode(err, 'ENOENT') || isCode(err, 'ENOTDIR')) throw refuse();
+      throw err;
+    }
+    const state = this.opts.index.state();
+    if (state.rootMissing || state.rootEmpty) throw refuse();
+  }
+
   /** One creation at a time, so the same-name and room checks can't both pass for two POSTs. */
   create(deviceId: string, input: Record<string, unknown>): Promise<string> {
     const run = this.creating.then(() => this.createOne(deviceId, input));
@@ -158,7 +179,13 @@ export class UploadStore {
     if (typeof size !== 'number' || !Number.isSafeInteger(size) || size < 1 || size > MAX_UPLOAD_BYTES) throw new UploadError(400, 'bad size');
     if (typeof sha256 !== 'string' || !/^[0-9a-f]{64}$/i.test(sha256)) throw new UploadError(400, 'bad sha256');
     if (typeof name !== 'string' || name === '' || name.length > 255) throw new UploadError(400, 'bad name');
-    await mkdir(this.uploads, { recursive: true });
+    await this.checkFolder();
+    // inside the folder only: never the folder itself
+    try {
+      await mkdir(this.uploads);
+    } catch (err) {
+      if (!isCode(err, 'EEXIST')) throw err;
+    }
     let owed = 0;
     let mine = 0;
     for (const file of await readdir(this.uploads)) {
@@ -246,7 +273,12 @@ export class UploadStore {
         if (err instanceof UploadError) throw err;
         if (!isCode(err, 'ENOENT')) throw err;
       }
-      await mkdir(dirname(finalPath), { recursive: true });
+      await this.checkFolder();
+      try {
+        await mkdir(folder);
+      } catch (err) {
+        if (!isCode(err, 'EEXIST')) throw err;
+      }
       // one rename over any old file: the old one plays until it lands
       await rename(this.partial(id), finalPath);
       await rm(this.metaFile(id), { force: true });

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync } from 'node:fs';
 import type { IncomingMessage } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -326,6 +326,54 @@ describe('encode uploads', () => {
     expect(r.status).toBe(200);
     expect(await r.json()).toEqual({ entry: null, filed: '990001-1' });
     expect(readFileSync(join(dir, '990001/1.mkv')).equals(bytes)).toBe(true);
+  });
+
+  it('refuses 503 encodes-folder-unavailable when the folder is missing, and never makes it', async () => {
+    await start();
+    const t = await token('Owner', true);
+    rmSync(dir, { recursive: true, force: true });
+    const r = await create(t, { size: 100, sha256: ZERO, name: 'x.mkv' });
+    expect(r.status).toBe(503);
+    const body = (await r.json()) as { error: string; message: string };
+    expect(body.error).toBe('encodes-folder-unavailable');
+    expect(body.message).toMatch(/encodes folder/);
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  it('refuses 503 encodes-folder-unavailable while the index reports the folder missing', async () => {
+    await start();
+    const t = await token('Owner', true);
+    const moved = join(tmp, 'moved');
+    renameSync(dir, moved);
+    await index.scan();
+    expect(index.state().rootMissing).toBe(true);
+    // back in place, but the index hasn't seen it yet: still refused
+    renameSync(moved, dir);
+    const r = await create(t, { size: 100, sha256: ZERO, name: 'x.mkv' });
+    expect(r.status).toBe(503);
+    expect(((await r.json()) as { error: string }).error).toBe('encodes-folder-unavailable');
+  });
+
+  it('refuses 503 encodes-folder-unavailable while the folder is empty and the library still lists episodes', async () => {
+    await start();
+    mkdirSync(join(dir, '990001'), { recursive: true });
+    cpSync(join(FIXTURE, '1.mkv'), join(dir, '990001/1.mkv'));
+    await index.scan();
+    const t = await token('Owner', true);
+    const bytes = readFileSync(join(FIXTURE, '2.mkv'));
+    const id = await createId(t, { size: bytes.length, sha256: sha(bytes), name: 'e2.mkv' });
+    await put(t, id, bytes, 0, bytes.length - 1);
+    rmSync(join(dir, '990001'), { recursive: true, force: true });
+    await index.scan();
+    expect(index.state().rootEmpty).toBe(true);
+    const r = await create(t, { size: 100, sha256: ZERO, name: 'x.mkv' });
+    expect(r.status).toBe(503);
+    expect(((await r.json()) as { error: string }).error).toBe('encodes-folder-unavailable');
+    // completing an upload made before is refused too, and files nothing
+    const done = await call('POST', `uploads/${id}/complete`, t);
+    expect(done.status).toBe(503);
+    expect(((await done.json()) as { error: string }).error).toBe('encodes-folder-unavailable');
+    expect(existsSync(join(dir, '990001'))).toBe(false);
   });
 
   it('refuses 409 bad-folder when the AniList folder is not a directory', async () => {
