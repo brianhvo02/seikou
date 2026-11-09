@@ -19,6 +19,7 @@ import type { RtcLink, RtcOpenOptions } from './rtc/rtc-connection';
 import type { Library } from '../../../server/src/library';
 import { BdjStore } from '../../../server/src/bdj-store';
 import { PlaybackStore } from '../../../server/src/playback-store';
+import { PlayerSettingsStore } from '../../../server/src/player-settings-store';
 import { Store } from '../../../server/src/store';
 import type { CodeLookup, CodeRoutes, PlaceSettings, PlaybackPlace, StoredSubtitle } from '@seikou/nas/nas-api';
 import { normalizeCode } from '@seikou/nas/pairing-code';
@@ -95,7 +96,7 @@ function fakeServer(): FakeServer {
     },
     evidence: () => [],
   } as unknown as Library;
-  const handlers = appHandlers({ auth, library, bdjStore: new BdjStore(tmp), playbackStore: new PlaybackStore(tmp, { now }), publicBase: BASE, now });
+  const handlers = appHandlers({ auth, library, bdjStore: new BdjStore(tmp), playbackStore: new PlaybackStore(tmp, { now }), playerSettingsStore: new PlayerSettingsStore(tmp), publicBase: BASE, now });
   /** `GET /api/me` (the title routes need a title service), behind the token like the rest. */
   const me: Handler = async (_req, url) => {
     if (url.pathname === '/api/me') return json(200, { owner: true, titleLibrary: true, personName: 'Owner' });
@@ -1155,6 +1156,21 @@ describe('NasClient places', () => {
     await nas.deletePlace(PLACE_KEY);
     expect(await nas.playbackPlaces(PLACE_KEY)).toBeNull();
     expect(await nas.titleProgress('anilist:1')).toBeNull(); // no title library on this NAS
+  });
+
+  it("reads and stores the person's player settings, and an encode's place under its key", async () => {
+    const server = fakeServer();
+    const nas = client(server);
+    await nas.pair(await server.code(), 'iPad');
+    expect(await nas.playerSettings()).toEqual({ nextEpisodeCountdown: false });
+    expect(await nas.putPlayerSettings({ nextEpisodeCountdown: true })).toEqual({ nextEpisodeCountdown: true });
+    expect(await nas.playerSettings()).toEqual({ nextEpisodeCountdown: true });
+    expect(await nas.encodeBase('100-3')).toBe(`${BASE}encodes/100-3/`);
+    const encodePlace = playbackPlace({ discKey: 'e.100.3', discId: '100-3', playlistId: 'mkv', psrs: [] });
+    expect(await nas.putPlace(encodePlace)).toBe('stored');
+    expect((await nas.playbackPlaces('e.100.3'))?.places.mkv?.timeUs).toBe(60e6);
+    // the NAS refuses an encode's place that carries program state
+    await expect(nas.putPlace({ ...encodePlace, psrs: [0, 1], updatedAt: clock })).rejects.toMatchObject({ status: 400 });
   });
 
   it('refuses a malformed place with the error the NAS gives', async () => {

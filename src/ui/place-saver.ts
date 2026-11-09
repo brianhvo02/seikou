@@ -3,7 +3,7 @@ import type { PlaceState } from '@seikou/engine/protocol';
 import { isFontName, pickedSubtitles, splitPick } from '@seikou/engine/controller/drop-files';
 import type { PlayerSnapshot } from '@seikou/engine/controller/player-controller';
 import { NasHttpError, type NasClient } from './nas/nas-client';
-import { buildPlace, PLACE_MIN_DURATION_US, qualifies, type StoredSubtitleNote } from './place-model';
+import { buildPlace, PLACE_MIN_DURATION_US, qualifies, type StoredSubtitleNote, type TrackNames } from './place-model';
 import { pairingKey } from './nas/nas-store';
 import { MAX_TEXT_FILE_BYTES, MAX_TEXT_FILES_BYTES, placeKey, type PlaceStore, type StoredTextFile } from './place-store';
 
@@ -37,6 +37,11 @@ export interface PlaceTarget {
   readonly deviceName: string;
   /** `pairingKey` of the pairing a NAS disc was opened through (its places go to that pairing only); null otherwise. */
   readonly pairing: string | null;
+  /**
+   * An encoded episode (`discKey` its `e.` key, `discId` its encode id, its one playlist `mkv`): its places carry no
+   * program state (mode `none`, no PSRs, GPRs or title), as the NAS requires of an encode's.
+   */
+  readonly encode?: boolean;
 }
 
 /**
@@ -50,6 +55,8 @@ export interface LaunchSettings {
    * start already set them (PSR 1–3 or the saved registers).
    */
   readonly byLanguage: boolean;
+  /** With `byLanguage`: the names of the tracks that played (Next episode of an encode), preferred among a language's. */
+  readonly names?: TrackNames;
 }
 
 export interface PlaceSaverDeps {
@@ -125,6 +132,9 @@ function failure(err: unknown): 'drop' | 'wait' | 'refused' {
 
 const TRANSIENT = new Set([404, 429, 502, 503, 504]);
 
+/** An encode's place has no program: what its places carry in place of the engine's registers. */
+const ENCODE_REGISTERS: PlaceState = { mode: 'none', title: null, psrs: [], gprs: null };
+
 /**
  * Saves the open disc's place (spec 2026-10-20 §6.2): every 10 s while playing and at once on a pause, seek, track,
  * offset or shader change, or when the playlist changes (the one that stopped, where it stopped). Only a qualifying
@@ -183,7 +193,9 @@ export class PlaceSaver {
   takeLaunchSettings(): (LaunchSettings & { readonly discKey: string }) | null {
     const launch = this.launch;
     this.launch = null;
-    return launch && launch.opens === this.deps.discOpens() ? { settings: launch.settings, byLanguage: launch.byLanguage, discKey: launch.discKey } : null;
+    return launch && launch.opens === this.deps.discOpens()
+      ? { settings: launch.settings, byLanguage: launch.byLanguage, ...(launch.names ? { names: launch.names } : {}), discKey: launch.discKey }
+      : null;
   }
 
   /** The places this device holds for a local disc (never a NAS disc's: those are the NAS's, and never stored here). */
@@ -245,10 +257,32 @@ export class PlaceSaver {
     const seen = this.seen;
     const c = this.cached;
     if (opts.keepalive && t && seen && c && c.opens === t.opens && c.playlistId === seen.snapshot.currentPlaylistId && this.qualifies(t, seen)) {
-      return this.write(t, seen, c.place, this.textNotes(), true).catch((err: unknown) => this.log('saving the place failed', err));
+      return this.write(t, seen, c.place, this.textNotes(), true).then(
+        () => undefined,
+        (err: unknown) => this.log('saving the place failed', err),
+      );
     }
     this.save(opts.keepalive);
     return this.chain;
+  }
+
+  /**
+   * Saves the open episode as finished now, whatever its time (Next episode moves on before it ends), after earlier
+   * saves; answers the place saved, or null when nothing is being saved.
+   */
+  finishNow(): Promise<PlaybackPlace | null> {
+    const t = this.target;
+    const seen = this.seen;
+    if (!t || !seen || !this.qualifies(t, seen) || this.deps.discOpens() !== t.opens) return Promise.resolve(null);
+    const read = this.deps.readPlace();
+    const notes = this.textNotes();
+    let saved: PlaybackPlace | null = null;
+    this.chain = this.chain
+      .then(async () => {
+        saved = await this.write(t, seen, await read, notes, false, true);
+      })
+      .catch((err: unknown) => this.log('saving the place failed', err));
+    return this.chain.then(() => saved);
   }
 
   /** Sends the places waiting in the outbox, oldest first; one that can't go stops the rest until the next try. */
@@ -344,7 +378,11 @@ export class PlaceSaver {
     const s = left.snapshot;
     const ended = s.durationUs > 0 && s.timeUs >= s.durationUs - ENDED_WITHIN_US;
     const notes = this.textNotes();
-    this.chain = this.chain.then(() => this.write(t, left, c.place, notes, false, ended)).catch((err: unknown) => this.log('saving the place failed', err));
+    this.chain = this.chain
+      .then(async () => {
+        await this.write(t, left, c.place, notes, false, ended);
+      })
+      .catch((err: unknown) => this.log('saving the place failed', err));
   }
 
   /** What the saver knows of the text set now, for a write that may land after the disc has ended (a close). */
@@ -352,10 +390,10 @@ export class PlaceSaver {
     return { sizes: { ...this.sizes }, stored: Object.fromEntries(this.stored) };
   }
 
-  /** `ended`: the playlist was left at its end, so the place is finished whatever isFinished says. */
-  private async write(t: Active, seen: Seen, registers: PlaceState, notes: TextNotes, keepalive: boolean, ended = false): Promise<void> {
+  /** `ended`: the playlist was left at its end, so the place is finished whatever isFinished says. Answers the place. */
+  private async write(t: Active, seen: Seen, registers: PlaceState, notes: TextNotes, keepalive: boolean, ended = false): Promise<PlaybackPlace> {
     const built = buildPlace({
-      discKey: t.discKey, discId: t.discId ?? '', snapshot: seen.snapshot, place: registers,
+      discKey: t.discKey, discId: t.discId ?? '', snapshot: seen.snapshot, place: t.encode ? ENCODE_REGISTERS : registers,
       shaderSet: seen.shaderSet, deviceName: t.deviceName, nowMs: this.deps.nowMs(), textFileSizes: notes.sizes, storedSubtitles: notes.stored,
     });
     const levelAudio = this.deps.levelAudio?.() ?? null;
@@ -367,11 +405,11 @@ export class PlaceSaver {
     const { store, nas } = this.deps;
     if (!t.remote) {
       await store.put(place);
-      return;
+      return place;
     }
     // A NAS disc's place is the NAS's (its person's): it never goes into this device's places, which a local copy of
     // the disc (the same `f.` key) would read. The outbox is its device-first write.
-    if (!nas) return;
+    if (!nas) return place;
     // A keepalive request leaves before the page can go (checked against the pairing last read, as the page may not
     // live to read it again); the outbox keeps the place should it not arrive.
     const sending = keepalive && t.pairing !== null && t.pairing === this.pairingNow ? this.send(place, true) : null;
@@ -389,6 +427,7 @@ export class PlaceSaver {
       void sending.then((done) => (done && queued ? store.sent(placeKey(place), place.updatedAt) : undefined)).catch((err: unknown) => this.log('saving the place failed', err));
     } else if (queued) void this.drainOutbox();
     else if (t.pairing !== null) void this.sendIfPaired(place, t.pairing); // the device's store failed: straight to the NAS, best effort
+    return place;
   }
 
   /** A send outside the outbox, only while the pairing is still the one the disc was opened through. */

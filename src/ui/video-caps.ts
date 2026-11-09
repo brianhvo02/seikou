@@ -20,7 +20,27 @@ const HEVC_MAIN10 = 'hvc1.2.4.L120.90';
 /** Phones are 320-440 CSS px on the shorter side; laptops start well above this. */
 const PHONE_SHORT_SIDE = 600;
 
-async function probe(env: VideoCapsEnv, codec: string): Promise<boolean> {
+/** The AV1 probe without the encode's own codec string: Main profile, level 4.0, 8-bit (what Seikou's encoder writes). */
+export const AV1_PROBE_CODEC = 'av01.0.08M.08';
+
+/**
+ * Whether this browser decodes an encode's AV1 video: its codec string when the entry carries one (`av01.…`; a
+ * Matroska codec id such as `V_AV1` is none), else AV1_PROBE_CODEC, at 1080p. False without WebCodecs or on a failed probe.
+ */
+export function detectAv1(env: Pick<VideoCapsEnv, 'isConfigSupported'>, codec?: string): Promise<boolean> {
+  return probe(env, codec !== undefined && codec.startsWith('av01.') ? codec : AV1_PROBE_CODEC);
+}
+
+/** detectAv1 in this browser; never rejects. */
+export function av1Playable(codec?: string): Promise<boolean> {
+  try {
+    return detectAv1(browserVideoCapsEnv(), codec);
+  } catch {
+    return Promise.resolve(false);
+  }
+}
+
+async function probe(env: Pick<VideoCapsEnv, 'isConfigSupported'>, codec: string): Promise<boolean> {
   if (!env.isConfigSupported) return false;
   try {
     return (await env.isConfigSupported({ codec, codedWidth: 1920, codedHeight: 1080 })).supported === true;

@@ -26,12 +26,27 @@ import { replacesTextSet, StoredSubtitlePicker } from './nas/stored-subtitle-pic
 import { forPlaylist, STORED_LIST_TIMEOUT_MS } from './nas/subtitle-model';
 import { defaultQuery, type FansubOrigin, type ToshoTrack } from './nas/tosho-search-model';
 import type { ToshoSearch } from './ToshoSearch';
+import type { EncodeEpisode } from '@seikou/nas/nas-api';
+import { parseEncodeId } from '@seikou/nas/encode-id';
+import { chapterAction, type ChapterAction } from './chapter-actions';
+import { ChapterActionButton } from './ChapterActionButton';
+import { findEncodeShow, nextEpisode } from './nas/encodes-model';
+import { launchEncode } from './nas/encode-launch';
+import type { TrackNames } from './place-model';
 
 const HIDE_CONTROLS_MS = 3000;
 const OFFSET_NOTICE_MS = 2000;
 const TAP_NOTICE_MS = 6000;
 const LIBRARY: NasRoute = { kind: 'library', shelf: null, q: '' };
+const ENCODES: NasRoute = { kind: 'encodes', q: '' };
 
+/** The names of the audio and subtitle tracks playing (an encode's), which Next episode prefers among a language's. */
+function playedTrackNames(s: PlayerSnapshot): TrackNames {
+  const audio = s.audioTracks.find((t) => t.index === s.selectedAudio)?.name;
+  const sel = s.subtitles?.selected;
+  const subtitle = typeof sel === 'object' ? s.subtitles?.pg.find((t) => t.index === sel.pg)?.name : undefined;
+  return { ...(audio ? { audio } : {}), ...(subtitle ? { subtitle } : {}) };
+}
 
 /** A touch held on the video over a disc menu: where and when it went down, and whether it moved or showed the controls. */
 interface Press {
@@ -131,11 +146,14 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
     void places.flushNow({ keepalive: false });
     places.end();
   }, [places]);
-  // Back (or Forward) off the play route closes the NAS disc; the landing screen then shows where it went.
+  // Back (or Forward) off the play route closes the NAS disc (or encoded episode); the landing screen then shows where it went.
   useEffect(
     () =>
       history.subscribe(() => {
-        if (playingRoute.discKey === null || history.route()?.kind === 'play') return;
+        const here = history.route();
+        if (playingRoute.encodeId !== null) {
+          if (here?.kind === 'encodePlay' && here.encodeId === playingRoute.encodeId) return;
+        } else if (playingRoute.discKey === null || here?.kind === 'play') return;
         playingRoute.stop();
         if (nas) levelSessionOf(nas).end();
         savePlaceAndEnd();
@@ -184,11 +202,89 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
   /** The player's own close: a NAS disc's play route goes back to where Play was pressed (else the library). */
   const closeDisc = (): void => {
     const nasPlayback = playingRoute.discKey !== null;
+    const encodePlayback = playingRoute.encodeId !== null;
     playingRoute.stop();
     if (nas) levelSessionOf(nas).end();
     savePlaceAndEnd();
     controller.closeDisc();
     if (nasPlayback) history.back(LIBRARY);
+    else if (encodePlayback) history.back(ENCODES);
+  };
+
+  // An encoded episode: its show's next episode, the person's countdown setting, and the chapter action at this time.
+  const encodeId = snapshot.encodeId;
+  const [nextOf, setNextOf] = useState<{ readonly encodeId: string; readonly next: EncodeEpisode | null } | null>(null);
+  useEffect(() => {
+    if (!nas || encodeId === null) return;
+    const parsed = parseEncodeId(encodeId);
+    if (!parsed) return;
+    let live = true;
+    findEncodeShow(nas, parsed.anilistId).then(
+      (show) => live && setNextOf({ encodeId, next: show ? nextEpisode(show, encodeId) : null }),
+      (err: unknown) => {
+        console.warn('finding the next episode failed', err);
+        if (live) setNextOf({ encodeId, next: null });
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [nas, encodeId]);
+  const nextUp = encodeId !== null && nextOf?.encodeId === encodeId ? nextOf.next : null;
+  const [countdown, setCountdown] = useState<boolean | null>(null);
+  const encodeOpen = encodeId !== null;
+  useEffect(() => {
+    if (!nas || !encodeOpen) return;
+    let live = true;
+    nas.playerSettings().then(
+      (s) => live && setCountdown(s.nextEpisodeCountdown),
+      (err: unknown) => {
+        console.warn('reading the player settings failed', err);
+        if (live) setCountdown((c) => c ?? false);
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [nas, encodeOpen]);
+  const setCountdownSetting = (on: boolean): void => {
+    if (!nas) return;
+    setCountdown(on);
+    nas.putPlayerSettings({ nextEpisodeCountdown: on }).then(
+      (s) => setCountdown(s.nextEpisodeCountdown),
+      (err: unknown) => {
+        setCountdown(!on);
+        controller.showNotice('player-settings', `Couldn't save the setting: ${err instanceof Error ? err.message : String(err)}`);
+      },
+    );
+  };
+  const chapterHere = encodeId === null ? null : chapterAction(snapshot.chapters, snapshot.timeUs, snapshot.durationUs, nextUp !== null);
+  const action: ChapterAction | null = chapterHere ?? (encodeId !== null && nextUp !== null && snapshot.engineState === 'ended' ? { kind: 'next-episode' } : null);
+  /** Next episode: once per episode, however many times it is asked for (the button and its countdown). */
+  const advancing = useRef<string | null>(null);
+  const goNext = (): void => {
+    const from = controller.getSnapshot();
+    const fromId = from.encodeId;
+    if (!nas || !nextUp || fromId === null || advancing.current === fromId) return;
+    advancing.current = fromId;
+    const to = nextUp.id;
+    const names = playedTrackNames(from);
+    // The episode is saved finished before anything moves on, and nothing saves it after (a later save would undo it).
+    const finishing = places.finishNow();
+    places.end();
+    // The address bar goes to the next episode now; nothing follows the old one meanwhile.
+    playingRoute.stop();
+    history.replace({ kind: 'encodePlay', encodeId: to, timeS: null, resume: false });
+    void finishing
+      .then((finished) => launchEncode({ nas, controller, places, playingRoute }, to, finished ? { settings: { settings: finished.settings, byLanguage: true, names } } : {}))
+      .catch((err: unknown) => {
+        advancing.current = null;
+        if (controller.getSnapshot().encodeId === fromId) {
+          playingRoute.startEncode(fromId);
+          history.replace({ kind: 'encodePlay', encodeId: fromId, timeS: Math.floor(controller.getSnapshot().timeUs / 1e6), resume: false });
+        }
+        controller.showNotice('next-episode', `Couldn't open the next episode: ${err instanceof Error ? err.message : String(err)}`);
+      });
   };
   /** Subtitle files the user adds go to the engine, and are kept on this device for a resume here. */
   const loadSubtitleFiles = (files: readonly File[]): void => {
@@ -651,7 +747,8 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
   };
   // No current playlist (first pick, failed pick) shows the picker — but not while a pick is still loading, nor while a
   // BD-J title runs (Java opens its playlists itself; the Playlists button still opens the picker).
-  const showPicker = pickerOpen || (snapshot.currentPlaylistId === null && snapshot.engineState !== 'loading' && !snapshot.bdjActive);
+  // An encoded episode has no playlists to pick: its errors show in the notices, and Close is in the bar.
+  const showPicker = encodeId === null && (pickerOpen || (snapshot.currentPlaylistId === null && snapshot.engineState !== 'loading' && !snapshot.bdjActive));
 
   return (
     <div
@@ -746,6 +843,18 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
         />
       )}
       {remoteOpen && controlsVisible && (snapshot.indexTitles || snapshot.bdjActive) && <RemotePad onKey={sendMenuKey} />}
+      {action && (
+        <div className="chapter-actions" data-testid="chapter-action">
+          <ChapterActionButton
+            key={`${encodeId}:${action.kind}`}
+            action={action}
+            countdown={countdown === true}
+            paused={snapshot.engineState === 'paused'}
+            onSkip={(us) => controller.seek(us)}
+            onNext={goNext}
+          />
+        </div>
+      )}
       {snapshot.encodingPrompt && <EncodingPrompt fileName={snapshot.encodingPrompt.names.join(', ')} onAnswer={answerEncoding} />}
       <ControlBar
         controller={controller}
@@ -769,6 +878,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
         storedSubtitles={storedSubtitles}
         toshoSearch={toshoSearch}
         quality={quality}
+        encode={encodeId !== null ? { countdown, onCountdown: setCountdownSetting, onClose: closeDisc } : null}
       />
     </div>
   );

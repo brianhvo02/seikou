@@ -3,6 +3,7 @@ import type { UoOp } from '@seikou/engine/hdmv/uo-mask';
 import type { Chapter } from '@seikou/engine/nav/timeline';
 import type { PlayerController, PlayerSnapshot } from '@seikou/engine/controller/player-controller';
 import { AudioMenu, type LevelAudio } from './AudioMenu';
+import { ChapterMenu, EncodeSettingsMenu } from './EncodeMenus';
 import type { LevelId } from '@seikou/nas/nas-api';
 import type { LevelState } from './nas/level-session';
 import { QualityMenu } from './QualityMenu';
@@ -127,9 +128,14 @@ interface ControlBarProps {
   readonly toshoSearch?: ToshoSearch | null;
   /** A NAS disc's quality level: the Quality menu, and the Audio menu's original tracks at a re-encoded level. */
   readonly quality?: { readonly state: LevelState; onPick(level: LevelId): void; readonly audio: LevelAudio | null } | null;
+  /**
+   * An encoded episode: its Chapters and Settings menus, and Close where a disc has its playlists (an encode has none).
+   * `countdown` is the person's Next episode countdown, null until the NAS has said.
+   */
+  readonly encode?: { readonly countdown: boolean | null; onCountdown(on: boolean): void; onClose(): void } | null;
 }
 
-export function ControlBar({ controller, snapshot, shaderModel, shaderState, visible, onOpenPlaylists, onFullscreen, onMenuKey, remoteOpen, onToggleRemote, onMenuOpenChange, onSubtitleFiles, storedSubtitles = null, toshoSearch = null, quality = null }: ControlBarProps): ReactElement {
+export function ControlBar({ controller, snapshot, shaderModel, shaderState, visible, onOpenPlaylists, onFullscreen, onMenuKey, remoteOpen, onToggleRemote, onMenuOpenChange, onSubtitleFiles, storedSubtitles = null, toshoSearch = null, quality = null, encode = null }: ControlBarProps): ReactElement {
   const playing = snapshot.engineState === 'playing' || snapshot.engineState === 'buffering';
   const silent = snapshot.muted || snapshot.volume === 0;
   const masked = (op: UoOp): boolean => snapshot.uoMask.includes(op);
@@ -209,7 +215,9 @@ export function ControlBar({ controller, snapshot, shaderModel, shaderState, vis
           onRemove={() => controller.removeSubtitleFile()}
           onOpenChange={onMenuOpenChange}
         />
+        {encode && <ChapterMenu chapters={snapshot.chapters} timeUs={snapshot.timeUs} onSeek={(us) => controller.seek(us)} onOpenChange={onMenuOpenChange} />}
         <ShaderMenu model={shaderModel} state={shaderState} status={snapshot.shaders} dropWarning={snapshot.shaderDropWarning} onOpenChange={onMenuOpenChange} />
+        {encode && <EncodeSettingsMenu countdown={encode.countdown} onCountdown={encode.onCountdown} onOpenChange={onMenuOpenChange} />}
         {snapshot.indexTitles?.hasTopMenu && (
           <button type="button" data-testid="top-menu" disabled={masked('menuCall')} title={tip('menuCall')} onClick={() => onMenuKey('topMenu')}>
             Top Menu
@@ -225,9 +233,15 @@ export function ControlBar({ controller, snapshot, shaderModel, shaderState, vis
             Remote
           </button>
         )}
-        <button type="button" data-testid={hdmv ? 'titles' : undefined} onClick={onOpenPlaylists}>
-          {hdmv ? 'Titles' : 'Playlists'}
-        </button>
+        {encode ? (
+          <button type="button" data-testid="close-episode" onClick={encode.onClose}>
+            Close
+          </button>
+        ) : (
+          <button type="button" data-testid={hdmv ? 'titles' : undefined} onClick={onOpenPlaylists}>
+            {hdmv ? 'Titles' : 'Playlists'}
+          </button>
+        )}
         {onFullscreen && (
           <button type="button" aria-label="Fullscreen" onClick={onFullscreen}>
             ⛶

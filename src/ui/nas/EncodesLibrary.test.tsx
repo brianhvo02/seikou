@@ -37,7 +37,7 @@ function fakeHistory(): NasHistory {
 }
 
 const show = (nas: NasClient, owner: boolean, history = fakeHistory()): NasHistory => {
-  render(<EncodesLibrary nas={nas} history={history} owner={owner} route={{ kind: 'encodes', q: '' }} onClose={() => {}} />);
+  render(<EncodesLibrary nas={nas} history={history} owner={owner} route={{ kind: 'encodes', q: '' }} onClose={() => {}} player={{} as never} />);
   return history;
 };
 

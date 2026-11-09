@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectVideoCaps, loadVideoCaps, type VideoCapsEnv } from './video-caps';
+import { detectAv1, detectVideoCaps, loadVideoCaps, type VideoCapsEnv } from './video-caps';
 
 function env(over: Partial<VideoCapsEnv> = {}): VideoCapsEnv {
   return {
@@ -74,5 +74,26 @@ describe('loadVideoCaps', () => {
   });
   it('a computer when even the memory profile cannot be told', async () => {
     expect(await loadVideoCaps(thrower, thrower)).toEqual({ hevc: false, hevc10: false, hdrDisplay: false, phone: false });
+  });
+});
+
+describe('detectAv1', () => {
+  it("probes the encode's own codec string when it has one, else 8-bit Main at 1080p", async () => {
+    const seen: string[] = [];
+    const probe = env({
+      isConfigSupported: async (c) => {
+        seen.push(`${c.codec}@${c.codedWidth}x${c.codedHeight}`);
+        return { supported: c.codec === 'av01.0.08M.08' };
+      },
+    });
+    expect(await detectAv1(probe)).toBe(true);
+    expect(await detectAv1(probe, 'V_AV1')).toBe(true); // a Matroska codec id is no codec string
+    expect(await detectAv1(probe, 'av01.0.09M.10')).toBe(false);
+    expect(seen).toEqual(['av01.0.08M.08@1920x1080', 'av01.0.08M.08@1920x1080', 'av01.0.09M.10@1920x1080']);
+  });
+
+  it('is false without a decoder, or when the probe throws', async () => {
+    expect(await detectAv1(env({ isConfigSupported: undefined }))).toBe(false);
+    expect(await detectAv1(env({ isConfigSupported: async () => { throw new Error('no'); } }))).toBe(false);
   });
 });

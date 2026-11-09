@@ -170,6 +170,29 @@ describe('LaunchSettingsApplier', () => {
     expect(t.calls).toContainEqual(['subtitle', { kind: 'pg', stream: 2 }]);
   });
 
+  it('carries the track names with the languages, so the same-named track is chosen (Next episode of an encode)', () => {
+    const t = setup({ settings: { ...base, audioLanguage: 'jpn', pgLanguage: 'eng', psr2: 0x80000001 }, byLanguage: true, names: { subtitle: 'Full' } });
+    t.show({
+      engineState: 'playing', currentPlaylistId: 'mkv',
+      subtitles: { pg: [{ index: 1, language: 'eng', name: 'Signs & Songs' }, { index: 2, language: 'eng', name: 'Full' }], text: null, selected: 'off', scale: 1 },
+    });
+    expect(t.calls).toContainEqual(['audio', 2]);
+    expect(t.calls).toContainEqual(['subtitle', { kind: 'pg', stream: 2 }]);
+  });
+
+  it('keeps text off on the next episode when it was off', () => {
+    const t = setup({ settings: { ...base, pgLanguage: null, psr2: 0 }, byLanguage: true });
+    t.show({ engineState: 'playing', currentPlaylistId: 'mkv' });
+    expect(t.calls).toContainEqual(['subtitle', { kind: 'off' }]);
+  });
+
+  it("sets an encode's tracks by number on a resume, as it opens with no registers", () => {
+    const t = setup({ settings: { ...base, psr1: 2, psr2: 0x80000002 }, byLanguage: false });
+    t.show({ engineState: 'playing', currentPlaylistId: 'mkv', encodeId: '100-3' });
+    expect(t.calls).toContainEqual(['audio', 2]);
+    expect(t.calls).toContainEqual(['subtitle', { kind: 'pg', stream: 2 }]);
+  });
+
   it("leaves audio and PG to the start's registers for a resume", () => {
     const t = setup({ settings: { ...base, psr1: 2, psr2: 0x80000002 }, byLanguage: false });
     t.show({ engineState: 'playing', currentPlaylistId: '00001' });

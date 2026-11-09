@@ -638,7 +638,7 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
       )}
       {paired && shown !== null && playLink === null && !titleMissing && shown.kind !== 'folders' && (access === null || access === 'checking') && <p className="status">Loading…</p>}
       {paired && isEncodesRoute(shown) && playLink === null && typeof access === 'object' && access?.titles && (
-        <EncodesLibrary nas={nas} history={history} owner={access.owner} route={shown} onClose={closeNas} />
+        <EncodesLibrary nas={nas} history={history} owner={access.owner} route={shown} onClose={closeNas} player={{ controller, places, playingRoute }} />
       )}
       {paired && shown !== null && playLink === null && !titleMissing && !onEncodes && shown.kind !== 'folders' && typeof access === 'object' && access?.titles && (
         <TitleLibrary

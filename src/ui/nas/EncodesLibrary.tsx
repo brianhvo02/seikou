@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import type { EncodeShowList, EncodesStatus } from '@seikou/nas/nas-api';
+import type { PlayerController } from '@seikou/engine/controller/player-controller';
+import type { PlaceSaver } from '../place-saver';
 import { ContinueRow } from './ContinueRow';
+import { EncodePreflight } from './EncodePreflight';
+import type { PlayingRoute } from './playing-route';
 import { EncodeShowScreen } from './EncodeShowScreen';
 import { encodesEmptyState, episodeCountLabel, INDEXING_COPY, indexingRetryMs, ownerNotices, searchShows, UNFILED_COPY } from './encodes-model';
 import { formatSize } from './library-model';
@@ -19,6 +23,8 @@ interface EncodesLibraryProps {
   readonly owner: boolean;
   readonly route: EncodesRoute;
   readonly onClose: () => void;
+  /** What an episode opens in: the player's controller, its place saver and the address bar's following. */
+  readonly player: { readonly controller: PlayerController; readonly places: PlaceSaver; readonly playingRoute: PlayingRoute };
 }
 
 /** The search goes into the address bar this long after the last keystroke (as in the title library). */
@@ -92,16 +98,22 @@ function EmptyShelf({ title, text, help, history }: { title: string; text: strin
 }
 
 /** The Encodes tab: the owner's encoded episodes by AniList show, with their own Continue watching row. */
-export function EncodesLibrary({ nas, history, owner, route, onClose }: EncodesLibraryProps): ReactElement {
+export function EncodesLibrary({ nas, history, owner, route, onClose, player }: EncodesLibraryProps): ReactElement {
   if (route.kind === 'encodeShow') return <EncodeShowScreen nas={nas} history={history} showId={route.showId} />;
   if (route.kind === 'encodePlay') {
-    // Task 11 brings the pre-flight and the player here.
     return (
       <section className="titles" data-testid="encode-play">
-        <button type="button" className="title-back" aria-label="Back" onClick={() => history.back({ kind: 'encodes', q: '' })}>
-          <span aria-hidden="true">‹</span>
-        </button>
-        <p className="status">Opening the episode…</p>
+        <EncodePreflight
+          key={route.encodeId}
+          nas={nas}
+          controller={player.controller}
+          places={player.places}
+          history={history}
+          playingRoute={player.playingRoute}
+          encodeId={route.encodeId}
+          startTimeS={route.timeS}
+          resume={route.resume}
+        />
       </section>
     );
   }

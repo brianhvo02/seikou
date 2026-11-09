@@ -7,6 +7,9 @@ const JUMP_US = 2_000_000;
 /** A seek-triggered write waits for this floor (Safari refuses about 100 history changes in 30 s); a trailing write lands the final position. */
 const JUMP_FLOOR_MS = 1000;
 
+/** Marks an encode in the key PlayingRoute follows (no disc key starts so). */
+const ENCODE_PREFIX = 'encode:';
+
 /** What the launch knew of the disc: its name, and the catalogue title it was opened from (null: a folder or a link). */
 export interface PlayingAbout {
   readonly discName: string;
@@ -26,6 +29,8 @@ export interface PlayingState {
  */
 export class PlayingRoute {
   private key: string | null = null;
+  /** An encoded episode playing (startEncode): the address bar is its `/nas/encodes/play/<id>?t=` route. */
+  private encode: string | null = null;
   private aboutNow: PlayingAbout | null = null;
   private lastReplaceMs = -Infinity;
   private lastWriteMs = -Infinity;
@@ -47,8 +52,24 @@ export class PlayingRoute {
     return this.aboutNow;
   }
 
+  /** The encoded episode whose playback the address bar follows, or null. */
+  get encodeId(): string | null {
+    return this.encode;
+  }
+
+  /** Follows a NAS disc's playback (`/nas/play/<discKey>`). */
   start(discKey: string, about: PlayingAbout | null = null): void {
+    this.begin(discKey, null, about);
+  }
+
+  /** Follows an encoded episode's playback (`/nas/encodes/play/<id>?t=`) in place of any disc's. */
+  startEncode(encodeId: string): void {
+    this.begin(null, encodeId, null);
+  }
+
+  private begin(discKey: string | null, encodeId: string | null, about: PlayingAbout | null): void {
     this.key = discKey;
+    this.encode = encodeId;
     this.aboutNow = about;
     this.lastReplaceMs = -Infinity;
     this.lastWriteMs = -Infinity;
@@ -61,16 +82,26 @@ export class PlayingRoute {
     this.trailing = null;
   }
 
+  /** `key`: a disc's key, or `encode:<id>` for an encode (whose route is the encode's play route). */
   private write(key: string, s: PlayingState, now: number): void {
     this.clearTrailing();
-    if (this.history.route()?.kind !== 'play' || s.currentPlaylistId === null) return;
+    const encodeId = key.startsWith(ENCODE_PREFIX) ? key.slice(ENCODE_PREFIX.length) : null;
+    const here = this.history.route();
+    if (s.currentPlaylistId === null) return;
+    if (encodeId === null ? here?.kind !== 'play' : here?.kind !== 'encodePlay' || here.encodeId !== encodeId) return;
     this.lastReplaceMs = now;
     this.lastWriteMs = now;
-    this.history.replace({ kind: 'play', discKey: key, playlistId: s.currentPlaylistId, timeS: Math.floor(s.timeUs / 1e6), resume: false });
+    const timeS = Math.floor(s.timeUs / 1e6);
+    this.history.replace(encodeId === null ? { kind: 'play', discKey: key, playlistId: s.currentPlaylistId, timeS, resume: false } : { kind: 'encodePlay', encodeId, timeS, resume: false });
+  }
+
+  /** What is followed: a disc's key, `encode:<id>`, or null. */
+  private followed(): string | null {
+    return this.key ?? (this.encode === null ? null : `${ENCODE_PREFIX}${this.encode}`);
   }
 
   update(s: PlayingState): void {
-    const key = this.key;
+    const key = this.followed();
     if (key === null || s.currentPlaylistId === null) return;
     const now = this.nowMs();
     const last = this.last;
@@ -92,7 +123,7 @@ export class PlayingRoute {
         this.trailing = setTimeout(() => {
           this.trailing = null;
           const l = this.last;
-          if (this.key === key && l !== null) this.write(key, l.state, this.nowMs());
+          if (this.followed() === key && l !== null) this.write(key, l.state, this.nowMs());
         }, JUMP_FLOOR_MS - (now - this.lastWriteMs));
       }
       return;
@@ -102,6 +133,7 @@ export class PlayingRoute {
 
   stop(): void {
     this.key = null;
+    this.encode = null;
     this.aboutNow = null;
     this.last = null;
     this.clearTrailing();

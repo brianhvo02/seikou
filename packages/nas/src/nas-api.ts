@@ -331,3 +331,35 @@ export interface EncodeShowList {
   readonly shows: readonly EncodeShowSummary[];
   readonly unfiled?: readonly { readonly path: string; readonly size: number }[];
 }
+
+/** An encoded episode's track, as `GET encodes/<id>` lists it (`codec` is the Matroska codec id, such as `V_AV1`). */
+export interface EncodeTrackInfo {
+  readonly kind: 'video' | 'audio' | 'subtitle';
+  readonly codec: string;
+  readonly language: string;
+  readonly name: string;
+  readonly isDefault: boolean;
+  readonly isForced: boolean;
+}
+
+/** `GET encodes/<id>`: an encoded episode as the NAS indexed it. Times are in milliseconds. */
+export interface EncodeDetail {
+  readonly id: string;
+  readonly anilistId: number;
+  readonly episode: number;
+  readonly episodeTitle: string | null;
+  readonly discKey: string | null;
+  readonly playlistId: string | null;
+  readonly episodeStartMs: number | null;
+  readonly size: number;
+  readonly mtimeMs: number;
+  readonly durationMs: number;
+  readonly chapters: readonly { readonly startMs: number; readonly endMs: number | null; readonly name: string | null }[];
+  readonly tracks: readonly EncodeTrackInfo[];
+}
+
+/** `GET`/`PUT me/player-settings`: one person's player settings, the same on each of their devices. */
+export interface PlayerSettings {
+  /** The next episode starts by itself after a 10 s countdown. */
+  readonly nextEpisodeCountdown: boolean;
+}

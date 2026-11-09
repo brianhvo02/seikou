@@ -112,6 +112,19 @@ describe('settingsForUpNext', () => {
   it('falls back to the first playable track when the language is absent', () => {
     expect(settingsForUpNext(settings, [track(1, 'eng', false), track(2, 'eng')], []).psr1).toBe(2);
   });
+  it("prefers the track of the same language with the same name (an encode's Full over its Signs & Songs)", () => {
+    const named = (index: number, language: string, name: string): AudioTrack => ({ ...track(index, language), name });
+    const next = settingsForUpNext(
+      settings,
+      [named(1, 'jpn', 'Stereo'), named(2, 'jpn', 'Commentary')],
+      [{ index: 1, language: 'eng', name: 'Signs & Songs' }, { index: 2, language: 'eng', name: 'Full' }],
+      { audio: 'Commentary', subtitle: 'Full' },
+    );
+    expect(next.psr1).toBe(2);
+    expect(next.psr2).toBe((0x80000000 | 2) >>> 0);
+    // a name the next episode lacks: the first of the language, as before
+    expect(settingsForUpNext(settings, [named(1, 'jpn', 'Stereo')], [{ index: 1, language: 'eng', name: 'Signs & Songs' }], { audio: 'Commentary', subtitle: 'Full' })).toMatchObject({ psr1: 1, psr2: (0x80000000 | 1) >>> 0 });
+  });
   it('maps PG by language and keeps the display flag', () => {
     const next = settingsForUpNext(settings, [track(1, 'jpn')], [{ index: 1, language: 'fra' }, { index: 2, language: 'eng' }]);
     expect(next.psr2).toBe(((0x80000000 | 2) >>> 0));

@@ -3,11 +3,11 @@
  * The Encodes tab, pure: which empty state shows, the owner's notices about the encodes folder, the show grid, a Continue
  * watching card's route, a show's groups and its episodes' progress marks, and where a show whose id changed went.
  */
-import type { ContinueItem, EncodeSeason, EncodeShow, EncodeShowSummary, EncodesStatus, PlaylistProgress } from '@seikou/nas/nas-api';
+import type { ContinueItem, EncodeEpisode, EncodeSeason, EncodeShow, EncodeShowSummary, EncodesStatus, PlaylistProgress } from '@seikou/nas/nas-api';
 import { ENCODE_PLAYLIST } from '@seikou/nas/place-key';
 import { isShortPlace } from '@seikou/nas/place-rules';
 import { normalizeTitle } from '@seikou/nas/title-text';
-import { NasHttpError } from './nas-client';
+import { NasHttpError, type NasClient } from './nas-client';
 import type { NasRoute } from './nas-route';
 import { progressPercent } from './resume-model';
 
@@ -127,6 +127,40 @@ export function showContaining(shows: readonly EncodeShow[], from: { readonly an
       if (from.anilistId !== undefined && season.anilistId === from.anilistId) return show.id;
       if (from.encodeId !== undefined && season.episodes.some((e) => e.id === from.encodeId)) return show.id;
     }
+  }
+  return null;
+}
+
+/**
+ * The episode after `encodeId` in its show: the next episode number its entry has, else, for a TV season, the first
+ * episode of the next season (in the show's order). Never a film, and none after a film, an other entry's last
+ * episode or the last season's; null when the show doesn't hold the episode.
+ */
+export function nextEpisode(show: EncodeShow, encodeId: string): EncodeEpisode | null {
+  const at = show.seasons.findIndex((s) => s.episodes.some((e) => e.id === encodeId));
+  if (at < 0) return null;
+  const season = show.seasons[at]!;
+  if (season.kind === 'film') return null;
+  const current = season.episodes.find((e) => e.id === encodeId)!.episode;
+  const later = season.episodes.filter((e) => e.episode > current).sort((a, b) => a.episode - b.episode)[0];
+  if (later) return later;
+  if (season.kind !== 'season') return null;
+  const nextSeason = show.seasons.slice(at + 1).find((s) => s.kind === 'season' && s.episodes.length > 0);
+  return nextSeason ? ([...nextSeason.episodes].sort((a, b) => a.episode - b.episode)[0] ?? null) : null;
+}
+
+/**
+ * The show holding the episodes of AniList entry `anilistId`: the show rooted at that entry when there is one,
+ * else the first show of the list that holds it; null for none.
+ */
+export async function findEncodeShow(nas: Pick<NasClient, 'encodeShow' | 'encodeShows'>, anilistId: number): Promise<EncodeShow | null> {
+  const own = await nas.encodeShow(String(anilistId));
+  if (own && own.seasons.some((s) => s.anilistId === anilistId)) return own;
+  const { shows } = await nas.encodeShows();
+  for (const summary of shows) {
+    if (summary.id === String(anilistId)) continue;
+    const show = await nas.encodeShow(summary.id);
+    if (show && show.seasons.some((s) => s.anilistId === anilistId)) return show;
   }
   return null;
 }

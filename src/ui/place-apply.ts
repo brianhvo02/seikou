@@ -128,13 +128,14 @@ export class LaunchSettingsApplier {
     const launch = this.deps.places.takeLaunchSettings();
     if (!launch) return;
     const { controller } = this.deps;
-    const settings = launch.byLanguage ? settingsForUpNext(launch.settings, s.audioTracks, s.subtitles?.pg ?? []) : launch.settings;
+    const settings = launch.byLanguage ? settingsForUpNext(launch.settings, s.audioTracks, s.subtitles?.pg ?? [], launch.names) : launch.settings;
     controller.setVolume(settings.volume);
     if (settings.muted !== s.muted) controller.toggleMute();
     const pg = s.subtitles?.pg ?? [];
     // Up next: a stored subtitle shown on the episode before carries its language to this one's (spec §6.6)
     const carried = launch.byLanguage && settings.textOn ? settings.textFiles.find((f) => fromNas(f) && f.language !== undefined) : undefined;
-    if (launch.byLanguage) {
+    // an encode opens with no registers to restore its tracks from, so a resume sets them by number
+    if (launch.byLanguage || s.encodeId !== null) {
       controller.selectAudio(settings.psr1);
       if (!settings.textOn) controller.selectSubtitle(pgChoice(settings.psr2, pg));
     }

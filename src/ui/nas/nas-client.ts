@@ -1,4 +1,4 @@
-import type { CodeLookup, ContinueItem, DiscEntry, DiscManifest, DiscPlaces, DiscRef, EncodeShow, EncodeShowList, EncodesStatus, EncodingNow, FansubPick, FansubPickRequest, FansubTitleState, FolderEntry, LevelAt, LevelInfo, OwnerChoice, OwnTitle, PlaybackPlace, PlaylistProgress, StoredSubtitle, SubtitleCreate, SubtitlePatch, TitleDetail, TitleKind, TitleSummary, ToshoReleaseFiles, ToshoSearchResult, UnsortedItem } from '@seikou/nas/nas-api';
+import type { CodeLookup, ContinueItem, DiscEntry, DiscManifest, DiscPlaces, DiscRef, EncodeDetail, EncodeShow, EncodeShowList, EncodesStatus, EncodingNow, FansubPick, FansubPickRequest, FansubTitleState, FolderEntry, LevelAt, LevelInfo, OwnerChoice, OwnTitle, PlaybackPlace, PlayerSettings, PlaylistProgress, StoredSubtitle, SubtitleCreate, SubtitlePatch, TitleDetail, TitleKind, TitleSummary, ToshoReleaseFiles, ToshoSearchResult, UnsortedItem } from '@seikou/nas/nas-api';
 import { PAIRING_CODE_LENGTH, formatCode, normalizeCode } from '@seikou/nas/pairing-code';
 import type { NasPairing, NasStore } from './nas-store';
 import { codeHashOf, isNasId, turnProofMessage } from '../../../rendezvous/src/protocol';
@@ -762,6 +762,36 @@ export class NasClient {
     if (res.status === 404) return null;
     if (!res.ok) throw await httpError(res);
     return (await res.json()) as EncodeShow;
+  }
+
+  /** An encoded episode as the NAS indexed it (chapters, tracks); null when the NAS has none by that id. */
+  async encode(id: string, opts: { readonly timeoutMs?: number } = {}): Promise<EncodeDetail | null> {
+    const res = await this.authed(`encodes/${encodeURIComponent(id)}`, {}, false, opts.timeoutMs);
+    if (res.status === 404) return null;
+    if (!res.ok) throw await httpError(res);
+    return (await res.json()) as EncodeDetail;
+  }
+
+  /** An encoded episode's manifest for the engine: its one file, `EPISODE.MKV`, with its size now. */
+  async encodeManifest(id: string): Promise<DiscManifest> {
+    return (await this.json(`encodes/${encodeURIComponent(id)}/manifest`)) as DiscManifest;
+  }
+
+  /** The encode's API base for the engine (`EncodeSpec.base`): `<NAS base>encodes/<id>/`, on the NAS's current route. */
+  async encodeBase(id: string): Promise<string> {
+    const pairing = await this.pairing();
+    if (!pairing) throw new Error(NAS_MESSAGES.unpaired);
+    return `${await this.apiBase(pairing)}encodes/${encodeURIComponent(id)}/`;
+  }
+
+  /** This person's player settings, the same on each of their devices. */
+  async playerSettings(): Promise<PlayerSettings> {
+    return (await this.json('me/player-settings')) as PlayerSettings;
+  }
+
+  /** Stores this person's player settings; answers what the NAS stored. */
+  async putPlayerSettings(settings: PlayerSettings): Promise<PlayerSettings> {
+    return (await this.json('me/player-settings', jsonBody('PUT', settings))) as PlayerSettings;
   }
 
   /** The subtitles stored for a disc (owners also see those no longer attached). */

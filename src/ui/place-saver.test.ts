@@ -236,6 +236,42 @@ describe('PlaceSaver', () => {
     expect(t.store.saves).toHaveLength(2);
   });
 
+  it("saves an encode's place under its key, with no program state, as often as a disc's", async () => {
+    const t = setup({ target: { discKey: 'e.100.3', discId: '100-3', chosen: 'mkv', mainPlaylistId: 'mkv', encode: true } });
+    t.show({ currentPlaylistId: 'mkv', durationUs: 120 * S, timeUs: 0 }); // short, but the episode is what was launched
+    await settle();
+    expect(t.store.saves).toHaveLength(0);
+    await t.play(10_000);
+    expect(t.store.saves.map((p) => p.timeUs)).toEqual([10 * S]);
+    t.show({ engineState: 'paused' });
+    await settle();
+    expect(t.store.saves).toHaveLength(2);
+    expect(t.store.saves.at(-1)).toMatchObject({ discKey: 'e.100.3', discId: '100-3', playlistId: 'mkv', mode: 'none', title: null, psrs: [], gprs: null, finished: false });
+    expect(t.nas.sent.at(-1)!.place.psrs).toEqual([]);
+  });
+
+  it("an encode's place is finished by its chapters, as a disc's is", async () => {
+    const chapters: PlayerSnapshot['chapters'] = [{ index: 0, startUs: 0 }, { index: 1, startUs: 1300 * S, name: 'Ending' }];
+    const t = setup({ target: { discKey: 'e.100.3', discId: '100-3', chosen: 'mkv', mainPlaylistId: 'mkv', encode: true } });
+    t.show({ currentPlaylistId: 'mkv', chapters });
+    t.show({ timeUs: 1310 * S }); // a seek into the Ending saves at once
+    await settle();
+    expect(t.store.saves.at(-1)).toMatchObject({ timeUs: 1310 * S, finished: true });
+  });
+
+  it('Next episode saves the episode finished first, and answers the place it saved', async () => {
+    const t = setup({ target: { discKey: 'e.100.3', discId: '100-3', chosen: 'mkv', mainPlaylistId: 'mkv', encode: true } });
+    t.show({ currentPlaylistId: 'mkv', timeUs: 600 * S, engineState: 'paused' });
+    await settle();
+    const before = t.store.saves.length;
+    const place = await t.saver.finishNow();
+    expect(place).toMatchObject({ discKey: 'e.100.3', timeUs: 600 * S, finished: true, mode: 'none', psrs: [] });
+    expect(t.store.saves).toHaveLength(before + 1);
+    expect(t.store.saves.at(-1)!.finished).toBe(true);
+    t.saver.end();
+    expect(await t.saver.finishNow()).toBeNull();
+  });
+
   it('marks a place finished when its playlist ends', async () => {
     const t = setup();
     await t.play(10_000);

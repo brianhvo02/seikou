@@ -137,4 +137,30 @@ describe('PlayingRoute write floor', () => {
       vi.useRealTimers();
     }
   });
+
+  it("keeps an encode's play route current, never naming a disc", () => {
+    const { h, route, at } = make({ kind: 'encodePlay', encodeId: '100-3', timeS: null, resume: true });
+    route.startEncode('100-3');
+    expect(route.discKey).toBeNull();
+    expect(route.encodeId).toBe('100-3');
+    route.update({ currentPlaylistId: 'mkv', timeUs: 0, engineState: 'playing' });
+    at(5000);
+    route.update({ currentPlaylistId: 'mkv', timeUs: 5.4e6, engineState: 'playing' });
+    expect(h.replaced).toEqual([{ kind: 'encodePlay', encodeId: '100-3', timeS: 5, resume: false }]);
+    route.stop();
+    expect(route.encodeId).toBeNull();
+    // a disc start forgets the encode
+    route.startEncode('100-3');
+    route.start(KEY);
+    expect(route.encodeId).toBeNull();
+  });
+
+  it("writes nothing for an encode once the address bar has left its play route", () => {
+    const { h, route, at } = make({ kind: 'encodes', q: '' });
+    route.startEncode('100-3');
+    route.update({ currentPlaylistId: 'mkv', timeUs: 0, engineState: 'playing' });
+    at(6000);
+    route.update({ currentPlaylistId: 'mkv', timeUs: 6e6, engineState: 'paused' });
+    expect(h.replaced).toEqual([]);
+  });
 });

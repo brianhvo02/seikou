@@ -182,7 +182,7 @@ export function App(): ReactElement {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const theme = themeController();
   // the player, and the page with it, stay dark while a disc is open (spec 2026-10-27 §3)
-  const discOpen = snapshot.playlists.length > 0;
+  const discOpen = snapshot.playlists.length > 0 || snapshot.encodeId !== null;
   useEffect(() => theme.setDiscOpen(discOpen), [theme, discOpen]);
   useEffect(() => {
     const session = new PlatformSession(
@@ -222,13 +222,13 @@ export function App(): ReactElement {
     <div className="app" data-testid="app">
       {TOUCH_LOG && <TouchLog />}
       {waitingWorker && shouldPromptUpdate({ waiting: true, engineState: snapshot.engineState }) && <UpdatePrompt worker={waitingWorker} />}
-      {snapshot.playlists.length === 0 && help !== null ? (
+      {!discOpen && help !== null ? (
         <HelpLoadBoundary>
           <Suspense fallback={<p className="status">Loading…</p>}>
             <HelpScreen history={history} theme={theme} slug={help.slug} hash={here.hash} />
           </Suspense>
         </HelpLoadBoundary>
-      ) : snapshot.playlists.length === 0 ? (
+      ) : !discOpen ? (
         <LandingScreen controller={controller} theme={theme} snapshot={snapshot} nas={nas} places={places} history={history} playingRoute={playingRoute} pairLink={pairLink} onPairLinkSpent={spendPairLink} />
       ) : (
         <PlayerScreen

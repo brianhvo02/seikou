@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ContinueItem, EncodeShow, EncodeShowSummary } from '@seikou/nas/nas-api';
 import {
-  continueRoute, encodesEmptyState, episodeCountLabel, episodeMark, indexingRetryMs, ownerNotices, searchShows, showContaining, showGroups,
+  continueRoute, encodesEmptyState, episodeCountLabel, episodeMark, findEncodeShow, indexingRetryMs, nextEpisode, ownerNotices, searchShows, showContaining, showGroups,
 } from './encodes-model';
 import { NasHttpError } from './nas-client';
 
@@ -143,5 +143,45 @@ describe('a show whose id changed', () => {
   it('is not found when no show holds it', () => {
     expect(showContaining([other, SHOW], { anilistId: 999 })).toBeNull();
     expect(showContaining([], { anilistId: 100 })).toBeNull();
+  });
+});
+
+describe('the next episode', () => {
+  it('is the next number in the season, then the first episode of the next season, never a film', () => {
+    expect(nextEpisode(SHOW, '100-1')?.id).toBe('100-2');
+    expect(nextEpisode(SHOW, '100-2')?.id).toBe('101-1');
+  });
+
+  it("is none at the show's last episode, after a film or an other entry's last", () => {
+    expect(nextEpisode(SHOW, '101-1')).toBeNull();
+    expect(nextEpisode(SHOW, '103-1')).toBeNull();
+    expect(nextEpisode(SHOW, '104-1')).toBeNull();
+    expect(nextEpisode(SHOW, '999-1')).toBeNull();
+  });
+
+  it('goes by episode number, past a missing one', () => {
+    const s1 = SHOW.seasons[0]!;
+    const show: EncodeShow = { ...SHOW, seasons: [{ ...s1, episodes: [s1.episodes[1]!, { episode: 4, id: '100-4', title: null, durationMs: 1 }, s1.episodes[0]!] }] };
+    expect(nextEpisode(show, '100-1')?.id).toBe('100-2');
+    expect(nextEpisode(show, '100-2')?.id).toBe('100-4');
+    expect(nextEpisode(show, '100-4')).toBeNull();
+  });
+
+  it('finds the show holding an episode: its own season id first, else through the list', async () => {
+    const other: EncodeShow = { id: '300', name: 'Lantern Tide', poster: null, seasons: [] };
+    const asked: string[] = [];
+    const nas = {
+      encodeShow: async (id: string) => {
+        asked.push(id);
+        return id === '100' ? SHOW : id === '300' ? other : null;
+      },
+      encodeShows: async () => ({ shows: [{ id: '300', name: 'Lantern Tide', poster: null, episodeCount: 1 }, { id: '100', name: 'Starfall Wanderer', poster: null, episodeCount: 5 }] }),
+    };
+    expect((await findEncodeShow(nas, 100))?.id).toBe('100');
+    expect(asked).toEqual(['100']);
+    asked.length = 0;
+    expect((await findEncodeShow(nas, 101))?.id).toBe('100');
+    expect(asked).toEqual(['101', '300', '100']);
+    expect(await findEncodeShow(nas, 999)).toBeNull();
   });
 });

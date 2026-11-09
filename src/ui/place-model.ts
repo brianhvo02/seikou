@@ -88,19 +88,33 @@ export function buildPlace(input: {
 }
 
 /**
- * The settings an Up next card carries to the next episode: audio and PG by language (numbering differs between
+ * The names of the audio and subtitle tracks that played (an encode's tracks have names; a disc's have none): among the
+ * next episode's tracks of the same language, the one with the same name is chosen first.
+ */
+export interface TrackNames {
+  readonly audio?: string;
+  readonly subtitle?: string;
+}
+
+/**
+ * The settings an Up next card carries to the next episode: audio and PG by language (and by name, given `names`) (numbering differs between
  * discs), the rest as is (text files too: a stored subtitle's language picks the next episode's in place-apply). The first playable audio track with the
  * language, else the first playable one (the disc's default); PG off when the new disc has no stream in the language.
  */
-export function settingsForUpNext(prev: PlaceSettings, tracks: readonly AudioTrack[], pgTracks: readonly PgTrack[]): PlaceSettings {
+export function settingsForUpNext(prev: PlaceSettings, tracks: readonly AudioTrack[], pgTracks: readonly PgTrack[], names: TrackNames = {}): PlaceSettings {
   let psr1 = prev.psr1;
   if (tracks.length > 0 && prev.audioLanguage) {
-    const first = tracks.find((t) => t.playable && t.language === prev.audioLanguage) ?? tracks.find((t) => t.playable);
+    const first =
+      tracks.find((t) => t.playable && t.language === prev.audioLanguage && names.audio !== undefined && t.name === names.audio) ??
+      tracks.find((t) => t.playable && t.language === prev.audioLanguage) ??
+      tracks.find((t) => t.playable);
     if (first) psr1 = first.index;
   }
   let psr2 = prev.psr2;
   if (prev.pgLanguage) {
-    const match = pgTracks.find((t) => t.language === prev.pgLanguage);
+    const match =
+      pgTracks.find((t) => t.language === prev.pgLanguage && names.subtitle !== undefined && t.name === names.subtitle) ??
+      pgTracks.find((t) => t.language === prev.pgLanguage);
     psr2 = match ? (((prev.psr2 & PG_DISPLAY_FLAG) | match.index) >>> 0) : 0xfff;
   }
   return { ...prev, psr1, psr2 };
