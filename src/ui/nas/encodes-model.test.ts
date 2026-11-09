@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ContinueItem, EncodeShow, EncodeShowSummary } from '@seikou/nas/nas-api';
 import {
-  continueRoute, encodesEmptyState, episodeCountLabel, episodeMark, findEncodeShow, indexingRetryMs, nextEpisode, ownerNotices, searchShows, showContaining, showGroups,
+  continueRoute, encodesEmptyState, episodeCountLabel, episodeMark, findEncodeShow, indexingRetryMs, nextEpisode, ownerNotices, searchShows, showContaining, showGroups, untilIndexed,
 } from './encodes-model';
 import { NasHttpError } from './nas-client';
 
@@ -62,6 +62,47 @@ describe('indexing', () => {
 
   it('waits at most 60 s, whatever Retry-After says', () => {
     expect(indexingRetryMs(new NasHttpError(503, 'indexing', { retryAfter: 3600 }))).toBe(60_000);
+  });
+
+  it('waits at least 1 s, even for a Retry-After of 0', () => {
+    expect(indexingRetryMs(new NasHttpError(503, 'indexing', { retryAfter: 0 }))).toBe(1000);
+  });
+
+  it('untilIndexed asks again after each indexing answer, and stops when cancelled', async () => {
+    vi.useFakeTimers();
+    try {
+      let n = 0;
+      const ask = vi.fn(async () => {
+        n++;
+        if (n < 3) throw new NasHttpError(503, 'indexing', { retryAfter: 2 });
+        return 'done';
+      });
+      const waiting = vi.fn();
+      const run = untilIndexed(ask, waiting);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(ask).toHaveBeenCalledTimes(1);
+      expect(waiting).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(ask).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(2000);
+      await expect(run.result).resolves.toBe('done');
+      // another error ends it at once
+      const failing = untilIndexed(async () => {
+        throw new NasHttpError(404, null);
+      });
+      await expect(failing.result).rejects.toThrow('404');
+      // cancelled while waiting: nothing more is asked
+      const again = vi.fn(async () => {
+        throw new NasHttpError(503, 'indexing', { retryAfter: 1 });
+      });
+      const stopped = untilIndexed(again);
+      await vi.advanceTimersByTimeAsync(0);
+      stopped.cancel();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(again).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

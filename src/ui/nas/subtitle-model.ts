@@ -95,8 +95,8 @@ export function episodeFirstChapter(chapterStartsMs: readonly number[], episodeS
 /**
  * The stored subtitles an encoded episode offers, matched by the source disc and playlist its tags name (never by
  * AniList episode): an `episode` attachment there, placed back by the episode's start in the playlist (its times are
- * the playlist's); a `chapter` attachment on the episode's first chapter, at the episode's start (its times are the
- * chapter's). `sourceChaptersMs` are the source playlist's chapter starts; without them no chapter attachment is
+ * the playlist's); a `chapter` attachment on the episode's first chapter, at that chapter's start in the episode (its
+ * times are the chapter's, and the chapter may start a little before or after the episode). `sourceChaptersMs` are the source playlist's chapter starts; without them no chapter attachment is
  * offered. An encode missing any of the three tags offers nothing.
  */
 export function storedForEncode(items: readonly StoredSubtitle[], entry: EncodeSourceTags, sourceChaptersMs: readonly number[] | null): EncodeStored[] {
@@ -106,7 +106,7 @@ export function storedForEncode(items: readonly StoredSubtitle[], entry: EncodeS
   const out: EncodeStored[] = [];
   for (const s of forPlaylist(items, discKey, playlistId)) {
     if (s.attachment.kind === 'episode') out.push({ subtitle: s, startUs: episodeStartMs === 0 ? 0 : -episodeStartMs * 1000 });
-    else if (first !== null && s.attachment.chapter === first) out.push({ subtitle: s, startUs: 0 });
+    else if (first !== null && s.attachment.chapter === first) out.push({ subtitle: s, startUs: Math.round((sourceChaptersMs![first]! - episodeStartMs) * 1000) });
   }
   return out;
 }

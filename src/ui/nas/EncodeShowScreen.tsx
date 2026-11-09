@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import type { EncodeShow } from '@seikou/nas/nas-api';
-import { durationLabel, episodeMark, INDEXING_COPY, indexingRetryMs, showContaining, showGroups, type EncodeProgress } from './encodes-model';
+import { durationLabel, episodeMark, INDEXING_COPY, indexingRetryMs, showContaining, showGroups, untilIndexed, type EncodeProgress } from './encodes-model';
 import type { NasClient } from './nas-client';
 import type { NasHistory } from './nas-history';
 import type { NasRoute } from './nas-route';
@@ -98,13 +98,15 @@ export function EncodeShowScreen({ nas, history, showId }: EncodeShowScreenProps
   useEffect(() => {
     if (loadedId === null) return;
     let live = true;
-    // no progress (none yet, or the NAS can't say) leaves the rows without marks
-    nas.titleProgress(loadedId, { library: 'encodes' }).then(
+    // no progress (none yet, or the NAS can't say) leaves the rows without marks; while it indexes it is asked again
+    const asking = untilIndexed(() => nas.titleProgress(loadedId, { library: 'encodes' }));
+    asking.result.then(
       (p) => live && setProgress(p),
       () => {},
     );
     return () => {
       live = false;
+      asking.cancel();
     };
   }, [nas, loadedId]);
 

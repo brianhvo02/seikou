@@ -32,7 +32,7 @@ import type { EncodeEpisode } from '@seikou/nas/nas-api';
 import { parseEncodeId } from '@seikou/nas/encode-id';
 import { chapterAction, countdownHeld, type ChapterAction } from './chapter-actions';
 import { ChapterActionButton } from './ChapterActionButton';
-import { findEncodeShow, nextEpisode } from './nas/encodes-model';
+import { findEncodeShow, nextEpisode, untilIndexed } from './nas/encodes-model';
 import { launchEncode, resumeFinishedPlaces } from './nas/encode-launch';
 import type { TrackNames } from './place-model';
 
@@ -222,7 +222,9 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
     const parsed = parseEncodeId(encodeId);
     if (!parsed) return;
     let live = true;
-    findEncodeShow(nas, parsed.anilistId).then(
+    // asked again while the NAS is still indexing its encodes
+    const asking = untilIndexed(() => findEncodeShow(nas, parsed.anilistId));
+    asking.result.then(
       (show) => live && setNextOf({ encodeId, next: show ? nextEpisode(show, encodeId) : null, showName: show?.name ?? null }),
       (err: unknown) => {
         console.warn('finding the next episode failed', err);
@@ -231,6 +233,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
     );
     return () => {
       live = false;
+      asking.cancel();
     };
   }, [nas, encodeId]);
   const nextUp = encodeId !== null && nextOf?.encodeId === encodeId ? nextOf.next : null;
@@ -240,12 +243,14 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
   useEffect(() => {
     if (!nas || encodeId === null) return;
     let live = true;
-    loadEncodeSubtitles(nas, encodeId).then(
+    const asking = untilIndexed(() => loadEncodeSubtitles(nas, encodeId));
+    asking.result.then(
       (sources) => live && setEncodeSubs({ encodeId, sources }),
       (err: unknown) => console.warn("reading the episode's subtitle sources failed", err),
     );
     return () => {
       live = false;
+      asking.cancel();
     };
   }, [nas, encodeId, discOpens]);
   const encodeSources = encodeId !== null && encodeSubs?.encodeId === encodeId ? encodeSubs.sources : null;

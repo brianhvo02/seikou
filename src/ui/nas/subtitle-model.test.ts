@@ -351,8 +351,14 @@ describe('storedForEncode', () => {
 
   it('takes the chapter starting within a second of the episode start', () => {
     const a = sub('a', 'en', ch(2));
-    expect(storedForEncode([a], entry, [0, 30_000, 60_400, 90_000])).toEqual([{ subtitle: a, startUs: 0 }]);
+    expect(storedForEncode([a], entry, [0, 30_000, 60_400, 90_000])).toEqual([{ subtitle: a, startUs: 400_000 }]);
     expect(storedForEncode([a], entry, [0, 30_000, 61_500, 90_000])).toEqual([]);
+  });
+
+  it("places a chapter attachment at its chapter's start in the episode, before or after the episode's start", () => {
+    const a = sub('a', 'en', ch(2));
+    expect(storedForEncode([a], entry, [0, 30_000, 60_250, 90_000])).toEqual([{ subtitle: a, startUs: 250_000 }]);
+    expect(storedForEncode([a], entry, [0, 30_000, 59_700, 90_000])).toEqual([{ subtitle: a, startUs: -300_000 }]);
   });
 
   it('leaves out chapter attachments on other chapters, and all of them without the source chapters', () => {

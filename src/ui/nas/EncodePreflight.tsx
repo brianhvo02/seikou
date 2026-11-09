@@ -5,7 +5,7 @@ import { ENCODE_PLAYLIST } from '@seikou/nas/place-key';
 import type { PlayerController } from '@seikou/engine/controller/player-controller';
 import type { LaunchSettings, PlaceSaver } from '../place-saver';
 import { av1Playable } from '../video-caps';
-import { durationLabel } from './encodes-model';
+import { durationLabel, INDEXING_COPY, untilIndexed } from './encodes-model';
 import { AV1_UNSUPPORTED_COPY, ENCODES_HELP_PATH, encodeKeyOf, launchEncode } from './encode-launch';
 import { AppLink } from '../help/HelpLink';
 import { PLACES_READ_TIMEOUT_MS, type NasClient } from './nas-client';
@@ -63,6 +63,7 @@ export function EncodePreflight({ nas, controller, places, history, playingRoute
   const [items, setItems] = useState<readonly ContinueItem[] | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [opening, setOpening] = useState(false);
+  const [indexing, setIndexing] = useState(false);
   const live = useRef(true);
   useEffect(() => {
     live.current = true;
@@ -71,20 +72,29 @@ export function EncodePreflight({ nas, controller, places, history, playingRoute
     };
   }, []);
 
+  // the entry, asked again while the NAS is still indexing its encodes
   useEffect(() => {
     let on = true;
     setEntry(undefined);
     setAv1(undefined);
-    nas.encode(encodeId).then(
+    setIndexing(false);
+    const asking = untilIndexed(() => nas.encode(encodeId), () => on && setIndexing(true));
+    asking.result.then(
       (e) => {
         if (!on) return;
+        setIndexing(false);
         setEntry(e);
         if (e) void checkAv1(e.tracks.find((t) => t.kind === 'video')?.codec).then((ok) => on && setAv1(ok), () => on && setAv1(false));
       },
-      (err: unknown) => on && setError(message(err)),
+      (err: unknown) => {
+        if (!on) return;
+        setIndexing(false);
+        setError(message(err));
+      },
     );
     return () => {
       on = false;
+      asking.cancel();
     };
   }, [nas, encodeId, checkAv1]);
 
@@ -165,7 +175,7 @@ export function EncodePreflight({ nas, controller, places, history, playingRoute
         </p>
       ) : (
         <>
-          <h3>{name ?? 'Loading…'}</h3>
+          <h3>{name ?? (indexing ? INDEXING_COPY : 'Loading…')}</h3>
           {entry && <p className="library-meta">{[`Episode ${entry.episode}`, ...(length ? [length] : [])].join(' · ')}</p>}
         </>
       )}

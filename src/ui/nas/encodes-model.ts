@@ -49,11 +49,47 @@ export function ownerNotices(status: EncodesStatus | null, owner: boolean): stri
 
 /** A Retry-After longer than this is waited out for this long only. */
 const MAX_RETRY_S = 60;
+/** A Retry-After shorter than this (0, say) is waited out for this long, so a client never asks in a tight loop. */
+const MIN_RETRY_S = 1;
 
 /** The wait before asking again when the NAS is still indexing (503 `indexing`, its `Retry-After`); null for any other error. */
 export function indexingRetryMs(err: unknown): number | null {
   if (!(err instanceof NasHttpError) || err.status !== 503 || err.code !== 'indexing') return null;
-  return Math.min(err.detail.retryAfter ?? 5, MAX_RETRY_S) * 1000;
+  return Math.max(MIN_RETRY_S, Math.min(err.detail.retryAfter ?? 5, MAX_RETRY_S)) * 1000;
+}
+
+/**
+ * Asks `ask` until the NAS answers something other than 503 `indexing`, waiting `indexingRetryMs` between tries
+ * (`onIndexing` on each such answer). `result` settles with that answer; once `cancel` is called nothing more is asked
+ * and `result` never settles.
+ */
+export function untilIndexed<T>(ask: () => Promise<T>, onIndexing?: () => void): { readonly result: Promise<T>; cancel(): void } {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let cancelled = false;
+  const result = new Promise<T>((resolve, reject) => {
+    const once = (): void => {
+      ask().then(
+        (v) => {
+          if (!cancelled) resolve(v);
+        },
+        (err: unknown) => {
+          if (cancelled) return;
+          const wait = indexingRetryMs(err);
+          if (wait === null) return reject(err);
+          onIndexing?.();
+          timer = setTimeout(once, wait);
+        },
+      );
+    };
+    once();
+  });
+  return {
+    result,
+    cancel: () => {
+      cancelled = true;
+      clearTimeout(timer);
+    },
+  };
 }
 
 export function episodeCountLabel(n: number): string {

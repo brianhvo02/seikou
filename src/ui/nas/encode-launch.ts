@@ -21,6 +21,21 @@ export const AV1_UNSUPPORTED_COPY =
 /** Where the AV1 warning's help link goes: the encodes section of the NAS page. */
 export const ENCODES_HELP_PATH = '/help/nas#encodes';
 
+/**
+ * How long an open waits for the audio to start. Next episode's countdown opens with no user gesture, where a browser
+ * may hold the audio back; the episode then opens without sound rather than not at all.
+ */
+export const AUDIO_START_WAIT_MS = 3000;
+
+/** `p`, or nothing once `ms` have passed. */
+function atMost(p: Promise<unknown>, ms: number): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms);
+  });
+  return Promise.race([Promise.resolve(p).then(() => undefined), late]).finally(() => clearTimeout(timer));
+}
+
 /** What opening an encode needs. */
 export interface EncodeLaunchDeps {
   readonly nas: NasClient;
@@ -49,8 +64,9 @@ export async function launchEncode(
   const discKey = encodeKeyOf(encodeId);
   if (discKey === null) throw new Error(`Not an encode id: ${encodeId}`);
   // Inside the gesture, before anything is awaited; and waited for (it never rejects), since an encode opens in moments
-  // and one that starts before the audio ring reaches the engine plays without sound.
-  const audio = controller.startAudio();
+  // and one that starts before the audio ring reaches the engine plays without sound. Never for longer than
+  // AUDIO_START_WAIT_MS: with no gesture (Next episode's countdown) the start may never come.
+  const audio = atMost(controller.startAudio(), AUDIO_START_WAIT_MS);
   const [base, session, pairing, manifest] = await Promise.all([nas.encodeBase(encodeId), nas.session(), nas.pairing(), nas.encodeManifest(encodeId), audio]);
   if (opts.stillWanted && !opts.stillWanted()) return false;
   // The engine asks again only after the NAS refused the token it has, so that one is never handed back.

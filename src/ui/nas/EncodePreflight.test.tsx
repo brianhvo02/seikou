@@ -7,7 +7,8 @@ import type { PlayerController } from '@seikou/engine/controller/player-controll
 import type { PlaceSaver } from '../place-saver';
 import { EncodePreflight, encodeCarried, encodeOffer } from './EncodePreflight';
 import { AV1_UNSUPPORTED_COPY } from './encode-launch';
-import type { NasClient } from './nas-client';
+import { NasHttpError, type NasClient } from './nas-client';
+import { INDEXING_COPY } from './encodes-model';
 import type { NasHistory } from './nas-history';
 import { PlayingRoute } from './playing-route';
 
@@ -83,6 +84,37 @@ describe('the encode pre-flight', () => {
     await waitFor(() => expect(f.controller.openEncode).toHaveBeenCalled());
     expect(vi.mocked(f.controller.openEncode).mock.calls[0]![2]).toBeUndefined();
     expect(f.saver.begin).toHaveBeenCalledWith(expect.anything(), { settings, byLanguage: true });
+  });
+});
+
+describe('the encode pre-flight while the NAS indexes', () => {
+  it('asks again after a 503 indexing, and offers Play once the entry comes', async () => {
+    let calls = 0;
+    const encode = vi.fn(async () => {
+      calls++;
+      if (calls === 1) throw new NasHttpError(503, 'indexing', { retryAfter: 0 });
+      return ENTRY;
+    });
+    const f = fakes(null, { encode });
+    render(<EncodePreflight nas={f.nas} controller={f.controller} places={f.saver} history={f.history} playingRoute={f.playingRoute} encodeId="100-3" startTimeS={null} resume={false} checkAv1={async () => true} />);
+    await waitFor(() => expect(screen.getByText(INDEXING_COPY)).toBeTruthy());
+    expect(screen.queryByTestId('nas-error')).toBeNull();
+    const play = await screen.findByTestId('encode-preflight-play', {}, { timeout: 3000 });
+    await waitFor(() => expect((play as HTMLButtonElement).disabled).toBe(false));
+    expect(encode).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId('nas-error')).toBeNull();
+  });
+
+  it('stops asking once it is gone', async () => {
+    const encode = vi.fn(async () => {
+      throw new NasHttpError(503, 'indexing', { retryAfter: 1 });
+    });
+    const f = fakes(null, { encode });
+    const view = render(<EncodePreflight nas={f.nas} controller={f.controller} places={f.saver} history={f.history} playingRoute={f.playingRoute} encodeId="100-3" startTimeS={null} resume={false} checkAv1={async () => true} />);
+    await waitFor(() => expect(encode).toHaveBeenCalledTimes(1));
+    view.unmount();
+    await new Promise((r) => setTimeout(r, 1200));
+    expect(encode).toHaveBeenCalledTimes(1);
   });
 });
 
