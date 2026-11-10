@@ -17,6 +17,13 @@ export interface FolderEntry {
   readonly discs: number;
 }
 
+/** A library root, as `GET admin/drives` lists it: its discs now, and whether the last scan found it missing or empty. */
+export interface NasDrive {
+  readonly name: string;
+  readonly discs: number;
+  readonly missing: boolean;
+}
+
 export interface LibraryListing {
   readonly folders: FolderEntry[];
   readonly discs: DiscEntry[];

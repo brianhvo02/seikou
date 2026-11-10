@@ -169,6 +169,24 @@ describe('subtitle routes', () => {
     expect(await (await call('GET', '/api/subtitles?titleId=star-2', owner)).json()).toEqual([]);
   });
 
+  it('lists every upload with all=1, attached or not, to owners only', async () => {
+    const owner = await tokenFor('Hana', true);
+    const guest = await tokenFor('Noor', false);
+    const DISC3 = 'fedcba9876543210';
+    discs.push({ discId: DISC3, fingerprint: null, playlists: [playlist('00900')] } as unknown as DiscEvidence);
+    const ep = await createWithFile(owner);
+    const lost = await createWithFile(owner, { for: { kind: 'chapter', discId: DISC3, playlistId: '00900', chapter: 0 } });
+    discs.pop(); // its disc is gone: no title or disc lists it any more
+    const res = await call('GET', '/api/subtitles?all=1', owner);
+    expect(res.status).toBe(200);
+    const all = (await res.json()) as StoredSubtitle[];
+    expect(all.map((x) => [x.id, x.attached])).toEqual([[ep.id, true], [lost.id, false]]);
+    expect(all[0]!.uploaderPersonId).toEqual(expect.any(String));
+    const refused = await call('GET', '/api/subtitles?all=1', guest);
+    expect(refused.status).toBe(403);
+    expect((await call('GET', '/api/subtitles?all=0', owner)).status).toBe(400);
+  });
+
   it('does not list an upload that has no file yet', async () => {
     const owner = await tokenFor('Hana', true);
     await createSub(owner);

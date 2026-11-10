@@ -1,6 +1,7 @@
-import type { EncodingNow, TitleSummary } from '@seikou/nas/nas-api';
+import type { EncodingNow, NasDrive, StoredSubtitle, TitleSummary } from '@seikou/nas/nas-api';
+import { LANGUAGES } from './subtitle-model';
 import { displayName } from './title-model';
-import type { NasClient, NasCode, NasTitleStatus } from './nas-client';
+import { NasHttpError, type NasClient, type NasCode, type NasTitleStatus } from './nas-client';
 import { codeTarget, lastSeen } from './people-model';
 
 export { lastSeen };
@@ -113,4 +114,36 @@ export function ownTitleKind(t: TitleSummary): string {
 /** The confirm step before deleting an own title. */
 export function deleteTitleQuestion(name: string): string {
   return `Delete ${name}? Its discs go back to Unsorted.`;
+}
+
+const discCount = (n: number): string => `${n} disc${n === 1 ? '' : 's'}`;
+
+/** A drive's row in NAS settings: what it holds, and whether its kept discs can be forgotten (missing, with discs). */
+export function driveLine(d: NasDrive): { name: string; status: string; canForget: boolean } {
+  if (!d.missing) return { name: d.name, status: discCount(d.discs), canForget: false };
+  return { name: d.name, status: d.discs > 0 ? `Not found at the last scan · ${discCount(d.discs)} kept` : 'Not found at the last scan', canForget: d.discs > 0 };
+}
+
+export function forgetDriveQuestion(d: NasDrive): string {
+  return `Forget the ${discCount(d.discs)} kept from ${d.name}? They leave the library now. If the drive comes back, the next scan lists them again.`;
+}
+
+/** An upload's row in the owners' list of every subtitle upload; `titleNames` by title id. */
+export function uploadLine(s: StoredSubtitle, titleNames: ReadonlyMap<string, string>): { name: string; language: string; where: string; attached: boolean } {
+  const a = s.attachment;
+  const title = (id: string | undefined): string | null => (id === undefined ? null : (titleNames.get(id) ?? null));
+  const place = a.kind === 'episode'
+    ? `${title(a.titleId) ?? 'A title no longer on the NAS'} · episode ${a.episode}`
+    : `${title(a.titleId) ?? 'A disc'} · playlist ${a.playlistId} · chapter ${a.chapter + 1}`;
+  const attached = s.attached !== false;
+  const language = LANGUAGES.find((l) => l.code.toLowerCase() === s.language.toLowerCase())?.label ?? s.language;
+  return { name: s.name, language, where: attached ? place : `Not attached: its disc or playlist is gone · was ${place}`, attached };
+}
+
+/** Why forgetting a drive's discs was refused, in the owner's words. */
+export function forgetDriveError(err: unknown): string {
+  const code = err instanceof NasHttpError ? err.code : null;
+  if (code === 'drive-present') return 'This drive was found at the last scan, so its discs stay.';
+  if (code === 'scanning') return 'The library is being scanned. Try again when the scan has finished.';
+  return `Couldn't forget the drive's discs: ${err instanceof Error ? err.message : String(err)}`;
 }

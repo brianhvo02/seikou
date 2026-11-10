@@ -40,6 +40,7 @@ function setup(opts: { fetchFails?: boolean; loaded?: readonly TextFileInfo[]; f
   const engineLists = (...files: TextFileInfo[]): void => show({ subtitles: { ...snap.subtitles!, text: { files, missingFonts: [], episodeStarts: [] } } });
   const controller = {
     discOpens: 1,
+    encodingCancels: 0,
     loadSubtitleFiles: async (files: readonly File[]) => void calls.push(['load', files.map((f) => f.name)]),
     setSubtitleStart: (i: number, us: number | null) => void calls.push(['start', i, us]),
     shiftSubtitleFile: (i: number, ms: number) => {
@@ -215,6 +216,19 @@ describe('StoredSubtitlePicker waits', () => {
     expect(await done).toBe(true);
     expect(t.calls.filter((c) => c[0] === 'notice')).toEqual([]);
     expect(t.calls).toContainEqual(['note', 'ep1.srt', 'sub-1', 120, 'en']);
+  });
+
+  it('stops quietly when the encoding prompt is cancelled: no notice, nothing placed', async () => {
+    vi.useFakeTimers();
+    const t = setup();
+    const done = t.pick({ ...episodeSub, fileName: 'ep1.srt' });
+    await vi.advanceTimersByTimeAsync(1);
+    t.show({ encodingPrompt: { names: ['ep1.srt'] } });
+    t.controller.encodingCancels = 1; // as answerEncoding(null) counts it before clearing the prompt
+    t.show({ encodingPrompt: null });
+    expect(await done).toBe(false);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(t.calls.filter((c) => c[0] === 'notice' || c[0] === 'note')).toEqual([]);
   });
 
   it('a newer pick of a file with the same name abandons the older one, which applies nothing', async () => {

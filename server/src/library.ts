@@ -34,6 +34,7 @@ interface LibraryRoot {
 }
 
 const byName = (a: { name: string }, b: { name: string }): number => a.name.localeCompare(b.name, 'ja');
+const inRoot = (d: DiscEntry, root: string): boolean => d.path === root || d.path.startsWith(`${root}/`);
 
 /** The next `at` (default 04:00) strictly after `now`, in server local time. */
 export function nextNightly(now: Date, at: { hour: number; minute: number } = { hour: 4, minute: 0 }): Date {
@@ -57,6 +58,9 @@ export class Library {
   private readonly pauseMs: number;
   private readonly now: () => number;
   private reads = 0;
+  /** Roots the last completed scan found unreadable or empty (kept with their earlier discs); `missingNext` during a scan. */
+  private missing = new Set<string>();
+  private missingNext = new Set<string>();
   /** Ids of `.iso` files whose UDF tree has no BDMV/INDEX.BDMV (or that aren't UDF), so a rescan doesn't read them again. */
   private readonly notDiscs = new Set<string>();
 
@@ -152,6 +156,31 @@ export class Library {
     return root ? join(root.dir, disc.path.slice(root.name.length + 1)) : null;
   }
 
+  /** Each configured root with how many discs it holds now and whether the last completed scan found it missing or empty. */
+  drives(): { name: string; discs: number; missing: boolean }[] {
+    return this.roots.map((r) => ({
+      name: r.name,
+      discs: [...this.byId.values()].filter((d) => inRoot(d, r.name)).length,
+      missing: this.missing.has(r.name),
+    }));
+  }
+
+  /**
+   * Drops the discs kept for a root the last scan found missing (a drive gone for good), saves the library and tells the
+   * scan listeners. If the drive comes back, the next scan lists its discs again. Refused while a scan runs, since it
+   * would put back what it kept.
+   */
+  async forget(name: string): Promise<'forgotten' | 'present' | 'unknown' | 'scanning'> {
+    if (!this.roots.some((r) => r.name === name)) return 'unknown';
+    if (this.running) return 'scanning';
+    if (!this.missing.has(name)) return 'present';
+    const discs = [...this.byId.values()].filter((d) => !inRoot(d, name));
+    this.install(discs, this.evidenceById);
+    this.tellScanned();
+    await this.save(discs, this.evidenceById);
+    return 'forgotten';
+  }
+
   /** Rescans every root; list() keeps answering from the previous tree meanwhile. A scan already running is joined. */
   scan(): Promise<void> {
     this.running ??= this.doScan().finally(() => {
@@ -179,25 +208,18 @@ export class Library {
     this.evidenceById = new Map(discs.flatMap((d) => (evidence.has(d.id) ? [[d.id, evidence.get(d.id)!] as const] : [])));
   }
 
-  private async doScan(): Promise<void> {
-    const found: DiscEntry[] = [];
-    const previous = this.byId;
-    const progressive = previous.size === 0;
-    this.reads = 0;
-    this.previousEvidence = this.evidenceById;
-    this.nextEvidence = new Map();
-    for (const root of this.roots) {
-      await this.scanRoot(root, found, previous);
-      if (progressive) this.install([...found], this.nextEvidence);
-    }
-    this.install(found, this.nextEvidence);
+  /** Writes library.json: the discs with their evidence. */
+  private async save(discs: readonly DiscEntry[], evidence: ReadonlyMap<string, DiscEvidence>): Promise<void> {
     try {
       const tmp = `${this.cacheFile}.tmp`;
-      await writeFile(tmp, JSON.stringify(found.map((d) => ({ ...d, evidence: this.nextEvidence.get(d.id) }))));
+      await writeFile(tmp, JSON.stringify(discs.map((d) => ({ ...d, evidence: evidence.get(d.id) }))));
       await rename(tmp, this.cacheFile);
     } catch (err) {
       console.error('could not write the library cache', err);
     }
+  }
+
+  private tellScanned(): void {
     for (const listener of this.scannedListeners) {
       try {
         listener();
@@ -205,6 +227,24 @@ export class Library {
         console.error('a scan listener failed', err);
       }
     }
+  }
+
+  private async doScan(): Promise<void> {
+    const found: DiscEntry[] = [];
+    const previous = this.byId;
+    const progressive = previous.size === 0;
+    this.reads = 0;
+    this.previousEvidence = this.evidenceById;
+    this.nextEvidence = new Map();
+    this.missingNext = new Set();
+    for (const root of this.roots) {
+      await this.scanRoot(root, found, previous);
+      if (progressive) this.install([...found], this.nextEvidence);
+    }
+    this.install(found, this.nextEvidence);
+    this.missing = this.missingNext;
+    await this.save(found, this.nextEvidence);
+    this.tellScanned();
   }
 
   /** Carries a disc's evidence over from the previous scan, if it had any; true if it did. */
@@ -233,6 +273,7 @@ export class Library {
         if (!entries || (dir.depth === 0 && entries.length === 0)) {
           // An unreadable or empty root (a drive that isn't mounted) keeps what it had rather than losing its discs.
           if (dir.depth === 0) {
+            this.missingNext.add(root.name);
             for (const d of previous.values()) {
               if (d.path !== root.name && !d.path.startsWith(`${root.name}/`)) continue;
               out.push(d);

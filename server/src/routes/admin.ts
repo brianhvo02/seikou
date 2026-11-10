@@ -170,6 +170,13 @@ export function adminRoutes(auth: Auth, opts: AdminOptions): Handler {
     if (rest.length > 0) {
       // the three-segment routes
       if (opts.titles && collection === 'discs' && rest.length === 1 && rest[0] === 'choice') return choiceRoute(req.method, decode(id!), req, opts.library, opts.titles);
+      if (req.method === 'POST' && collection === 'drives' && rest.length === 1 && rest[0] === 'forget') {
+        const outcome = await opts.library.forget(decode(id!));
+        if (outcome === 'unknown') return json(404, { error: 'unknown-drive' });
+        if (outcome === 'present') return json(409, { error: 'drive-present', message: 'This drive was found at the last scan, so its discs stay.' });
+        if (outcome === 'scanning') return json(409, { error: 'scanning', message: 'The library is being scanned. Try again when the scan has finished.' });
+        return json(200, { drives: opts.library.drives() });
+      }
       if (req.method === 'DELETE' && collection === 'people' && rest.length === 1 && rest[0] === 'saved-data') {
         const target = decode(id!);
         if (!auth.people().some((p) => p.id === target)) return json(404, { error: 'unknown person' });
@@ -272,6 +279,8 @@ export function adminRoutes(auth: Auth, opts: AdminOptions): Handler {
         unregisterCodes(opts.registrar, [found.hash]);
         return { status: 204 };
       }
+      case 'GET drives':
+        return json(200, { drives: opts.library.drives() });
       case 'POST rescan':
         opts.library.scan().catch((err: unknown) => console.error('library scan failed', err));
         return json(202, { scanning: true });

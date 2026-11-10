@@ -13,7 +13,7 @@ const FANSUB_NOTICE_CODE = 'fansub-pick';
 
 export interface StoredPickDeps {
   readonly nas: Pick<NasClient, 'subtitleFiles' | 'pickFansub'>;
-  readonly controller: Pick<PlayerController, 'discOpens' | 'loadSubtitleFiles' | 'setSubtitleStart' | 'shiftSubtitleFile' | 'selectSubtitle' | 'showNotice' | 'subscribe'>;
+  readonly controller: Pick<PlayerController, 'discOpens' | 'encodingCancels' | 'loadSubtitleFiles' | 'setSubtitleStart' | 'shiftSubtitleFile' | 'selectSubtitle' | 'showNotice' | 'subscribe'>;
   readonly places: Pick<PlaceSaver, 'noteStoredSubtitle' | 'noteFansubPick'>;
   readonly snapshot: () => PlayerSnapshot;
   readonly log?: (message: string, err: unknown) => void;
@@ -147,12 +147,13 @@ export class StoredSubtitlePicker {
   }
 
   /**
-   * Waits for `ready` after a snapshot. Gives up ('abandoned') once `current` fails or the pick is superseded, and
-   * times out after waitMs without the encoding prompt open: while it is open the clock stops, and starts over once it
-   * is answered.
+   * Waits for `ready` after a snapshot. Gives up ('abandoned') once `current` fails, the pick is superseded or the
+   * encoding prompt is cancelled (the user chose not to load it: nothing to report), and times out after waitMs without
+   * the encoding prompt open: while it is open the clock stops, and starts over once it is answered.
    */
   private waitFor(current: () => boolean, ready: () => boolean): Promise<WaitResult> {
     const waitMs = this.deps.waitMs ?? TEXT_WAIT_MS;
+    const cancels = this.deps.controller.encodingCancels;
     return new Promise<WaitResult>((resolve) => {
       let settled = false;
       let timer: ReturnType<typeof setTimeout> | null = null;
@@ -173,7 +174,7 @@ export class StoredSubtitlePicker {
         } else if (!prompt && timer === null) timer = setTimeout(() => finish('timeout'), waitMs);
       };
       const stop = this.deps.controller.subscribe(() => {
-        if (!current()) finish('abandoned');
+        if (!current() || this.deps.controller.encodingCancels !== cancels) finish('abandoned');
         else if (ready()) finish('listed');
         else clock();
       });

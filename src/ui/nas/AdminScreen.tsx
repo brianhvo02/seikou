@@ -5,6 +5,8 @@ import { NasHttpError, type NasClient, type NasPerson, type NasTitleStatus } fro
 import { FansubLanguages } from './FansubLanguages';
 import { EncodingNowSection } from './EncodingNowSection';
 import { RelaySettings } from './RelaySettings';
+import { DrivesSection } from './DrivesSection';
+import { SubtitleUploadsSection } from './SubtitleUploadsSection';
 import { PeopleSection } from './PeopleSection';
 import { MAX_PERSON_NAME, NEW_PERSON, codeSummary, rendezvousNotice } from './people-model';
 import { displayName } from './title-model';
@@ -546,10 +548,12 @@ export function AdminScreen({ nas, thisDeviceId, onClose, onAccessLost, now = Da
           Rescan
         </button>
       </div>
+      <DrivesSection nas={nas} />
       <RelaySettings nas={nas} />
       <EncodingNowSection nas={nas} />
       <FansubLanguages nas={nas} />
       <TitleLibrarySettings nas={nas} now={now} onTitlesChanged={onTitlesChanged ?? (() => {})} />
+      <SubtitleUploadsSection nas={nas} />
       {status && (
         <p className="status" role="status" data-testid="nas-admin-status">
           {status}

@@ -322,6 +322,61 @@ describe('Library evidence', () => {
     expect(lib.evidence().map((e) => e.discId).sort()).toEqual(old.map((d) => d.id as string).sort());
   });
 
+  it('lists each root with its discs and whether the last scan found it', async () => {
+    const file = join(tmp, 'library.json');
+    const lib = new Library(roots(), file, FAST);
+    expect(lib.drives()).toEqual([
+      { name: 'mediaA', discs: 0, missing: false },
+      { name: 'mediaB', discs: 0, missing: false },
+    ]);
+    await lib.scan();
+    expect(lib.drives()).toEqual([
+      { name: 'mediaA', discs: 3, missing: false },
+      { name: 'mediaB', discs: 1, missing: false },
+    ]);
+    rmSync(join(tmp, 'b'), { recursive: true });
+    await lib.scan();
+    expect(lib.drives()).toEqual([
+      { name: 'mediaA', discs: 3, missing: false },
+      { name: 'mediaB', discs: 1, missing: true }, // its last discs are kept
+    ]);
+    mkdirSync(join(tmp, 'b')); // mounted again, but empty: still missing
+    await lib.scan();
+    expect(lib.drives()[1]).toEqual({ name: 'mediaB', discs: 1, missing: true });
+  });
+
+  it('forgets the kept discs of a missing root, saves that, and tells the scan listeners; a root that is there is refused', async () => {
+    const file = join(tmp, 'library.json');
+    const lib = new Library(roots(), file, FAST);
+    await lib.scan();
+    const told: number[] = [];
+    lib.onScanned(() => told.push(lib.evidence().length));
+    expect(await lib.forget('mediaB')).toBe('present');
+    expect(await lib.forget('nope')).toBe('unknown');
+    expect(told).toEqual([]);
+    rmSync(join(tmp, 'b'), { recursive: true });
+    await lib.scan();
+    const other = lib.list('mediaB')!.discs[0]!;
+    expect(await lib.forget('mediaB')).toBe('forgotten');
+    expect(lib.list('mediaB')).toBeNull();
+    expect(lib.disc(other.id)).toBeNull();
+    expect(lib.drives()[1]).toEqual({ name: 'mediaB', discs: 0, missing: true });
+    expect(lib.list('mediaA')!.discs.length + lib.list('mediaA/Series (シリーズ)')!.discs.length).toBe(3);
+    expect(told).toEqual([4, 3]);
+    expect(new Library(roots(), file, FAST).list('mediaB')).toBeNull(); // saved
+    // the drive comes back: the next scan lists its disc again, with the same id
+    touch(join(tmp, 'b/Other/BDMV/index.bdmv'));
+    await lib.scan();
+    expect(lib.drives()[1]).toEqual({ name: 'mediaB', discs: 1, missing: false });
+  });
+
+  it('refuses to forget while a scan runs', async () => {
+    const lib = new Library(roots(), join(tmp, 'library.json'), FAST);
+    const scanning = lib.scan();
+    expect(await lib.forget('mediaB')).toBe('scanning');
+    await scanning;
+  });
+
   it('calls onScanned after every completed scan', async () => {
     const lib = new Library(roots(), join(tmp, 'library.json'), FAST);
     const calls: number[] = [];

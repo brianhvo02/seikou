@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { TMDB_ATTRIBUTION, codeListed, codePollEnd, countdown, countdownTickMs, deleteTitleQuestion, encodingLine, encodingStatus, gateSwitchOn, lastSeen, matchingStatus, newCode, ownTitleKind, ownTitles, withGate, type AdminApi } from './admin-model';
-import type { TitleSummary } from '@seikou/nas/nas-api';
+import { TMDB_ATTRIBUTION, codeListed, driveLine, forgetDriveError, forgetDriveQuestion, uploadLine, codePollEnd, countdown, countdownTickMs, deleteTitleQuestion, encodingLine, encodingStatus, gateSwitchOn, lastSeen, matchingStatus, newCode, ownTitleKind, ownTitles, withGate, type AdminApi } from './admin-model';
+import type { StoredSubtitle, TitleSummary } from '@seikou/nas/nas-api';
+import { NasHttpError } from './nas-client';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -174,5 +175,57 @@ describe('encodingStatus', () => {
     expect(encodingStatus({ list: [row], failed: false })).toBeNull();
     // a later failed refresh keeps the last list
     expect(encodingStatus({ list: [row], failed: true })).toBeNull();
+  });
+});
+
+describe('drives', () => {
+  it('says what each drive holds, and marks one the last scan did not find', () => {
+    expect(driveLine({ name: 'mediaA', discs: 12, missing: false })).toEqual({ name: 'mediaA', status: '12 discs', canForget: false });
+    expect(driveLine({ name: 'mediaB', discs: 1, missing: true })).toEqual({ name: 'mediaB', status: 'Not found at the last scan · 1 disc kept', canForget: true });
+    expect(driveLine({ name: 'mediaC', discs: 0, missing: true })).toEqual({ name: 'mediaC', status: 'Not found at the last scan', canForget: false });
+    expect(driveLine({ name: 'mediaD', discs: 1, missing: false }).status).toBe('1 disc');
+  });
+
+  it('explains a refused forget', () => {
+    expect(forgetDriveError(new NasHttpError(409, 'drive-present'))).toBe('This drive was found at the last scan, so its discs stay.');
+    expect(forgetDriveError(new NasHttpError(409, 'scanning'))).toBe('The library is being scanned. Try again when the scan has finished.');
+    expect(forgetDriveError(new Error('offline'))).toBe("Couldn't forget the drive's discs: offline");
+  });
+
+  it('asks before forgetting, naming what comes back', () => {
+    expect(forgetDriveQuestion({ name: 'mediaB', discs: 3, missing: true })).toBe(
+      'Forget the 3 discs kept from mediaB? They leave the library now. If the drive comes back, the next scan lists them again.',
+    );
+    expect(forgetDriveQuestion({ name: 'mediaB', discs: 1, missing: true })).toContain('the 1 disc kept');
+  });
+});
+
+describe('uploadLine', () => {
+  const sub = (attachment: StoredSubtitle['attachment'], over: Partial<StoredSubtitle> = {}): StoredSubtitle =>
+    ({ id: 'u1', name: 'Fan subs', language: 'en', offsetMs: 0, fileName: 'a.ass', fileSize: 1, fonts: [], attachment, uploadedAt: 0, attached: true, ...over }) as StoredSubtitle;
+  const names = new Map([['star', 'Starfall Wanderer']]);
+
+  it('names an episode upload by its title and episode', () => {
+    expect(uploadLine(sub({ kind: 'episode', discKey: 'f.X', playlistId: '00001', titleId: 'star', seasonId: 's1', episode: 2 }), names)).toEqual({
+      name: 'Fan subs',
+      language: 'English',
+      where: 'Starfall Wanderer · episode 2',
+      attached: true,
+    });
+  });
+
+  it('names a chapter upload by its title when it has one, else as a disc, with the chapter counted from 1', () => {
+    expect(uploadLine(sub({ kind: 'chapter', discKey: 'd.0123456789abcdef', playlistId: '00800', chapter: 0, titleId: 'star' }), names).where).toBe(
+      'Starfall Wanderer · playlist 00800 · chapter 1',
+    );
+    expect(uploadLine(sub({ kind: 'chapter', discKey: 'd.0123456789abcdef', playlistId: '00800', chapter: 3 }), names).where).toBe('A disc · playlist 00800 · chapter 4');
+  });
+
+  it('says when an upload is not attached, and falls back to the codes it was given', () => {
+    const lost = uploadLine(sub({ kind: 'chapter', discKey: 'd.0123456789abcdef', playlistId: '00800', chapter: 0 }, { attached: false, language: 'xx-test' }), names);
+    expect(lost.attached).toBe(false);
+    expect(lost.where).toBe('Not attached: its disc or playlist is gone · was A disc · playlist 00800 · chapter 1');
+    expect(lost.language).toBe('xx-test');
+    expect(uploadLine(sub({ kind: 'episode', discKey: 'f.X', playlistId: '00001', titleId: 'gone', seasonId: 's1', episode: 5 }), names).where).toBe('A title no longer on the NAS · episode 5');
   });
 });

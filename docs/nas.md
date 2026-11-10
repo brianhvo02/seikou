@@ -29,6 +29,8 @@ The NAS files each disc under a title by itself. A series has seasons, each with
 
 If the owner has not opened the library to everyone, you see the folders only. Owners also see an **Unsorted** shelf (discs the NAS could not file) and a settings button.
 
+When a drive isn't there at a scan (unplugged, or not mounted yet), the NAS keeps listing the discs it had, so a drive that is briefly away doesn't empty the library. If a drive is gone for good, an owner opens **NAS settings**, finds it under **Drives** marked "Not found at the last scan", and picks **Forget its discs**. If the drive comes back later, the next scan lists its discs again.
+
 ## Encodes
 
 The **Encodes** tab, beside **Discs** on the NAS screens, lists episodes encoded with the Seikou encoder: one MKV file per episode, with AV1 video, Opus audio, ASS and PGS subtitles, and named chapters. Episodes are grouped by show. An anime tagged with AniList is grouped by AniList: a show's seasons, then its films and other entries. A series tagged with TMDB shows its seasons in order, a TMDB film is a show of its own, and one of your own titles shows its seasons, or its episodes as one row. TMDB titles are named from TMDB when the NAS has a TMDB key, your own titles by the names you gave them; otherwise a show takes the name the encoder wrote into its files. **Continue watching** and **Up next** on this tab work as they do for discs, and places on encodes are kept apart from places on discs.
@@ -99,7 +101,7 @@ The owner can upload `.srt` and `.ass` files, with their fonts, to the NAS and a
 
 An encoded episode offers the stored subtitles of the disc and playlist it was encoded from: one attached to its episode, moved to the episode's start, and one attached to the chapter the episode starts at. Others are not offered. A stored subtitle or Anime Tosho pick you used on an encode comes back when you resume it, and **Next episode** and **Up next** pick the same language (or the same release's track) for the next episode.
 
-Owners upload from a season or movie screen. A file must be an `.srt`, `.ass` or `.ssa` up to 5 MB.
+Owners upload from a season or movie screen. A file must be an `.srt`, `.ass` or `.ssa` up to 5 MB. **NAS settings** lists every stored subtitle under **Subtitle uploads**, with the ones no longer attached to anything (their disc is gone) first, and each can be deleted there.
 
 ## Fansubs
 

@@ -295,6 +295,7 @@ export class PlayerController {
    */
   private readonly servings: Array<{ release: (() => void) | null; timer: ReturnType<typeof setTimeout> | null }> = [];
   private opens = 0;
+  private cancels = 0;
   /** readPlace calls waiting for the engine's next placeState. */
   private placeWaiters: Array<{ resolve: (place: PlaceState) => void; reject: (err: Error) => void }> = [];
   /** The worker failed (reportInternalError): it will answer nothing more. */
@@ -701,10 +702,16 @@ export class PlayerController {
     this.post({ type: 'setSubtitleStart', file, startUs });
   }
 
+  /** How many times the encoding prompt was cancelled: a load waiting on its answer can tell it won't come. */
+  get encodingCancels(): number {
+    return this.cancels;
+  }
+
   /** The encoding prompt's answer; null cancels. */
   async answerEncoding(encoding: string | null): Promise<void> {
     const load = this.pendingSubtitleLoad;
     this.pendingSubtitleLoad = null;
+    if (encoding === null) this.cancels++;
     this.update({ ...this.snapshot, encodingPrompt: null });
     if (encoding !== null && load) await this.loadSubtitleFiles(load, encoding);
   }

@@ -1917,6 +1917,12 @@ async function gateSettings(page: Page, browserName: string): Promise<void> {
   const logo = page.getByTestId('nas-tmdb').getByRole('img', { name: 'TMDB' });
   await expect(logo).toBeVisible();
   await expect.poll(() => logo.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+  // the stand-in's one drive, found at its scans: nothing to forget
+  await expect(page.getByTestId('nas-drive')).toHaveCount(1);
+  await expect(page.getByTestId('nas-drive')).toContainText('syn');
+  await expect(page.getByTestId('nas-drive-status')).toHaveText(/^\d+ discs?$/);
+  await expect(page.getByTestId('nas-drive-forget')).toHaveCount(0);
+  await expect(page.getByTestId('nas-uploads')).toBeVisible();
 
   // The answer is stubbed: opening the gate for real would show guests the library in the other browsers' tests.
   const origin = new URL(page.url()).origin;

@@ -1,4 +1,4 @@
-import type { CodeLookup, ContinueItem, DiscEntry, DiscManifest, DiscPlaces, DiscRef, EncodeDetail, EncodeShow, EncodeShowList, EncodesStatus, EncodingNow, FansubPick, FansubPickRequest, FansubTitleState, FolderEntry, LevelAt, LevelInfo, OwnerChoice, OwnTitle, PlaybackPlace, PlayerSettings, PlaylistProgress, StoredSubtitle, SubtitleCreate, SubtitlePatch, TitleDetail, TitleKind, TitleSummary, ToshoReleaseFiles, ToshoSearchResult, UnsortedItem } from '@seikou/nas/nas-api';
+import type { CodeLookup, ContinueItem, DiscEntry, DiscManifest, DiscPlaces, DiscRef, EncodeDetail, EncodeShow, EncodeShowList, EncodesStatus, EncodingNow, FansubPick, FansubPickRequest, FansubTitleState, FolderEntry, LevelAt, LevelInfo, NasDrive, OwnerChoice, OwnTitle, PlaybackPlace, PlayerSettings, PlaylistProgress, StoredSubtitle, SubtitleCreate, SubtitlePatch, TitleDetail, TitleKind, TitleSummary, ToshoReleaseFiles, ToshoSearchResult, UnsortedItem } from '@seikou/nas/nas-api';
 import { PAIRING_CODE_LENGTH, formatCode, normalizeCode } from '@seikou/nas/pairing-code';
 import type { NasPairing, NasStore } from './nas-store';
 import { codeHashOf, isNasId, turnProofMessage } from '../../../rendezvous/src/protocol';
@@ -316,6 +316,10 @@ export class NasClient {
     rescan: async (): Promise<void> => {
       await this.ok('admin/rescan', { method: 'POST' });
     },
+    drives: async (): Promise<NasDrive[]> => ((await this.json('admin/drives')) as { drives: NasDrive[] }).drives,
+    /** Drops the discs kept for a drive the last scan didn't find; 409 `drive-present` or `scanning` otherwise. */
+    forgetDrive: async (name: string): Promise<NasDrive[]> =>
+      ((await this.json(`admin/drives/${encodeURIComponent(name)}/forget`, { method: 'POST' })) as { drives: NasDrive[] }).drives,
     titleStatus: async (): Promise<NasTitleStatus> => (await this.json('admin/metadata/status')) as NasTitleStatus,
     unsorted: async (offset: number, limit: number): Promise<{ items: UnsortedItem[]; total: number }> =>
       (await this.json(`admin/unsorted?offset=${offset}&limit=${limit}`)) as { items: UnsortedItem[]; total: number },
@@ -802,6 +806,11 @@ export class NasClient {
   /** The subtitles stored for a title's episodes. */
   async subtitlesForTitle(titleId: string): Promise<StoredSubtitle[]> {
     return this.subtitleList(`subtitles?titleId=${encodeURIComponent(titleId)}`);
+  }
+
+  /** Every upload on the NAS, attached or not (owners only). */
+  async allSubtitles(): Promise<StoredSubtitle[]> {
+    return this.subtitleList('subtitles?all=1');
   }
 
   private async subtitleList(path: string, timeoutMs?: number): Promise<StoredSubtitle[]> {

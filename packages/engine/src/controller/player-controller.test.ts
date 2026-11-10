@@ -861,9 +861,14 @@ describe('subtitles', () => {
     worker.emit({ type: 'subtitleEncodingNeeded', names: ['latin.srt'] });
     await c.answerEncoding('windows-1252');
     expect(c.getSnapshot().encodingPrompt).toBeNull();
+    expect(c.encodingCancels).toBe(0);
     expect(posted(worker)[1]).toMatchObject({ type: 'addTextSubtitles', encoding: 'windows-1252' });
     worker.emit({ type: 'subtitleEncodingNeeded', names: ['latin.srt'] });
+    let cancelsSeen = -1;
+    const stop = c.subscribe(() => (cancelsSeen = c.encodingCancels));
     await c.answerEncoding(null);
+    stop();
+    expect(cancelsSeen).toBe(1); // counted before subscribers hear the prompt close
     expect(c.getSnapshot().encodingPrompt).toBeNull();
     expect(worker.posted).toHaveLength(2);
     c.removeSubtitleFile();

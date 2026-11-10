@@ -385,3 +385,54 @@ describe('admin encoding', () => {
     expect((await send('GET', '/api/admin/encoding', owner)).status).toBe(404);
   });
 });
+
+describe('admin drives', () => {
+  it('lists the drives, forgets a missing one\'s discs and refuses one that is there, owners only', async () => {
+    const data = join(tmp, 'data2');
+    const a = join(tmp, 'drive-a');
+    const b = join(tmp, 'drive-b');
+    cpSync(join(import.meta.dirname, '../../../fixtures/synthetic/disc1'), join(a, 'Starfall Wanderer Vol 1'), { recursive: true });
+    cpSync(join(import.meta.dirname, '../../../fixtures/synthetic/disc1'), join(b, 'Lantern Road Vol 1'), { recursive: true });
+    const lib = new Library([{ name: 'mediaA', dir: a }, { name: 'media B', dir: b }], join(data, 'library.json'), { scanPauseMs: 0, now: () => Date.now() + 3_600_001 });
+    await lib.scan();
+    const owner = await ownerToken();
+    const guest = await paired({ newPerson: { name: 'Mika', owner: false } }, 'Phone');
+    const server = createServer(appHandlers({ auth, library: lib, bdjStore: store, relay, now: () => clock, publicBase: 'https://nas.example/bluray/api/' }));
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const at = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/admin/drives`;
+    const call = (method: string, path: string, token: string) => fetch(`${at}${path}`, { method, headers: { Authorization: `Bearer ${token}` } });
+    try {
+      expect((await call('GET', '', guest)).status).toBe(403);
+      expect((await call('POST', '/media%20B/forget', guest)).status).toBe(403);
+      const listed = await call('GET', '', owner);
+      expect(listed.status).toBe(200);
+      expect(await listed.json()).toEqual({
+        drives: [
+          { name: 'mediaA', discs: 1, missing: false },
+          { name: 'media B', discs: 1, missing: false },
+        ],
+      });
+      const present = await call('POST', '/media%20B/forget', owner);
+      expect(present.status).toBe(409);
+      expect(await present.json()).toMatchObject({ error: 'drive-present' });
+      const unknown = await call('POST', '/mediaZ/forget', owner);
+      expect(unknown.status).toBe(404);
+      expect(await unknown.json()).toMatchObject({ error: 'unknown-drive' });
+
+      rmSync(b, { recursive: true });
+      await lib.scan();
+      const forgot = await call('POST', '/media%20B/forget', owner);
+      expect(forgot.status).toBe(200);
+      expect(await forgot.json()).toEqual({
+        drives: [
+          { name: 'mediaA', discs: 1, missing: false },
+          { name: 'media B', discs: 0, missing: true },
+        ],
+      });
+      expect(lib.list('media B')).toBeNull();
+    } finally {
+      server.close();
+      server.closeAllConnections();
+    }
+  });
+});

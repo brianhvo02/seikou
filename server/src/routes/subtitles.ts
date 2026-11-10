@@ -112,13 +112,18 @@ export function subtitleRoutes(auth: Auth, store: SubtitleStore, catalogue: Subt
   const list = (query: URLSearchParams, owner: boolean): Response => {
     const discKey = query.get('discKey');
     const titleId = query.get('titleId');
-    if (discKey === null && titleId === null) return bad();
+    const all = query.get('all');
+    // every upload, for the owners' list of them all (an upload no title or disc lists any more is found there)
+    if (all !== null) {
+      if (all !== '1' || discKey !== null || titleId !== null) return bad();
+      if (!owner) return json(403, { error: 'forbidden' });
+    } else if (discKey === null && titleId === null) return bad();
     const keys = titleId === null ? new Set<string>() : titleKeys(titleId);
     // an episode upload is listed by its disc too once the title it names is gone (a rematch gave the disc another id),
     // so the owners of the title its disc is under now can see it and attach it again
     const titleGone = (id: string | undefined): boolean => id !== undefined && !titles?.service.catalogue().detail(id);
     const found = store.list()
-      .filter((s) => (discKey !== null && s.attachment.discKey === discKey)
+      .filter((s) => all !== null || (discKey !== null && s.attachment.discKey === discKey)
         || (titleId !== null && (s.attachment.titleId === titleId
           || ((s.attachment.kind === 'chapter' || titleGone(s.attachment.titleId)) && keys.has(s.attachment.discKey)))))
       .map(withAttached)

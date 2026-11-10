@@ -21,8 +21,6 @@ Short tasks that unblock or protect what is already deployed.
 | **Player settings screen** for menu, audio and subtitle languages, country and region. These come from the browser's locale today, for HDMV and BD-J alike. | M | |
 | **Subtitles from `.mkv` files.** Extract ASS and SRT tracks and attached fonts, deferred since M4b. This pairs with episode subtitle sets and the subtitle store. | M | |
 | **HDMV TextST and sub-path PG** decoding. | M | needs a disc |
-| **An owner screen listing every subtitle upload**, so chapter uploads stored without a title can be found. Also: cancelling a stored pick's encoding prompt still shows the failure notice. | S | |
-| **"Remove this drive"** for a library root that is gone for good. Its discs are kept today. | S | |
 | **Device coverage:** iPad over the NAS, real Android Chrome (HEVC, USB OTG), the iPhone row of the probe table, Blob slicing over 4 GiB on iOS, long press on real hardware, and the alphabet bar on a later iOS build. | M | needs a device |
 | **A friend abroad over WebRTC.** The route has only been measured through a VPN. Record a real friend's throughput and start-up time. | S | needs a person |
 | **The BD-J library's open cases:** 18 discs that fail in libbluray too (a native amd64 libbluray run, or a check by hand) and 1 unconfirmed disc (a long opening video before the menu). | M | |
