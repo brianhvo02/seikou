@@ -95,6 +95,31 @@ describe('the NAS routes', () => {
     expect((await call('GET', '/api/nas')).body).toMatchObject({ paired: true, reachable: true });
   });
 
+  it('unpairing and pairing again close the client they replace', async () => {
+    await call('POST', '/api/nas/pair', { code: await nas.ownerCode(), base: nas.base });
+    const first = app.nas.client!;
+    await call('POST', '/api/nas/pair', { code: await nas.ownerCode(), base: nas.base });
+    const second = app.nas.client!;
+    expect(second).not.toBe(first);
+    await expect(first.request('me')).rejects.toMatchObject({ code: 'unauthorized', message: 'This app is no longer paired with the NAS.' });
+    expect((await second.request('me')).status).toBe(200);
+    await call('DELETE', '/api/nas');
+    await expect(second.request('me')).rejects.toMatchObject({ code: 'unauthorized' });
+  });
+
+  it('a pair and an unpair sent together leave a client only with a pairing file', async () => {
+    for (let i = 0; i < 4; i++) {
+      await call('POST', '/api/nas/pair', { code: await nas.ownerCode(), base: nas.base });
+      const code = await nas.ownerCode();
+      const [paired, unpaired] = await Promise.all([call('POST', '/api/nas/pair', { code, base: nas.base }), call('DELETE', '/api/nas')]);
+      expect(paired.body).toMatchObject({ paired: true });
+      expect(unpaired.body).toEqual({ paired: false });
+      const filed = existsSync(join(app.dataDir, 'nas.json'));
+      expect(app.nas.client !== null).toBe(filed);
+      expect((await call('GET', '/api/nas')).body).toMatchObject({ paired: filed });
+    }
+  });
+
   it('a NAS that stops answering is unreachable, with encodes unknown', async () => {
     const gone = await startNasTestServer({ discs: false, encodes: false });
     await call('POST', '/api/nas/pair', { code: await gone.ownerCode('Rin Owner'), base: gone.base });

@@ -74,6 +74,11 @@ export async function writeNasPairing(dataDir: string, p: NasPairingFile): Promi
 /** Forgets the pairing, and with it what was fetched from that NAS: `<data>/fetch` and `<data>/nas-library.json`. */
 export async function removeNasPairing(dataDir: string): Promise<void> {
   await rm(join(dataDir, FILE), { force: true });
+  await removeNasFetched(dataDir);
+}
+
+/** Removes what was fetched from a NAS (`<data>/fetch` and `<data>/nas-library.json`), keeping the pairing. */
+export async function removeNasFetched(dataDir: string): Promise<void> {
   await rm(join(dataDir, 'fetch'), { recursive: true, force: true });
   await rm(join(dataDir, 'nas-library.json'), { force: true });
 }

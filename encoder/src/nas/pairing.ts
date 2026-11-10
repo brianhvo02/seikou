@@ -3,7 +3,7 @@ import { webcrypto } from 'node:crypto';
 import type { CodeLookup } from '@seikou/nas/nas-api';
 import { normalizeCode } from '@seikou/nas/pairing-code';
 import { errorOfBody, hostOf, jsonPost, NasError, reach } from './client';
-import { readNasPairing, removeNasPairing, writeNasPairing, type NasPairingFile } from './nas-store';
+import { readNasPairing, removeNasFetched, writeNasPairing, type NasPairingFile } from './nas-store';
 
 // Pairing the encoder with the NAS as an owner device, from a typed code and address or a pairing link, the way
 // Seikou's app pairs: a new P-256 key, then `pair/redeem` with the code. The key is kept (extractable, as a JWK in
@@ -135,7 +135,9 @@ export async function pairWithNas(dataDir: string, input: PairingInput, deviceNa
     privateKeyJwk,
     pairedAt: new Date().toISOString(),
   };
-  if ((await readNasPairing(dataDir)) !== null) await removeNasPairing(dataDir);
+  const replacing = (await readNasPairing(dataDir)) !== null;
+  // the new pairing goes in first (renamed over the old file), so a failure here never leaves the encoder unpaired
   await writeNasPairing(dataDir, pairing);
+  if (replacing) await removeNasFetched(dataDir);
   return pairing;
 }

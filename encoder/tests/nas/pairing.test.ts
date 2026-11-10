@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -108,6 +108,21 @@ describe('pairWithNas', () => {
     expect(existsSync(join(dataDir, 'nas-library.json'))).toBe(false);
     await removeNasPairing(dataDir);
     expect(await readNasPairing(dataDir)).toBeNull();
+  });
+
+  it('pairing again over a 0644 nas.json leaves it 0600', async () => {
+    await pairWithNas(dataDir, { code: await nas.ownerCode(), base: nas.base }, 'Seikou encoder on test');
+    chmodSync(join(dataDir, 'nas.json'), 0o644);
+    await pairWithNas(dataDir, { code: await nas.ownerCode(), base: nas.base }, 'Seikou encoder on test');
+    expect(statSync(join(dataDir, 'nas.json')).mode & 0o777).toBe(0o600);
+  });
+
+  it('a failed re-pair keeps the pairing and what was fetched', async () => {
+    const first = await pairWithNas(dataDir, { code: await nas.ownerCode(), base: nas.base }, 'Seikou encoder on test');
+    writeFileSync(join(dataDir, 'nas-library.json'), '{}');
+    await expect(pairWithNas(dataDir, { code: await nas.guestCode(), base: nas.base }, 'Seikou encoder on test')).rejects.toMatchObject({ code: 'not-owner' });
+    expect((await readNasPairing(dataDir))?.deviceId).toBe(first.deviceId);
+    expect(existsSync(join(dataDir, 'nas-library.json'))).toBe(true);
   });
 
   describe('through a rendezvous Worker', () => {

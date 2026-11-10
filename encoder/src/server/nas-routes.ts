@@ -98,13 +98,33 @@ async function pair(req: IncomingMessage, res: ServerResponse, app: AppContext):
     // not JSON
   }
   if (input === null) return httpError(res, 400, 'bad-request', 'The body must be { code, base } or { link }.');
+  let client: NasClient | null;
   try {
-    await pairWithNas(app.dataDir, input, encoderDeviceName());
+    client = await serially(app, async () => {
+      await pairWithNas(app.dataDir, input, encoderDeviceName());
+      return replaceClient(app, await NasClient.load(app.dataDir));
+    });
   } catch (err) {
     return pairingError(res, err);
   }
-  app.nas.client = await NasClient.load(app.dataDir);
-  json(res, 200, await nasStatus(app.nas.client));
+  json(res, 200, await nasStatus(client));
+}
+
+/** The pairing change running or last run, per app: pairing and unpairing run one after the other, never interleaved. */
+const changes = new WeakMap<AppContext, Promise<unknown>>();
+
+/** Runs `change` after the app's earlier pairing changes have settled. */
+function serially<T>(app: AppContext, change: () => Promise<T>): Promise<T> {
+  const run = (changes.get(app) ?? Promise.resolve()).then(change, change);
+  changes.set(app, run.catch(() => {}));
+  return run;
+}
+
+/** Installs `client` (or none), closing the one it replaces so a job still holding it stops. */
+function replaceClient(app: AppContext, client: NasClient | null): NasClient | null {
+  if (app.nas.client !== client) app.nas.client?.close();
+  app.nas.client = client;
+  return client;
 }
 
 /**
@@ -122,8 +142,10 @@ export const nasRoutes: RouteTable = [
     'DELETE',
     /^\/api\/nas$/,
     async (_req, res, _m, app) => {
-      await removeNasPairing(app.dataDir);
-      app.nas.client = null;
+      await serially(app, async () => {
+        await removeNasPairing(app.dataDir);
+        replaceClient(app, null);
+      });
       json(res, 200, { paired: false });
     },
   ],

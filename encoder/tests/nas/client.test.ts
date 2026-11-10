@@ -93,6 +93,57 @@ describe('NasClient', () => {
     await client.me();
   });
 
+  /** Pairs, then loads the client with `fetchImpl` in front of the real fetch. */
+  async function pairedWith(fetchImpl: typeof fetch): Promise<NasClient> {
+    await pairWithNas(dataDir, { code: await nas.ownerCode(), base: nas.base }, 'Seikou encoder on test');
+    return (await NasClient.load(dataDir, fetchImpl))!;
+  }
+
+  it("one caller's abort during the shared sign-in fails only that caller", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((r) => (release = r));
+    let challenged!: () => void;
+    const challenging = new Promise<void>((r) => (challenged = r));
+    const client = await pairedWith(async (input, init) => {
+      if (String(input).endsWith('/session/challenge')) {
+        challenged();
+        await held;
+      }
+      return fetch(input, init);
+    });
+    const impatient = new AbortController();
+    const first = client.request('me', { signal: impatient.signal });
+    const second = client.request('me');
+    await challenging;
+    impatient.abort();
+    await expect(first).rejects.toMatchObject({ code: 'unreachable' });
+    release();
+    expect((await second).status).toBe(200);
+  });
+
+  it('a session answer that is not one is refused without quoting it', async () => {
+    for (const body of ['not json tok-SECRET-1', JSON.stringify({ token: '', expiresAt: Date.now() + 3_600_000 }), JSON.stringify({ expiresAt: 1 })]) {
+      const client = await pairedWith(async (input, init) => {
+        if (String(input).endsWith('/api/session')) {
+          await fetch(input, init);
+          return new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } });
+        }
+        return fetch(input, init);
+      });
+      const err = await client.request('me').catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(NasError);
+      expect(err).toMatchObject({ code: 'http' });
+      expect((err as Error).message).not.toContain('tok-SECRET');
+    }
+  });
+
+  it('a closed client refuses every request', async () => {
+    const { client } = await paired();
+    await client.me();
+    client.close();
+    await expect(client.request('me')).rejects.toMatchObject({ code: 'unauthorized', status: null, message: 'This app is no longer paired with the NAS.' });
+  });
+
   it('no thrown message nor nas.json holds a session token', async () => {
     const { client, tokens } = await paired();
     await client.me();
