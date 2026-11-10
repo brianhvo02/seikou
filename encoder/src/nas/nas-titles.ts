@@ -123,6 +123,18 @@ export interface ShowAnswer {
   readonly stale: boolean;
 }
 
+/** Where the NAS files a disc the encoder mirrors, and the episodes it lists on it. */
+export interface DiscMatch {
+  /** The NAS's id of the disc as the encoder mirrors it (what `admin/discs/<id>/choice` takes). */
+  readonly discId: string;
+  /** The title the NAS files the disc under (its season's title); null for a disc in Unsorted, or a season whose title is not known yet. */
+  readonly title: EncodeTitle | null;
+  /** The NAS's id of the show the disc is filed under; null for a disc in Unsorted. */
+  readonly titleId: string | null;
+  /** The episodes the NAS lists on the disc, by playlist, in number order. */
+  readonly episodes: readonly { readonly playlistId: string; readonly number: number; readonly name: string | null }[];
+}
+
 /** What the NAS answered, kept whole in `nas-titles.json`. */
 interface Raw {
   readonly base: string;
@@ -273,7 +285,8 @@ export class NasTitles {
    * only. A NAS that does not answer the title list gives the kept answer (`reachable` false); one part failing alone
    * keeps that part of the kept answer (`stale`). Rejects with `NasError` `unauthorized` when the NAS forgot this device.
    */
-  private async fetch(client: NasClient, o: { only?: string; refresh?: boolean } = {}): Promise<Fetched> {
+  private async fetch(client: NasClient, o: { only?: string | readonly string[]; refresh?: boolean; unsorted?: boolean } = {}): Promise<Fetched> {
+    const only = o.only === undefined ? undefined : new Set(typeof o.only === 'string' ? [o.only] : o.only);
     const kept = await this.last(client);
     let list: TitleSummary[];
     try {
@@ -292,7 +305,7 @@ export class NasTitles {
       const old = kept?.details[t.id];
       const at = kept?.detailAt[t.id];
       const fresh = old !== undefined && at !== undefined && now - at < DETAIL_TTL_MS && now >= at;
-      const wanted = o.only === undefined ? o.refresh === true || !fresh : t.id === o.only;
+      const wanted = only === undefined ? o.refresh === true || !fresh : only.has(t.id);
       if (wanted) toRead.push(t);
       else if (old !== undefined) {
         details[t.id] = old;
@@ -319,11 +332,46 @@ export class NasTitles {
         }
       }),
     );
-    const [ids, unsorted] = await Promise.all([this.encodeIds(client), o.only === undefined ? this.unsorted(client) : Promise.resolve(kept?.unsorted)]);
+    const [ids, unsorted] = await Promise.all([this.encodeIds(client), only === undefined || o.unsorted === true ? this.unsorted(client) : Promise.resolve(kept?.unsorted)]);
     if (ids === undefined || unsorted === undefined) stale = true;
     const raw: Raw = { base: client.base, titles, details, detailAt, unsorted: unsorted ?? [], ids: ids ?? kept?.ids ?? [] };
     this.store(raw);
     return { raw, reachable: true, stale };
+  }
+
+  /**
+   * Where the NAS files the mirrored disc with `key`, from the kept answer (details up to ten minutes old); null when
+   * the encoder mirrors no such disc. A disc no title lists is in Unsorted (`title` and `titleId` null). Rejects with
+   * `NasError` when the NAS cannot be read and nothing is kept.
+   */
+  async discMatch(client: NasClient, key: string): Promise<DiscMatch | null> {
+    const mirror = await this.mirrorDiscs();
+    const mine = [...mirror.values()].filter((d) => d.key === key);
+    if (mine.length === 0) return null;
+    const { raw } = await this.fetch(client);
+    if (raw === null) throw new NasError('unreachable', null, 'The NAS did not answer.');
+    const ids = new Set(mine.map((d) => d.discId));
+    let found: DiscMatch | null = null;
+    for (const t of raw.titles) {
+      for (const s of raw.details[t.id]?.seasons ?? []) {
+        if (!s.discs.some((slot) => slot.copies.some((c) => ids.has(c.discId)))) continue;
+        const episodes = (s.episodes ?? [])
+          .filter((e) => ids.has(e.discId))
+          .map((e) => ({ playlistId: e.playlistId, number: e.number, name: e.name }))
+          .sort((a, b) => a.number - b.number);
+        if (found === null || (found.episodes.length === 0 && episodes.length > 0)) found = { discId: mine[0]!.discId, title: seasonTitle(s.id), titleId: t.id, episodes };
+      }
+    }
+    return found ?? { discId: mine[0]!.discId, title: null, titleId: null, episodes: [] };
+  }
+
+  /** Reads the details of the NAS titles `titleIds` and Unsorted again, after the encoder changed where a disc is filed; never rejects. */
+  async refreshAfterChoice(client: NasClient, titleIds: readonly string[]): Promise<void> {
+    try {
+      await this.fetch(client, { only: titleIds, unsorted: true });
+    } catch {
+      // the next read of the NAS gets them
+    }
   }
 
   /** The discs of the NAS's library the encoder mirrors, scanned once when none is known. */

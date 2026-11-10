@@ -25,6 +25,8 @@ export interface InfoDraftState {
   readonly update: (change: (draft: InfoDraft) => InfoDraft) => void;
   /** Sends the draft again after a failed save. */
   readonly retry: () => void;
+  /** Saves any change still waiting at once and resolves when nothing is left to send; rejects with the failed save's error. */
+  readonly flush: () => Promise<void>;
 }
 
 /** How long the page waits after a change before it saves. */
@@ -79,6 +81,8 @@ export function useInfoDraft(api: AppApi, discKey: string, playlistId: string): 
     };
   }, [api, discKey, playlistId]);
 
+  const idle = useRef<(() => void)[]>([]);
+  const failure = useRef<unknown>(null);
   const send = useCallback((): void => {
     if (inFlight.current) {
       again.current = true;
@@ -91,15 +95,18 @@ export function useInfoDraft(api: AppApi, discKey: string, playlistId: string): 
       .then(() => api.saveEpisodeInfo(discKey, playlistId, toInfo([], d.chapterNames, d.titles)))
       .then(
         () => {
+          failure.current = null;
           if (live.current && !again.current && timer.current === undefined) setSave({ kind: 'saved' });
         },
         (e: unknown) => {
+          failure.current = e;
           if (live.current && !again.current && timer.current === undefined) setSave({ kind: 'failed', message: messageOf(e) });
         },
       )
       .finally(() => {
         inFlight.current = false;
         if (again.current) send();
+        else for (const done of idle.current.splice(0)) done();
       });
   }, [api, discKey, playlistId]);
 
@@ -136,5 +143,17 @@ export function useInfoDraft(api: AppApi, discKey: string, playlistId: string): 
     send();
   }, [send]);
 
-  return { status, loadError, draft, save, update, retry };
+  const flush = useCallback(async (): Promise<void> => {
+    if (timer.current === undefined && !inFlight.current) return;
+    const done = new Promise<void>((resolve) => idle.current.push(resolve));
+    if (timer.current !== undefined) {
+      clearTimeout(timer.current);
+      timer.current = undefined;
+      send();
+    }
+    await done;
+    if (failure.current !== null) throw failure.current;
+  }, [send]);
+
+  return { status, loadError, draft, save, update, retry, flush };
 }

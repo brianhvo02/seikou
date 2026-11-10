@@ -1725,6 +1725,20 @@ a {
   min-height: 1.5em;
 }
 
+.check-box {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  margin-top: 8px;
+}
+
+.check-box p {
+  margin: 0;
+  font-size: 13px;
+  flex: 1 1 16rem;
+}
+
 .info-save-failed {
   display: flex;
   flex-wrap: wrap;

@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import type { EncodeTitle } from '@seikou/nas/encode-title';
+import { titlePart, type EncodeTitle } from '@seikou/nas/encode-title';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { ApiError } from '../api';
-import type { AniListEntry, ChapterInfo, EpisodeTimes, LibraryDiscInfo, PlaylistDetail, TitleHit } from '../api-types';
+import type { AniListEntry, ChapterInfo, CheckAnswer, EpisodeTitle, NasPrefill, EpisodeTimes, LibraryDiscInfo, PlaylistDetail, TitleHit } from '../api-types';
 import { Player } from '../player/Player';
 import { showAt, type PlayerLike } from '../player/use-controller';
 import type { AppApi } from './app-api';
 import { ChapterList } from './ChapterList';
 import { formatLength, NotInLibrary, ScanningLibrary } from './DiscPage';
 import { EpisodeTitlePicker } from './EpisodeTitlePicker';
-import { aniListIdOf, episodeRows, firstNumberFor, renumberFrom, toInfo, withTitles, type EpisodeRow } from './episode-info-model';
+import { aniListIdOf, episodeRows, missingTitles, firstNumberFor, renumberFrom, toInfo, withTitles, type EpisodeRow } from './episode-info-model';
 import { episodeLengths, episodesOf, fromSpec, normalize, toSpec, type Grouping } from './grouping';
 import { SCAN_POLL_MS, useDocumentTitle } from './place';
 import { Link, navigate, routeHref } from './router';
@@ -37,6 +37,25 @@ const EMPTY: Grouping = { splits: new Set(), skipped: new Set() };
 /** The grouping a page starts from: the saved record's episode list when it reads for this chapter count, else one episode of everything. */
 function initialGrouping(record: PlaylistDetail['record'], chapterCount: number): Grouping {
   return (record !== null ? fromSpec(record.episodeSpec, chapterCount) : null) ?? fromSpec('1-', chapterCount) ?? EMPTY;
+}
+
+/** The sentence after "Checked." that says what happened on the NAS; `show` is the show's name when the page knows it. */
+function checkLine(answer: CheckAnswer, show: string | null): string {
+  switch (answer.nasChoice) {
+    case 'saved':
+      return `Checked. The NAS now files this disc under ${show ?? 'the title you chose'}.`;
+    case 'mixed':
+      return 'Checked. The episodes span two shows, so the NAS was left as it is.';
+    case 'failed':
+      return `Checked. The NAS refused the change: ${answer.message ?? 'it gave no reason'}`;
+    default:
+      return 'Checked.';
+  }
+}
+
+/** What a check was made on: the episode list and each episode's title and number (not names, which load later). */
+function checkKey(spec: string, titles: Readonly<Record<string, EpisodeTitle>>): string {
+  return `${spec}|${Object.entries(titles).map(([k, t]) => `${k}:${titlePart(t.title)}:${t.episode}`).sort().join(',')}`;
 }
 
 const chaptersText = (from: number, to: number): string => (from === to ? `chapter ${from}` : `chapters ${from} to ${to}`);
@@ -100,6 +119,12 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
   const [textError, setTextError] = useState(false);
   const [busy, setBusy] = useState(false);
   const [nasPaired, setNasPaired] = useState(false);
+  const [prefill, setPrefill] = useState<NasPrefill | null>(null);
+  const [check, setCheck] = useState<
+    { readonly kind: 'checking' } | { readonly kind: 'failed'; readonly at: string; readonly message: string } | { readonly kind: 'done'; readonly at: string; readonly answer: CheckAnswer; readonly show: string | null } | null
+  >(null);
+  // whether the user changed the grouping before the NAS's suggestion arrived
+  const groupingTouched = useRef(false);
   const playing = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const info = useInfoDraft(api, discKey, playlistId);
   // AniList's answers for the entries on the page: entries (with their next season) and shows picked from a search
@@ -155,13 +180,49 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
     };
   }, [api, discKey, playlistId, tick]);
 
+  // a NAS disc with no saved titles: suggest what the NAS lists for it (never saved until the user changes or checks)
+  const infoReady = info.status === 'ready';
+  const noTitlesSaved = Object.keys(info.draft.titles).length === 0;
+  const savedRecord = loaded?.playlist.record != null;
+  const asking = loaded !== null && nasPaired && infoReady && noTitlesSaved;
+  useEffect(() => {
+    if (!asking) return;
+    let live = true;
+    Promise.resolve()
+      .then(() => api.nasPrefill(discKey, playlistId))
+      .then(
+        (got) => {
+          if (!live) return;
+          setPrefill(got);
+          // the grouping of the NAS's episode count, when nothing else has set one
+          if (got.episodeSpec !== null && !savedRecord && !groupingTouched.current) {
+            const count = loadedCount.current;
+            const next = fromSpec(got.episodeSpec, count);
+            if (next !== null) {
+              setGrouping(next);
+              setText(toSpec(episodesOf(next, count), count));
+            }
+          }
+        },
+        () => {
+          // a suggestion only: the page goes without it
+        },
+      );
+    return () => {
+      live = false;
+    };
+  }, [asking, api, discKey, playlistId, savedRecord]);
+
   const chapterCount = loaded?.playlist.chapters.length ?? 0;
+  const loadedCount = useRef(0);
+  loadedCount.current = chapterCount;
+  const nasSuggestion = useMemo(() => (prefill !== null && prefill.title !== null && prefill.episodes.length > 0 ? { title: prefill.title, episodes: prefill.episodes } : null), [prefill]);
   const recordShow = loaded?.playlist.record?.anilist ?? null;
   const rows = useMemo(() => {
     const starts = episodesOf(grouping, chapterCount).map((e, i) => ({ index: i + 1, first: e.from }));
     const saved = info.status === 'ready' ? { ...info.draft, savedAt: '' } : null;
-    return withKnownTitles(episodeRows(starts, saved, recordShow), titles);
-  }, [grouping, chapterCount, info.status, info.draft, recordShow, titles]);
+    return withKnownTitles(episodeRows(starts, saved, recordShow, nasSuggestion), titles);
+  }, [grouping, chapterCount, info.status, info.draft, recordShow, nasSuggestion, titles]);
   const ids = [...new Set(rows.flatMap((r) => aniListIdOf(r.title) ?? []))].sort((a, b) => a - b).join(',');
 
   // look up every entry on the page once: its name, cover and next season, and its episode titles
@@ -253,6 +314,7 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
   const mismatch = recordSpec !== null && recordSpec !== spec;
 
   const apply = (next: Grouping): void => {
+    groupingTouched.current = true;
     const clean = normalize(next, count);
     setGrouping(clean);
     setText(toSpec(episodesOf(clean, count), count));
@@ -264,6 +326,7 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
     return next;
   };
   const type = (value: string): void => {
+    groupingTouched.current = true;
     setText(value);
     const parsed = fromSpec(value, count);
     if (parsed === null) {
@@ -309,6 +372,26 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
   const sequelFor = (i: number): TitleHit | null => {
     const own = aniListIdOf(rows[i]?.title ?? null) ?? aniListIdOf(rows[i - 1]?.title ?? null);
     return own === null ? null : (entries[own]?.sequel ?? null);
+  };
+
+  /** What the page holds now, so a result line for an earlier state is not shown for a changed one. */
+  const stateKey = checkKey(spec, info.draft.titles);
+  const canCheck = episodes.length > 0 && editable && missingTitles(rows).length === 0 && check?.kind !== 'checking';
+  const markChecked = (): void => {
+    setCheck({ kind: 'checking' });
+    const at = checkKey(spec, toInfo(rows, {}, info.draft.titles).titles);
+    // every row is saved first, a suggestion included: the backend checks the titles it holds
+    saveRows(rows);
+    const firstRow = rows.find((r) => r.title !== null)?.title ?? null;
+    const id = aniListIdOf(firstRow);
+    const show = firstRow === null ? null : (firstRow.showName ?? (id === null ? null : showOf(id)?.title ?? null));
+    info
+      .flush()
+      .then(() => api.checkPlaylist(discKey, playlistId, spec))
+      .then(
+        (answer) => setCheck({ kind: 'done', at, answer, show }),
+        (e: unknown) => setCheck({ kind: 'failed', at, message: e instanceof Error ? e.message : String(e) }),
+      );
   };
 
   const chooseSubtitles = (): void => {
@@ -409,6 +492,24 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
               </p>
             )}
             {usable && <SaveLine state={info} />}
+            {usable && nasPaired && (
+              <div className="check-box">
+                <button type="button" className="quiet" disabled={!canCheck} onClick={markChecked} aria-describedby="check-result">
+                  {check?.kind === 'checking' ? 'Checking…' : 'Mark checked'}
+                </button>
+                <p id="check-result" className={check?.kind === 'failed' ? 'error' : 'muted'} role="status">
+                  {check === null || check.kind === 'checking'
+                    ? missingTitles(rows).length > 0
+                      ? 'Every episode needs a title and a number first.'
+                      : 'Confirms these episodes and titles, and files the disc under them on the NAS when they differ.'
+                    : check.at !== stateKey
+                      ? 'Changed since it was checked.'
+                      : check.kind === 'failed'
+                        ? check.message
+                        : checkLine(check.answer, check.show)}
+                </p>
+              </div>
+            )}
             <div className="actions">
               <button type="button" className="primary" disabled={!usable || busy} onClick={chooseSubtitles}>
                 Choose subtitles

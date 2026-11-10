@@ -56,6 +56,26 @@ describe('episodeRows', () => {
   });
 });
 
+describe('episodeRows with the NAS', () => {
+  const nas = { title: { source: 'anilist', anilistId: 990030 } as EncodeTitle, episodes: [{ number: 5, name: 'Five' }, { number: 6, name: null }, { number: 7, name: null }, { number: 8, name: 'Eight' }] };
+
+  it('takes the NAS numbers and names row by row when the counts agree, as suggestions', () => {
+    const rows = episodeRows(EPISODES, null, null, nas);
+    expect(rows.map((r) => [r.title?.episode, r.title?.name, r.prefilled])).toEqual([[5, 'Five', true], [6, null, true], [7, null, true], [8, 'Eight', true]]);
+  });
+
+  it('numbers on from the NAS\'s first when the counts differ', () => {
+    const rows = episodeRows(EPISODES.slice(0, 3), null, null, nas);
+    expect(rows.map((r) => [r.title?.episode, r.title?.name])).toEqual([[5, null], [6, null], [7, null]]);
+  });
+
+  it('never suggests beside a saved choice, and the record\'s show comes first', () => {
+    const saved = info({ '4': { title: { source: 'anilist', anilistId: 990020 }, episode: 7, name: null } });
+    expect(episodeRows(EPISODES, saved, null, nas).filter((r) => r.index !== 2).every((r) => r.title === null)).toBe(true);
+    expect(aniListIdOf(episodeRows(EPISODES, null, { id: 990010 }, nas)[0]!.title)).toBe(990010);
+  });
+});
+
 describe('renumberFrom', () => {
   const four = [row(1, 1, 990010), row(2, 4, 990010), row(3, 7, 990010), row(4, 10, 990010)];
 

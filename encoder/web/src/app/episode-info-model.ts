@@ -22,11 +22,22 @@ export interface EpisodeRow {
   readonly prefilled: boolean;
 }
 
-/** One row per episode of the grouping: the saved choice for its first chapter, else a prefill. */
+/** What the NAS lists for the disc, as a suggestion for rows with no saved choice. */
+export interface NasSuggestion {
+  readonly title: EncodeTitle;
+  readonly episodes: readonly { readonly number: number; readonly name: string | null }[];
+}
+
+/**
+ * One row per episode of the grouping: the saved choice for its first chapter, else a prefill: the record's show
+ * (numbered from 1), else the NAS's (`nas`: with as many rows as the NAS has episodes each row takes the NAS's number
+ * and name in order, otherwise the rows are numbered on from the NAS's first). Nothing is suggested beside a saved choice.
+ */
 export function episodeRows(
   episodes: readonly { readonly index: number; readonly first: number }[],
   info: EpisodeInfo | null,
   recordShow: { readonly id: number } | null,
+  nas: NasSuggestion | null = null,
 ): EpisodeRow[] {
   const saved = info?.titles ?? {};
   const anySaved = episodes.some((e) => saved[String(e.first)] !== undefined);
@@ -35,6 +46,11 @@ export function episodeRows(
     if (choice !== undefined) return { index: e.index, firstChapter: e.first, title: choice, prefilled: false };
     if (!anySaved && recordShow !== null) {
       return { index: e.index, firstChapter: e.first, title: { title: { source: 'anilist', anilistId: recordShow.id }, episode: i + 1, name: null }, prefilled: true };
+    }
+    if (!anySaved && nas !== null && nas.episodes.length > 0) {
+      const exact = nas.episodes.length === episodes.length ? nas.episodes[i] : undefined;
+      const title: EpisodeTitle = { title: nas.title, episode: exact?.number ?? nas.episodes[0]!.number + i, name: exact?.name ?? null };
+      return { index: e.index, firstChapter: e.first, title, prefilled: true };
     }
     return { index: e.index, firstChapter: e.first, title: null, prefilled: false };
   });

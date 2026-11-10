@@ -3,7 +3,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api';
-import type { AniListEntry, EpisodeInfo, LibraryAnswer, PlaylistDetail, TitleHit } from '../api-types';
+import type { AniListEntry, CheckAnswer, EpisodeInfo, NasPrefill, LibraryAnswer, PlaylistDetail, TitleHit } from '../api-types';
 import type { TitleSummary } from '@seikou/nas/nas-api';
 import type { PlayerLike } from '../player/use-controller';
 import type { AppApi } from './app-api';
@@ -390,5 +390,91 @@ describe('EpisodesPage chapter names and AniList', () => {
     fireEvent.change(screen.getByLabelText('Name of chapter 1'), { target: { value: 'Avant' } });
     await waitFor(() => expect(saveEpisodeInfo).toHaveBeenCalled());
     expect(saveEpisodeInfo.mock.calls[0]![2]).toEqual({ chapterNames: { '1': 'Avant', '3': 'Cold open' }, titles: saved.titles });
+  });
+});
+
+describe('EpisodesPage NAS prefill and Mark checked', () => {
+  const nasApi = (prefill: NasPrefill, record: PlaylistDetail['record'] = null) => {
+    const { api, saveEpisodeInfo } = infoApi(record);
+    api.library = vi.fn(async () => ({ roots: [], savedRoots: [], runRoots: [], unreadableRoots: [], scanning: false, discs: [{ key: KEY, label: 'LANTERN_HARBOR_D1', relPath: 'LANTERN_HARBOR_D1', root: '/media/discs', source: 'nas' as const, playlistCount: 1, recordPlaylists: [], otherPaths: [] }], nas: { paired: true, scanning: false, reachable: true } }));
+    const nasPrefill = vi.fn(async () => prefill);
+    api.nasPrefill = nasPrefill;
+    const answer = (nasChoice: CheckAnswer['nasChoice'], message?: string): CheckAnswer => ({ info: { chapterNames: {}, titles: {}, savedAt: '' }, nasChoice, ...(message === undefined ? {} : { message }) });
+    const checkPlaylist = vi.fn(async (): Promise<CheckAnswer> => answer('saved'));
+    api.checkPlaylist = checkPlaylist;
+    return { api, saveEpisodeInfo, nasPrefill, checkPlaylist, answer };
+  };
+  const THREE: NasPrefill = {
+    episodes: [5, 6, 7].map((number) => ({ number, name: `Part ${number}` })),
+    title: { source: 'anilist', anilistId: 990010 },
+    episodeSpec: '1-2,3-4,5-6',
+  };
+
+  it('applies the NAS grouping and numbers the titles from the NAS, as suggestions that save nothing', async () => {
+    const { api, saveEpisodeInfo, nasPrefill } = nasApi(THREE);
+    await show(api);
+    await waitFor(() => expect(spec()).toBe('1-2,3-4,5-'));
+    expect(nasPrefill).toHaveBeenCalledWith(KEY, '00800');
+    await waitFor(() => expect((screen.getByLabelText('AniList episode number of episode 3') as HTMLInputElement).value).toBe('7'));
+    expect((screen.getByLabelText('AniList episode number of episode 1') as HTMLInputElement).value).toBe('5');
+    expect(screen.getAllByText('Suggested')).toHaveLength(3);
+    await new Promise((r) => setTimeout(r, 700));
+    expect(saveEpisodeInfo).not.toHaveBeenCalled();
+  });
+
+  it('asks for nothing and suggests nothing when titles are already saved', async () => {
+    const { api, nasPrefill } = nasApi(THREE);
+    api.episodeInfo = vi.fn(async () => ({ chapterNames: {}, titles: { '1': { title: { source: 'anilist' as const, anilistId: 990020 }, episode: 9, name: null } }, savedAt: '2026-11-09T10:00:00.000Z' }));
+    await show(api);
+    await waitFor(() => expect((screen.getByLabelText('AniList episode number of episode 1') as HTMLInputElement).value).toBe('9'));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(nasPrefill).not.toHaveBeenCalled();
+    expect(spec()).toBe('1-');
+    expect(screen.queryAllByText('Suggested')).toHaveLength(0);
+  });
+
+  it('keeps the saved record\'s grouping over the NAS\'s', async () => {
+    const { api, nasPrefill } = nasApi(THREE, { episodeSpec: '1-3,4-6', anilist: null });
+    await show(api);
+    await waitFor(() => expect(nasPrefill).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(spec()).toBe('1-3,4-');
+  });
+
+  it('Mark checked saves the suggestions, checks the grouping and says where the NAS filed the disc', async () => {
+    const { api, saveEpisodeInfo, checkPlaylist } = nasApi(THREE);
+    await show(api);
+    await waitFor(() => expect(spec()).toBe('1-2,3-4,5-'));
+    const button = screen.getByRole('button', { name: 'Mark checked' }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+    await waitFor(() => expect(checkPlaylist).toHaveBeenCalledWith(KEY, '00800', '1-2,3-4,5-'));
+    expect(saveEpisodeInfo.mock.lastCall?.[2].titles).toEqual({
+      '1': { title: { source: 'anilist', anilistId: 990010 }, episode: 5, name: 'Part 5' },
+      '3': { title: { source: 'anilist', anilistId: 990010 }, episode: 6, name: 'Part 6' },
+      '5': { title: { source: 'anilist', anilistId: 990010 }, episode: 7, name: 'Part 7' },
+    });
+    expect(await screen.findByText('Checked. The NAS now files this disc under Lantern Harbor.')).toBeTruthy();
+  });
+
+  it('says so when the episodes span two shows, and when the NAS refuses', async () => {
+    const { api, checkPlaylist, answer } = nasApi(THREE);
+    await show(api);
+    await waitFor(() => expect(spec()).toBe('1-2,3-4,5-'));
+    const button = screen.getByRole('button', { name: 'Mark checked' }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    checkPlaylist.mockResolvedValueOnce(answer('mixed'));
+    fireEvent.click(button);
+    expect(await screen.findByText('Checked. The episodes span two shows, so the NAS was left as it is.')).toBeTruthy();
+    checkPlaylist.mockResolvedValueOnce(answer('failed', 'unknown title'));
+    fireEvent.click(screen.getByRole('button', { name: 'Mark checked' }));
+    expect(await screen.findByText('Checked. The NAS refused the change: unknown title')).toBeTruthy();
+  });
+
+  it('keeps Mark checked off while an episode has no title', async () => {
+    const { api } = nasApi({ episodes: [], title: null, episodeSpec: null });
+    await show(api);
+    await waitFor(() => expect((screen.getByLabelText('Episodes') as HTMLInputElement).value).toBe('1-'));
+    expect((screen.getByRole('button', { name: 'Mark checked' }) as HTMLButtonElement).disabled).toBe(true);
   });
 });

@@ -2,7 +2,8 @@
 import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { EpisodeInfo } from '../../src/plan/episode-info';
+import { isChecked, type EpisodeInfo } from '../../src/plan/episode-info';
+import { evenSpec } from '../../src/server/episode-info-routes';
 import { RecordStore, type SubtitleRecord } from '../../src/subs/record';
 import { jsonOf, startRouteFixture, type RouteFixture } from './route-fixture';
 
@@ -86,5 +87,54 @@ describe('episode info routes', () => {
     const reply = await put({ chapterNames: { '1': 'x'.repeat(70 * 1024) }, titles: {} });
     expect(reply.status).toBe(413);
     expect(jsonOf<{ error: string }>(reply).error).toBe('too-large');
+  });
+
+  describe('check and the NAS prefill on a disc of this computer', () => {
+    const base = (): string => `/api/discs/${encodeURIComponent(fixture.discKey)}/playlists/00000`;
+    const check = (episodeSpec: string) => fixture.send(`${base()}/check`, { method: 'POST', body: JSON.stringify({ episodeSpec }) });
+    const title = (n: number) => ({ title: { source: 'anilist', anilistId: 990001 }, episode: n, name: null });
+
+    it('prefill answers nothing for a disc the NAS does not hold', async () => {
+      const reply = await fixture.send(`${base()}/nas-prefill`);
+      expect(reply.status).toBe(200);
+      expect(jsonOf(reply)).toEqual({ episodes: [], title: null, episodeSpec: null });
+    });
+
+    it('check refuses with needs-title while an episode has no title, and writes nothing', async () => {
+      rmSync(join(fixture.dataDir, 'chapters', fixture.discKey, '00000.json'), { force: true });
+      expect(jsonOf<{ error: string }>(await check('1-3,4-5')).error).toBe('needs-title');
+      await put({ chapterNames: {}, titles: { '1': title(1) } });
+      const reply = await check('1-3,4-5');
+      expect([reply.status, jsonOf<{ error: string }>(reply).error]).toEqual([409, 'needs-title']);
+      expect(jsonOf<{ info: EpisodeInfo | null }>(await fixture.send(path())).info?.checked).toBeUndefined();
+    });
+
+    it('check marks the playlist checked and leaves the NAS alone for a disc it does not hold; regrouping clears it', async () => {
+      await put({ chapterNames: {}, titles: { '1': title(1), '4': title(2) } });
+      const reply = await check('1-3,4-5');
+      expect(reply.status).toBe(200);
+      const { info, nasChoice } = jsonOf<{ info: EpisodeInfo; nasChoice: string }>(reply);
+      expect(nasChoice).toBe('unchanged');
+      expect(isChecked(info, '1-3,4-', 5)).toBe(true);
+      expect(isChecked(info, '1-2,3-5', 5)).toBe(false);
+      // a chapter name changes nothing; a title does
+      const named = jsonOf<{ info: EpisodeInfo }>(await put({ chapterNames: { '1': 'Avant' }, titles: info.titles })).info;
+      expect(isChecked(named, '1-3,4-5', 5)).toBe(true);
+      const retitled = jsonOf<{ info: EpisodeInfo }>(await put({ chapterNames: {}, titles: { '1': title(1), '4': title(3) } })).info;
+      expect(isChecked(retitled, '1-3,4-5', 5)).toBe(false);
+    });
+
+    it('check answers 400 for a body that is not an episode list', async () => {
+      expect((await check('x')).status).toBe(400);
+      expect((await fixture.send(`${base()}/check`, { method: 'POST', body: '{}' })).status).toBe(400);
+    });
+  });
+
+  it('evenSpec cuts a playlist into equal groups of consecutive chapters, or answers null', () => {
+    expect(evenSpec(4, 8)).toBe('1-2,3-4,5-6,7-8');
+    expect(evenSpec(4, 7)).toBeNull();
+    expect(evenSpec(1, 4)).toBe('1-4');
+    expect(evenSpec(0, 4)).toBeNull();
+    expect(evenSpec(5, 3)).toBeNull();
   });
 });

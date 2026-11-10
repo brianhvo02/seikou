@@ -2,7 +2,7 @@
 import { ApiError, episodeInfoCalls, errorOf, type FetchLike } from '../api';
 import type { RemoteDiscSpec } from '@seikou/engine';
 import type { DiscManifest, OwnTitle, TitleSummary } from '@seikou/nas/nas-api';
-import type { AniListEntry, EncodeSettings, EpisodeInfo, Job, LibraryAnswer, NasPairingRequest, NasShowAnswer, NasShowsAnswer, NasStatus, NewJob, NewTest, PlaylistDetail, PlaylistSummary, Profile, QueuedJob, TitleHit } from '../api-types';
+import type { AniListEntry, CheckAnswer, NasPrefill, EncodeSettings, EpisodeInfo, Job, LibraryAnswer, NasPairingRequest, NasShowAnswer, NasShowsAnswer, NasStatus, NewJob, NewTest, PlaylistDetail, PlaylistSummary, Profile, QueuedJob, TitleHit } from '../api-types';
 
 // The app pages' client for the backend's library routes, carrying the run's token.
 
@@ -22,6 +22,10 @@ export interface AppApi {
   episodeInfo(discKey: string, playlistId: string): Promise<EpisodeInfo | null>;
   /** Saves a disc's playlist's chapter names and episode titles; resolves with them as stored. */
   saveEpisodeInfo(discKey: string, playlistId: string, info: Omit<EpisodeInfo, 'savedAt'>): Promise<EpisodeInfo>;
+  /** The NAS's episodes, title and grouping for a disc's playlist; nothing for a disc the NAS does not hold. */
+  nasPrefill(discKey: string, playlistId: string): Promise<NasPrefill>;
+  /** Marks a playlist checked for the episode list; rejects with `ApiError` `needs-title` while an episode has no title. */
+  checkPlaylist(discKey: string, playlistId: string, episodeSpec: string): Promise<CheckAnswer>;
   /** Opens (or finds) the subtitle helper's session for a disc, playlist and episode list; resolves with its id. */
   createSession(discKey: string, playlistId: string, episodeSpec: string): Promise<string>;
   /** What the engine needs to read a library disc: the disc API's base address, the token and the manifest. */
@@ -141,6 +145,9 @@ export function createAppApi(base: string, token: string, fetchImpl: FetchLike =
     playlist: (discKey, playlistId) =>
       request('GET', `/api/discs/${encodeURIComponent(discKey)}/playlists/${encodeURIComponent(playlistId)}`),
     ...episodeInfoCalls(request),
+    nasPrefill: (discKey, playlistId) => request('GET', `/api/discs/${encodeURIComponent(discKey)}/playlists/${encodeURIComponent(playlistId)}/nas-prefill`),
+    checkPlaylist: (discKey, playlistId, episodeSpec) =>
+      request('POST', `/api/discs/${encodeURIComponent(discKey)}/playlists/${encodeURIComponent(playlistId)}/check`, { episodeSpec }),
     async createSession(discKey, playlistId, episodeSpec) {
       return (await request<{ id: string }>('POST', '/api/sessions', { discKey, playlistId, episodeSpec })).id;
     },

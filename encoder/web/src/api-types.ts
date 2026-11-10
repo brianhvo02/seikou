@@ -471,6 +471,24 @@ export interface EpisodeInfo {
   readonly savedAt: string;
 }
 
+/** `GET /api/discs/<key>/playlists/<id>/nas-prefill`: what the NAS lists for a disc's playlist, as suggestions for the Episodes page. */
+export interface NasPrefill {
+  /** The NAS's episodes on the disc and playlist, in number order. */
+  readonly episodes: readonly { readonly number: number; readonly name: string | null }[];
+  /** The title the NAS files the disc under; null for a disc in Unsorted or one the NAS does not hold. */
+  readonly title: EncodeTitle | null;
+  /** The playlist cut into as many equal groups of chapters as the NAS has episodes; null when it does not divide evenly. */
+  readonly episodeSpec: string | null;
+}
+
+/** What `POST /api/discs/<key>/playlists/<id>/check` answers. */
+export interface CheckAnswer {
+  readonly info: EpisodeInfo;
+  /** `saved`: the NAS now files the disc under the title; `unchanged`: nothing to change; `mixed`: the episodes span two shows; `failed`: the NAS refused (see `message`). */
+  readonly nasChoice: 'saved' | 'unchanged' | 'mixed' | 'failed';
+  readonly message?: string;
+}
+
 /** One playlist in `GET /api/discs/<key>/playlists`. */
 export interface PlaylistSummary {
   /** Five-digit playlist name. */
