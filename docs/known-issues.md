@@ -24,6 +24,10 @@ what would change that decision.
   (`encodePickStartUs`); a pick the NAS couldn't line up (no source disc on the NAS, or low confidence) keeps its own
   timing, from the episode's start. The release's file is chosen by the encode's episode number, else the viewer picks
   it. An encode without the source tags offers no search.
+- **The encodes E2E doesn't play in WebKit on Linux.** CI's Linux WebKit reports an AV1 decoder, reads the episode
+  and then buffers at 0:00 without showing a frame, so `tests/e2e/encodes.spec.ts` skips its playback tests there
+  (`LINUX_WEBKIT_ENCODES`); they run in WebKit on macOS. Safari plays encodes; the cause in Linux WebKit's AV1 or
+  Opus decoding was not found. *Revisit if* encodes are checked on a real iPhone or iPad, or Linux WebKit changes.
 
 ## Encoder and the NAS
 

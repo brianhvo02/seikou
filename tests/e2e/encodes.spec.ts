@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 import { normalizeCode } from '@seikou/nas/pairing-code';
 import { ENCODE_SOURCE_KEY, NAS_E2E_DIR, NAS_ENV, NAS_PORT, SERVER } from './nas-server';
+import { isLinuxWebKit } from './support';
 import { telemetry } from './telemetry';
 
 // The encodes library against the NAS stand-in (tests/e2e/nas-server.ts), which serves copies of fixtures/encodes: the
@@ -162,6 +163,21 @@ async function openEpisode(page: Page, id: string): Promise<void> {
 
 const player = (page: Page) => page.getByTestId('player');
 
+/** Why the playback tests skip in WebKit on Linux (`docs/known-issues.md`). */
+const LINUX_WEBKIT_ENCODES = "Linux WebKit (CI) reports AV1 but never starts an encode's playback; WebKit on macOS runs these";
+
+/**
+ * Plays the open pre-flight's episode from the start: Play, or Start from beginning when a place brings up the resume
+ * prompt. `beforeEach` deletes the person's places, but the previous test's page saves its place as it closes, and that
+ * request can land after the delete.
+ */
+async function playFromStart(page: Page): Promise<void> {
+  const play = page.getByTestId('encode-preflight-play');
+  const startOver = page.getByTestId('resume-start-over');
+  await expect(play.or(startOver)).toBeVisible({ timeout: 15_000 });
+  await (await startOver.isVisible() ? startOver : play).click();
+}
+
 /** The playing time the control bar shows, in seconds. */
 async function shownTimeS(page: Page): Promise<number> {
   const text = (await page.getByTestId('time').textContent()) ?? '';
@@ -177,8 +193,13 @@ async function jumpToChapter(page: Page, name: string): Promise<void> {
   await page.getByRole('menuitemradio', { name: new RegExp(`^${name} · `) }).click();
 }
 
-/** Skips the test where this browser's WebCodecs can't decode AV1, as the app probes it. */
+/**
+ * Skips the test where this browser's WebCodecs can't decode AV1, as the app probes it, and in WebKit on Linux, which
+ * reports AV1 but never starts an encode's playback (it reads the file and buffers at 0:00, run after run on CI).
+ */
 async function skipWithoutAv1(page: Page): Promise<void> {
+  const browser = page.context().browser()?.browserType().name() ?? '';
+  test.skip(isLinuxWebKit(browser), LINUX_WEBKIT_ENCODES);
   await page.goto('/');
   const av1 = await page.evaluate(async () => {
     if (typeof VideoDecoder === 'undefined') return false;
@@ -210,7 +231,7 @@ test('lists the show, plays episode 1 with its chapters, skips the opening and g
   await expect(episodeRow(page, EPISODE_TWO)).toContainText('A Quiet Harbor');
 
   await openEpisode(page, EPISODE_ONE);
-  await page.getByTestId('encode-preflight-play').click();
+  await playFromStart(page);
   await expect(player(page)).toHaveAttribute('data-state', 'playing', { timeout: 20_000 });
   expect(new URL(page.url()).pathname).toBe(`/nas/encodes/play/${EPISODE_ONE}`);
   // the clock advances on the audio (Opus) with frames presented
@@ -249,7 +270,7 @@ test('reopening an episode left part-way offers to resume it', async ({ page, br
   await pair(page, browserName);
   await openShow(page);
   await openEpisode(page, EPISODE_ONE);
-  await page.getByTestId('encode-preflight-play').click();
+  await playFromStart(page);
   await expect(player(page)).toHaveAttribute('data-state', 'playing', { timeout: 20_000 });
   await jumpToChapter(page, 'Part A');
   await expect.poll(() => shownTimeS(page), { timeout: 10_000 }).toBeGreaterThanOrEqual(20);
@@ -300,7 +321,7 @@ test('a stored subtitle picked on an episode comes back when it is resumed', asy
     await pair(page, browserName);
     await openShow(page);
     await openEpisode(page, EPISODE_ONE);
-    await page.getByTestId('encode-preflight-play').click();
+    await playFromStart(page);
     await expect(player(page)).toHaveAttribute('data-state', 'playing', { timeout: 20_000 });
     await page.mouse.move(300, 300);
     await page.getByTestId('subtitle-menu').click();
