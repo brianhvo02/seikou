@@ -54,11 +54,6 @@ what would change that decision.
   episodes AniList and TMDB give a season, not what the owner typed in by hand. A show made of own titles shows "Not
   checked yet" or "N so far encoded" until its discs are checked, and its season's Queue waits for every disc.
   *Revisit if* own titles should carry an episode count: let the owner enter it on the NAS.
-- **Mark checked can't file a disc into an AniList season the NAS holds no disc of yet.** The NAS's catalogue has a
-  season of an AniList series only once a disc is filed there, so the encoder can't learn that season's number and
-  leaves the disc as it is, saying so (`failed`); the encode still uses the chosen entry. The owner files the disc
-  with "File differently…" in Seikou. *Revisit if* it is common: let the NAS answer an AniList entry's place in its
-  series without a disc there.
 - **A disc whose episodes each sit on their own playlist is checked once per playlist.** When the NAS lists a disc's
   episodes on per-episode playlists and no playlist holds them all, each of those playlists is grouped and marked
   checked on its own, and the season's Queue makes one encode per playlist. A playlist that holds them all (a play-all
@@ -655,6 +650,7 @@ Fill in from `probe.html` on each device.
 
 ## Resolved (for reference)
 
+- **Resolved: Mark checked couldn't file a disc into an AniList season the NAS held no disc of (2026-11-10).** The encoder looked for the season in the NAS's catalogue, which has it only once a disc is filed there. The NAS now answers an AniList entry's series and season with `GET admin/anilist-place/<id>` whether or not a disc is filed (`routes/admin.ts`, `TitleService.anilistPlace`), and the check asks it.
 - **Resolved: Music shelf: library-wide search didn't match a looked-up title (2026-10-22).** `searchNames` (`src/ui/nas/title-model.ts`) now reads a release's title, concert name and artist names as well as the folder-derived ones.
 - **Resolved: Music shelf: Various artists was not last in the 五十音 alphabet order (2026-10-22).** `artistIndex` (`src/ui/nas/artist-model.ts`) keeps it last after `japaneseOrder`, as in A–Z.
 
