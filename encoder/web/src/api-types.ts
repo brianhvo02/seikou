@@ -269,7 +269,7 @@ export interface RecordMetadata {
   readonly video: { readonly name: string; readonly language: string };
   /** Audio streams in MKV order; the first carries the default flag. */
   readonly audio: readonly RecordAudio[];
-  /** Chapter names in chapter order. */
+  /** Chapter names in chapter order, as older pages saved them; the page now sends `[]` and the backend saves `[]` (names live in `EpisodeInfo`). */
   readonly chapters: readonly string[];
 }
 
@@ -417,6 +417,29 @@ export interface PlaylistDetail {
   readonly chapters: readonly ChapterInfo[];
   /** The episode list of the playlist's saved subtitle record, or null when none is saved. */
   readonly record: { readonly episodeSpec: string } | null;
+}
+
+/** AniList's place for one episode, keyed in `EpisodeInfo.anilist` by the playlist chapter the episode starts at. */
+export interface EpisodeAniList {
+  /** The AniList entry. */
+  readonly anilistId: number;
+  /** The episode's number in that entry, from 1. */
+  readonly episode: number;
+  /** AniList's episode title, or null. */
+  readonly title: string | null;
+}
+
+/**
+ * Chapter names and AniList choices for one disc and playlist, keyed by playlist chapter so that regrouping keeps
+ * them, as `GET /api/discs/<key>/playlists/<id>/info` answers.
+ */
+export interface EpisodeInfo {
+  /** Playlist chapter number (1-based, as a string key) → name; a chapter with no entry keeps the encoder's naming. */
+  readonly chapterNames: Readonly<Record<string, string>>;
+  /** First playlist chapter of an episode (as a string key) → its AniList entry and number. */
+  readonly anilist: Readonly<Record<string, EpisodeAniList>>;
+  /** When it was saved (ISO 8601), set by the backend. */
+  readonly savedAt: string;
 }
 
 /** One playlist in `GET /api/discs/<key>/playlists`. */

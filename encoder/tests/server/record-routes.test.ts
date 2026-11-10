@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import type { EpisodeInfo } from '../../src/plan/episode-info';
 import { DEFAULT_SETTINGS } from '../../src/server/profiles';
-import type { SubtitleRecord } from '../../src/subs/record';
+import { RecordStore, type SubtitleRecord } from '../../src/subs/record';
 import { fx } from '../paths';
 import { jsonOf, startRouteFixture, type RouteFixture } from './route-fixture';
 
@@ -131,6 +132,37 @@ describe('record routes', () => {
     expect(got.record?.episodeSpec).toBe('1-3,4-5');
     const saved = await fixture.call('/record', { method: 'PUT', body: JSON.stringify(record({ episodeSpec: '1-3,4-' })) });
     expect(saved.status).toBe(200);
+  });
+
+  it('saving a record with chapter names stores none', async () => {
+    const named = record();
+    named.episodes[0]!.metadata.chapters = ['Avant', 'Opening', 'Part A'];
+    const stored = jsonOf<SubtitleRecord>(await put(named));
+    expect(stored.episodes[0]!.metadata.chapters).toEqual([]);
+    const onDisk = JSON.parse(readFileSync(recordFile(), 'utf8')) as SubtitleRecord;
+    expect(onDisk.episodes[0]!.metadata.chapters).toEqual([]);
+  });
+
+  it('loading an old record with chapter names moves them into the episode info once', async () => {
+    const infoFile = join(fixture.dataDir, 'chapters', discKey, '00000.json');
+    rmSync(infoFile, { force: true });
+    const old = record({ savedAt: '2026-11-01T00:00:00.000Z' });
+    old.episodes.push({ ...old.episodes[0]!, index: 2, tracks: [], metadata: { ...old.episodes[0]!.metadata, chapters: ['Opening', 'Chapter 2'] } });
+    old.episodes[0]!.metadata.chapters = ['Chapter 1', '', 'Ending'];
+    // as an older encoder wrote it, with the names in the record
+    await new RecordStore(fixture.dataDir).write(old);
+    const infoPath = `/api/discs/${encodeURIComponent(discKey)}/playlists/00000/info`;
+
+    expect((await fixture.call('/record')).status).toBe(200);
+    const first = jsonOf<{ info: EpisodeInfo | null }>(await fixture.send(infoPath)).info;
+    expect(first?.chapterNames).toEqual({ '3': 'Ending', '4': 'Opening' });
+
+    // a name changed since is not put back by loading the record again, and nothing is saved again
+    const changed = await fixture.send(infoPath, { method: 'PUT', body: JSON.stringify({ chapterNames: { '3': 'Ending', '4': 'Avant' }, anilist: {} }) });
+    const savedAt = jsonOf<{ info: EpisodeInfo }>(changed).info.savedAt;
+    expect((await fixture.call('/record')).status).toBe(200);
+    const second = jsonOf<{ info: EpisodeInfo }>(await fixture.send(infoPath)).info;
+    expect(second).toMatchObject({ chapterNames: { '3': 'Ending', '4': 'Avant' }, savedAt });
   });
 });
 

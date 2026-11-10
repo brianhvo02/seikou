@@ -433,7 +433,9 @@ describe('toRecord and fromRecord', () => {
   it('an episode marked none or without a release saves no tracks but its metadata', () => {
     const record = toRecord(reduce(withRelease(), { type: 'markNone', episode: 2 }), session, episodes);
     expect(record.episodes[1]!.tracks).toEqual([]);
-    expect(record.episodes[1]!.metadata.chapters).toEqual(['Chapter 1', 'Chapter 2']);
+    expect(record.episodes[1]!.metadata.title).not.toBe('');
+    // chapter names are saved in the episode info, never in the record
+    expect(record.episodes[1]!.metadata.chapters).toEqual([]);
     const bare = toRecord(initialState(), session, episodes);
     expect(bare.releases).toEqual([]);
     expect(bare.fonts).toEqual([]);
@@ -636,6 +638,27 @@ describe('metadata defaults', () => {
     expect(ep.metadata.video.language).toBe('und');
     expect(ep.metadata.audio[0]!.language).toBe('und');
     expect(ep.tracks[0]!.language).toBe('und');
+  });
+
+  it('names chapters from the episode info by each episode\'s first playlist chapter', () => {
+    const chapters = { names: { '2': 'Opening', '4': 'Avant' }, firstChapters: [1, 4] };
+    const state = reduce(initialState(), { type: 'fillDefaults', defaults: metadataDefaults(initialState(), episodes, null, chapters) });
+    expect(state.metadata.episodes[1]!.chapters).toEqual(['Chapter 1', 'Opening', 'Chapter 3']);
+    expect(state.metadata.episodes[2]!.chapters).toEqual(['Avant', 'Chapter 2']);
+    // newly saved names replace the shown ones; the record never carries them
+    const renamed = reduce(state, { type: 'fillDefaults', defaults: metadataDefaults(state, episodes, null, { ...chapters, names: { '5': 'Ending' } }) });
+    expect(renamed.metadata.episodes[2]!.chapters).toEqual(['Chapter 1', 'Ending']);
+    expect(renamed.dirty).toBe(false);
+    expect(toRecord(renamed, session, episodes).episodes.map((e) => e.metadata.chapters)).toEqual([[], []]);
+  });
+
+  it('a record an older page saved with chapter names restores none of them', () => {
+    const old = toRecord(fill(withRelease()), session, episodes);
+    const withNames = { ...old, episodes: old.episodes.map((e) => ({ ...e, metadata: { ...e.metadata, chapters: ['Opening', 'Ending'] } })) };
+    const restored = fromRecord(withNames, [release], episodes);
+    expect(restored.metadata.episodes[1]!.chapters).toEqual([]);
+    expect([...restored.metadata.edited].some((k) => k.endsWith('.chapters'))).toBe(false);
+    expect(fill(restored).metadata.episodes[1]!.chapters).toEqual(['Chapter 1', 'Chapter 2', 'Chapter 3']);
   });
 
   it('without titles known it keeps the episode titles the draft has', () => {

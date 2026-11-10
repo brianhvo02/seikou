@@ -49,7 +49,11 @@ export interface RecordMetadata {
   video: { name: string; language: string };
   /** Audio streams in MKV order, keyed by the playlist's PID. */
   audio: { pid: number; name: string; language: string; included: boolean }[];
-  /** Chapter names, in chapter order. */
+  /**
+   * Chapter names, in chapter order, as older encoders wrote them. The backend now saves `[]` here (`withoutChapterNames`);
+   * the names live in the episode info file (`plan/episode-info.ts`), and an older record's are moved there when it is
+   * loaded.
+   */
   chapters: string[];
 }
 
@@ -254,6 +258,11 @@ export function parseRecord(json: unknown): SubtitleRecord {
     episodes,
     savedAt: str(o.savedAt, 'savedAt'),
   };
+}
+
+/** The record with every episode's `metadata.chapters` emptied, as the backend saves it. */
+export function withoutChapterNames(record: SubtitleRecord): SubtitleRecord {
+  return { ...record, episodes: record.episodes.map((e) => ({ ...e, metadata: { ...e.metadata, chapters: [] } })) };
 }
 
 /** Group name `missingFiles` uses for fonts of a record that names no release. */

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { readBody } from '../../../server/src/http';
 import { loadPlaylist } from '../disc/playlist';
+import { EpisodeInfoError, EpisodeInfoStore, migrateRecordChapters } from '../plan/episode-info';
 import { sameEpisodeList } from '../plan/episodes';
-import { parseRecord, RecordError, RecordStore } from '../subs/record';
+import { parseRecord, RecordError, RecordStore, withoutChapterNames, type SubtitleRecord } from '../subs/record';
 import { httpError, json, sessionRoute, type AppContext, type HelperSession, type RouteTable } from './http';
 import { jobsUsingRecord } from './jobs';
 
@@ -26,6 +27,26 @@ async function isSessionsList(session: HelperSession, spec: string): Promise<boo
 }
 
 /**
+ * Moves the chapter names an older encoder saved in `record` into the episode info file of the session's disc and
+ * playlist, by the record's own episode list; names the file already has win, and the file is written only when
+ * something moves. A file that cannot be read is left alone.
+ */
+async function migrateChapterNames(app: AppContext, session: HelperSession, record: SubtitleRecord): Promise<void> {
+  if (!record.episodes.some((e) => e.metadata.chapters.length > 0)) return;
+  const store = new EpisodeInfoStore(app.dataDir);
+  let info;
+  try {
+    info = await store.read(session.discKey, session.playlistId);
+  } catch (e) {
+    if (e instanceof EpisodeInfoError) return;
+    throw e;
+  }
+  const chapterCount = (await loadPlaylist(session.discDir, session.playlistId)).chapters.length;
+  const moved = migrateRecordChapters(info, record, record.episodeSpec, chapterCount);
+  if (moved !== null) await store.save(session.discKey, session.playlistId, moved);
+}
+
+/**
  * A session's record routes, under `/api/sessions/<id>`:
  *
  *   GET /record   `{ record, missing }` for the session's disc and playlist. `record` is null when none was saved
@@ -36,9 +57,11 @@ async function isSessionsList(session: HelperSession, spec: string): Promise<boo
  *                 and its label as `release`), the cached files the record names that are gone, so the page can
  *                 say which release to fetch again. A record file on disk that is not valid answers 200 with
  *                 `record: null`, `missing: []` and `error: { code: 'record-unreadable', message }`, so the page
- *                 starts fresh; saving then overwrites the broken file.
+ *                 starts fresh; saving then overwrites the broken file. Chapter names an older encoder saved in the
+                 record are first moved into the episode info file (`migrateRecordChapters`; names already there win).
  *   PUT /record   body: a record. It is validated, its disc key, playlist and episode spec must equal the session's
- *                 (409 `session-mismatch`), `savedAt` is set to the server's clock, and the stored record is
+ *                 (409 `session-mismatch`), `savedAt` is set to the server's clock, every episode's
+                 `metadata.chapters` is saved as `[]` (chapter names live in the episode info), and the stored record is
  *                 answered. A record saved for another episode list of the playlist is replaced only with
  *                 `?replace=1`; without it the answer is 409 `other-episode-spec` with that list as `episodeSpec`
  *                 and `queuedJobs` as for GET.
@@ -59,6 +82,7 @@ export const recordRoutes: RouteTable = [
         if (!(e instanceof RecordError)) throw e;
         return json(res, 200, { record: null, missing: [], error: { code: 'record-unreadable', message: e.message } });
       }
+      if (record) await migrateChapterNames(app, session, record);
       if (record && !(await isSessionsList(session, record.episodeSpec))) {
         return json(res, 200, { record: null, missing: [], otherEpisodeSpec: record.episodeSpec, queuedJobs: await queuedJobsOf(app, session, record.episodeSpec) });
       }
@@ -111,7 +135,7 @@ export const recordRoutes: RouteTable = [
           });
         }
       }
-      const record = { ...parsed, savedAt: new Date().toISOString() };
+      const record = { ...withoutChapterNames(parsed), savedAt: new Date().toISOString() };
       await store.write(record);
       json(res, 200, record);
     }),

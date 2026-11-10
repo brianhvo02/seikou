@@ -66,6 +66,8 @@ function fakeApi(align: HelperApi['align']): HelperApi {
     fontUrl: vi.fn((rel: string, name: string) => `/font/${rel}/${encodeURIComponent(name)}`),
     record: notCalled,
     saveRecord: notCalled,
+    episodeInfo: vi.fn(async () => null),
+    saveEpisodeInfo: notCalled,
     remoteDisc: vi.fn(async (discKey: string) => ({ kind: 'remote' as const, base: `http://127.0.0.1/api/discs/${discKey}/`, token: 'tok', manifest: { discId: 'x', name: 'HARBOR_1', files: [], inline: {} } })),
   };
 }

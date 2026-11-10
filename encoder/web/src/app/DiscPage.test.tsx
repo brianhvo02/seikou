@@ -41,6 +41,8 @@ function fakeApi(discs: LibraryAnswer['discs'] = listed): AppApi {
       throw new Error('not used');
     }),
     createSession: vi.fn(async () => ''),
+    episodeInfo: vi.fn(async () => null),
+    saveEpisodeInfo: vi.fn(),
     profiles: vi.fn(async () => []),
     createProfile: vi.fn(),
     updateProfile: vi.fn(),

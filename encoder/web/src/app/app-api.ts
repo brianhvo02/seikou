@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { ApiError, errorOf, type FetchLike } from '../api';
+import { ApiError, episodeInfoPath, errorOf, type FetchLike } from '../api';
 import type { RemoteDiscSpec } from '@seikou/engine';
 import type { DiscManifest } from '@seikou/nas/nas-api';
-import type { EncodeSettings, Job, LibraryAnswer, NewJob, NewTest, PlaylistDetail, PlaylistSummary, Profile, QueuedJob } from '../api-types';
+import type { EncodeSettings, EpisodeInfo, Job, LibraryAnswer, NewJob, NewTest, PlaylistDetail, PlaylistSummary, Profile, QueuedJob } from '../api-types';
 
 // The app pages' client for the backend's library routes, carrying the run's token.
 
@@ -18,6 +18,10 @@ export interface AppApi {
   playlists(discKey: string): Promise<PlaylistSummary[]>;
   /** One playlist of a library disc with its chapters and the episode list of its saved subtitle record. */
   playlist(discKey: string, playlistId: string): Promise<PlaylistDetail>;
+  /** The chapter names and AniList choices saved for a disc's playlist, or null when none are. */
+  episodeInfo(discKey: string, playlistId: string): Promise<EpisodeInfo | null>;
+  /** Saves a disc's playlist's chapter names and AniList choices; resolves with them as stored. */
+  saveEpisodeInfo(discKey: string, playlistId: string, info: Omit<EpisodeInfo, 'savedAt'>): Promise<EpisodeInfo>;
   /** Opens (or finds) the subtitle helper's session for a disc, playlist and episode list; resolves with its id. */
   createSession(discKey: string, playlistId: string, episodeSpec: string): Promise<string>;
   /** What the engine needs to read a library disc: the disc API's base address, the token and the manifest. */
@@ -104,6 +108,13 @@ export function createAppApi(base: string, token: string, fetchImpl: FetchLike =
     },
     playlist: (discKey, playlistId) =>
       request('GET', `/api/discs/${encodeURIComponent(discKey)}/playlists/${encodeURIComponent(playlistId)}`),
+    async episodeInfo(discKey, playlistId) {
+      return (await request<{ info: EpisodeInfo | null }>('GET', episodeInfoPath(discKey, playlistId))).info;
+    },
+    async saveEpisodeInfo(discKey, playlistId, info) {
+      const { chapterNames, anilist } = info;
+      return (await request<{ info: EpisodeInfo }>('PUT', episodeInfoPath(discKey, playlistId), { chapterNames, anilist })).info;
+    },
     async createSession(discKey, playlistId, episodeSpec) {
       return (await request<{ id: string }>('POST', '/api/sessions', { discKey, playlistId, episodeSpec })).id;
     },

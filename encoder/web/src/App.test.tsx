@@ -31,6 +31,8 @@ function fakeApi(overrides: Partial<HelperApi> = {}): HelperApi {
     fontUrl: () => '',
     record: vi.fn(async () => ({ record: null, missing: [] })),
     saveRecord: notCalled,
+    episodeInfo: vi.fn(async () => null),
+    saveEpisodeInfo: notCalled,
     remoteDisc: notCalled,
     ...overrides,
   };
@@ -66,6 +68,17 @@ describe('App', () => {
     expect(panel).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Close details' }));
     expect(screen.queryByRole('dialog', { name: 'Details' })).toBeNull();
+  });
+
+  it("shows the playlist's saved chapter names in the details panel", async () => {
+    const episodeInfo = vi.fn(async () => ({ chapterNames: { '4': 'Opening' }, anilist: {}, savedAt: '2026-11-09T10:00:00.000Z' }));
+    render(<App api={fakeApi({ episodeInfo })} />);
+    await screen.findByRole('heading', { level: 1 });
+    expect(episodeInfo).toHaveBeenCalledWith(`f.${'a'.repeat(32)}`, '00000');
+    fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+    // episode 2 of 1-3,4-5 starts at playlist chapter 4
+    fireEvent.click(screen.getByRole('button', { name: 'Episode 2' }));
+    expect((screen.getByLabelText('Chapter 1 title') as HTMLInputElement).value).toBe('Opening');
   });
 
   it('says what went wrong when the session does not load', async () => {

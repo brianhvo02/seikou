@@ -93,6 +93,8 @@ function fakeApi(overrides: Partial<HelperApi> = {}): HelperApi {
     fontUrl: () => '',
     record: notCalled,
     saveRecord: notCalled,
+    episodeInfo: vi.fn(async () => null),
+    saveEpisodeInfo: notCalled,
     remoteDisc: notCalled,
     ...overrides,
   };

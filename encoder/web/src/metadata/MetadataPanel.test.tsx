@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
-import { useReducer } from 'react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { useEffect, useReducer, useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { EpisodesAnswer, ReleaseAnswer, SessionInfo, TitleHit } from '../api-types';
+import type { HelperApi } from '../api';
+import type { EpisodeInfo, EpisodesAnswer, ReleaseAnswer, SessionInfo, TitleHit } from '../api-types';
 import { initialState, metadataDefaults, reduce, toRecord, type HelperState } from '../helper-model';
+import { firstChapters } from './metadata-model';
 import { MetadataPanel } from './MetadataPanel';
 
 afterEach(cleanup);
@@ -54,17 +56,58 @@ function start(): HelperState {
   return reduce(s, { type: 'fillDefaults', defaults: metadataDefaults(s, episodes, { 1: 'Arrival' }) });
 }
 
-function Harness({ onState }: { onState: (s: HelperState) => void }) {
-  const [state, dispatch] = useReducer(reduce, undefined, start);
-  onState(state);
-  return <MetadataPanel state={state} dispatch={dispatch} episodes={episodes} onClose={() => undefined} />;
+const savedInfo = (chapterNames: Record<string, string>): EpisodeInfo => ({
+  chapterNames,
+  anilist: { '1': { anilistId: 900101, episode: 1, title: 'Arrival' } },
+  savedAt: '2026-11-09T10:00:00.000Z',
+});
+
+/** A client whose only working calls are the episode info's; `saveEpisodeInfo` stores what it is sent. */
+function infoApi(save?: HelperApi['saveEpisodeInfo']): HelperApi {
+  const notCalled = () => Promise.reject(new Error('not expected'));
+  return {
+    session: notCalled,
+    episodes: notCalled,
+    searchTitles: notCalled,
+    episodeTitles: notCalled,
+    seadex: notCalled,
+    searchTosho: notCalled,
+    fetchRelease: notCalled,
+    upload: notCalled,
+    release: notCalled,
+    align: notCalled,
+    subtitleUrl: () => '',
+    fontUrl: () => '',
+    record: notCalled,
+    saveRecord: notCalled,
+    episodeInfo: notCalled,
+    saveEpisodeInfo: save ?? vi.fn(async (_key: string, _playlist: string, info: Omit<EpisodeInfo, 'savedAt'>) => ({ ...info, savedAt: '2026-11-09T11:00:00.000Z' })),
+    remoteDisc: notCalled,
+  };
 }
 
-function renderPanel() {
+/** The panel with the page's state and the episode info, whose saved names refill the draft's defaults as the page does. */
+function Harness({ onState, api, info: first, infoFailed }: { onState: (s: HelperState) => void; api: HelperApi; info: EpisodeInfo | null; infoFailed: boolean }) {
+  const [state, dispatch] = useReducer(reduce, undefined, start);
+  const [info, setInfo] = useState(first);
+  useEffect(() => {
+    const chapters = { names: info?.chapterNames ?? {}, firstChapters: firstChapters(session.episodeSpec) };
+    dispatch({ type: 'fillDefaults', defaults: metadataDefaults(state, episodes, { 1: 'Arrival' }, chapters) });
+    // the page refills on its own triggers; here only a save does
+  }, [info]);
+  onState(state);
+  return (
+    <MetadataPanel state={state} dispatch={dispatch} episodes={episodes} api={api} session={session} info={info} infoFailed={infoFailed} onInfo={setInfo} onClose={() => undefined} />
+  );
+}
+
+function renderPanel({ api = infoApi(), info = null, infoFailed = false }: { api?: HelperApi; info?: EpisodeInfo | null; infoFailed?: boolean } = {}) {
   let latest: HelperState = start();
-  render(<Harness onState={(s) => (latest = s)} />);
+  render(<Harness onState={(s) => (latest = s)} api={api} info={info} infoFailed={infoFailed} />);
   return () => latest;
 }
+
+const chapterField = (n: number): HTMLInputElement => screen.getByLabelText(`Chapter ${n} title`) as HTMLInputElement;
 
 /** The rows of a track list, by the list's accessible name. */
 function rows(name: string): HTMLElement[] {
@@ -189,8 +232,81 @@ describe('MetadataPanel', () => {
 
   it('Escape closes it', () => {
     const onClose = vi.fn();
-    render(<MetadataPanel state={start()} dispatch={() => undefined} episodes={episodes} onClose={onClose} />);
+    render(
+      <MetadataPanel state={start()} dispatch={() => undefined} episodes={episodes} api={infoApi()} session={session} info={null} infoFailed={false} onInfo={() => undefined} onClose={onClose} />,
+    );
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+describe('MetadataPanel chapter titles', () => {
+  it('shows the episode info\'s names by playlist chapter', () => {
+    // the session's episodes are 1-2 and 3: episode 2's first field is playlist chapter 3
+    renderPanel({ info: savedInfo({ '2': 'Opening', '3': 'Preview' }) });
+    expect(chapterField(1).value).toBe('Chapter 1');
+    expect(chapterField(2).value).toBe('Opening');
+    fireEvent.click(screen.getByRole('button', { name: 'Episode 2' }));
+    expect(chapterField(1).value).toBe('Preview');
+  });
+
+  it('a chapter title is saved to the episode info when its field is left, keeping the AniList choices', async () => {
+    const api = infoApi();
+    const state = renderPanel({ api, info: savedInfo({ '1': 'Avant' }) });
+    fireEvent.click(screen.getByRole('button', { name: 'Episode 2' }));
+    fireEvent.change(chapterField(1), { target: { value: ' Ending ' } });
+    expect(api.saveEpisodeInfo).not.toHaveBeenCalled();
+    fireEvent.blur(chapterField(1));
+    await waitFor(() => expect(api.saveEpisodeInfo).toHaveBeenCalledTimes(1));
+    expect(api.saveEpisodeInfo).toHaveBeenCalledWith(session.discKey, session.playlistId, {
+      chapterNames: { '1': 'Avant', '3': 'Ending' },
+      anilist: savedInfo({}).anilist,
+    });
+    await waitFor(() => expect(state().metadata.episodes[2]!.chapters).toEqual(['Ending']));
+    expect(chapterField(1).value).toBe('Ending');
+    // a chapter name is not part of the record's draft: nothing is marked edited, and the record carries no names
+    expect(state().metadata.edited.size).toBe(0);
+    expect(toRecord(state(), session, episodes).episodes[1]!.metadata.chapters).toEqual([]);
+  });
+
+  it('an emptied field removes the name and shows the encoder\'s own again', async () => {
+    const api = infoApi();
+    renderPanel({ api, info: savedInfo({ '2': 'Opening' }) });
+    fireEvent.change(chapterField(2), { target: { value: '' } });
+    fireEvent.blur(chapterField(2));
+    await waitFor(() => expect(api.saveEpisodeInfo).toHaveBeenCalledWith(session.discKey, session.playlistId, { chapterNames: {}, anilist: savedInfo({}).anilist }));
+    expect(chapterField(2).value).toBe('Chapter 2');
+  });
+
+  it('a field left unchanged saves nothing', () => {
+    const api = infoApi();
+    renderPanel({ api });
+    fireEvent.blur(chapterField(1));
+    expect(api.saveEpisodeInfo).not.toHaveBeenCalled();
+  });
+
+  it('Escape saves the field being typed in', async () => {
+    const api = infoApi();
+    renderPanel({ api });
+    chapterField(2).focus();
+    fireEvent.change(chapterField(2), { target: { value: 'Opening' } });
+    fireEvent.keyDown(window, { key: 'Escape' });
+    await waitFor(() => expect(api.saveEpisodeInfo).toHaveBeenCalledWith(session.discKey, session.playlistId, { chapterNames: { '2': 'Opening' }, anilist: {} }));
+  });
+
+  it('a failed save says so', async () => {
+    const api = infoApi(vi.fn(() => Promise.reject(new Error('The app is not answering.'))));
+    renderPanel({ api });
+    fireEvent.change(chapterField(1), { target: { value: 'Avant' } });
+    await act(async () => {
+      fireEvent.blur(chapterField(1));
+    });
+    expect((await screen.findByRole('alert')).textContent).toBe('The chapter titles were not saved. The app is not answering.');
+  });
+
+  it('without the episode info the chapter titles cannot be changed', () => {
+    renderPanel({ infoFailed: true });
+    expect(chapterField(1).disabled).toBe(true);
+    expect(screen.getByText('The saved chapter names could not be loaded, so they cannot be changed here.')).toBeTruthy();
   });
 });

@@ -1,6 +1,17 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { defaultMetadata, defaultTrackName, languageName, mergeDefaults, move, withUserEdit, type MetadataDraft } from './metadata-model';
+import {
+  defaultMetadata,
+  defaultTrackName,
+  episodeChapterNames,
+  firstChapters,
+  languageName,
+  mergeDefaults,
+  move,
+  withChapterNames,
+  withUserEdit,
+  type MetadataDraft,
+} from './metadata-model';
 
 describe('defaultMetadata', () => {
   it('defaultMetadata follows the spec', () => {
@@ -107,6 +118,40 @@ describe('move', () => {
   });
 });
 
+describe('chapter names from the episode info', () => {
+  it('defaultMetadata names chapters by playlist chapter from the first chapter of each episode', () => {
+    const draft = defaultMetadata({
+      show: null,
+      episodes: [
+        { index: 1, title: null, chapterCount: 3, firstChapter: 1 },
+        { index: 2, title: null, chapterCount: 3, firstChapter: 4 },
+        { index: 3, title: null, chapterCount: 1 },
+      ],
+      audio: [],
+      tracks: {},
+      chapterNames: { '2': 'Opening', '4': 'Avant', '6': 'Preview', '7': 'Ending' },
+    });
+    expect(draft.episodes[1]!.chapters).toEqual(['Chapter 1', 'Opening', 'Chapter 3']);
+    expect(draft.episodes[2]!.chapters).toEqual(['Avant', 'Chapter 2', 'Preview']);
+    // without its first chapter an episode keeps the encoder's names
+    expect(draft.episodes[3]!.chapters).toEqual(['Chapter 1']);
+  });
+
+  it('firstChapters reads each range of an episode list', () => {
+    expect(firstChapters('1-3,4-6')).toEqual([1, 4]);
+    expect(firstChapters('2, 5-')).toEqual([2, 5]);
+    expect(firstChapters('7')).toEqual([7]);
+  });
+
+  it('episodeChapterNames and withChapterNames map fields onto playlist chapters', () => {
+    expect(episodeChapterNames({ '5': 'Ending' }, 4, 3)).toEqual(['Chapter 1', 'Ending', 'Chapter 3']);
+    const saved = { '1': 'Opening', '4': 'Avant', '5': 'Ending' };
+    // field 0 is chapter 4: emptied, it loses its name; field 1 at the default does too; field 2 is trimmed
+    expect(withChapterNames(saved, 4, ['', 'Chapter 2', ' Preview '])).toEqual({ '1': 'Opening', '6': 'Preview' });
+    expect(saved).toEqual({ '1': 'Opening', '4': 'Avant', '5': 'Ending' });
+  });
+});
+
 describe('withUserEdit and mergeDefaults', () => {
   const input = (show: string | null, title: string | null) => ({
     show,
@@ -120,16 +165,23 @@ describe('withUserEdit and mergeDefaults', () => {
 
   it('a user edit survives mergeDefaults', () => {
     const start = defaultMetadata(input(null, null));
-    const edited = withUserEdit(start, 'episodes.1.chapters.1', 'Ending');
-    expect(edited.episodes[1]!.chapters).toEqual(['Chapter 1', 'Ending']);
-    expect(edited.edited.has('episodes.1.chapters')).toBe(true);
-    expect(start.episodes[1]!.chapters).toEqual(['Chapter 1', 'Chapter 2']);
+    const edited = withUserEdit(start, 'episodes.1.video.name', 'Main');
+    expect(edited.episodes[1]!.video.name).toBe('Main');
+    expect(edited.edited.has('episodes.1.video')).toBe(true);
+    expect(start.episodes[1]!.video.name).toBe('');
 
     const merged = mergeDefaults(edited, defaultMetadata(input('Lantern Harbor', 'Arrival')));
-    expect(merged.episodes[1]!.chapters).toEqual(['Chapter 1', 'Ending']);
+    expect(merged.episodes[1]!.video.name).toBe('Main');
     // an untouched field takes the new default
     expect(merged.episodes[1]!.title).toBe('Lantern Harbor - 01 - Arrival');
     expect(merged.episodes[1]!.episodeTitle).toBe('Arrival');
+  });
+
+  it('chapters are not a draft edit: their names always follow the episode info', () => {
+    expect(() => withUserEdit(defaultMetadata(input(null, null)), 'episodes.1.chapters.1', 'Ending')).toThrow();
+    const named = defaultMetadata({ ...input(null, null), episodes: [{ index: 1, title: null, chapterCount: 2, firstChapter: 4 }], chapterNames: { '5': 'Ending' } });
+    const merged = mergeDefaults(defaultMetadata(input(null, null)), named);
+    expect(merged.episodes[1]!.chapters).toEqual(['Chapter 1', 'Ending']);
   });
 
   it('a typed title is kept when the show arrives', () => {

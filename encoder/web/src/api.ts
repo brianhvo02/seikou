@@ -4,6 +4,7 @@ import type { RemoteDiscSpec } from '@seikou/engine';
 import type { DiscManifest } from '@seikou/nas/nas-api';
 import type {
   AlignAnswer,
+  EpisodeInfo,
   EpisodesAnswer,
   FansubAlignment,
   RecordAnswer,
@@ -70,6 +71,10 @@ export interface HelperApi {
    * list in `details.episodeSpec`).
    */
   saveRecord(record: SubtitleRecord, replace?: boolean): Promise<SubtitleRecord>;
+  /** The chapter names and AniList choices saved for the session's disc and playlist (pass the session's), or null when none are. */
+  episodeInfo(discKey: string, playlistId: string): Promise<EpisodeInfo | null>;
+  /** Saves chapter names and AniList choices for a disc's playlist; resolves with them as stored. */
+  saveEpisodeInfo(discKey: string, playlistId: string, info: Omit<EpisodeInfo, 'savedAt'>): Promise<EpisodeInfo>;
   /**
    * The disc as Seikou's engine opens it from the backend's NAS-compatible disc API: its manifest, an absolute base
    * URL (the engine reads from its worker, which resolves nothing against the page) and the run's token, which the
@@ -92,6 +97,11 @@ export function base64UrlJson(value: unknown): string {
 /** The helper session id in a page path `/helper/<id>` (16 lower-case hex digits, a trailing slash allowed), or null. */
 export function helperSessionId(pathname: string): string | null {
   return /^\/helper\/([0-9a-f]{16})\/?$/.exec(pathname)?.[1] ?? null;
+}
+
+/** The path of a disc's playlist's episode info route, which the helper and the app pages share. */
+export function episodeInfoPath(discKey: string, playlistId: string): string {
+  return `/api/discs/${encodeURIComponent(discKey)}/playlists/${encodeURIComponent(playlistId)}/info`;
 }
 
 /** 16 random lower-case hex digits, the name of one upload batch. */
@@ -190,6 +200,13 @@ export function createApi(base: string, token: string, sessionId: string, fetchI
     fontUrl: (release, name) => `${root}${sessionPath}/releases/${enc(release)}/fonts/${enc(name)}?${q({ t: token })}`,
     record: () => request('GET', `${sessionPath}/record`),
     saveRecord: (record, replace) => request('PUT', `${sessionPath}/record${replace === true ? '?replace=1' : ''}`, record),
+    async episodeInfo(discKey, playlistId) {
+      return (await request<{ info: EpisodeInfo | null }>('GET', episodeInfoPath(discKey, playlistId))).info;
+    },
+    async saveEpisodeInfo(discKey, playlistId, info) {
+      const { chapterNames, anilist } = info;
+      return (await request<{ info: EpisodeInfo }>('PUT', episodeInfoPath(discKey, playlistId), { chapterNames, anilist })).info;
+    },
     async remoteDisc(discKey) {
       const manifest = await request<DiscManifest>('GET', `/api/discs/${enc(discKey)}/manifest`);
       const base = new URL(`${root}/api/discs/${enc(discKey)}/`, root === '' ? location.href : undefined).href;

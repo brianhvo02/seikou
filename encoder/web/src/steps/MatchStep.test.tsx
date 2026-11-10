@@ -57,6 +57,8 @@ function fakeApi(titles: Record<number, string>): HelperApi {
     fontUrl: () => '',
     record: notCalled,
     saveRecord: notCalled,
+    episodeInfo: vi.fn(async () => null),
+    saveEpisodeInfo: notCalled,
     remoteDisc: notCalled,
   };
 }

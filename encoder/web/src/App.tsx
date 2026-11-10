@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { HelperApi } from './api';
-import type { EpisodesAnswer, SessionInfo } from './api-types';
+import type { EpisodeInfo, EpisodesAnswer, SessionInfo } from './api-types';
 import { useEpisodeTitles } from './episode-titles';
 import { canEnter, initialState, metadataDefaults, reduce, type HelperAction, type Step } from './helper-model';
+import { firstChapters } from './metadata/metadata-model';
 import { MetadataPanel } from './metadata/MetadataPanel';
 import { useController } from './player/use-controller';
 import { SaveBar } from './SaveBar';
@@ -23,6 +24,8 @@ export interface AppProps {
 interface Loaded {
   readonly session: SessionInfo;
   readonly episodes: EpisodesAnswer;
+  /** True when the disc playlist's episode info (its chapter names) could not be loaded. */
+  readonly infoFailed: boolean;
 }
 
 /** The number of episodes an episode spec names: one per comma-separated range. */
@@ -45,22 +48,33 @@ function LineUpScreen(props: Omit<LineUpStepProps, 'controller'>) {
 
 /**
  * The helper page: a header with the disc's name, the step bar, Details and Save for encoding, and below it the step
- * on screen. It asks the backend for the session and the episodes on mount (a failure shows as an alert), and keeps
- * the metadata draft's defaults in step with the show, the release, the chosen tracks and AniList's episode titles.
+ * on screen. It asks the backend for the session, the episodes and the playlist's episode info on mount (a failure of
+ * the first two shows as an alert; without the episode info the chapter names cannot be changed), and keeps the
+ * metadata draft's defaults in step with the show, the release, the chosen tracks, AniList's episode titles and the
+ * saved chapter names.
  */
 export function App({ api }: AppProps) {
   const [state, dispatch] = useReducer(reduce, initialState());
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [info, setInfo] = useState<EpisodeInfo | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const detailsButton = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     let live = true;
     Promise.all([api.session(), api.episodes()]).then(
-      ([session, episodes]) => {
+      async ([session, episodes]) => {
+        let infoFailed = false;
+        let saved: EpisodeInfo | null = null;
+        try {
+          saved = await api.episodeInfo(session.discKey, session.playlistId);
+        } catch {
+          infoFailed = true;
+        }
         if (!live) return;
-        setLoaded({ session, episodes });
+        setInfo(saved);
+        setLoaded({ session, episodes, infoFailed });
       },
       (e: unknown) => {
         if (live) setLoadError(e instanceof Error ? e.message : String(e));
@@ -84,8 +98,9 @@ export function App({ api }: AppProps) {
   stateRef.current = state;
   useEffect(() => {
     if (loaded === null) return;
-    dispatch({ type: 'fillDefaults', defaults: metadataDefaults(stateRef.current, loaded.episodes, titles) });
-  }, [loaded, title, releases, choices, titles]);
+    const chapters = { names: info?.chapterNames ?? {}, firstChapters: firstChapters(loaded.session.episodeSpec) };
+    dispatch({ type: 'fillDefaults', defaults: metadataDefaults(stateRef.current, loaded.episodes, titles, chapters) });
+  }, [loaded, title, releases, choices, titles, info]);
 
   const goTo = useCallback((step: Step) => dispatch({ type: 'goTo', step }), []);
   const requestStep = useStepHistory(state.step, (s) => canEnter(stateRef.current, s), goTo);
@@ -143,7 +158,19 @@ export function App({ api }: AppProps) {
         )}
       </main>
 
-      {detailsOpen && loaded && <MetadataPanel state={state} dispatch={userDispatch} episodes={loaded.episodes} onClose={closeDetails} />}
+      {detailsOpen && loaded && (
+        <MetadataPanel
+          state={state}
+          dispatch={userDispatch}
+          episodes={loaded.episodes}
+          api={api}
+          session={loaded.session}
+          info={info}
+          infoFailed={loaded.infoFailed}
+          onInfo={setInfo}
+          onClose={closeDetails}
+        />
+      )}
     </div>
   );
 }

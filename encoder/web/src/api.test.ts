@@ -101,6 +101,17 @@ describe('createApi', () => {
     expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual([`PUT ${S}/record`, `PUT ${S}/record?replace=1`]);
   });
 
+  it('reads and saves the episode info of the disc playlist it is given, outside the session', async () => {
+    const info = { chapterNames: { '2': 'Opening' }, anilist: {}, savedAt: '2026-11-09T10:00:00.000Z' };
+    const { fetch, calls } = recorder(() => ok({ info }));
+    const api = createApi('', 'secret', SID, fetch);
+    expect(await api.episodeInfo('f.ab', '00800')).toEqual(info);
+    expect(await api.saveEpisodeInfo('f.ab', '00800', info)).toEqual(info);
+    expect(calls.map((c) => `${c.method} ${c.url}`)).toEqual(['GET /api/discs/f.ab/playlists/00800/info', 'PUT /api/discs/f.ab/playlists/00800/info']);
+    // only the two maps are sent; the backend stamps savedAt
+    expect(JSON.parse(calls[1]!.body as string)).toEqual({ chapterNames: { '2': 'Opening' }, anilist: {} });
+  });
+
   it('encodes timing as unpadded base64url JSON', () => {
     const text = base64UrlJson({ kind: 'split', parts: [{ fromMs: 0, offsetMs: -500 }], confidence: 0.5 });
     expect(text).toMatch(/^[A-Za-z0-9_-]+$/);

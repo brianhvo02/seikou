@@ -32,6 +32,8 @@ function fakeApi(playlist: PlaylistDetail = detail(), discs: LibraryAnswer['disc
     playlists: vi.fn(async () => []),
     playlist: vi.fn(async () => playlist),
     createSession: vi.fn(async () => '0123456789abcdef'),
+    episodeInfo: vi.fn(async () => null),
+    saveEpisodeInfo: vi.fn(),
     profiles: vi.fn(async () => []),
     createProfile: vi.fn(),
     updateProfile: vi.fn(),

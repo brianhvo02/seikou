@@ -432,10 +432,17 @@ function chosenTrackInputs(state: HelperState, episode: number): DefaultTrackInp
  * number, or null while it is not known (not asked yet, still on its way, or failed): then each episode keeps the
  * AniList title its draft already has, such as one restored from a record. Without a show there are no episode
  * titles. An episode with no file keeps the tracks its draft has, so that a restored episode whose release is gone
- * keeps its saved tracks; every action that takes a file away from an episode clears them. Give the result to the
+ * keeps its saved tracks; every action that takes a file away from an episode clears them. `chapters` names the
+ * chapters: the saved names by playlist chapter and the first playlist chapter of each episode in index order
+ * (`firstChapters` of the session's episode list); without it every chapter is `Chapter n`. Give the result to the
  * `fillDefaults` action.
  */
-export function metadataDefaults(state: HelperState, episodes: EpisodesAnswer, titles: Readonly<Record<number, string>> | null): MetadataDraft {
+export function metadataDefaults(
+  state: HelperState,
+  episodes: EpisodesAnswer,
+  titles: Readonly<Record<number, string>> | null,
+  chapters: ChapterNaming | null = null,
+): MetadataDraft {
   const titleOf = (index: number): string | null => {
     if (state.title === null) return null;
     const title = titles === null ? state.metadata.episodes[index]?.episodeTitle : titles[index + state.episodeOffset];
@@ -445,15 +452,30 @@ export function metadataDefaults(state: HelperState, episodes: EpisodesAnswer, t
   for (const e of episodes.episodes) tracks[e.index] = chosenTrackInputs(state, e.index);
   const defaults = defaultMetadata({
     show: state.title?.title ?? null,
-    episodes: episodes.episodes.map((e) => ({ index: e.index, number: e.index + state.episodeOffset, title: titleOf(e.index), chapterCount: e.chapters.length })),
+    episodes: episodes.episodes.map((e) => ({
+      index: e.index,
+      number: e.index + state.episodeOffset,
+      title: titleOf(e.index),
+      chapterCount: e.chapters.length,
+      ...(chapters?.firstChapters[e.index - 1] !== undefined && { firstChapter: chapters.firstChapters[e.index - 1] }),
+    })),
     audio: episodes.audio,
     tracks,
+    ...(chapters !== null && { chapterNames: chapters.names }),
   });
   const kept: Record<number, EpisodeDraft> = {};
   for (const d of Object.values(defaults.episodes)) {
     kept[d.index] = state.choices[d.index] === undefined ? { ...d, tracks: state.metadata.episodes[d.index]?.tracks ?? [] } : d;
   }
   return { ...defaults, episodes: kept };
+}
+
+/** How `metadataDefaults` names chapters: the episode info's names and where each episode starts. */
+export interface ChapterNaming {
+  /** Saved names by playlist chapter (`EpisodeInfo.chapterNames`). */
+  readonly names: Readonly<Record<string, string>>;
+  /** The first playlist chapter of episode `i + 1` at `i`. */
+  readonly firstChapters: readonly number[];
 }
 
 /** The shift and split a track saves for an alignment: the offset as the shift, a split's parts, zero otherwise. */
@@ -493,7 +515,8 @@ function recordTracks(state: HelperState, episode: number, draft: EpisodeDraft |
  * The record to save for this run. Every episode of `episodes` is written, in order: its chosen tracks with the
  * panel's names, languages, order and ticks and the key of the release they come from, its timing (an offset as
  * `shiftMs`; a split as `split` with `shiftMs` 0; `none`, `original` and an episode never lined up as 0 and null), and
- * its metadata, falling back to the defaults for an episode the panel has no draft of. `releases` lists, in pool
+ * its metadata, falling back to the defaults for an episode the panel has no draft of, with no chapter names (they
+ * are saved in the episode info, not the record). `releases` lists, in pool
  * order, only the releases some saved track comes from, and `fonts` the fonts of those releases, each once. An
  * episode with no title is named `Episode <n>`, with n its number as in its MKV title (the run's index plus the
  * episode offset). Languages that are not three letters (a code left half typed) are written as `und`, as the backend
@@ -512,7 +535,7 @@ export function toRecord(state: HelperState, session: SessionInfo, episodes: Epi
         title: meta.title,
         video: { ...meta.video, language: languageCode(meta.video.language) },
         audio: meta.audio.map((a) => ({ ...a, language: languageCode(a.language) })),
-        chapters: [...meta.chapters],
+        chapters: [],
       },
     };
   });
@@ -552,14 +575,14 @@ function differs(a: unknown, b: unknown): boolean {
 
 /**
  * The metadata the page would have proposed for a record episode: the defaults built from the record's show, episode
- * offset and episode title, the disc's audio streams (the record's own, in its order, when `disc` is not known), the
- * episode's chapter count and the given tracks.
+ * offset and episode title, the disc's audio streams (the record's own, in its order, when `disc` is not known) and
+ * the given tracks, without chapters (the page names them from the episode info).
  */
 function recordDefaults(record: SubtitleRecord, e: RecordEpisode, disc: Pick<EpisodesAnswer, 'audio'> | null, tracks: readonly DefaultTrackInput[]): EpisodeDraft {
   const audio = disc?.audio ?? e.metadata.audio.map((a) => ({ pid: a.pid, language: a.language }));
   const draft = defaultMetadata({
     show: record.anilist?.title ?? null,
-    episodes: [{ index: e.index, number: e.index + (record.anilist?.episodeOffset ?? 0), title: savedEpisodeTitle(record, e) || null, chapterCount: e.metadata.chapters.length }],
+    episodes: [{ index: e.index, number: e.index + (record.anilist?.episodeOffset ?? 0), title: savedEpisodeTitle(record, e) || null, chapterCount: 0 }],
     audio,
     tracks: { [e.index]: tracks },
   });
@@ -619,7 +642,8 @@ export function fromRecord(saved: SubtitleRecord | SingleReleaseRecord, releases
       title: e.metadata.title,
       video: { ...e.metadata.video },
       audio: e.metadata.audio.map((a) => ({ ...a })),
-      chapters: [...e.metadata.chapters],
+      // the record's chapter names, if an older page saved any, have been moved to the episode info
+      chapters: [],
       tracks,
     };
     episodes[e.index] = draft;
@@ -633,7 +657,6 @@ export function fromRecord(saved: SubtitleRecord | SingleReleaseRecord, releases
     if (draft.title !== defaults.title) edited.add(`episodes.${e.index}.title`);
     if (differs(draft.video, defaults.video)) edited.add(`episodes.${e.index}.video`);
     if (differs(draft.audio, defaults.audio)) edited.add(`episodes.${e.index}.audio`);
-    if (differs(draft.chapters, defaults.chapters)) edited.add(`episodes.${e.index}.chapters`);
     if (fileTracks === null ? tracks.length > 0 : differs(tracks, defaults.tracks)) edited.add(`episodes.${e.index}.tracks`);
 
     if (e.tracks.length === 0) {

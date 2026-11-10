@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 /**
  * The metadata panel's draft: per episode, the MKV title, the video, audio and subtitle tracks' names, languages, order
- * and ticks, and the chapter names, with the defaults the page fills in before the user edits anything.
+ * and ticks, and the chapter names, with the defaults the page fills in before the user edits anything. Chapter names
+ * are not the record's: they come from the disc playlist's episode info (`EpisodeInfo.chapterNames`, keyed by playlist
+ * chapter) and the panel saves them there, so the draft only shows them.
  */
 import type { RecordAudio, TrackKind } from '../api-types';
 
@@ -31,7 +33,7 @@ export interface EpisodeDraft {
   readonly video: { readonly name: string; readonly language: string };
   /** Audio streams in MKV order; the panel marks the first ticked one as the default. */
   readonly audio: readonly RecordAudio[];
-  /** Chapter names in chapter order. */
+  /** Chapter names in chapter order, from the episode info (`Chapter n` for a chapter it does not name). */
   readonly chapters: readonly string[];
   /** Subtitle tracks in MKV order; the panel marks the first ticked one as the default. */
   readonly tracks: readonly TrackDraft[];
@@ -69,9 +71,17 @@ export interface DefaultMetadataInput {
   /**
    * The run's episodes: `index` is the position in the run, `number` the episode number the title's `nn` shows (the
    * release's and AniList's numbering: the index plus the episode offset; the index when absent), `title` AniList's
-   * episode title or null.
+   * episode title or null, `firstChapter` the playlist chapter the episode starts at (for `chapterNames`).
    */
-  readonly episodes: readonly { readonly index: number; readonly number?: number; readonly title: string | null; readonly chapterCount: number }[];
+  readonly episodes: readonly {
+    readonly index: number;
+    readonly number?: number;
+    readonly title: string | null;
+    readonly chapterCount: number;
+    readonly firstChapter?: number;
+  }[];
+  /** The saved chapter names, keyed by playlist chapter (`EpisodeInfo.chapterNames`); none when absent. */
+  readonly chapterNames?: Readonly<Record<string, string>>;
   /** The playlist's audio streams with their stream-table language (empty when the disc names none). */
   readonly audio: readonly { readonly pid: number; readonly language: string }[];
   /** The chosen subtitle tracks of each episode, keyed by episode index, in the order to offer them. */
@@ -110,6 +120,43 @@ export function defaultTrackName(group: string, kind: TrackKind): string {
   return group === '' ? kind : `${group} ${kind}`;
 }
 
+/** The name a chapter field shows when the episode info names no chapter: `Chapter n`, n counted within the episode. */
+export function defaultChapterName(position: number): string {
+  return `Chapter ${position + 1}`;
+}
+
+/** The first playlist chapter of each range of an episode list (`1-3,4-` gives `[1, 4]`), in order; a token that names none is skipped. */
+export function firstChapters(episodeSpec: string): number[] {
+  return episodeSpec.split(',').flatMap((t) => {
+    const m = /^\s*(\d+)/.exec(t);
+    return m ? [Number(m[1])] : [];
+  });
+}
+
+/**
+ * The names of one episode's chapters as the panel shows them: field `i` is playlist chapter `firstChapter + i`,
+ * named from `chapterNames`, or `Chapter <i + 1>` when it has no name there.
+ */
+export function episodeChapterNames(chapterNames: Readonly<Record<string, string>>, firstChapter: number, count: number): string[] {
+  return Array.from({ length: count }, (_, i) => chapterNames[String(firstChapter + i)] ?? defaultChapterName(i));
+}
+
+/**
+ * `chapterNames` with one episode's fields put back by playlist chapter: field `i` is chapter `firstChapter + i`. A
+ * field left empty or at the encoder's own `Chapter <n>` removes that chapter's name; the others are kept trimmed.
+ * `chapterNames` is never changed.
+ */
+export function withChapterNames(chapterNames: Readonly<Record<string, string>>, firstChapter: number, fields: readonly string[]): Record<string, string> {
+  const next: Record<string, string> = { ...chapterNames };
+  fields.forEach((field, i) => {
+    const key = String(firstChapter + i);
+    const name = field.trim();
+    if (name === '' || /^Chapter \d+$/.test(name)) delete next[key];
+    else next[key] = name;
+  });
+  return next;
+}
+
 /** The default MKV title: `<Show> - <nn> - <episode title>`, leaving out the show or the episode title when unknown. */
 export function defaultTitle(show: string | null, index: number, episodeTitle: string | null): string {
   const parts = [show, String(index).padStart(2, '0'), episodeTitle].filter((p): p is string => p !== null && p !== '');
@@ -131,7 +178,8 @@ export function defaultTrack(track: DefaultTrackInput, position: number): TrackD
  * The metadata the page proposes before the user edits anything: the MKV title from the show and AniList's episode
  * title, an unnamed video track in `und`, each audio stream named after its stream-table language (`und` and unnamed
  * when the disc gives none), each subtitle track named after its group and kind in the release's language, and
- * chapters named `Chapter n`. Every track is ticked; nothing is marked edited.
+ * chapters named from `chapterNames` by the episode's `firstChapter`, else `Chapter n`. Every track is ticked; nothing
+ * is marked edited.
  */
 export function defaultMetadata(input: DefaultMetadataInput): MetadataDraft {
   const episodes: Record<number, EpisodeDraft> = {};
@@ -145,7 +193,7 @@ export function defaultMetadata(input: DefaultMetadataInput): MetadataDraft {
         const language = languageCode(a.language);
         return { pid: a.pid, name: languageName(language), language, included: true };
       }),
-      chapters: Array.from({ length: e.chapterCount }, (_, i) => `Chapter ${i + 1}`),
+      chapters: episodeChapterNames(e.firstChapter === undefined ? {} : (input.chapterNames ?? {}), e.firstChapter ?? 1, e.chapterCount),
       tracks: (input.tracks[e.index] ?? []).map(defaultTrack),
     };
   }
@@ -165,8 +213,11 @@ export function move<T>(list: readonly T[], from: number, to: number): T[] {
   return copy;
 }
 
-/** The fields of an episode draft that a path can name, each tracked as one unit in `MetadataDraft.edited`. */
-const EDITABLE_FIELDS = new Set(['title', 'video', 'audio', 'chapters', 'tracks']);
+/**
+ * The fields of an episode draft that a path can name, each tracked as one unit in `MetadataDraft.edited`. Chapters
+ * are not among them: the panel saves their names to the episode info, and the draft takes them from there.
+ */
+const EDITABLE_FIELDS = new Set(['title', 'video', 'audio', 'tracks']);
 
 /** `target` with `value` at `keys`, copying every object and array on the way; `target` is never changed. */
 function setIn(target: unknown, keys: readonly string[], value: unknown): unknown {
@@ -185,9 +236,9 @@ function setIn(target: unknown, keys: readonly string[], value: unknown): unknow
 }
 
 /**
- * The draft with `value` set at `path` by the user, such as `episodes.1.title`, `episodes.1.chapters.0` or
+ * The draft with `value` set at `path` by the user, such as `episodes.1.title`, `episodes.1.video.name` or
  * `episodes.2.tracks` (a whole list, for a reorder or a tick). The episode's field the path falls in
- * (`episodes.<n>.<field>`, one of title, video, audio, chapters, tracks) is marked edited, so `mergeDefaults` keeps
+ * (`episodes.<n>.<field>`, one of title, video, audio, tracks) is marked edited, so `mergeDefaults` keeps
  * it from then on. Throws for a path that names no field of the draft; `draft` is never changed.
  */
 export function withUserEdit(draft: MetadataDraft, path: string, value: unknown): MetadataDraft {
@@ -227,7 +278,7 @@ function mergeEpisode(draft: EpisodeDraft | undefined, defaults: EpisodeDraft, e
     title: isEdited('title') ? draft.title : defaults.title,
     video: isEdited('video') ? draft.video : defaults.video,
     audio: isEdited('audio') ? reconcile(draft.audio, defaults.audio, (a) => a.pid) : defaults.audio,
-    chapters: isEdited('chapters') ? defaults.chapters.map((name, i) => draft.chapters[i] ?? name) : defaults.chapters,
+    chapters: defaults.chapters,
     tracks: isEdited('tracks') ? reconcile(draft.tracks, defaults.tracks, (t) => t.key) : defaults.tracks,
   };
 }
@@ -236,8 +287,8 @@ function mergeEpisode(draft: EpisodeDraft | undefined, defaults: EpisodeDraft, e
  * The draft with fresh defaults (from `defaultMetadata`, built again whenever the show, the release, the chosen
  * tracks or the episode titles change) put into every field the user has not edited. An edited title or video is
  * kept as it is; edited audio and track lists keep their order, names and ticks for the streams and tracks the
- * defaults still list, drop the others and add new ones at the end; edited chapters keep their names for the
- * chapters the episode still has. The episode titles and the set of episodes always follow the defaults. Answers
+ * defaults still list, drop the others and add new ones at the end. The episode titles, the chapter names (the
+ * episode info's) and the set of episodes always follow the defaults. Answers
  * `draft` itself when nothing changes, so a caller can tell that nothing did.
  */
 export function mergeDefaults(draft: MetadataDraft, defaults: MetadataDraft): MetadataDraft {
