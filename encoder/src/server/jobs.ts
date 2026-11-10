@@ -208,6 +208,10 @@ export interface JobRunnerDeps {
 
 /** What a job shows while it waits for the NAS. */
 export const WAITING_FOR_NAS = 'Waiting for the NAS';
+/** Why a job fails when its NAS disc changed on the NAS since it was opened: retrying meets the same change. */
+export function discChangedMessage(label: string): string {
+  return `The disc ${label} changed on the NAS since it was opened. Open it again from the Library and queue it again.`;
+}
 /** Why a NAS job fails when the app was unpaired or the NAS no longer knows it. */
 const UNPAIRED = 'This app is no longer paired with the NAS; pair again and retry.';
 
@@ -1412,12 +1416,14 @@ export class JobRunner {
         await fetcher.hold(holder, clips);
       });
     } catch (e) {
+      // A retry would meet the same change, so the job says how to go on.
+      const failure = e instanceof FetchError && e.code === 'disc-changed' ? new Error(discChangedMessage(job.disc.label)) : e;
       if (!signal.aborted && !this.stopping) {
         ep.state = 'failed';
         ep.step = null;
-        ep.error = message(e);
+        ep.error = message(failure);
       }
-      throw e;
+      throw failure;
     } finally {
       this.lastProgress.delete(`${job.id}:${ep.index}:step`);
     }

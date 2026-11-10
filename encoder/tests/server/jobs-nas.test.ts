@@ -58,6 +58,8 @@ let requests: string[];
 let putsAnswered: string[];
 /** Runs before each request goes out; may return a promise the request waits for. */
 let beforeRequest: (method: string, path: string, signal: AbortSignal | null) => Promise<void> | void;
+/** Answers a request in the NAS's place when it returns a response. */
+let answerInstead: (method: string, path: string) => Response | null;
 
 /** Every clip `fetch.json` records whole, and the bytes it records per clip. */
 function mirrorState(): { whole: string[]; bytes: Record<string, number> } {
@@ -122,12 +124,15 @@ beforeEach(async () => {
   requests = [];
   putsAnswered = [];
   beforeRequest = () => {};
+  answerInstead = () => null;
   await pairWithNas(fx.dataDir, { code: await nas.ownerCode(), base: nas.base }, 'Seikou encoder on test');
   fx.app.nas.client = await NasClient.load(fx.dataDir, async (url, init) => {
     const method = init?.method ?? 'GET';
     const path = new URL(String(url)).pathname.replace(/^\/api\//, '');
     requests.push(`${method} ${path}`);
     await beforeRequest(method, path, init?.signal ?? null);
+    const instead = answerInstead(method, path);
+    if (instead !== null) return instead;
     const res = await fetch(url, init);
     if (method === 'PUT' && res.ok) putsAnswered.push(new Headers(init?.headers).get('content-range') ?? '');
     return res;
@@ -300,6 +305,19 @@ describe('a NAS job', () => {
     await runner.remove(job.id);
     expect(existsSync(join(nas.encodesDir!, '.uploads', `${uploadId}.json`))).toBe(false);
     expect(existsSync(join(fx.dataDir, 'nas-out', job.id))).toBe(false);
+  });
+
+  it('a disc that changed on the NAS fails the job saying to open it again from the Library', async () => {
+    await chooseAniList([1, 4]);
+    // The NAS no longer has clip 1 under any of the disc's ids.
+    answerInstead = (method, path) => (method === 'GET' && path.endsWith('/BDMV/STREAM/00001.M2TS') ? new Response('{"error":"not-found"}', { status: 404 }) : null);
+    const runner = startJobRunner(fx.app, deps());
+    await runner.ready;
+    const job = await runner.add(input());
+    await until(() => ['done', 'failed'].includes(runner.get(job.id)!.state), 'the job to end');
+    const failed = runner.get(job.id)!;
+    const said = 'The disc speech changed on the NAS since it was opened. Open it again from the Library and queue it again.';
+    expect([failed.state, failed.error, failed.episodes[0]!.error]).toEqual(['failed', said, said]);
   });
 
   it('queueing refuses episodes without AniList, duplicate pairs, and an unpaired app', async () => {
