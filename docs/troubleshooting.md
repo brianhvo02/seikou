@@ -68,7 +68,7 @@ A BD-J disc saves things such as scores or settings. This device could not keep 
 The file is empty, not a subtitle file, or in a different encoding than chosen. Add it again and choose another encoding if asked.
 
 **"Some fonts are missing and were replaced: …"**
-An ASS file wants fonts you have not added. Use **Add fonts…** in the Subtitles menu.
+An ASS file wants fonts you have not added and your device doesn't have installed. Use **Add fonts…** in the Subtitles menu.
 
 **"Place each subtitle file at its episode's start in the subtitle menu"**
 You loaded several files. In the Subtitles menu, set each file's **Start**.

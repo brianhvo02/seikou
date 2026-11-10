@@ -100,10 +100,18 @@ what would change that decision.
 
 ## ASS subtitles
 
-- **Not loaded yet: subtitles and fonts inside `.mkv` files** (on the roadmap). Installed system fonts
-  (`queryLocalFonts()`) won't be: see the Fansubs section. Fonts come from files picked or dropped with the script,
-  from its `[Fonts]` section, from the subtitle store and from Anime Tosho; a family that is still missing is
-  replaced and named in a notice.
+- **Not loaded yet: subtitles and fonts inside `.mkv` files** (on the roadmap). Fonts come from files picked or
+  dropped with the script, from its `[Fonts]` section, from the subtitle store and from Anime Tosho; a family none of
+  those supply is taken from the device's installed fonts when it has it (below), and a family that is still missing
+  is replaced and named in a notice.
+- **Lines in a font installed on the device are measured by the browser, so their layout can differ slightly from
+  libass's** (`packages/ass/src/device-fonts.ts`, an addition to the port). CSS `local()` loads such a face by its
+  full or PostScript name (each family is asked for its regular, bold, italic and bold italic faces by their usual
+  names), with no access to its tables: the ascender and descender are the browser's font box, every character
+  counts as covered (the browser's own fallback draws one the face lacks, where libass would use DejaVu Sans), there
+  are no GSUB ligature clusters, and underline and strike-out use typical proportions. Safari offers only fonts that
+  ship with the system, not ones the user installed, and phones have few of the Windows fonts fansubs name. The
+  libass comparison (`npm run test:ass`) runs with device fonts off, as libass's harness has no system fonts.
 - **WOFF2 fonts are not accepted** (Brotli and table transforms); `.ttf`, `.otf`, `.ttc` and `.woff` are. A local
   pick ignores WOFF2 files, the subtitle store refuses them at upload (the upload screen says to convert them to TTF
   or OTF), and fansub font packs leave them out. Fansub fonts are TTF/OTF. *Revisit if* a release ships WOFF2.
@@ -602,7 +610,7 @@ Fill in from `probe.html` on each device.
 - **Fansubs: both services are volunteer-run.** animetosho.org stopped in May 2026 and .net is its successor. The base URLs are settings (`SEADEX_URL`, `TOSHO_FEED_URL`, `TOSHO_URL`). *Revisit if* either moves again.
 - **Fansubs: resuming after the NAS dropped a viewer's Anime Tosho pick is bounded by 15 s,** while rebuilding it (fetch and line up) can take longer. The first resume may say it couldn't load the subtitle; the next works.
 - **Fansubs: the `mobile-chromium` Playwright project doesn't run `tests/e2e/nas.spec.ts`,** so the player search's phone layout was checked by hand once.
-- **Local fonts (`queryLocalFonts`) were dropped** by the owner's choice (the API is Chrome and Edge only); fonts come from Anime Tosho, the subtitle store, or are added by hand.
+- **Local fonts (`queryLocalFonts`) were dropped** by the owner's choice (the API is Chrome and Edge only); fonts come from Anime Tosho, the subtitle store, or are added by hand. A family none of those supply is still drawn with the device's installed font of that name, through CSS `local()`, which every supported browser has (see ASS subtitles).
 
 ## Packages
 
