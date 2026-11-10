@@ -8,6 +8,8 @@ import { defineConfig } from '@playwright/test';
 const PORT = 4195;
 /** The app's port, fixed for the same reason. */
 const APP_PORT = 4197;
+/** The NAS project's app; its NAS listens on 4198 (`encoder/tests/e2e/nas-stand-in.ts`). Seikou's NAS E2E uses 4191 and 4192. */
+const NAS_APP_PORT = 4199;
 
 // One data directory for the whole run. The config is loaded again in every worker; the workers inherit this
 // process's environment, so they all see the directory made here and the test can read the saved record from it.
@@ -23,6 +25,9 @@ if (process.env.SEIKOU_ENCODE_E2E_LIBRARY === undefined) {
 }
 process.env.SEIKOU_ENCODE_E2E_APP_DATA ??= mkdtempSync(join(tmpdir(), 'seikou-encode-e2e-app-data-'));
 process.env.SEIKOU_ENCODE_E2E_OUT ??= mkdtempSync(join(tmpdir(), 'seikou-encode-e2e-out-'));
+// The NAS project: the NAS stand-in's folder (its root, data and encodes folders) and its app's data directory.
+process.env.SEIKOU_ENCODE_E2E_NAS ??= mkdtempSync(join(tmpdir(), 'seikou-encode-e2e-nas-'));
+process.env.SEIKOU_ENCODE_E2E_NAS_APP_DATA ??= mkdtempSync(join(tmpdir(), 'seikou-encode-e2e-nas-app-data-'));
 
 /**
  * The subtitle helper end to end: `seikou-encode serve` over the speech disc, with recorded SeaDex, Anime Tosho and
@@ -31,6 +36,10 @@ process.env.SEIKOU_ENCODE_E2E_OUT ??= mkdtempSync(join(tmpdir(), 'seikou-encode-
  *
  * The app end to end is the second project: `seikou-encode app` over a library of the speech disc and disc1, whose
  * address with its token is `process.env.APP_URL`.
+ *
+ * The NAS end to end is the third: Seikou's NAS server on 4198 (built afresh by `npm run server:build` every run, a
+ * matter of milliseconds) and a second `seikou-encode app` on 4199 with no library folders and its own data directory,
+ * at `process.env.NAS_APP_URL`; the test pairs the app with the NAS and sends a NAS disc's episodes back to it.
  */
 export default defineConfig({
   testDir: 'encoder/tests/e2e',
@@ -45,6 +54,7 @@ export default defineConfig({
   projects: [
     { name: 'helper', testMatch: /helper\.spec\.ts/ },
     { name: 'app', testMatch: /app\.spec\.ts/ },
+    { name: 'nas', testMatch: /nas\.spec\.ts/ },
   ],
   webServer: [
     {
@@ -65,6 +75,25 @@ export default defineConfig({
         SEIKOU_ENCODE_DATA: process.env.SEIKOU_ENCODE_E2E_APP_DATA,
       },
       wait: { stdout: /App: (?<app_url>http:\/\/\S+)/ },
+      stdout: 'pipe',
+      reuseExistingServer: false,
+      timeout: 120_000,
+    },
+    {
+      command: 'npm run server:build && npx tsx encoder/tests/e2e/nas-stand-in.ts',
+      env: { SEIKOU_ENCODE_E2E_NAS: process.env.SEIKOU_ENCODE_E2E_NAS },
+      url: 'http://127.0.0.1:4198/api/health',
+      stdout: 'pipe',
+      reuseExistingServer: false,
+      timeout: 120_000,
+    },
+    {
+      command: `npm run seikou-encode -- app --port ${NAS_APP_PORT} --no-open`,
+      env: {
+        SEIKOU_ENCODE_FIXTURE: 'encoder/tests/fixtures/fansubs',
+        SEIKOU_ENCODE_DATA: process.env.SEIKOU_ENCODE_E2E_NAS_APP_DATA,
+      },
+      wait: { stdout: /App: (?<nas_app_url>http:\/\/\S+)/ },
       stdout: 'pipe',
       reuseExistingServer: false,
       timeout: 120_000,
