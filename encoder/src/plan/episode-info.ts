@@ -10,7 +10,7 @@ import { parseDiscKey } from '@seikou/nas/disc-key';
 import type { EncodeTitle } from '@seikou/nas/encode-title';
 import { replaceAtomically } from '@seikou/titles';
 import type { SubtitleRecord } from '../subs/record';
-import { parseEpisodeSpec, type EpisodeSpec } from './episodes';
+import { parseEpisodeSpec, sameEpisodeList, type EpisodeSpec } from './episodes';
 
 /** The names the Episodes page offers for a chapter, besides a custom one. */
 export const CHAPTER_NAMES = ['Avant', 'Opening', 'Part A', 'Part B', 'Ending', 'Part C', 'Preview'] as const;
@@ -25,12 +25,24 @@ export interface EpisodeTitle {
   readonly showName?: string | null;
 }
 
+/**
+ * The mark that a disc's playlist was checked on the Library's season page: the episode list the user confirmed, the
+ * `titlesSignature` of the titles map at that moment, and when (ISO 8601).
+ */
+export interface CheckedMark {
+  readonly episodeSpec: string;
+  readonly signature: string;
+  readonly at: string;
+}
+
 /** Chapter names and AniList choices of one disc playlist, as the file holds them. */
 export interface EpisodeInfo {
   /** Playlist chapter number (1-based, as a string key) → name; a chapter with no entry keeps the encoder's naming. */
   readonly chapterNames: Readonly<Record<string, string>>;
   /** First playlist chapter of an episode (as a string key) → its title and number. */
   readonly titles: Readonly<Record<string, EpisodeTitle>>;
+  /** Set when the user marked the playlist checked; it holds only while `isChecked` says so. */
+  readonly checked?: CheckedMark;
   /** ISO 8601, set by the store on save. */
   readonly savedAt: string;
 }
@@ -127,7 +139,43 @@ export function parseEpisodeInfo(value: unknown): Omit<EpisodeInfo, 'savedAt'> {
       ...(showName === null ? {} : { showName }),
     };
   }
-  return { chapterNames, titles };
+  const checked = o.checked === undefined ? undefined : parseChecked(o.checked);
+  return { chapterNames, titles, ...(checked === undefined ? {} : { checked }) };
+}
+
+function parseChecked(value: unknown): CheckedMark {
+  const c = plainObject(value, 'checked');
+  const { episodeSpec, signature, at } = c;
+  if (typeof episodeSpec !== 'string' || episodeSpec === '' || episodeSpec.length > MAX_TITLE) bad('checked.episodeSpec: expected a non-empty string');
+  if (typeof signature !== 'string' || signature.length > 200_000) bad('checked.signature: expected a string');
+  if (typeof at !== 'string' || Number.isNaN(Date.parse(at))) bad('checked.at: expected an ISO 8601 date');
+  return { episodeSpec, signature, at };
+}
+
+/** `value` as JSON with every object's keys in order, so equal data gives equal text. */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (typeof value === 'object' && value !== null) {
+    const o = value as Record<string, unknown>;
+    return `{${Object.keys(o).sort().filter((k) => o[k] !== undefined).map((k) => `${JSON.stringify(k)}:${canonical(o[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
+}
+
+/** The signature a `CheckedMark` holds: the titles map as canonical JSON (keys sorted at every level). */
+export function titlesSignature(titles: Readonly<Record<string, EpisodeTitle>>): string {
+  return canonical(titles);
+}
+
+/**
+ * Whether a playlist counts as checked: its saved info has a mark for this episode list (`sameEpisodeList` on a
+ * playlist of `chapters` chapters, so `1-3,4-` and `1-3,4-12` agree) and the signature of the titles map it holds now.
+ * Changing the grouping or any episode's title or number clears it. False without info or a mark.
+ */
+export function isChecked(info: EpisodeInfo | null, episodeSpec: string, chapters: number): boolean {
+  const mark = info?.checked;
+  if (info === null || mark === undefined) return false;
+  return mark.signature === titlesSignature(info.titles) && sameEpisodeList(mark.episodeSpec, episodeSpec, chapters);
 }
 
 /** A file the previous version wrote (`anilist: { chapter: { anilistId, episode, title } }`) in the current form. */
@@ -234,5 +282,5 @@ export function migrateRecordChapters(
       moved = true;
     });
   }
-  return moved ? { chapterNames, titles: { ...info?.titles } } : null;
+  return moved ? { chapterNames, titles: { ...info?.titles }, ...(info?.checked === undefined ? {} : { checked: info.checked }) } : null;
 }

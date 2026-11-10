@@ -68,6 +68,24 @@ describe('EpisodeTitlePicker paired with a NAS', () => {
     ]);
   });
 
+  it('shows a result\'s poster where it has one, and an empty frame where it has none', async () => {
+    const poster = 'http://127.0.0.1:4196/api/nas/art/00112233445566778899aabbccddeeff?t=secret';
+    setup({ api: { lookupTitles: vi.fn(async (_q: string, source: string) => (source === 'anilist' ? [summary('anilist:990102', 'Lantern Harbour', { poster })] : source === 'own' ? LOOKUPS.own! : [])) } });
+    await search();
+    const covers = document.querySelectorAll('.show-row .cover');
+    expect(covers).toHaveLength(2);
+    expect(Array.from(covers).map((c) => c.tagName)).toEqual(['IMG', 'SPAN']);
+    expect(covers[0]!.getAttribute('src')).toBe(poster);
+  });
+
+  it('gives a picked AniList result\'s poster to the row', async () => {
+    const poster = 'http://127.0.0.1:4196/api/nas/art/00112233445566778899aabbccddeeff?t=secret';
+    const { onPick } = setup({ api: { lookupTitles: vi.fn(async (_q: string, source: string) => (source === 'anilist' ? [summary('anilist:990102', 'Lantern Harbour', { poster })] : source === 'own' ? LOOKUPS.own! : [])) } });
+    await search();
+    fireEvent.click(screen.getAllByRole('button', { name: /Lantern Harbour/ })[0]!);
+    expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ alId: 990102, poster }));
+  });
+
   it('picks an AniList result as an AniList entry', async () => {
     const { onPick } = setup();
     await search();

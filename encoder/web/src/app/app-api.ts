@@ -2,7 +2,7 @@
 import { ApiError, episodeInfoCalls, errorOf, type FetchLike } from '../api';
 import type { RemoteDiscSpec } from '@seikou/engine';
 import type { DiscManifest, OwnTitle, TitleSummary } from '@seikou/nas/nas-api';
-import type { AniListEntry, EncodeSettings, EpisodeInfo, Job, LibraryAnswer, NasPairingRequest, NasStatus, NewJob, NewTest, PlaylistDetail, PlaylistSummary, Profile, QueuedJob, TitleHit } from '../api-types';
+import type { AniListEntry, EncodeSettings, EpisodeInfo, Job, LibraryAnswer, NasPairingRequest, NasShowAnswer, NasShowsAnswer, NasStatus, NewJob, NewTest, PlaylistDetail, PlaylistSummary, Profile, QueuedJob, TitleHit } from '../api-types';
 
 // The app pages' client for the backend's library routes, carrying the run's token.
 
@@ -78,6 +78,10 @@ export interface AppApi {
    * `nas-not-paired`, `source-unreachable` (503), `too-many-lookups` or `lookup-busy` (429), `unreachable`.
    */
   lookupTitles(q: string, source: 'anilist' | 'tmdb' | 'own', signal?: AbortSignal): Promise<TitleSummary[]>;
+  /** The NAS's shows with what the Encodes library holds, and the discs nothing filed; the last answer while the NAS is down (`reachable` false). Posters carry the token. */
+  nasShows(): Promise<NasShowsAnswer>;
+  /** One show's seasons, discs, playlists and episodes; rejects with `ApiError` `not-found` for a show the NAS does not list. */
+  nasShow(titleId: string): Promise<NasShowAnswer>;
   /** Makes an own title on the NAS for a show no source lists (`seasons` only for a series); rejects like `lookupTitles`. */
   createOwnTitle(title: { readonly kind: 'series' | 'movie'; readonly name: string; readonly seasons: number | null }): Promise<OwnTitle>;
   /** Forgets the pairing on this machine (the NAS keeps listing the device until an owner removes it). */
@@ -118,6 +122,9 @@ export function createAppApi(base: string, token: string, fetchImpl: FetchLike =
 
   // The backend names each cover by its own path; an <img> sends no Authorization header, so the token goes in ?t=.
   const withToken = (hit: TitleHit): TitleHit => (hit.poster === null ? hit : { ...hit, poster: `${root}${hit.poster}?t=${encodeURIComponent(token)}` });
+
+  // a backend poster route as a URL an <img> can load
+  const routePoster = (route: string | null): string | null => (route === null ? null : `${root}${route}?t=${encodeURIComponent(token)}`);
 
   return {
     library: () => request('GET', '/api/library'),
@@ -186,7 +193,17 @@ export function createAppApi(base: string, token: string, fetchImpl: FetchLike =
     nas: () => request('GET', '/api/nas'),
     pairNas: (body) => request('POST', '/api/nas/pair', body),
     async lookupTitles(q, source, signal) {
-      return (await request<{ titles: TitleSummary[] }>('GET', `/api/nas/lookup?${new URLSearchParams({ q, source }).toString()}`, undefined, signal)).titles;
+      const { titles } = await request<{ titles: TitleSummary[] }>('GET', `/api/nas/lookup?${new URLSearchParams({ q, source }).toString()}`, undefined, signal);
+      // a result's poster is a NAS art id; the backend passes the image on at its own route, with the token as for covers
+      return titles.map((t) => (t.poster === null ? t : { ...t, poster: `${root}/api/nas/art/${encodeURIComponent(t.poster)}?t=${encodeURIComponent(token)}` }));
+    },
+    async nasShows() {
+      const answer = await request<NasShowsAnswer>('GET', '/api/nas/shows');
+      return { ...answer, shows: answer.shows.map((s) => ({ ...s, poster: routePoster(s.poster) })) };
+    },
+    async nasShow(titleId) {
+      const answer = await request<NasShowAnswer>('GET', `/api/nas/shows/${encodeURIComponent(titleId)}`);
+      return { ...answer, title: { ...answer.title, poster: routePoster(answer.title.poster) } };
     },
     createOwnTitle: (title) => request('POST', '/api/nas/own-titles', title),
     async unpairNas() {

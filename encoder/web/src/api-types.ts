@@ -465,6 +465,8 @@ export interface EpisodeInfo {
   readonly chapterNames: Readonly<Record<string, string>>;
   /** First playlist chapter of an episode (as a string key) → its title and number. */
   readonly titles: Readonly<Record<string, EpisodeTitle>>;
+  /** Set when the user marked the playlist checked: the episode list confirmed and the signature of `titles` at that moment. */
+  readonly checked?: { readonly episodeSpec: string; readonly signature: string; readonly at: string };
   /** When it was saved (ISO 8601), set by the backend. */
   readonly savedAt: string;
 }
@@ -684,3 +686,71 @@ export type NasStatus =
 
 /** What `POST /api/nas/pair` takes: a pairing code with the NAS's API address, or a pairing link. */
 export type NasPairingRequest = { readonly code: string; readonly base: string } | { readonly link: string };
+
+/** One show in `GET /api/nas/shows`. */
+export interface NasShow {
+  /** The NAS's title id (`anilist:<n>`, `tmdb-tv:<n>`, `tmdb-movie:<n>`, `own:<uuid>`). */
+  readonly titleId: string;
+  readonly name: string;
+  /** The poster's route on the backend; `createAppApi` makes it a URL with the token. Null when there is none. */
+  readonly poster: string | null;
+  readonly kind: 'series' | 'movie';
+  /** Numbered seasons. */
+  readonly seasons: number;
+  /** Seasons without a number (a film's or an entry's disc-only discs). */
+  readonly films: number;
+  /** Episodes of the show the Encodes library already holds. */
+  readonly encoded: number;
+  /** Episodes of the show it does not hold yet. */
+  readonly toEncode: number;
+}
+
+/** A disc the NAS holds that no title claims. */
+export interface NasUnsortedDisc {
+  /** The encoder's disc key. */
+  readonly key: string;
+  readonly label: string;
+  readonly relPath: string;
+}
+
+/** What `GET /api/nas/shows` answers. */
+export interface NasShowsAnswer {
+  readonly shows: NasShow[];
+  readonly unsorted: NasUnsortedDisc[];
+  /** False while the NAS does not answer; the shows are then the last answer. */
+  readonly reachable: boolean;
+  /** The answer is the kept one, or its encodes list could not be read now. */
+  readonly stale: boolean;
+}
+
+/** The title an encode is tagged with, as `EpisodeTitle` holds it. */
+export type NasEncodeTitle = EpisodeTitle['title'];
+
+/** One disc of a season in `GET /api/nas/shows/<titleId>`. */
+export interface NasSeasonDisc {
+  /** The encoder's disc key. */
+  readonly key: string;
+  readonly discId: string;
+  readonly label: string;
+  readonly playlists: { readonly id: string; readonly episodes: { readonly number: number; readonly name: string | null; readonly encoded: boolean }[] }[];
+  /** Every playlist with episodes is checked (a disc listing none: any saved playlist of it is). */
+  readonly checked: boolean;
+}
+
+/** One season, or with `number: null` a film or disc-only group. */
+export interface NasSeason {
+  readonly id: string;
+  readonly label: string;
+  readonly number: number | null;
+  /** The title its encodes are tagged with; null while the NAS has none for it. */
+  readonly title: NasEncodeTitle | null;
+  readonly discs: NasSeasonDisc[];
+}
+
+/** What `GET /api/nas/shows/<titleId>` answers. */
+export interface NasShowAnswer {
+  readonly title: { readonly titleId: string; readonly name: string; readonly poster: string | null; readonly kind: 'series' | 'movie' };
+  readonly seasons: NasSeason[];
+  readonly reachable: boolean;
+  readonly stale: boolean;
+}

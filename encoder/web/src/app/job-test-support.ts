@@ -84,12 +84,14 @@ export const UNUSED_ANILIST_API: Pick<AppApi, 'searchAniList' | 'aniListEntry' |
 };
 
 /** The NAS calls, for fakes of pages that never pair. */
-export const UNUSED_NAS_API: Pick<AppApi, 'nas' | 'pairNas' | 'unpairNas' | 'lookupTitles' | 'createOwnTitle'> = {
+export const UNUSED_NAS_API: Pick<AppApi, 'nas' | 'pairNas' | 'unpairNas' | 'lookupTitles' | 'createOwnTitle' | 'nasShows' | 'nasShow'> = {
   nas: unused,
   pairNas: unused,
   unpairNas: unused,
   lookupTitles: unused,
   createOwnTitle: unused,
+  nasShows: unused,
+  nasShow: unused,
 };
 
 /** The default profile's settings. */

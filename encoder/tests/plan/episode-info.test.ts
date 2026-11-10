@@ -7,8 +7,10 @@ import {
   chapterName,
   EpisodeInfoError,
   EpisodeInfoStore,
+  isChecked,
   migrateRecordChapters,
   parseEpisodeInfo,
+  titlesSignature,
   type EpisodeInfo,
 } from '../../src/plan/episode-info';
 import type { RecordEpisode, SubtitleRecord } from '../../src/subs/record';
@@ -170,5 +172,42 @@ describe('migrateRecordChapters', () => {
   it('a record with no real names gives null', () => {
     const r = record([episode(1, ['Chapter 1', ' ', 'Chapter 7']), episode(2, [])]);
     expect(migrateRecordChapters(null, r, '1-3,4-6', 6)).toBeNull();
+  });
+});
+
+describe('checked mark', () => {
+  const titles = { '1': { title: { source: 'anilist', anilistId: 990001 }, episode: 1, name: null } } as const;
+  const info = (checked?: EpisodeInfo['checked'], t: EpisodeInfo['titles'] = titles): EpisodeInfo => ({
+    chapterNames: {},
+    titles: t,
+    ...(checked === undefined ? {} : { checked }),
+    savedAt: '2026-11-10T00:00:00.000Z',
+  });
+  const mark = (spec: string, t: EpisodeInfo['titles'] = titles): NonNullable<EpisodeInfo['checked']> => ({ episodeSpec: spec, signature: titlesSignature(t), at: '2026-11-10T01:00:00.000Z' });
+
+  it('signs the titles map the same whatever the key order', () => {
+    const a = { '1': { title: { source: 'anilist', anilistId: 1 }, episode: 1, name: 'x' } } as const;
+    const b = { '1': { name: 'x', episode: 1, title: { anilistId: 1, source: 'anilist' } } } as unknown as EpisodeInfo['titles'];
+    expect(titlesSignature(a)).toBe(titlesSignature(b));
+    expect(titlesSignature(a)).not.toBe(titlesSignature({ '1': { ...a['1'], episode: 2 } }));
+  });
+
+  it('is checked only for the marked list and titles', () => {
+    expect(isChecked(null, '1-3', 12)).toBe(false);
+    expect(isChecked(info(), '1-3', 12)).toBe(false);
+    expect(isChecked(info(mark('1-3,4-')), '1-3,4-', 12)).toBe(true);
+    expect(isChecked(info(mark('1-3,4-')), '1-3,4-12', 12)).toBe(true);
+    expect(isChecked(info(mark('1-3,4-')), '1-4,5-', 12)).toBe(false);
+    const changed = { '1': { ...titles['1'], episode: 2 } };
+    expect(isChecked(info(mark('1-3'), changed), '1-3', 12)).toBe(false);
+  });
+
+  it('is written and read with the file, validated', async () => {
+    const store = new EpisodeInfoStore(dataDir);
+    const saved = await store.save(KEY, '00000', { chapterNames: {}, titles, checked: mark('1-3') });
+    expect((await store.read(KEY, '00000'))?.checked).toEqual(mark('1-3'));
+    expect(saved.checked).toEqual(mark('1-3'));
+    expect(() => parseEpisodeInfo({ chapterNames: {}, titles: {}, checked: { episodeSpec: '', signature: '', at: 'x' } })).toThrow(EpisodeInfoError);
+    expect(() => parseEpisodeInfo({ chapterNames: {}, titles: {}, checked: 3 })).toThrow(EpisodeInfoError);
   });
 });

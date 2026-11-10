@@ -70,9 +70,9 @@ function summaryFacts(t: TitleSummary): string {
   return [t.year === null ? null : String(t.year), shape].filter((p): p is string => p !== null).join(', ');
 }
 
-/** The AniList entry of a NAS result `anilist:<n>`, as the page's `TitleHit`; the NAS's art is not shown here. */
+/** The AniList entry of a NAS result `anilist:<n>`, as the page's `TitleHit`; its poster is the backend's route (`lookupTitles` made it a URL). */
 function hitOf(t: TitleSummary): TitleHit {
-  return { alId: Number(t.id.slice('anilist:'.length)), title: summaryName(t), nativeTitle: t.names.native, year: t.year, format: null, episodes: null, poster: null };
+  return { alId: Number(t.id.slice('anilist:'.length)), title: summaryName(t), nativeTitle: t.names.native, year: t.year, format: null, episodes: null, poster: t.poster };
 }
 
 /** A title of another source, as the rows show it: its show name and, when it has one, its season. */
@@ -85,7 +85,7 @@ function otherTitleName(t: EncodeTitle, showName: string | null | undefined): st
 function SummaryButton({ title, onPick }: { readonly title: TitleSummary; readonly onPick: () => void }) {
   return (
     <button type="button" className="show-row" onClick={onPick}>
-      <span className="cover cover-small" aria-hidden="true" />
+      {title.poster === null ? <span className="cover cover-small" aria-hidden="true" /> : <img className="cover cover-small" src={title.poster} alt="" loading="lazy" />}
       <span className="show-text">
         <span className="mark">{sourceMark(title)}</span>
         <span className="show-title">{summaryName(title)}</span>

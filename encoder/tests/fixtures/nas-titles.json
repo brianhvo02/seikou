@@ -9,11 +9,11 @@
       "animation": true,
       "year": 2022,
       "startDate": 20220401,
-      "episodes": 12,
-      "runtimeMin": 24,
+      "episodes": 1,
+      "runtimeMin": 0.0667,
       "seasons": [],
       "relations": [],
-      "poster": null,
+      "poster": { "small": "https://s4.anilist.co/file/lantern-road-s.png", "large": "https://s4.anilist.co/file/lantern-road-l.png" },
       "banner": null
     }
   ],

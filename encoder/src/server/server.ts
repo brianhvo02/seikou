@@ -13,6 +13,7 @@ import { httpError, sendFile, type AppContext, type HelperSession, type RouteTab
 import { jobRoutes } from './job-routes';
 import { libraryRoutes } from './library-routes';
 import { nasRoutes } from './nas-routes';
+import { nasTitleRoutes } from './nas-title-routes';
 import { profileRoutes } from './profile-routes';
 import { recordRoutes } from './record-routes';
 import { sessionsOf, sessionStoreRoutes, type SessionStore } from './sessions';
@@ -27,7 +28,7 @@ export type { SessionStore } from './sessions';
 // 127.0.0.1 (DNS rebinding) from reading the answers.
 
 /** The app's routes, matched on the whole path, in match order. */
-const APP_ROUTES: RouteTable = [...sessionStoreRoutes, ...discRoutes, ...libraryRoutes, ...episodeInfoRoutes, ...profileRoutes, ...jobRoutes, ...aniListRoutes, ...nasRoutes];
+const APP_ROUTES: RouteTable = [...sessionStoreRoutes, ...discRoutes, ...libraryRoutes, ...episodeInfoRoutes, ...profileRoutes, ...jobRoutes, ...aniListRoutes, ...nasRoutes, ...nasTitleRoutes];
 
 /** A helper session's routes, matched on what follows `/api/sessions/<id>`, in match order. */
 const SESSION_ROUTES: RouteTable = [...discSessionRoutes, ...titleRoutes, ...fansubRoutes, ...alignRoutes, ...recordRoutes];

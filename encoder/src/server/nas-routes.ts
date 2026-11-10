@@ -6,6 +6,7 @@ import { hostOf, jsonPost, NasClient, NasError } from '../nas/client';
 import { nasLibraryOf } from '../nas/nas-library';
 import { removeNasPairing } from '../nas/nas-store';
 import { pairWithNas, type PairingInput } from '../nas/pairing';
+import { nasTitlesOf } from './nas-title-routes';
 import { httpError, json, type AppContext, type RouteTable } from './http';
 
 // The page's view of the NAS pairing: whether the encoder is paired, with whom, and whether the NAS answers; pairing
@@ -132,6 +133,7 @@ function replaceClient(app: AppContext, client: NasClient | null): NasClient | n
   if (app.nas.client !== client) {
     app.nas.client?.close();
     nasLibraryOf(app).forget();
+    nasTitlesOf(app).forget();
   }
   app.nas.client = client;
   return client;

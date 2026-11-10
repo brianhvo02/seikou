@@ -63,9 +63,19 @@ export interface NasTestServerOptions {
    * titles, and `admin/titles` makes them. Off by default.
    */
   readonly titles?: boolean;
+  /**
+   * Copies of fixture discs placed in the folders of the title library (root-relative folder → a disc of
+   * `fixtures/synthetic`), before the scan, so the NAS files them under the titles the fixture names: with `titles`, the
+   * matching has run when the server answers. `Anime/Lantern Road/Lantern Road Vol.1` is Lantern Road's first disc.
+   */
+  readonly titleDiscs?: Readonly<Record<string, string>>;
   /** Changes the copy of the disc library (its folder given) before it is backdated and scanned. */
   readonly prepare?: (discsDir: string) => void;
 }
+
+/** A one-pixel PNG, the image every made-up poster URL answers. */
+export const POSTER_PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+const posterFetch: typeof fetch = async () => new Response(POSTER_PNG, { headers: { 'content-type': 'image/png' } });
 
 function backdate(dir: string): void {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
@@ -88,6 +98,7 @@ export async function startNasTestServer(opts: NasTestServerOptions = {}): Promi
   if (opts.discs !== false) {
     discsDir = join(tmp, 'syn');
     cpSync(join(REPO, 'fixtures/synthetic'), discsDir, { recursive: true });
+    for (const [folder, disc] of Object.entries(opts.titleDiscs ?? {})) cpSync(join(REPO, 'fixtures/synthetic', disc), join(discsDir, folder), { recursive: true });
     opts.prepare?.(discsDir);
     backdate(discsDir);
   }
@@ -117,7 +128,7 @@ export async function startNasTestServer(opts: NasTestServerOptions = {}): Promi
       dataDir,
       ...fixtureSources(JSON.parse(readFileSync(TITLES_FIXTURE, 'utf8')) as Record<string, Entry[]>),
       discdb: { lookup: () => null },
-      art: new ArtCache(join(dataDir, 'art'), fetch),
+      art: new ArtCache(join(dataDir, 'art'), posterFetch),
       musicbrainz: null,
       discogs: null,
       folderCover: async () => null,
@@ -125,6 +136,7 @@ export async function startNasTestServer(opts: NasTestServerOptions = {}): Promi
       titleLibrary: 'everyone',
     });
     titles = { service: titleService, owner };
+    await titleService.runNow();
   } else {
     titles = {
       service: { gate: () => 'everyone', entriesFor: () => new Map(), addEncodeArt: () => {}, encodeArtUrls: () => null },
