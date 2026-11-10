@@ -304,7 +304,7 @@ async function fileOnNas(app: AppContext, key: string, titles: readonly EncodeTi
       const res = await client.request(`admin/discs/${encodeURIComponent(discId)}/choice`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ choice: { kind: 'title', titleId: target.titleId, season: target.season, disc: found.discNumber } }),
+        body: JSON.stringify({ choice: { kind: 'title', titleId: target.titleId, season: target.season, disc: null } }),
       });
       if (!res.ok) {
         const why = await errorOfBody(res);

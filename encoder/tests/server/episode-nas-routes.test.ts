@@ -209,7 +209,7 @@ describe('check', () => {
     expect(r.body).toMatchObject({ nasChoice: 'saved' });
     // every copy of the disc the NAS holds gets the choice
     expect(putChoices.length).toBeGreaterThanOrEqual(copies);
-    expect(new Set(putChoices)).toEqual(new Set([JSON.stringify({ choice: { kind: 'title', titleId: `own:${ownId}`, season: 1, disc: 2 } })]));
+    expect(new Set(putChoices)).toEqual(new Set([JSON.stringify({ choice: { kind: 'title', titleId: `own:${ownId}`, season: 1, disc: null } })]));
     // the NAS's own title now lists the disc
     const detail = await admin.json<TitleDetail>(`titles/${encodeURIComponent(`own:${ownId}`)}`);
     expect(detail.seasons[0]!.discs.length).toBeGreaterThan(0);
@@ -239,7 +239,7 @@ describe('check', () => {
     expect(putChoices.length).toBeGreaterThan(0);
   });
 
-  it("files a disc under an AniList TV entry by its series and season, keeping the disc's number", async () => {
+  it('files a disc under an AniList TV entry by its series and season, with no disc number', async () => {
     const willow = async (): Promise<TitleDetail> => admin.json<TitleDetail>('titles/anilist%3A990201');
     expect((await willow()).seasons.map((s) => [s.id, s.number])).toEqual([
       ['anilist:990201#season', 1],
@@ -249,11 +249,12 @@ describe('check', () => {
     await save(key, { '1': anilist(990202, 1) });
     const r = await check(key, '1-');
     expect(r.body).toMatchObject({ nasChoice: 'saved' });
-    expect(new Set(putChoices)).toEqual(new Set([JSON.stringify({ choice: { kind: 'title', titleId: 'anilist:990201', season: 2, disc: 1 } })]));
-    // the series lists the disc under its second season, as disc 1 beside the season's disc 2
+    expect(new Set(putChoices)).toEqual(new Set([JSON.stringify({ choice: { kind: 'title', titleId: 'anilist:990201', season: 2, disc: null } })]));
+    // the series lists the disc under its second season, beside the season's own disc 2 (the old slot's number doesn't apply there)
     const season2 = (await willow()).seasons.find((s) => s.id === 'anilist:990202#season')!;
-    expect(season2.discs.map((d) => d.number)).toEqual([1, 2]);
+    expect(season2.discs.map((d) => d.number)).toEqual([2, null]);
     expect((await call('GET', '/api/nas/shows')).body.unsorted.map((u: { key: string }) => u.key)).not.toContain(key);
-    expect((await call('GET', `/api/nas/shows/${encodeURIComponent('anilist:990201')}`)).body.seasons[1].discs[0].key).toBe(key);
+    const shown = (await call('GET', `/api/nas/shows/${encodeURIComponent('anilist:990201')}`)).body.seasons[1].discs as { key: string | null }[];
+    expect(shown.map((d) => d.key)).toContain(key);
   });
 });

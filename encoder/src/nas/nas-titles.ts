@@ -186,8 +186,6 @@ export interface DiscMatch {
   readonly titleId: string | null;
   /** The episodes the NAS lists on the disc, by playlist, in number order. */
   readonly episodes: readonly { readonly playlistId: string; readonly number: number; readonly name: string | null }[];
-  /** The number of the disc's slot in the season it is filed in; null in Unsorted or a slot without one. */
-  readonly discNumber: number | null;
 }
 
 /** Where an owner's choice files a disc under an AniList entry: the NAS title and the season number it takes. */
@@ -446,10 +444,10 @@ export class NasTitles {
             .map((e) => ({ playlistId: e.playlistId, number: e.number, name: e.name }))
             .sort((a, b) => a.number - b.number);
           if (found === null || (found.episodes.length === 0 && episodes.length > 0))
-            found = { discId: mine[0]!.discId, discIds, title: seasonTitle(s.id), titleId: t.id, episodes, discNumber: slot.number };
+            found = { discId: mine[0]!.discId, discIds, title: seasonTitle(s.id), titleId: t.id, episodes };
         }
       }
-      return found ?? { discId: mine[0]!.discId, discIds, title: null, titleId: null, episodes: [], discNumber: null };
+      return found ?? { discId: mine[0]!.discId, discIds, title: null, titleId: null, episodes: [] };
     };
     let found = find(raw);
     if (o.fresh === true && found.titleId !== null) {
