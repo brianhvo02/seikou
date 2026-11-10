@@ -137,6 +137,11 @@ describe('QueuePage', () => {
     expect(within(items[2]!).getByRole('link', { name: /TEST_DISC/ }).getAttribute('href')).toMatch(/^\/test\/cccccccccccccccc/);
   });
 
+  it("keeps NAS upper-case in a row's wait", () => {
+    setup(fakeApi(), [makeJob({ waiting: 'Waiting for the NAS' })]);
+    expect(within(screen.getByRole('listitem')).getByText(', waiting for the NAS')).toBeTruthy();
+  });
+
   it('says nothing is queued', () => {
     setup(fakeApi(), []);
     expect(screen.getByText(/Nothing is queued/)).toBeTruthy();

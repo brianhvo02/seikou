@@ -55,7 +55,7 @@ function JobRow({ job, progress }: { readonly job: Job; readonly progress: JobPr
         <span className="muted job-meta">
           {test ? 'Test encode' : `Playlist ${job.playlist}, ${episodesText(job.episodes.length)}`}
           {job.state === 'running' && !test && <> , {overallPercent(job, progress)}%</>}
-          {job.waiting !== null && <span className="warn">, {job.waiting.toLowerCase()}</span>}
+          {job.waiting !== null && <span className="warn">, {job.waiting.charAt(0).toLowerCase() + job.waiting.slice(1)}</span>}
         </span>
       </Link>
     </li>
