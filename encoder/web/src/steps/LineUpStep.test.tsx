@@ -443,6 +443,36 @@ describe('LineUpStep', () => {
       expect(screen.getByRole('button', { name: 'Line up this episode' })).toBeTruthy();
     });
 
+    it('moves focus to the episode heading after Line up', async () => {
+      const api = fakeApi(async () => answer({ kind: 'offset', offsetMs: 1200, confidence: 0.92 }));
+      render(<Harness api={api} controller={fakeController()} lineUp={null} />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Line up' }));
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('heading', { name: 'Episode 1' })));
+    });
+
+    it("moves focus to Line up this episode after the release's timing", async () => {
+      const api = fakeApi(async () => answer({ kind: 'offset', offsetMs: 1200, confidence: 0.92 }));
+      render(<Harness api={api} controller={fakeController()} lineUp={null} />);
+      fireEvent.click(await screen.findByRole('button', { name: "Use the release's timing" }));
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Line up this episode' })));
+    });
+
+    it('a restored episode neither asks nor offers Line up this episode before the session is answered', async () => {
+      const api = fakeApi(async () => answer({ kind: 'offset', offsetMs: 1200, confidence: 0.92 }));
+      const controller = fakeController();
+      const after: HelperAction[] = [
+        { type: 'setTiming', episode: 1, alignment: { kind: 'offset', offsetMs: 900, confidence: 0.9 } },
+        { type: 'accept', episode: 1 },
+        { type: 'setTiming', episode: 2, alignment: { kind: 'offset', offsetMs: 900, confidence: 0.9 } },
+      ];
+      render(<Harness api={api} controller={controller} lineUp={null} after={after} />);
+      await waitFor(() => expect(controller.setSubtitleStart).toHaveBeenCalled());
+      expect(screen.getByText('Shifted +0.90 s, confident')).toBeTruthy();
+      expect(question()).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Line up this episode' })).toBeNull();
+      expect(api.align).not.toHaveBeenCalled();
+    });
+
     it('is not asked when lining up cannot run here', async () => {
       const api = fakeApi(async () => answer({ kind: 'offset', offsetMs: 1200, confidence: 0.92 }));
       const controller = fakeController();

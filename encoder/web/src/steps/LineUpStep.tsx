@@ -144,8 +144,10 @@ function clampNudge(ms: number): number {
  * fetched or opened until it is answered, and the answer covers the session's other episodes. With Line up, each
  * episode's track is lined up against the disc's audio as it is shown (the backend picks the track
  * with the most dialogue, and its timing applies to every track of the episode); with the release's timing, each
- * episode previews at that timing and "Line up this episode" lines up that one alone. An episode whose timing is
- * already there (restored from the record) is not a reason to ask. The step says what lining up found, and plays the
+ * episode previews at that timing and "Line up this episode" lines up that one alone (shown once the session has
+ * an answer, restored episodes included; lining an accepted episode up again leaves it to be accepted again). An
+ * episode whose timing is already there (restored from the record) is not a reason to ask. After the answer, focus
+ * moves to the episode's heading (Line up) or to "Line up this episode" (the release's timing). The step says what lining up found, and plays the
  * episode in Seikou's engine with the retimed track and the release's fonts. The nudge (`[` `]` by 42 ms, `{` `}` by
  * 10 ms, or the buttons) moves the subtitles live and slides the strip's lower lane. "Accept, next episode", "Use
  * original timing" and "Skip" settle the episode. Each episode uses the file and fonts of its own release
@@ -211,6 +213,22 @@ export function LineUpStep({ api, state, dispatch, session, episodes, controller
   // by hand) is kept, and the answer still feeds the strip; one asked for by hand replaces it. Choosing another file
   // drops the episode's timing, so coming back to a file lined up before puts its answer back instead of asking again.
   const byHand = requested.has(lineKey);
+
+  // The answered question's button goes away with it: focus moves to the step's heading after Line up, and to "Line up
+  // this episode" after the release's timing, once the step has drawn without the question.
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const lineUpOneRef = useRef<HTMLButtonElement>(null);
+  const focusAfter = useRef<LineUpChoice | null>(null);
+  useEffect(() => {
+    if (focusAfter.current === null || asking) return;
+    const target = focusAfter.current === 'original' ? (lineUpOneRef.current ?? headingRef.current) : headingRef.current;
+    focusAfter.current = null;
+    target?.focus();
+  });
+  const answerQuestion = (choice: LineUpChoice): void => {
+    focusAfter.current = choice;
+    dispatch({ type: 'chooseLineUp', session: sessionKey(session), choice });
+  };
   useEffect(() => {
     if (!hasTracks || !session.toolsReady || shown === null || release === null || fileId === null) return;
     if (settled.current.has(lineKey)) {
@@ -383,7 +401,7 @@ export function LineUpStep({ api, state, dispatch, session, episodes, controller
         </ul>
       </nav>
 
-      <h2 id="step-heading">
+      <h2 id="step-heading" ref={headingRef} tabIndex={-1}>
         Episode <span className="num">{episode.index}</span>
       </h2>
 
@@ -399,9 +417,11 @@ export function LineUpStep({ api, state, dispatch, session, episodes, controller
             ) : lineup === undefined && !runs ? (
               <div className="lineup-own">
                 <p className="lineup-result">{describeAlignment(alignment ?? { kind: 'original' })}</p>
-                <button type="button" className="quiet" onClick={() => setRequested((r) => new Set(r).add(lineKey))}>
-                  Line up this episode
-                </button>
+                {asked !== null && (
+                  <button ref={lineUpOneRef} type="button" className="quiet" onClick={() => setRequested((r) => new Set(r).add(lineKey))}>
+                    Line up this episode
+                  </button>
+                )}
               </div>
             ) : lineup === undefined || lineup.status === 'working' ? (
               <p className="working">
@@ -507,7 +527,7 @@ export function LineUpStep({ api, state, dispatch, session, episodes, controller
           </>
         )}
       </div>
-      {asking && <LineUpQuestion onAnswer={(c) => dispatch({ type: 'chooseLineUp', session: sessionKey(session), choice: c })} />}
+      {asking && <LineUpQuestion onAnswer={answerQuestion} />}
       {hasTracks && allLinedUp(order, state.choices, state.timing) && (
         <p className="lineup-done" role="status" aria-label="Every episode is lined up">
           Every episode is lined up. Check Details, then Save for encoding.
