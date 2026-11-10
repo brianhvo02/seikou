@@ -280,7 +280,8 @@ describe('MetadataPanel chapter titles', () => {
       anilist: savedInfo({}).anilist,
     });
     await waitFor(() => expect(state().metadata.episodes[2]!.chapters).toEqual(['Ending']));
-    expect(chapterField(1).value).toBe('Ending');
+    // the field shows the trimmed name once the save has settled
+    await waitFor(() => expect(chapterField(1).value).toBe('Ending'));
     // a chapter name is not part of the record's draft: nothing is marked edited, and the record carries no names
     expect(state().metadata.edited.size).toBe(0);
     expect(toRecord(state(), session, episodes).episodes[1]!.metadata.chapters).toEqual([]);
@@ -293,7 +294,7 @@ describe('MetadataPanel chapter titles', () => {
     fireEvent.change(chapterField(2), { target: { value: '' } });
     fireEvent.blur(chapterField(2));
     await waitFor(() => expect(api.saveEpisodeInfo).toHaveBeenCalledWith(session.discKey, session.playlistId, { chapterNames: {}, anilist: savedInfo({}).anilist }));
-    expect(chapterField(2).value).toBe('Chapter 2');
+    await waitFor(() => expect(chapterField(2).value).toBe('Chapter 2'));
   });
 
   it('a field left unchanged saves nothing', async () => {
