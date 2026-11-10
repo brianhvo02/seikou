@@ -393,8 +393,13 @@ what would change that decision.
   loop turn only if it still holds, so reads answered from memory send nothing. While a read is pending the session
   counts nothing. The class library was never counted: the timeout is armed once it has arrived. The first
   playlist's log line gives the time counted and the time spent waiting on reads. A hang with no read pending still
-  falls back at 20 s. The first `selectPlaylist` of a warm open over the NAS came about 11 s after Play; *revisit if*
-  that matters: Java's disc reads could go ahead of the engine's clip read-ahead on NAS sources.
+  falls back at 20 s. The first `selectPlaylist` of a warm open over the NAS came about 11 s after Play. Most of that
+  was the engine's check that the main title's clip isn't encrypted: its 6 KB read started read-ahead through the
+  clip (128 MB on desktop), and Java's reads queued behind it. The check now peeks (`ByteSource.peek`: exactly its
+  range, no read-ahead), in the engine and the BD-J worker alike. On a local disc served at 40 Mbit/s with 40 ms of
+  latency, the first `selectPlaylist` came 7.2 s after Play instead of 19.2 s, with the link idle for the last 1.4 s.
+  Java's reads still share the link with playback once a playlist plays; *revisit if* a menu over a playing clip is
+  slow to draw.
   - **No single timeout bounds a wait.** One HTTP read can take about 70 s or more: 30 s (`REQUEST_TIMEOUT_MS`), then a
     401 and a token refresh of up to 10 s, then another 30 s, and a 503 can add one more request. Each scope load
     can take 3 s (12.5 s on a NAS disc, ruling R28). The FreeType wait includes compiling it. Java may also retry a

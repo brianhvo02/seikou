@@ -6,6 +6,11 @@ export interface ByteSource {
   list(dir: string): string[];
   /** Aborting `signal` stops the read early and rejects with the signal's reason. */
   read(path: string, offset: number, length: number, signal?: AbortSignal): Promise<Uint8Array>;
+  /**
+   * A one-off read that starts no read-ahead and leaves where read-ahead goes as it was (a check of a few bytes of a
+   * file nothing streams yet). Sources that never read ahead leave it out, and callers use `read`.
+   */
+  peek?(path: string, offset: number, length: number, signal?: AbortSignal): Promise<Uint8Array>;
 }
 
 export type DiscErrorCode =

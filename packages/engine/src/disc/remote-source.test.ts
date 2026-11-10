@@ -157,6 +157,62 @@ describe('RemoteSource', () => {
     expect(auto.calls.map((c) => c.offset)).toEqual(Array.from({ length: 20 }, (_, i) => i * CHUNK));
   });
 
+  it('peek reads just its range, starts no read-ahead and leaves the last read\'s read-ahead as it was', async () => {
+    const clip = pattern(40 * MiB);
+    const other = pattern(20 * MiB);
+    const files = new Map([['C', clip], ['M', other]]);
+    const transport = new FakeTransport(files);
+    const s = new RemoteSource(manifest(files), transport, { readAheadBytes: 16 * MiB, chunkBytes: CHUNK, inFlight: 4 });
+    // a peek into a file nobody reads: one request for exactly its bytes, nothing ahead of it, nothing kept
+    const peeked = s.peek('M', 100, 6144);
+    expect(transport.inFlight().map((c) => [c.path, c.offset, c.length])).toEqual([['M', 100, 6144]]);
+    transport.answer(100);
+    expectBytes(await peeked, other.subarray(100, 6244));
+    await tick();
+    expect(transport.inFlight()).toHaveLength(0);
+    expect(s.bufferedBytes).toBe(0);
+    // clamped at the end of the file
+    const tail = s.peek('M', other.length - 10, 100);
+    expect(transport.inFlight().map((c) => [c.offset, c.length])).toEqual([[other.length - 10, 10]]);
+    transport.answer(other.length - 10);
+    expectBytes(await tail, other.subarray(other.length - 10));
+
+    // reading C reads ahead in C; a peek into M neither aborts that nor moves it to M
+    const first = s.read('C', 0, CHUNK);
+    transport.inFlight().find((c) => c.path === 'C' && c.offset === 0)!.resolve();
+    await first;
+    await tick();
+    const ahead = transport.inFlight();
+    expect(ahead.map((c) => [c.path, c.offset])).toEqual([2, 4, 6, 8].map((m) => ['C', m * MiB]));
+    const second = s.peek('M', 4 * MiB, 10);
+    expect(ahead.some((c) => c.signal?.aborted)).toBe(false);
+    transport.inFlight().find((c) => c.path === 'M')!.resolve();
+    expectBytes(await second, other.subarray(4 * MiB, 4 * MiB + 10));
+    for (const c of ahead) c.resolve();
+    await tick();
+    expect(transport.inFlight().map((c) => [c.path, c.offset])).toEqual([10, 12, 14, 16].map((m) => ['C', m * MiB]));
+    // bytes a chunk already holds are peeked from it, with no request
+    const before = transport.calls.length;
+    expectBytes(await s.peek('C', CHUNK + 5, 100), clip.subarray(CHUNK + 5, CHUNK + 105));
+    expect(transport.calls.length).toBe(before);
+  });
+
+  it('a peek\'s request is aborted by its signal and by close', async () => {
+    const files = new Map([['M', pattern(4 * MiB)]]);
+    const transport = new FakeTransport(files);
+    const s = new RemoteSource(manifest(files), transport, { readAheadBytes: 16 * MiB, chunkBytes: CHUNK, inFlight: 4 });
+    const controller = new AbortController();
+    const cancelled = s.peek('M', 0, 10, controller.signal);
+    const reason = new DOMException('stop', 'AbortError');
+    controller.abort(reason);
+    await expect(cancelled).rejects.toBe(reason);
+    expect(transport.calls[0]!.signal?.aborted).toBe(true);
+    const closing = s.peek('M', 10, 10);
+    s.close();
+    await expect(closing).rejects.toMatchObject({ name: 'AbortError' });
+    expect(transport.inFlight()).toEqual([]);
+  });
+
   it('assembles reads that straddle chunks and clamps at the end of the file', async () => {
     const clip = pattern(5 * MiB + 100);
     const files = new Map([['A', clip]]);

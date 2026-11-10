@@ -180,10 +180,13 @@ export async function loadClips(source: ByteSource, clipIds: readonly string[]):
   return new Map(clipIds.map((id, i) => [id, parseClpi(bytes[i]!)]));
 }
 
-/** Encrypted aligned units keep only the first 16 bytes in the clear, so later packets lose their sync byte. */
+/**
+ * Encrypted aligned units keep only the first 16 bytes in the clear, so later packets lose their sync byte. The check
+ * peeks: on a NAS disc a read would start read-ahead through a clip nothing plays yet, ahead of BD-J's own reads.
+ */
 export async function checkStreamReadable(source: ByteSource, clipId: string): Promise<void> {
   const path = streamPath(clipId);
-  const bytes = await source.read(path, 0, ALIGNED_UNIT_SIZE);
+  const bytes = await (source.peek ? source.peek(path, 0, ALIGNED_UNIT_SIZE) : source.read(path, 0, ALIGNED_UNIT_SIZE));
   const packets = Math.floor(bytes.length / SOURCE_PACKET_SIZE);
   let readable = packets > 0;
   for (let k = 0; k < packets && readable; k++) {

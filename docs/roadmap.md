@@ -18,7 +18,6 @@ Short tasks that unblock or protect what is already deployed.
 | Item | Size | Notes |
 | --- | --- | --- |
 | **Open a local `.iso`** from the landing screen. The UDF reader (`packages/bdmv/src/udf.ts`) already serves NAS ISOs; this is the local half of cross-browser spec §4, deferred in the nas-server spec §10. | M | |
-| **BD-J reads first on NAS discs.** The BD-J worker's JAR and metadata reads should go ahead of clip read-ahead. Today a NAS BD-J disc takes about 11 s to its first `selectPlaylist`, and the menu buffers behind the spinner. | M | |
 | **Player settings screen** for menu, audio and subtitle languages, country and region. These come from the browser's locale today, for HDMV and BD-J alike. | M | |
 | **Subtitles from `.mkv` files.** Extract ASS and SRT tracks and attached fonts, deferred since M4b. This pairs with episode subtitle sets and the subtitle store. | M | |
 | **HDMV TextST and sub-path PG** decoding. | M | needs a disc |

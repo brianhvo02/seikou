@@ -71,6 +71,8 @@ export class RemoteSource implements ByteSource {
   private writeThrough: ((path: string, offset: number, bytes: Uint8Array) => void) | null = null;
   /** Reads waiting for a chunk still being fetched. */
   private readsWaiting = 0;
+  /** Network requests of peeks still in flight (aborted on close). */
+  private readonly peeking = new Set<AbortController>();
   /** Chunks the cache fill is fetching (fillChunk), by chunk key. */
   private readonly filling = new Map<string, Promise<Uint8Array>>();
 
@@ -202,12 +204,71 @@ export class RemoteSource implements ByteSource {
       c.controller.abort(new DOMException('disc closed', 'AbortError'));
       this.settle(c);
     }
+    for (const p of this.peeking) p.abort(new DOMException('disc closed', 'AbortError'));
+    this.peeking.clear();
     this.chunks.clear();
     this.held = 0;
     this.cursor = null;
   }
 
-  async read(path: string, offset: number, length: number, signal?: AbortSignal): Promise<Uint8Array> {
+  read(path: string, offset: number, length: number, signal?: AbortSignal): Promise<Uint8Array> {
+    return this.readRange(path, offset, length, signal, false);
+  }
+
+  /**
+   * ByteSource.peek: from the chunks held when they cover the range, else exactly the range from the network, kept
+   * nowhere. Either way no read-ahead starts and the read-ahead cursor stays put.
+   */
+  async peek(path: string, offset: number, length: number, signal?: AbortSignal): Promise<Uint8Array> {
+    if (!Number.isInteger(offset) || offset < 0) throw new RangeError(`invalid read offset ${offset} in ${path}`);
+    const key = path.toUpperCase();
+    const end = Math.min(offset + length, this.get(path));
+    if (offset >= end || this.inline.has(key)) return this.readRange(path, offset, length, signal, true);
+    const chunkBytes = this.opts.chunkBytes;
+    let held = true;
+    for (let i = Math.floor(offset / chunkBytes); i <= Math.floor((end - 1) / chunkBytes) && held; i++) held = this.chunks.has(chunkKey(key, i));
+    if (held) return this.readRange(path, offset, length, signal, true);
+    signal?.throwIfAborted();
+    if (this.closed) throw new DiscError('read-failed', `Failed to read ${path}: the disc was closed`, [path]);
+    const cache = this.cache;
+    if (cache?.has(path, offset, end - offset)) {
+      const cached = await cache.read(path, offset, end - offset).catch(() => null);
+      if (cached) return cached;
+    }
+    // its own request, aborted by the caller's signal or by close() like a chunk's
+    const controller = new AbortController();
+    const onAbort = (): void => controller.abort(signal?.reason);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    this.peeking.add(controller);
+    try {
+      return await this.watched(this.transport.read(path, offset, end - offset, controller.signal), true);
+    } finally {
+      this.peeking.delete(controller);
+      signal?.removeEventListener('abort', onAbort);
+    }
+  }
+
+  /**
+   * `reading` with the read's bookkeeping: counted in `readsWaiting` while it waits on the network (`onNetwork`), and
+   * "Waiting for the NAS drive" (onWaiting) once it has taken WAITING_AFTER_MS.
+   */
+  private async watched<T>(reading: Promise<T>, onNetwork: boolean): Promise<T> {
+    if (onNetwork) this.readsWaiting++;
+    let waiting = false;
+    const timer = setTimeout(() => {
+      waiting = true;
+      if (this.waitingReads++ === 0) this.opts.onWaiting?.(true);
+    }, WAITING_AFTER_MS);
+    try {
+      return await reading;
+    } finally {
+      clearTimeout(timer);
+      if (onNetwork) this.readsWaiting--;
+      if (waiting && --this.waitingReads === 0) this.opts.onWaiting?.(false);
+    }
+  }
+
+  private async readRange(path: string, offset: number, length: number, signal: AbortSignal | undefined, peek: boolean): Promise<Uint8Array> {
     if (!Number.isInteger(offset) || offset < 0) throw new RangeError(`invalid read offset ${offset} in ${path}`);
     const key = path.toUpperCase();
     const size = this.get(path);
@@ -221,10 +282,12 @@ export class RemoteSource implements ByteSource {
     const chunkBytes = this.opts.chunkBytes;
     const first = Math.floor(offset / chunkBytes);
     const last = Math.floor((end - 1) / chunkBytes);
-    const c = this.cursor;
-    const sequential = c !== null && c.path === key && (first === c.index || first === c.index + 1);
-    if (c !== null && c.path === key && !sequential && !this.chunks.has(chunkKey(key, first))) this.abortReadAhead(key);
-    this.cursor = { path: key, index: last };
+    if (!peek) {
+      const c = this.cursor;
+      const sequential = c !== null && c.path === key && (first === c.index || first === c.index + 1);
+      if (c !== null && c.path === key && !sequential && !this.chunks.has(chunkKey(key, first))) this.abortReadAhead(key);
+      this.cursor = { path: key, index: last };
+    }
 
     const needed: Chunk[] = [];
     for (let i = first; i <= last; i++) {
@@ -232,17 +295,10 @@ export class RemoteSource implements ByteSource {
       chunk.waiters++;
       needed.push(chunk);
     }
-    this.pump();
+    if (!peek) this.pump();
 
-    const waitsOnFetch = needed.some((n) => n.pending);
-    if (waitsOnFetch) this.readsWaiting++;
-    let waiting = false;
-    const timer = setTimeout(() => {
-      waiting = true;
-      if (this.waitingReads++ === 0) this.opts.onWaiting?.(true);
-    }, WAITING_AFTER_MS);
     try {
-      const parts = await abortable(Promise.all(needed.map((n) => n.promise)), signal);
+      const parts = await this.watched(abortable(Promise.all(needed.map((n) => n.promise)), signal), needed.some((n) => n.pending));
       const out = new Uint8Array(end - offset);
       let filled = 0;
       for (const [k, part] of parts.entries()) {
@@ -255,9 +311,6 @@ export class RemoteSource implements ByteSource {
       }
       return filled === out.length ? out : out.subarray(0, filled);
     } finally {
-      clearTimeout(timer);
-      if (waitsOnFetch) this.readsWaiting--;
-      if (waiting && --this.waitingReads === 0) this.opts.onWaiting?.(false);
       for (const n of needed) n.waiters--;
       this.trim();
     }

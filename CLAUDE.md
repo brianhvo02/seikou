@@ -67,7 +67,7 @@ There are three execution contexts, and a fourth (the BD-J worker, below) while 
 `packages/engine/src/protocol.ts` is the contract between the UI and the engine. It defines the `EngineCommand` and `EngineEvent` discriminated unions and `Telemetry`. Change it first when you add a feature that crosses the boundary.
 
 Data flow inside the engine (paths relative to `packages/engine/src/` unless named):
-- `disc/`: `ByteSource` and `FileSource` (a normalized `path → Blob` map, so the engine never sees file handles). `open-disc.ts` loads index, playlists and clips and maps failures to `DiscError` codes. `ByteSource.read` takes an `AbortSignal`.
+- `disc/`: `ByteSource` and `FileSource` (a normalized `path → Blob` map, so the engine never sees file handles). `open-disc.ts` loads index, playlists and clips and maps failures to `DiscError` codes. `ByteSource.read` takes an `AbortSignal`; the optional `ByteSource.peek` reads a range with no read-ahead (`RemoteSource`: exactly the range when no chunk holds it), which the encryption check (`checkStreamReadable`) uses so opening a NAS disc doesn't stream its main clip ahead of BD-J's reads.
 - `@seikou/bdmv`: `index.bdmv`, `.mpls` and `.clpi` parsers, ported from libbluray.
 - `nav/timeline.ts`: maps play items onto one continuous playlist time, handling the 33-bit PTS wrap and per-item discontinuities. Seeks go through the EP map to an SPN, then to an aligned byte offset.
 - `@seikou/bdmv`'s `demux/` (192-byte source packets, then TS, then PES) feeds `playback/pipeline.ts`, which runs read-ahead, backpressure and cancellation of abandoned reads on a seek.

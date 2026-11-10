@@ -109,6 +109,7 @@ export class IoWatch {
       list: (dir) => source.list(dir),
       paths: () => source.paths(),
       read: (path, offset, length, signal) => this.track(source.read(path, offset, length, signal)),
+      ...(source.peek ? { peek: (path: string, offset: number, length: number, signal?: AbortSignal) => this.track(source.peek!(path, offset, length, signal)) } : {}),
     };
   }
 

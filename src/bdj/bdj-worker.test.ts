@@ -97,6 +97,21 @@ describe('IoWatch (the worker waiting on its own I/O, Task 7g)', () => {
     expect(told).toEqual([]);
   });
 
+  it('passes a source\'s peek through, tracked like a read, and leaves it out for a source without one', async () => {
+    const { io, told } = watch();
+    const a = deferred();
+    const peeks: number[] = [];
+    const base = { exists: () => true, size: () => 4, list: () => [], paths: () => [], read: async () => new Uint8Array(4) };
+    const source = io.source({ ...base, peek: (_p: string, offset: number) => (peeks.push(offset), a.promise.then(() => new Uint8Array(2))) });
+    const peeked = source.peek!('BDMV/STREAM/00001.M2TS', 7, 2);
+    expect(peeks).toEqual([7]);
+    await turn();
+    expect(told).toEqual([true]);
+    a.resolve();
+    expect((await peeked).length).toBe(2);
+    expect(io.source(base).peek).toBeUndefined();
+  });
+
   it('changes within one turn are told once, as the state at the end of the turn', async () => {
     const { io, told } = watch();
     const a = deferred();

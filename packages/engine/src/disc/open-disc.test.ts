@@ -105,6 +105,26 @@ describe('openDisc', () => {
     await expect(checkStreamReadable(disc(files), '00001')).rejects.toMatchObject({ code: 'unreadable-stream' });
   });
 
+  it('checks the stream with a peek when the source has one, so the check starts no read-ahead', async () => {
+    const files = baseFiles();
+    const source = disc(files);
+    const peeks: [string, number, number][] = [];
+    const reads: string[] = [];
+    const peeking = Object.assign(Object.create(source) as FileSource, {
+      read: (path: string, offset: number, length: number, signal?: AbortSignal) => {
+        reads.push(path);
+        return source.read(path, offset, length, signal);
+      },
+      peek: (path: string, offset: number, length: number, signal?: AbortSignal) => {
+        peeks.push([path, offset, length]);
+        return source.read(path, offset, length, signal);
+      },
+    });
+    await checkStreamReadable(peeking, '00001');
+    expect(peeks).toEqual([['BDMV/STREAM/00001.M2TS', 0, 6144]]);
+    expect(reads).toEqual([]);
+  });
+
   it('loads clip info for a list of clips', async () => {
     const clips = await loadClips(disc(baseFiles()), ['00001', '00002']);
     expect([...clips.keys()]).toEqual(['00001', '00002']);

@@ -2356,25 +2356,27 @@ describe('Player with a disc on the NAS', () => {
     expect(h.events.some((e) => e.type === 'error')).toBe(false);
   });
 
-  it('stops the read-ahead of a disc whose open fails', async () => {
+  it('a disc whose open fails reads only the check\'s bytes of its clip, and nothing goes on fetching', async () => {
     const files = fixtureDiscFiles('disc1');
     const clip = files.get('BDMV/STREAM/00001.m2ts') ?? files.get('BDMV/STREAM/00001.M2TS')!;
     for (let k = 0; k < 32; k++) clip[k * 192 + 4] = 0; // no sync bytes: the open fails as unreadable
     const nas = fakeNas(files);
+    const streamRanges: string[] = [];
     const ahead: AbortSignal[] = [];
     const held: FakeNas = {
       ...nas,
       fetch: (async (input: string | URL | Request, init?: RequestInit) => {
-        const from = Number(/^bytes=(\d+)-/.exec(new Headers(init?.headers).get('Range') ?? '')?.[1] ?? 0);
-        if (from === 0) return nas.fetch(input, init);
-        ahead.push(init!.signal!); // read-ahead: held until aborted
+        const range = new Headers(init?.headers).get('Range') ?? '';
+        if (/\/STREAM\//i.test(String(input))) streamRanges.push(range);
+        if (/^bytes=0-/.test(range) || !range) return nas.fetch(input, init);
+        ahead.push(init!.signal!); // anything further: held until aborted
         return new Promise<Response>((_, reject) => init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason), { once: true }));
       }) as typeof fetch,
     };
     const h = await harness(undefined, { remote: held, remoteLimits: { chunkBytes: 64 * 1024 }, noOpen: true });
     await h.player.handle({ type: 'open', disc: held.spec });
     expect(h.events).toContainEqual(expect.objectContaining({ type: 'error', code: 'unreadable-stream' }));
-    expect(ahead.length).toBeGreaterThan(0);
+    expect(streamRanges).toEqual(['bytes=0-6143']); // a peek: the check's aligned unit, no chunk and no read-ahead
     expect(ahead.every((signal) => signal.aborted)).toBe(true);
   });
 
