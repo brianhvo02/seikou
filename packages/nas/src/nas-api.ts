@@ -1,4 +1,5 @@
 /** Types shared by the NAS server and the app. No runtime code. */
+import type { EncodeTitle } from './encode-title';
 
 export interface DiscEntry {
   readonly id: string;
@@ -290,7 +291,7 @@ export interface LevelAt {
 /** One episode of a season. */
 export interface EncodeEpisode {
   readonly episode: number;
-  /** The encode's id, `<anilistId>-<episode>`. */
+  /** The encode's id, `<titlePart>-<episode>` (`990001-3`, `tv990101s1-2`, …). */
   readonly id: string;
   readonly title: string | null;
   readonly durationMs: number;
@@ -353,8 +354,14 @@ export interface EncodeTrackInfo {
 
 /** `GET encodes/<id>`: an encoded episode as the NAS indexed it. Times are in milliseconds. */
 export interface EncodeDetail {
+  /** `<titlePart>-<episode>` (`encode-id.ts`): `990001-3` for an AniList entry, `tv990101s1-2`, `mv990102-1`, `own<hex>-4`. */
   readonly id: string;
-  readonly anilistId: number;
+  /** The title the episode's tags name; absent from a NAS from before titles beyond AniList (an AniList title then). */
+  readonly title?: EncodeTitle;
+  /** The `TITLE_NAME` tag, the title's name when the NAS has no metadata for it; absent from an older NAS. */
+  readonly titleName?: string | null;
+  /** The title's AniList id, else null; kept for clients from before titles beyond AniList. */
+  readonly anilistId: number | null;
   readonly episode: number;
   readonly episodeTitle: string | null;
   readonly discKey: string | null;

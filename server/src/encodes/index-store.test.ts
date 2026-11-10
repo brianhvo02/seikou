@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { appendFileSync, chmodSync, cpSync, renameSync, mkdirSync, symlinkSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { appendFileSync, chmodSync, cpSync, readFileSync, renameSync, mkdirSync, symlinkSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { EncodeIndex } from './index-store';
+import { retagged } from './test-retag';
 
 const FIXTURES = join(import.meta.dirname, '../../../fixtures/encodes/990001');
 let tmp: string;
@@ -215,6 +216,77 @@ describe('EncodeIndex', () => {
     expect(index.list().length).toBe(1);
     await index.remove('990001-2');
     expect(index.get('990001-2')).toBeNull();
+  });
+
+  describe('titles beyond AniList', () => {
+    const TV = { SEIKOU_TITLE: 'tmdb-tv:990101', SEASON: '1', EPISODE: '2', ANILIST_ID: null, ENCODER: null, SEIKOU_DISC_KEY: null, TITLE_NAME: ' Starfall Wanderer ' };
+
+    it('lists a TMDB series episode by its title part, with its TITLE_NAME', async () => {
+      mkdirSync(join(dir, 'tv990101s1'));
+      writeFileSync(join(dir, 'tv990101s1/2.mkv'), retagged(1, TV));
+      cpSync(join(FIXTURES, '1.mkv'), join(dir, '990001/1.mkv'));
+      cpSync(join(FIXTURES, '2.mkv'), join(dir, '990001/2.mkv'));
+      const index = make();
+      await index.scan();
+      expect(index.list().map((e) => e.id)).toEqual(['990001-1', '990001-2', 'tv990101s1-2']);
+      expect(index.get('tv990101s1-2')).toMatchObject({
+        title: { source: 'tmdb-tv', tmdbId: 990101, season: 1 }, titleName: 'Starfall Wanderer', anilistId: null, episode: 2, path: join(dir, 'tv990101s1/2.mkv'),
+      });
+      expect(index.get('990001-1')).toMatchObject({ title: { source: 'anilist', anilistId: 990001 }, anilistId: 990001, titleName: null });
+    });
+
+    it('keeps the file at <titlePart>/<episode>.mkv when two name the same episode', async () => {
+      mkdirSync(join(dir, 'tv990101s1'));
+      mkdirSync(join(dir, 'elsewhere'));
+      writeFileSync(join(dir, 'elsewhere/copy.mkv'), retagged(1, TV));
+      // the copy elsewhere is newer, but the canonical path wins
+      writeFileSync(join(dir, 'tv990101s1/2.mkv'), retagged(1, TV));
+      const old = new Date(Date.now() - 60_000);
+      utimesSync(join(dir, 'tv990101s1/2.mkv'), old, old);
+      const index = make();
+      await index.scan();
+      expect(index.get('tv990101s1-2')!.path).toBe(join(dir, 'tv990101s1/2.mkv'));
+    });
+
+    it('leaves a tmdb-tv file without SEASON, or with a malformed SEIKOU_TITLE, unfiled', async () => {
+      writeFileSync(join(dir, 'noseason.mkv'), retagged(1, { ...TV, SEIKOU_TITLE: 'tmdb-tv:5', SEASON: null }));
+      writeFileSync(join(dir, 'bad.mkv'), retagged(1, { ...TV, SEIKOU_TITLE: 'tmdb:990101' }));
+      const index = make();
+      await index.scan();
+      expect(index.list()).toEqual([]);
+      expect(index.unfiled().map((u) => u.path)).toEqual([join(dir, 'bad.mkv'), join(dir, 'noseason.mkv')]);
+    });
+
+    it('adds and removes a TMDB film', async () => {
+      const index = make();
+      await index.scan();
+      mkdirSync(join(dir, 'mv990102'));
+      writeFileSync(join(dir, 'mv990102/1.mkv'), retagged(1, { ANILIST_ID: null, ENCODER: null, SEIKOU_TITLE: 'tmdb-movie:990102', EPISODE: '1' }));
+      expect((await index.add(join(dir, 'mv990102/1.mkv'))).id).toBe('mv990102-1');
+      await index.remove('mv990102-1');
+      expect(index.list()).toEqual([]);
+    });
+
+    it("loads an index file from before titles without reading its listed files again, and rereads the ones it couldn't file", async () => {
+      cpSync(join(FIXTURES, '1.mkv'), join(dir, '990001/1.mkv'));
+      writeFileSync(join(dir, 'tv.mkv'), retagged(1, TV));
+      await make().scan();
+      // rewrite encodes.json as the server before titles wrote it: version 1, `anilistId` only, the TMDB file unfiled
+      const file = join(data, 'encodes.json');
+      const saved = JSON.parse(readFileSync(file, 'utf8')) as { version: number; files: Record<string, { entry: Record<string, unknown> | null }> };
+      const v1 = { version: 1, files: Object.fromEntries(Object.entries(saved.files).map(([rel, r]) => {
+        if (!r.entry || r.entry.anilistId === null) return [rel, { ...r, entry: null }];
+        const { title: _t, titleName: _n, ...rest } = r.entry;
+        return [rel, { ...r, entry: rest }];
+      })) };
+      writeFileSync(file, JSON.stringify(v1));
+      reads = [];
+      const index = make();
+      expect(index.get('990001-1')).toMatchObject({ title: { source: 'anilist', anilistId: 990001 }, titleName: null });
+      await index.scan();
+      expect(reads).toEqual(['tv.mkv']);
+      expect(index.list().map((e) => e.id)).toEqual(['990001-1', 'tv990101s1-2']);
+    });
   });
 
   describe('while a scan is running', () => {

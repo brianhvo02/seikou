@@ -15,6 +15,7 @@ import { Library } from '../library';
 import { Store } from '../store';
 import type { TitleLibrary } from '../routes/titles';
 import { EncodeIndex } from './index-store';
+import { retagged } from './test-retag';
 import { MAX_CHUNK_BYTES, UploadStore } from './uploads';
 
 const FIXTURE = join(import.meta.dirname, '../../../fixtures/encodes/990001');
@@ -115,6 +116,37 @@ describe('encode uploads', () => {
     expect(readFileSync(join(dir, '990001/1.mkv')).equals(bytes)).toBe(true);
     expect(index.get('990001-1')).not.toBeNull();
     expect(readdirSync(join(dir, '.uploads'))).toEqual([]);
+  });
+
+  it('files a TMDB series episode at tv<id>s<season>/<episode>.mkv, answers its entry, and deletes it', async () => {
+    await start();
+    const t = await token('Owner', true);
+    const bytes = retagged(1, { ANILIST_ID: null, ENCODER: null, SEIKOU_TITLE: 'tmdb-tv:990101', SEASON: '1', EPISODE: '2' });
+    const id = await createId(t, { size: bytes.length, sha256: sha(bytes), name: 'e2.mkv' });
+    expect((await put(t, id, bytes, 0, bytes.length - 1)).status).toBe(204);
+    const done = await call('POST', `uploads/${id}/complete`, t);
+    expect(done.status).toBe(200);
+    const { entry } = (await done.json()) as { entry: Record<string, unknown> };
+    expect(entry).toMatchObject({ id: 'tv990101s1-2', title: { source: 'tmdb-tv', tmdbId: 990101, season: 1 }, anilistId: null, episode: 2 });
+    expect(entry.path).toBeUndefined();
+    expect(readFileSync(join(dir, 'tv990101s1/2.mkv')).equals(bytes)).toBe(true);
+    expect(index.get('tv990101s1-2')).not.toBeNull();
+    expect((await call('DELETE', 'tv990101s1-2', t)).status).toBe(204);
+    expect(index.get('tv990101s1-2')).toBeNull();
+    expect(existsSync(join(dir, 'tv990101s1/2.mkv'))).toBe(false);
+  });
+
+  it('a malformed SEIKOU_TITLE answers 422 bad-tags and keeps the upload', async () => {
+    await start();
+    const t = await token('Owner', true);
+    const bytes = retagged(1, { ANILIST_ID: null, ENCODER: null, SEIKOU_TITLE: 'tmdb:990101', SEASON: '1' });
+    const id = await createId(t, { size: bytes.length, sha256: sha(bytes), name: 'bad.mkv' });
+    await put(t, id, bytes, 0, bytes.length - 1);
+    const r = await call('POST', `uploads/${id}/complete`, t);
+    expect(r.status).toBe(422);
+    expect(await r.json()).toEqual({ error: 'bad-tags' });
+    expect(index.list()).toEqual([]);
+    expect(readdirSync(join(dir, '.uploads')).sort()).toEqual([`${id}.json`, `${id}.partial`]);
   });
 
   it('a wrong hash is refused and nothing is listed', async () => {

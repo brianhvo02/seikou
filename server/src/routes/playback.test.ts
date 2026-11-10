@@ -268,6 +268,15 @@ describe('encode places', () => {
     expect((await at('GET', `/api/me/playback/${EKEY}`, token)).status).toBe(404);
   });
 
+  it('a TMDB episode key stores a place, and a TMDB series key without a season is bad-key', async () => {
+    const { token } = await tokenFor('Mika', false);
+    const tv = encodePlace({ discKey: 'e.tv990101s1.2', discId: 'tv990101s1-2' });
+    expect((await at('PUT', '/api/me/playback/e.tv990101s1.2/mkv', token, tv)).status).toBe(204);
+    expect((await (await at('GET', '/api/me/playback/e.tv990101s1.2', token)).json() as { places: Record<string, unknown> }).places).toEqual({ mkv: tv });
+    const bad = await at('PUT', '/api/me/playback/e.tv990101.2/mkv', token, encodePlace({ discKey: 'e.tv990101.2', discId: 'tv990101-2' }));
+    expect([bad.status, await bad.json()]).toEqual([404, { error: 'bad-key' }]);
+  });
+
   it('a disc route answers 404 bad-key for an e. key', async () => {
     const { token } = await tokenFor('Mika', false);
     const wrong = await at('PUT', `/api/me/playback/${EKEY}/00001`, token, encodePlace({ playlistId: '00001' }));

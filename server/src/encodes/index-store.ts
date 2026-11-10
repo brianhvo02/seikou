@@ -5,14 +5,21 @@ import { isAbsolute, join, relative, sep } from 'node:path';
 import { openMatroska } from '@seikou/matroska';
 import type { MkvChapterInfo } from '@seikou/matroska';
 import { encodeId } from '@seikou/nas/encode-id';
+import { titleFromTags, titlePart } from '@seikou/nas/encode-title';
+import type { EncodeTitle } from '@seikou/nas/encode-title';
 import { isCode, replaceAtomically } from '@seikou/titles/atomic-json';
 import { withFileReader } from './node-reader';
 
 /** One encoded episode, read from the tags of its MKV. */
 export interface EncodeEntry {
-  /** `<anilistId>-<episode>` */
+  /** `<titlePart>-<episode>` (`990001-3` for an AniList entry, `tv990101s1-2` for a TMDB series' season, …) */
   id: string;
-  anilistId: number;
+  /** The title the tags name (`ANILIST_ID`, else `SEIKOU_TITLE` with `SEASON`). */
+  title: EncodeTitle;
+  /** The `TITLE_NAME` tag, trimmed; null when absent or blank. */
+  titleName: string | null;
+  /** The title's AniList id, else null (kept for clients from before other titles). */
+  anilistId: number | null;
   episode: number;
   episodeTitle: string | null;
   discKey: string | null;
@@ -69,7 +76,7 @@ interface FileRecord {
 }
 
 interface Persisted {
-  version: 1;
+  version: 2;
   /** Keyed by the file's path relative to the folder, with `/` separators. */
   files: Record<string, FileRecord>;
 }
@@ -85,10 +92,33 @@ function whole(text: string | undefined): number | null {
 const posix = (path: string): string => path.split(sep).join('/');
 
 /**
+ * The records of an index file. Version 1 (before titles beyond AniList) only filed AniList encodes: its entries are
+ * AniList titles with no `TITLE_NAME` read, and are kept without reading their files again; the files it could not
+ * file are left out, so the next scan reads them and files those that name another kind of title.
+ */
+function recordsOf(parsed: unknown): Map<string, FileRecord> {
+  const p = parsed as { version?: unknown; files?: unknown } | null;
+  if (!p || !p.files || typeof p.files !== 'object') return new Map();
+  if (p.version === 2) return new Map(Object.entries(p.files as Record<string, FileRecord>));
+  if (p.version !== 1) return new Map();
+  const out = new Map<string, FileRecord>();
+  for (const [rel, record] of Object.entries(p.files as Record<string, FileRecord>)) {
+    const entry = record.entry as (Omit<StoredEntry, 'title' | 'titleName'> & { anilistId: number }) | null;
+    if (!entry || typeof entry.anilistId !== 'number') continue;
+    out.set(rel, { ...record, entry: { ...entry, title: { source: 'anilist', anilistId: entry.anilistId }, titleName: null } });
+  }
+  return out;
+}
+
+/** AniList ids in number order, then the other title parts (`mv…`, `own…`, `tv…`) by text with numbers in order. */
+const byPart = (a: string, b: string): number => a.localeCompare(b, 'en', { numeric: true });
+
+/**
  * The encodes folder's index (`<dataDir>/encodes.json`): every `.mkv` under the folder (dot folders and `.partial`
  * files left out) read through its Matroska tags. A file is read again only when its size or mtime changed. A file
- * that names an AniList id and an episode is listed under them wherever it lies; two with the same pair keep the one
- * at `<anilistId>/<episode>.mkv`, else the newest. Anything else is unfiled. The scan never moves or deletes a file.
+ * that names a title (`ANILIST_ID`, else `SEIKOU_TITLE` with `SEASON`) and an episode is listed under them wherever it
+ * lies; two with the same pair keep the one at `<titlePart>/<episode>.mkv`, else the newest. Anything else is
+ * unfiled. The scan never moves or deletes a file.
  */
 export class EncodeIndex {
   private readonly file: string;
@@ -112,8 +142,7 @@ export class EncodeIndex {
 
   private load(): void {
     try {
-      const parsed = JSON.parse(readFileSync(this.file, 'utf8')) as Persisted;
-      if (parsed.version === 1 && parsed.files && typeof parsed.files === 'object') this.files = new Map(Object.entries(parsed.files));
+      this.files = recordsOf(JSON.parse(readFileSync(this.file, 'utf8')));
     } catch (err) {
       if (!isCode(err, 'ENOENT') && !(err instanceof SyntaxError)) throw err;
     }
@@ -122,7 +151,7 @@ export class EncodeIndex {
 
   private save(files: Map<string, FileRecord>): void {
     mkdirSync(this.opts.dataDir, { recursive: true });
-    const value: Persisted = { version: 1, files: Object.fromEntries(files) };
+    const value: Persisted = { version: 2, files: Object.fromEntries(files) };
     (this.opts.writeIndex ?? replaceAtomically)(this.file, JSON.stringify(value));
   }
 
@@ -158,14 +187,14 @@ export class EncodeIndex {
         winners.set(entry.id, { rel, record, entry });
         continue;
       }
-      const canonical = (r: string): boolean => r === `${entry.anilistId}/${entry.episode}.mkv`;
+      const canonical = (r: string): boolean => r === `${titlePart(entry.title)}/${entry.episode}.mkv`;
       const keepNew = canonical(rel) ? true : canonical(held.rel) ? false : record.mtimeMs > held.record.mtimeMs;
       this.opts.log(`encodes: ${rel} and ${held.rel} are both episode ${entry.id}; listing ${keepNew ? rel : held.rel}`);
       if (keepNew) winners.set(entry.id, { rel, record, entry });
     }
     this.entries = [...winners.values()]
       .map(({ rel, record, entry }) => ({ ...entry, path: this.abs(rel), size: record.size, mtimeMs: record.mtimeMs }))
-      .sort((a, b) => a.anilistId - b.anilistId || a.episode - b.episode);
+      .sort((a, b) => byPart(titlePart(a.title), titlePart(b.title)) || a.episode - b.episode);
     this.unfiledFiles = unfiled;
   }
 
@@ -173,17 +202,19 @@ export class EncodeIndex {
     await this.opts.onRead?.(rel);
     try {
       const mkv = await withFileReader(this.abs(rel), (reader) => openMatroska(reader));
-      const anilistId = whole(mkv.tags.ANILIST_ID);
+      const title = titleFromTags(mkv.tags);
       const episode = whole(mkv.tags.EPISODE);
-      if (anilistId === null || episode === null) return { size, mtimeMs, entry: null };
+      if (title === null || episode === null) return { size, mtimeMs, entry: null };
       const startText = mkv.tags.SEIKOU_EPISODE_START_MS?.trim();
       const start = startText ? Number(startText) : NaN;
       return {
         size,
         mtimeMs,
         entry: {
-          id: encodeId({ source: 'anilist', anilistId }, episode),
-          anilistId,
+          id: encodeId(title, episode),
+          title,
+          titleName: mkv.tags.TITLE_NAME?.trim() || null,
+          anilistId: title.source === 'anilist' ? title.anilistId : null,
           episode,
           episodeTitle: mkv.tags.EPISODE_TITLE?.trim() || null,
           discKey: mkv.tags.SEIKOU_DISC_KEY?.trim() || null,
@@ -339,7 +370,7 @@ export class EncodeIndex {
     return this.unfiledFiles;
   }
 
-  /** Reads one file (say, one just uploaded) into the index; throws when it names no AniList id and episode. */
+  /** Reads one file (say, one just uploaded) into the index; throws when it names no title and episode. */
   async add(path: string): Promise<EncodeEntry> {
     let root: string;
     try {
@@ -357,7 +388,7 @@ export class EncodeIndex {
     if (rel === '' || rel === '..' || rel.startsWith('../') || isAbsolute(rel) || rel.split('/').some((seg) => seg.startsWith('.'))) throw new Error('not inside the encodes folder');
     const s = await stat(real);
     const record = await this.read(rel, s.size, s.mtimeMs);
-    if (!record.entry) throw new Error('the file names no AniList id and episode in its tags');
+    if (!record.entry) throw new Error('the file names no title and episode in its tags');
     this.commit(new Map(this.files).set(rel, record));
     this.changedDuringScan?.set(rel, record);
     return this.get(record.entry.id)!;

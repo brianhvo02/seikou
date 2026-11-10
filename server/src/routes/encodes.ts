@@ -13,13 +13,15 @@ import { serveFile } from './discs';
 import { requestDevice } from './titles';
 import type { TitleLibrary } from './titles';
 
-const ROUTE = /^\/api\/encodes\/(?:(status)|([1-9]\d*-[1-9]\d*)(?:\/(manifest|files\/EPISODE\.MKV))?)$/;
+/** An encode id's shape, `<titlePart>-<episode>`; `EncodeIndex.get` decides whether it names an encode. */
+const ID = '[0-9a-z]{1,80}-[1-9]\\d{0,14}';
+const ROUTE = new RegExp(`^/api/encodes/(?:(status)|(${ID})(?:/(manifest|files/EPISODE\\.MKV))?)$`);
 /** A request that arrives during the first scan waits for it this long, then gets 503 `indexing`. */
 export const FIRST_SCAN_WAIT_MS = 30_000;
 
-const SHOWS_ROUTE = /^\/api\/encodes\/shows(?:\/(\d+))?$/;
+const SHOWS_ROUTE = /^\/api\/encodes\/(?:shows(?:\/(\d+))?|(ids))$/;
 const UPLOAD_ROUTE = /^\/api\/encodes\/uploads(?:\/([^/]+)(\/complete)?)?$/;
-const DELETE_ROUTE = /^\/api\/encodes\/([1-9]\d*-[1-9]\d*)$/;
+const DELETE_ROUTE = new RegExp(`^/api/encodes/(${ID})$`);
 const CONTENT_RANGE = /^bytes (\d{1,15})-(\d{1,15})\/(\d{1,15})$/;
 
 const notFound = (): Response => json(404, { error: 'not found' });
@@ -34,6 +36,9 @@ const notFound = (): Response => json(404, { error: 'not found' });
  * The library: `GET /api/encodes/shows` (`{ shows: { id, name, poster, episodeCount, anilistIds }[], unfiled? }`, `anilistIds` the AniList entries of a show's seasons, `unfiled`, the files
  * the index could not file, as paths under `ENCODES_DIR`, for owners only) and `GET /api/encodes/shows/<id>` (an `EncodeShow`), grouped by AniList as
  * the disc catalogue is. They answer from the entries the title service has cached and never wait for AniList.
+ * `GET /api/encodes/ids` (`{ ids }`, every listed encode's id, sorted) answers under the same rules.
+ * An encode's id is `<titlePart>-<episode>` (`@seikou/nas`'s `encode-id.ts`): an AniList entry's, a TMDB series
+ * season's, a TMDB film's or an own title's.
  */
 export function encodeRoutes(auth: Auth, encodes: EncodeIndex | undefined, titles: TitleLibrary | undefined, waitMs = FIRST_SCAN_WAIT_MS, uploads?: UploadStore): Handler {
   const answer = (err: unknown, close: boolean): Response => {
@@ -111,6 +116,7 @@ export function encodeRoutes(auth: Auth, encodes: EncodeIndex | undefined, title
     if (titles && !device.owner && titles.service.gate() !== 'everyone') return notFound();
     if (!encodes) return notFound();
     if (!(await encodes.ready(waitMs))) return json(503, { error: 'indexing' }, { 'Retry-After': '5' });
+    if (match[2] !== undefined) return json(200, { ids: encodes.list().map((e) => e.id).sort() });
     const built = catalogue();
     if (match[1] !== undefined) {
       const show = built.show(match[1]);
@@ -159,9 +165,12 @@ export function encodeRoutes(auth: Auth, encodes: EncodeIndex | undefined, title
   return async (req, url) => (await write(req, url)) ?? (await library(req, url)) ?? read(req, url);
 }
 
-/** The encodes grouped by AniList, from the entries the title service has cached; the posters are registered for the art route. */
+/**
+ * The AniList encodes grouped by AniList, from the entries the title service has cached; the posters are registered
+ * for the art route. Encodes of other titles are not grouped yet.
+ */
 export function encodeCatalogueOf(encodes: EncodeIndex, titles: TitleLibrary | undefined): EncodeCatalogue {
-  const list = encodes.list();
+  const list = encodes.list().filter((e): e is EncodeEntry & { anilistId: number } => e.anilistId !== null);
   const entries = titles ? titles.service.entriesFor([...new Set(list.map((e) => e.anilistId))]) : new Map();
   const built = buildEncodeCatalogue(list, entries);
   titles?.service.addEncodeArt(built.art);

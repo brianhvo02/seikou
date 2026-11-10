@@ -5,6 +5,8 @@ import { lstat, mkdir, open, readFile, readdir, rename, rm, stat, statfs } from 
 import { join } from 'node:path';
 import { openMatroska } from '@seikou/matroska';
 import { encodeId } from '@seikou/nas/encode-id';
+import { titleFromTags, titlePart } from '@seikou/nas/encode-title';
+import type { EncodeTitle } from '@seikou/nas/encode-title';
 import { isCode, replaceAtomically } from '@seikou/titles/atomic-json';
 import { HttpError } from '../http';
 import type { EncodeEntry, EncodeIndex } from './index-store';
@@ -94,7 +96,7 @@ const whole = (text: string | undefined): number | null => (text !== undefined &
 /**
  * Resumable uploads of encoded episodes into `<dir>/.uploads/<id>.partial`, with `<id>.json` (size, hash, name,
  * the device, the stored ranges). Chunks land anywhere in the preallocated file, in any order and more than once.
- * `complete` checks every byte, the SHA-256 and the tags, then renames the file to `<anilistId>/<episode>.mkv` and
+ * `complete` checks every byte, the SHA-256 and the tags, then renames the file to `<titlePart>/<episode>.mkv` and
  * lists it; an existing file there is replaced only by that rename.
  */
 export class UploadStore {
@@ -274,18 +276,18 @@ export class UploadStore {
         await this.discard(id);
         throw new UploadError(422, 'hash-mismatch');
       }
-      let anilistId: number | null = null;
+      let title: EncodeTitle | null = null;
       let episode: number | null = null;
       try {
         const mkv = await withFileReader(this.partial(id), (reader) => openMatroska(reader));
-        anilistId = whole(mkv.tags.ANILIST_ID);
+        title = titleFromTags(mkv.tags);
         episode = whole(mkv.tags.EPISODE);
       } catch (err) {
         this.opts.log(`encodes: upload ${id} is not a readable Matroska file: ${err instanceof Error ? err.message : String(err)}`);
       }
       // kept, so the owner can abort it
-      if (anilistId === null || episode === null) throw new UploadError(422, 'bad-tags');
-      const folder = join(this.opts.dir, String(anilistId));
+      if (title === null || episode === null) throw new UploadError(422, 'bad-tags');
+      const folder = join(this.opts.dir, titlePart(title));
       const finalPath = join(folder, `${episode}.mkv`);
       try {
         if (!(await lstat(folder)).isDirectory()) throw new UploadError(409, 'bad-folder');
@@ -302,7 +304,7 @@ export class UploadStore {
       // one rename over any old file: the old one plays until it lands
       await rename(this.partial(id), finalPath);
       await rm(this.metaFile(id), { force: true });
-      const filed = encodeId({ source: 'anilist', anilistId }, episode);
+      const filed = encodeId(title, episode);
       try {
         return { entry: await this.opts.index.add(finalPath), filed };
       } catch (err) {

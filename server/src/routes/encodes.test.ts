@@ -9,6 +9,7 @@ import { appHandlers } from '../app';
 import { Auth } from '../auth';
 import { BdjStore } from '../bdj-store';
 import { EncodeIndex } from '../encodes/index-store';
+import { retagged } from '../encodes/test-retag';
 import { createServer } from '../http';
 import { Library } from '../library';
 import { Store } from '../store';
@@ -192,6 +193,50 @@ describe('encodes routes', () => {
     expect((await get('990001-1/manifest', guest)).status).toBe(404);
     expect((await get('990001-1/files/EPISODE.MKV', guest)).status).toBe(404);
     expect((await get('990001-1/manifest', owner)).status).toBe(200);
+  });
+
+  describe('titles beyond AniList', () => {
+    const TV = { ANILIST_ID: null, ENCODER: null, SEIKOU_TITLE: 'tmdb-tv:990101', SEASON: '1', EPISODE: '2' };
+    const withTv = (): void => {
+      mkdirSync(join(tmp, 'encodes/tv990101s1'), { recursive: true });
+      writeFileSync(join(tmp, 'encodes/tv990101s1/2.mkv'), retagged(1, TV));
+    };
+    const call = (method: string, path: string, t: string | null): Promise<Response> =>
+      fetch(`${base}/api/encodes/${path}`, { method, headers: t ? { Authorization: `Bearer ${t}` } : {} });
+
+    it('ids lists every encode of either kind, sorted, behind the token and the gate', async () => {
+      withTv();
+      const index = await start(true, { second: true });
+      await index!.ready(5000);
+      const guest = await token('Guest', false);
+      const r = await call('GET', 'ids', guest);
+      expect(r.status).toBe(200);
+      expect(await r.json()).toEqual({ ids: ['990001-1', '990001-2', 'tv990101s1-2'] });
+      expect((await call('GET', 'ids', null)).status).toBe(401);
+      gate = 'owners';
+      expect((await call('GET', 'ids', guest)).status).toBe(404);
+      const owner = await token('Owner', true);
+      expect((await call('GET', 'ids', owner)).status).toBe(200);
+    });
+
+    it('ids answers 503 indexing during the first scan', async () => {
+      await start(true, { scan: false, waitMs: 20 });
+      const owner = await token('Owner', true);
+      const r = await call('GET', 'ids', owner);
+      expect([r.status, r.headers.get('retry-after'), await r.json()]).toEqual([503, '5', { error: 'indexing' }]);
+    });
+
+    it('serves a TMDB episode by its id', async () => {
+      withTv();
+      const index = await start(true);
+      await index!.ready(5000);
+      const owner = await token('Owner', true);
+      const detail = (await (await call('GET', 'tv990101s1-2', owner)).json()) as Record<string, unknown>;
+      expect(detail).toMatchObject({ id: 'tv990101s1-2', anilistId: null, title: { source: 'tmdb-tv', tmdbId: 990101, season: 1 }, episode: 2 });
+      expect(((await (await call('GET', 'tv990101s1-2/manifest', owner)).json()) as DiscManifest).discId).toBe('tv990101s1-2');
+      expect((await call('GET', 'tv990101s1-2/files/EPISODE.MKV', owner)).status).toBe(200);
+      expect((await call('GET', 'tv990101-2', owner)).status).toBe(404);
+    });
   });
 
   describe('library', () => {
