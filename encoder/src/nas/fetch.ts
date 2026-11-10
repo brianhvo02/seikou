@@ -10,7 +10,7 @@ import {
   CHUNK_BYTES,
   coveredIn,
   defaultSleep,
-  fetchRange,
+  fetchMirrorRange,
   FetchError,
   fetchRootOf,
   gapsIn,
@@ -90,7 +90,11 @@ export class ClipFetcher {
     await this.fetchAll(paths.map((path) => ({ path, end: headLength(this.sizeOf(state.files, path)) })));
   }
 
-  /** Fetches `clips` (stream file names such as '00001.M2TS') whole for `holder`; resumes from `fetch.json`; checks room first (throws `no-room` naming the bytes needed). */
+  /**
+   * Fetches `clips` (stream file names such as '00001.M2TS') whole for `holder`; resumes from `fetch.json`; checks room
+   * first (throws `no-room` naming the bytes needed). The claim is made before anything is fetched and stays when the
+   * hold fails, so the caller always `release`s it.
+   */
   async hold(holder: string, clips: readonly string[]): Promise<void> {
     const state = await loadState(this.dataDir, this.key, this.entry);
     const paths = [...new Set(clips.map(streamPathOf))];
@@ -171,12 +175,12 @@ export class ClipFetcher {
 
   /** Fetches `gaps` of stream file `path` in `CHUNK_BYTES` requests, each written in place, flushed, then recorded. */
   private async download(path: string, gaps: readonly [number, number][], tick: (n: number) => void): Promise<void> {
-    const { discId, files } = await loadState(this.dataDir, this.key, this.entry);
-    const size = files[path]!;
+    const size = (await loadState(this.dataDir, this.key, this.entry)).files[path]!;
     for (const [from, to] of gaps) {
       for (let at = from; at < to; at += CHUNK_BYTES) {
         const end = Math.min(to, at + CHUNK_BYTES);
-        const bytes = await fetchRange(this.client, discId, path, at, end - 1, size, {
+        const ids = await loadState(this.dataDir, this.key, this.entry);
+        const bytes = await fetchMirrorRange(this.client, ids, path, at, end - 1, size, {
           ...(this.signal ? { signal: this.signal } : {}),
           sleep: this.sleep,
         });
@@ -201,37 +205,34 @@ export class ClipFetcher {
 }
 
 /**
- * Empties stream file `path` of mirror `key` back to a sparse file that keeps the fetched part of its head: the head is
- * read, the file truncated to 0 and to its size, and the head written back. Nothing happens when nothing past the head
- * is here.
+ * Empties stream file `path` of mirror `key` back to a sparse file that keeps the fetched part of its head. A download
+ * of the clip already running is waited for first, and nothing happens when a holder claims the clip by the time the
+ * lock is held, or when nothing past the head is here. The order keeps the record never larger than the file: the
+ * shrunken ranges are written first, then the rest is freed by truncating to the head and back to the full size, so
+ * the head never leaves the disk and a crash at any point loses only bytes no longer recorded.
  */
 async function emptyClip(dataDir: string, key: string, entry: MirrorEntry, path: string): Promise<void> {
+  for (let running = entry.inflight.get(path); running; running = entry.inflight.get(path)) await running.catch(() => undefined);
   await locked(entry, async () => {
+    if (entry.holders.has(path)) return;
     const state = await loadState(dataDir, key, entry).catch(() => null);
     const size = state?.files[path];
     if (!state || size === undefined) return;
     const ranges = state.ranges[path] ?? [];
-    const keep = coveredIn(ranges, 0, headLength(size));
+    const head = headLength(size);
+    const keep = coveredIn(ranges, 0, head);
     if (bytesIn(keep) === bytesIn(ranges)) return;
     const dir = mirrorDirOf(dataDir, key);
-    const local = localPathOf(dir, path);
-    const fh = await open(local, 'r+');
+    state.ranges[path] = keep;
+    await writeState(dir, state);
+    const fh = await open(localPathOf(dir, path), 'r+');
     try {
-      const pieces: { at: number; bytes: Uint8Array }[] = [];
-      for (const [a, b] of keep) {
-        const bytes = new Uint8Array(b - a);
-        await fh.read(bytes, 0, bytes.length, a);
-        pieces.push({ at: a, bytes });
-      }
-      await fh.truncate(0);
+      await fh.truncate(head);
       await fh.truncate(size);
-      for (const p of pieces) await fh.write(p.bytes, 0, p.bytes.length, p.at);
       await fh.sync();
     } finally {
       await fh.close();
     }
-    state.ranges[path] = keep;
-    await writeState(dir, state);
   });
 }
 
@@ -289,6 +290,6 @@ export async function readMirrorRange(dataDir: string, client: NasClient, key: s
     }
     return gapsIn(ranges, start, end + 1);
   });
-  for (const [a, b] of gaps) out.set(await fetchRange(client, state.discId, path, a, b - 1, size), a - start);
+  for (const [a, b] of gaps) out.set(await fetchMirrorRange(client, entry.state ?? state, path, a, b - 1, size), a - start);
   return out;
 }

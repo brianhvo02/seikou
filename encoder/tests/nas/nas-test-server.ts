@@ -47,6 +47,8 @@ export interface NasTestServer {
 export interface NasTestServerOptions {
   readonly encodes?: boolean;
   readonly discs?: boolean;
+  /** Changes the copy of the disc library (its folder given) before it is backdated and scanned. */
+  readonly prepare?: (discsDir: string) => void;
 }
 
 function backdate(dir: string): void {
@@ -70,6 +72,7 @@ export async function startNasTestServer(opts: NasTestServerOptions = {}): Promi
   if (opts.discs !== false) {
     discsDir = join(tmp, 'syn');
     cpSync(join(REPO, 'fixtures/synthetic'), discsDir, { recursive: true });
+    opts.prepare?.(discsDir);
     backdate(discsDir);
   }
   const library = new Library(discsDir === null ? [] : [{ name: 'syn', dir: discsDir }], join(dataDir, 'library.json'), { scanPauseMs: 0 });

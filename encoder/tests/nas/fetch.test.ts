@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { appendFileSync, cpSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { appendFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, truncateSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,7 +10,7 @@ import { probeClip, type ClipProbe } from '../../src/disc/probe';
 import { parseEpisodeSpec, planEpisodes } from '../../src/plan/episodes';
 import { NasClient } from '../../src/nas/client';
 import { ClipFetcher, clipsOfEpisode, readMirrorRange, sweepUnheld } from '../../src/nas/fetch';
-import { CHUNK_BYTES, ensureMirror, FetchError, HEAD_BYTES } from '../../src/nas/mirror';
+import { CHUNK_BYTES, ensureMirror, FetchError, HEAD_BYTES, locked, mirrorEntry } from '../../src/nas/mirror';
 import { pairWithNas } from '../../src/nas/pairing';
 import { startNasTestServer, type NasTestServer } from './nas-test-server';
 
@@ -52,11 +52,19 @@ describe('ClipFetcher', () => {
     new ClipFetcher({ dataDir, client, key: mirror.key, ...o });
 
   beforeAll(async () => {
-    nas = await startNasTestServer({ encodes: false });
+    nas = await startNasTestServer({
+      encodes: false,
+      prepare: (dir) => {
+        // Clip 2 made longer than a head and a chunk, with bytes that are not zero, so emptying it shows. (APFS fills
+        // the holes of a file of 16 MiB or less, so a shorter clip would never read as sparse there.)
+        appendFileSync(join(dir, 'disc1/BDMV/STREAM/00002.m2ts'), randomBytes(CHUNK_BYTES + 8 * 1024 * 1024 + 192 * 7));
+        // Another copy of the same disc (same streams, so the same key) whose metadata differs.
+        cpSync(join(dir, 'disc1'), join(dir, 'disc1-copy'), { recursive: true });
+        mkdirSync(join(dir, 'disc1-copy/CERTIFICATE'));
+        writeFileSync(join(dir, 'disc1-copy/CERTIFICATE/id.bdmv'), Buffer.alloc(64, 1));
+      },
+    });
     source = join(nas.discsDir!, 'disc1');
-    // Clip 2 made longer than a head and a chunk, with bytes that are not zero, so emptying it shows. (APFS fills the
-    // holes of a file of 16 MiB or less, so a shorter clip would never read as sparse there.)
-    appendFileSync(join(source, 'BDMV/STREAM/00002.m2ts'), randomBytes(CHUNK_BYTES + 8 * 1024 * 1024 + 192 * 7));
   });
   afterAll(async () => {
     await nas.close();
@@ -101,7 +109,7 @@ describe('ClipFetcher', () => {
     beforeFile = () => {
       if (rangeRequests.length === 3) controller.abort();
     };
-    await expect(fetcher({ signal: controller.signal }).hold('job-1', ['00001.M2TS', '00002.M2TS'])).rejects.toBeDefined();
+    await expect(fetcher({ signal: controller.signal }).hold('job-1', ['00001.M2TS', '00002.M2TS'])).rejects.toMatchObject({ name: 'AbortError' });
     expect(rangeRequests).toEqual(['BDMV/STREAM/00001.M2TS', 'BDMV/STREAM/00002.M2TS', 'BDMV/STREAM/00002.M2TS']);
     const state = JSON.parse(readFileSync(join(mirror.dir, 'fetch.json'), 'utf8')) as { ranges: Record<string, [number, number][]> };
     expect(state.ranges['BDMV/STREAM/00002.M2TS']).toEqual([[0, CHUNK_BYTES]]);
@@ -141,6 +149,103 @@ describe('ClipFetcher', () => {
     await f.hold('job-2', ['00002.M2TS']);
     expect(rangeRequests).toEqual(['BDMV/STREAM/00002.M2TS', 'BDMV/STREAM/00002.M2TS']);
     expect(local('00002.m2ts').equals(src('00002.m2ts'))).toBe(true);
+  });
+
+  /** The mirror's `fetch.json` in data directory `data`. */
+  const stateIn = (data: string): { discId: string; discIds: string[]; ranges: Record<string, [number, number][]> } =>
+    JSON.parse(readFileSync(join(data, 'fetch', mirror.key, 'fetch.json'), 'utf8')) as { discId: string; discIds: string[]; ranges: Record<string, [number, number][]> };
+
+  it('a crash while emptying never leaves a record larger than the file: the next hold fetches what was freed', async () => {
+    await fetcher().hold('job-1', ['00002.M2TS']);
+    const path = 'BDMV/STREAM/00002.M2TS';
+    const size = src('00002.m2ts').length;
+    // Two crashes, in a copy of the data directory each (no holders, no state in memory, as after a restart): one right
+    // after emptying recorded the shrunken ranges, one after it also truncated the file to the head.
+    for (const truncatedTo of [null, HEAD_BYTES]) {
+      const crashed = mkdtempSync(join(tmpdir(), 'encoder-fetch-crash-'));
+      try {
+        cpSync(join(dataDir, 'fetch'), join(crashed, 'fetch'), { recursive: true });
+        const fetchJson = join(crashed, 'fetch', mirror.key, 'fetch.json');
+        const state = stateIn(crashed);
+        state.ranges[path] = [[0, HEAD_BYTES]];
+        writeFileSync(fetchJson, JSON.stringify(state));
+        const clip = join(crashed, 'fetch', mirror.key, 'BDMV/STREAM/00002.m2ts');
+        if (truncatedTo !== null) truncateSync(clip, truncatedTo);
+
+        rangeRequests = [];
+        await new ClipFetcher({ dataDir: crashed, client, key: mirror.key }).hold('job-2', ['00002.M2TS']);
+        expect(rangeRequests).toEqual([path, path]); // [HEAD_BYTES, size) in two chunks; the head is not fetched again
+        const back = readFileSync(clip);
+        expect(back.length).toBe(size);
+        expect(back.equals(src('00002.m2ts'))).toBe(true);
+        expect(stateIn(crashed).ranges[path]).toEqual([[0, size]]);
+      } finally {
+        rmSync(crashed, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it('a hold that comes while a release of the same clip waits for the lock keeps the clip whole', async () => {
+    const f = fetcher();
+    await f.hold('job-1', ['00002.M2TS']);
+    let open!: () => void;
+    const gate = new Promise<void>((r) => (open = r));
+    const blocked = locked(mirrorEntry(dataDir, mirror.key), () => gate);
+    const releasing = f.release('job-1', ['00002.M2TS']);
+    await fetcher().hold('session:b', ['00002.M2TS']);
+    open();
+    await blocked;
+    await releasing;
+    expect(local('00002.m2ts').equals(src('00002.m2ts'))).toBe(true);
+    expect(stateIn(dataDir).ranges['BDMV/STREAM/00002.M2TS']).toEqual([[0, src('00002.m2ts').length]]);
+  });
+
+  it('a release during the clip\'s download waits for it, then empties what it fetched', async () => {
+    const f = fetcher();
+    const holding = f.hold('job-1', ['00002.M2TS']);
+    // The release comes once the download has started, before its first chunk lands.
+    while (rangeRequests.length === 0) await new Promise((r) => setTimeout(r, 1));
+    await f.release('job-1');
+    await holding;
+    const two = local('00002.m2ts');
+    expect(two.subarray(0, HEAD_BYTES).equals(src('00002.m2ts').subarray(0, HEAD_BYTES))).toBe(true);
+    expect(isZero(two.subarray(HEAD_BYTES))).toBe(true);
+    expect(stateIn(dataDir).ranges['BDMV/STREAM/00002.M2TS']).toEqual([[0, HEAD_BYTES]]);
+  });
+
+  it('two copies of one disc with other metadata, opened in turn, never remove each other\'s fetched ranges', async () => {
+    const copyId = (await client.json<LibraryListing>('library')).discs.find((d) => d.name === 'disc1-copy')!.id;
+    const cert = join(mirror.dir, 'CERTIFICATE/id.bdmv');
+    const f = fetcher();
+    await f.hold('job-1', ['00001.M2TS', '00002.M2TS']);
+
+    // Held: the copy's metadata waits; the ranges stay.
+    const held = await ensureMirror(dataDir, client, copyId, mirror.key);
+    expect(held.dir).toBe(mirror.dir);
+    expect(existsSync(cert)).toBe(false);
+    expect(stateIn(dataDir)).toMatchObject({ discId: copyId, discIds: [discId, copyId] });
+
+    await f.release('job-1', ['00002.M2TS']);
+    await f.release('job-1');
+    // Nothing held: each copy's metadata is written in turn, and what was fetched stays.
+    for (const [id, certThere] of [[copyId, true], [discId, false], [copyId, true]] as const) {
+      await ensureMirror(dataDir, client, id, mirror.key);
+      expect(existsSync(cert)).toBe(certThere);
+      expect(stateIn(dataDir).ranges).toMatchObject({ 'BDMV/STREAM/00001.M2TS': [[0, src('00001.m2ts').length]], 'BDMV/STREAM/00002.M2TS': [[0, HEAD_BYTES]] });
+    }
+    rangeRequests = [];
+    await f.hold('job-2', ['00001.M2TS']);
+    expect(rangeRequests).toEqual([]);
+
+    // The mirror's latest copy gone from the NAS: a read falls back to the other copy.
+    const copyDir = join(nas.discsDir!, 'disc1-copy');
+    renameSync(copyDir, `${copyDir}-gone`);
+    try {
+      const at = HEAD_BYTES + 1000;
+      expect(Buffer.from(await readMirrorRange(dataDir, client, mirror.key, 'BDMV/STREAM/00002.M2TS', at, at + 99)).equals(src('00002.m2ts').subarray(at, at + 100))).toBe(true);
+    } finally {
+      renameSync(`${copyDir}-gone`, copyDir);
+    }
   });
 
   it('the start sweep empties every clip no holder claims', async () => {

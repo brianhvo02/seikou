@@ -38,7 +38,13 @@ export type ByteRange = [number, number];
 
 /** `fetch.json`: the mirrored disc and what of each stream file is here. Paths are the manifest's (upper-case). */
 export interface MirrorState {
+  /** The NAS disc id `ensureMirror` was last called with. */
   discId: string;
+  /**
+   * Every NAS disc id `ensureMirror` was called with for this key, oldest first, `discId` last. Copies of one disc
+   * share a key; a range a 404 refuses under one id is asked for under the others before the disc counts as changed.
+   */
+  discIds: string[];
   discKey: string;
   label: string;
   /** Every file of the disc with its size. */
@@ -190,7 +196,9 @@ function validState(v: unknown): v is MirrorState {
     s.files !== null &&
     typeof s.ranges === 'object' &&
     s.ranges !== null &&
-    Array.isArray(s.heads)
+    Array.isArray(s.heads) &&
+    Array.isArray(s.discIds) &&
+    s.discIds.every((id) => typeof id === 'string')
   );
 }
 
@@ -222,6 +230,13 @@ async function writeAtomic(path: string, bytes: Uint8Array): Promise<void> {
     await fh.close();
   }
   await rename(tmp, path);
+  // The rename is lasting only once its folder is flushed: without it, power loss could bring an older file back.
+  const folder = await open(dirname(path), 'r');
+  try {
+    await folder.sync();
+  } finally {
+    await folder.close();
+  }
 }
 
 /** The entry's state, read from `fetch.json` when not yet held. Throws when the mirror is not there. */
@@ -376,11 +391,47 @@ export async function fetchRange(
   );
 }
 
+/**
+ * `fetchRange` of a mirror's stream file under `state.discId`, then, when the NAS answers `disc-changed`, under each
+ * other id the key was mirrored from (newest first): a copy of the disc that is gone does not stop the others.
+ */
+export async function fetchMirrorRange(
+  client: NasClient,
+  state: Pick<MirrorState, 'discId' | 'discIds'>,
+  path: string,
+  start: number,
+  end: number,
+  size: number,
+  opts: { signal?: AbortSignal; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<Uint8Array> {
+  const ids = [state.discId, ...[...state.discIds].reverse().filter((id) => id !== state.discId)];
+  let changed: unknown = null;
+  for (const id of ids) {
+    try {
+      return await fetchRange(client, id, path, start, end, size, opts);
+    } catch (e) {
+      if (!(e instanceof FetchError && e.code === 'disc-changed')) throw e;
+      changed = e;
+    }
+  }
+  throw changed;
+}
+
 // ---- ensureMirror ----
+
+/** The stream files of `files` with their sizes: what the disc key covers, and what makes a mirror stale. */
+function streamsOf(files: Record<string, number>): Record<string, number> {
+  return Object.fromEntries(Object.entries(files).filter(([p]) => isStreamPath(p)));
+}
 
 function sameFiles(a: Record<string, number>, b: Record<string, number>): boolean {
   const ka = Object.keys(a);
   return ka.length === Object.keys(b).length && ka.every((k) => b[k] === a[k]);
+}
+
+/** Whether any holder claims a clip of the mirror. */
+function anyHeld(entry: MirrorEntry): boolean {
+  return [...entry.holders.values()].some((set) => set.size > 0);
 }
 
 /** Makes a sparse file of `size` bytes at `path` (replacing any file there). */
@@ -395,8 +446,13 @@ export async function sparseFile(path: string, size: number): Promise<void> {
 
 /**
  * Makes or refreshes the mirror of NAS disc `discId`: metadata files whole (inlined ones from the manifest), every
- * .M2TS a sparse file of its manifest size. Throws `disc-changed` when an existing mirror's sizes differ (the old one is
- * removed first) or when `discKeyOf(discId, manifest.files)` is not `expectedKey` (when given). Returns the mirror folder.
+ * .M2TS a sparse file of its manifest size. Throws `disc-changed` when an existing mirror's stream files differ (the old
+ * one is removed first, held or not) or when `discKeyOf(discId, manifest.files)` is not `expectedKey` (when given).
+ * Returns the mirror folder.
+ *
+ * Copies of one disc share a key (it covers the stream files only) and may differ in metadata. A mirror whose streams
+ * match keeps its fetched ranges; its metadata is rewritten from this manifest when no holder claims any of its clips,
+ * and left as the running work started with it otherwise. Either way `discId` becomes the mirror's latest id.
  */
 export async function ensureMirror(dataDir: string, client: NasClient, discId: string, expectedKey?: string): Promise<{ dir: string; key: string; label: string }> {
   const manifest = await fetchManifest(client, discId);
@@ -406,8 +462,9 @@ export async function ensureMirror(dataDir: string, client: NasClient, discId: s
     localPathOf('', f.path); // Refuse a path that would leave the mirror before anything is written.
     files[f.path] = f.size;
   }
+  const streams = streamsOf(files);
 
-  // An earlier mirror of this disc (or at this key) whose files differ is stale: it goes, and the caller hears of it.
+  // An earlier mirror of this disc (or at this key) whose stream files differ is stale: it goes, and the caller hears of it.
   let changed = false;
   const root = fetchRootOf(dataDir);
   for (const name of await readdir(root).catch((): string[] => [])) {
@@ -416,7 +473,7 @@ export async function ensureMirror(dataDir: string, client: NasClient, discId: s
     const stale = await locked(entry, async () => {
       const dir = join(root, name);
       const state = await readState(dir);
-      if (state === null || (name !== key && state.discId !== discId) || sameFiles(state.files, files)) return false;
+      if (state === null || (name !== key && !state.discIds.includes(discId)) || sameFiles(streamsOf(state.files), streams)) return false;
       await rm(dir, { recursive: true, force: true });
       entry.state = null;
       return true;
@@ -427,18 +484,28 @@ export async function ensureMirror(dataDir: string, client: NasClient, discId: s
 
   const dir = mirrorDirOf(dataDir, key);
   const entry = mirrorEntry(dataDir, key);
-  await locked(entry, async () => {
+  const label = await locked(entry, async () => {
     await mkdir(dir, { recursive: true });
     const previous = await readState(dir);
-    const kept = previous !== null && sameFiles(previous.files, files) ? previous : null;
+    const kept = previous !== null && sameFiles(streamsOf(previous.files), streams) ? previous : null;
+    const discIds = [...(kept?.discIds ?? []).filter((id) => id !== discId), discId];
+
+    if (kept !== null && anyHeld(entry)) {
+      // Clips are held: the running work keeps the metadata it started with.
+      const state: MirrorState = { ...kept, discId, discIds };
+      await writeState(dir, state);
+      entry.state = state;
+      return state.label;
+    }
+
     const ranges: Record<string, ByteRange[]> = {};
     for (const f of manifest.files) {
       const local = localPathOf(dir, f.path);
       await mkdir(dirname(local), { recursive: true });
       const onDisk = await stat(local).catch(() => null);
-      const present = kept !== null && onDisk !== null && onDisk.isFile() && onDisk.size === f.size;
+      const sized = onDisk !== null && onDisk.isFile() && onDisk.size === f.size;
       if (isStreamPath(f.path)) {
-        if (present) ranges[f.path] = kept.ranges[f.path] ?? [];
+        if (kept !== null && sized) ranges[f.path] = kept.ranges[f.path] ?? [];
         else {
           await sparseFile(local, f.size);
           ranges[f.path] = [];
@@ -450,15 +517,21 @@ export async function ensureMirror(dataDir: string, client: NasClient, discId: s
         const bytes = Buffer.from(inline, 'base64');
         if (bytes.length !== f.size) throw discChanged();
         await writeAtomic(local, bytes);
-      } else if (!present) {
+      } else if (!(kept !== null && kept.discId === discId && kept.files[f.path] === f.size && sized)) {
+        // Another copy's file may hold other bytes at the same size, so it is fetched again for this one.
         await writeAtomic(local, await wholeFile(client, discId, f.path, f.size));
       }
     }
-    const state: MirrorState = { discId, discKey: key, label: manifest.name, files, ranges, heads: [] };
+    // Metadata files of the previous copy that this one does not have.
+    for (const path of Object.keys(previous?.files ?? {})) {
+      if (!isStreamPath(path) && files[path] === undefined) await rm(localPathOf(dir, path), { force: true });
+    }
+    const state: MirrorState = { discId, discIds, discKey: key, label: manifest.name, files, ranges, heads: [] };
     await writeState(dir, state);
     entry.state = state;
+    return state.label;
   });
-  return { dir, key, label: manifest.name };
+  return { dir, key, label };
 }
 
 /** All of disc file `path` from the NAS, in `CHUNK_BYTES` requests. */
