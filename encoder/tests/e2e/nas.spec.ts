@@ -2,15 +2,17 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { expect, test, type APIRequestContext } from '@playwright/test';
+import { expect, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
 import { NasClient } from '../../src/nas/client';
 import { HEAD_BYTES } from '../../src/nas/mirror';
-import { NAS_BASE, nasEnv, SERVER, SPEECH_FOLDER } from './nas-stand-in';
+import { NAS_BASE, nasEnv, SERVER } from './nas-stand-in';
 
 // The encoder and Seikou's NAS end to end, as playwright.encoder.config.ts starts them: Seikou's NAS server on 4198
 // (nas-stand-in.ts) and `seikou-encode app` on 4199 with no library folders. The app pairs with the NAS as an owner
-// device, opens the NAS's copy of the speech disc, names a chapter and picks the made-up AniList entry Starfall
-// Wanderer (990010) for two episodes, and queues them to the NAS, which files them in its Encodes library.
+// device and opens the Library by show: the made-up AniList series Lantern Road (990001) holds two discs, copies of
+// the encoder's disc1 and disc-vm, an episode of 4 s on each. The second is checked under another title (the made-up TMDB series
+// Paper Boats, 990111), which the NAS then files it under; the first is checked as the series' episode 1, and the
+// season's Queue sends it to the NAS, which files it in its Encodes library and shows the season Encoded.
 
 /** The app's address with this run's token, from the server's output. */
 function appUrl(): string {
@@ -32,7 +34,7 @@ const headers = (): Record<string, string> => ({ Authorization: `Bearer ${token(
 const api = (path: string): string => new URL(`/api/${path}`, appUrl()).href;
 
 const PERSON = 'Encoder Owner';
-const ANILIST_ID = 990010;
+const ANILIST_ID = 990001;
 const NO_TOOLS = 'needs VapourSynth with BestSource, SvtAv1EncApp and opusenc';
 
 /** A fresh owner pairing code, minted as the NAS's owner does: `node server.mjs owner-code` against its data. */
@@ -59,7 +61,7 @@ async function jobs(request: APIRequestContext): Promise<JobView[]> {
 
 /** Whether the app found the encoder's tools, as a helper session on the disc reports it. */
 async function toolsReady(request: APIRequestContext, key: string): Promise<boolean> {
-  const made = await request.post(api('sessions'), { headers: headers(), data: { discKey: key, playlistId: '00000', episodeSpec: '1-3,4-' } });
+  const made = await request.post(api('sessions'), { headers: headers(), data: { discKey: key, playlistId: '00001', episodeSpec: '1-' } });
   expect(made.status()).toBeLessThan(300);
   const id = ((await made.json()) as { id: string }).id;
   return ((await (await request.get(api(`sessions/${id}`), { headers: headers() })).json()) as { toolsReady: boolean }).toolsReady;
@@ -85,8 +87,23 @@ function clipsBeyondHead(mirror: string): string[] {
     .map(([path]) => path);
 }
 
-test('pair with the NAS, open a NAS disc, and send its episodes to the NAS', async ({ page, request }) => {
-  test.setTimeout(480_000);
+
+test.describe.configure({ mode: 'serial' });
+
+/** The Episodes page of the disc a season's Check episodes link leads to (the link may lead through the disc's page). */
+async function openEpisodes(page: Page, playlist: string): Promise<void> {
+  const episodes = page.getByRole('textbox', { name: 'Episodes' });
+  const playlists = page.locator('.playlist-list li', { hasText: playlist });
+  await expect(episodes.or(playlists)).toBeVisible({ timeout: 60_000 });
+  if (await playlists.isVisible()) await playlists.getByRole('link', { name: 'Episodes' }).click();
+  await expect(episodes).toBeVisible();
+}
+
+/** The disc block of a season page with this heading. */
+const discBlock = (page: Page, label: string): Locator => page.locator('section.season-disc', { has: page.getByRole('heading', { name: label, exact: true }) });
+
+test('pair with the NAS, find a show in the Library by show, and file a disc under another title by checking it', async ({ page }) => {
+  test.setTimeout(240_000);
   const problems: string[] = [];
   page.on('pageerror', (e) => problems.push(`page error: ${e.message}`));
 
@@ -99,60 +116,121 @@ test('pair with the NAS, open a NAS disc, and send its episodes to the NAS', asy
   await expect(page.getByText(`Paired with 127.0.0.1 as ${PERSON}`)).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText('The NAS keeps encodes')).toBeVisible();
 
-  // Library: the NAS's discs, marked NAS (the NAS's own first scan may still be running: Rescan until it is listed)
+  // Library: paired, it opens By show; the NAS's first scan and matching may still be running: Rescan until Lantern Road is listed
   await page.getByRole('link', { name: 'Library', exact: true }).first().click();
   await expect(page.getByRole('heading', { name: 'Library', exact: true })).toBeVisible();
-  const speech = page.getByRole('link', { name: new RegExp(SPEECH_FOLDER) });
+  await expect(page.getByRole('link', { name: 'By show' })).toHaveAttribute('aria-current', 'page');
+  const lantern = page.getByRole('list', { name: 'Shows' }).getByRole('link', { name: /Lantern Road/ });
   await expect
     .poll(
       async () => {
-        if (await speech.isVisible()) return true;
+        if (await lantern.isVisible()) return true;
         const rescan = page.getByRole('button', { name: 'Rescan' });
         if (await rescan.isEnabled()) await rescan.click();
         return false;
       },
-      { timeout: 60_000, intervals: [1000] },
+      { timeout: 90_000, intervals: [1000] },
     )
     .toBe(true);
-  const row = page.locator('.disc-list li', { has: speech });
-  await expect(row.locator('.mark-nas')).toHaveText('NAS');
-  const key = /^\/disc\/([^/?]+)/.exec((await speech.getAttribute('href')) ?? '')?.[1] ?? '';
-  expect(key).toMatch(/^f\./);
-  await speech.click();
+  await expect(lantern).toContainText('1 season, 2 discs');
+  await expect(lantern).toContainText('None of 2 encoded');
+  // the speech disc, which no title matches, is listed as the NAS's unsorted
+  await expect(page.getByRole('link', { name: /disc-speech.*Encoder source/ })).toBeVisible();
 
-  // Disc, then the Episodes page of its playlist
-  await expect(page.getByRole('heading', { name: 'disc-speech' })).toBeVisible({ timeout: 60_000 });
-  await page.locator('.playlist-list li', { hasText: '00000' }).getByRole('link', { name: 'Episodes' }).click();
-  await expect(page.getByRole('heading', { name: 'disc-speech' })).toBeVisible();
+  // Show, then its season: two discs, nothing checked, so the season can't be queued yet
+  await lantern.click();
+  await expect(page.getByRole('heading', { name: 'Lantern Road', level: 1 })).toBeVisible();
+  await page.locator('.season-list a').first().click();
+  const second = discBlock(page, 'Disc 2');
+  await expect(second).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('button', { name: /^Queue/ })).toBeDisabled();
 
-  // Two episodes, chapter 1 named Opening, and Starfall Wanderer episodes 1 and 2
-  await page.getByRole('checkbox', { name: 'Split after chapter 3' }).check();
-  await expect(page.getByRole('textbox', { name: 'Episodes' })).toHaveValue('1-3,4-');
-  await page.getByLabel('Name of chapter 1').selectOption('Opening');
-  await page.getByRole('button', { name: 'Choose the AniList entry of episode 1' }).click();
-  const search = page.getByRole('searchbox', { name: 'Search AniList for episode 1' });
-  await search.fill('starfall');
+  // Disc 2 (the copy of disc-vm): its episode is checked under Paper Boats, a TMDB series, in place of Lantern Road
+  await second.getByRole('link', { name: 'Check episodes' }).click();
+  await openEpisodes(page, '00001');
+  // prefilled from the NAS's match: AniList 990001 (the app's own AniList fixture doesn't know it, so it is named by id), episode 2
+  await expect(page.getByLabel('AniList episode number of episode 1')).toHaveValue('2');
+  await expect(page.locator('.episode-anilist-show').first()).toContainText(/Lantern Road|AniList 990001/);
+  await expect(page.getByText('Suggested').first()).toBeVisible();
+  await page.getByRole('button', { name: 'Change the AniList entry of episode 1' }).click();
+  const search = page.getByRole('searchbox', { name: 'Search for episode 1' });
+  await search.fill('paper boats');
   await search.press('Enter');
   await page
     .locator('.show-row')
-    .filter({ has: page.locator('.show-title', { hasText: /^Starfall Wanderer$/ }) })
+    .filter({ has: page.locator('.show-title', { hasText: /^Paper Boats$/ }) })
+    .click();
+  await page.getByLabel('Season of Paper Boats').fill('1');
+  await page.getByRole('button', { name: 'Use this season' }).click();
+  await expect(page.locator('.episode-anilist-show').first()).toContainText('Paper Boats, season 1');
+  await page.getByRole('button', { name: 'Mark checked' }).click();
+  await expect(page.locator('#check-result')).toHaveText('Checked. The NAS now files this disc under Paper Boats.', { timeout: 30_000 });
+
+  // The NAS now lists Paper Boats with that disc
+  const client = await NasClient.load(appData());
+  expect(client).not.toBeNull();
+  const paper = await client!.json<{ title: { names: { english: string | null } }; seasons: { discs: unknown[] }[] }>(`titles/${encodeURIComponent('tmdb-tv:990111')}`);
+  expect(paper.title.names.english).toBe('Paper Boats');
+  expect(paper.seasons.flatMap((s) => s.discs)).toHaveLength(1);
+  client!.close();
+
+  // Back at Lantern Road's season, only its first disc is left
+  await page.getByRole('link', { name: 'Back to the season' }).first().click();
+  await expect(page.locator('main.season-page')).toBeVisible();
+  await expect(page.locator('section.season-disc')).toHaveCount(1, { timeout: 30_000 });
+  await expect(page.locator('section.season-disc').first()).toContainText('Disc 1');
+  expect(problems).toEqual([]);
+});
+
+test('check the first disc as the series episode 1, queue the season to the NAS, and see it Encoded', async ({ page, request }) => {
+  test.setTimeout(480_000);
+  const problems: string[] = [];
+  page.on('pageerror', (e) => problems.push(`page error: ${e.message}`));
+
+  await page.goto(at('/'));
+  await page.getByRole('link', { name: 'Library', exact: true }).first().click();
+  await page.getByRole('list', { name: 'Shows' }).getByRole('link', { name: /Lantern Road/ }).click();
+  await page.locator('.season-list a').first().click();
+  const first = discBlock(page, 'Disc 1');
+  await expect(first).toBeVisible({ timeout: 30_000 });
+  // With the second disc gone the NAS no longer guesses the series' episodes: Check episodes has nothing to prefill
+  await expect(first).toContainText('no episode list on the NAS');
+  await expect(page.getByRole('button', { name: /^Queue/ })).toBeDisabled();
+
+  // Disc 1 is checked as Lantern Road (AniList 990001) episode 1, picked through the NAS's lookup: the NAS's match stands
+  await first.getByRole('link', { name: 'Check episodes' }).click();
+  await openEpisodes(page, '00001');
+  const key = /\/disc\/([^/?]+)/.exec(new URL(page.url()).pathname)?.[1] ?? '';
+  expect(key).toMatch(/^f\./);
+  await expect(page.getByRole('button', { name: 'Mark checked' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Choose the AniList entry of episode 1' }).click();
+  const search = page.getByRole('searchbox', { name: 'Search for episode 1' });
+  await search.fill('lantern road');
+  await search.press('Enter');
+  await page
+    .locator('.show-row')
+    .filter({ has: page.locator('.show-title', { hasText: /^Lantern Road$/ }) })
     .click();
   await expect(page.getByLabel('AniList episode number of episode 1')).toHaveValue('1');
-  await expect(page.getByLabel('AniList episode number of episode 2')).toHaveValue('2');
-  await expect(page.locator('.info-save')).toHaveText('Saved', { timeout: 10_000 });
+  await page.getByRole('button', { name: 'Mark checked' }).click();
+  await expect(page.locator('#check-result')).toHaveText('Checked.', { timeout: 30_000 });
+  await page.getByRole('link', { name: 'Back to the season' }).first().click();
+  await expect(page.locator('main.season-page')).toBeVisible();
+  await expect(discBlock(page, 'Disc 1').locator('.disc-state-checked')).toHaveText('Checked', { timeout: 30_000 });
+  await expect(discBlock(page, 'Disc 1').locator('.season-ep-state')).toHaveText(['To encode']);
 
   test.skip(!(await toolsReady(request, key)), NO_TOOLS);
 
-  // Queue with the NAS as the destination
-  await page.getByRole('button', { name: 'Queue encode' }).click();
+  // Queue: every disc with episodes to encode is checked
+  const queue = page.getByRole('button', { name: 'Queue 1 episode to the NAS' });
+  await expect(queue).toBeEnabled();
+  await queue.click();
   await expect(page.getByRole('heading', { name: 'Queue an encode' })).toBeVisible();
-  await page.getByRole('radio', { name: 'The NAS (Encodes library)' }).check();
-  await expect(page.locator('.queue-needs')).toHaveCount(0);
-  await page.getByRole('button', { name: 'Queue encode' }).click();
-  await expect(page).toHaveURL(/\/queue(\/|$)/);
+  await page.getByRole('button', { name: 'Queue encode', exact: true }).click();
+  await expect(page).toHaveURL((u) => u.pathname === '/queue');
 
-  // The job fetches, encodes and uploads each episode, then is done (the fetches are too quick here to catch in a
-  // poll, so the job's log says what it did)
+  // The job fetches, encodes and uploads the episode, then is done (the fetch is too quick here to catch in a poll, so
+  // the job's log says what it did)
   let job: JobView | undefined;
   await expect
     .poll(
@@ -163,25 +241,29 @@ test('pair with the NAS, open a NAS disc, and send its episodes to the NAS', asy
       { timeout: 420_000, intervals: [250] },
     )
     .toMatch(/^(done|failed)$/);
-  expect(job?.state).toBe('done');
-  expect(job?.episodes.map((e) => [e.state, e.encodeId])).toEqual([
-    ['done', `${ANILIST_ID}-1`],
-    ['done', `${ANILIST_ID}-2`],
-  ]);
   const log = readFileSync(join(appData(), 'jobs', `${job!.id}.log`), 'utf8');
-  for (const n of [1, 2]) {
-    expect(log).toMatch(new RegExp(`Episode ${n}: fetching .+ from the NAS\\.`));
-    expect(log).toContain(`Episode ${n}: uploading to the NAS.`);
-    expect(log).toMatch(new RegExp(`Episode ${n}: on the NAS as ${ANILIST_ID}-${n};`));
-  }
+  expect(job?.state, log).toBe('done');
+  expect(job?.episodes.map((e) => [e.state, e.encodeId])).toEqual([['done', `${ANILIST_ID}-1`]]);
+  expect(log).toMatch(/Episode 1: fetching .+ from the NAS\./);
+  expect(log).toContain('Episode 1: uploading to the NAS.');
+  expect(log).toMatch(new RegExp(`Episode 1: on the NAS as ${ANILIST_ID}-1;`));
 
-  // The NAS lists the show with both episodes, filed by their tags
+  // The NAS lists the show with the episode, filed by its tags
   const client = await NasClient.load(appData());
   expect(client).not.toBeNull();
   const { shows } = await client!.json<{ shows: { anilistIds: number[]; episodeCount: number }[] }>('encodes/shows');
-  expect(shows.filter((s) => s.anilistIds.includes(ANILIST_ID)).map((s) => s.episodeCount)).toEqual([2]);
+  expect(shows.filter((s) => s.anilistIds.includes(ANILIST_ID)).map((s) => s.episodeCount)).toEqual([1]);
   client!.close();
-  expect(filesUnder(nasEnv().ENCODES_DIR!).filter((f) => !f.startsWith('.uploads')).sort()).toEqual([`${ANILIST_ID}/1.mkv`, `${ANILIST_ID}/2.mkv`]);
+  expect(filesUnder(nasEnv().ENCODES_DIR!).filter((f) => !f.startsWith('.uploads')).sort()).toEqual([`${ANILIST_ID}/1.mkv`]);
+
+  // The season shows its episode Encoded, and nothing is left to queue
+  await page.getByRole('link', { name: 'Library', exact: true }).first().click();
+  const lantern = page.getByRole('list', { name: 'Shows' }).getByRole('link', { name: /Lantern Road/ });
+  await expect(lantern).toContainText('All 1 encoded', { timeout: 60_000 });
+  await lantern.click();
+  await page.locator('.season-list a').first().click();
+  await expect(discBlock(page, 'Disc 1').locator('.season-ep-state')).toHaveText(['Encoded'], { timeout: 30_000 });
+  await expect(page.getByRole('button', { name: /^Queue/ })).toBeDisabled();
 
   // Nothing is left here: no MKV waiting for the NAS, and the mirror holds no whole clip
   expect(filesUnder(join(appData(), 'nas-out'))).toEqual([]);

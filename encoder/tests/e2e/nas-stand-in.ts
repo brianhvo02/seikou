@@ -3,11 +3,14 @@
  * The NAS of nas.spec.ts, started by playwright.encoder.config.ts (`npx tsx encoder/tests/e2e/nas-stand-in.ts`, after
  * `npm run server:build`): Seikou's built NAS server on NAS_PORT over a copy of fixtures/synthetic with the encoder's
  * speech disc beside it, an empty encodes folder, and its own data folder, all under the run's temporary folder
- * (`SEIKOU_ENCODE_E2E_NAS`). AniList, TMDB, the music lookups, SeaDex and Anime Tosho are the recorded answers Seikou's
- * NAS E2E uses, so nothing touches the network; there is no rendezvous Worker, so no WebRTC route either.
+ * (`SEIKOU_ENCODE_E2E_NAS`). AniList and TMDB answer with the made-up entries of `encoder/tests/fixtures/nas-titles.json`
+ * (posters left out, so nothing fetches an image), the music lookups, SeaDex and Anime Tosho with the recorded answers
+ * Seikou's NAS E2E uses, so nothing touches the network; there is no rendezvous Worker, so no WebRTC route either.
+ * Two discs sit in the folders of a made-up title so the NAS files them: copies of the encoder's `disc1` (real clips) and Seikou's `disc-vm` as the first and
+ * second disc of Lantern Road (an AniList series of two episodes of 4 s, one on each disc).
  */
 import { spawn } from 'node:child_process';
-import { cpSync, mkdirSync, readdirSync, utimesSync } from 'node:fs';
+import { cpSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -21,6 +24,10 @@ export const NAS_BASE = `http://127.0.0.1:${NAS_PORT}/api/`;
 export const SERVER = join(REPO, 'server/dist/server.mjs');
 /** Where the encoder's speech disc sits in the NAS's root (the synthetic discs hold a smaller `disc-speech` of their own). */
 export const SPEECH_FOLDER = 'Encoder source/disc-speech';
+/** A copy of the encoder's `disc1`, filed under the made-up AniList series Lantern Road (990001) as its first disc (episode 1 is its playlist 00001). */
+export const LANTERN_FIRST_FOLDER = 'Anime/Lantern Road/Lantern Road Vol.1';
+/** A copy of `disc-vm`, Lantern Road's second disc (episode 2 is its playlist 00001): the one a check moves to a TMDB title. */
+export const LANTERN_SECOND_FOLDER = 'Anime/Lantern Road/Lantern Road Vol.2';
 
 /** The run's NAS folder, made by the config. */
 export function nasDir(): string {
@@ -42,7 +49,7 @@ export function nasEnv(dir: string = nasDir()): Record<string, string> {
     // Nothing proxies here.
     TRUSTED_PROXY: '',
     SCAN_PAUSE_MS: '0',
-    METADATA_FIXTURE: join(REPO, 'tests/e2e/fixtures/nas-metadata.json'),
+    METADATA_FIXTURE: join(dir, 'metadata.json'),
     MUSIC_FIXTURE: join(REPO, 'tests/e2e/fixtures/nas-music.json'),
     FANSUB_FIXTURE: join(REPO, 'tests/e2e/fixtures/fansubs'),
     FANSUB_NIGHTLY: 'off',
@@ -65,6 +72,12 @@ function main(): void {
   const root = join(dir, 'root');
   cpSync(join(REPO, 'fixtures/synthetic'), root, { recursive: true });
   cpSync(join(REPO, 'encoder/fixtures/disc-speech'), join(root, SPEECH_FOLDER), { recursive: true });
+  cpSync(join(REPO, 'encoder/fixtures/disc1'), join(root, LANTERN_FIRST_FOLDER), { recursive: true });
+  cpSync(join(REPO, 'fixtures/synthetic/disc-vm'), join(root, LANTERN_SECOND_FOLDER), { recursive: true });
+  // The recorded titles, without their poster addresses (the NAS would fetch them).
+  const recorded = JSON.parse(readFileSync(join(REPO, 'encoder/tests/fixtures/nas-titles.json'), 'utf8')) as Record<string, { poster: unknown }[]>;
+  for (const entries of Object.values(recorded)) for (const e of entries) e.poster = null;
+  writeFileSync(env.METADATA_FIXTURE!, JSON.stringify(recorded));
   // The NAS leaves out discs written in the last hour (a download still in progress).
   backdateTree(root, new Date('2024-01-01T00:00:00Z'));
   mkdirSync(env.DATA_DIR!, { recursive: true });
