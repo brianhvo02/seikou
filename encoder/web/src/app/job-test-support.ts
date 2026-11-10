@@ -83,6 +83,13 @@ export const UNUSED_ANILIST_API: Pick<AppApi, 'searchAniList' | 'aniListEntry' |
   aniListEpisodes: unused,
 };
 
+/** The NAS calls, for fakes of pages that never pair. */
+export const UNUSED_NAS_API: Pick<AppApi, 'nas' | 'pairNas' | 'unpairNas'> = {
+  nas: unused,
+  pairNas: unused,
+  unpairNas: unused,
+};
+
 /** The default profile's settings. */
 export const DEFAULT_TEST_SETTINGS: EncodeSettings = {
   crf: 25,

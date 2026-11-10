@@ -12,12 +12,13 @@ import { fansubRoutes } from './fansub-routes';
 import { httpError, sendFile, type AppContext, type HelperSession, type RouteTable } from './http';
 import { jobRoutes } from './job-routes';
 import { libraryRoutes } from './library-routes';
+import { nasRoutes } from './nas-routes';
 import { profileRoutes } from './profile-routes';
 import { recordRoutes } from './record-routes';
 import { sessionsOf, sessionStoreRoutes, type SessionStore } from './sessions';
 import { titleRoutes } from './title-routes';
 
-export type { AppContext, HelperSession, HelperSources, Route, RouteTable } from './http';
+export type { AppContext, HelperSession, HelperSources, NasHolder, Route, RouteTable } from './http';
 export type { SessionStore } from './sessions';
 
 // The helper backend: a plain Node HTTP server on 127.0.0.1 that serves the helper page and its API. It is reachable
@@ -26,7 +27,7 @@ export type { SessionStore } from './sessions';
 // 127.0.0.1 (DNS rebinding) from reading the answers.
 
 /** The app's routes, matched on the whole path, in match order. */
-const APP_ROUTES: RouteTable = [...sessionStoreRoutes, ...discRoutes, ...libraryRoutes, ...episodeInfoRoutes, ...profileRoutes, ...jobRoutes, ...aniListRoutes];
+const APP_ROUTES: RouteTable = [...sessionStoreRoutes, ...discRoutes, ...libraryRoutes, ...episodeInfoRoutes, ...profileRoutes, ...jobRoutes, ...aniListRoutes, ...nasRoutes];
 
 /** A helper session's routes, matched on what follows `/api/sessions/<id>`, in match order. */
 const SESSION_ROUTES: RouteTable = [...discSessionRoutes, ...titleRoutes, ...fansubRoutes, ...alignRoutes, ...recordRoutes];

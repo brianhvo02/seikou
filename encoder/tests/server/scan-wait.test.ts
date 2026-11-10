@@ -22,7 +22,7 @@ describe('a disc key asked for while the library is being scanned', () => {
     tree = mkdtempSync(join(tmpdir(), 'scan-wait-tree-'));
     dataDir = mkdtempSync(join(tmpdir(), 'scan-wait-data-'));
     cpSync(fx('fixtures/disc-speech'), join(tree, 'speech'), { recursive: true });
-    app = { dataDir, token: TOKEN, webDir: null, tools: null, sources: {} as AppContext['sources'], roots: [] };
+    app = { dataDir, token: TOKEN, webDir: null, tools: null, sources: {} as AppContext['sources'], roots: [], nas: { client: null } };
     server = await startHelperServer(app);
   });
   afterEach(async () => {

@@ -2,6 +2,7 @@
 import { createReadStream } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { parseRange } from '../../../server/src/ranges';
+import type { NasClient } from '../nas/client';
 import type { ToolPaths } from '../pipeline/chain';
 import type { SeaDex } from '@seikou/fansubs/seadex';
 import type { Tosho } from '@seikou/fansubs/tosho';
@@ -53,6 +54,13 @@ export interface AppContext {
   readonly sources: HelperSources;
   /** The library folders the backend may read discs from; a disc opened by `serve` needs none. */
   readonly roots: readonly string[];
+  /** The NAS the encoder is paired with; the holder's `client` is replaced when the page pairs or unpairs. */
+  readonly nas: NasHolder;
+}
+
+/** Holds the NAS client: null while the encoder is not paired. */
+export interface NasHolder {
+  client: NasClient | null;
 }
 
 /**

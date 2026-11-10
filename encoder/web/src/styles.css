@@ -1852,6 +1852,72 @@ button.quiet.danger {
   min-width: 0;
 }
 
+/* Settings, Your NAS: a rule above it closes the profiles; paired, one line names the NAS with a dot for whether it answers */
+.nas-section {
+  margin-top: 40px;
+  padding-top: 24px;
+  border-top: 1px solid var(--rule);
+  max-width: var(--column);
+}
+
+.content .nas-lead {
+  max-width: 38rem;
+}
+
+.nas-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.nas-form .field-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0 20px;
+}
+
+.nas-form .field {
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+}
+
+.nas-paired {
+  display: grid;
+  gap: 6px;
+}
+
+.nas-who {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+
+.nas-host {
+  font-weight: 600;
+  font-stretch: 82%;
+}
+
+.nas-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translateY(-1px);
+}
+
+.nas-dot-off {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--danger);
+}
+
+.nas-actions {
+  margin-top: 8px;
+}
+
 /* Progress line: one link under the app bar, a thin meter on its own row */
 .progress-line {
   display: flex;

@@ -617,3 +617,21 @@ export interface NewJob {
   /** Leave the saved subtitle choices out. */
   readonly noSubtitles: boolean;
 }
+
+/**
+ * What `GET /api/nas` answers: not paired, or paired with the NAS at `host` as `personName`; `reachable` says whether
+ * the NAS answered just now, and `encodes` whether it keeps encodes (`not-configured`: its `ENCODES_MOUNT` is not set;
+ * `unknown` while it does not answer).
+ */
+export type NasStatus =
+  | { readonly paired: false }
+  | {
+      readonly paired: true;
+      readonly host: string;
+      readonly personName: string;
+      readonly reachable: boolean;
+      readonly encodes: 'ready' | 'not-configured' | 'unknown';
+    };
+
+/** What `POST /api/nas/pair` takes: a pairing code with the NAS's API address, or a pairing link. */
+export type NasPairingRequest = { readonly code: string; readonly base: string } | { readonly link: string };

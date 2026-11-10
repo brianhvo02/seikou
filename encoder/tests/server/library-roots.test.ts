@@ -38,7 +38,7 @@ describe('library roots and copies of a disc', () => {
     dataDir = mkdtempSync(join(tmpdir(), 'library-roots-data-'));
     cpSync(fx('fixtures/disc-speech'), join(saved, 'speech'), { recursive: true });
     cpSync(fx('fixtures/disc-speech'), join(run, 'speech-copy'), { recursive: true });
-    const app: AppContext = { dataDir, token: TOKEN, webDir: null, tools: null, sources: {} as AppContext['sources'], roots: [run] };
+    const app: AppContext = { dataDir, token: TOKEN, webDir: null, tools: null, sources: {} as AppContext['sources'], roots: [run], nas: { client: null } };
     server = await startHelperServer(app);
     await fetch(`http://127.0.0.1:${server.port}/api/settings/roots`, { method: 'PUT', headers, body: JSON.stringify({ roots: [saved] }) });
   });

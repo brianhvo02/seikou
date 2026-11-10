@@ -48,3 +48,22 @@ describe('createAppApi AniList calls', () => {
     expect(urls).toEqual(['/api/anilist/990010/episodes']);
   });
 });
+
+describe('createAppApi NAS calls', () => {
+  it('reads the status, pairs and unpairs', async () => {
+    const calls: [string, string, unknown][] = [];
+    const fetch: FetchLike = async (url, init) => {
+      calls.push([init?.method ?? 'GET', url, init?.body]);
+      return ok({ paired: false });
+    };
+    const api = createAppApi('', 'secret', fetch);
+    expect(await api.nas()).toEqual({ paired: false });
+    await api.pairNas({ code: 'K7QM-4XP2-R9TD', base: 'https://nas.example/bluray/api/' });
+    await api.unpairNas();
+    expect(calls).toEqual([
+      ['GET', '/api/nas', undefined],
+      ['POST', '/api/nas/pair', JSON.stringify({ code: 'K7QM-4XP2-R9TD', base: 'https://nas.example/bluray/api/' })],
+      ['DELETE', '/api/nas', undefined],
+    ]);
+  });
+});

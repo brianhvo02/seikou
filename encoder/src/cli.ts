@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { listPlaylists, loadPlaylist } from './disc/playlist';
 import { encodeEpisodes, type EncodeEvent } from './encode';
+import { NasClient } from './nas/client';
 import { MkvReadError } from '@seikou/matroska';
 import { packageEpisode, PackageError } from './package/package';
 import { SupError } from './package/sup';
@@ -132,7 +133,7 @@ async function app(roots: readonly string[], port: number, open: boolean): Promi
     if (real.length === 0 && (await appSettings(dataDir).read()).roots.length === 0) {
       console.log('No library folders are set. Add one in the app, or start with --root DIR.');
     }
-    context = { dataDir, token, webDir, tools: toolsOrNull(), sources: createSources(process.env, fetch), roots: real };
+    context = { dataDir, token, webDir, tools: toolsOrNull(), sources: createSources(process.env, fetch), roots: real, nas: { client: await NasClient.load(dataDir) } };
     server = await startHelperServer(context, port);
   } catch (err) {
     attempt.lock.release();
@@ -180,7 +181,8 @@ async function serve(
   const webDir = builtWebDir();
   const tools = toolsOrNull();
   const token = randomBytes(32).toString('hex');
-  const context: AppContext = { dataDir: appDataDir(), token, webDir, tools, sources: createSources(process.env, fetch), roots: [] };
+  const dataDir = appDataDir();
+  const context: AppContext = { dataDir, token, webDir, tools, sources: createSources(process.env, fetch), roots: [], nas: { client: await NasClient.load(dataDir) } };
   const server = await startHelperServer(context, port);
   const runner = startJobRunner(context);
   await runner.ready;

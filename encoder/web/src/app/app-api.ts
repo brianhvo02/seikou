@@ -2,7 +2,7 @@
 import { ApiError, episodeInfoCalls, errorOf, type FetchLike } from '../api';
 import type { RemoteDiscSpec } from '@seikou/engine';
 import type { DiscManifest } from '@seikou/nas/nas-api';
-import type { AniListEntry, EncodeSettings, EpisodeInfo, Job, LibraryAnswer, NewJob, NewTest, PlaylistDetail, PlaylistSummary, Profile, QueuedJob, TitleHit } from '../api-types';
+import type { AniListEntry, EncodeSettings, EpisodeInfo, Job, LibraryAnswer, NasPairingRequest, NasStatus, NewJob, NewTest, PlaylistDetail, PlaylistSummary, Profile, QueuedJob, TitleHit } from '../api-types';
 
 // The app pages' client for the backend's library routes, carrying the run's token.
 
@@ -66,6 +66,15 @@ export interface AppApi {
   aniListEntry(id: number): Promise<AniListEntry>;
   /** AniList's episode titles for a show, keyed by episode number; empty when it has none. */
   aniListEpisodes(id: number): Promise<Record<number, string>>;
+  /** Whether the encoder is paired with a NAS, and whether that NAS answers now (it waits up to 5 s for it). */
+  nas(): Promise<NasStatus>;
+  /**
+   * Pairs with the NAS as an owner device; rejects with `ApiError` `bad-address`, `bad-code`, `not-owner`,
+   * `too-many-tries` or `unreachable`, each with a message to show.
+   */
+  pairNas(request: NasPairingRequest): Promise<NasStatus>;
+  /** Forgets the pairing on this machine (the NAS keeps listing the device until an owner removes it). */
+  unpairNas(): Promise<void>;
 }
 
 /** The client for the backend at `base` (an origin, or `''` for the page's own) with the run's `token`, sent as `Authorization: Bearer`. */
@@ -166,6 +175,11 @@ export function createAppApi(base: string, token: string, fetchImpl: FetchLike =
     },
     async aniListEpisodes(id) {
       return (await request<{ titles: Record<number, string> }>('GET', `/api/anilist/${id}/episodes`)).titles;
+    },
+    nas: () => request('GET', '/api/nas'),
+    pairNas: (body) => request('POST', '/api/nas/pair', body),
+    async unpairNas() {
+      await request('DELETE', '/api/nas');
     },
   };
 }

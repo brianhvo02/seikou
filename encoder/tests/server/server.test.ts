@@ -62,6 +62,7 @@ function appContext(data: string, web: string | null): AppContext {
     tools: null,
     sources: { seadex: fansubs.seadex, tosho: fansubs.tosho, anilist: anilist.source, episodes: anilist.episodes, covers: anilist.covers },
     roots: [],
+    nas: { client: null },
   };
 }
 

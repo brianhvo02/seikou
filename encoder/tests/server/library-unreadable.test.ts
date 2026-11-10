@@ -21,7 +21,7 @@ describe('a library folder that cannot be read', () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'library-gone-data-'));
     const moved = `${tree}-moved`;
     cpSync(fx('fixtures/disc-speech'), join(tree, 'speech'), { recursive: true });
-    const server = await startHelperServer({ dataDir, token: TOKEN, webDir: null, tools: null, sources: {} as AppContext['sources'], roots: [] });
+    const server = await startHelperServer({ dataDir, token: TOKEN, webDir: null, tools: null, sources: {} as AppContext['sources'], roots: [], nas: { client: null } });
     const headers = { authorization: `Bearer ${TOKEN}` };
     const base = `http://127.0.0.1:${server.port}`;
     const settled = async (): Promise<Lib> => {

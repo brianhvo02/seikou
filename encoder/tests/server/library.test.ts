@@ -85,7 +85,7 @@ describe('library routes', () => {
     tree = mkdtempSync(join(tmpdir(), 'library-routes-'));
     dataDir = mkdtempSync(join(tmpdir(), 'library-data-'));
     cpSync(fx('fixtures/disc-speech'), join(tree, 'speech'), { recursive: true });
-    const app: AppContext = { dataDir, token: TOKEN, webDir: null, tools: null, sources: {} as AppContext['sources'], roots: [] };
+    const app: AppContext = { dataDir, token: TOKEN, webDir: null, tools: null, sources: {} as AppContext['sources'], roots: [], nas: { client: null } };
     server = await startHelperServer(app);
     const saved = await send('/api/settings/roots', 'PUT', JSON.stringify({ roots: [tree] }));
     expect(saved.status).toBe(200);

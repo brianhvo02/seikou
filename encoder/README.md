@@ -103,7 +103,7 @@ The page is built separately from the CLI: `npm run encoder:web:build` writes `e
 
 ### Data directory
 
-The encoder keeps what it learns and downloads in one directory: saved subtitle records (`subtitles/<disc key>/<playlist>.json`), the app's library folders (`settings.json`), its settings profiles (`profiles.json`), the encode queue (`jobs.json`, logs in `jobs/`, test samples in `tests/`, and `output/`, a place for output folders), fetched fansub tracks and fonts, and the BestSource index files (`bestsource/`, shared by `serve` and `encode` so an encode reuses the index the line-up built). It is `~/Library/Application Support/seikou-encode` on macOS and `$XDG_DATA_HOME/seikou-encode` (default `~/.local/share/seikou-encode`) elsewhere; `SEIKOU_ENCODE_DATA` names another.
+The encoder keeps what it learns and downloads in one directory: saved subtitle records (`subtitles/<disc key>/<playlist>.json`), the app's library folders (`settings.json`), its settings profiles (`profiles.json`), its pairing with the NAS (`nas.json`, mode 0600: the NAS's address, the device it paired as and that device's private key; never a session token), the encode queue (`jobs.json`, logs in `jobs/`, test samples in `tests/`, and `output/`, a place for output folders), fetched fansub tracks and fonts, and the BestSource index files (`bestsource/`, shared by `serve` and `encode` so an encode reuses the index the line-up built). It is `~/Library/Application Support/seikou-encode` on macOS and `$XDG_DATA_HOME/seikou-encode` (default `~/.local/share/seikou-encode`) elsewhere; `SEIKOU_ENCODE_DATA` names another.
 
 ### Offline mode
 
@@ -123,7 +123,11 @@ The page has an app bar with Library, Queue and Settings links, and under it a l
 - **Queue dialog** (`/queue/new?disc=&playlist=&spec=`): the settings profile, the output folder (suggested under `output/` in the data directory) and "Run a test encode first".
 - **Queue** (`/queue`, and `/queue/<id>` for a job): every job with its state, a bar per episode with speed and time left, the log, the equivalent command, and the output files; Cancel, Retry and Remove.
 - **Test** (`/test/<id>`): a test encode's samples side by side and each profile's projected sizes (see below).
-- **Settings** (`/settings`): the settings profiles.
+- **Settings** (`/settings`): the settings profiles, and Your NAS: pairing with Seikou's NAS (see below).
+
+### Pairing with the NAS
+
+The encoder reads discs from Seikou's NAS and uploads finished episodes to it through the NAS's own API, as an owner device: make an owner pairing code in Seikou's admin screen and type it on Settings with the NAS's API address (`https://…/bluray/api/`), or paste the pairing link. The encoder pairs as `Seikou encoder on <this machine's name>`, keeps the device's key in `nas.json` and signs a new session each run; a code for a person who is not an owner is refused. Settings then says which NAS it is paired with and as whom, whether the NAS answers, and whether the NAS keeps encodes (its `ENCODES_MOUNT` set). Unpair forgets the pairing on this machine only; the device stays in Seikou's admin screen until an owner removes it. See [`src/nas/`](src/nas/README.md).
 
 ### Settings profiles
 
@@ -158,6 +162,7 @@ Each area of `encoder/src/` has a README with its concepts, its API and where to
 - [`src/package/`](src/package/README.md): an episode MKV as a static web directory.
 - [`src/audio/`](src/audio/README.md): an episode's audio as 16 kHz mono for subtitle alignment.
 - [`src/subs/`](src/subs/README.md): the data directory, fetched releases and the saved subtitle record.
+- [`src/nas/`](src/nas/README.md): pairing with Seikou's NAS and requests to it as the paired owner device.
 - [`src/server/`](src/server/README.md): the app's local backend (library, disc and playlist routes, helper sessions, profiles, the encode queue and its runner), which the subtitle helper's routes are part of.
 - [`web/`](web/README.md): the app's page: the library, episode grouping, settings, queue and test pages, and the subtitle helper as one of them.
 

@@ -76,6 +76,7 @@ export async function startRouteFixture(
     tools,
     sources: { seadex: fansubs.seadex, tosho: fansubs.tosho, anilist: anilist.source, episodes: anilist.episodes, covers: anilist.covers, ...sources },
     roots: [],
+    nas: { client: null },
   };
   const server = await startHelperServer(app);
   const session = await server.sessions.create({ discDir: fx('fixtures/disc-speech'), playlistId: '00000', episodeSpec });

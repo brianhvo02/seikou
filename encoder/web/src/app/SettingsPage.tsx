@@ -3,6 +3,7 @@ import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type R
 import { ApiError } from '../api';
 import type { EncodeSettings, Profile } from '../api-types';
 import type { AppApi } from './app-api';
+import { NasPairing } from './NasPairing';
 import { useDocumentTitle } from './place';
 
 /** What the page needs: the backend client. */
@@ -290,7 +291,8 @@ function ProfileRow({ profile, editing, onEdit, onCancel, onSave, onDuplicate, o
 /**
  * The Settings page: the encode settings profiles. The built-in Default comes first and is only duplicated; the others
  * are edited in place (CRF, preset, film grain, Opus bitrate, PGS, web package, output name pattern, extra SVT-AV1
- * arguments), duplicated and deleted after a confirmation. A refused value is shown beside its field.
+ * arguments), duplicated and deleted after a confirmation. A refused value is shown beside its field. Under them, "Your
+ * NAS" pairs the encoder with the NAS (`NasPairing`).
  */
 export function SettingsPage({ api }: SettingsPageProps) {
   useDocumentTitle('Settings · Seikou encoder');
@@ -370,6 +372,7 @@ export function SettingsPage({ api }: SettingsPageProps) {
           />
         </section>
       )}
+      <NasPairing api={api} />
     </main>
   );
 }

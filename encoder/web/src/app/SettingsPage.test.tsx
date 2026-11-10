@@ -19,6 +19,9 @@ function fakeApi(profiles: Profile[] = [standard, small], overrides: Partial<App
     createProfile: vi.fn(async (name, settings) => ({ id: 'cd34', name, builtIn: false, settings })),
     updateProfile: vi.fn(async (id, name, settings) => ({ id, name, builtIn: false, settings })),
     deleteProfile: vi.fn(async () => undefined),
+    nas: vi.fn(async () => ({ paired: false })),
+    pairNas: vi.fn(async () => ({ paired: true, host: '127.0.0.1', personName: 'Mika Owner', reachable: true, encodes: 'ready' })),
+    unpairNas: vi.fn(async () => undefined),
     ...overrides,
   } as unknown as AppApi;
 }
@@ -97,6 +100,47 @@ describe('SettingsPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Yes, delete' }));
     await waitFor(() => expect(api.deleteProfile).toHaveBeenCalledWith('ab12'));
     await waitFor(() => expect(screen.queryByText('Small files')).toBeNull());
+  });
+
+  it('pairing with the NAS posts the code and address and shows the pairing', async () => {
+    const api = fakeApi();
+    render(<SettingsPage api={api} />);
+    const pair = (await screen.findByRole('button', { name: 'Pair' })) as HTMLButtonElement;
+    expect(pair.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText('Pairing code'), { target: { value: ' K7QM-4XP2-R9TD ' } });
+    fireEvent.change(screen.getByLabelText('NAS address'), { target: { value: 'http://127.0.0.1:4192/api/' } });
+    fireEvent.click(pair);
+    await waitFor(() => expect(api.pairNas).toHaveBeenCalledWith({ code: 'K7QM-4XP2-R9TD', base: 'http://127.0.0.1:4192/api/' }));
+    expect((await screen.findByText(/Paired with/)).textContent).toBe('Paired with 127.0.0.1 as Mika Owner');
+  });
+
+  it('a pasted link is sent alone, and a refusal is shown', async () => {
+    const api = fakeApi([standard], {
+      pairNas: vi.fn(async () => {
+        throw new ApiError(409, 'not-owner', 'That code is for a person who is not an owner.');
+      }),
+    });
+    render(<SettingsPage api={api} />);
+    fireEvent.change(await screen.findByLabelText('Or paste the pairing link'), { target: { value: 'https://seikou.example/?pair=K7QM4XP2R9TD&nas=x' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Pair' }));
+    expect((await screen.findByRole('alert')).textContent).toBe('That code is for a person who is not an owner.');
+    expect(api.pairNas).toHaveBeenCalledWith({ link: 'https://seikou.example/?pair=K7QM4XP2R9TD&nas=x' });
+  });
+
+  it('says when the NAS keeps no encodes, and Unpair asks first', async () => {
+    const api = fakeApi([standard], {
+      nas: vi.fn(async () => ({ paired: true as const, host: 'nas.example', personName: 'Mika Owner', reachable: true, encodes: 'not-configured' as const })),
+    });
+    render(<SettingsPage api={api} />);
+    expect(await screen.findByText(/ENCODES_MOUNT isn't set/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Unpair' }));
+    expect(api.unpairNas).not.toHaveBeenCalled();
+    expect(screen.getByText(/still lists it until an owner removes it/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep it' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Unpair' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, unpair' }));
+    await waitFor(() => expect(api.unpairNas).toHaveBeenCalledTimes(1));
+    expect(await screen.findByLabelText('Pairing code')).toBeTruthy();
   });
 
   it('shows the file name a pattern gives', () => {
