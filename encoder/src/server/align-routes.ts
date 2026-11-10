@@ -10,7 +10,7 @@ import type { FansubAlignment } from '@seikou/nas/nas-api';
 import { readBody } from '../../../server/src/http';
 import { EpisodeAudioCache } from '../audio/episode-audio-cache';
 import { decodeEpisodeAudio16k, episodeReader } from '../audio/episode-audio';
-import { assertFetched, assertPlanFetched, ClipFetcher, clipsOfEpisode } from '../nas/fetch';
+import { assertFetched, assertPlanFetched, ClipFetcher, clipsOfEpisode, releaseHolder } from '../nas/fetch';
 import { isMirror } from '../nas/mirror';
 import type { EpisodePlan } from '../plan/episodes';
 import type { CachedTrack } from '../subs/release-cache';
@@ -91,10 +91,31 @@ function progressOf(app: AppContext): Map<string, { bytesDone: number; bytes: nu
   return progress;
 }
 
+/** The episodes (1-based) each session's line-ups hold clips for, by session id, oldest first: at most KEEP_EPISODES. */
+const heldEpisodes = new WeakMap<AppContext, Map<string, { episode: number; clips: readonly string[] }[]>>();
+
+/**
+ * Notes that session `session` holds `clips` for `episode`, as its newest line-up, and lets go of the clips of the
+ * line-ups past the last KEEP_EPISODES that the kept ones do not share: lining up a whole cour holds two episodes'
+ * clips, not the disc.
+ */
+async function keepLastEpisodes(app: AppContext, session: HelperSession, episode: number, clips: readonly string[]): Promise<void> {
+  let bySession = heldEpisodes.get(app);
+  if (!bySession) heldEpisodes.set(app, (bySession = new Map()));
+  const held = (bySession.get(session.id) ?? []).filter((h) => h.episode !== episode);
+  held.push({ episode, clips });
+  const dropped = held.splice(0, Math.max(0, held.length - KEEP_EPISODES));
+  bySession.set(session.id, held);
+  const kept = new Set(held.flatMap((h) => h.clips));
+  const free = [...new Set(dropped.flatMap((h) => h.clips))].filter((c) => !kept.has(c));
+  if (free.length > 0) await releaseHolder(app.dataDir, session.discKey, `session:${session.id}`, free);
+}
+
 /**
  * Has episode `episode`'s clips whole before its audio is decoded, when the session's disc is a NAS disc's mirror:
- * held for `session:<id>` (the holder of the session's mirror claim), so they stay until the server stops, and
- * fetched with their progress kept for `GET /episodes/<n>/fetch`. Answers the request and resolves false when the
+ * held for `session:<id>` (the holder of the session's mirror claim) while the episode is one of the session's last
+ * KEEP_EPISODES line-ups (in step with the decoded-audio cache), and fetched with their progress kept for
+ * `GET /episodes/<n>/fetch`. Answers the request and resolves false when the
  * fetch fails (502 `unreachable`, 409 `disc-changed`, 507 `no-room`); true otherwise, at once on a local disc.
  */
 async function fetchEpisodeClips(res: ServerResponse, app: AppContext, session: HelperSession, episode: number, signal: AbortSignal): Promise<boolean> {
@@ -114,6 +135,8 @@ async function fetchEpisodeClips(res: ServerResponse, app: AppContext, session: 
   const key = episodeAudioKey(session, episode);
   const progress = progressOf(app);
   try {
+    // Noted before the hold: its claim is made at once and stays when the fetch fails.
+    await keepLastEpisodes(app, session, episode, clips);
     await new ClipFetcher({ dataDir: app.dataDir, client, key: session.discKey, signal, onProgress: (p) => progress.set(key, p) }).hold(`session:${session.id}`, clips);
     return true;
   } catch (e) {
@@ -246,8 +269,8 @@ function timingOf(raw: string | null): FansubAlignment | null {
  * Episodes are numbered from 1 in the session's episode list. The first align of an episode decodes its audio through
  * vspipe (tens of seconds; BestSource indexes the clips on the very first run); the last two decodes, of any
  * session, are kept. A client that goes away stops a decode nobody else waits for. On a NAS disc's mirror the episode's
- * clips are first fetched whole and held for the session until the server stops (the queue runner's start sweep
- * empties them on the next run). Errors: 400 `bad-request`, 404 `not-found` (episode, release, file or track), 422 as
+ * clips are first fetched whole and held for the session while it is one of the session's last two lined-up
+ * episodes (the queue runner's start sweep empties what is still held on the next run). Errors: 400 `bad-request`, 404 `not-found` (episode, release, file or track), 422 as
  * `GET /episodes`, 503 `tools-missing` when vspipe or BestSource is missing; on a NAS disc, 502 `unreachable`, 409
  * `disc-changed` or 507 `no-room` when the clips cannot be fetched.
  */

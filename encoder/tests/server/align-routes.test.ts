@@ -7,7 +7,7 @@ import { fixtureFansubSources } from '@seikou/fansubs/fixture-sources';
 import type { FansubAlignment, LibraryListing } from '@seikou/nas/nas-api';
 import { EpisodeAudioCache } from '../../src/audio/episode-audio-cache';
 import { NasClient } from '../../src/nas/client';
-import { ensureMirror } from '../../src/nas/mirror';
+import { ensureMirror, mirrorEntry } from '../../src/nas/mirror';
 import { pairWithNas } from '../../src/nas/pairing';
 import { episodeAudioCacheOf, episodeAudioKey } from '../../src/server/align-routes';
 import type { AppContext, HelperSession } from '../../src/server/http';
@@ -255,5 +255,38 @@ describe('the line-up on a NAS disc', () => {
     expect((await lineUp(1)).status).toBe(500);
     // Nothing was fetched: the mirror's record, written after each fetched chunk, is as it was.
     expect(statSync(join(mirrorDir, 'fetch.json')).mtimeMs).toBe(record);
+  });
+
+  it("keeps only the last two lined-up episodes' clips whole", async () => {
+    // Episodes 1 and 2 play clip 1 (chapters 1-3), episode 3 clip 2 (chapters 4-5).
+    const session = await server.sessions.create({ discDir: mirrorDir, playlistId: '00000', episodeSpec: '1,2-3,4-5' });
+    const other = session.id;
+    const lineUpIn = (episode: number): Promise<Response> =>
+      fetch(`http://127.0.0.1:${server.port}/api/sessions/${other}/episodes/${episode}/align`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}` },
+        body: JSON.stringify({ release: 'tosho-7001', fileId: '7101' }),
+      });
+    expect(
+      (await fetch(`http://127.0.0.1:${server.port}/api/sessions/${other}/fansubs/fetch`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}` },
+        body: JSON.stringify({ toshoId: 7001 }),
+      })).status,
+    ).toBe(200);
+    // Clip 2 is shorter than a head, so whether it is held is read from the holders; clip 1 is also held by the first
+    // test's session, so being whole shows nothing about this one.
+    const key = session.discKey;
+    const heldBy = (clip: string): boolean => mirrorEntry(app.dataDir, key).holders.get(`BDMV/STREAM/${clip}`)?.has(`session:${other}`) === true;
+    expect((await lineUpIn(3)).status).toBe(500);
+    expect((await lineUpIn(1)).status).toBe(500);
+    expect([heldBy('00001.M2TS'), heldBy('00002.M2TS')]).toEqual([true, true]);
+    // A third line-up lets go of episode 3's clip, which neither kept episode plays; clip 1, which both play, stays.
+    expect((await lineUpIn(2)).status).toBe(500);
+    expect([heldBy('00001.M2TS'), heldBy('00002.M2TS')]).toEqual([true, false]);
+    expect(mirrorClip('00001.m2ts').equals(nasClip('00001.m2ts'))).toBe(true);
+    // Lining episode 3 up again drops episode 1, but episode 2 still plays clip 1.
+    expect((await lineUpIn(3)).status).toBe(500);
+    expect([heldBy('00001.M2TS'), heldBy('00002.M2TS')]).toEqual([true, true]);
   });
 });
