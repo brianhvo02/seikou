@@ -16,9 +16,9 @@ export interface AppShellProps {
 function inSection(route: Route, section: 'library' | 'queue' | 'settings'): boolean {
   switch (section) {
     case 'library':
-      return route.kind === 'library' || route.kind === 'disc' || route.kind === 'episodes' || route.kind === 'helper';
+      return route.kind === 'library' || route.kind === 'disc' || route.kind === 'episodes' || route.kind === 'helper' || route.kind === 'show' || route.kind === 'season';
     case 'queue':
-      return route.kind === 'queue' || route.kind === 'job' || route.kind === 'queueNew' || route.kind === 'test';
+      return route.kind === 'queue' || route.kind === 'job' || route.kind === 'queueNew' || route.kind === 'seasonQueue' || route.kind === 'test';
     case 'settings':
       return route.kind === 'settings';
   }

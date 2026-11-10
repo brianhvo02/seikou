@@ -723,6 +723,8 @@ export interface NasShow {
   readonly seasons: number;
   /** Seasons without a number (a film's or an entry's disc-only discs). */
   readonly films: number;
+  /** Disc slots over all its seasons and films. */
+  readonly discs: number;
   /** Episodes of the show the Encodes library already holds. */
   readonly encoded: number;
   /** Episodes of the show it does not hold yet. */
@@ -761,6 +763,11 @@ export interface NasSeasonDisc {
   readonly playlists: { readonly id: string; readonly episodes: { readonly number: number; readonly name: string | null; readonly encoded: boolean }[] }[];
   /** Every playlist with episodes is checked (a disc listing none: any saved playlist of it is); false for an unavailable disc. */
   readonly checked: boolean;
+  /**
+   * The checked playlists (of those listed, or for a disc listing none every saved one): the episode list a job must be
+   * queued with, and the episode number each episode of it was given (null for none).
+   */
+  readonly checkedPlaylists: { readonly id: string; readonly episodeSpec: string; readonly episodes: (number | null)[] }[];
 }
 
 /** One season, or with `number: null` a film or disc-only group. */

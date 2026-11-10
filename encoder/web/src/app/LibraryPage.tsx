@@ -3,7 +3,8 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import type { LibraryAnswer, LibraryDiscInfo } from '../api-types';
 import type { AppApi } from './app-api';
 import { folderName, otherPlaceText, placeText, useDocumentTitle } from './place';
-import { Link } from './router';
+import { Link, type LibraryView } from './router';
+import { ShowsList } from './ShowsPage';
 
 /** What the page needs: the backend client. */
 export interface LibraryPageProps {
@@ -11,6 +12,24 @@ export interface LibraryPageProps {
   readonly api: AppApi;
   /** Milliseconds between requests while a scan runs; one second unless a test says otherwise. */
   readonly pollMs?: number;
+  /** The view the address asks for; By show when paired, else every disc, when left out. */
+  readonly view?: LibraryView | undefined;
+}
+
+/** The view switch while paired: the NAS's shows, its discs by folder, the discs on this Mac. */
+function ViewSwitch({ view }: { readonly view: LibraryView }) {
+  const item = (v: LibraryView, label: string) => (
+    <Link to={{ kind: 'library', view: v }} aria-current={view === v ? 'page' : undefined}>
+      {label}
+    </Link>
+  );
+  return (
+    <nav className="view-switch" aria-label="Library view">
+      {item('shows', 'By show')}
+      {item('folder', 'By folder')}
+      {item('mac', 'This Mac')}
+    </nav>
+  );
 }
 
 /** The discs whose name or path holds every word of `text`, in any letter case; all of them for blank text. */
@@ -114,11 +133,12 @@ function RootsEditor({ roots, runRoots, unreadable, onSave }: RootsEditorProps) 
  * listed, and so is a NAS that cannot be reached. While a scan runs the
  * page asks again every second.
  */
-export function LibraryPage({ api, pollMs = SCAN_POLL_MS }: LibraryPageProps) {
+export function LibraryPage({ api, pollMs = SCAN_POLL_MS, view: asked }: LibraryPageProps) {
   useDocumentTitle('Seikou encoder');
   const [library, setLibrary] = useState<LibraryAnswer | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
+  const [showsRefresh, setShowsRefresh] = useState(0);
 
   const load = useCallback(async () => {
     try {
@@ -150,6 +170,7 @@ export function LibraryPage({ api, pollMs = SCAN_POLL_MS }: LibraryPageProps) {
       return;
     }
     await load();
+    setShowsRefresh((n) => n + 1);
   };
 
   const saveRoots = async (roots: readonly string[]) => {
@@ -172,7 +193,9 @@ export function LibraryPage({ api, pollMs = SCAN_POLL_MS }: LibraryPageProps) {
     );
   }
 
-  const shown = filterDiscs(library.discs, filter);
+  const view: LibraryView | null = library.nas.paired ? (asked ?? 'shows') : null;
+  const inView = view === 'folder' ? library.discs.filter((d) => d.source === 'nas' || d.otherPaths.some((o) => o.root === 'NAS')) : view === 'mac' ? library.discs.filter((d) => d.source === 'local') : library.discs;
+  const shown = filterDiscs(inView, filter);
   return (
     <main className="content wide">
       <div className="page-head">
@@ -192,13 +215,38 @@ export function LibraryPage({ api, pollMs = SCAN_POLL_MS }: LibraryPageProps) {
         </p>
       )}
 
-      {library.nas.paired && library.nas.reachable === false && (
+      {view !== null && <ViewSwitch view={view} />}
+
+      {view === 'folder' && library.nas.reachable === false && (
         <p className="notice" role="status">
           The NAS can't be reached; its discs are from the last listing.
         </p>
       )}
 
-      {library.roots.length === 0 && library.discs.length === 0 ? (
+      {view === 'shows' ? (
+        <>
+          <input type="search" className="filter" aria-label="Filter shows" placeholder="Filter by name" value={filter} onChange={(e) => setFilter(e.target.value)} />
+          <ShowsList api={api} refresh={showsRefresh} filter={filter} />
+        </>
+      ) : view === 'folder' ? (
+        <>
+          <input
+            type="search"
+            className="filter"
+            aria-label="Filter discs"
+            placeholder="Filter by name or path"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+          />
+          {inView.length === 0 ? (
+            <p className="muted">{scanning ? 'Looking for discs…' : 'No discs found on the NAS.'}</p>
+          ) : shown.length === 0 ? (
+            <p className="muted">No disc matches “{filter.trim()}”.</p>
+          ) : (
+            <DiscList discs={shown} rootCount={library.roots.length} />
+          )}
+        </>
+      ) : library.roots.length === 0 && inView.length === 0 ? (
         <section className="empty">
           <h2>No library folders are set</h2>
           <p>Add the folder that holds your decrypted discs. The app looks up to four folders deep for BDMV folders.</p>
@@ -213,40 +261,49 @@ export function LibraryPage({ api, pollMs = SCAN_POLL_MS }: LibraryPageProps) {
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
-          {library.discs.length === 0 ? (
-            <p className="muted">{scanning ? 'Looking for discs…' : library.nas.paired ? 'No discs found under the library folders or on the NAS.' : 'No discs found under the library folders.'}</p>
+          {inView.length === 0 ? (
+            <p className="muted">{scanning ? 'Looking for discs…' : 'No discs found under the library folders.'}</p>
           ) : shown.length === 0 ? (
             <p className="muted">No disc matches “{filter.trim()}”.</p>
           ) : (
-            <ul className="disc-list">
-              {shown.map((d) => (
-                <li key={d.key}>
-                  <Link to={{ kind: 'disc', discKey: d.key }} className="disc-link">
-                    <span className="disc-name">{d.label}</span>
-                    {placeText(d, library.roots.length) !== '' && <span className="disc-path muted">{placeText(d, library.roots.length)}</span>}
-                    {d.otherPaths.map((o) => (
-                      <span key={`${o.root}|${o.relPath}`} className="disc-path muted" title={o.root}>
-                        Also at {otherPlaceText(o, library.roots.length)}
-                      </span>
-                    ))}
-                  </Link>
-                  <span className="disc-facts">
-                    {d.source === 'nas' && (
-                      <span className="mark mark-nas" title="On the NAS: fetched as it is worked on">
-                        NAS
-                      </span>
-                    )}
-                    <span className="num muted">{playlistWords(d.playlistCount)}</span>
-                    {d.recordPlaylists.length > 0 && <span className="mark">Subtitle choices saved</span>}
-                  </span>
-                </li>
-              ))}
-            </ul>
+            <DiscList discs={shown} rootCount={library.roots.length} />
           )}
         </>
       )}
 
-      <RootsEditor roots={library.savedRoots} runRoots={library.runRoots} unreadable={library.unreadableRoots} onSave={saveRoots} />
+      {view !== 'shows' && view !== 'folder' && (
+        <RootsEditor roots={library.savedRoots} runRoots={library.runRoots} unreadable={library.unreadableRoots} onSave={saveRoots} />
+      )}
     </main>
+  );
+}
+
+/** The discs as the Library lists them: name, place, other copies, a NAS mark, playlist count and saved subtitles. */
+function DiscList({ discs, rootCount }: { readonly discs: readonly LibraryDiscInfo[]; readonly rootCount: number }) {
+  return (
+    <ul className="disc-list">
+      {discs.map((d) => (
+        <li key={d.key}>
+          <Link to={{ kind: 'disc', discKey: d.key }} className="disc-link">
+            <span className="disc-name">{d.label}</span>
+            {placeText(d, rootCount) !== '' && <span className="disc-path muted">{placeText(d, rootCount)}</span>}
+            {d.otherPaths.map((o) => (
+              <span key={`${o.root}|${o.relPath}`} className="disc-path muted" title={o.root}>
+                Also at {otherPlaceText(o, rootCount)}
+              </span>
+            ))}
+          </Link>
+          <span className="disc-facts">
+            {d.source === 'nas' && (
+              <span className="mark mark-nas" title="On the NAS: fetched as it is worked on">
+                NAS
+              </span>
+            )}
+            <span className="num muted">{playlistWords(d.playlistCount)}</span>
+            {d.recordPlaylists.length > 0 && <span className="mark">Subtitle choices saved</span>}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }

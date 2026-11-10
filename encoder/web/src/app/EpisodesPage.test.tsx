@@ -72,8 +72,8 @@ function fakeController() {
   } as unknown as PlayerLike & { seek: ReturnType<typeof vi.fn>; openRemote: ReturnType<typeof vi.fn>; setTime: (timeUs: number) => void };
 }
 
-async function show(api = fakeApi(), controller = fakeController()) {
-  render(<EpisodesPage api={api} discKey={KEY} playlistId="00800" controller={controller} />);
+async function show(api = fakeApi(), controller = fakeController(), from?: { titleId: string; seasonId: string }) {
+  render(<EpisodesPage api={api} discKey={KEY} playlistId="00800" controller={controller} from={from} />);
   await screen.findByRole('heading', { name: 'LANTERN_HARBOR_D1' });
   await waitFor(() => expect(controller.openRemote).toHaveBeenCalled());
   return { api, controller };
@@ -455,6 +455,21 @@ describe('EpisodesPage NAS prefill and Mark checked', () => {
       '5': { title: { source: 'anilist', anilistId: 990010 }, episode: 7, name: 'Part 7' },
     });
     expect(await screen.findByText('Checked. The NAS now files this disc under Lantern Harbor.')).toBeTruthy();
+  });
+
+  it('opened from a season, leads back to it once checked', async () => {
+    const { api } = nasApi(THREE);
+    const from = { titleId: 'anilist:990010', seasonId: 'anilist:990010#season' };
+    await show(api, fakeController(), from);
+    const seasonPath = `/shows/${encodeURIComponent(from.titleId)}/${encodeURIComponent(from.seasonId)}`;
+    const backs = (): string[] => screen.queryAllByRole('link', { name: 'Back to the season' }).map((l) => new URL(l.getAttribute('href')!, 'http://x').pathname);
+    expect(backs()).toEqual([seasonPath]);
+    await waitFor(() => expect(spec()).toBe('1-2,3-4,5-'));
+    const button = screen.getByRole('button', { name: 'Mark checked' }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+    await screen.findByText('Checked. The NAS now files this disc under Lantern Harbor.');
+    expect(backs()).toEqual([seasonPath, seasonPath]);
   });
 
   it('says so when the episodes span two shows, and when the NAS refuses', async () => {

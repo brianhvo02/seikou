@@ -82,8 +82,8 @@ export interface AppApi {
    * `nas-not-paired`, `source-unreachable` (503), `too-many-lookups` or `lookup-busy` (429), `unreachable`.
    */
   lookupTitles(q: string, source: 'anilist' | 'tmdb' | 'own', signal?: AbortSignal): Promise<TitleSummary[]>;
-  /** The NAS's shows with what the Encodes library holds, and the discs nothing filed; the last answer while the NAS is down (`reachable` false). Posters carry the token. */
-  nasShows(): Promise<NasShowsAnswer>;
+  /** The NAS's shows with what the Encodes library holds, and the discs nothing filed; the last answer while the NAS is down (`reachable` false). Posters carry the token. `refresh` reads every show's detail again. */
+  nasShows(o?: { readonly refresh?: boolean }): Promise<NasShowsAnswer>;
   /** One show's seasons, discs, playlists and episodes; rejects with `ApiError` `not-found` for a show the NAS does not list. */
   nasShow(titleId: string): Promise<NasShowAnswer>;
   /** Makes an own title on the NAS for a show no source lists (`seasons` only for a series); rejects like `lookupTitles`. */
@@ -204,8 +204,8 @@ export function createAppApi(base: string, token: string, fetchImpl: FetchLike =
       // a result's poster is a NAS art id; the backend passes the image on at its own route, with the token as for covers
       return titles.map((t) => (t.poster === null ? t : { ...t, poster: `${root}/api/nas/art/${encodeURIComponent(t.poster)}?t=${encodeURIComponent(token)}` }));
     },
-    async nasShows() {
-      const answer = await request<NasShowsAnswer>('GET', '/api/nas/shows');
+    async nasShows(o) {
+      const answer = await request<NasShowsAnswer>('GET', o?.refresh === true ? '/api/nas/shows?refresh=1' : '/api/nas/shows');
       return { ...answer, shows: answer.shows.map((s) => ({ ...s, poster: routePoster(s.poster) })) };
     },
     async nasShow(titleId) {

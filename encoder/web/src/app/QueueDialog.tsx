@@ -9,7 +9,7 @@ import { formatLength } from './DiscPage';
 import { episodeRows, episodesPhrase, missingTitles, sharedTitles, suggestedTitles } from './episode-info-model';
 import { episodeLengths, episodesOf, fromSpec } from './grouping';
 import { useDocumentTitle } from './place';
-import { Link, navigate, routeHref } from './router';
+import { Link, navigate, routeHref, type Route, type SeasonRef } from './router';
 import { profileSummary, STARTING_SETTINGS } from './SettingsPage';
 
 /** What the dialog needs: the backend client and what the route named. */
@@ -30,12 +30,12 @@ export interface SingleQueueProps {
   readonly profile?: string | undefined;
 }
 
-/** One job of a batch: a disc's playlist and episode list, and the 1-based episodes of it still to encode. */
+/** One job of a batch: a disc's playlist and episode list, and the 1-based episodes of it still to encode (every one when left out). */
 export interface BatchJob {
   readonly discKey: string;
   readonly playlistId: string;
   readonly episodeSpec: string;
-  readonly only: readonly number[];
+  readonly only?: readonly number[];
 }
 
 /** A batch: the jobs a season's Queue made, queued in order with one profile to the NAS's Encodes library. */
@@ -44,6 +44,8 @@ export interface BatchQueueProps {
   readonly batch: readonly BatchJob[];
   /** The profile to start with, by id; the first profile when left out or unknown. */
   readonly profile?: string | undefined;
+  /** The season page the batch was made on, which its links lead back to. */
+  readonly from?: SeasonRef | undefined;
 }
 
 /** What the dialog takes: the one encode its route named, or a batch. */
@@ -510,7 +512,9 @@ type BatchResult = { readonly state: 'queued' } | { readonly state: 'refused'; r
  * The jobs go in order; a refusal is shown beside the disc it belongs to and the rest are still queued. What was
  * refused can be tried again once its cause is fixed.
  */
-function BatchQueueDialog({ api, batch, profile: startProfile }: BatchQueueProps) {
+function BatchQueueDialog({ api, batch, profile: startProfile, from }: BatchQueueProps) {
+  const back: Route = from !== undefined ? { kind: 'season', ...from } : { kind: 'library' };
+  const backText = from !== undefined ? 'Back to the season' : 'Back to the library';
   const [loaded, setLoaded] = useState<{ profiles: readonly Profile[]; labels: ReadonlyMap<string, string>; nas: NasStatus | null } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [profileId, setProfileId] = useState('default');
@@ -552,7 +556,7 @@ function BatchQueueDialog({ api, batch, profile: startProfile }: BatchQueueProps
           {loadError}
         </p>
         <p>
-          <Link to={{ kind: 'library' }}>Back to the library</Link>
+          <Link to={back}>{backText}</Link>
         </p>
       </main>
     );
@@ -580,7 +584,15 @@ function BatchQueueDialog({ api, batch, profile: startProfile }: BatchQueueProps
     for (const i of waiting) {
       const job = batch[i]!;
       try {
-        await api.createJob({ discKey: job.discKey, playlistId: job.playlistId, episodeSpec: job.episodeSpec, only: job.only, settings, outDir: '', noSubtitles: false });
+        await api.createJob({
+          discKey: job.discKey,
+          playlistId: job.playlistId,
+          episodeSpec: job.episodeSpec,
+          ...(job.only !== undefined ? { only: job.only } : {}),
+          settings,
+          outDir: '',
+          noSubtitles: false,
+        });
         next.set(i, { state: 'queued' });
       } catch (e) {
         next.set(i, { state: 'refused', message: e instanceof Error ? e.message : String(e) });
@@ -595,17 +607,17 @@ function BatchQueueDialog({ api, batch, profile: startProfile }: BatchQueueProps
   return (
     <main className="content wide queue-dialog">
       <p className="crumb">
-        <Link to={{ kind: 'library' }}>Library</Link>
+        <Link to={back}>{from !== undefined ? 'Season' : 'Library'}</Link>
       </p>
       <h1 className="page-title disc-title">Queue {batch.length === 1 ? 'an encode' : `${batch.length} encodes`}</h1>
       <p className="muted">Each goes to the NAS's Encodes library with the same settings, one after another.</p>
-      <ol className="episode-summary" aria-label="Encodes to queue">
+      <ol className="episode-summary queue-batch" aria-label="Encodes to queue">
         {batch.map((job, i) => {
           const result = results.get(i);
           return (
             <li key={`${job.discKey}:${job.playlistId}`} className={result?.state === 'refused' ? 'queue-batch-refused' : undefined}>
               <span className="episode-name">{labelOf(job)}</span>
-              <span className="num">{episodesPhrase(job.only)}</span>
+              <span className="num">{job.only !== undefined ? episodesPhrase(job.only) : 'Every episode'}</span>
               {result === undefined && <span className="muted">Not queued yet</span>}
               {result?.state === 'queued' && <span className="muted">Queued</span>}
               {result?.state === 'refused' && (
@@ -648,8 +660,8 @@ function BatchQueueDialog({ api, batch, profile: startProfile }: BatchQueueProps
           <button type="submit" className="primary" disabled={busy || profile === undefined || paired === null || encodesOff || count === 0}>
             {busy ? 'Queueing…' : refused > 0 ? `Queue the ${count} left` : `Queue ${count === 1 ? 'encode' : `${count} encodes`}`}
           </button>
-          <Link to={{ kind: 'library' }} className="quiet-link">
-            Back to the library
+          <Link to={back} className="quiet-link">
+            {backText}
           </Link>
         </div>
       </form>
@@ -662,5 +674,5 @@ function BatchQueueDialog({ api, batch, profile: startProfile }: BatchQueueProps
  * made (`BatchQueueDialog`).
  */
 export function QueueDialog(props: QueueDialogProps) {
-  return props.batch !== undefined ? <BatchQueueDialog api={props.api} batch={props.batch} profile={props.profile} /> : <SingleQueueDialog {...props} />;
+  return props.batch !== undefined ? <BatchQueueDialog api={props.api} batch={props.batch} profile={props.profile} from={props.from} /> : <SingleQueueDialog {...props} />;
 }

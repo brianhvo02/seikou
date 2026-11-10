@@ -7,6 +7,7 @@ import type { DiscSlot, EpisodeRef, TitleDetail, TitleSummary, UnsortedItem } fr
 import { replaceAtomically } from '@seikou/titles';
 import { EpisodeInfoError, EpisodeInfoStore, isChecked } from '../plan/episode-info';
 import { loadPlaylist } from '../disc/playlist';
+import { EpisodeSpecError, parseEpisodeSpec } from '../plan/episodes';
 import { RecordError, RecordStore } from '../subs/record';
 import type { AppContext } from '../server/http';
 import { sessionsOf } from '../server/sessions';
@@ -55,6 +56,8 @@ export interface NasShow {
   readonly seasons: number;
   /** Seasons without a number: a film's or an entry's disc-only discs. */
   readonly films: number;
+  /** Disc slots over all its seasons and films. */
+  readonly discs: number;
   /** Episodes the NAS lists for the show that the Encodes library already holds. */
   readonly encoded: number;
   /** Episodes the NAS lists for the show that it does not hold yet. */
@@ -103,6 +106,19 @@ export interface NasSeasonDisc {
    * is never checked.
    */
   readonly checked: boolean;
+  /**
+   * The disc's checked playlists, each with the episode list a job of it must be queued with (the saved subtitle
+   * record's, else the mark's) and, per episode of that list, the number its saved title gives it (null for none). For
+   * a disc the NAS lists episodes for, only those playlists; else every checked playlist saved for it.
+   */
+  readonly checkedPlaylists: CheckedPlaylist[];
+}
+
+/** A checked playlist of a disc: its episode list, and the episode number each of its episodes was given. */
+export interface CheckedPlaylist {
+  readonly id: string;
+  readonly episodeSpec: string;
+  readonly episodes: (number | null)[];
 }
 
 /** One season (or, with `number: null`, a film or a disc-only group) of a show. */
@@ -420,6 +436,7 @@ export class NasTitles {
         kind: t.kind === 'movie' ? 'movie' : 'series',
         seasons: seasons.filter((s) => s.number !== null).length,
         films: seasons.filter((s) => s.number === null).length,
+        discs: seasons.reduce((n, s) => n + s.discs.length, 0),
         encoded,
         toEncode,
       };
@@ -478,12 +495,16 @@ export class NasTitles {
       byPlaylist.set(e.playlistId, list);
     }
     const playlists = [...byPlaylist].map(([id, eps]) => ({ id, episodes: eps }));
-    if (disc === undefined) return { key: null, discId, label: slot.label, available: false, playlists, checked: false };
-    const checked =
-      playlists.length > 0
-        ? await this.allChecked(playlists.map((p) => p.id), disc.key, infos, records)
-        : await this.anyChecked(disc.key, infos, records);
-    return { key: disc.key, discId, label: slot.label, available: true, playlists, checked };
+    if (disc === undefined) return { key: null, discId, label: slot.label, available: false, playlists, checked: false, checkedPlaylists: [] };
+    const toCheck = playlists.length > 0 ? playlists.map((p) => p.id) : await this.savedPlaylists(disc.key);
+    const checkedPlaylists: CheckedPlaylist[] = [];
+    for (const id of toCheck) {
+      const c = await this.playlistChecked(disc.key, id, infos, records);
+      if (c !== null) checkedPlaylists.push(c);
+    }
+    // listed playlists must all be checked; a disc listing none is checked once any saved playlist of it is
+    const checked = playlists.length > 0 ? checkedPlaylists.length === playlists.length : checkedPlaylists.length > 0;
+    return { key: disc.key, discId, label: slot.label, available: true, playlists, checked, checkedPlaylists };
   }
 
   /** The chapter count of a mirrored disc's playlist, read from its playlist file; null when it cannot be read. */
@@ -503,14 +524,15 @@ export class NasTitles {
   }
 
   /**
-   * Whether playlist `id` of the disc is checked: its saved info has a mark that holds (`isChecked`) for the saved
-   * subtitle record's episode list (the mark's own without a record), on the playlist's real chapter count. A playlist
-   * whose chapters cannot be read is not checked.
+   * Playlist `id` of the disc when it is checked, else null: its saved info has a mark that holds (`isChecked`) for
+   * the saved subtitle record's episode list (the mark's own without a record), on the playlist's real chapter count.
+   * A playlist whose chapters cannot be read is not checked. The answer carries that episode list and the number the
+   * saved titles give each of its episodes.
    */
-  private async playlistChecked(key: string, id: string, infos: EpisodeInfoStore, records: RecordStore): Promise<boolean> {
+  private async playlistChecked(key: string, id: string, infos: EpisodeInfoStore, records: RecordStore): Promise<CheckedPlaylist | null> {
     try {
       const info = await infos.read(key, id);
-      if (info?.checked === undefined) return false;
+      if (info?.checked === undefined) return null;
       let spec = info.checked.episodeSpec;
       try {
         spec = (await records.read(key, id))?.episodeSpec ?? spec;
@@ -518,30 +540,23 @@ export class NasTitles {
         if (!(e instanceof RecordError)) throw e;
       }
       const chapters = await this.chaptersOf(key, id);
-      return chapters !== null && isChecked(info, spec, chapters);
+      if (chapters === null || !isChecked(info, spec, chapters)) return null;
+      const episodes = parseEpisodeSpec(spec, chapters).map((e) => info.titles[String(e.from)]?.episode ?? null);
+      return { id, episodeSpec: spec, episodes };
     } catch (e) {
-      if (e instanceof EpisodeInfoError) return false;
+      if (e instanceof EpisodeInfoError || e instanceof EpisodeSpecError) return null;
       throw e;
     }
   }
 
-  private async allChecked(ids: readonly string[], key: string, infos: EpisodeInfoStore, records: RecordStore): Promise<boolean> {
-    for (const id of ids) if (!(await this.playlistChecked(key, id, infos, records))) return false;
-    return true;
-  }
-
-  /** For a disc the NAS lists no episodes for: whether any playlist saved for it under the data folder is checked. */
-  private async anyChecked(key: string, infos: EpisodeInfoStore, records: RecordStore): Promise<boolean> {
+  /** For a disc the NAS lists no episodes for: the playlists saved for it under the data folder, in order. */
+  private async savedPlaylists(key: string): Promise<string[]> {
     let names: string[];
     try {
       names = await readdir(join(this.app.dataDir, 'chapters', key));
     } catch {
-      return false;
+      return [];
     }
-    for (const n of names) {
-      const m = /^(\d{5})\.json$/.exec(n);
-      if (m && (await this.playlistChecked(key, m[1]!, infos, records))) return true;
-    }
-    return false;
+    return names.flatMap((n) => /^(\d{5})\.json$/.exec(n)?.[1] ?? []).sort();
   }
 }

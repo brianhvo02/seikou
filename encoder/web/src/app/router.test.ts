@@ -7,8 +7,16 @@ const ID = '0123456789abcdef';
 
 const routes: readonly Route[] = [
   { kind: 'library' },
+  { kind: 'library', view: 'shows' },
+  { kind: 'library', view: 'folder' },
+  { kind: 'library', view: 'mac' },
   { kind: 'disc', discKey: KEY },
+  { kind: 'disc', discKey: KEY, from: { titleId: 'anilist:990001', seasonId: 'anilist:990001#season' } },
   { kind: 'episodes', discKey: KEY, playlistId: '00800' },
+  { kind: 'episodes', discKey: KEY, playlistId: '00800', from: { titleId: 'own:5f0c2a1e-0000-4000-8000-000000000001', seasonId: 'own:5f0c2a1e-0000-4000-8000-000000000001#s2' } },
+  { kind: 'show', titleId: 'tmdb-tv:990111' },
+  { kind: 'season', titleId: 'anilist:990001', seasonId: 'anilist:990001#season' },
+  { kind: 'seasonQueue', titleId: 'anilist:990001', seasonId: 'anilist:990001#season' },
   { kind: 'helper', sessionId: ID },
   { kind: 'settings' },
   { kind: 'test', jobId: 'job-1' },

@@ -12,7 +12,7 @@ import { EpisodeTitlePicker } from './EpisodeTitlePicker';
 import { aniListIdOf, episodeRows, missingTitles, firstNumberFor, renumberFrom, toInfo, withTitles, type EpisodeRow } from './episode-info-model';
 import { episodeLengths, episodesOf, fromSpec, normalize, toSpec, type Grouping } from './grouping';
 import { SCAN_POLL_MS, useDocumentTitle } from './place';
-import { Link, navigate, routeHref } from './router';
+import { Link, navigate, routeHref, type SeasonRef } from './router';
 import { useInfoDraft, type InfoDraftState } from './use-info-draft';
 
 /** What the page needs: the backend client, the engine and the playlist to group. */
@@ -25,6 +25,8 @@ export interface EpisodesPageProps {
   readonly playlistId: string;
   /** The page's engine; the player shows the playlist in it. */
   readonly controller: PlayerLike;
+  /** The season page this was opened from to check the disc: the crumb and a checked disc lead back there. */
+  readonly from?: SeasonRef | undefined;
 }
 
 interface Loaded {
@@ -109,7 +111,7 @@ function SaveLine({ state }: { readonly state: InfoDraftState }) {
  * name picker and each episode its AniList entry and number (`EpisodeTitlePicker`), saved as the playlist's episode info
  * as they change (`useInfoDraft`); with none saved, the record's show is suggested, numbered from 1.
  */
-export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesPageProps) {
+export function EpisodesPage({ api, discKey, playlistId, controller, from }: EpisodesPageProps) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [scanning, setScanning] = useState(false);
   const [tick, setTick] = useState(0);
@@ -424,7 +426,13 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
   return (
     <main className="content wide episodes-page">
       <p className="crumb">
-        <Link to={{ kind: 'library' }}>Library</Link> / <Link to={{ kind: 'disc', discKey }}>{disc.label}</Link>
+        {from !== undefined ? (
+          <Link to={{ kind: 'season', ...from }}>Back to the season</Link>
+        ) : (
+          <>
+            <Link to={{ kind: 'library' }}>Library</Link> / <Link to={{ kind: 'disc', discKey }}>{disc.label}</Link>
+          </>
+        )}
       </p>
       <h1 className="page-title disc-title">{disc.label}</h1>
       <p className="muted">
@@ -510,6 +518,11 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
                         ? check.message
                         : checkLine(check.answer, check.show)}
                 </p>
+                {from !== undefined && check?.kind === 'done' && check.at === stateKey && (
+                  <p>
+                    <Link to={{ kind: 'season', ...from }}>Back to the season</Link>
+                  </p>
+                )}
               </div>
             )}
             <div className="actions">

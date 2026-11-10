@@ -14,8 +14,9 @@ import { ProgressLine } from './ProgressLine';
 import { QueueDialog } from './QueueDialog';
 import { QueuePage } from './QueuePage';
 import { useDocumentTitle } from './place';
-import { Link, useRoute } from './router';
+import { Link, useRoute, type SeasonRef } from './router';
 import { SettingsPage } from './SettingsPage';
+import { SeasonPage, SeasonQueue, ShowPage } from './ShowPage';
 import { TestPage } from './TestPage';
 
 /** What the root needs. */
@@ -46,9 +47,9 @@ function HelperRoute({ token, sessionId }: { readonly token: string; readonly se
 }
 
 /** The Episodes page with the page's engine, which is made only once this page is shown. */
-function EpisodesRoute({ api, discKey, playlistId }: { readonly api: AppApi; readonly discKey: string; readonly playlistId: string }) {
+function EpisodesRoute({ api, discKey, playlistId, from }: { readonly api: AppApi; readonly discKey: string; readonly playlistId: string; readonly from?: SeasonRef | undefined }) {
   const controller = useController();
-  return <EpisodesPage api={api} discKey={discKey} playlistId={playlistId} controller={controller} />;
+  return <EpisodesPage api={api} discKey={discKey} playlistId={playlistId} controller={controller} from={from} />;
 }
 
 /** Picks the page for the address and puts it in the shell. */
@@ -60,16 +61,25 @@ export function AppRoot({ token }: AppRootProps) {
   let page;
   switch (route.kind) {
     case 'library':
-      page = <LibraryPage api={appApi} />;
+      page = <LibraryPage api={appApi} view={route.view} />;
       break;
     case 'disc':
-      page = <DiscPage api={appApi} discKey={route.discKey} />;
+      page = <DiscPage api={appApi} discKey={route.discKey} from={route.from} />;
+      break;
+    case 'show':
+      page = <ShowPage key={route.titleId} api={appApi} titleId={route.titleId} />;
+      break;
+    case 'season':
+      page = <SeasonPage key={`${route.titleId}/${route.seasonId}`} api={appApi} titleId={route.titleId} seasonId={route.seasonId} />;
+      break;
+    case 'seasonQueue':
+      page = <SeasonQueue key={`${route.titleId}/${route.seasonId}`} api={appApi} titleId={route.titleId} seasonId={route.seasonId} />;
       break;
     case 'helper':
       page = <HelperRoute token={token} sessionId={route.sessionId} />;
       break;
     case 'episodes':
-      page = <EpisodesRoute api={appApi} discKey={route.discKey} playlistId={route.playlistId} />;
+      page = <EpisodesRoute api={appApi} discKey={route.discKey} playlistId={route.playlistId} from={route.from} />;
       break;
     case 'settings':
       page = <SettingsPage api={appApi} />;

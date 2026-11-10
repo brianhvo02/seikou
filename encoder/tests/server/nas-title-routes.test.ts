@@ -113,7 +113,7 @@ describe('the NAS catalogue routes', () => {
     expect(r.status).toBe(200);
     expect(r.body.reachable).toBe(true);
     const by = (id: string): any => r.body.shows.find((s: { titleId: string }) => s.titleId === id);
-    expect(by('anilist:990001')).toMatchObject({ name: 'Lantern Road', kind: 'series', seasons: 1, films: 0, encoded: 1, toEncode: 1 });
+    expect(by('anilist:990001')).toMatchObject({ name: 'Lantern Road', kind: 'series', seasons: 1, films: 0, discs: 2, encoded: 1, toEncode: 1 });
     expect(by('anilist:990001').poster).toMatch(/^\/api\/nas\/art\/[0-9a-f]{32}$/);
     expect(by('tmdb-tv:990111')).toMatchObject({ name: 'Paper Boats', seasons: 1, films: 0, encoded: 1, toEncode: 0 });
     // an own title has no episode list on the NAS, so nothing of it is counted
@@ -157,7 +157,7 @@ describe('the NAS catalogue routes', () => {
     failManifest = vmDiscId;
     await pair();
     const disc = (await show('anilist:990001')).body.seasons[0].discs[1];
-    expect(disc).toEqual({ key: null, discId: vmDiscId, label: 'Disc 2', available: false, playlists: [{ id: '00001', episodes: [{ number: 2, name: null, encoded: false }] }], checked: false });
+    expect(disc).toEqual({ key: null, discId: vmDiscId, label: 'Disc 2', available: false, playlists: [{ id: '00001', episodes: [{ number: 2, name: null, encoded: false }] }], checked: false, checkedPlaylists: [] });
   });
 
   describe('checked', () => {
@@ -197,6 +197,15 @@ describe('the NAS catalogue routes', () => {
     it('clears when an episode title changes', async () => {
       writeInfo(mark('1-2,3-4'), { '1': { ...titles['1'], episode: 3 } });
       expect(await checked()).toBe(false);
+    });
+
+    it('give each checked playlist its grouping as the record writes it, and the episode each group starts', async () => {
+      const disc = async (): Promise<any> => (await show('anilist:990001')).body.seasons[0].discs[1];
+      expect((await disc()).checkedPlaylists).toEqual([]);
+      writeInfo(mark('1-2,3-4'));
+      expect((await disc()).checkedPlaylists).toEqual([{ id: '00001', episodeSpec: '1-2,3-4', episodes: [2, null] }]);
+      await writeRecord('1-2,3-');
+      expect((await disc()).checkedPlaylists).toEqual([{ id: '00001', episodeSpec: '1-2,3-', episodes: [2, null] }]);
     });
 
     it('is false without a mark', async () => {

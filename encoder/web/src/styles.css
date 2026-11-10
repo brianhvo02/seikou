@@ -17,6 +17,8 @@
   --rule: #253a58;
   --dim: #5d6f8a;
   --danger: #ff8a7a;
+  /* what is already done: an episode in the Encodes library, a checked disc */
+  --ok: #6fcf97;
   --gutter: 16px;
   --column: 44rem;
   --font: 'Instrument Sans Variable', system-ui, sans-serif;
@@ -2124,6 +2126,18 @@ button.quiet.danger {
   margin-top: 10px;
 }
 
+/* a batch's encodes: the disc, which of its episodes, and whether it is queued, on one line where they fit */
+.queue-dialog .queue-batch > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+}
+
+.queue-dialog .queue-batch .error {
+  flex-basis: 100%;
+}
+
 .queue-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -2575,5 +2589,351 @@ button.quiet.danger {
   /* the column heads name the profiles above the videos */
   .sample figcaption {
     display: none;
+  }
+}
+
+/* The Library by show: the view switch, the NAS's shows, a show's seasons, and a season disc by disc */
+
+.view-switch {
+  display: inline-flex;
+  margin: 16px 0 0;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 14px;
+}
+
+.view-switch a {
+  padding: 6px 14px;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.view-switch a + a {
+  border-left: 1px solid var(--rule);
+}
+
+.view-switch a:hover {
+  color: var(--ink);
+}
+
+.view-switch a[aria-current='page'] {
+  background: var(--panel);
+  color: var(--ink);
+  font-weight: 560;
+}
+
+.show-list,
+.season-list,
+.season-episodes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-width: var(--column);
+}
+
+.show-list > li,
+.season-list > li {
+  border-bottom: 1px solid var(--rule);
+}
+
+.show-link,
+.season-link {
+  display: grid;
+  align-items: center;
+  gap: 2px 14px;
+  padding: 10px 0;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.show-link {
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+}
+
+.show-poster {
+  display: block;
+  width: 44px;
+  aspect-ratio: 2 / 3;
+  border-radius: 4px;
+  object-fit: cover;
+  background: var(--panel);
+}
+
+.show-poster-none {
+  display: grid;
+  place-items: center;
+  background: linear-gradient(160deg, #2c4a74, var(--panel));
+  color: var(--muted);
+  font-size: 18px;
+  font-weight: 600;
+  font-stretch: 78%;
+}
+
+.show-poster-large {
+  width: 96px;
+  border-radius: 6px;
+  font-size: 34px;
+}
+
+.show-link-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.show-link-name,
+.season-name {
+  font-weight: 600;
+  font-stretch: 90%;
+  overflow-wrap: anywhere;
+}
+
+.show-link:hover .show-link-name,
+.season-link:hover .season-name {
+  color: var(--accent);
+}
+
+.show-link-meta,
+.season-meta {
+  font-size: 13px;
+}
+
+/* how much is encoded: the words, and under them a thin bar filled in the done colour */
+.encoded-meter {
+  display: grid;
+  justify-items: end;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.encoded-all {
+  color: var(--ok);
+}
+
+.encoded-track {
+  display: block;
+  width: 72px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--rule);
+  overflow: hidden;
+}
+
+.encoded-track > span {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+}
+
+.unsorted {
+  margin-top: 28px;
+  max-width: var(--column);
+}
+
+.unsorted h2 {
+  font-size: 16px;
+  font-weight: 600;
+  font-stretch: 88%;
+  margin-bottom: 2px;
+}
+
+.unsorted h2 .muted {
+  font-weight: 450;
+  margin-left: 6px;
+}
+
+.unsorted > p {
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.mark-unsorted {
+  color: var(--amber);
+}
+
+.show-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: end;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.show-head .page-title {
+  margin-bottom: 4px;
+}
+
+.show-head .encoded-meter {
+  justify-items: start;
+  margin-top: 8px;
+}
+
+.show-section {
+  margin-top: 24px;
+}
+
+.show-section h2 {
+  font-size: 16px;
+  margin-bottom: 0;
+}
+
+.season-link {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.season-link .season-meta {
+  grid-column: 1;
+}
+
+.season-link .encoded-meter {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+/* a season, disc by disc */
+.season-page > .muted {
+  margin-bottom: 4px;
+}
+
+.season-disc {
+  max-width: var(--column);
+  margin-top: 14px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+}
+
+.season-disc-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.content .season-disc-name {
+  font-size: 15px;
+  font-weight: 600;
+  font-stretch: 100%;
+  margin: 0;
+}
+
+.season-disc-playlists {
+  font-size: 13px;
+  min-width: 0;
+}
+
+.disc-state,
+.disc-check {
+  margin-left: auto;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.disc-state-checked {
+  color: var(--ok);
+}
+
+.disc-state-checked::before {
+  content: '✓ ';
+}
+
+.disc-state-missing {
+  color: var(--amber);
+}
+
+.disc-check {
+  padding: 4px 10px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 560;
+}
+
+.disc-check:hover {
+  background: var(--accent);
+  color: var(--base);
+}
+
+.season-episodes > li {
+  display: grid;
+  grid-template-columns: 2.2rem minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 7px 12px;
+  font-size: 14px;
+}
+
+.season-episodes > li + li {
+  border-top: 1px solid rgb(37 58 88 / 50%);
+}
+
+.season-ep-number {
+  color: var(--muted);
+}
+
+.season-ep-name {
+  overflow-wrap: anywhere;
+}
+
+.is-encoded .season-ep-name {
+  color: var(--muted);
+}
+
+.season-ep-state {
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.season-ep-state.encoded {
+  color: var(--ok);
+}
+
+.content .season-disc-note {
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+/* Queue stays in reach at the foot of the window while the discs scroll past */
+.season-queue {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px 14px;
+  max-width: var(--column);
+  margin-top: 20px;
+  padding: 14px 0;
+  border-top: 1px solid var(--rule);
+  background: var(--base);
+}
+
+.season-queue-why {
+  color: var(--muted);
+  font-size: 13px;
+  flex: 1 1 14rem;
+}
+
+@media (max-width: 520px) {
+  .show-link {
+    grid-template-columns: 44px minmax(0, 1fr);
+  }
+
+  .show-link .encoded-meter {
+    grid-column: 2;
+    justify-items: start;
+  }
+
+  .show-poster-large {
+    width: 72px;
+  }
+
+  .season-queue button.primary {
+    width: 100%;
   }
 }

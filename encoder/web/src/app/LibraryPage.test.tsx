@@ -2,7 +2,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { LibraryAnswer, LibraryDiscInfo } from '../api-types';
+import type { LibraryAnswer, LibraryDiscInfo, NasShowsAnswer } from '../api-types';
 import type { AppApi } from './app-api';
 import { LibraryPage } from './LibraryPage';
 import { UNUSED_ANILIST_API, UNUSED_JOB_API, UNUSED_NAS_API } from './job-test-support';
@@ -189,7 +189,7 @@ describe('LibraryPage', () => {
         disc('STARFALL_WANDERER_D2', { source: 'nas', root: 'NAS', relPath: 'anime/STARFALL_WANDERER_D2' }),
       ],
     });
-    render(<LibraryPage api={api} />);
+    render(<LibraryPage api={api} view="folder" />);
     await screen.findByText('STARFALL_WANDERER_D2');
     expect(screen.getAllByText('NAS')).toHaveLength(1);
     expect(screen.getByText('On the NAS at anime/STARFALL_WANDERER_D2')).toBeTruthy();
@@ -206,9 +206,52 @@ describe('LibraryPage', () => {
       nas: { paired: true, scanning: false, reachable: false },
       discs: [disc('STARFALL_WANDERER_D2', { source: 'nas', root: 'NAS', relPath: 'anime/STARFALL_WANDERER_D2' })],
     });
-    render(<LibraryPage api={api} />);
+    render(<LibraryPage api={api} view="folder" />);
     expect(await screen.findByText("The NAS can't be reached; its discs are from the last listing.")).toBeTruthy();
     expect(screen.getByRole('link', { name: /STARFALL_WANDERER_D2/ })).toBeTruthy();
     expect(screen.queryByText('No library folders are set')).toBeNull();
+  });
+
+  describe('while paired', () => {
+    const paired = { nas: { paired: true, scanning: false, reachable: true } };
+    const nasDisc = disc('STARFALL_WANDERER_D2', { source: 'nas', root: 'NAS', relPath: 'anime/STARFALL_WANDERER_D2' });
+    const shows: NasShowsAnswer = {
+      shows: [
+        { titleId: 'anilist:990001', name: 'Starfall Wanderer', poster: null, kind: 'series', seasons: 2, films: 1, discs: 6, encoded: 14, toEncode: 12 },
+        { titleId: 'tmdb-tv:990111', name: 'Harbour of Small Lights', poster: null, kind: 'series', seasons: 1, films: 0, discs: 2, encoded: 12, toEncode: 0 },
+      ],
+      unsorted: [{ key: `f.${'e'.repeat(32)}`, label: 'UNTITLED_BD', relPath: 'incoming/UNTITLED_BD' }],
+      reachable: true,
+      stale: false,
+    };
+
+    it('opens By show: each show with its seasons, discs and what is encoded, then the unsorted discs', async () => {
+      const nasShows = vi.fn(async () => shows);
+      render(<LibraryPage api={fakeApi({ ...paired, discs: [disc('LANTERN_HARBOR_D1'), nasDisc] }, { nasShows })} />);
+      const starfall = await screen.findByRole('link', { name: /Starfall Wanderer/ });
+      expect(starfall.textContent).toContain('2 seasons, 1 film or extra, 6 discs');
+      expect(starfall.textContent).toContain('14 of 26 encoded');
+      expect(new URL(starfall.getAttribute('href')!, 'http://x').pathname).toBe(`/shows/${encodeURIComponent('anilist:990001')}`);
+      expect(screen.getByRole('link', { name: /Harbour of Small Lights/ }).textContent).toContain('All 12 encoded');
+      expect(screen.getByRole('link', { name: /UNTITLED_BD/ })).toBeTruthy();
+      expect(screen.getByRole('link', { name: 'By show' }).getAttribute('aria-current')).toBe('page');
+      expect(screen.queryByText('LANTERN_HARBOR_D1')).toBeNull();
+      expect(screen.queryByRole('heading', { name: 'Library folders' })).toBeNull();
+      fireEvent.change(screen.getByRole('searchbox', { name: 'Filter shows' }), { target: { value: 'harbour' } });
+      expect(screen.queryByRole('link', { name: /Starfall Wanderer/ })).toBeNull();
+    });
+
+    it('marks the shows as the last listing while the NAS is not answering', async () => {
+      const nasShows = vi.fn(async () => ({ ...shows, reachable: false, stale: true }));
+      render(<LibraryPage api={fakeApi(paired, { nasShows })} />);
+      expect(await screen.findByText("The NAS can't be reached. These are its shows from the last listing.")).toBeTruthy();
+    });
+
+    it('lists the discs on this Mac, with the folders, under This Mac', async () => {
+      render(<LibraryPage api={fakeApi({ ...paired, discs: [disc('LANTERN_HARBOR_D1'), nasDisc] })} view="mac" />);
+      expect(await screen.findByText('LANTERN_HARBOR_D1')).toBeTruthy();
+      expect(screen.queryByText('STARFALL_WANDERER_D2')).toBeNull();
+      expect(screen.getByRole('heading', { name: 'Library folders' })).toBeTruthy();
+    });
   });
 });

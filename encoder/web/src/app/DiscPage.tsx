@@ -4,7 +4,7 @@ import { ApiError } from '../api';
 import type { LibraryDiscInfo, PlaylistSummary } from '../api-types';
 import type { AppApi } from './app-api';
 import { otherPlaceText, placeText, SCAN_POLL_MS, useDocumentTitle } from './place';
-import { Link } from './router';
+import { Link, type SeasonRef } from './router';
 
 /** What the page needs: the backend client and the disc's key. */
 export interface DiscPageProps {
@@ -12,6 +12,8 @@ export interface DiscPageProps {
   readonly api: AppApi;
   /** The library disc to show. */
   readonly discKey: string;
+  /** The season page the disc was opened from (to check it); its Episodes links lead back there. */
+  readonly from?: SeasonRef | undefined;
 }
 
 /** A length as `h:mm:ss` (`m:ss` under an hour). */
@@ -63,7 +65,7 @@ export function ScanningLibrary() {
  * library does not hold says so and links back to the Library, but only once the scan is over: while the library is
  * still being scanned the page says so and asks again every second.
  */
-export function DiscPage({ api, discKey }: DiscPageProps) {
+export function DiscPage({ api, discKey, from }: DiscPageProps) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [scanning, setScanning] = useState(false);
   const [tick, setTick] = useState(0);
@@ -138,9 +140,10 @@ export function DiscPage({ api, discKey }: DiscPageProps) {
   return (
     <main className="content wide">
       <p className="crumb">
-        <Link to={{ kind: 'library' }}>Library</Link>
+        {from !== undefined ? <Link to={{ kind: 'season', ...from }}>Back to the season</Link> : <Link to={{ kind: 'library' }}>Library</Link>}
       </p>
       <h1 className="page-title disc-title">{disc.label}</h1>
+      {from !== undefined && <p className="muted">The NAS doesn't list this disc's episodes. Open the playlist that holds them to group its chapters and mark it checked.</p>}
       {place !== '' && <p className="muted">{place}</p>}
       {disc.otherPaths.map((o) => (
         <p key={`${o.root}|${o.relPath}`} className="muted" title={o.root}>
@@ -165,7 +168,7 @@ export function DiscPage({ api, discKey }: DiscPageProps) {
                 {p.likelyMain && <span className="mark">Likely main</span>}
                 {disc.recordPlaylists.includes(p.id) && <span className="mark">Subtitle choices saved</span>}
               </span>
-              <Link to={{ kind: 'episodes', discKey, playlistId: p.id }} className="playlist-go">
+              <Link to={{ kind: 'episodes', discKey, playlistId: p.id, ...(from !== undefined ? { from } : {}) }} className="playlist-go">
                 Episodes
               </Link>
             </li>

@@ -81,6 +81,16 @@ describe('DiscPage', () => {
     expect(link.getAttribute('href')).toBe(`/disc/f.${'b'.repeat(32)}/00800`);
   });
 
+  it('opened from a season to check it, leads its Episodes links and its crumb back to the season', async () => {
+    const from = { titleId: 'own:5f0c2a1e-0000-4000-8000-000000000001', seasonId: 'own:5f0c2a1e-0000-4000-8000-000000000001#s1' };
+    render(<DiscPage api={fakeApi()} discKey={KEY} from={from} />);
+    await screen.findByRole('heading', { name: 'LANTERN_HARBOR_D1' });
+    const episodes = new URL(screen.getAllByRole('link', { name: 'Episodes' })[0]!.getAttribute('href')!, 'http://x');
+    expect([episodes.searchParams.get('show'), episodes.searchParams.get('season')]).toEqual([from.titleId, from.seasonId]);
+    const back = new URL(screen.getByRole('link', { name: 'Back to the season' }).getAttribute('href')!, 'http://x');
+    expect(back.pathname).toBe(`/shows/${encodeURIComponent(from.titleId)}/${encodeURIComponent(from.seasonId)}`);
+  });
+
   it('names other copies of the disc with the folder name and the full path as a title', async () => {
     const copy = { ...listed[0]!, otherPaths: [{ relPath: 'LANTERN_COPY', root: '/media/old' }] };
     const api = fakeApi([copy]);

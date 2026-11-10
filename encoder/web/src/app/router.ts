@@ -3,11 +3,27 @@ import { createElement, useSyncExternalStore, type AnchorHTMLAttributes, type Mo
 
 // The app's client-side routes: a pure parse and build pair over the address, and the history plumbing the pages use.
 
+/** The Library's views: the NAS's shows, the NAS's discs by folder, the discs on this Mac. */
+export type LibraryView = 'shows' | 'folder' | 'mac';
+
+/** A season page a disc or Episodes page was opened from, to go back to once the disc is checked. */
+export interface SeasonRef {
+  readonly titleId: string;
+  readonly seasonId: string;
+}
+
 /** A page of the app. */
 export type Route =
-  | { readonly kind: 'library' }
-  | { readonly kind: 'disc'; readonly discKey: string }
-  | { readonly kind: 'episodes'; readonly discKey: string; readonly playlistId: string }
+  /** `view` left out: By show when paired, else every disc. */
+  | { readonly kind: 'library'; readonly view?: LibraryView }
+  | { readonly kind: 'disc'; readonly discKey: string; readonly from?: SeasonRef }
+  | { readonly kind: 'episodes'; readonly discKey: string; readonly playlistId: string; readonly from?: SeasonRef }
+  /** A NAS show: its seasons and films. */
+  | { readonly kind: 'show'; readonly titleId: string }
+  /** A season (or film) of a NAS show, disc by disc. */
+  | { readonly kind: 'season'; readonly titleId: string; readonly seasonId: string }
+  /** The batch queue of a season's episodes still to encode. */
+  | { readonly kind: 'seasonQueue'; readonly titleId: string; readonly seasonId: string }
   | { readonly kind: 'helper'; readonly sessionId: string }
   | { readonly kind: 'settings' }
   | { readonly kind: 'test'; readonly jobId: string }
@@ -28,10 +44,19 @@ export type Route =
 
 const enc = encodeURIComponent;
 
+/** The season named by `?show=&season=`, or undefined. */
+function seasonRefOf(q: URLSearchParams): SeasonRef | undefined {
+  const titleId = q.get('show');
+  const seasonId = q.get('season');
+  return titleId && seasonId ? { titleId, seasonId } : undefined;
+}
+
 /**
- * The route of an address: `/` the library, `/disc/<key>`, `/disc/<key>/<playlist>` (episodes), `/helper/<session>`,
- * `/settings`, `/test/<job>`, `/queue`, `/queue/new?disc=&playlist=&spec=[&noSubtitles=1][&profile=<id>]` and `/queue/<job>`.
- * Anything else, and `/queue/new` without its three parameters, is `notFound`.
+ * The route of an address: `/[?view=shows|folder|mac]` the library, `/disc/<key>`, `/disc/<key>/<playlist>`
+ * (episodes; both take `?show=&season=`, the season they were opened from), `/shows/<title>`,
+ * `/shows/<title>/<season>`, `/shows/<title>/<season>/queue`, `/helper/<session>`, `/settings`, `/test/<job>`, `/queue`,
+ * `/queue/new?disc=&playlist=&spec=[&noSubtitles=1][&profile=<id>]` and `/queue/<job>`. Anything else, and
+ * `/queue/new` without its three parameters, is `notFound`.
  */
 export function parseRoute(pathname: string, search = ''): Route {
   const parts = pathname.split('/').filter((p) => p !== '');
@@ -43,16 +68,23 @@ export function parseRoute(pathname: string, search = ''): Route {
     }
   };
   const [head, second, third] = parts;
-  if (head === undefined) return { kind: 'library' };
-  if (head === 'disc' && second !== undefined && parts.length === 2) return { kind: 'disc', discKey: seg(1) };
-  if (head === 'disc' && third !== undefined && parts.length === 3) return { kind: 'episodes', discKey: seg(1), playlistId: seg(2) };
+  const q = new URLSearchParams(search);
+  if (head === undefined) {
+    const view = q.get('view');
+    return view === 'shows' || view === 'folder' || view === 'mac' ? { kind: 'library', view } : { kind: 'library' };
+  }
+  const from = seasonRefOf(q);
+  if (head === 'disc' && second !== undefined && parts.length === 2) return { kind: 'disc', discKey: seg(1), ...(from ? { from } : {}) };
+  if (head === 'disc' && third !== undefined && parts.length === 3) return { kind: 'episodes', discKey: seg(1), playlistId: seg(2), ...(from ? { from } : {}) };
+  if (head === 'shows' && parts.length === 2) return { kind: 'show', titleId: seg(1) };
+  if (head === 'shows' && parts.length === 3) return { kind: 'season', titleId: seg(1), seasonId: seg(2) };
+  if (head === 'shows' && parts.length === 4 && parts[3] === 'queue') return { kind: 'seasonQueue', titleId: seg(1), seasonId: seg(2) };
   if (head === 'helper' && parts.length === 2 && /^[0-9a-f]{16}$/.test(second!)) return { kind: 'helper', sessionId: second! };
   if (head === 'settings' && parts.length === 1) return { kind: 'settings' };
   if (head === 'test' && parts.length === 2) return { kind: 'test', jobId: seg(1) };
   if (head === 'queue') {
     if (parts.length === 1) return { kind: 'queue' };
     if (parts.length === 2 && second === 'new') {
-      const q = new URLSearchParams(search);
       const discKey = q.get('disc');
       const playlistId = q.get('playlist');
       const spec = q.get('spec');
@@ -73,16 +105,35 @@ export function routeHref(route: Route, search = ''): string {
   const token = new URLSearchParams(search).get('t');
   if (token !== null) q.set('t', token);
   let path: string;
+  const from = (ref: SeasonRef | undefined): void => {
+    if (ref === undefined) return;
+    q.set('show', ref.titleId);
+    q.set('season', ref.seasonId);
+  };
   switch (route.kind) {
     case 'library':
+      path = '/';
+      if (route.view !== undefined) q.set('view', route.view);
+      break;
     case 'notFound':
       path = '/';
       break;
     case 'disc':
       path = `/disc/${enc(route.discKey)}`;
+      from(route.from);
       break;
     case 'episodes':
       path = `/disc/${enc(route.discKey)}/${enc(route.playlistId)}`;
+      from(route.from);
+      break;
+    case 'show':
+      path = `/shows/${enc(route.titleId)}`;
+      break;
+    case 'season':
+      path = `/shows/${enc(route.titleId)}/${enc(route.seasonId)}`;
+      break;
+    case 'seasonQueue':
+      path = `/shows/${enc(route.titleId)}/${enc(route.seasonId)}/queue`;
       break;
     case 'helper':
       path = `/helper/${route.sessionId}`;
