@@ -163,6 +163,42 @@
           "id": "anilist:990201",
           "format": "TV",
           "startDate": 20200401
+        },
+        {
+          "type": "SEQUEL",
+          "id": "anilist:990203",
+          "format": "TV",
+          "startDate": 20240401
+        }
+      ],
+      "poster": null,
+      "banner": null
+    }
+  ],
+  "Willow Lane Finale": [
+    {
+      "source": "anilist",
+      "id": "anilist:990203",
+      "kind": "series",
+      "format": "TV",
+      "names": {
+        "english": "Willow Lane Finale",
+        "romaji": "Yanagi no Komichi Final",
+        "native": null,
+        "synonyms": []
+      },
+      "animation": true,
+      "year": 2024,
+      "startDate": 20240401,
+      "episodes": 4,
+      "runtimeMin": 0.0667,
+      "seasons": [],
+      "relations": [
+        {
+          "type": "PREQUEL",
+          "id": "anilist:990202",
+          "format": "TV",
+          "startDate": 20210401
         }
       ],
       "poster": null,

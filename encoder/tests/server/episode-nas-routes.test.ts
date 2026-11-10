@@ -14,8 +14,8 @@ import { startNasTestServer, type NasTestServer } from '../nas/nas-test-server';
 const TOKEN = 'episode-nas-token';
 /**
  * Lantern Road (AniList 990001): episode 1 is disc1, episode 2 is disc-vm (four chapters). disc3 is left in Unsorted.
- * Willow Lane is an AniList series of two entries: 990201 (season 1, on disc-subs) and its sequel 990202 (season 2, on
- * disc-menu, filed as its second disc).
+ * Willow Lane is an AniList series of three entries: 990201 (season 1, on disc-subs), its sequel 990202 (season 2, on
+ * disc-menu, filed as its second disc) and 990203 (season 3, on no disc).
  */
 const FOLDERS = {
   'Anime/Lantern Road/Lantern Road Vol.1': 'disc1',
@@ -32,6 +32,8 @@ let ownId: string;
 let server: HelperServer;
 let app: AppContext;
 let putChoices: string[] = [];
+/** Answers `admin/anilist-place` as a NAS from before the route does: 404 with the plain `not found`. */
+let olderNas = false;
 
 beforeAll(async () => {
   nas = await startNasTestServer({ titles: true, titleDiscs: FOLDERS });
@@ -47,8 +49,10 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   putChoices = [];
+  olderNas = false;
   const realFetch = globalThis.fetch;
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    if (olderNas && /\/admin\/anilist-place\//.test(String(input))) return new Response(JSON.stringify({ error: 'not found' }), { status: 404, headers: { 'content-type': 'application/json' } });
     if (init?.method === 'PUT' && /\/admin\/discs\/[^/]+\/choice/.test(String(input))) putChoices.push(String(init.body));
     return realFetch(input, init);
   });
@@ -256,5 +260,32 @@ describe('check', () => {
     expect((await call('GET', '/api/nas/shows')).body.unsorted.map((u: { key: string }) => u.key)).not.toContain(key);
     const shown = (await call('GET', `/api/nas/shows/${encodeURIComponent('anilist:990201')}`)).body.seasons[1].discs as { key: string | null }[];
     expect(shown.map((d) => d.key)).toContain(key);
+  });
+
+  it('files a disc into an AniList season the NAS holds no disc of, by asking the NAS where the entry goes', async () => {
+    const willow = async (): Promise<TitleDetail> => admin.json<TitleDetail>('titles/anilist%3A990201');
+    expect((await willow()).seasons.map((s) => s.id)).not.toContain('anilist:990203#season');
+    const key = (await call('GET', `/api/nas/shows/${encodeURIComponent('anilist:990201')}`)).body.seasons[0].discs[0].key as string;
+    await save(key, { '1': anilist(990203, 1) });
+    // a NAS from before the route: the kept catalogue holds no season 3, so nothing is written
+    olderNas = true;
+    const old = await check(key, '1-');
+    expect(old.body).toMatchObject({ nasChoice: 'failed', message: "The NAS doesn't know this AniList entry yet, so it was left as it is. File it with “File differently…” in Seikou instead." });
+    expect(putChoices).toEqual([]);
+    olderNas = false;
+    const r = await check(key, '1-');
+    expect(r.body).toMatchObject({ nasChoice: 'saved' });
+    expect(new Set(putChoices)).toEqual(new Set([JSON.stringify({ choice: { kind: 'title', titleId: 'anilist:990201', season: 3, disc: null } })]));
+    const season3 = (await willow()).seasons.find((s) => s.id === 'anilist:990203#season')!;
+    expect(season3.number).toBe(3);
+    expect(season3.label).toBe('Willow Lane Finale');
+    const shown = (await call('GET', `/api/nas/shows/${encodeURIComponent('anilist:990201')}`)).body.seasons as { discs: { key: string | null }[] }[];
+    expect(shown.flatMap((s) => s.discs.map((d) => d.key))).toContain(key);
+    // a NAS from before the route still files into a season its catalogue holds
+    olderNas = true;
+    putChoices = [];
+    await save(key, { '1': anilist(990202, 1) });
+    expect((await check(key, '1-')).body).toMatchObject({ nasChoice: 'saved' });
+    expect(new Set(putChoices)).toEqual(new Set([JSON.stringify({ choice: { kind: 'title', titleId: 'anilist:990201', season: 2, disc: null } })]));
   });
 });

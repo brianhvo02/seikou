@@ -463,7 +463,8 @@ export class NasTitles {
   /**
    * Where the NAS has AniList entry `anilistId` (`anilistPlace`), decided on the NAS as it is now: a title found in
    * the kept details is read again and asked once more; an entry found nowhere has every detail read again first.
-   * Rejects with `NasError` when the NAS cannot be read.
+   * Rejects with `NasError` when the NAS cannot be read. Only for a NAS without `admin/anilist-place` (an older image),
+   * or an entry that route can't number: the check asks that route first.
    */
   async anilistPlace(client: NasClient, anilistId: number): Promise<AnilistPlace | null> {
     const { raw, reachable } = await this.fetch(client);

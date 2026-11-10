@@ -22,7 +22,10 @@ import type { Entry } from '@seikou/titles/sources';
 // routes on 127.0.0.1, over temporary copies of the fixtures. Codes are minted straight through its `Auth`.
 
 const REPO = fileURLToPath(new URL('../../../', import.meta.url));
-/** The made-up AniList and TMDB entries `titles: true` searches: an AniList series, "Lantern Harbour" on both, a TMDB series (id 990101, two seasons). */
+/**
+ * The made-up AniList and TMDB entries `titles: true` searches: an AniList series, "Lantern Harbour" on both, a TMDB
+ * series (id 990101, two seasons), and Willow Lane, an AniList chain of three TV entries (990201 to 990203).
+ */
 const TITLES_FIXTURE = fileURLToPath(new URL('../fixtures/nas-titles.json', import.meta.url));
 /** Long enough ago that the NAS counts every copied file as settled. */
 const SETTLED = new Date('2024-01-01T00:00:00Z');

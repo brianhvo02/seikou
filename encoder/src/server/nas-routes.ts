@@ -186,14 +186,15 @@ const sleep = (ms: number, signal: AbortSignal): Promise<void> =>
   });
 
 /**
- * Runs `admin/lookup` for `query` behind the lookups already waiting on `client` (first come, first served), so this
- * app never has two in flight. A lookup whose `gone` signal aborts before its turn is dropped unsent, so a search the
- * page gave up on spends none of the NAS's 20 a minute. After `lookup-busy` (another client of this device may be mid
- * lookup) it tries once more, after the `Retry-After` when there is one, else 500 ms.
+ * Runs the NAS lookup `path` (`admin/lookup?…` or `admin/anilist-place/<id>`, which share the NAS's per-device limits)
+ * behind the lookups already waiting on `client` (first come, first served), so this app never has two in flight. A
+ * lookup whose `gone` signal aborts before its turn is dropped unsent, so a search the page gave up on spends none of
+ * the NAS's 20 a minute. After `lookup-busy` (another client of this device may be mid lookup) it tries once more, after
+ * the `Retry-After` when there is one, else 500 ms. An error answer rejects with `NasError`.
  */
-function queuedLookup(client: NasClient, query: string, gone: AbortSignal): Promise<{ titles: unknown }> {
-  const send = (): Promise<{ titles: unknown }> => client.json<{ titles: unknown }>(`admin/lookup?${query}`, { signal: AbortSignal.any([gone, AbortSignal.timeout(LOOKUP_TIMEOUT_MS)]) });
-  const turn = async (): Promise<{ titles: unknown }> => {
+export function queuedLookup<T>(client: NasClient, path: string, gone: AbortSignal = new AbortController().signal): Promise<T> {
+  const send = (): Promise<T> => client.json<T>(path, { signal: AbortSignal.any([gone, AbortSignal.timeout(LOOKUP_TIMEOUT_MS)]) });
+  const turn = async (): Promise<T> => {
     if (gone.aborted) throw new Dropped();
     try {
       return await send();
@@ -223,7 +224,7 @@ async function lookup(req: IncomingMessage, res: ServerResponse, app: AppContext
     if (!res.writableEnded) gone.abort();
   });
   try {
-    const answer = await queuedLookup(client, new URLSearchParams({ q, source }).toString(), gone.signal);
+    const answer = await queuedLookup<{ titles: unknown }>(client, `admin/lookup?${new URLSearchParams({ q, source }).toString()}`, gone.signal);
     json(res, 200, { titles: Array.isArray(answer.titles) ? answer.titles : [] });
   } catch (err) {
     if (err instanceof Dropped || gone.signal.aborted) return;
