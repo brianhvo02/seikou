@@ -167,7 +167,48 @@ function pairedClient(res: ServerResponse, app: AppContext): NasClient | null {
   return null;
 }
 
-/** `GET /api/nas/lookup?q=&source=`: the NAS's `admin/lookup`. */
+/** Thrown into a queued lookup whose caller went away before its turn. */
+class Dropped extends Error {}
+
+/** The lookups waiting for or running on a client: the NAS allows one in flight per device, so they run one after the other. */
+const lookupLine = new WeakMap<NasClient, Promise<unknown>>();
+/** Without a `Retry-After`, how long to wait before the one retry after `lookup-busy`. */
+const BUSY_WAIT_MS = 500;
+/** The longest `Retry-After` the retry honours. */
+const BUSY_WAIT_MAX_MS = 5_000;
+
+const sleep = (ms: number, signal: AbortSignal): Promise<void> =>
+  new Promise((resolve) => {
+    const t = setTimeout(resolve, ms);
+    signal.addEventListener('abort', () => (clearTimeout(t), resolve()), { once: true });
+  });
+
+/**
+ * Runs `admin/lookup` for `query` behind the lookups already waiting on `client` (first come, first served), so this
+ * app never has two in flight. A lookup whose `gone` signal aborts before its turn is dropped unsent, so a search the
+ * page gave up on spends none of the NAS's 20 a minute. After `lookup-busy` (another client of this device may be mid
+ * lookup) it tries once more, after the `Retry-After` when there is one, else 500 ms.
+ */
+function queuedLookup(client: NasClient, query: string, gone: AbortSignal): Promise<{ titles: unknown }> {
+  const send = (): Promise<{ titles: unknown }> => client.json<{ titles: unknown }>(`admin/lookup?${query}`, { signal: AbortSignal.any([gone, AbortSignal.timeout(LOOKUP_TIMEOUT_MS)]) });
+  const turn = async (): Promise<{ titles: unknown }> => {
+    if (gone.aborted) throw new Dropped();
+    try {
+      return await send();
+    } catch (err) {
+      if (!(err instanceof NasError) || err.status !== 429 || err.error !== 'lookup-busy') throw err;
+      const seconds = Number(err.retryAfter);
+      await sleep(Number.isFinite(seconds) && err.retryAfter !== null ? Math.min(seconds * 1000, BUSY_WAIT_MAX_MS) : BUSY_WAIT_MS, gone);
+      if (gone.aborted) throw new Dropped();
+      return send();
+    }
+  };
+  const run = (lookupLine.get(client) ?? Promise.resolve()).then(turn, turn);
+  lookupLine.set(client, run.catch(() => {}));
+  return run;
+}
+
+/** `GET /api/nas/lookup?q=&source=`: the NAS's `admin/lookup`, one at a time. */
 async function lookup(req: IncomingMessage, res: ServerResponse, app: AppContext): Promise<void> {
   const client = pairedClient(res, app);
   if (client === null) return;
@@ -175,10 +216,15 @@ async function lookup(req: IncomingMessage, res: ServerResponse, app: AppContext
   const q = params.get('q')?.trim() ?? '';
   const source = SOURCES.find((s) => s === params.get('source'));
   if (q === '' || q.length > MAX_QUERY || source === undefined) return httpError(res, 400, 'bad-request', 'Give q (1 to 200 characters) and source (anilist, tmdb or own).');
+  const gone = new AbortController();
+  res.on('close', () => {
+    if (!res.writableEnded) gone.abort();
+  });
   try {
-    const answer = await client.json<{ titles: unknown }>(`admin/lookup?${new URLSearchParams({ q, source }).toString()}`, { signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS) });
+    const answer = await queuedLookup(client, new URLSearchParams({ q, source }).toString(), gone.signal);
     json(res, 200, { titles: Array.isArray(answer.titles) ? answer.titles : [] });
   } catch (err) {
+    if (err instanceof Dropped || gone.signal.aborted) return;
     nasCallError(res, err);
   }
 }

@@ -186,9 +186,56 @@ describe('the NAS title routes', () => {
     expect(await lookup('x', 'tmdb')).toMatchObject({ status: 503, body: { error: 'source-unreachable' } });
     fake = { status: 429, body: { error: 'too-many-lookups' } };
     expect(await lookup('x', 'tmdb')).toMatchObject({ status: 429, body: { error: 'too-many-lookups' } });
+    const limited = await nativeFetch(`http://127.0.0.1:${server.port}/api/nas/lookup?q=x&source=tmdb`, { headers: { authorization: `Bearer ${TOKEN}` } });
+    expect(limited.headers.get('Retry-After')).toBe('7');
     fake = null;
     await titled.pause();
     expect(await lookup('x', 'tmdb')).toMatchObject({ status: 502, body: { error: 'unreachable' } });
     await titled.resume();
+  });
+
+  it('answers three lookups sent together, one at a time on the NAS', async () => {
+    await pairTitled();
+    const answers = await Promise.all([lookup('Lantern Harbour', 'anilist'), lookup('Lantern Harbour', 'tmdb'), lookup('lantern', 'own')]);
+    expect(answers.map((a) => a.status)).toEqual([200, 200, 200]);
+    expect((answers[1]!.body.titles as { id: string }[]).map((t) => t.id)).toEqual(['tmdb-tv:990101']);
+  });
+
+  it('tries again once after lookup-busy, and gives up on a second', async () => {
+    await pairTitled();
+    let busy = 1;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) =>
+      String(input).includes('/admin/lookup') && busy-- > 0
+        ? new Response(JSON.stringify({ error: 'lookup-busy' }), { status: 429, headers: { 'Content-Type': 'application/json', 'Retry-After': '0' } })
+        : nativeFetch(input, init));
+    expect(await lookup('Lantern Harbour', 'tmdb')).toMatchObject({ status: 200 });
+    busy = 2;
+    expect(await lookup('Lantern Harbour', 'tmdb')).toMatchObject({ status: 429, body: { error: 'lookup-busy' } });
+  });
+
+  it('drops a queued lookup whose caller went away before its turn', async () => {
+    await pairTitled();
+    let sent = 0;
+    let release: () => void = () => {};
+    const held = new Promise<void>((r) => (release = r));
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (!String(input).includes('/admin/lookup')) return nativeFetch(input, init);
+      sent += 1;
+      if (sent === 1) await held;
+      return nativeFetch(input, init);
+    });
+    const url = (q: string) => `http://127.0.0.1:${server.port}/api/nas/lookup?${new URLSearchParams({ q, source: 'tmdb' }).toString()}`;
+    const first = nativeFetch(url('Lantern Harbour'), { headers: { authorization: `Bearer ${TOKEN}` } });
+    await vi.waitFor(() => expect(sent).toBe(1));
+    const abort = new AbortController();
+    const second = nativeFetch(url('lantern'), { headers: { authorization: `Bearer ${TOKEN}` }, signal: abort.signal }).catch(() => null);
+    await new Promise((r) => setTimeout(r, 100));
+    abort.abort();
+    await second;
+    await new Promise((r) => setTimeout(r, 100));
+    release();
+    expect((await first).status).toBe(200);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(sent).toBe(1);
   });
 });

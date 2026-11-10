@@ -200,9 +200,12 @@ export function EpisodeTitlePicker({ api, row, show, sequel, disabled, nasPaired
   const [season, setSeason] = useState<TitleSummary | null>(null);
   const [byHand, setByHand] = useState(false);
   const seq = useRef(0);
+  /** Stops the lookups of the search it belongs to when another search or a pick replaces it. */
+  const lookups = useRef<AbortController | null>(null);
   const episode = row.title?.episode ?? null;
   const [numberText, setNumberText] = useState(episode === null ? '' : String(episode));
   const [numberError, setNumberError] = useState(false);
+  useEffect(() => () => lookups.current?.abort(), []);
   useEffect(() => {
     setNumberText(episode === null ? '' : String(episode));
     setNumberError(false);
@@ -213,6 +216,9 @@ export function EpisodeTitlePicker({ api, row, show, sequel, disabled, nasPaired
     const text = query.trim();
     if (text === '') return;
     const mine = ++seq.current;
+    lookups.current?.abort();
+    const stop = new AbortController();
+    lookups.current = stop;
     setSearching(true);
     setSearchError(null);
     setSkipped([]);
@@ -223,16 +229,15 @@ export function EpisodeTitlePicker({ api, row, show, sequel, disabled, nasPaired
         ['TMDB', 'tmdb'],
         ['your own titles', 'own'],
       ] as const;
-      Promise.allSettled(sources.map(([, source]) => Promise.resolve().then(() => api.lookupTitles(text, source)))).then((answers) => {
+      Promise.allSettled(sources.map(([, source]) => Promise.resolve().then(() => api.lookupTitles(text, source, stop.signal)))).then((answers) => {
         if (mine !== seq.current) return;
         setSearching(false);
         const ok = answers.flatMap((a) => (a.status === 'fulfilled' ? a.value : []));
         const failed = answers.flatMap((a, i) => (a.status === 'rejected' ? [i] : []));
         setSkipped(failed.map((i) => sources[i]![0]));
         if (failed.length === answers.length) {
-          const first = answers[failed[0]!] as PromiseRejectedResult;
           setFound(null);
-          setSearchError(first.reason instanceof Error ? first.reason.message : String(first.reason));
+          setSearchError(failed.map((i) => `${sources[i]![0]}: ${answers[i]!.status === 'rejected' && (answers[i] as PromiseRejectedResult).reason instanceof Error ? ((answers[i] as PromiseRejectedResult).reason as Error).message : 'no answer'}`).join(' '));
         } else {
           setFound(ok);
         }
@@ -258,6 +263,7 @@ export function EpisodeTitlePicker({ api, row, show, sequel, disabled, nasPaired
 
   const close = (): void => {
     seq.current += 1;
+    lookups.current?.abort();
     setOpen(false);
     setHits(null);
     setFound(null);

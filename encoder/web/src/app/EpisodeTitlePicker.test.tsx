@@ -125,6 +125,30 @@ describe('EpisodeTitlePicker paired with a NAS', () => {
     expect(screen.getAllByRole('button', { name: /Lantern/ })).toHaveLength(2);
   });
 
+  it('names every source when all of them fail', async () => {
+    setup({ api: { lookupTitles: vi.fn(async (_q: string, source: string) => Promise.reject(new ApiError(503, 'source-unreachable', `${source} down`))) } });
+    fireEvent.click(screen.getByRole('button', { name: 'Choose the AniList entry of episode 2' }));
+    fireEvent.change(screen.getByLabelText('Search for episode 2'), { target: { value: 'lantern' } });
+    fireEvent.submit(screen.getByRole('search'));
+    const text = (await screen.findByRole('alert')).textContent;
+    expect(text).toContain('AniList: anilist down');
+    expect(text).toContain('TMDB: tmdb down');
+    expect(text).toContain('your own titles: own down');
+  });
+
+  it('stops the lookups of a search another one replaces', async () => {
+    const signals: AbortSignal[] = [];
+    setup({ api: { lookupTitles: vi.fn(async (_q: string, _s: string, signal?: AbortSignal) => (signals.push(signal!), new Promise<TitleSummary[]>(() => {}))) } });
+    fireEvent.click(screen.getByRole('button', { name: 'Choose the AniList entry of episode 2' }));
+    fireEvent.change(screen.getByLabelText('Search for episode 2'), { target: { value: 'lantern' } });
+    fireEvent.submit(screen.getByRole('search'));
+    fireEvent.change(screen.getByLabelText('Search for episode 2'), { target: { value: 'lantern h' } });
+    fireEvent.submit(screen.getByRole('search'));
+    await waitFor(() => expect(signals).toHaveLength(6));
+    expect(signals.slice(0, 3).every((s) => s.aborted)).toBe(true);
+    expect(signals.slice(3).every((s) => !s.aborted)).toBe(true);
+  });
+
   it('Add by hand creates an own title on the NAS and picks it', async () => {
     const { api, onPickTitle } = setup();
     fireEvent.click(screen.getByRole('button', { name: 'Choose the AniList entry of episode 2' }));

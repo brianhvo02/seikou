@@ -77,7 +77,7 @@ export interface AppApi {
    * The NAS's search of one source (`anilist`, `tmdb` or the owner's `own` titles); rejects with `ApiError`
    * `nas-not-paired`, `source-unreachable` (503), `too-many-lookups` or `lookup-busy` (429), `unreachable`.
    */
-  lookupTitles(q: string, source: 'anilist' | 'tmdb' | 'own'): Promise<TitleSummary[]>;
+  lookupTitles(q: string, source: 'anilist' | 'tmdb' | 'own', signal?: AbortSignal): Promise<TitleSummary[]>;
   /** Makes an own title on the NAS for a show no source lists (`seasons` only for a series); rejects like `lookupTitles`. */
   createOwnTitle(title: { readonly kind: 'series' | 'movie'; readonly name: string; readonly seasons: number | null }): Promise<OwnTitle>;
   /** Forgets the pairing on this machine (the NAS keeps listing the device until an owner removes it). */
@@ -99,9 +99,9 @@ export function createAppApi(base: string, token: string, fetchImpl: FetchLike =
     return res.text();
   }
 
-  async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
     const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
-    const init: RequestInit = { method, headers };
+    const init: RequestInit = { method, headers, ...(signal ? { signal } : {}) };
     if (body !== undefined) {
       headers['Content-Type'] = 'application/json';
       init.body = JSON.stringify(body);
@@ -185,8 +185,8 @@ export function createAppApi(base: string, token: string, fetchImpl: FetchLike =
     },
     nas: () => request('GET', '/api/nas'),
     pairNas: (body) => request('POST', '/api/nas/pair', body),
-    async lookupTitles(q, source) {
-      return (await request<{ titles: TitleSummary[] }>('GET', `/api/nas/lookup?${new URLSearchParams({ q, source }).toString()}`)).titles;
+    async lookupTitles(q, source, signal) {
+      return (await request<{ titles: TitleSummary[] }>('GET', `/api/nas/lookup?${new URLSearchParams({ q, source }).toString()}`, undefined, signal)).titles;
     },
     createOwnTitle: (title) => request('POST', '/api/nas/own-titles', title),
     async unpairNas() {
