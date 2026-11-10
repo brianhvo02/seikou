@@ -728,12 +728,14 @@ export type NasEncodeTitle = EpisodeTitle['title'];
 
 /** One disc of a season in `GET /api/nas/shows/<titleId>`. */
 export interface NasSeasonDisc {
-  /** The encoder's disc key. */
-  readonly key: string;
+  /** The encoder's disc key; null while it mirrors none of the slot's copies (`available` false). */
+  readonly key: string | null;
   readonly discId: string;
   readonly label: string;
+  /** Whether the encoder mirrors a copy of the disc, so it can be checked and encoded; an unavailable disc is never checked. */
+  readonly available: boolean;
   readonly playlists: { readonly id: string; readonly episodes: { readonly number: number; readonly name: string | null; readonly encoded: boolean }[] }[];
-  /** Every playlist with episodes is checked (a disc listing none: any saved playlist of it is). */
+  /** Every playlist with episodes is checked (a disc listing none: any saved playlist of it is); false for an unavailable disc. */
   readonly checked: boolean;
 }
 

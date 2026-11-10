@@ -6,8 +6,10 @@ import type { EncodeTitle } from '@seikou/nas/encode-title';
 import type { DiscSlot, EpisodeRef, TitleDetail, TitleSummary, UnsortedItem } from '@seikou/nas/nas-api';
 import { replaceAtomically } from '@seikou/titles';
 import { EpisodeInfoError, EpisodeInfoStore, isChecked } from '../plan/episode-info';
+import { loadPlaylist } from '../disc/playlist';
 import { RecordError, RecordStore } from '../subs/record';
 import type { AppContext } from '../server/http';
+import { sessionsOf } from '../server/sessions';
 import { NasError, type NasClient } from './client';
 import { nasLibraryOf, type NasDisc } from './nas-library';
 
@@ -87,15 +89,18 @@ export interface NasEpisode {
 
 /** One disc of a season. */
 export interface NasSeasonDisc {
-  /** The encoder's disc key. */
-  readonly key: string;
-  /** The NAS's disc id. */
+  /** The encoder's disc key; null while the encoder mirrors none of the slot's copies (`available` is then false). */
+  readonly key: string | null;
+  /** The NAS's disc id (of the copy the episodes name, else the first copy). */
   readonly discId: string;
   readonly label: string;
+  /** Whether the encoder mirrors a copy of this disc, so it can be checked and encoded. */
+  readonly available: boolean;
   readonly playlists: { readonly id: string; readonly episodes: NasEpisode[] }[];
   /**
-   * Checked: every playlist the NAS lists episodes for is checked (`isChecked` of its saved info); a disc with none
-   * listed counts as checked once any playlist saved for it is.
+   * Checked: every playlist the NAS lists episodes for is checked (`isChecked` of its saved info, on the playlist's real
+   * chapter count); a disc with none listed counts as checked once any playlist saved for it is. An unavailable disc
+   * is never checked.
    */
   readonly checked: boolean;
 }
@@ -125,15 +130,17 @@ interface Raw {
   readonly details: Record<string, TitleDetail>;
   readonly unsorted: UnsortedItem[];
   readonly ids: string[];
+  /** When each title's detail was read (ms since the epoch); a detail younger than `DETAIL_TTL_MS` is not asked for again. */
+  readonly detailAt: Record<string, number>;
 }
 
+/** How long a title's detail is reused from the kept answer. */
+export const DETAIL_TTL_MS = 10 * 60_000;
 const REQUEST_TIMEOUT_MS = 30_000;
 const DETAILS_AT_ONCE = 6;
 const UNSORTED_PAGE = 200;
 /** The most Unsorted discs read, so a NAS answering without end cannot keep it going. */
 const MAX_UNSORTED = 20_000;
-/** A chapter count that accepts any episode list a saved mark holds, for a playlist this code does not open. */
-const ANY_CHAPTERS = 999;
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -142,7 +149,7 @@ async function readSaved(file: string): Promise<Raw | null> {
   try {
     const v: unknown = JSON.parse(await readFile(file, 'utf8'));
     if (!isObject(v) || typeof v.base !== 'string' || !Array.isArray(v.titles) || !isObject(v.details) || !Array.isArray(v.unsorted) || !Array.isArray(v.ids)) return null;
-    return v as unknown as Raw;
+    return { ...(v as unknown as Raw), detailAt: isObject(v.detailAt) ? (v.detailAt as Record<string, number>) : {} };
   } catch {
     return null;
   }
@@ -154,12 +161,27 @@ function showName(t: TitleSummary): string {
 
 const posterRoute = (artId: string | null): string | null => (artId === null ? null : `/api/nas/art/${artId}`);
 
+/** What one read of the NAS gave. */
+interface Fetched {
+  readonly raw: Raw | null;
+  readonly reachable: boolean;
+  readonly stale: boolean;
+}
+
 /** The NAS's catalogue for one app. */
 export class NasTitles {
   private saved: Raw | null = null;
   private loaded = false;
+  /** The text of `nas-titles.json` as last read or written, so an unchanged answer is not written again. */
+  private written: string | null = null;
+  /** Playlist chapter counts of mirrored discs, by disc key and playlist. */
+  private readonly chapterCounts = new Map<string, number | null>();
 
-  constructor(private readonly app: Pick<AppContext, 'dataDir' | 'nas'>) {}
+  /** `now` is the clock the detail reuse reads (tests move it). */
+  constructor(
+    private readonly app: AppContext,
+    private readonly now: () => number = Date.now,
+  ) {}
 
   private get file(): string {
     return join(this.app.dataDir, 'nas-titles.json');
@@ -170,6 +192,7 @@ export class NasTitles {
     if (!this.loaded) {
       this.loaded = true;
       this.saved ??= await readSaved(this.file);
+      if (this.saved !== null) this.written = JSON.stringify(this.saved);
     }
     return this.saved !== null && this.saved.base === client.base ? this.saved : null;
   }
@@ -178,12 +201,18 @@ export class NasTitles {
   forget(): void {
     this.saved = null;
     this.loaded = false;
+    this.written = null;
+    this.chapterCounts.clear();
   }
 
+  /** Keeps `raw`, writing `nas-titles.json` only when its content changed. */
   private store(raw: Raw): void {
     this.saved = raw;
+    const text = JSON.stringify(raw);
+    if (text === this.written) return;
     try {
-      replaceAtomically(this.file, `${JSON.stringify(raw)}\n`);
+      replaceAtomically(this.file, `${text}\n`);
+      this.written = text;
     } catch {
       // kept in memory; the next answer writes it again
     }
@@ -238,12 +267,13 @@ export class NasTitles {
   }
 
   /**
-   * Asks the NAS for its titles (one request for the list and one per series or film for its seasons), Unsorted
-   * discs and encoded episode ids. A NAS that does not answer the title list gives the kept answer (`reachable`
-   * false); one part that fails alone keeps that part of the kept answer (`stale`). Rejects with `NasError`
-   * `unauthorized` when the NAS forgot this device.
+   * Asks the NAS for its title list and encoded ids every time (cheap, and the counts follow new encodes). A title's
+   * detail comes from the kept answer while it is younger than `DETAIL_TTL_MS`, unless `refresh` is set; with `only`,
+   * that one title's detail is always read and merged into the kept ones. The Unsorted discs are read for the list
+   * only. A NAS that does not answer the title list gives the kept answer (`reachable` false); one part failing alone
+   * keeps that part of the kept answer (`stale`). Rejects with `NasError` `unauthorized` when the NAS forgot this device.
    */
-  private async fetch(client: NasClient, only?: string): Promise<{ raw: Raw | null; reachable: boolean; stale: boolean }> {
+  private async fetch(client: NasClient, o: { only?: string; refresh?: boolean } = {}): Promise<Fetched> {
     const kept = await this.last(client);
     let list: TitleSummary[];
     try {
@@ -254,40 +284,58 @@ export class NasTitles {
     }
     const titles = list.filter((t) => t.kind === 'series' || t.kind === 'movie');
     let stale = false;
-    const details: Record<string, TitleDetail> = only === undefined ? {} : { ...kept?.details };
-    const wanted = titles.filter((t) => only === undefined || t.id === only);
+    const now = this.now();
+    const details: Record<string, TitleDetail> = {};
+    const detailAt: Record<string, number> = {};
+    const toRead: TitleSummary[] = [];
+    for (const t of titles) {
+      const old = kept?.details[t.id];
+      const at = kept?.detailAt[t.id];
+      const fresh = old !== undefined && at !== undefined && now - at < DETAIL_TTL_MS && now >= at;
+      const wanted = o.only === undefined ? o.refresh === true || !fresh : t.id === o.only;
+      if (wanted) toRead.push(t);
+      else if (old !== undefined) {
+        details[t.id] = old;
+        detailAt[t.id] = at ?? 0;
+      }
+    }
     let next = 0;
     await Promise.all(
       Array.from({ length: DETAILS_AT_ONCE }, async () => {
-        while (next < wanted.length) {
-          const t = wanted[next++]!;
+        while (next < toRead.length) {
+          const t = toRead[next++]!;
           const d = await this.detail(client, t.id);
-          if (d !== undefined) details[t.id] = d;
-          else {
+          const old = kept?.details[t.id];
+          if (d !== undefined) {
+            details[t.id] = d;
+            detailAt[t.id] = now;
+          } else {
             stale = true;
-            const old = kept?.details[t.id];
-            if (old !== undefined) details[t.id] = old;
+            if (old !== undefined) {
+              details[t.id] = old;
+              detailAt[t.id] = kept?.detailAt[t.id] ?? 0;
+            }
           }
         }
       }),
     );
-    const [ids, unsorted] = await Promise.all([this.encodeIds(client), only === undefined ? this.unsorted(client) : Promise.resolve(kept?.unsorted)]);
+    const [ids, unsorted] = await Promise.all([this.encodeIds(client), o.only === undefined ? this.unsorted(client) : Promise.resolve(kept?.unsorted)]);
     if (ids === undefined || unsorted === undefined) stale = true;
-    const raw: Raw = { base: client.base, titles, details, unsorted: unsorted ?? [], ids: ids ?? kept?.ids ?? [] };
+    const raw: Raw = { base: client.base, titles, details, detailAt, unsorted: unsorted ?? [], ids: ids ?? kept?.ids ?? [] };
     this.store(raw);
     return { raw, reachable: true, stale };
   }
 
   /** The discs of the NAS's library the encoder mirrors, scanned once when none is known. */
   private async mirrorDiscs(): Promise<ReadonlyMap<string, NasDisc>> {
-    const library = nasLibraryOf(this.app as AppContext);
+    const library = nasLibraryOf(this.app);
     if (library.discs().length === 0) await library.scan();
     return new Map(library.discs().map((d) => [d.discId, d]));
   }
 
   /** The shows, with how many of their episodes are encoded, and Unsorted. `client` must be the paired one. */
-  async shows(client: NasClient): Promise<ShowsAnswer> {
-    const { raw, reachable, stale } = await this.fetch(client);
+  async shows(client: NasClient, o: { refresh?: boolean } = {}): Promise<ShowsAnswer> {
+    const { raw, reachable, stale } = await this.fetch(client, o);
     if (raw === null) return { shows: [], unsorted: [], reachable, stale: true };
     const ids = new Set(raw.ids);
     const mirror = await this.mirrorDiscs();
@@ -320,9 +368,9 @@ export class NasTitles {
     return { shows, unsorted, reachable, stale };
   }
 
-  /** One show with its seasons, discs, playlists and episodes; null when the NAS has no such show. */
+  /** One show with its seasons, discs, playlists and episodes; null when the NAS has no such show. Always reads that show's detail. */
   async show(client: NasClient, titleId: string): Promise<ShowAnswer | null> {
-    const { raw, reachable, stale } = await this.fetch(client, titleId);
+    const { raw, reachable, stale } = await this.fetch(client, { only: titleId });
     const summary = raw?.titles.find((t) => t.id === titleId);
     const detail = raw?.details[titleId];
     if (raw === null || summary === undefined || detail === undefined) return null;
@@ -334,10 +382,7 @@ export class NasTitles {
     for (const s of detail.seasons) {
       const title = seasonTitle(s.id);
       const discs: NasSeasonDisc[] = [];
-      for (const slot of s.discs) {
-        const disc = await this.discOf(slot, s.episodes, mirror, title, ids, infos, records);
-        if (disc !== null) discs.push(disc);
-      }
+      for (const slot of s.discs) discs.push(await this.discOf(slot, s.episodes, mirror, title, ids, infos, records));
       seasons.push({ id: s.id, label: s.label, number: s.number, title, discs });
     }
     return {
@@ -348,7 +393,7 @@ export class NasTitles {
     };
   }
 
-  /** A slot as a disc: the copy the episodes name, else the first copy the encoder mirrors; null when it mirrors none. */
+  /** A slot as a disc: the copy the episodes name, else the first copy the encoder mirrors, else the first copy, unavailable. */
   private async discOf(
     slot: DiscSlot,
     episodes: readonly EpisodeRef[] | null,
@@ -357,58 +402,83 @@ export class NasTitles {
     ids: ReadonlySet<string>,
     infos: EpisodeInfoStore,
     records: RecordStore,
-  ): Promise<NasSeasonDisc | null> {
+  ): Promise<NasSeasonDisc> {
     const copies = slot.copies.map((c) => c.discId);
     const mine = (episodes ?? []).filter((e) => copies.includes(e.discId));
-    const chosen = copies.find((id) => mine.some((e) => e.discId === id) && mirror.has(id)) ?? copies.find((id) => mirror.has(id));
-    const disc = chosen === undefined ? undefined : mirror.get(chosen);
-    if (disc === undefined) return null;
+    const mirrored = copies.find((id) => mine.some((e) => e.discId === id) && mirror.has(id)) ?? copies.find((id) => mirror.has(id));
+    const discId = mirrored ?? copies.find((id) => mine.some((e) => e.discId === id)) ?? copies[0] ?? '';
+    const disc = mirrored === undefined ? undefined : mirror.get(mirrored);
     const byPlaylist = new Map<string, NasEpisode[]>();
-    for (const e of mine.filter((x) => x.discId === disc.discId).sort((a, b) => a.number - b.number)) {
+    for (const e of mine.filter((x) => x.discId === discId).sort((a, b) => a.number - b.number)) {
       const list = byPlaylist.get(e.playlistId) ?? [];
       list.push({ number: e.number, name: e.name, encoded: title !== null && ids.has(encodeId(title, e.number)) });
       byPlaylist.set(e.playlistId, list);
     }
     const playlists = [...byPlaylist].map(([id, eps]) => ({ id, episodes: eps }));
-    const checked = playlists.length > 0 ? await allChecked(playlists.map((p) => p.id), disc.key, infos, records) : await anyChecked(disc.key, this.app.dataDir, infos, records);
-    return { key: disc.key, discId: disc.discId, label: slot.label, playlists, checked };
+    if (disc === undefined) return { key: null, discId, label: slot.label, available: false, playlists, checked: false };
+    const checked =
+      playlists.length > 0
+        ? await this.allChecked(playlists.map((p) => p.id), disc.key, infos, records)
+        : await this.anyChecked(disc.key, infos, records);
+    return { key: disc.key, discId, label: slot.label, available: true, playlists, checked };
   }
-}
 
-/** Whether playlist `id` of the disc is checked: its saved info's mark holds for the saved record's episode list (the mark's own without one). */
-async function playlistChecked(key: string, id: string, infos: EpisodeInfoStore, records: RecordStore): Promise<boolean> {
-  try {
-    const info = await infos.read(key, id);
-    if (info?.checked === undefined) return false;
-    let spec = info.checked.episodeSpec;
+  /** The chapter count of a mirrored disc's playlist, read from its playlist file; null when it cannot be read. */
+  private async chaptersOf(key: string, id: string): Promise<number | null> {
+    const memo = `${key}/${id}`;
+    const known = this.chapterCounts.get(memo);
+    if (known !== undefined) return known;
+    let count: number | null = null;
     try {
-      spec = (await records.read(key, id))?.episodeSpec ?? spec;
-    } catch (e) {
-      if (!(e instanceof RecordError)) throw e;
+      const dir = await sessionsOf(this.app).discDirOf(key);
+      if (dir !== null) count = (await loadPlaylist(dir, id)).chapters.length;
+    } catch {
+      count = null;
     }
-    return isChecked(info, spec, ANY_CHAPTERS);
-  } catch (e) {
-    if (e instanceof EpisodeInfoError) return false;
-    throw e;
+    if (count !== null) this.chapterCounts.set(memo, count);
+    return count;
   }
-}
 
-async function allChecked(ids: readonly string[], key: string, infos: EpisodeInfoStore, records: RecordStore): Promise<boolean> {
-  for (const id of ids) if (!(await playlistChecked(key, id, infos, records))) return false;
-  return true;
-}
+  /**
+   * Whether playlist `id` of the disc is checked: its saved info has a mark that holds (`isChecked`) for the saved
+   * subtitle record's episode list (the mark's own without a record), on the playlist's real chapter count. A playlist
+   * whose chapters cannot be read is not checked.
+   */
+  private async playlistChecked(key: string, id: string, infos: EpisodeInfoStore, records: RecordStore): Promise<boolean> {
+    try {
+      const info = await infos.read(key, id);
+      if (info?.checked === undefined) return false;
+      let spec = info.checked.episodeSpec;
+      try {
+        spec = (await records.read(key, id))?.episodeSpec ?? spec;
+      } catch (e) {
+        if (!(e instanceof RecordError)) throw e;
+      }
+      const chapters = await this.chaptersOf(key, id);
+      return chapters !== null && isChecked(info, spec, chapters);
+    } catch (e) {
+      if (e instanceof EpisodeInfoError) return false;
+      throw e;
+    }
+  }
 
-/** For a disc the NAS lists no episodes for: whether any playlist saved for it under the data folder is checked. */
-async function anyChecked(key: string, dataDir: string, infos: EpisodeInfoStore, records: RecordStore): Promise<boolean> {
-  let names: string[];
-  try {
-    names = await readdir(join(dataDir, 'chapters', key));
-  } catch {
+  private async allChecked(ids: readonly string[], key: string, infos: EpisodeInfoStore, records: RecordStore): Promise<boolean> {
+    for (const id of ids) if (!(await this.playlistChecked(key, id, infos, records))) return false;
+    return true;
+  }
+
+  /** For a disc the NAS lists no episodes for: whether any playlist saved for it under the data folder is checked. */
+  private async anyChecked(key: string, infos: EpisodeInfoStore, records: RecordStore): Promise<boolean> {
+    let names: string[];
+    try {
+      names = await readdir(join(this.app.dataDir, 'chapters', key));
+    } catch {
+      return false;
+    }
+    for (const n of names) {
+      const m = /^(\d{5})\.json$/.exec(n);
+      if (m && (await this.playlistChecked(key, m[1]!, infos, records))) return true;
+    }
     return false;
   }
-  for (const n of names) {
-    const m = /^(\d{5})\.json$/.exec(n);
-    if (m && (await playlistChecked(key, m[1]!, infos, records))) return true;
-  }
-  return false;
 }

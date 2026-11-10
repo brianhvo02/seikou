@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { appHandlers } from '../../../server/src/app';
 import { Auth } from '../../../server/src/auth';
@@ -69,6 +69,8 @@ export interface NasTestServerOptions {
    * matching has run when the server answers. `Anime/Lantern Road/Lantern Road Vol.1` is Lantern Road's first disc.
    */
   readonly titleDiscs?: Readonly<Record<string, string>>;
+  /** Extra files for the encodes folder (relative path → bytes), written before it is indexed. */
+  readonly encodeFiles?: Readonly<Record<string, Buffer>>;
   /** Changes the copy of the disc library (its folder given) before it is backdated and scanned. */
   readonly prepare?: (discsDir: string) => void;
 }
@@ -112,6 +114,10 @@ export async function startNasTestServer(opts: NasTestServerOptions = {}): Promi
     encodesDir = join(tmp, 'encodes');
     mkdirSync(join(encodesDir, '990001'), { recursive: true });
     cpSync(join(REPO, 'fixtures/encodes/990001/1.mkv'), join(encodesDir, '990001/1.mkv'));
+    for (const [path, bytes] of Object.entries(opts.encodeFiles ?? {})) {
+      mkdirSync(dirname(join(encodesDir, path)), { recursive: true });
+      writeFileSync(join(encodesDir, path), bytes);
+    }
     backdate(encodesDir);
     encodes = new EncodeIndex({ dir: encodesDir, dataDir, log: () => {}, settleMs: 0 });
     await encodes.scan();

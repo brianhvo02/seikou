@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import type { ServerResponse } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { NasError, type NasClient } from '../nas/client';
 import { NasTitles } from '../nas/nas-titles';
 import { MAX_COVER_BYTES } from './covers';
@@ -30,6 +30,11 @@ function paired(res: ServerResponse, app: AppContext): NasClient | null {
 function unauthorized(res: ServerResponse, err: unknown): void {
   if (err instanceof NasError && err.code === 'unauthorized') return httpError(res, 409, 'nas-not-paired', 'The NAS no longer knows this app. Pair it again in Settings.');
   throw err;
+}
+
+/** Whether the request asks for the NAS's title details to be read again (`?refresh=1`). */
+function refreshOf(req: IncomingMessage): boolean {
+  return new URL(req.url ?? '/', 'http://localhost').searchParams.get('refresh') === '1';
 }
 
 /** The kinds of image a poster may be; the NAS answers the one it cached. */
@@ -72,11 +77,11 @@ async function art(res: ServerResponse, client: NasClient, artId: string, size: 
 /**
  * The NAS catalogue routes (409 `nas-not-paired` while not paired or after the NAS forgot this device):
  *
- *   GET /api/nas/shows            `{ shows: [{ titleId, name, poster, kind, seasons, films, encoded, toEncode }],
+ *   GET /api/nas/shows[?refresh=1] `{ shows: [{ titleId, name, poster, kind, seasons, films, encoded, toEncode }],
  *                                 unsorted: [{ key, label, relPath }], reachable, stale }`; while the NAS does not
  *                                 answer, the last answer kept in `<data>/nas-titles.json` with `reachable: false`
  *   GET /api/nas/shows/<titleId>  `{ title, seasons: [{ id, label, number, title, discs: [{ key, discId, label,
- *                                 playlists: [{ id, episodes: [{ number, name, encoded }] }], checked }] }], reachable,
+ *                                 available, playlists: [{ id, episodes: [{ number, name, encoded }] }], checked }] }], reachable,
  *                                 stale }`; films are seasons with `number: null`; 404 `not-found` for a show the NAS
  *                                 does not list
  *   GET /api/nas/art/<artId>?size= a poster of a show or search result, from the NAS's `art/<id>`; 404 `not-found`
@@ -86,11 +91,11 @@ export const nasTitleRoutes: RouteTable = [
   [
     'GET',
     /^\/api\/nas\/shows$/,
-    async (_req, res, _m, app) => {
+    async (req, res, _m, app) => {
       const client = paired(res, app);
       if (client === null) return;
       try {
-        json(res, 200, await nasTitlesOf(app).shows(client));
+        json(res, 200, await nasTitlesOf(app).shows(client, { refresh: refreshOf(req) }));
       } catch (err) {
         unauthorized(res, err);
       }

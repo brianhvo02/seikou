@@ -1,6 +1,13 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { describe, expect, it } from 'vitest';
-import { seasonTitle } from '../../src/nas/nas-titles';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { NasClient } from '../../src/nas/client';
+import { DETAIL_TTL_MS, NasTitles, seasonTitle } from '../../src/nas/nas-titles';
+import { pairWithNas } from '../../src/nas/pairing';
+import type { AppContext } from '../../src/server/http';
+import { startNasTestServer, type NasTestServer } from './nas-test-server';
 
 const UUID = '3f2a9c1e-7b4d-4e58-9a61-0c5d8e2f7b13';
 
@@ -22,5 +29,84 @@ describe('seasonTitle', () => {
     expect(seasonTitle(`own:${UUID.toUpperCase()}#s1`)).toBeNull();
     expect(seasonTitle('music:x#discs')).toBeNull();
     expect(seasonTitle('')).toBeNull();
+  });
+});
+
+describe('NasTitles reading the NAS', () => {
+  let nas: NasTestServer;
+  let dir: string;
+  let app: AppContext;
+  let titles: NasTitles;
+  let clock = 0;
+  /** The NAS requests of the title routes, `titles`, `titles/<id>` and `encodes/ids`. */
+  let requests: string[];
+
+  beforeAll(async () => {
+    nas = await startNasTestServer({
+      titles: true,
+      titleDiscs: { 'Anime/Lantern Road/Lantern Road Vol.1': 'disc1', 'Anime/Paper Boats/Paper Boats Vol.1': 'disc-vm' },
+    });
+  });
+  afterAll(() => nas.close());
+  beforeEach(async () => {
+    requests = [];
+    clock = 1_000_000;
+    dir = mkdtempSync(join(tmpdir(), 'nas-titles-unit-'));
+    await pairWithNas(dir, { code: await nas.ownerCode(), base: nas.base }, 'Seikou encoder on test');
+    const client = (await NasClient.load(dir, (input, init) => {
+      const path = new URL(String(input)).pathname.replace(/^\/api\//, '');
+      if (path === 'titles' || path.startsWith('titles/') || path === 'encodes/ids') requests.push(decodeURIComponent(path));
+      return fetch(input, init);
+    }))!;
+    app = { dataDir: dir, token: 't', webDir: null, tools: null, sources: {} as AppContext['sources'], roots: [], nas: { client } };
+    titles = new NasTitles(app, () => clock);
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  const details = (): string[] => requests.filter((r) => r.startsWith('titles/'));
+  const file = (): string => join(dir, 'nas-titles.json');
+
+  it('reads the list and the encoded ids every time, and each title detail once within ten minutes', async () => {
+    await titles.shows(app.nas.client!);
+    expect(requests.filter((r) => r === 'titles')).toHaveLength(1);
+    expect(details().sort()).toEqual(['titles/anilist:990001', 'titles/tmdb-tv:990111']);
+    requests = [];
+    clock += DETAIL_TTL_MS - 1;
+    await titles.shows(app.nas.client!);
+    expect(requests.sort()).toEqual(['encodes/ids', 'titles']);
+  });
+
+  it('reads the details again after ten minutes, and on refresh', async () => {
+    await titles.shows(app.nas.client!);
+    requests = [];
+    clock += DETAIL_TTL_MS;
+    await titles.shows(app.nas.client!);
+    expect(details()).toHaveLength(2);
+    requests = [];
+    await titles.shows(app.nas.client!);
+    expect(details()).toHaveLength(0);
+    await titles.shows(app.nas.client!, { refresh: true });
+    expect(details()).toHaveLength(2);
+  });
+
+  it('always reads the one show asked for, and keeps the other shows\' details', async () => {
+    await titles.shows(app.nas.client!);
+    requests = [];
+    await titles.show(app.nas.client!, 'anilist:990001');
+    expect(details()).toEqual(['titles/anilist:990001']);
+    expect(Object.keys(JSON.parse(readFileSync(file(), 'utf8')).details).sort()).toEqual(['anilist:990001', 'tmdb-tv:990111']);
+    requests = [];
+    await titles.shows(app.nas.client!);
+    expect(details()).toHaveLength(0);
+  });
+
+  it('writes nas-titles.json only when its content changed', async () => {
+    await titles.shows(app.nas.client!);
+    const first = statSync(file()).ino;
+    await titles.shows(app.nas.client!);
+    expect(statSync(file()).ino).toBe(first);
+    clock += DETAIL_TTL_MS;
+    await titles.shows(app.nas.client!);
+    expect(statSync(file()).ino).not.toBe(first);
   });
 });
