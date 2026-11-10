@@ -7,7 +7,7 @@ import type { LibraryAnswer, PlaylistDetail } from '../api-types';
 import type { PlayerLike } from '../player/use-controller';
 import type { AppApi } from './app-api';
 import { EpisodesPage } from './EpisodesPage';
-import { UNUSED_JOB_API } from './job-test-support';
+import { UNUSED_ANILIST_API, UNUSED_JOB_API } from './job-test-support';
 
 afterEach(cleanup);
 beforeEach(() => history.replaceState(null, '', '/'));
@@ -39,6 +39,7 @@ function fakeApi(playlist: PlaylistDetail = detail(), discs: LibraryAnswer['disc
     updateProfile: vi.fn(),
     deleteProfile: vi.fn(),
     ...UNUSED_JOB_API,
+    ...UNUSED_ANILIST_API,
     remoteDisc: vi.fn(async () => ({ kind: 'remote', base: 'http://x/', token: 't', manifest: {} }) as never),
   };
 }

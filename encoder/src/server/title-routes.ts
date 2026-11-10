@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import type { ServerResponse } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { RateLimited } from '@seikou/titles/pacer';
 import { SourceUnavailable, type Entry } from '@seikou/titles/sources';
 import { BadCover } from './covers';
@@ -22,8 +22,9 @@ export interface TitleHit {
   /** The episode count; null while the show is airing or unknown. */
   readonly episodes: number | null;
   /**
-   * The backend's path of the cover (`/api/sessions/<id>/titles/<alId>/cover`, which serves AniList's large cover
-   * from this origin; the page adds its token); null when AniList has none.
+   * The backend's path of the cover (`/api/sessions/<id>/titles/<alId>/cover` from a session's routes,
+   * `/api/anilist/<alId>/cover` from the app's), which serves AniList's large cover from this origin (the page adds
+   * its token); null when AniList has none.
    */
   readonly poster: string | null;
 }
@@ -46,14 +47,22 @@ function rememberCover(app: AppContext, alId: number, url: string): void {
   if (urls.size > MAX_REMEMBERED_COVERS) urls.delete(urls.keys().next().value!);
 }
 
+/** The backend's path of the cover route of an AniList id, which differs between the session and the app routes. */
+export type CoverPath = (alId: number) => string;
+
+/** The AniList id of an entry id such as `anilist:900101`, or null for an id of another source. */
+export function aniListIdOf(id: string): number | null {
+  const m = /^anilist:(\d+)$/.exec(id);
+  return m ? Number(m[1]) : null;
+}
+
 /**
- * The `TitleHit` of an AniList entry, its cover path under the session `sessionId`, or null for an entry whose id is
- * not an AniList id; remembers its cover.
+ * The `TitleHit` of an AniList entry, its cover at `coverPath`, or null for an entry whose id is not an AniList id;
+ * remembers its cover.
  */
-function toHit(app: AppContext, sessionId: string, entry: Entry): TitleHit | null {
-  const m = /^anilist:(\d+)$/.exec(entry.id);
-  if (!m) return null;
-  const alId = Number(m[1]);
+export function toHit(app: AppContext, entry: Entry, coverPath: CoverPath): TitleHit | null {
+  const alId = aniListIdOf(entry.id);
+  if (alId === null) return null;
   const { english, romaji, native } = entry.names;
   const cover = entry.poster?.large ?? null;
   if (cover !== null) rememberCover(app, alId, cover);
@@ -64,7 +73,7 @@ function toHit(app: AppContext, sessionId: string, entry: Entry): TitleHit | nul
     year: entry.year,
     format: entry.format,
     episodes: entry.episodes,
-    poster: cover === null ? null : `/api/sessions/${sessionId}/titles/${alId}/cover`,
+    poster: cover === null ? null : coverPath(alId),
   };
 }
 
@@ -87,6 +96,48 @@ export function answerUnavailable(res: ServerResponse, e: unknown, source: strin
   return true;
 }
 
+/** Answers an AniList search for the request's `q`: `{ candidates }` with covers at `coverPath`, or 400 `empty-query`. */
+export async function answerSearch(req: IncomingMessage, res: ServerResponse, app: AppContext, coverPath: CoverPath): Promise<void> {
+  const q = new URL(req.url ?? '/', 'http://helper.invalid').searchParams.get('q')?.trim() ?? '';
+  if (q === '') return httpError(res, 400, 'empty-query', 'Type a title to search for.');
+  try {
+    const entries = await app.sources.anilist.search(q, { urgent: true });
+    json(res, 200, { candidates: entries.map((e) => toHit(app, e, coverPath)).filter((h): h is TitleHit => h !== null) });
+  } catch (e) {
+    if (!answerUnavailable(res, e, 'anilist')) throw e;
+  }
+}
+
+/** Answers AniList's episode titles of `alId`: `{ titles }`, empty when it has none. */
+export async function answerEpisodes(res: ServerResponse, app: AppContext, alId: number): Promise<void> {
+  try {
+    const titles = await app.sources.episodes.titles(alId);
+    json(res, 200, { titles: Object.fromEntries(titles) });
+  } catch (e) {
+    if (!answerUnavailable(res, e, 'anilist')) throw e;
+  }
+}
+
+/** Answers the cover of `alId` from the URL a lookup of this run got from AniList, or 404, 502 `bad-cover` or 503. */
+export async function answerCover(res: ServerResponse, app: AppContext, alId: number): Promise<void> {
+  const url = coverUrls.get(app)?.get(alId);
+  if (url === undefined) return httpError(res, 404, 'not-found', 'No search gave a cover for that show.');
+  try {
+    const cover = await app.sources.covers.get(url, clientGone(res));
+    res.writeHead(200, {
+      'Content-Type': cover.contentType,
+      'Content-Length': cover.bytes.length,
+      'Cache-Control': 'no-store',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    res.end(cover.bytes);
+  } catch (e) {
+    if (res.destroyed) return;
+    if (e instanceof BadCover) return httpError(res, 502, 'bad-cover', e.message);
+    if (!answerUnavailable(res, e, 'anilist')) throw e;
+  }
+}
+
 /**
  * A session's title routes, under `/api/sessions/<id>`:
  *
@@ -103,49 +154,8 @@ export const titleRoutes: RouteTable = [
   [
     'GET',
     /^\/titles\/search$/,
-    sessionRoute(async (req, res, _match, app, session) => {
-      const q = new URL(req.url ?? '/', 'http://helper.invalid').searchParams.get('q')?.trim() ?? '';
-      if (q === '') return httpError(res, 400, 'empty-query', 'Type a title to search for.');
-      try {
-        const entries = await app.sources.anilist.search(q, { urgent: true });
-        json(res, 200, { candidates: entries.map((e) => toHit(app, session.id, e)).filter((h): h is TitleHit => h !== null) });
-      } catch (e) {
-        if (!answerUnavailable(res, e, 'anilist')) throw e;
-      }
-    }),
+    sessionRoute((req, res, _match, app, session) => answerSearch(req, res, app, (alId) => `/api/sessions/${session.id}/titles/${alId}/cover`)),
   ],
-  [
-    'GET',
-    /^\/titles\/(\d+)\/episodes$/,
-    sessionRoute(async (_req, res, match, app) => {
-      try {
-        const titles = await app.sources.episodes.titles(Number(match[1]));
-        json(res, 200, { titles: Object.fromEntries(titles) });
-      } catch (e) {
-        if (!answerUnavailable(res, e, 'anilist')) throw e;
-      }
-    }),
-  ],
-  [
-    'GET',
-    /^\/titles\/(\d+)\/cover$/,
-    sessionRoute(async (_req, res, match, app) => {
-      const url = coverUrls.get(app)?.get(Number(match[1]));
-      if (url === undefined) return httpError(res, 404, 'not-found', 'No search gave a cover for that show.');
-      try {
-        const cover = await app.sources.covers.get(url, clientGone(res));
-        res.writeHead(200, {
-          'Content-Type': cover.contentType,
-          'Content-Length': cover.bytes.length,
-          'Cache-Control': 'no-store',
-          'X-Content-Type-Options': 'nosniff',
-        });
-        res.end(cover.bytes);
-      } catch (e) {
-        if (res.destroyed) return;
-        if (e instanceof BadCover) return httpError(res, 502, 'bad-cover', e.message);
-        if (!answerUnavailable(res, e, 'anilist')) throw e;
-      }
-    }),
-  ],
+  ['GET', /^\/titles\/(\d+)\/episodes$/, sessionRoute((_req, res, match, app) => answerEpisodes(res, app, Number(match[1])))],
+  ['GET', /^\/titles\/(\d+)\/cover$/, sessionRoute((_req, res, match, app) => answerCover(res, app, Number(match[1])))],
 ];

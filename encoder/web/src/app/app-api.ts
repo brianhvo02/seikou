@@ -2,7 +2,7 @@
 import { ApiError, episodeInfoCalls, errorOf, type FetchLike } from '../api';
 import type { RemoteDiscSpec } from '@seikou/engine';
 import type { DiscManifest } from '@seikou/nas/nas-api';
-import type { EncodeSettings, EpisodeInfo, Job, LibraryAnswer, NewJob, NewTest, PlaylistDetail, PlaylistSummary, Profile, QueuedJob } from '../api-types';
+import type { AniListEntry, EncodeSettings, EpisodeInfo, Job, LibraryAnswer, NewJob, NewTest, PlaylistDetail, PlaylistSummary, Profile, QueuedJob, TitleHit } from '../api-types';
 
 // The app pages' client for the backend's library routes, carrying the run's token.
 
@@ -60,6 +60,12 @@ export interface AppApi {
   outputUrl(jobId: string, path: string): string;
   /** The address of sample `n` (from 1) of a test's profile, with the token in its query. */
   sampleUrl(jobId: string, profileId: string, n: number): string;
+  /** AniList's results for `q`, in AniList's order, each `poster` a URL of the backend's cover route with the token. */
+  searchAniList(q: string): Promise<TitleHit[]>;
+  /** One AniList entry with its next season, posters as in `searchAniList`; rejects with `ApiError` `not-found` for an unknown id. */
+  aniListEntry(id: number): Promise<AniListEntry>;
+  /** AniList's episode titles for a show, keyed by episode number; empty when it has none. */
+  aniListEpisodes(id: number): Promise<Record<number, string>>;
 }
 
 /** The client for the backend at `base` (an origin, or `''` for the page's own) with the run's `token`, sent as `Authorization: Bearer`. */
@@ -93,6 +99,9 @@ export function createAppApi(base: string, token: string, fetchImpl: FetchLike =
     if (!res.ok) throw await errorOf(res);
     return (await res.json()) as T;
   }
+
+  // The backend names each cover by its own path; an <img> sends no Authorization header, so the token goes in ?t=.
+  const withToken = (hit: TitleHit): TitleHit => (hit.poster === null ? hit : { ...hit, poster: `${root}${hit.poster}?t=${encodeURIComponent(token)}` });
 
   return {
     library: () => request('GET', '/api/library'),
@@ -147,5 +156,16 @@ export function createAppApi(base: string, token: string, fetchImpl: FetchLike =
       `${root}/api/outputs/${encodeURIComponent(jobId)}/${path.split('/').map(encodeURIComponent).join('/')}?t=${encodeURIComponent(token)}`,
     sampleUrl: (jobId, profileId, n) =>
       `${root}/api/tests/${encodeURIComponent(jobId)}/${encodeURIComponent(profileId)}/${n}.webm?t=${encodeURIComponent(token)}`,
+    async searchAniList(q) {
+      const { candidates } = await request<{ candidates: TitleHit[] }>('GET', `/api/anilist/search?${new URLSearchParams({ q }).toString()}`);
+      return candidates.map(withToken);
+    },
+    async aniListEntry(id) {
+      const { entry } = await request<{ entry: AniListEntry }>('GET', `/api/anilist/${id}`);
+      return { ...withToken(entry), sequel: entry.sequel === null ? null : withToken(entry.sequel) };
+    },
+    async aniListEpisodes(id) {
+      return (await request<{ titles: Record<number, string> }>('GET', `/api/anilist/${id}/episodes`)).titles;
+    },
   };
 }

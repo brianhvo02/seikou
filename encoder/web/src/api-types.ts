@@ -78,6 +78,12 @@ export interface TitleHit {
   readonly poster: string | null;
 }
 
+/** One AniList entry with its next season (`GET /api/anilist/<id>`). */
+export interface AniListEntry extends TitleHit {
+  /** The next season: the entry's `SEQUEL` in a series format (`TV`, `TV_SHORT`, `ONA`), the earliest to start; null when none. */
+  readonly sequel: TitleHit | null;
+}
+
 /** One release SeaDex lists for a show. */
 export interface SeaDexRelease {
   /** The release group. */

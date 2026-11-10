@@ -23,12 +23,115 @@
         "large": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx900101-lantern.png"
       },
       "banner": null
+    },
+    {
+      "source": "anilist",
+      "id": "anilist:990010",
+      "kind": "series",
+      "format": "TV",
+      "names": {
+        "english": "Starfall Wanderer",
+        "romaji": "Ryuusei no Tabibito",
+        "native": "流星の旅人",
+        "synonyms": []
+      },
+      "animation": true,
+      "year": 2023,
+      "startDate": 20230408,
+      "episodes": 12,
+      "runtimeMin": 24,
+      "seasons": [],
+      "relations": [
+        {
+          "type": "PREQUEL",
+          "id": "anilist:990013",
+          "format": "TV",
+          "startDate": 20210101
+        },
+        {
+          "type": "SEQUEL",
+          "id": "anilist:990012",
+          "format": "MOVIE",
+          "startDate": 20240301
+        },
+        {
+          "type": "SEQUEL",
+          "id": "anilist:990011",
+          "format": "TV",
+          "startDate": 20250110
+        }
+      ],
+      "poster": {
+        "small": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx990010-starfall.png",
+        "large": "https://s4.anilist.co/file/anilistcdn/media/anime/cover/large/bx990010-starfall.png"
+      },
+      "banner": null
+    },
+    {
+      "source": "anilist",
+      "id": "anilist:990011",
+      "kind": "series",
+      "format": "TV",
+      "names": {
+        "english": "Starfall Wanderer 2",
+        "romaji": "Ryuusei no Tabibito 2",
+        "native": "流星の旅人 2",
+        "synonyms": []
+      },
+      "animation": true,
+      "year": 2025,
+      "startDate": 20250110,
+      "episodes": 12,
+      "runtimeMin": 24,
+      "seasons": [],
+      "relations": [
+        {
+          "type": "PREQUEL",
+          "id": "anilist:990012",
+          "format": "MOVIE",
+          "startDate": 20240301
+        }
+      ],
+      "poster": null,
+      "banner": null
+    },
+    {
+      "source": "anilist",
+      "id": "anilist:990012",
+      "kind": "movie",
+      "format": "MOVIE",
+      "names": {
+        "english": "Starfall Wanderer: The Long Night",
+        "romaji": "Ryuusei no Tabibito: Nagai Yoru",
+        "native": "流星の旅人 長い夜",
+        "synonyms": []
+      },
+      "animation": true,
+      "year": 2024,
+      "startDate": 20240301,
+      "episodes": 1,
+      "runtimeMin": 95,
+      "seasons": [],
+      "relations": [
+        {
+          "type": "PREQUEL",
+          "id": "anilist:990010",
+          "format": "TV",
+          "startDate": 20230408
+        }
+      ],
+      "poster": null,
+      "banner": null
     }
   ],
   "episodes": {
     "900101": {
       "1": "Arrival",
       "2": "The Lighthouse"
+    },
+    "990010": {
+      "1": "The Falling Star",
+      "2": "Road to the Pass"
     }
   }
 }

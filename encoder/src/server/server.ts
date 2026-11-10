@@ -5,6 +5,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net';
 import { extname, join, sep } from 'node:path';
 import { alignRoutes } from './align-routes';
+import { aniListRoutes } from './anilist-routes';
 import { discRoutes, discSessionRoutes } from './disc-routes';
 import { episodeInfoRoutes } from './episode-info-routes';
 import { fansubRoutes } from './fansub-routes';
@@ -25,7 +26,7 @@ export type { SessionStore } from './sessions';
 // 127.0.0.1 (DNS rebinding) from reading the answers.
 
 /** The app's routes, matched on the whole path, in match order. */
-const APP_ROUTES: RouteTable = [...sessionStoreRoutes, ...discRoutes, ...libraryRoutes, ...episodeInfoRoutes, ...profileRoutes, ...jobRoutes];
+const APP_ROUTES: RouteTable = [...sessionStoreRoutes, ...discRoutes, ...libraryRoutes, ...episodeInfoRoutes, ...profileRoutes, ...jobRoutes, ...aniListRoutes];
 
 /** A helper session's routes, matched on what follows `/api/sessions/<id>`, in match order. */
 const SESSION_ROUTES: RouteTable = [...discSessionRoutes, ...titleRoutes, ...fansubRoutes, ...alignRoutes, ...recordRoutes];

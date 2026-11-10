@@ -76,6 +76,13 @@ export const UNUSED_JOB_API: Pick<
   outputUrl: unused,
 };
 
+/** The AniList calls, for fakes of pages that never look a show up. */
+export const UNUSED_ANILIST_API: Pick<AppApi, 'searchAniList' | 'aniListEntry' | 'aniListEpisodes'> = {
+  searchAniList: unused,
+  aniListEntry: unused,
+  aniListEpisodes: unused,
+};
+
 /** The default profile's settings. */
 export const DEFAULT_TEST_SETTINGS: EncodeSettings = {
   crf: 25,
