@@ -61,11 +61,11 @@ function playlistOf(res: ServerResponse, captured: string): string | null {
 }
 
 /**
- * The episode info of a library disc's playlist: its chapter names and each episode's AniList entry, kept by
+ * The episode info of a library disc's playlist: its chapter names and each episode's title, kept by
  * `EpisodeInfoStore`.
  *
  *   GET /api/discs/<discKey>/playlists/<id>/info   `{ info }`, null when nothing was saved
- *   PUT /api/discs/<discKey>/playlists/<id>/info   body `{ chapterNames, anilist }`; `{ info }` as stored, `savedAt` set
+ *   PUT /api/discs/<discKey>/playlists/<id>/info   body `{ chapterNames, titles }`; `{ info }` as stored, `savedAt` set
  *
  * Before answering, GET moves an older record's chapter names into the info (`migrateChapterNames`).
  *

@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 /**
  * What the user said about a playlist's episodes beyond the subtitle record: each chapter's name and each episode's
- * AniList entry and number. Both are keyed by playlist chapter number, not by episode, so regrouping the chapters into
+ * title (an AniList entry, a TMDB season or film, or an own title) and number. Both are keyed by playlist chapter number, not by episode, so regrouping the chapters into
  * other episodes keeps them. One file per disc and playlist, `<data>/chapters/<disc key>/<playlist>.json`.
  */
 import { mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { parseDiscKey } from '@seikou/nas/disc-key';
+import type { EncodeTitle } from '@seikou/nas/encode-title';
 import { replaceAtomically } from '@seikou/titles';
 import type { SubtitleRecord } from '../subs/record';
 import { parseEpisodeSpec, type EpisodeSpec } from './episodes';
@@ -14,19 +15,22 @@ import { parseEpisodeSpec, type EpisodeSpec } from './episodes';
 /** The names the Episodes page offers for a chapter, besides a custom one. */
 export const CHAPTER_NAMES = ['Avant', 'Opening', 'Part A', 'Part B', 'Ending', 'Part C', 'Preview'] as const;
 
-/** AniList's place for one episode, keyed in the file by the playlist chapter the episode starts at. */
-export interface EpisodeAniList {
-  readonly anilistId: number;
+/** One episode's title and number, keyed in the file by the playlist chapter the episode starts at. */
+export interface EpisodeTitle {
+  readonly title: EncodeTitle;
   readonly episode: number;
-  readonly title: string | null;
+  /** The episode's own name, when known. */
+  readonly name: string | null;
+  /** The show's name, kept for a title the NAS may not know (written as the `TITLE_NAME` tag unless the title is AniList). */
+  readonly showName?: string | null;
 }
 
 /** Chapter names and AniList choices of one disc playlist, as the file holds them. */
 export interface EpisodeInfo {
   /** Playlist chapter number (1-based, as a string key) → name; a chapter with no entry keeps the encoder's naming. */
   readonly chapterNames: Readonly<Record<string, string>>;
-  /** First playlist chapter of an episode (as a string key) → its AniList entry and number. */
-  readonly anilist: Readonly<Record<string, EpisodeAniList>>;
+  /** First playlist chapter of an episode (as a string key) → its title and number. */
+  readonly titles: Readonly<Record<string, EpisodeTitle>>;
   /** ISO 8601, set by the store on save. */
   readonly savedAt: string;
 }
@@ -46,7 +50,7 @@ export class EpisodeInfoError extends Error {
 const MAX_ENTRIES = 999;
 /** Longest chapter name, in characters, after trimming. */
 const MAX_NAME = 100;
-/** Longest AniList episode title, in characters. */
+/** Longest episode name, in characters. */
 const MAX_TITLE = 300;
 /** C0 and C1 control characters and DEL. */
 const CONTROL = /[\u0000-\u001f\u007f-\u009f]/;
@@ -73,13 +77,33 @@ function positiveInteger(value: unknown, what: string): number {
   return typeof value === 'number' && Number.isInteger(value) && value >= 1 ? value : bad(`${what}: expected a whole number from 1`);
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+function parseTitle(value: unknown, what: string): EncodeTitle {
+  const t = plainObject(value, what);
+  switch (t.source) {
+    case 'anilist':
+      return { source: 'anilist', anilistId: positiveInteger(t.anilistId, `${what}.anilistId`) };
+    case 'tmdb-tv':
+      return { source: 'tmdb-tv', tmdbId: positiveInteger(t.tmdbId, `${what}.tmdbId`), season: positiveInteger(t.season, `${what}.season`) };
+    case 'tmdb-movie':
+      return { source: 'tmdb-movie', tmdbId: positiveInteger(t.tmdbId, `${what}.tmdbId`) };
+    case 'own': {
+      if (typeof t.ownId !== 'string' || !UUID.test(t.ownId)) return bad(`${what}.ownId: expected a lower-case uuid`);
+      return { source: 'own', ownId: t.ownId, season: t.season === null ? null : positiveInteger(t.season, `${what}.season`) };
+    }
+    default:
+      return bad(`${what}.source: expected anilist, tmdb-tv, tmdb-movie or own`);
+  }
+}
+
 /** A chapter name trimmed, or null when it is not one the file may hold (empty, too long, control characters). */
 function cleanName(value: string): string | null {
   const name = value.trim();
   return name.length >= 1 && name.length <= MAX_NAME && !CONTROL.test(name) ? name : null;
 }
 
-/** Validates `{ chapterNames, anilist }` and answers a clean copy with names trimmed; throws `EpisodeInfoError('bad-info')`. */
+/** Validates `{ chapterNames, titles }` and answers a clean copy with names trimmed; throws `EpisodeInfoError('bad-info')`. */
 export function parseEpisodeInfo(value: unknown): Omit<EpisodeInfo, 'savedAt'> {
   const o = plainObject(value, '$');
   const chapterNames: Record<string, string> = {};
@@ -89,18 +113,36 @@ export function parseEpisodeInfo(value: unknown): Omit<EpisodeInfo, 'savedAt'> {
     if (clean === null) bad(`chapterNames.${key}: a name is 1 to ${MAX_NAME} characters, without control characters`);
     chapterNames[key] = clean;
   }
-  const anilist: Record<string, EpisodeAniList> = {};
-  for (const [key, entry] of chapterKeys(plainObject(o.anilist, 'anilist'), 'anilist')) {
-    const e = plainObject(entry, `anilist.${key}`);
-    const title = e.title;
-    if (title !== null && (typeof title !== 'string' || title.length > MAX_TITLE)) bad(`anilist.${key}.title: expected null or at most ${MAX_TITLE} characters`);
-    anilist[key] = {
-      anilistId: positiveInteger(e.anilistId, `anilist.${key}.anilistId`),
-      episode: positiveInteger(e.episode, `anilist.${key}.episode`),
-      title,
+  const titles: Record<string, EpisodeTitle> = {};
+  for (const [key, entry] of chapterKeys(plainObject(o.titles, 'titles'), 'titles')) {
+    const e = plainObject(entry, `titles.${key}`);
+    const name = e.name;
+    if (name !== null && (typeof name !== 'string' || name.length > MAX_TITLE)) bad(`titles.${key}.name: expected null or at most ${MAX_TITLE} characters`);
+    const showName = e.showName ?? null;
+    if (showName !== null && (typeof showName !== 'string' || showName.length > MAX_TITLE)) bad(`titles.${key}.showName: expected null or at most ${MAX_TITLE} characters`);
+    titles[key] = {
+      title: parseTitle(e.title, `titles.${key}.title`),
+      episode: positiveInteger(e.episode, `titles.${key}.episode`),
+      name,
+      ...(showName === null ? {} : { showName }),
     };
   }
-  return { chapterNames, anilist };
+  return { chapterNames, titles };
+}
+
+/** A file the previous version wrote (`anilist: { chapter: { anilistId, episode, title } }`) in the current form. */
+function upgraded(json: unknown): unknown {
+  if (typeof json !== 'object' || json === null || Array.isArray(json)) return json;
+  const o = json as Record<string, unknown>;
+  if (o.titles !== undefined || typeof o.anilist !== 'object' || o.anilist === null || Array.isArray(o.anilist)) return json;
+  const { anilist, ...rest } = o;
+  const titles = Object.fromEntries(
+    Object.entries(anilist as Record<string, unknown>).map(([key, entry]) => {
+      const e = (typeof entry === 'object' && entry !== null ? entry : {}) as Record<string, unknown>;
+      return [key, { title: { source: 'anilist', anilistId: e.anilistId }, episode: e.episode, name: e.title ?? null }];
+    }),
+  );
+  return { ...rest, titles };
 }
 
 /** Reads and saves episode info under `<dataDir>/chapters/<discKey>/<playlist>.json`. */
@@ -127,9 +169,9 @@ export class EpisodeInfoStore {
       const json: unknown = JSON.parse(text);
       const savedAt = (json as { savedAt?: unknown }).savedAt;
       if (typeof savedAt !== 'string') bad('savedAt: expected a string');
-      return { ...parseEpisodeInfo(json), savedAt };
+      return { ...parseEpisodeInfo(upgraded(json)), savedAt };
     } catch (e) {
-      throw new EpisodeInfoError('info-unreadable', `The saved chapter names and AniList choices could not be read: ${e instanceof Error ? e.message : String(e)}`);
+      throw new EpisodeInfoError('info-unreadable', `The saved chapter names and episode titles could not be read: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
@@ -192,5 +234,5 @@ export function migrateRecordChapters(
       moved = true;
     });
   }
-  return moved ? { chapterNames, anilist: { ...info?.anilist } } : null;
+  return moved ? { chapterNames, titles: { ...info?.titles } } : null;
 }

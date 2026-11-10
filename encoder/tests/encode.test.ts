@@ -461,7 +461,7 @@ describe.skipIf(!haveTools)('chapter names and tags on disc-speech', () => {
     const opts: EncodeOptions = {
       discDir, playlistId: '00000', episodes: '1-2,3-4', outDir: join(out, 'mkv'), namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], filmGrain: 4,
       cacheDir: join(out, 'cache'), tools: toolPaths()!, dataDir: join(out, 'data'), noSubtitles: false, noPgs: false, onlyEpisodes: [2],
-      episodeInfo: { chapterNames: { '3': 'Opening' }, anilist: { '3': { anilistId: 990001, episode: 2, title: null } }, savedAt: '2026-11-09T00:00:00Z' },
+      episodeInfo: { chapterNames: { '3': 'Opening' }, titles: { '3': { title: { source: 'anilist', anilistId: 990001 }, episode: 2, name: null } }, savedAt: '2026-11-09T00:00:00Z' },
     };
     const [path] = await encodeEpisodes(opts, () => {});
     const mkv = await readMkv(path!);

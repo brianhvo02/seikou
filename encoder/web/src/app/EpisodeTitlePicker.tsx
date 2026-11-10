@@ -2,10 +2,10 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { TitleHit } from '../api-types';
 import type { AppApi } from './app-api';
-import type { EpisodeRow } from './episode-info-model';
+import { aniListIdOf, type EpisodeRow } from './episode-info-model';
 
-/** What one episode's AniList line needs. */
-export interface EpisodeAniListProps {
+/** What one episode's title line needs. */
+export interface EpisodeTitlePickerProps {
   /** The backend client, for the search. */
   readonly api: AppApi;
   /** The episode's row. */
@@ -47,18 +47,18 @@ function HitButton({ hit, label, onPick }: { readonly hit: TitleHit; readonly la
 }
 
 /**
- * One episode's AniList entry and number: the entry's cover and name, the number (a field; a new one renumbers the
+ * One episode's title and number (AniList entries for now): the entry's cover and name, the number (a field; a new one renumbers the
  * episodes after it in the same entry), AniList's episode title, a "Suggested" mark on a prefill not yet saved, and
  * Change (Choose when there is none), which opens a search under the line with the entry's next season offered first.
  */
-export function EpisodeAniList({ api, row, show, sequel, disabled, onPick, onNumber }: EpisodeAniListProps) {
+export function EpisodeTitlePicker({ api, row, show, sequel, disabled, onPick, onNumber }: EpisodeTitlePickerProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [hits, setHits] = useState<TitleHit[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const seq = useRef(0);
-  const episode = row.anilist?.episode ?? null;
+  const episode = row.title?.episode ?? null;
   const [numberText, setNumberText] = useState(episode === null ? '' : String(episode));
   const [numberError, setNumberError] = useState(false);
   useEffect(() => {
@@ -109,13 +109,14 @@ export function EpisodeAniList({ api, row, show, sequel, disabled, onPick, onNum
     if (n !== episode) onNumber(n);
   };
 
-  const name = row.anilist === null ? null : (show?.title ?? `AniList ${row.anilist.anilistId}`);
-  const offerSequel = sequel !== null && sequel.alId !== row.anilist?.anilistId;
+  const alId = aniListIdOf(row.title);
+  const name = row.title === null ? null : alId === null ? (row.title.showName ?? 'Chosen title') : (show?.title ?? `AniList ${alId}`);
+  const offerSequel = sequel !== null && sequel.alId !== alId;
 
   return (
     <div className={`episode-anilist${row.prefilled ? ' episode-anilist-suggested' : ''}`}>
       <div className="episode-anilist-line">
-        {row.anilist !== null && <Cover hit={show} className="cover cover-small" />}
+        {row.title !== null && <Cover hit={show} className="cover cover-small" />}
         <div className="episode-anilist-text">
           {name === null ? (
             <span className="muted">No AniList entry</span>
@@ -125,7 +126,7 @@ export function EpisodeAniList({ api, row, show, sequel, disabled, onPick, onNum
               {row.prefilled && <span className="mark"> Suggested</span>}
             </span>
           )}
-          {row.anilist !== null && (
+          {row.title !== null && (
             <span className="episode-anilist-number">
               <label>
                 <span className="muted">Episode</span>
@@ -143,7 +144,7 @@ export function EpisodeAniList({ api, row, show, sequel, disabled, onPick, onNum
                   onKeyDown={(e) => e.key === 'Enter' && commitNumber()}
                 />
               </label>
-              {row.anilist.title !== null && <span className="episode-anilist-title">{row.anilist.title}</span>}
+              {row.title.name !== null && <span className="episode-anilist-title">{row.title.name}</span>}
             </span>
           )}
           {numberError && <span className="error">Use a whole number from 1.</span>}
@@ -152,11 +153,11 @@ export function EpisodeAniList({ api, row, show, sequel, disabled, onPick, onNum
           type="button"
           className="quiet"
           aria-expanded={open}
-          aria-label={`${row.anilist === null ? 'Choose' : 'Change'} the AniList entry of episode ${row.index}`}
+          aria-label={`${row.title === null ? 'Choose' : 'Change'} the AniList entry of episode ${row.index}`}
           disabled={disabled}
           onClick={() => setOpen((o) => !o)}
         >
-          {row.anilist === null ? 'Choose' : 'Change'}
+          {row.title === null ? 'Choose' : 'Change'}
         </button>
       </div>
       {open && (

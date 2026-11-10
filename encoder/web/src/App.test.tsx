@@ -72,7 +72,7 @@ describe('App', () => {
   });
 
   it("shows the playlist's saved chapter names in the details panel", async () => {
-    const episodeInfo = vi.fn(async () => ({ chapterNames: { '4': 'Opening' }, anilist: {}, savedAt: '2026-11-09T10:00:00.000Z' }));
+    const episodeInfo = vi.fn(async () => ({ chapterNames: { '4': 'Opening' }, titles: {}, savedAt: '2026-11-09T10:00:00.000Z' }));
     render(<App api={fakeApi({ episodeInfo })} />);
     await screen.findByRole('heading', { level: 1 });
     await waitFor(() => expect(episodeInfo).toHaveBeenCalledWith(`f.${'a'.repeat(32)}`, '00000'));
@@ -94,7 +94,7 @@ describe('App', () => {
     fireEvent.change(field, { target: { value: 'Avant' } });
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByRole('dialog', { name: 'Details' })).toBeNull();
-    await waitFor(() => expect(saveEpisodeInfo).toHaveBeenCalledWith(`f.${'a'.repeat(32)}`, '00000', { chapterNames: { '1': 'Avant' }, anilist: {} }));
+    await waitFor(() => expect(saveEpisodeInfo).toHaveBeenCalledWith(`f.${'a'.repeat(32)}`, '00000', { chapterNames: { '1': 'Avant' }, titles: {} }));
     await act(async () => fail(new Error('The app is not answering.')));
     expect((await screen.findByRole('alert')).textContent).toBe('The chapter titles were not saved. The app is not answering.');
   });

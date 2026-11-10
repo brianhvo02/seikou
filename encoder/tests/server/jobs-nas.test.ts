@@ -9,7 +9,7 @@ import { NasClient } from '../../src/nas/client';
 import { HEAD_BYTES } from '../../src/nas/mirror';
 import { nasLibraryOf } from '../../src/nas/nas-library';
 import { pairWithNas } from '../../src/nas/pairing';
-import { EpisodeInfoStore } from '../../src/plan/episode-info';
+import { EpisodeInfoStore, type EpisodeTitle } from '../../src/plan/episode-info';
 import { JobError, JobRunner, startJobRunner, type Job, type JobRunnerDeps } from '../../src/server/jobs';
 import { DEFAULT_SETTINGS, type EncodeSettings } from '../../src/server/profiles';
 import { sessionsOf } from '../../src/server/sessions';
@@ -102,8 +102,8 @@ const input = (over: Partial<Parameters<JobRunner['add']>[0]> = {}): Parameters<
 
 /** Episode 1 starts at chapter 1 and episode 2 at chapter 4. */
 async function chooseAniList(chapters: readonly number[]): Promise<void> {
-  const anilist = Object.fromEntries(chapters.map((c, i) => [String(c), { anilistId: SHOW, episode: i + 1, title: null }]));
-  await new EpisodeInfoStore(fx.dataDir).save(nasKey, '00000', { chapterNames: {}, anilist });
+  const titles: Record<string, EpisodeTitle> = Object.fromEntries(chapters.map((c, i) => [String(c), { title: { source: 'anilist' , anilistId: SHOW }, episode: i + 1, name: null }]));
+  await new EpisodeInfoStore(fx.dataDir).save(nasKey, '00000', { chapterNames: {}, titles });
 }
 
 beforeAll(async () => {
@@ -234,7 +234,7 @@ describe('a NAS job', () => {
     // a local disc in three episodes, so nothing but the uploads needs the NAS
     await new EpisodeInfoStore(fx.dataDir).save(fx.discKey, '00000', {
       chapterNames: {},
-      anilist: Object.fromEntries([1, 3, 5].map((c, i) => [String(c), { anilistId: SHOW, episode: i + 1, title: null }])),
+      titles: Object.fromEntries([1, 3, 5].map((c, i) => [String(c), { title: { source: 'anilist', anilistId: SHOW }, episode: i + 1, name: null }])),
     });
     gates.set(1, gate());
     gates.set(2, gate());
@@ -380,11 +380,11 @@ describe('a NAS job', () => {
     await chooseAniList([1]);
     const missing = await runner.add(input()).catch((e: unknown) => e);
     expect(missing).toBeInstanceOf(JobError);
-    expect([(missing as JobError).status, (missing as JobError).code, (missing as JobError).extra.episodes]).toEqual([409, 'nas-needs-anilist', [2]]);
+    expect([(missing as JobError).status, (missing as JobError).code, (missing as JobError).extra.episodes]).toEqual([409, 'nas-needs-title', [2]]);
 
     await new EpisodeInfoStore(fx.dataDir).save(nasKey, '00000', {
       chapterNames: {},
-      anilist: { '1': { anilistId: SHOW, episode: 1, title: null }, '4': { anilistId: SHOW, episode: 1, title: null } },
+      titles: { '1': { title: { source: 'anilist', anilistId: SHOW }, episode: 1, name: null }, '4': { title: { source: 'anilist', anilistId: SHOW }, episode: 1, name: null } },
     });
     const twice = await runner.add(input()).catch((e: unknown) => e);
     expect([(twice as JobError).code, (twice as JobError).extra.episodes]).toEqual(['nas-duplicate-episodes', [1, 2]]);
@@ -413,7 +413,7 @@ describe('a NAS job', () => {
       rmSync(dataDir, { recursive: true, force: true });
       await new EpisodeInfoStore(fx.dataDir).save(fx.discKey, '00000', {
         chapterNames: {},
-        anilist: { '1': { anilistId: SHOW, episode: 1, title: null }, '4': { anilistId: SHOW, episode: 2, title: null } },
+        titles: { '1': { title: { source: 'anilist', anilistId: SHOW }, episode: 1, name: null }, '4': { title: { source: 'anilist', anilistId: SHOW }, episode: 2, name: null } },
       });
       const runner = startJobRunner(fx.app, deps());
       await runner.ready;

@@ -14,7 +14,7 @@ export interface EpisodeInfoState {
   readonly saveError: string | null;
   /**
    * Saves episode `episode`'s chapter fields (field `i` is the episode's first playlist chapter, from the session's
-   * episode list, plus `i`; `withChapterNames`), keeping the AniList choices. Saves run one after another, each from
+   * episode list, plus `i`; `withChapterNames`), keeping the episode titles. Saves run one after another, each from
    * the info the last one stored; one that changes nothing is not sent. Does nothing until the info is ready.
    */
   readonly saveChapterNames: (episode: number, fields: readonly string[]) => void;
@@ -64,7 +64,7 @@ export function useEpisodeInfo(api: HelperApi, session: SessionInfo | null): Epi
         const chapterNames = withChapterNames(current, first, fields);
         if (sameChapterNames(chapterNames, current)) return;
         try {
-          const saved = await api.saveEpisodeInfo(session.discKey, session.playlistId, { chapterNames, anilist: latest.current?.anilist ?? {} });
+          const saved = await api.saveEpisodeInfo(session.discKey, session.playlistId, { chapterNames, titles: latest.current?.titles ?? {} });
           latest.current = saved;
           setInfo(saved);
           setSaveError(null);

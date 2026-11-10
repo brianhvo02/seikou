@@ -4,6 +4,7 @@
  * Node, so the page declares the wire shapes here; `encoder/src/server/README.md` is the reference for each route.
  * All times are milliseconds unless the name says otherwise.
  */
+import type { EncodeTitle } from '@seikou/nas/encode-title';
 import type { FansubAlignment } from '@seikou/nas/nas-api';
 
 export type { FansubAlignment };
@@ -443,25 +444,27 @@ export interface PlaylistDetail {
   readonly record: { readonly episodeSpec: string; readonly anilist: { readonly id: number; readonly title: string } | null } | null;
 }
 
-/** AniList's place for one episode, keyed in `EpisodeInfo.anilist` by the playlist chapter the episode starts at. */
-export interface EpisodeAniList {
-  /** The AniList entry. */
-  readonly anilistId: number;
-  /** The episode's number in that entry, from 1. */
+/** One episode's title and number, keyed in `EpisodeInfo.titles` by the playlist chapter the episode starts at. */
+export interface EpisodeTitle {
+  /** The title the episode belongs to: an AniList entry, a TMDB season or film, or an own title. */
+  readonly title: EncodeTitle;
+  /** The episode's number in that title, from 1. */
   readonly episode: number;
-  /** AniList's episode title, or null. */
-  readonly title: string | null;
+  /** The episode's own name, or null. */
+  readonly name: string | null;
+  /** The show's name, kept for a title the NAS may not know (the `TITLE_NAME` tag). */
+  readonly showName?: string | null;
 }
 
 /**
- * Chapter names and AniList choices for one disc and playlist, keyed by playlist chapter so that regrouping keeps
+ * Chapter names and episode titles for one disc and playlist, keyed by playlist chapter so that regrouping keeps
  * them, as `GET /api/discs/<key>/playlists/<id>/info` answers.
  */
 export interface EpisodeInfo {
   /** Playlist chapter number (1-based, as a string key) → name; a chapter with no entry keeps the encoder's naming. */
   readonly chapterNames: Readonly<Record<string, string>>;
-  /** First playlist chapter of an episode (as a string key) → its AniList entry and number. */
-  readonly anilist: Readonly<Record<string, EpisodeAniList>>;
+  /** First playlist chapter of an episode (as a string key) → its title and number. */
+  readonly titles: Readonly<Record<string, EpisodeTitle>>;
   /** When it was saved (ISO 8601), set by the backend. */
   readonly savedAt: string;
 }

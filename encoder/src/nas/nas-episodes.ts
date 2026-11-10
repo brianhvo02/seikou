@@ -21,7 +21,7 @@ export interface NasEpisodesOptions {
   readonly episodeCount: number;
   /** Whether the disc is a NAS mirror whose clips are fetched before each episode. */
   readonly fetchClips: boolean;
-  /** The NAS file name of each episode (`<anilistId>-<episode>.mkv`, in episode order), or null to keep the MKVs here. */
+  /** The NAS file name of each episode (`<encode id>.mkv`, in episode order), or null to keep the MKVs here. */
   readonly uploadNames: readonly string[] | null;
   /** Who holds the clips (`cli:<id>`); every claim is let go of when the loop ends, however it ends. */
   readonly holder: string;

@@ -28,7 +28,7 @@ describe('EpisodeInfoStore', () => {
     const before = Date.now();
     const saved = await store.save(KEY, '00000', {
       chapterNames: { '1': 'Avant', '2': 'Opening' },
-      anilist: { '1': { anilistId: 990001, episode: 1, title: 'Starfall' } },
+      titles: { '1': { title: { source: 'anilist', anilistId: 990001 }, episode: 1, name: 'Starfall' } },
     });
     expect(Date.parse(saved.savedAt)).toBeGreaterThanOrEqual(before - 1000);
     expect(saved.chapterNames).toEqual({ '1': 'Avant', '2': 'Opening' });
@@ -40,14 +40,14 @@ describe('EpisodeInfoStore', () => {
   });
 
   it('refuses a bad name, key or number', () => {
-    const good = { chapterNames: { '1': 'Opening' }, anilist: { '1': { anilistId: 1, episode: 1, title: null } } };
+    const good = { chapterNames: { '1': 'Opening' }, titles: { '1': { title: { source: 'anilist', anilistId: 1 }, episode: 1, name: null } } };
     expect(parseEpisodeInfo(good)).toEqual(good);
     const bad: unknown[] = [
       { ...good, chapterNames: { '0': 'Opening' } },
       { ...good, chapterNames: { '01': 'Opening' } },
       { ...good, chapterNames: { '1': '   ' } },
-      { ...good, anilist: { '1': { anilistId: 1, episode: 0, title: null } } },
-      { ...good, anilist: { '1': { anilistId: 1.5, episode: 1, title: null } } },
+      { ...good, titles: { '1': { title: { source: 'anilist', anilistId: 1 }, episode: 0, name: null } } },
+      { ...good, titles: { '1': { title: { source: 'anilist', anilistId: 1.5 }, episode: 1, name: null } } },
     ];
     for (const value of bad) {
       let caught: unknown;
@@ -62,13 +62,13 @@ describe('EpisodeInfoStore', () => {
   });
 
   it('trims names and refuses long or control-character names, long titles and too many entries', () => {
-    expect(parseEpisodeInfo({ chapterNames: { '3': '  Part A ' }, anilist: {} }).chapterNames).toEqual({ '3': 'Part A' });
+    expect(parseEpisodeInfo({ chapterNames: { '3': '  Part A ' }, titles: {} }).chapterNames).toEqual({ '3': 'Part A' });
     const refused = [
-      { chapterNames: { '1': 'x'.repeat(101) }, anilist: {} },
-      { chapterNames: { '1': 'Open\u0007ing' }, anilist: {} },
-      { chapterNames: {}, anilist: { '1': { anilistId: 1, episode: 1, title: 'x'.repeat(301) } } },
-      { chapterNames: Object.fromEntries(Array.from({ length: 1000 }, (_, i) => [String(i + 1), 'Part A'])), anilist: {} },
-      { chapterNames: [], anilist: {} },
+      { chapterNames: { '1': 'x'.repeat(101) }, titles: {} },
+      { chapterNames: { '1': 'Open\u0007ing' }, titles: {} },
+      { chapterNames: {}, titles: { '1': { title: { source: 'anilist', anilistId: 1 }, episode: 1, name: 'x'.repeat(301) } } },
+      { chapterNames: Object.fromEntries(Array.from({ length: 1000 }, (_, i) => [String(i + 1), 'Part A'])), titles: {} },
+      { chapterNames: [], titles: {} },
       null,
     ];
     for (const value of refused) expect(() => parseEpisodeInfo(value)).toThrow(EpisodeInfoError);
@@ -82,9 +82,50 @@ describe('EpisodeInfoStore', () => {
   });
 });
 
+describe('older info files', () => {
+  it('reads the AniList form as AniList titles and saves it in the new form', async () => {
+    const dir = join(dataDir, 'chapters', KEY);
+    mkdirSync(dir, { recursive: true });
+    const old = { chapterNames: { '1': 'Opening' }, anilist: { '1': { anilistId: 990001, episode: 2, title: 'Starfall' } }, savedAt: '2026-11-09T00:00:00.000Z' };
+    writeFileSync(join(dir, '00000.json'), JSON.stringify(old));
+    const store = new EpisodeInfoStore(dataDir);
+    const read = await store.read(KEY, '00000');
+    expect(read).toEqual({
+      chapterNames: { '1': 'Opening' },
+      titles: { '1': { title: { source: 'anilist', anilistId: 990001 }, episode: 2, name: 'Starfall' } },
+      savedAt: old.savedAt,
+    });
+    const saved = await store.save(KEY, '00000', read!);
+    const onDisk = JSON.parse(readFileSync(join(dir, '00000.json'), 'utf8'));
+    expect(onDisk).toEqual(saved);
+    expect(onDisk).not.toHaveProperty('anilist');
+    expect(await store.read(KEY, '00000')).toEqual(saved);
+  });
+});
+
+describe('episode titles', () => {
+  it('keeps each kind of title and refuses a malformed one', () => {
+    const own = '12345678-1234-1234-1234-123456789abc';
+    const titles = {
+      '1': { title: { source: 'tmdb-tv', tmdbId: 990101, season: 1 }, episode: 1, name: null },
+      '3': { title: { source: 'tmdb-movie', tmdbId: 990102 }, episode: 1, name: 'Film' },
+      '5': { title: { source: 'own', ownId: own, season: null }, episode: 1, name: null },
+    };
+    expect(parseEpisodeInfo({ chapterNames: {}, titles }).titles).toEqual(titles);
+    const refused = [
+      { source: 'tmdb-tv', tmdbId: 990101 },
+      { source: 'tmdb-movie', tmdbId: 0 },
+      { source: 'own', ownId: 'not-a-uuid', season: null },
+      { source: 'own', ownId: own },
+      { source: 'other', tmdbId: 1 },
+    ];
+    for (const title of refused) expect(() => parseEpisodeInfo({ chapterNames: {}, titles: { '1': { title, episode: 1, name: null } } })).toThrow(EpisodeInfoError);
+  });
+});
+
 describe('chapterName', () => {
   it('returns the stored name for a chapter and null for one without', () => {
-    const info: EpisodeInfo = { chapterNames: { '4': 'Ending' }, anilist: {}, savedAt: '2026-11-09T00:00:00.000Z' };
+    const info: EpisodeInfo = { chapterNames: { '4': 'Ending' }, titles: {}, savedAt: '2026-11-09T00:00:00.000Z' };
     expect(chapterName(info, 4)).toBe('Ending');
     expect(chapterName(info, 3)).toBeNull();
     expect(chapterName(null, 4)).toBeNull();
@@ -111,17 +152,17 @@ describe('migrateRecordChapters', () => {
 
   it('maps episode-local names onto playlist chapters', () => {
     const r = record([episode(1, ['Chapter 1', 'Chapter 2', 'Chapter 3']), episode(2, ['Opening', '', 'Ending'])]);
-    expect(migrateRecordChapters(null, r, '1-3,4-6', 6)).toEqual({ chapterNames: { '4': 'Opening', '6': 'Ending' }, anilist: {} });
+    expect(migrateRecordChapters(null, r, '1-3,4-6', 6)).toEqual({ chapterNames: { '4': 'Opening', '6': 'Ending' }, titles: {} });
   });
 
   it('keeps the names already in info, and its AniList choices', () => {
     const info: EpisodeInfo = {
       chapterNames: { '4': 'Avant' },
-      anilist: { '4': { anilistId: 990001, episode: 2, title: null } },
+      titles: { '4': { title: { source: 'anilist', anilistId: 990001 }, episode: 2, name: null } },
       savedAt: '2026-11-02T00:00:00.000Z',
     };
     const r = record([episode(2, ['Opening', '', 'Ending'])]);
-    expect(migrateRecordChapters(info, r, '1-3,4-6', 6)).toEqual({ chapterNames: { '4': 'Avant', '6': 'Ending' }, anilist: info.anilist });
+    expect(migrateRecordChapters(info, r, '1-3,4-6', 6)).toEqual({ chapterNames: { '4': 'Avant', '6': 'Ending' }, titles: info.titles });
     // every name already there: nothing to move
     expect(migrateRecordChapters({ ...info, chapterNames: { '4': 'Avant', '6': 'Preview' } }, r, '1-3,4-6', 6)).toBeNull();
   });

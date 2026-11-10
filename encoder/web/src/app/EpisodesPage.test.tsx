@@ -255,7 +255,7 @@ describe('EpisodesPage chapter names and AniList', () => {
     await ready('Name of chapter 1');
     fireEvent.change(screen.getByLabelText('Name of chapter 1'), { target: { value: 'Opening' } });
     await waitFor(() => expect(saveEpisodeInfo).toHaveBeenCalledTimes(1));
-    expect(saveEpisodeInfo.mock.calls[0]![2]).toEqual({ chapterNames: { '1': 'Opening' }, anilist: {} });
+    expect(saveEpisodeInfo.mock.calls[0]![2]).toEqual({ chapterNames: { '1': 'Opening' }, titles: {} });
     expect(await screen.findByText('Saved')).toBeTruthy();
   });
 
@@ -297,10 +297,10 @@ describe('EpisodesPage chapter names and AniList', () => {
     fireEvent.click(await screen.findByRole('button', { name: /^Lantern Harbor Season 2/ }));
     expect(api.searchAniList).toHaveBeenCalledWith('lantern');
     await waitFor(() =>
-      expect(saveEpisodeInfo.mock.lastCall?.[2].anilist).toEqual({
-        '1': { anilistId: 990010, episode: 1, title: null },
-        '3': { anilistId: 990011, episode: 1, title: 'Cold Water' },
-        '5': { anilistId: 990011, episode: 2, title: null },
+      expect(saveEpisodeInfo.mock.lastCall?.[2].titles).toEqual({
+        '1': { title: { source: 'anilist', anilistId: 990010 }, episode: 1, name: null },
+        '3': { title: { source: 'anilist', anilistId: 990011 }, episode: 1, name: 'Cold Water' },
+        '5': { title: { source: 'anilist', anilistId: 990011 }, episode: 2, name: null },
       }),
     );
     expect(screen.queryByText('Suggested')).toBeNull();
@@ -314,7 +314,7 @@ describe('EpisodesPage chapter names and AniList', () => {
     await waitFor(() => expect(change.disabled).toBe(false));
     fireEvent.click(change);
     fireEvent.click(await screen.findByRole('button', { name: /^Next season/ }));
-    await waitFor(() => expect(saveEpisodeInfo.mock.lastCall?.[2].anilist['5']).toEqual({ anilistId: 990011, episode: 1, title: 'Cold Water' }));
+    await waitFor(() => expect(saveEpisodeInfo.mock.lastCall?.[2].titles['5']).toEqual({ title: { source: 'anilist', anilistId: 990011 }, episode: 1, name: 'Cold Water' }));
     expect(api.searchAniList).not.toHaveBeenCalled();
   });
 
@@ -326,7 +326,7 @@ describe('EpisodesPage chapter names and AniList', () => {
     fireEvent.change(field, { target: { value: '7' } });
     fireEvent.blur(field);
     await waitFor(() => expect(saveEpisodeInfo).toHaveBeenCalled());
-    const anilist = saveEpisodeInfo.mock.lastCall![2].anilist;
+    const anilist = saveEpisodeInfo.mock.lastCall![2].titles;
     expect([anilist['1']?.episode, anilist['3']?.episode, anilist['5']?.episode]).toEqual([1, 7, 8]);
   });
 
@@ -348,7 +348,7 @@ describe('EpisodesPage chapter names and AniList', () => {
     const { api, saveEpisodeInfo } = infoApi();
     const saved: EpisodeInfo = {
       chapterNames: { '3': 'Cold open' },
-      anilist: { '1': { anilistId: 990010, episode: 4, title: 'Low Tide' }, '4': { anilistId: 990010, episode: 5, title: null } },
+      titles: { '1': { title: { source: 'anilist', anilistId: 990010 }, episode: 4, name: 'Low Tide' }, '4': { title: { source: 'anilist', anilistId: 990010 }, episode: 5, name: null } },
       savedAt: '2026-11-08T10:00:00.000Z',
     };
     api.episodeInfo = vi.fn(async () => saved);
@@ -357,6 +357,6 @@ describe('EpisodesPage chapter names and AniList', () => {
     expect(screen.getByText('Low Tide')).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Name of chapter 1'), { target: { value: 'Avant' } });
     await waitFor(() => expect(saveEpisodeInfo).toHaveBeenCalled());
-    expect(saveEpisodeInfo.mock.calls[0]![2]).toEqual({ chapterNames: { '1': 'Avant', '3': 'Cold open' }, anilist: saved.anilist });
+    expect(saveEpisodeInfo.mock.calls[0]![2]).toEqual({ chapterNames: { '1': 'Avant', '3': 'Cold open' }, titles: saved.titles });
   });
 });

@@ -59,7 +59,7 @@ function start(): HelperState {
 
 const savedInfo = (chapterNames: Record<string, string>): EpisodeInfo => ({
   chapterNames,
-  anilist: { '1': { anilistId: 900101, episode: 1, title: 'Arrival' } },
+  titles: { '1': { title: { source: 'anilist', anilistId: 900101 }, episode: 1, name: 'Arrival' } },
   savedAt: '2026-11-09T10:00:00.000Z',
 });
 
@@ -278,7 +278,7 @@ describe('MetadataPanel chapter titles', () => {
     await waitFor(() => expect(api.saveEpisodeInfo).toHaveBeenCalledTimes(1));
     expect(api.saveEpisodeInfo).toHaveBeenCalledWith(session.discKey, session.playlistId, {
       chapterNames: { '1': 'Avant', '3': 'Ending' },
-      anilist: savedInfo({}).anilist,
+      titles: savedInfo({}).titles,
     });
     await waitFor(() => expect(state().metadata.episodes[2]!.chapters).toEqual(['Ending']));
     // the field shows the trimmed name once the save has settled
@@ -294,7 +294,7 @@ describe('MetadataPanel chapter titles', () => {
     await waitFor(() => expect(chapterField(2).value).toBe('Opening'));
     fireEvent.change(chapterField(2), { target: { value: '' } });
     fireEvent.blur(chapterField(2));
-    await waitFor(() => expect(api.saveEpisodeInfo).toHaveBeenCalledWith(session.discKey, session.playlistId, { chapterNames: {}, anilist: savedInfo({}).anilist }));
+    await waitFor(() => expect(api.saveEpisodeInfo).toHaveBeenCalledWith(session.discKey, session.playlistId, { chapterNames: {}, titles: savedInfo({}).titles }));
     await waitFor(() => expect(chapterField(2).value).toBe('Chapter 2'));
   });
 
@@ -311,7 +311,7 @@ describe('MetadataPanel chapter titles', () => {
     chapterField(2).focus();
     fireEvent.change(chapterField(2), { target: { value: 'Opening' } });
     fireEvent.keyDown(window, { key: 'Escape' });
-    await waitFor(() => expect(api.saveEpisodeInfo).toHaveBeenCalledWith(session.discKey, session.playlistId, { chapterNames: { '2': 'Opening' }, anilist: {} }));
+    await waitFor(() => expect(api.saveEpisodeInfo).toHaveBeenCalledWith(session.discKey, session.playlistId, { chapterNames: { '2': 'Opening' }, titles: {} }));
   });
 
   it('without the episode info the chapter titles cannot be changed', async () => {

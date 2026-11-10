@@ -61,7 +61,7 @@ export interface EncodeOptions {
    * (honouring `noSubtitles`).
    */
   record?: SubtitleRecord | null;
-  /** Chapter names and AniList choices; when left out, `encodeEpisodes` reads them from `<dataDir>/chapters/…`. `null` writes none. */
+  /** Chapter names and episode titles; when left out, `encodeEpisodes` reads them from `<dataDir>/chapters/…`. `null` writes none. */
   episodeInfo?: EpisodeInfo | null;
   /** Leave the disc's PG subtitle streams out of the MKV. */
   noPgs: boolean;
@@ -351,7 +351,7 @@ export async function encodePlan(o: PlanEncodeOptions, onEvent: (e: EncodeEvent)
  * is a record. The MKV's title is the record's episode title, else `title`. A chapter's title is its name in
  * `episodeInfo` (by playlist chapter; read from `<dataDir>/chapters/` when left out), else the record's (a record whose
  * names were not yet moved there), else `Chapter n`. Every MKV is tagged (`episodeTags`) with the disc key, the
- * playlist, the playlist time of its first frame and the encoder, and with the AniList entry and episode `episodeInfo`
+ * playlist, the playlist time of its first frame and the encoder, and with the title and episode `episodeInfo`
  * gives the episode's first playlist chapter. With a record, its ticked ASS tracks (retimed by the saved shift or split and the nudge) and fonts
  * are muxed after the audio (`episodeSubtitleTracks`), then the disc's PG subtitle streams as `S_HDMV/PGS` tracks
  * (`episodePgsTracks`) unless `noPgs` is set. `record` is read once: the CLI passes the one it checked, so what is
@@ -467,7 +467,7 @@ export async function encodeEpisodes(
           discKey,
           playlistId: o.playlistId,
           startMs: Math.round(firstFramePlaylistUs(playlist, plan) / 1000),
-          anilist: plan.chapters[0] === undefined ? null : (info?.anilist[String(plan.chapters[0].playlistChapter)] ?? null),
+          title: plan.chapters[0] === undefined ? null : (info?.titles[String(plan.chapters[0].playlistChapter)] ?? null),
         }),
         subtitles: [...ass.tracks, ...pgs],
         attachments: ass.attachments,

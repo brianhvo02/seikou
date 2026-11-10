@@ -163,11 +163,11 @@ describe('record routes', () => {
     expect(onDisk.savedAt).toBe('2026-11-01T00:00:00.000Z');
 
     // a name removed since stays removed when the record and the info are loaded again, and nothing is saved again
-    const changed = await fixture.send(infoPath, { method: 'PUT', body: JSON.stringify({ chapterNames: { '3': 'Ending' }, anilist: {} }) });
+    const changed = await fixture.send(infoPath, { method: 'PUT', body: JSON.stringify({ chapterNames: { '3': 'Ending' }, titles: {} }) });
     const savedAt = jsonOf<{ info: EpisodeInfo }>(changed).info.savedAt;
     expect((await fixture.call('/record')).status).toBe(200);
     const second = jsonOf<{ info: EpisodeInfo }>(await fixture.send(infoPath)).info;
-    expect(second).toEqual({ chapterNames: { '3': 'Ending' }, anilist: {}, savedAt });
+    expect(second).toEqual({ chapterNames: { '3': 'Ending' }, titles: {}, savedAt });
   });
 });
 

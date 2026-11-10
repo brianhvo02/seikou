@@ -228,8 +228,8 @@ describe('QueueDialog', () => {
 
   describe('to the NAS', () => {
     const paired: NasStatus = { paired: true, host: 'nas.example', personName: 'Mika', reachable: true, encodes: 'ready' };
-    const info = (anilist: EpisodeInfo['anilist']): EpisodeInfo => ({ chapterNames: {}, anilist, savedAt: '2026-11-09T10:00:00.000Z' });
-    const both = info({ '1': { anilistId: 990001, episode: 1, title: null }, '4': { anilistId: 990001, episode: 2, title: null } });
+    const info = (anilist: EpisodeInfo['titles']): EpisodeInfo => ({ chapterNames: {}, titles: anilist, savedAt: '2026-11-09T10:00:00.000Z' });
+    const both = info({ '1': { title: { source: 'anilist', anilistId: 990001 }, episode: 1, name: null }, '4': { title: { source: 'anilist', anilistId: 990001 }, episode: 2, name: null } });
     const nasRadio = () => screen.getByLabelText('The NAS (Encodes library)') as HTMLInputElement;
     const queueButton = () => screen.getByRole('button', { name: 'Queue encode' }) as HTMLButtonElement;
 
@@ -272,7 +272,7 @@ describe('QueueDialog', () => {
     });
 
     it('holds Queue back while an episode has no AniList entry, linking to the Episodes page', async () => {
-      const api = fakeApi({ nas: vi.fn(async () => paired), episodeInfo: vi.fn(async () => info({ '1': { anilistId: 990001, episode: 1, title: null } })) });
+      const api = fakeApi({ nas: vi.fn(async () => paired), episodeInfo: vi.fn(async () => info({ '1': { title: { source: 'anilist', anilistId: 990001 }, episode: 1, name: null } })) });
       render(<QueueDialog api={api} {...props} />);
       await screen.findByLabelText('Output folder');
       fireEvent.click(nasRadio());
@@ -296,7 +296,7 @@ describe('QueueDialog', () => {
     });
 
     it('names episodes that share one AniList episode', async () => {
-      const same = info({ '1': { anilistId: 990001, episode: 1, title: null }, '4': { anilistId: 990001, episode: 1, title: null } });
+      const same = info({ '1': { title: { source: 'anilist', anilistId: 990001 }, episode: 1, name: null }, '4': { title: { source: 'anilist', anilistId: 990001 }, episode: 1, name: null } });
       render(<QueueDialog api={fakeApi({ nas: vi.fn(async () => paired), episodeInfo: vi.fn(async () => same) })} {...props} />);
       await screen.findByLabelText('Output folder');
       fireEvent.click(nasRadio());
@@ -313,9 +313,9 @@ describe('QueueDialog', () => {
       expect(queueButton().disabled).toBe(true);
     });
 
-    it('shows a 409 nas-needs-anilist from the backend the same way', async () => {
+    it('shows a 409 nas-needs-title from the backend the same way', async () => {
       const createJob = vi.fn(async () => {
-        throw new ApiError(409, 'nas-needs-anilist', 'Every episode needs an AniList entry.', { episodes: [2] });
+        throw new ApiError(409, 'nas-needs-title', 'Every episode needs an AniList entry.', { episodes: [2] });
       });
       render(<QueueDialog api={fakeApi({ nas: vi.fn(async () => paired), episodeInfo: vi.fn(async () => both), createJob })} {...props} />);
       await screen.findByLabelText('Output folder');

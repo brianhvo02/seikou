@@ -7,8 +7,8 @@ import { showAt, type PlayerLike } from '../player/use-controller';
 import type { AppApi } from './app-api';
 import { ChapterList } from './ChapterList';
 import { formatLength, NotInLibrary, ScanningLibrary } from './DiscPage';
-import { EpisodeAniList } from './EpisodeAniList';
-import { episodeRows, firstNumberFor, renumberFrom, toInfo, withTitles, type EpisodeRow } from './episode-info-model';
+import { EpisodeTitlePicker } from './EpisodeTitlePicker';
+import { aniListIdOf, episodeRows, firstNumberFor, renumberFrom, toInfo, withTitles, type EpisodeRow } from './episode-info-model';
 import { episodeLengths, episodesOf, fromSpec, normalize, toSpec, type Grouping } from './grouping';
 import { SCAN_POLL_MS, useDocumentTitle } from './place';
 import { Link, navigate, routeHref } from './router';
@@ -46,17 +46,18 @@ const nameOnly = (alId: number, title: string): TitleHit => ({ alId, title, nati
 /** The rows with AniList's episode titles put into those that have none, from the titles fetched so far. */
 function withKnownTitles(rows: readonly EpisodeRow[], titles: Readonly<Record<number, Readonly<Record<number, string>>>>): EpisodeRow[] {
   return rows.map((r) => {
-    const known = r.anilist === null || r.anilist.title !== null ? undefined : titles[r.anilist.anilistId];
-    return known === undefined ? r : withTitles([r], r.anilist!.anilistId, known)[0]!;
+    const id = aniListIdOf(r.title);
+    const known = id === null || r.title!.name !== null ? undefined : titles[id];
+    return known === undefined ? r : withTitles([r], id!, known)[0]!;
   });
 }
 
-/** The quiet line that says whether the chapter names and AniList choices are saved. */
+/** The quiet line that says whether the chapter names and episode titles are saved. */
 function SaveLine({ state }: { readonly state: InfoDraftState }) {
   if (state.status === 'failed') {
     return (
       <p className="error info-save" role="alert">
-        Chapter names and AniList choices could not be read: {state.loadError}
+        Chapter names and episode titles could not be read: {state.loadError}
       </p>
     );
   }
@@ -73,7 +74,7 @@ function SaveLine({ state }: { readonly state: InfoDraftState }) {
   }
   return (
     <p className="info-save muted" role="status">
-      {save.kind === 'saving' ? 'Saving…' : save.kind === 'saved' ? 'Saved' : 'Chapter names and AniList choices save as you change them.'}
+      {save.kind === 'saving' ? 'Saving…' : save.kind === 'saved' ? 'Saved' : 'Chapter names and episode titles save as you change them.'}
     </p>
   );
 }
@@ -85,7 +86,7 @@ function SaveLine({ state }: { readonly state: InfoDraftState }) {
  * typed; a bad text keeps the last good grouping) and the episodes with their lengths. "Choose subtitles" opens the
  * helper for the grouping, "Queue encode" the queue dialog and "Encode without subtitles" the same dialog with that box ticked. When the playlist has saved subtitle choices
  * for another episode list, a warning says they won't match until the subtitles are chosen again. Each chapter has a
- * name picker and each episode its AniList entry and number (`EpisodeAniList`), saved as the playlist's episode info
+ * name picker and each episode its AniList entry and number (`EpisodeTitlePicker`), saved as the playlist's episode info
  * as they change (`useInfoDraft`); with none saved, the record's show is suggested, numbered from 1.
  */
 export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesPageProps) {
@@ -158,7 +159,7 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
     const saved = info.status === 'ready' ? { ...info.draft, savedAt: '' } : null;
     return withKnownTitles(episodeRows(starts, saved, recordShow), titles);
   }, [grouping, chapterCount, info.status, info.draft, recordShow, titles]);
-  const ids = [...new Set(rows.flatMap((r) => (r.anilist === null ? [] : [r.anilist.anilistId])))].sort((a, b) => a - b).join(',');
+  const ids = [...new Set(rows.flatMap((r) => aniListIdOf(r.title) ?? []))].sort((a, b) => a - b).join(',');
 
   // look up every entry on the page once: its name, cover and next season, and its episode titles
   useEffect(() => {
@@ -194,10 +195,10 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
       if (known === undefined) continue;
       titlesWanted.current.delete(id);
       update((d) => {
-        const anilist = Object.fromEntries(
-          Object.entries(d.anilist).map(([k, a]) => [k, a.anilistId === id && a.title === null ? { ...a, title: known[a.episode] ?? null } : a]),
+        const titles = Object.fromEntries(
+          Object.entries(d.titles).map(([k, a]) => [k, aniListIdOf(a) === id && a.name === null ? { ...a, name: known[a.episode] ?? null } : a]),
         );
-        return { ...d, anilist };
+        return { ...d, titles };
       });
     }
   }, [titles, update]);
@@ -273,17 +274,20 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
     showAt(controller, api, shown, c.startMs * 1000).catch(fail);
   };
   const editable = info.status === 'ready';
-  /** Saves `next` as the episodes' AniList choices; every row is written, a suggestion included. */
+  /** Saves `next` as the episodes' titles; every row is written, a suggestion included. */
   const saveRows = (next: readonly EpisodeRow[]): void => {
-    for (const r of next) if (r.anilist !== null && r.anilist.title === null && titles[r.anilist.anilistId] === undefined) titlesWanted.current.add(r.anilist.anilistId);
-    update((d) => ({ ...d, anilist: toInfo(withKnownTitles(next, titles), {}, d.anilist).anilist }));
+    for (const r of next) {
+      const id = aniListIdOf(r.title);
+      if (id !== null && r.title!.name === null && titles[id] === undefined) titlesWanted.current.add(id);
+    }
+    update((d) => ({ ...d, titles: toInfo(withKnownTitles(next, titles), {}, d.titles).titles }));
   };
   const nameChapter = (n: number, name: string): void => {
     update((d) => {
       const chapterNames = { ...d.chapterNames };
       if (name === '') delete chapterNames[String(n)];
       else chapterNames[String(n)] = name;
-      return { chapterNames, anilist: toInfo(rows, {}, d.anilist).anilist };
+      return { chapterNames, titles: toInfo(rows, {}, d.titles).titles };
     });
   };
   const pickEntry = (i: number, hit: TitleHit): void => {
@@ -291,14 +295,14 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
     saveRows(renumberFrom(rows, i, hit.alId, firstNumberFor(rows, i, hit.alId)));
   };
   const renumber = (i: number, episode: number): void => {
-    const entry = rows[i]?.anilist;
-    if (entry !== null && entry !== undefined) saveRows(renumberFrom(rows, i, entry.anilistId, episode));
+    const id = aniListIdOf(rows[i]?.title ?? null);
+    if (id !== null) saveRows(renumberFrom(rows, i, id, episode));
   };
   const showOf = (id: number): TitleHit | null => entries[id] ?? hits[id] ?? (recordShow !== null && recordShow.id === id ? nameOnly(id, recordShow.title) : null);
   /** The next season to offer a row: of its own entry, else of the episode before's. */
   const sequelFor = (i: number): TitleHit | null => {
-    const own = rows[i]?.anilist ?? rows[i - 1]?.anilist ?? null;
-    return own === null ? null : (entries[own.anilistId]?.sequel ?? null);
+    const own = aniListIdOf(rows[i]?.title ?? null) ?? aniListIdOf(rows[i - 1]?.title ?? null);
+    return own === null ? null : (entries[own]?.sequel ?? null);
   };
 
   const chooseSubtitles = (): void => {
@@ -377,10 +381,10 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
                         <span className="muted">{chaptersText(e.from, e.to)}</span>
                       </div>
                       {row !== undefined && (
-                        <EpisodeAniList
+                        <EpisodeTitlePicker
                           api={api}
                           row={row}
-                          show={row.anilist === null ? null : showOf(row.anilist.anilistId)}
+                          show={aniListIdOf(row.title) === null ? null : showOf(aniListIdOf(row.title)!)}
                           sequel={sequelFor(i)}
                           disabled={!editable}
                           onPick={(hit) => pickEntry(i, hit)}

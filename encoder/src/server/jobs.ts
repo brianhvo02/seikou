@@ -8,7 +8,8 @@ import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { replaceAtomically } from '@seikou/titles';
 import { loadPlaylist } from '../disc/playlist';
 import { NasError, type NasClient } from '../nas/client';
-import { aniListPairs, checkNasDestination, NasDestinationError, uploadNameOf, type AniListPair } from '../nas/destination';
+import type { EpisodeTitle } from '../plan/episode-info';
+import { episodeTitles, checkNasDestination, NasDestinationError, uploadNameOf } from '../nas/destination';
 import { ClipFetcher, clipsOfEpisode, releaseHolder, sweepUnheld } from '../nas/fetch';
 import { defaultSleep, FetchError, isMirror } from '../nas/mirror';
 import { abandonUpload, UPLOAD_CHUNK_BYTES, uploadEpisode, UploadError, type UploadState } from '../nas/upload';
@@ -70,7 +71,7 @@ export interface JobEpisode {
   stepTotal: number;
   /** A NAS episode's upload, kept so a retry resumes it; gone once the NAS has filed the episode. */
   upload?: UploadState;
-  /** The NAS's id of the uploaded episode (`<anilistId>-<episode>`). */
+  /** The NAS's id of the uploaded episode (`<encode id>`). */
   encodeId?: string;
 }
 
@@ -663,7 +664,7 @@ export class JobRunner {
    * 409 `record-unreadable`, and 500 `jobs-unreadable`. The record is not checked with `noSubtitles` or for a test job.
    * The output folder is made when missing. With `settings.destination: 'nas'` the output folder is ignored (the job
    * writes to `<data>/nas-out/<id>`), `web` is turned off, and the NAS checks apply (see `checkNasDestination`): 409
-   * `nas-not-paired`, `nas-needs-anilist` and `nas-duplicate-episodes` (each with `episodes`), `nas-encodes-off` and
+   * `nas-not-paired`, `nas-needs-title` and `nas-duplicate-episodes` (each with `episodes`), `nas-encodes-off` and
    * `info-unreadable`. A disc that is a NAS mirror needs the pairing too (409 `nas-not-paired`), and a test of one is
    * refused with 409 `nas-test-unsupported`. A job for the same disc, playlist and episode list as the job whose folder
    * and names it shares is a re-encode, not a refusal: it is queued and answered with `warning: 'replaces-files'`.
@@ -1473,16 +1474,16 @@ export class JobRunner {
     await releaseHolder(this.app.dataDir, job.disc.key, `job:${job.id}`).catch((e: unknown) => this.deps.log(`The NAS clips of job ${job.id} could not be emptied: ${message(e)}`));
   }
 
-  /** The file name the NAS gets an episode under, `<anilistId>-<episode>.mkv`, from the episode info saved now. */
+  /** The file name the NAS gets an episode under, `<encode id>.mkv`, from the episode info saved now. */
   private async uploadName(job: Job, ep: JobEpisode): Promise<string> {
     const chapters = (await loadPlaylist(job.disc.dir, job.playlist)).chapters.length;
-    let pair: AniListPair | null | undefined;
+    let pair: EpisodeTitle | null | undefined;
     try {
-      pair = (await aniListPairs(this.app.dataDir, job.disc.key, job.playlist, job.episodeSpec, chapters))[ep.index - 1];
+      pair = (await episodeTitles(this.app.dataDir, job.disc.key, job.playlist, job.episodeSpec, chapters))[ep.index - 1];
     } catch (e) {
       throw asJobError(e);
     }
-    if (pair === null || pair === undefined) throw new Error(`Episode ${ep.index} has no AniList entry and number; set one on the Episodes page and retry.`);
+    if (pair === null || pair === undefined) throw new Error(`Episode ${ep.index} has no title and number; set one on the Episodes page and retry.`);
     return uploadNameOf(pair);
   }
 

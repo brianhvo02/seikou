@@ -74,9 +74,9 @@ export interface HelperApi {
    * list in `details.episodeSpec`).
    */
   saveRecord(record: SubtitleRecord, replace?: boolean): Promise<SubtitleRecord>;
-  /** The chapter names and AniList choices saved for the session's disc and playlist (pass the session's), or null when none are. */
+  /** The chapter names and episode titles saved for the session's disc and playlist (pass the session's), or null when none are. */
   episodeInfo(discKey: string, playlistId: string): Promise<EpisodeInfo | null>;
-  /** Saves chapter names and AniList choices for a disc's playlist; resolves with them as stored. */
+  /** Saves chapter names and episode titles for a disc's playlist; resolves with them as stored. */
   saveEpisodeInfo(discKey: string, playlistId: string, info: Omit<EpisodeInfo, 'savedAt'>): Promise<EpisodeInfo>;
   /**
    * The disc as Seikou's engine opens it from the backend's NAS-compatible disc API: its manifest, an absolute base
@@ -116,8 +116,8 @@ export function episodeInfoCalls(
       return (await request<{ info: EpisodeInfo | null }>('GET', episodeInfoPath(discKey, playlistId))).info;
     },
     async saveEpisodeInfo(discKey, playlistId, info) {
-      const { chapterNames, anilist } = info;
-      return (await request<{ info: EpisodeInfo }>('PUT', episodeInfoPath(discKey, playlistId), { chapterNames, anilist })).info;
+      const { chapterNames, titles } = info;
+      return (await request<{ info: EpisodeInfo }>('PUT', episodeInfoPath(discKey, playlistId), { chapterNames, titles })).info;
     },
   };
 }

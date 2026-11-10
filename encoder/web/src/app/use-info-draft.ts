@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { EpisodeAniList } from '../api-types';
+import type { EpisodeTitle } from '../api-types';
 import type { AppApi } from './app-api';
 import { toInfo } from './episode-info-model';
 
-/** The Episodes page's chapter names (as typed, untrimmed) and AniList choices, keyed by playlist chapter. */
+/** The Episodes page's chapter names (as typed, untrimmed) and episode titles, keyed by playlist chapter. */
 export interface InfoDraft {
   readonly chapterNames: Readonly<Record<string, string>>;
-  readonly anilist: Readonly<Record<string, EpisodeAniList>>;
+  readonly titles: Readonly<Record<string, EpisodeTitle>>;
 }
 
 /** Where the saving stands: nothing changed yet, a change waiting or being sent, the last one stored, or the last one refused. */
@@ -30,7 +30,7 @@ export interface InfoDraftState {
 /** How long the page waits after a change before it saves. */
 export const SAVE_DELAY_MS = 500;
 
-const EMPTY: InfoDraft = { chapterNames: {}, anilist: {} };
+const EMPTY: InfoDraft = { chapterNames: {}, titles: {} };
 
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -62,7 +62,7 @@ export function useInfoDraft(api: AppApi, discKey: string, playlistId: string): 
       .then(
         (info) => {
           if (!current) return;
-          const loaded: InfoDraft = info === null ? EMPTY : { chapterNames: info.chapterNames, anilist: info.anilist };
+          const loaded: InfoDraft = info === null ? EMPTY : { chapterNames: info.chapterNames, titles: info.titles };
           latest.current = loaded;
           ready.current = true;
           setDraft(loaded);
@@ -88,7 +88,7 @@ export function useInfoDraft(api: AppApi, discKey: string, playlistId: string): 
     again.current = false;
     const d = latest.current;
     Promise.resolve()
-      .then(() => api.saveEpisodeInfo(discKey, playlistId, toInfo([], d.chapterNames, d.anilist)))
+      .then(() => api.saveEpisodeInfo(discKey, playlistId, toInfo([], d.chapterNames, d.titles)))
       .then(
         () => {
           if (live.current && !again.current && timer.current === undefined) setSave({ kind: 'saved' });

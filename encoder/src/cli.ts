@@ -495,7 +495,7 @@ async function run(argv: string[]): Promise<void> {
       // A bad episode spec is a usage error (exit 2) whether or not the tools are installed.
       const playlist = await loadPlaylist(discDir, values.playlist);
       const episodeCount = parseEpisodeSpec(values.episodes, playlist.chapters.length).length;
-      // So are missing AniList choices for the NAS, and a saved record that does not fit this encode.
+      // So are missing episode titles for the NAS, and a saved record that does not fit this encode.
       let uploadNames: string[] | null = null;
       const discKey = client === null ? '' : (await discKeyOfFolder(discDir)).key;
       if (toNas) {

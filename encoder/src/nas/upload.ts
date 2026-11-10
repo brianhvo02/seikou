@@ -121,7 +121,7 @@ function pause(ms: number, sleep: (ms: number) => Promise<void>, signal?: AbortS
 }
 
 /**
- * Uploads `path` as `name` (`<anilistId>-<episode>.mkv`): hashes once (kept in `state`), creates or resumes the upload
+ * Uploads `path` as `name` (`<encode id>.mkv`): hashes once (kept in `state`), creates or resumes the upload
  * (a stored id whose GET is 404 starts over), PUTs the missing ranges in order, completes. Resolves with the NAS's
  * encode id (`entry.id`, or `filed`'s id when `entry` is null). `state` is changed in place, and `onState` hears each
  * change. Each request is tried again after 1, 2, 4 and 8 s on a network error, a 5xx or 60 s without an answer, then

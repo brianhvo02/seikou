@@ -223,7 +223,7 @@ const serveSample: Route = async (req, res, match, app) => {
  *   GET|HEAD /api/outputs/<id>/<path>   one of that job's own files (see `isJobFile`), whole or one range
  *   GET|HEAD /api/tests/<id>/<profile>/<n>.webm   a test job's sample, whole or one range, as `video/webm`
  *
- * Refusals are `{ error, message, ... }` (see `JobRunner.add`; the NAS refusals `nas-needs-anilist` and
+ * Refusals are `{ error, message, ... }` (see `JobRunner.add`; the NAS refusals `nas-needs-title` and
  * `nas-duplicate-episodes` carry the 1-based `episodes`); an unknown job answers 404 `not-found`. While
  * `jobs.json` cannot be read, every job route, the list and the event stream included, answers 500 `jobs-unreadable`
  * (the stream before it opens, so a browser's EventSource fails and does not reconnect), never an empty queue. While

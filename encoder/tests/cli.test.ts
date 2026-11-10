@@ -486,23 +486,23 @@ describe('the NAS on the command line', () => {
     expect(words.slice(0, 3)).toEqual(['seikou-encode', 'encode', `nas:${disc1Key}`]);
     // it gets as far as the AniList check, which this disc's playlist has no choices for
     expect(await cli(...words.slice(1))).toBe(2);
-    expect(err).toEqual(['Episodes 1, 2 need an AniList entry and number before they can go to the NAS. Set them on the Episodes page.']);
+    expect(err).toEqual(['Episodes 1, 2 need a title and number before they can go to the NAS. Set them on the Episodes page.']);
   });
 
-  it('encode nas:<key> … --nas without AniList choices exits 2 naming the episodes, even with a tool missing', async () => {
+  it('encode nas:<key> … --nas without episode titles exits 2 naming the episodes, even with a tool missing', async () => {
     await pair();
     vi.stubEnv('ENCODING_TOOLS_SVT', '/nonexistent/SvtAv1EncApp');
-    await new EpisodeInfoStore(dataDir).save(disc1Key, '00000', { chapterNames: {}, anilist: { '1': { anilistId: SHOW, episode: 1, title: null } } });
+    await new EpisodeInfoStore(dataDir).save(disc1Key, '00000', { chapterNames: {}, titles: { '1': { title: { source: 'anilist', anilistId: SHOW }, episode: 1, name: null } } });
     expect(await cli('encode', `nas:${disc1Key}`, '--playlist', '00000', '--episodes', '1-2,3-4', '--nas', '--no-subtitles')).toBe(2);
-    expect(err).toEqual(['Episode 2 needs an AniList entry and number before they can go to the NAS. Set them on the Episodes page.']);
-    await new EpisodeInfoStore(dataDir).save(disc1Key, '00000', { chapterNames: {}, anilist: {} });
+    expect(err).toEqual(['Episode 2 needs a title and number before they can go to the NAS. Set them on the Episodes page.']);
+    await new EpisodeInfoStore(dataDir).save(disc1Key, '00000', { chapterNames: {}, titles: {} });
     err.length = 0;
     expect(await cli('encode', `nas:${disc1Key}`, '--playlist', '00000', '--episodes', '1-2,3-4', '--nas', '--no-subtitles')).toBe(2);
-    expect(err[0]).toContain('Episodes 1, 2 need an AniList entry');
+    expect(err[0]).toContain('Episodes 1, 2 need a title and number');
     // with the choices made, the missing tool is what stops it, and the clips it fetched are let go of
     await new EpisodeInfoStore(dataDir).save(disc1Key, '00000', {
       chapterNames: {},
-      anilist: { '1': { anilistId: SHOW, episode: 1, title: null }, '3': { anilistId: SHOW, episode: 2, title: null } },
+      titles: { '1': { title: { source: 'anilist', anilistId: SHOW }, episode: 1, name: null }, '3': { title: { source: 'anilist', anilistId: SHOW }, episode: 2, name: null } },
     });
     expect(await cli('encode', `nas:${disc1Key}`, '--playlist', '00000', '--episodes', '1-2,3-4', '--nas', '--no-subtitles')).toBe(3);
   });
@@ -538,7 +538,7 @@ describe('the NAS on the command line', () => {
     await pair();
     await new EpisodeInfoStore(dataDir).save(disc1Key, '00000', {
       chapterNames: {},
-      anilist: { '1': { anilistId: SHOW, episode: 1, title: null }, '3': { anilistId: SHOW, episode: 2, title: null } },
+      titles: { '1': { title: { source: 'anilist', anilistId: SHOW }, episode: 1, name: null }, '3': { title: { source: 'anilist', anilistId: SHOW }, episode: 2, name: null } },
     });
     try {
       const code = await cli('encode', `nas:${disc1Key}`, '--playlist', '00000', '--episodes', '1-2,3-4', '--nas', '--no-subtitles', '--crf', '50', '--preset', '12');

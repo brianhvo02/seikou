@@ -6,7 +6,7 @@ import { noteReplacesFiles } from './job-model';
 import { MAX_TEST_PROFILES, testSummary } from './test-model';
 import type { AppApi } from './app-api';
 import { formatLength } from './DiscPage';
-import { episodeRows, episodesPhrase, missingAniList, sharedAniList, suggestedAniList } from './episode-info-model';
+import { episodeRows, episodesPhrase, missingTitles, sharedTitles, suggestedTitles } from './episode-info-model';
 import { episodeLengths, episodesOf, fromSpec } from './grouping';
 import { useDocumentTitle } from './place';
 import { Link, navigate, routeHref } from './router';
@@ -88,7 +88,7 @@ const text = (v: unknown, fallback: string): string => (typeof v === 'string' ? 
  * Encodes library, offered only when paired), the output folder for a folder (the backend's default, editable) and
  * "Encode without subtitles". To the NAS, Queue waits until every episode has a saved AniList entry, no two share one,
  * and the NAS keeps encodes, saying what is missing with a link to the Episodes page; the backend's 409
- * `nas-needs-anilist` and `nas-duplicate-episodes` are shown the same way. Queue
+ * `nas-needs-title` and `nas-duplicate-episodes` are shown the same way. Queue
  * encode makes the job and goes to its page (which says once when the job re-encodes into an earlier encode's files). A
  * refusal about the folder (another encode's folder among them) shows beside the folder, any other as an alert;
  * when the saved subtitle choices are for another episode list the alert says both lists and offers to encode without
@@ -188,7 +188,7 @@ export function QueueDialog({ api, discKey, playlistId, spec, noSubtitles: start
   const paired = loaded.nas?.paired === true ? loaded.nas : null;
   const toNas = destination === 'nas' && paired !== null;
   const rows = loaded.info === 'unreadable' ? null : episodeRows(episodes.map((e, i) => ({ index: i + 1, first: e.from })), loaded.info, loaded.recordShow);
-  const needs: NasNeeds = rows === null ? NO_NEEDS : { missing: missingAniList(rows), suggested: suggestedAniList(rows), shared: sharedAniList(rows) };
+  const needs: NasNeeds = rows === null ? NO_NEEDS : { missing: missingTitles(rows), suggested: suggestedTitles(rows), shared: sharedTitles(rows) };
   const encodesOff = paired?.encodes === 'not-configured';
   const nasBlocked = toNas && (hasNeeds(needs) || encodesOff);
 
@@ -215,7 +215,7 @@ export function QueueDialog({ api, discKey, playlistId, spec, noSubtitles: start
       if (!(e instanceof ApiError)) return setAlertText(e instanceof Error ? e.message : String(e));
       if (e.code === 'record-mismatch') return setMismatch({ recordSpec: text(e.details.recordEpisodeSpec, '?'), spec: text(e.details.episodeSpec, spec) });
       if (FOLDER_ERRORS.has(e.code)) return setFolderError(e.message);
-      if (e.code === 'nas-needs-anilist') return setRefusedNeeds({ ...NO_NEEDS, missing: numbers(e.details.episodes) });
+      if (e.code === 'nas-needs-title') return setRefusedNeeds({ ...NO_NEEDS, missing: numbers(e.details.episodes) });
       if (e.code === 'nas-duplicate-episodes') return setRefusedNeeds({ ...NO_NEEDS, shared: [numbers(e.details.episodes)] });
       setAlertText(e.message);
     }

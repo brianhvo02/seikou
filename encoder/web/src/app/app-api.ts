@@ -18,9 +18,9 @@ export interface AppApi {
   playlists(discKey: string): Promise<PlaylistSummary[]>;
   /** One playlist of a library disc with its chapters and the episode list of its saved subtitle record. */
   playlist(discKey: string, playlistId: string): Promise<PlaylistDetail>;
-  /** The chapter names and AniList choices saved for a disc's playlist, or null when none are. */
+  /** The chapter names and episode titles saved for a disc's playlist, or null when none are. */
   episodeInfo(discKey: string, playlistId: string): Promise<EpisodeInfo | null>;
-  /** Saves a disc's playlist's chapter names and AniList choices; resolves with them as stored. */
+  /** Saves a disc's playlist's chapter names and episode titles; resolves with them as stored. */
   saveEpisodeInfo(discKey: string, playlistId: string, info: Omit<EpisodeInfo, 'savedAt'>): Promise<EpisodeInfo>;
   /** Opens (or finds) the subtitle helper's session for a disc, playlist and episode list; resolves with its id. */
   createSession(discKey: string, playlistId: string, episodeSpec: string): Promise<string>;
