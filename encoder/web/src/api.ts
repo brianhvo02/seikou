@@ -109,7 +109,13 @@ export function episodeInfoCalls(
   request: <T>(method: string, path: string, body?: unknown) => Promise<T>,
 ): Pick<HelperApi, 'episodeInfo' | 'saveEpisodeInfo'> {
   return {
-    ...episodeInfoCalls(request),
+    async episodeInfo(discKey, playlistId) {
+      return (await request<{ info: EpisodeInfo | null }>('GET', episodeInfoPath(discKey, playlistId))).info;
+    },
+    async saveEpisodeInfo(discKey, playlistId, info) {
+      const { chapterNames, anilist } = info;
+      return (await request<{ info: EpisodeInfo }>('PUT', episodeInfoPath(discKey, playlistId), { chapterNames, anilist })).info;
+    },
   };
 }
 
@@ -209,13 +215,7 @@ export function createApi(base: string, token: string, sessionId: string, fetchI
     fontUrl: (release, name) => `${root}${sessionPath}/releases/${enc(release)}/fonts/${enc(name)}?${q({ t: token })}`,
     record: () => request('GET', `${sessionPath}/record`),
     saveRecord: (record, replace) => request('PUT', `${sessionPath}/record${replace === true ? '?replace=1' : ''}`, record),
-    async episodeInfo(discKey, playlistId) {
-      return (await request<{ info: EpisodeInfo | null }>('GET', episodeInfoPath(discKey, playlistId))).info;
-    },
-    async saveEpisodeInfo(discKey, playlistId, info) {
-      const { chapterNames, anilist } = info;
-      return (await request<{ info: EpisodeInfo }>('PUT', episodeInfoPath(discKey, playlistId), { chapterNames, anilist })).info;
-    },
+    ...episodeInfoCalls(request),
     async remoteDisc(discKey) {
       const manifest = await request<DiscManifest>('GET', `/api/discs/${enc(discKey)}/manifest`);
       const base = new URL(`${root}/api/discs/${enc(discKey)}/`, root === '' ? location.href : undefined).href;
