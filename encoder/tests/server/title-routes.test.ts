@@ -12,7 +12,7 @@ afterAll(() => fixture.stop());
 
 describe('title routes', () => {
   it('search finds by text', async () => {
-    const reply = await fixture.call('/titles/search?q=lantern');
+    const reply = await fixture.call('/titles/search?q=lantern%20harbor');
     expect(reply.status).toBe(200);
     const { candidates } = jsonOf<{ candidates: Record<string, unknown>[] }>(reply);
     expect(candidates).toEqual([

@@ -122,6 +122,27 @@
       ],
       "poster": null,
       "banner": null
+    },
+    {
+      "source": "anilist",
+      "id": "anilist:990001",
+      "kind": "series",
+      "format": "TV",
+      "names": {
+        "english": "Lantern Road",
+        "romaji": "Tomoshibi no Michi",
+        "native": null,
+        "synonyms": []
+      },
+      "animation": true,
+      "year": 2022,
+      "startDate": 20220401,
+      "episodes": 2,
+      "runtimeMin": 0.0667,
+      "seasons": [],
+      "relations": [],
+      "poster": null,
+      "banner": null
     }
   ],
   "episodes": {
@@ -132,6 +153,10 @@
     "990010": {
       "1": "The Falling Star",
       "2": "Road to the Pass"
+    },
+    "990001": {
+      "1": "The First Lamp",
+      "2": "The Second Lamp"
     }
   }
 }

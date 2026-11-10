@@ -32,9 +32,9 @@ describe('recorded fansub answers', () => {
 });
 
 describe('fixtureAniList', () => {
-  it('finds Lantern Harbor by a case-insensitive part of its name', async () => {
+  it('finds Lantern Harbor by a case-insensitive part of its name (not Lantern Road)', async () => {
     const { source } = fixtureAniList(dir);
-    expect((await source.search('lantern')).map((e) => e.id)).toEqual(['anilist:900101']);
+    expect((await source.search('Harbor')).map((e) => e.id)).toEqual(['anilist:900101']);
     expect(await source.search('nothing here')).toEqual([]);
     expect((await source.entry('anilist:900101'))?.episodes).toBe(2);
     expect(await source.entry('anilist:1')).toBeNull();
