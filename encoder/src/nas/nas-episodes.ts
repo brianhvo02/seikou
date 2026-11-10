@@ -34,16 +34,25 @@ export interface NasEpisodesOptions {
   readonly uploadChunkBytes?: number;
 }
 
-/** A failed episode upload; the MKV is kept at `path`. */
+/** A failed or stopped episode upload; the MKV is kept at `path`. */
 export class NasUploadFailed extends Error {
   constructor(
     readonly episode: number,
     readonly path: string,
     readonly cause: unknown,
   ) {
-    super(`${cause instanceof Error ? cause.message : String(cause)}\nThe MKV of episode ${episode} is kept at ${path}.`);
+    super(`${cause instanceof Error ? cause.message : String(cause)}\n${keptLine(episode, path)}`);
     this.name = 'NasUploadFailed';
   }
+
+  /** The line saying where the MKV is kept. */
+  get kept(): string {
+    return keptLine(this.episode, this.path);
+  }
+}
+
+function keptLine(episode: number, path: string): string {
+  return `The MKV of episode ${episode} is kept at ${path}.`;
 }
 
 /**
@@ -51,7 +60,8 @@ export class NasUploadFailed extends Error {
  * encoding, the rest now) and starts fetching the next episode's, then encodes, then lets go of the clips no later
  * episode needs; with `uploadNames` it uploads the MKV and deletes it once the NAS's `complete` answer came. Resolves
  * with the NAS's encode ids (empty without uploads). The first failure rejects: a fetch's `FetchError` or `NasError`,
- * the encode's error, or `NasUploadFailed` with the kept MKV; every clip claim is let go of first.
+ * the encode's error, or `NasUploadFailed` with the kept MKV (an abort during an upload too, its `cause` the abort's);
+ * every clip claim is let go of first.
  */
 export async function runNasEpisodes(o: NasEpisodesOptions): Promise<string[]> {
   const clipsOf = (index: number): Promise<string[]> => clipsOfEpisode(o.discDir, o.playlistId, o.episodeSpec, index);
@@ -93,7 +103,6 @@ export async function runNasEpisodes(o: NasEpisodesOptions): Promise<string[]> {
       try {
         id = await uploadEpisode(o.client, path, name, state, { signal: o.signal, sleep: o.sleep, chunkBytes: o.uploadChunkBytes });
       } catch (e) {
-        if (o.signal.aborted) throw e;
         throw new NasUploadFailed(index, path, e);
       }
       ids.push(id);

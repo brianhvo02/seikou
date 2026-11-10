@@ -134,6 +134,25 @@ it('a refused upload stops the loop with the MKV kept, and lets every clip go', 
   expect(whole().filter((c) => c === '00002.M2TS')).toEqual([]);
 });
 
+it('an abort during an upload stops the loop with the MKV kept', async () => {
+  const stop = new AbortController();
+  const failure = await runNasEpisodes(
+    options({
+      signal: stop.signal,
+      encode: (index) => {
+        const path = join(outDir, `ep-${index}.mkv`);
+        writeFileSync(path, retagged(SHOW, index));
+        stop.abort();
+        return Promise.resolve(path);
+      },
+    }),
+  ).catch((e: unknown) => e);
+  expect(failure).toBeInstanceOf(NasUploadFailed);
+  expect([(failure as NasUploadFailed).episode, (failure as NasUploadFailed).path]).toEqual([1, join(outDir, 'ep-1.mkv')]);
+  expect(existsSync(join(outDir, 'ep-1.mkv'))).toBe(true);
+  expect(whole().filter((c) => c === '00002.M2TS')).toEqual([]);
+});
+
 it('a failed encode and an abort let every clip go', async () => {
   await expect(runNasEpisodes(options({ encode: () => Promise.reject(new Error('svt failed')) }))).rejects.toThrow('svt failed');
   expect(whole().filter((c) => c === '00002.M2TS')).toEqual([]);

@@ -45,8 +45,15 @@ class QueueElsewhereError extends Error {}
 /** A refusal that is no usage mistake (not paired, an unknown NAS disc): exit code 2, the message without the usage. */
 class RefusedError extends Error {}
 
-/** Thrown when an encode to the NAS or of a NAS disc was stopped with Ctrl-C; exit code 1. */
-class StoppedError extends Error {}
+/**
+ * Thrown when an encode to the NAS or of a NAS disc was stopped with Ctrl-C; exit code 1. `upload` is the upload the
+ * stop cut short, whose MKV is kept.
+ */
+export class StoppedError extends Error {
+  constructor(readonly upload: NasUploadFailed | null = null) {
+    super('Stopped.');
+  }
+}
 
 /** What the command line says when the NAS does not answer. */
 const NAS_UNREACHABLE = "The NAS can't be reached.";
@@ -62,6 +69,13 @@ function nasFailure(err: unknown): string {
   if ((err instanceof NasError || err instanceof FetchError || err instanceof UploadError) && err.code === 'unreachable') return NAS_UNREACHABLE;
   if (err instanceof NasError && err.code === 'unauthorized') return NAS_FORGOT;
   return err instanceof Error ? err.message : String(err);
+}
+
+/** What the command line prints for a failed or stopped NAS run: the failure, then where an MKV not uploaded is kept. */
+export function nasRunFailure(err: NasError | FetchError | UploadError | NasUploadFailed | StoppedError): string {
+  if (err instanceof NasUploadFailed) return `${nasFailure(err.cause)}\n${err.kept}`;
+  if (err instanceof StoppedError) return err.upload === null ? err.message : `${err.message}\n${err.upload.kept}`;
+  return nasFailure(err);
 }
 
 const USAGE = `Usage:
@@ -312,7 +326,7 @@ async function stoppable<T>(work: (signal: AbortSignal) => Promise<T>): Promise<
     return await work(controller.signal);
   } catch (err) {
     // the tools hear Ctrl-C too, and may fail before the abort reaches the encode
-    if (controller.signal.aborted) throw new StoppedError('Stopped.');
+    if (controller.signal.aborted) throw new StoppedError(err instanceof NasUploadFailed ? err : null);
     throw err;
   } finally {
     process.off('SIGINT', stop);
@@ -565,12 +579,8 @@ export async function main(argv: string[]): Promise<number> {
       console.error(err.message);
       return 2;
     }
-    if (err instanceof NasUploadFailed) {
-      console.error(`${nasFailure(err.cause)}\nThe MKV of episode ${err.episode} is kept at ${err.path}.`);
-      return 1;
-    }
-    if (err instanceof NasError || err instanceof FetchError || err instanceof UploadError || err instanceof StoppedError) {
-      console.error(nasFailure(err));
+    if (err instanceof NasUploadFailed || err instanceof NasError || err instanceof FetchError || err instanceof UploadError || err instanceof StoppedError) {
+      console.error(nasRunFailure(err));
       return 1;
     }
     if (err instanceof MkvReadError || err instanceof WebmError || err instanceof PackageError || err instanceof SupError) {

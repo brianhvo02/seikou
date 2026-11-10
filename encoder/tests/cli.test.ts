@@ -4,12 +4,14 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, 
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
-import { bestsourceCacheDir, main, printEncodeEvent, stoppingLine } from '../src/cli';
+import { bestsourceCacheDir, main, nasRunFailure, printEncodeEvent, StoppedError, stoppingLine } from '../src/cli';
 import { discKeyOfFolder } from '../src/disc/disc-key';
 import { listPlaylists } from '../src/disc/playlist';
 import { NasClient } from '../src/nas/client';
 import { mirrorDirOf } from '../src/nas/mirror';
+import { NasUploadFailed } from '../src/nas/nas-episodes';
 import { NasLibrary } from '../src/nas/nas-library';
+import { UploadError } from '../src/nas/upload';
 import { EpisodeInfoStore } from '../src/plan/episode-info';
 import { jobCli } from '../src/server/jobs';
 import { takeJobsLock } from '../src/server/jobs-lock';
@@ -272,6 +274,22 @@ describe('app', () => {
     }
     expect(err.status).toBe(3);
   }, 60_000);
+});
+
+describe('nasRunFailure', () => {
+  const kept = 'The MKV of episode 2 is kept at /data/nas-out/cli-0a1b2c3d/ep-02.mkv.';
+  const upload = (cause: unknown): NasUploadFailed => new NasUploadFailed(2, '/data/nas-out/cli-0a1b2c3d/ep-02.mkv', cause);
+
+  it('says where the MKV of a failed upload is kept, once', () => {
+    expect(nasRunFailure(upload(new UploadError('no-room', 'The NAS has no room.')))).toBe(`The NAS has no room.\n${kept}`);
+    expect(nasRunFailure(upload(new UploadError('unreachable', 'nas.example is not answering.')))).toBe(`The NAS can't be reached.\n${kept}`);
+    expect(upload(new Error('refused')).message).toBe(`refused\n${kept}`);
+  });
+
+  it('a stop with Ctrl-C during an upload says where the MKV is kept', () => {
+    expect(nasRunFailure(new StoppedError(upload(new DOMException('Stopped', 'AbortError'))))).toBe(`Stopped.\n${kept}`);
+    expect(nasRunFailure(new StoppedError())).toBe('Stopped.');
+  });
 });
 
 describe('stoppingLine', () => {
