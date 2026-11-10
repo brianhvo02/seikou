@@ -54,6 +54,11 @@ what would change that decision.
   episodes AniList and TMDB give a season, not what the owner typed in by hand. A show made of own titles shows "Not
   checked yet" or "N so far encoded" until its discs are checked, and its season's Queue waits for every disc.
   *Revisit if* own titles should carry an episode count: let the owner enter it on the NAS.
+- **Mark checked can't file a disc into an AniList season the NAS holds no disc of yet.** The NAS's catalogue has a
+  season of an AniList series only once a disc is filed there, so the encoder can't learn that season's number and
+  leaves the disc as it is, saying so (`failed`); the encode still uses the chosen entry. The owner files the disc
+  with "File differently…" in Seikou. *Revisit if* it is common: let the NAS answer an AniList entry's place in its
+  series without a disc there.
 - **A disc whose episodes each sit on their own playlist is checked once per playlist.** When the NAS lists a disc's
   episodes on per-episode playlists and no playlist holds them all, each of those playlists is grouped and marked
   checked on its own, and the season's Queue makes one encode per playlist. A playlist that holds them all (a play-all

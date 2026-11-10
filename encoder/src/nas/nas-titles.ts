@@ -437,8 +437,7 @@ export class NasTitles {
       let found: DiscMatch | null = null;
       for (const t of r.titles) {
         for (const s of r.details[t.id]?.seasons ?? []) {
-          const slot = s.discs.find((x) => x.copies.some((c) => ids.has(c.discId)));
-          if (slot === undefined) continue;
+          if (!s.discs.some((x) => x.copies.some((c) => ids.has(c.discId)))) continue;
           const episodes = (s.episodes ?? [])
             .filter((e) => ids.has(e.discId))
             .map((e) => ({ playlistId: e.playlistId, number: e.number, name: e.name }))

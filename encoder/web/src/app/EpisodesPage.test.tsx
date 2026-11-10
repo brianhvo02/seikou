@@ -484,9 +484,9 @@ describe('EpisodesPage NAS prefill and Mark checked', () => {
     checkPlaylist.mockResolvedValueOnce(answer('failed', 'The NAS refused the change: unknown-title.'));
     fireEvent.click(screen.getByRole('button', { name: 'Mark checked' }));
     expect(await screen.findByText('Checked. The NAS refused the change: unknown-title.')).toBeTruthy();
-    checkPlaylist.mockResolvedValueOnce(answer('failed', "The NAS doesn't know this AniList entry yet, so it was left as it is. File the disc in Seikou's Unsorted screen."));
+    checkPlaylist.mockResolvedValueOnce(answer('failed', "The NAS doesn't know this AniList entry yet, so it was left as it is. File it with “File differently…” in Seikou instead."));
     fireEvent.click(screen.getByRole('button', { name: 'Mark checked' }));
-    expect(await screen.findByText("Checked. The NAS doesn't know this AniList entry yet, so it was left as it is. File the disc in Seikou's Unsorted screen.")).toBeTruthy();
+    expect(await screen.findByText("Checked. The NAS doesn't know this AniList entry yet, so it was left as it is. File it with “File differently…” in Seikou instead.")).toBeTruthy();
   });
 
   it('keeps Mark checked off while an episode has no title', async () => {

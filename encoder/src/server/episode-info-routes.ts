@@ -272,14 +272,14 @@ async function otherTitles(dataDir: string, key: string, playlistId: string): Pr
 type NasChoiceAnswer = { nasChoice: 'saved' | 'unchanged' | 'mixed' } | { nasChoice: 'failed'; message: string };
 
 /** The failure for an AniList entry the NAS's catalogue doesn't hold, so whether it is a series' season can't be told. */
-const UNKNOWN_ANILIST = "The NAS doesn't know this AniList entry yet, so it was left as it is. File the disc in Seikou's Unsorted screen.";
+const UNKNOWN_ANILIST = "The NAS doesn't know this AniList entry yet, so it was left as it is. File it with “File differently…” in Seikou instead.";
 
 /**
  * The one place the encoder writes the NAS's library: when every episode of a checked playlist is under one title and
  * the NAS files the disc under another (or in Unsorted), the owner's choice for the disc is set to that title. An
  * AniList entry that is a season of a series is chosen as the series with that season's number (a series without a
- * season is Unsorted on the NAS); one the NAS's catalogue doesn't hold is left alone (`failed`). The choice keeps the
- * number of the disc's slot where it is filed now. The NAS's answer decides; the details of the titles involved are
+ * season is Unsorted on the NAS); one the NAS's catalogue doesn't hold is left alone (`failed`). The choice names no
+ * disc number (the old slot's number doesn't apply where the disc goes). The NAS's answer decides; the details of the titles involved are
  * read again so the Library shows the change. A disc the NAS does not hold, an unpaired app and episodes of two shows
  * change nothing.
  */

@@ -156,7 +156,7 @@ describe('check', () => {
     expect(r.status).toBe(200);
     expect(r.body).toMatchObject({
       nasChoice: 'failed',
-      message: "The NAS doesn't know this AniList entry yet, so it was left as it is. File the disc in Seikou's Unsorted screen.",
+      message: "The NAS doesn't know this AniList entry yet, so it was left as it is. File it with “File differently…” in Seikou instead.",
     });
     expect(r.body.info.checked).toBeDefined();
     expect(putChoices).toEqual([]);
