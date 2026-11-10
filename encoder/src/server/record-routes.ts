@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { readBody } from '../../../server/src/http';
 import { loadPlaylist } from '../disc/playlist';
-import { EpisodeInfoError, EpisodeInfoStore, migrateRecordChapters } from '../plan/episode-info';
 import { sameEpisodeList } from '../plan/episodes';
-import { parseRecord, RecordError, RecordStore, withoutChapterNames, type SubtitleRecord } from '../subs/record';
+import { parseRecord, RecordError, RecordStore, withoutChapterNames } from '../subs/record';
+import { migrateChapterNames } from './episode-info-routes';
 import { httpError, json, sessionRoute, type AppContext, type HelperSession, type RouteTable } from './http';
 import { jobsUsingRecord } from './jobs';
 
@@ -27,26 +27,6 @@ async function isSessionsList(session: HelperSession, spec: string): Promise<boo
 }
 
 /**
- * Moves the chapter names an older encoder saved in `record` into the episode info file of the session's disc and
- * playlist, by the record's own episode list; names the file already has win, and the file is written only when
- * something moves. A file that cannot be read is left alone.
- */
-async function migrateChapterNames(app: AppContext, session: HelperSession, record: SubtitleRecord): Promise<void> {
-  if (!record.episodes.some((e) => e.metadata.chapters.length > 0)) return;
-  const store = new EpisodeInfoStore(app.dataDir);
-  let info;
-  try {
-    info = await store.read(session.discKey, session.playlistId);
-  } catch (e) {
-    if (e instanceof EpisodeInfoError) return;
-    throw e;
-  }
-  const chapterCount = (await loadPlaylist(session.discDir, session.playlistId)).chapters.length;
-  const moved = migrateRecordChapters(info, record, record.episodeSpec, chapterCount);
-  if (moved !== null) await store.save(session.discKey, session.playlistId, moved);
-}
-
-/**
  * A session's record routes, under `/api/sessions/<id>`:
  *
  *   GET /record   `{ record, missing }` for the session's disc and playlist. `record` is null when none was saved
@@ -58,7 +38,8 @@ async function migrateChapterNames(app: AppContext, session: HelperSession, reco
  *                 say which release to fetch again. A record file on disk that is not valid answers 200 with
  *                 `record: null`, `missing: []` and `error: { code: 'record-unreadable', message }`, so the page
  *                 starts fresh; saving then overwrites the broken file. Chapter names an older encoder saved in the
-                 record are first moved into the episode info file (`migrateRecordChapters`; names already there win).
+                 record are first moved into the episode info file, once (`migrateChapterNames`: names already there
+                 win, and the record is saved again without them).
  *   PUT /record   body: a record. It is validated, its disc key, playlist and episode spec must equal the session's
  *                 (409 `session-mismatch`), `savedAt` is set to the server's clock, every episode's
                  `metadata.chapters` is saved as `[]` (chapter names live in the episode info), and the stored record is
@@ -74,6 +55,7 @@ export const recordRoutes: RouteTable = [
     'GET',
     /^\/record$/,
     sessionRoute(async (_req, res, _match, app, session) => {
+      await migrateChapterNames(app.dataDir, session.discDir, session.discKey, session.playlistId);
       const store = new RecordStore(app.dataDir);
       let record;
       try {
@@ -82,7 +64,6 @@ export const recordRoutes: RouteTable = [
         if (!(e instanceof RecordError)) throw e;
         return json(res, 200, { record: null, missing: [], error: { code: 'record-unreadable', message: e.message } });
       }
-      if (record) await migrateChapterNames(app, session, record);
       if (record && !(await isSessionsList(session, record.episodeSpec))) {
         return json(res, 200, { record: null, missing: [], otherEpisodeSpec: record.episodeSpec, queuedJobs: await queuedJobsOf(app, session, record.episodeSpec) });
       }

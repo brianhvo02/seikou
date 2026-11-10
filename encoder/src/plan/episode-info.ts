@@ -148,6 +148,17 @@ export function chapterName(info: EpisodeInfo | null, n: number): string | null 
   return info?.chapterNames[String(n)] ?? null;
 }
 
+/** A name the record holds that counts as one: not empty, not the encoder's own `Chapter <n>`, and one the file may hold. */
+function realName(raw: string): string | null {
+  const name = cleanName(raw);
+  return name === null || DEFAULT_NAME.test(name) ? null : name;
+}
+
+/** Whether any episode of `record` names a chapter (an empty name and `Chapter <n>` do not). */
+export function hasChapterNames(record: SubtitleRecord): boolean {
+  return record.episodes.some((e) => e.metadata.chapters.some((c) => realName(c) !== null));
+}
+
 /**
  * Moves a record's per-episode chapter names into `info` (first time only: names already in `info` win). Episode
  * `index` of the record is range `index` of `episodeSpec` on a playlist of `chapters` chapters, and its name `i` is
@@ -175,8 +186,8 @@ export function migrateRecordChapters(
     const last = spec.to ?? chapters;
     episode.metadata.chapters.forEach((raw, i) => {
       const n = spec.from + i;
-      const name = cleanName(raw);
-      if (n > last || name === null || DEFAULT_NAME.test(name) || String(n) in chapterNames) return;
+      const name = realName(raw);
+      if (n > last || name === null || String(n) in chapterNames) return;
       chapterNames[String(n)] = name;
       moved = true;
     });

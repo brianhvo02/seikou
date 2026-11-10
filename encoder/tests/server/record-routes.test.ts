@@ -153,16 +153,21 @@ describe('record routes', () => {
     await new RecordStore(fixture.dataDir).write(old);
     const infoPath = `/api/discs/${encodeURIComponent(discKey)}/playlists/00000/info`;
 
-    expect((await fixture.call('/record')).status).toBe(200);
+    const answered = jsonOf<GetAnswer>(await fixture.call('/record'));
     const first = jsonOf<{ info: EpisodeInfo | null }>(await fixture.send(infoPath)).info;
     expect(first?.chapterNames).toEqual({ '3': 'Ending', '4': 'Opening' });
+    // the record is saved again without its names, keeping when it was saved, and answered that way
+    expect(answered.record?.episodes.map((e) => e.metadata.chapters)).toEqual([[], []]);
+    const onDisk = JSON.parse(readFileSync(recordFile(), 'utf8')) as SubtitleRecord;
+    expect(onDisk.episodes.map((e) => e.metadata.chapters)).toEqual([[], []]);
+    expect(onDisk.savedAt).toBe('2026-11-01T00:00:00.000Z');
 
-    // a name changed since is not put back by loading the record again, and nothing is saved again
-    const changed = await fixture.send(infoPath, { method: 'PUT', body: JSON.stringify({ chapterNames: { '3': 'Ending', '4': 'Avant' }, anilist: {} }) });
+    // a name removed since stays removed when the record and the info are loaded again, and nothing is saved again
+    const changed = await fixture.send(infoPath, { method: 'PUT', body: JSON.stringify({ chapterNames: { '3': 'Ending' }, anilist: {} }) });
     const savedAt = jsonOf<{ info: EpisodeInfo }>(changed).info.savedAt;
     expect((await fixture.call('/record')).status).toBe(200);
     const second = jsonOf<{ info: EpisodeInfo }>(await fixture.send(infoPath)).info;
-    expect(second).toMatchObject({ chapterNames: { '3': 'Ending', '4': 'Avant' }, savedAt });
+    expect(second).toEqual({ chapterNames: { '3': 'Ending' }, anilist: {}, savedAt });
   });
 });
 

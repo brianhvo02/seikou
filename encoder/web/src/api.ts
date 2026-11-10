@@ -99,9 +99,18 @@ export function helperSessionId(pathname: string): string | null {
   return /^\/helper\/([0-9a-f]{16})\/?$/.exec(pathname)?.[1] ?? null;
 }
 
-/** The path of a disc's playlist's episode info route, which the helper and the app pages share. */
-export function episodeInfoPath(discKey: string, playlistId: string): string {
+/** The path of a disc's playlist's episode info route. */
+function episodeInfoPath(discKey: string, playlistId: string): string {
   return `/api/discs/${encodeURIComponent(discKey)}/playlists/${encodeURIComponent(playlistId)}/info`;
+}
+
+/** The episode info calls over a client's `request`; the helper's and the app's clients share them. */
+export function episodeInfoCalls(
+  request: <T>(method: string, path: string, body?: unknown) => Promise<T>,
+): Pick<HelperApi, 'episodeInfo' | 'saveEpisodeInfo'> {
+  return {
+    ...episodeInfoCalls(request),
+  };
 }
 
 /** 16 random lower-case hex digits, the name of one upload batch. */

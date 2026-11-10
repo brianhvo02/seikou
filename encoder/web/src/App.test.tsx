@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { HelperApi } from './api';
 import { App } from './App';
@@ -74,11 +74,28 @@ describe('App', () => {
     const episodeInfo = vi.fn(async () => ({ chapterNames: { '4': 'Opening' }, anilist: {}, savedAt: '2026-11-09T10:00:00.000Z' }));
     render(<App api={fakeApi({ episodeInfo })} />);
     await screen.findByRole('heading', { level: 1 });
-    expect(episodeInfo).toHaveBeenCalledWith(`f.${'a'.repeat(32)}`, '00000');
+    await waitFor(() => expect(episodeInfo).toHaveBeenCalledWith(`f.${'a'.repeat(32)}`, '00000'));
     fireEvent.click(screen.getByRole('button', { name: 'Details' }));
     // episode 2 of 1-3,4-5 starts at playlist chapter 4
     fireEvent.click(screen.getByRole('button', { name: 'Episode 2' }));
-    expect((screen.getByLabelText('Chapter 1 title') as HTMLInputElement).value).toBe('Opening');
+    await waitFor(() => expect((screen.getByLabelText('Chapter 1 title') as HTMLInputElement).value).toBe('Opening'));
+  });
+
+  it('a chapter title save that fails after Details closed is said on the page', async () => {
+    let fail: (e: Error) => void = () => undefined;
+    const saveEpisodeInfo = vi.fn(() => new Promise<never>((_, reject) => (fail = reject)));
+    render(<App api={fakeApi({ saveEpisodeInfo })} />);
+    await screen.findByRole('heading', { level: 1 });
+    fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+    const field = screen.getByLabelText('Chapter 1 title') as HTMLInputElement;
+    await waitFor(() => expect(field.disabled).toBe(false));
+    field.focus();
+    fireEvent.change(field, { target: { value: 'Avant' } });
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Details' })).toBeNull();
+    await waitFor(() => expect(saveEpisodeInfo).toHaveBeenCalledWith(`f.${'a'.repeat(32)}`, '00000', { chapterNames: { '1': 'Avant' }, anilist: {} }));
+    await act(async () => fail(new Error('The app is not answering.')));
+    expect((await screen.findByRole('alert')).textContent).toBe('The chapter titles were not saved. The app is not answering.');
   });
 
   it('says what went wrong when the session does not load', async () => {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { ApiError, episodeInfoPath, errorOf, type FetchLike } from '../api';
+import { ApiError, episodeInfoCalls, errorOf, type FetchLike } from '../api';
 import type { RemoteDiscSpec } from '@seikou/engine';
 import type { DiscManifest } from '@seikou/nas/nas-api';
 import type { EncodeSettings, EpisodeInfo, Job, LibraryAnswer, NewJob, NewTest, PlaylistDetail, PlaylistSummary, Profile, QueuedJob } from '../api-types';
@@ -108,13 +108,7 @@ export function createAppApi(base: string, token: string, fetchImpl: FetchLike =
     },
     playlist: (discKey, playlistId) =>
       request('GET', `/api/discs/${encodeURIComponent(discKey)}/playlists/${encodeURIComponent(playlistId)}`),
-    async episodeInfo(discKey, playlistId) {
-      return (await request<{ info: EpisodeInfo | null }>('GET', episodeInfoPath(discKey, playlistId))).info;
-    },
-    async saveEpisodeInfo(discKey, playlistId, info) {
-      const { chapterNames, anilist } = info;
-      return (await request<{ info: EpisodeInfo }>('PUT', episodeInfoPath(discKey, playlistId), { chapterNames, anilist })).info;
-    },
+    ...episodeInfoCalls(request),
     async createSession(discKey, playlistId, episodeSpec) {
       return (await request<{ id: string }>('POST', '/api/sessions', { discKey, playlistId, episodeSpec })).id;
     },

@@ -157,6 +157,12 @@ export function withChapterNames(chapterNames: Readonly<Record<string, string>>,
   return next;
 }
 
+/** Whether two chapter name maps hold the same names for the same chapters. */
+export function sameChapterNames(a: Readonly<Record<string, string>>, b: Readonly<Record<string, string>>): boolean {
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((k) => a[k] === b[k]);
+}
+
 /** The default MKV title: `<Show> - <nn> - <episode title>`, leaving out the show or the episode title when unknown. */
 export function defaultTitle(show: string | null, index: number, episodeTitle: string | null): string {
   const parts = [show, String(index).padStart(2, '0'), episodeTitle].filter((p): p is string => p !== null && p !== '');

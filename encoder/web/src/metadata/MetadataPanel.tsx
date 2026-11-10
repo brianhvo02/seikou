@@ -1,20 +1,9 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { useEffect, useRef, useState, type Dispatch, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
-import type { HelperApi } from '../api';
-import type { EpisodeInfo, EpisodesAnswer, RecordAudio, SessionInfo } from '../api-types';
+import type { EpisodesAnswer, RecordAudio } from '../api-types';
 import type { HelperAction, HelperState } from '../helper-model';
 import { clock } from '../steps/lineup-model';
-import {
-  defaultChapterName,
-  firstChapters,
-  languageCode,
-  languageName,
-  move,
-  withChapterNames,
-  withUserEdit,
-  type EpisodeDraft,
-  type TrackDraft,
-} from './metadata-model';
+import { defaultChapterName, languageCode, languageName, move, withUserEdit, type EpisodeDraft, type TrackDraft } from './metadata-model';
 
 /** What the Details sheet needs. */
 export interface MetadataPanelProps {
@@ -24,24 +13,12 @@ export interface MetadataPanelProps {
   readonly dispatch: Dispatch<HelperAction>;
   /** The run's episodes, for the chapter start times. */
   readonly episodes: EpisodesAnswer;
-  /** The backend client, which saves chapter names to the episode info. */
-  readonly api: HelperApi;
-  /** The run: its disc and playlist name the episode info, its episode list maps chapter fields onto playlist chapters. */
-  readonly session: SessionInfo;
-  /** The episode info as loaded or last saved; null when none is saved. */
-  readonly info: EpisodeInfo | null;
-  /** True when the episode info could not be loaded: chapter names are then shown but cannot be changed. */
-  readonly infoFailed: boolean;
-  /** Called with the episode info as stored after each save of chapter names. */
-  readonly onInfo: (info: EpisodeInfo) => void;
+  /** Why chapter titles cannot be changed now (the episode info is loading or failed to load), or null when they can. */
+  readonly chaptersLocked: string | null;
+  /** Saves an episode's chapter titles, field by field, to the episode info; the page keeps the saves and their errors. */
+  readonly onChapterNames: (episode: number, fields: readonly string[]) => void;
   /** Closes the sheet (the Close button, Escape, or a click outside it). */
   readonly onClose: () => void;
-}
-
-/** Whether two name maps hold the same names for the same chapters. */
-function sameNames(a: Readonly<Record<string, string>>, b: Readonly<Record<string, string>>): boolean {
-  const keys = Object.keys(a);
-  return keys.length === Object.keys(b).length && keys.every((k) => a[k] === b[k]);
 }
 
 /** What a language field shows beside its code. */
@@ -274,13 +251,13 @@ function ChapterFields({
 function EpisodeFields({
   draft,
   chapterStartsUs,
-  chaptersDisabled,
+  chaptersLocked,
   edit,
   saveChapters,
 }: {
   draft: EpisodeDraft;
   chapterStartsUs: readonly number[];
-  chaptersDisabled: boolean;
+  chaptersLocked: string | null;
   edit: (field: string, value: unknown) => void;
   saveChapters: (fields: readonly string[]) => void;
 }) {
@@ -341,8 +318,8 @@ function EpisodeFields({
       {draft.chapters.length > 0 && (
         <section aria-labelledby="details-chapters">
           <h3 id="details-chapters">Chapters</h3>
-          {chaptersDisabled && <p className="muted">The saved chapter names could not be loaded, so they cannot be changed here.</p>}
-          <ChapterFields names={draft.chapters} startsUs={chapterStartsUs} disabled={chaptersDisabled} onSave={saveChapters} />
+          {chaptersLocked !== null && <p className="muted">{chaptersLocked}</p>}
+          <ChapterFields names={draft.chapters} startsUs={chapterStartsUs} disabled={chaptersLocked !== null} onSave={saveChapters} />
         </section>
       )}
     </div>
@@ -353,12 +330,11 @@ function EpisodeFields({
  * The Details sheet over the page: for one episode at a time, its MKV title, the video track's name and language, the
  * audio streams and subtitle tracks (names, languages, ticks to include, and their order, the first ticked one marked
  * Default) and the chapter titles. Every change but a chapter title is the user's draft: it is marked edited, so later
- * defaults never replace it. Chapter titles are saved to the disc playlist's episode info (`saveEpisodeInfo`) as a
- * field is left, one save after another, each field put back on its playlist chapter by the session's episode list;
- * the episode's AniList choices are kept as they are. Escape, Close or a click outside closes it, after the field
- * being typed in is left.
+ * defaults never replace it. Chapter titles go to `onChapterNames` as a field is left changed; the page saves them to
+ * the disc playlist's episode info and reports a failure itself, so one that fails after the sheet closed is still
+ * seen. Escape, Close or a click outside closes it, after the field being typed in is left.
  */
-export function MetadataPanel({ state, dispatch, episodes, api, session, info, infoFailed, onInfo, onClose }: MetadataPanelProps) {
+export function MetadataPanel({ state, dispatch, episodes, chaptersLocked, onChapterNames, onClose }: MetadataPanelProps) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const drafts = Object.values(state.metadata.episodes).sort((a, b) => a.index - b.index);
   const [picked, setPicked] = useState<number | null>(null);
@@ -382,31 +358,6 @@ export function MetadataPanel({ state, dispatch, episodes, api, session, info, i
     dispatch({ type: 'setMetadata', metadata: withUserEdit(state.metadata, `episodes.${index}.${field}`, value) });
 
   const times = shown === null ? undefined : episodes.episodes.find((e) => e.index === shown.index);
-
-  // chapter names are saved one after another, each from the names the last save stored
-  const [chapterError, setChapterError] = useState<string | null>(null);
-  const stored = useRef(info);
-  const saving = useRef<Promise<void>>(Promise.resolve());
-  const onInfoNow = useRef(onInfo);
-  onInfoNow.current = onInfo;
-  const firsts = firstChapters(session.episodeSpec);
-  const saveChapters = (index: number) => (fields: readonly string[]) => {
-    const first = firsts[index - 1];
-    if (first === undefined) return;
-    saving.current = saving.current.then(async () => {
-      const current = stored.current?.chapterNames ?? {};
-      const chapterNames = withChapterNames(current, first, fields);
-      if (sameNames(chapterNames, current)) return;
-      try {
-        const saved = await api.saveEpisodeInfo(session.discKey, session.playlistId, { chapterNames, anilist: stored.current?.anilist ?? {} });
-        stored.current = saved;
-        setChapterError(null);
-        onInfoNow.current(saved);
-      } catch (e) {
-        setChapterError(e instanceof Error ? e.message : String(e));
-      }
-    });
-  };
 
   return (
     <div className="sheet-backdrop" onClick={onClose}>
@@ -443,18 +394,13 @@ export function MetadataPanel({ state, dispatch, episodes, api, session, info, i
               <span className="num">Episode {shown.index}</span>
               {shown.episodeTitle !== '' && <span className="muted">{shown.episodeTitle}</span>}
             </p>
-            {chapterError !== null && (
-              <p className="error" role="alert">
-                The chapter titles were not saved. {chapterError}
-              </p>
-            )}
             <EpisodeFields
               key={shown.index}
               draft={shown}
               chapterStartsUs={times?.chapters.map((c) => c.startUs) ?? []}
-              chaptersDisabled={infoFailed}
+              chaptersLocked={chaptersLocked}
               edit={edit(shown.index)}
-              saveChapters={saveChapters(shown.index)}
+              saveChapters={(fields) => onChapterNames(shown.index, fields)}
             />
           </>
         )}

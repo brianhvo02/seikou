@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
+import { readFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { EpisodeInfo } from '../../src/plan/episode-info';
+import { RecordStore, type SubtitleRecord } from '../../src/subs/record';
 import { jsonOf, startRouteFixture, type RouteFixture } from './route-fixture';
 
 describe('episode info routes', () => {
@@ -51,6 +54,32 @@ describe('episode info routes', () => {
     const reply = await fixture.send(path(undefined, '0000'));
     expect(reply.status).toBe(400);
     expect(jsonOf<{ error: string }>(reply).error).toBe('bad-request');
+  });
+
+  it('reading the info first moves an older record\'s chapter names into it, once', async () => {
+    rmSync(join(fixture.dataDir, 'chapters', fixture.discKey, '00000.json'), { force: true });
+    const metadata = (chapters: string[]) => ({ title: '', video: { name: '', language: 'jpn' }, audio: [], chapters });
+    const old: SubtitleRecord = {
+      disc: { key: fixture.discKey, label: 'Starfall Wanderer' },
+      playlist: '00000',
+      episodeSpec: '1-3,4-5',
+      anilist: null,
+      releases: [],
+      fonts: [],
+      episodes: [
+        { index: 1, title: 'One', tracks: [], metadata: metadata(['Avant', 'Opening', 'Chapter 3']) },
+        { index: 2, title: 'Two', tracks: [], metadata: metadata(['', 'Preview']) },
+      ],
+      savedAt: '2026-11-01T00:00:00.000Z',
+    };
+    // as an older encoder wrote it, before the page asked for the record
+    await new RecordStore(fixture.dataDir).write(old);
+    const { info } = jsonOf<{ info: EpisodeInfo | null }>(await fixture.send(path()));
+    expect(info?.chapterNames).toEqual({ '1': 'Avant', '2': 'Opening', '5': 'Preview' });
+    const recordFile = join(fixture.dataDir, 'subtitles', fixture.discKey, '00000.json');
+    expect((JSON.parse(readFileSync(recordFile, 'utf8')) as SubtitleRecord).episodes.map((e) => e.metadata.chapters)).toEqual([[], []]);
+    // the next read finds nothing more to move
+    expect(jsonOf<{ info: EpisodeInfo | null }>(await fixture.send(path())).info).toEqual(info);
   });
 
   it('a body over 64 KiB answers 413', async () => {

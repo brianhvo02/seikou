@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { HelperApi } from './api';
-import type { EpisodeInfo, EpisodesAnswer, SessionInfo } from './api-types';
+import type { EpisodesAnswer, SessionInfo } from './api-types';
 import { useEpisodeTitles } from './episode-titles';
 import { canEnter, initialState, metadataDefaults, reduce, type HelperAction, type Step } from './helper-model';
 import { firstChapters } from './metadata/metadata-model';
 import { MetadataPanel } from './metadata/MetadataPanel';
+import { useEpisodeInfo } from './metadata/use-episode-info';
 import { useController } from './player/use-controller';
 import { SaveBar } from './SaveBar';
 import { useStepHistory } from './step-history';
@@ -24,8 +25,6 @@ export interface AppProps {
 interface Loaded {
   readonly session: SessionInfo;
   readonly episodes: EpisodesAnswer;
-  /** True when the disc playlist's episode info (its chapter names) could not be loaded. */
-  readonly infoFailed: boolean;
 }
 
 /** The number of episodes an episode spec names: one per comma-separated range. */
@@ -48,33 +47,24 @@ function LineUpScreen(props: Omit<LineUpStepProps, 'controller'>) {
 
 /**
  * The helper page: a header with the disc's name, the step bar, Details and Save for encoding, and below it the step
- * on screen. It asks the backend for the session, the episodes and the playlist's episode info on mount (a failure of
- * the first two shows as an alert; without the episode info the chapter names cannot be changed), and keeps the
+ * on screen. It asks the backend for the session and the episodes on mount (a failure shows as an alert), then for the
+ * playlist's episode info (`useEpisodeInfo`; until it is loaded the chapter names cannot be changed), and keeps the
  * metadata draft's defaults in step with the show, the release, the chosen tracks, AniList's episode titles and the
- * saved chapter names.
+ * saved chapter names. A chapter-name save that fails is said under the header, where it shows after Details closes.
  */
 export function App({ api }: AppProps) {
   const [state, dispatch] = useReducer(reduce, initialState());
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [info, setInfo] = useState<EpisodeInfo | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const detailsButton = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     let live = true;
     Promise.all([api.session(), api.episodes()]).then(
-      async ([session, episodes]) => {
-        let infoFailed = false;
-        let saved: EpisodeInfo | null = null;
-        try {
-          saved = await api.episodeInfo(session.discKey, session.playlistId);
-        } catch {
-          infoFailed = true;
-        }
+      ([session, episodes]) => {
         if (!live) return;
-        setInfo(saved);
-        setLoaded({ session, episodes, infoFailed });
+        setLoaded({ session, episodes });
       },
       (e: unknown) => {
         if (live) setLoadError(e instanceof Error ? e.message : String(e));
@@ -89,6 +79,8 @@ export function App({ api }: AppProps) {
     setDetailsOpen(false);
     detailsButton.current?.focus();
   }, []);
+
+  const { info, status: infoStatus, saveError: chapterSaveError, saveChapterNames } = useEpisodeInfo(api, loaded?.session ?? null);
 
   // the metadata defaults follow the show, the release, the chosen tracks and AniList's episode titles; the fields
   // the user edited keep their values
@@ -136,6 +128,11 @@ export function App({ api }: AppProps) {
               Details
             </button>
           </SaveBar>
+          {chapterSaveError !== null && (
+            <p className="save-status error" role="alert">
+              The chapter titles were not saved. {chapterSaveError}
+            </p>
+          )}
         </div>
       </header>
 
@@ -163,11 +160,14 @@ export function App({ api }: AppProps) {
           state={state}
           dispatch={userDispatch}
           episodes={loaded.episodes}
-          api={api}
-          session={loaded.session}
-          info={info}
-          infoFailed={loaded.infoFailed}
-          onInfo={setInfo}
+          chaptersLocked={
+            infoStatus === 'ready'
+              ? null
+              : infoStatus === 'loading'
+                ? 'The saved chapter names are still loading.'
+                : 'The saved chapter names could not be loaded, so they cannot be changed here.'
+          }
+          onChapterNames={saveChapterNames}
           onClose={closeDetails}
         />
       )}
