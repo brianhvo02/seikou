@@ -25,6 +25,24 @@ what would change that decision.
   timing, from the episode's start. The release's file is chosen by the encode's episode number, else the viewer picks
   it. An encode without the source tags offers no search.
 
+## Encoder and the NAS
+
+- **A helper session's NAS disc is remembered for the app's run.** A session on a NAS disc keeps the mirror it opened
+  (`<data>/fetch/<disc key>/`) until the app stops, so a disc changed on the NAS meanwhile (replaced, re-ripped) shows
+  only as failed stream reads in that session's player and line-up. *Revisit if* NAS discs change while people work on
+  them: check the NAS's manifest when a session is reopened.
+- **Test encodes of NAS discs are refused** (409 `nas-test-unsupported`). A test reads stretches spread over the first
+  episode, which would mean fetching its clips whole for samples that are thrown away. *Revisit if* testing profiles on
+  NAS discs is wanted: fetch the episode's clips for the test as a job does.
+- **The command line's NAS encode can't run beside the app or `serve` on the same data folder.** `encode nas:<key>`
+  holds the data folder's queue lock (`jobs.lock`) for its run, because clip claims live in one process: an app or
+  `serve` beside it would empty the clips the encode fetched, or rewrite the mirror under it. It refuses with exit code 1
+  while another process holds the lock. *Revisit if* both are needed at once: keep the holders on disk, or queue the command line's encode through the
+  running app.
+- **An upload needs about 1.1 Mbit/s upstream.** Each 8 MiB upload chunk has a 60 s timeout, so a slower link times out
+  on every chunk, and the job waits for the NAS until it is cancelled. *Revisit if* someone uploads over a slow link: size the chunks
+  to the measured rate, or lengthen the timeout with the chunk's progress.
+
 ## Video
 
 - **Interlaced H.264 (1080i) is decoded in software and shown without deinterlacing.** Chrome's hardware decoders
