@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 import { normalizeCode } from '@seikou/nas/pairing-code';
 import { ENCODE_SOURCE_KEY, NAS_E2E_DIR, NAS_ENV, NAS_PORT, SERVER } from './nas-server';
+import { retagged } from '../../server/src/encodes/test-retag';
 import { isLinuxWebKit } from './support';
 import { telemetry } from './telemetry';
 
@@ -23,6 +24,10 @@ const EPISODE_ONE = '990001-1';
 const EPISODE_TWO = '990001-2';
 /** The episode the upload test adds, and removes again. */
 const EPISODE_THREE = '990001-3';
+/** The made-up TMDB series (no TMDB key on the stand-in, so it is named by its files' TITLE_NAME) the TMDB upload test adds. */
+const TMDB_SHOW_ID = 'tv990101';
+const TMDB_SHOW_NAME = 'Lantern Harbour';
+const TMDB_EPISODE = 'tv990101s1-1';
 const S = 1_000_000;
 
 const sleep = (ms: number): void => void Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -142,13 +147,13 @@ async function pair(page: Page, browserName: string, query = ''): Promise<void> 
   await expect(page.getByTestId('nas-paired')).toBeVisible({ timeout: 25_000 });
 }
 
-/** From the paired landing screen to the Encodes tab, then the fixture show's screen. */
-async function openShow(page: Page): Promise<void> {
+/** From the paired landing screen to the Encodes tab, then a show's screen (by default the fixture show's). */
+async function openShow(page: Page, showId = SHOW_ID, showName = SHOW_NAME): Promise<void> {
   await page.getByTestId('nas-open').click();
   await page.locator('[data-testid="library-tab"][data-tab="encodes"]').click();
   await expect(page.getByTestId('encodes-library')).toBeVisible({ timeout: 15_000 });
-  const card = page.locator(`[data-testid="encode-show-card"][data-show-id="${SHOW_ID}"]`);
-  await expect(card).toContainText(SHOW_NAME, { timeout: 15_000 });
+  const card = page.locator(`[data-testid="encode-show-card"][data-show-id="${showId}"]`);
+  await expect(card).toContainText(showName, { timeout: 15_000 });
   await card.click();
   await expect(page.locator('[data-testid="encode-show"]').last()).toBeVisible();
 }
@@ -200,8 +205,13 @@ async function jumpToChapter(page: Page, name: string): Promise<void> {
 async function skipWithoutAv1(page: Page): Promise<void> {
   const browser = page.context().browser()?.browserType().name() ?? '';
   test.skip(isLinuxWebKit(browser), LINUX_WEBKIT_ENCODES);
+  test.skip(!(await decodesAv1(page)), "this browser's WebCodecs has no AV1 decoder, which encoded episodes need");
+}
+
+/** Whether this browser's WebCodecs decodes AV1, as the app probes it (navigates the page to the app). */
+async function decodesAv1(page: Page): Promise<boolean> {
   await page.goto('/');
-  const av1 = await page.evaluate(async () => {
+  return page.evaluate(async () => {
     if (typeof VideoDecoder === 'undefined') return false;
     try {
       return (await VideoDecoder.isConfigSupported({ codec: 'av01.0.08M.08', codedWidth: 1920, codedHeight: 1080 })).supported === true;
@@ -209,7 +219,6 @@ async function skipWithoutAv1(page: Page): Promise<void> {
       return false;
     }
   });
-  test.skip(!av1, "this browser's WebCodecs has no AV1 decoder, which encoded episodes need");
 }
 
 /** Each test starts with none of the person's places on the fixture episodes: a place would bring up Resume in place of Play. */
@@ -362,6 +371,23 @@ test('a stored subtitle picked on an episode comes back when it is resumed', asy
   }
 });
 
+/** Uploads `body` as an owner device does, its ranges out of order, and answers the id the NAS filed it under. */
+async function upload(body: Buffer<ArrayBuffer>, name: string): Promise<string | undefined> {
+  const sha256 = createHash('sha256').update(body).digest('hex');
+  const created = await ownerApi('encodes/uploads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ size: body.length, sha256, name }) });
+  expect(created.status).toBe(200);
+  const { id } = (await created.json()) as { id: string };
+  // two chunks, the second first: ranges may come in any order
+  const half = Math.floor(body.length / 2);
+  for (const [a, b] of [[half, body.length - 1], [0, half - 1]] as const) {
+    const put = await ownerApi(`encodes/uploads/${id}`, { method: 'PUT', headers: { 'Content-Range': `bytes ${a}-${b}/${body.length}` }, body: body.subarray(a, b + 1) });
+    expect(put.status).toBe(204);
+  }
+  const done = await ownerApi(`encodes/uploads/${id}/complete`, { method: 'POST' });
+  expect(done.status).toBe(200);
+  return ((await done.json()) as { entry: { id: string } | null }).entry?.id;
+}
+
 /** Episode 1's file as a third episode: its EPISODE tag's value and its title rewritten in place (same lengths). */
 function thirdEpisode(): Buffer {
   const bytes = readFileSync(join(REPO_ROOT, 'fixtures/encodes/990001/1.mkv'));
@@ -385,19 +411,7 @@ test("an owner's upload through the API appears in the show", async ({ page, bro
   const body = readFileSync(path);
   await exclusivelyAsync('encodes-library', async () => {
     try {
-      const sha256 = createHash('sha256').update(body).digest('hex');
-      const created = await ownerApi('encodes/uploads', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ size: body.length, sha256, name: '3.mkv' }) });
-      expect(created.status).toBe(200);
-      const { id } = (await created.json()) as { id: string };
-      // two chunks, the second first: ranges may come in any order
-      const half = Math.floor(body.length / 2);
-      for (const [a, b] of [[half, body.length - 1], [0, half - 1]] as const) {
-        const put = await ownerApi(`encodes/uploads/${id}`, { method: 'PUT', headers: { 'Content-Range': `bytes ${a}-${b}/${body.length}` }, body: body.subarray(a, b + 1) });
-        expect(put.status).toBe(204);
-      }
-      const done = await ownerApi(`encodes/uploads/${id}/complete`, { method: 'POST' });
-      expect(done.status).toBe(200);
-      expect(((await done.json()) as { entry: { id: string } | null }).entry?.id).toBe(EPISODE_THREE);
+      expect(await upload(body, '3.mkv')).toBe(EPISODE_THREE);
 
       await pair(page, browserName);
       await openShow(page);
@@ -405,6 +419,36 @@ test("an owner's upload through the API appears in the show", async ({ page, bro
       await expect(episodeRow(page, EPISODE_THREE)).toContainText('The Lantern Gate');
     } finally {
       await ownerApi(`encodes/${EPISODE_THREE}`, { method: 'DELETE' });
+    }
+  });
+});
+
+test('an upload of a TMDB series is a show of its own, named by its files, and plays', async ({ page, browserName }) => {
+  test.skip(browserName !== 'chromium', 'the upload changes the shared stand-in library; the Chrome project checks it');
+  test.setTimeout(120_000);
+  // episode 1 of a made-up TMDB series: the AniList id gives way to the NAS title tags, rewritten at the file's own
+  // size, which leaves room for them only without ENCODER and the source disc's key; a temporary copy, never under fixtures/
+  const path = test.info().outputPath('lantern-harbour-1.mkv');
+  writeFileSync(path, retagged(1, { ANILIST_ID: null, ENCODER: null, SEIKOU_DISC_KEY: null, SEIKOU_TITLE: 'tmdb-tv:990101', SEASON: '1', EPISODE: '1', TITLE_NAME: TMDB_SHOW_NAME }));
+  const body = readFileSync(path);
+  const av1 = await decodesAv1(page);
+  await exclusivelyAsync('encodes-library', async () => {
+    try {
+      expect(await upload(body, 'lantern-harbour-1.mkv')).toBe(TMDB_EPISODE);
+      await pair(page, browserName);
+      await openShow(page, TMDB_SHOW_ID, TMDB_SHOW_NAME);
+      await expect(page.getByTestId('episode-row')).toHaveCount(1);
+      await expect(episodeRow(page, TMDB_EPISODE)).toContainText('The Lantern Road');
+      if (!av1) return; // the listing is checked; playing needs AV1
+      await openEpisode(page, TMDB_EPISODE);
+      await playFromStart(page);
+      await expect(player(page)).toHaveAttribute('data-state', 'playing', { timeout: 20_000 });
+      expect(new URL(page.url()).pathname).toBe(`/nas/encodes/play/${TMDB_EPISODE}`);
+      const first = (await telemetry(page))?.clockUs ?? 0;
+      await expect.poll(async () => (await telemetry(page))?.clockUs ?? 0, { timeout: 10_000 }).toBeGreaterThan(first + 1 * S);
+    } finally {
+      await ownerApi(`encodes/${TMDB_EPISODE}`, { method: 'DELETE' });
+      await ownerApi('me/playback/e.tv990101s1.1', { method: 'DELETE' });
     }
   });
 });
