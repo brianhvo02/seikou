@@ -391,7 +391,19 @@ describe('a NAS job', () => {
         state: 'done',
         paused: false,
         createdAt: '2026-11-01T00:00:00.000Z',
-        episodes: [{ index: 1, state: 'done', framesDone: 1, frames: 1, encoded: true, path: join(outDir, 'ep-01.mkv') }],
+        episodes: [
+          { index: 1, state: 'done', framesDone: 1, frames: 1, encoded: true, path: join(outDir, 'ep-01.mkv') },
+          // an upload whose completion went unanswered, as a later runner stores it
+          {
+            index: 2,
+            state: 'upload-failed',
+            framesDone: 1,
+            frames: 1,
+            encoded: true,
+            path: join(outDir, 'ep-02.mkv'),
+            upload: { id: '0123456789abcdef', sha256: 'a'.repeat(64), size: 10, sent: 10, completing: true },
+          },
+        ],
         recordSavedAt: null,
         cli: '',
       };
@@ -403,6 +415,7 @@ describe('a NAS job', () => {
       expect(job.waiting).toBeNull();
       expect(job.episodes[0]!.step).toBeNull();
       expect(job.episodes[0]!.stepDone).toBe(0);
+      expect(job.episodes[1]!.upload).toEqual({ id: '0123456789abcdef', sha256: 'a'.repeat(64), size: 10, sent: 10, completing: true });
     } finally {
       rmSync(outDir, { recursive: true, force: true });
     }

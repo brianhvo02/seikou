@@ -495,12 +495,16 @@ export type JobEpisodeState = 'queued' | 'running' | 'done' | 'packaging-failed'
 /** What a running episode is doing. */
 export type JobEpisodeStep = 'fetching' | 'encoding' | 'uploading';
 
-/** Where an episode's upload to the NAS is: the NAS's upload id, the file's hash and size, and the bytes the NAS holds. */
+/**
+ * Where an episode's upload to the NAS is: the NAS's upload id, the file's hash and size, the bytes the NAS holds, and
+ * `completing` while its completion was sent with no answer yet.
+ */
 export interface JobUploadState {
   readonly id: string | null;
   readonly sha256: string | null;
   readonly size: number;
   readonly sent: number;
+  readonly completing?: true;
 }
 
 /** One episode of a job. */

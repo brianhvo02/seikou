@@ -15,13 +15,15 @@ export const UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024;
 
 /**
  * Where an episode's upload is, kept with the job so a retry resumes it: the NAS's upload id (null before one is
- * opened), the file's SHA-256 (hashed once), its size, and the bytes the NAS holds.
+ * opened), the file's SHA-256 (hashed once), its size, the bytes the NAS holds, and `completing` once its completion
+ * was sent with no answer yet (the NAS may have filed the episode meanwhile).
  */
 export interface UploadState {
   id: string | null;
   sha256: string | null;
   size: number;
   sent: number;
+  completing?: true;
 }
 
 /** Why an upload failed. */
@@ -62,8 +64,15 @@ type Ranges = readonly (readonly [number, number])[];
 /** A failure worth another try: no answer, or a 5xx other than the folder's. */
 class Retryable extends Error {}
 
-/** How long one request (an open, a piece, a status, the completion) may take before it counts as unanswered. */
+/** How long one request (an open, a piece, a status) may take before it counts as unanswered. */
 const REQUEST_TIMEOUT_MS = 60_000;
+/** The completion's time limit grows by a second for each of these the file holds, since the NAS hashes it whole. */
+const COMPLETION_BYTES_PER_SECOND_MORE = 50 * 1024 * 1024;
+
+/** How long the completion of a `size`-byte upload may take before it counts as unanswered: 60 s plus 1 s per 50 MiB. */
+export function completionTimeoutMs(size: number): number {
+  return REQUEST_TIMEOUT_MS + Math.ceil(size / COMPLETION_BYTES_PER_SECOND_MORE) * 1000;
+}
 
 /** How many times an upload starts over (a forgotten id, a hash mismatch) before it gives up. */
 const MAX_FRESH_STARTS = 3;
@@ -128,13 +137,13 @@ export async function uploadEpisode(client: NasClient, path: string, name: strin
   const changed = (): void => o.onState?.({ ...state });
 
   /** `attempt`'s answer, tried again on no answer or a 5xx (but the folder's 503) as the network rules say. */
-  const send = async (what: string, attempt: (s: AbortSignal) => Promise<Response>): Promise<Response> => {
+  const send = async (what: string, attempt: (s: AbortSignal) => Promise<Response>, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Response> => {
     for (let i = 0; ; i++) {
       signal?.throwIfAborted();
       try {
         // each request has its own time limit, so a NAS gone without a reset does not hold a piece for minutes; running
         // out of it counts as no answer
-        const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+        const timeout = AbortSignal.timeout(timeoutMs);
         const res = await attempt(signal ? AbortSignal.any([signal, timeout]) : timeout);
         if (res.status < 500 || res.status === 503) {
           if (res.status !== 503) return res;
@@ -181,6 +190,7 @@ export async function uploadEpisode(client: NasClient, path: string, name: strin
   if (state.sha256 === null || state.size !== size) {
     state.id = null;
     state.sent = 0;
+    delete state.completing;
     state.size = size;
     state.sha256 = await sha256Of(path, signal);
     changed();
@@ -191,10 +201,42 @@ export async function uploadEpisode(client: NasClient, path: string, name: strin
     if (++freshStarts > MAX_FRESH_STARTS) throw new UploadError('refused', `${host} lost the upload of ${name} again and again.`);
     state.id = null;
     state.sent = 0;
+    delete state.completing;
     if (rehash) state.sha256 = await sha256Of(path, signal);
     changed();
   };
   let hashMismatches = 0;
+
+  /** The episode's encode id when the NAS lists it with this file's size: a completion it filed whose answer was lost. */
+  const encodeId = name.replace(/\.mkv$/, '');
+  const filedAlready = async (): Promise<string | null> => {
+    const res = await send('the episode', (s) => client.request(`encodes/${encodeId}`, { signal: s }));
+    if (!res.ok) {
+      await res.body?.cancel();
+      return null;
+    }
+    const entry = (await res.json().catch(() => null)) as { id?: unknown; size?: unknown } | null;
+    return entry?.id === encodeId && entry.size === size ? encodeId : null;
+  };
+  /** Ends the upload as done with `id`. */
+  const finished = (id: string): string => {
+    state.id = null;
+    delete state.completing;
+    changed();
+    return id;
+  };
+  /**
+   * After a 404 for the upload: when its completion was sent with no answer, the NAS may have filed it and dropped the
+   * upload, so the episode's entry is asked for first; otherwise (or when the entry is not this file) it starts over.
+   */
+  const lostUpload = async (): Promise<string | null> => {
+    if (state.completing) {
+      const filed = await filedAlready();
+      if (filed !== null) return finished(filed);
+    }
+    await startOver(false);
+    return null;
+  };
 
   for (;;) {
     // what the NAS holds of a stored upload
@@ -204,7 +246,8 @@ export async function uploadEpisode(client: NasClient, path: string, name: strin
       const res = await send('an upload', (s) => client.request(`encodes/uploads/${id}`, { signal: s }));
       if (res.status === 404 && (await errorOfBody(res.clone())) !== 'not-configured') {
         await res.body?.cancel();
-        await startOver(false);
+        const filed = await lostUpload();
+        if (filed !== null) return filed;
         continue;
       }
       if (!res.ok) throw await refusal(res, 'an upload');
@@ -267,24 +310,32 @@ export async function uploadEpisode(client: NasClient, path: string, name: strin
       continue;
     }
 
-    const res = await send('completing an upload', (s) => client.request(`encodes/uploads/${id}/complete`, { method: 'POST', signal: s }));
+    // kept until the NAS answers, so a 404 from here on (this call's retries or a later call's) asks for the entry first
+    state.completing = true;
+    changed();
+    const res = await send(
+      'completing an upload',
+      (s) => client.request(`encodes/uploads/${id}/complete`, { method: 'POST', signal: s }),
+      completionTimeoutMs(size),
+    );
     if (res.ok) {
       const done = (await res.json()) as { entry?: { id?: unknown } | null; filed?: unknown };
-      const encodeId = typeof done.entry?.id === 'string' ? done.entry.id : typeof done.filed === 'string' ? done.filed : null;
-      if (encodeId === null) throw new UploadError('refused', `${host} filed the episode but gave no id the encoder can read.`);
-      state.id = null;
-      changed();
-      return encodeId;
+      const filedId = typeof done.entry?.id === 'string' ? done.entry.id : typeof done.filed === 'string' ? done.filed : null;
+      if (filedId === null) throw new UploadError('refused', `${host} filed the episode but gave no id the encoder can read.`);
+      return finished(filedId);
     }
     const error = await errorOfBody(res.clone());
+    if (res.status === 404 && error !== 'not-configured') {
+      await res.body?.cancel();
+      const filed = await lostUpload();
+      if (filed !== null) return filed;
+      continue;
+    }
+    delete state.completing;
+    changed();
     if (res.status === 409 && error === 'incomplete') {
       // the NAS lacks some ranges after all: ask it which and send them
       await res.body?.cancel();
-      continue;
-    }
-    if (res.status === 404 && error !== 'not-configured') {
-      await res.body?.cancel();
-      await startOver(false);
       continue;
     }
     if (res.status === 422 && error === 'hash-mismatch') {

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { NasClient } from '../../src/nas/client';
 import { pairWithNas } from '../../src/nas/pairing';
-import { uploadEpisode, UploadError, type UploadState } from '../../src/nas/upload';
+import { completionTimeoutMs, uploadEpisode, UploadError, type UploadState } from '../../src/nas/upload';
 import { startNasTestServer, type NasTestServer } from './nas-test-server';
 import { retagged } from './retag';
 
@@ -141,6 +141,67 @@ describe('uploadEpisode', () => {
     const again = fresh();
     expect(await uploadEpisode(client, file, '990002-1.mkv', again, { chunkBytes: CHUNK, sleep: noWait, onState: (s) => expect(s.id === null || s.id === first.id).toBe(true) })).toBe('990002-1');
     expect(puts()).toBe(2);
+  });
+
+  it('a completion whose answer was lost counts as done once the NAS lists the episode at its size, sending nothing again', async () => {
+    writeFileSync(file, retagged(990002, 1));
+    let lost = false;
+    dropAnswer = (method, path) => {
+      if (method !== 'POST' || !path.endsWith('/complete') || lost) return false;
+      lost = true;
+      return true;
+    };
+    const state = fresh();
+    expect(await uploadEpisode(client, file, '990002-1.mkv', state, { chunkBytes: CHUNK, sleep: noWait })).toBe('990002-1');
+    expect(puts()).toBe(3);
+    expect(requests.filter((r) => r === 'POST encodes/uploads')).toHaveLength(1);
+    expect(requests).toContain('GET encodes/990002-1');
+    expect([state.id, state.completing]).toEqual([null, undefined]);
+  });
+
+  it('a completion that never answered is checked by the next call, which then counts it done', async () => {
+    writeFileSync(file, retagged(990002, 1));
+    // every answer to the completion is lost: the first files the episode, the retries are 404s nobody sees
+    dropAnswer = (method, path) => method === 'POST' && path.endsWith('/complete');
+    const state = fresh();
+    const failure = await uploadEpisode(client, file, '990002-1.mkv', state, { chunkBytes: CHUNK, sleep: noWait }).catch((e: unknown) => e);
+    expect((failure as UploadError).code).toBe('unreachable');
+    expect(state.completing).toBe(true);
+    const uploadId = state.id!;
+
+    dropAnswer = () => false;
+    requests = [];
+    expect(await uploadEpisode(client, file, '990002-1.mkv', state, { chunkBytes: CHUNK, sleep: noWait })).toBe('990002-1');
+    expect(requests).toEqual([`GET encodes/uploads/${uploadId}`, 'GET encodes/990002-1']);
+  });
+
+  it('a 404 after a completion, with another file of the episode on the NAS, starts over', async () => {
+    // the NAS holds an earlier file of the episode
+    writeFileSync(file, retagged(990002, 1));
+    await uploadEpisode(client, file, '990002-1.mkv', fresh(), { chunkBytes: CHUNK, sleep: noWait });
+    // a longer file's upload, stopped after its first piece, whose completion was sent (as far as the state knows) and
+    // which the NAS then forgot
+    writeFileSync(file, Buffer.concat([retagged(990002, 1), Buffer.alloc(1000)]));
+    const state = fresh();
+    const controller = new AbortController();
+    afterAnswer = (method) => {
+      if (method === 'PUT') controller.abort();
+    };
+    await expect(uploadEpisode(client, file, '990002-1.mkv', state, { chunkBytes: CHUNK, sleep: noWait, signal: controller.signal })).rejects.toThrow();
+    for (const name of readdirSync(join(nas.encodesDir!, '.uploads'))) if (name.startsWith(state.id!)) rmSync(join(nas.encodesDir!, '.uploads', name));
+    state.completing = true;
+
+    afterAnswer = () => {};
+    requests = [];
+    expect(await uploadEpisode(client, file, '990002-1.mkv', state, { chunkBytes: CHUNK, sleep: noWait })).toBe('990002-1');
+    expect(requests.slice(0, 3)).toEqual([expect.stringMatching(/^GET encodes\/uploads\//), 'GET encodes/990002-1', 'POST encodes/uploads']);
+    expect(puts()).toBe(3);
+  });
+
+  it('gives the completion a time limit that grows with the file', () => {
+    expect(completionTimeoutMs(0)).toBe(60_000);
+    expect(completionTimeoutMs(50 * 1024 * 1024)).toBe(61_000);
+    expect(completionTimeoutMs(4 * 1024 * 1024 * 1024)).toBe(60_000 + 82_000);
   });
 
   it('a file without ANILIST_ID is bad-tags, and the NAS keeps no upload of it', async () => {

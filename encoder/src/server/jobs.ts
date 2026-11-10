@@ -421,7 +421,8 @@ function parseUploadState(value: unknown): UploadState {
   const sha256 = u.sha256 === null ? null : typeof u.sha256 === 'string' && /^[0-9a-f]{64}$/.test(u.sha256) ? u.sha256 : undefined;
   const whole = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
   if (id === undefined || sha256 === undefined || !whole(u.size) || !whole(u.sent)) throw new Error('bad episode upload');
-  return { id, sha256, size: u.size, sent: u.sent };
+  if (u.completing !== undefined && u.completing !== true) throw new Error('bad episode upload');
+  return { id, sha256, size: u.size, sent: u.sent, ...(u.completing === true ? { completing: true as const } : {}) };
 }
 
 /** Checks a stored test plan; throws on anything this runner did not write. */
