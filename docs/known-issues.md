@@ -586,7 +586,6 @@ Fill in from `probe.html` on each device.
 
 ## NAS server and title library (step 2)
 
-- **The Caddy Tailscale certificate is manual.** The certificate behind the owner's Tailscale address was issued by hand on Aug 31 and may lapse around late November; when it does, every site behind Caddy stops, not only this app. *Revisit* before then: renew it, or let Caddy fetch and renew its own Tailscale certificate.
 - **A drive that is gone for good keeps showing its last discs.** A root whose folder is missing or empty keeps the discs of its last scan, so a drive that is briefly unmounted doesn't empty the library; a drive that is removed for good is never dropped. *Revisit if* that confuses the owner (a "remove this drive" action would fix it).
 - **A drive mounted late is writable inside the container.** `read_only: true` in the compose file covers only the binds present when the container starts; a late `nofail` mount that appears through `rslave` propagation is not read-only. The server only ever writes `/data`, so nothing is written there, but the guarantee is by code, not by the mount.
 - **An iPhone Home Screen web app has its own storage,** so it needs its own pairing (a pairing made in Safari does not carry over). Pairing links open in Safari, not in the installed app: type the code in the app instead.
@@ -650,6 +649,7 @@ Fill in from `probe.html` on each device.
 
 ## Resolved (for reference)
 
+- **Resolved: the Caddy Tailscale certificate was renewed by hand (2026-11-10).** The certificate behind the owner's Tailscale address was issued by hand on Aug 31 and would have lapsed on Nov 29, stopping every site behind Caddy. tailscaled renews a certificate only when it is asked for one, so a daily cron job on the NAS (`~/caddy/renew-ts-cert.sh`, outside the repo) asks it, and when the answer differs from the files Caddy reads it checks the pair, backs up the old files, puts the new ones in place and reloads Caddy (never restarts it). Letting Caddy fetch its own Tailscale certificate would need the tailscaled socket in Caddy's container, which means recreating it.
 - **Resolved: Mark checked couldn't file a disc into an AniList season the NAS held no disc of (2026-11-10).** The encoder looked for the season in the NAS's catalogue, which has it only once a disc is filed there. The NAS now answers an AniList entry's series and season with `GET admin/anilist-place/<id>` whether or not a disc is filed (`routes/admin.ts`, `TitleService.anilistPlace`), and the check asks it.
 - **Resolved: Music shelf: library-wide search didn't match a looked-up title (2026-10-22).** `searchNames` (`src/ui/nas/title-model.ts`) now reads a release's title, concert name and artist names as well as the folder-derived ones.
 - **Resolved: Music shelf: Various artists was not last in the 五十音 alphabet order (2026-10-22).** `artistIndex` (`src/ui/nas/artist-model.ts`) keeps it last after `japaneseOrder`, as in A–Z.

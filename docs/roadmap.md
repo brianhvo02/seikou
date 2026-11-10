@@ -10,7 +10,6 @@ Short tasks that unblock or protect what is already deployed.
 
 | Item | Size | Notes |
 | --- | --- | --- |
-| **Caddy's Tailscale certificate** is issued by hand and may lapse around late November, which would take down every site behind Caddy. Renew it or let Caddy manage it. | S | owner, ssh |
 | **Owner set-up still pending:** the first real "Find fansubs" run on a title. | S | owner |
 | **Device check of the tools' touch timing:** `tools/devices/tap.ts` (settle, hold, check where each touch landed) has not run on an iPhone yet. Run it at the next device gate. | S | needs a device |
 
