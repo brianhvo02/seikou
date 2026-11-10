@@ -6,13 +6,14 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { TitleDetail } from '@seikou/nas/nas-api';
 import { NasClient } from '../../src/nas/client';
 import { pairWithNas } from '../../src/nas/pairing';
+import { RecordStore } from '../../src/subs/record';
 import { isChecked, type EpisodeInfo } from '../../src/plan/episode-info';
 import { startHelperServer, type AppContext, type HelperServer } from '../../src/server/server';
 import { startNasTestServer, type NasTestServer } from '../nas/nas-test-server';
 
 const TOKEN = 'episode-nas-token';
 /** Lantern Road (AniList 990001): episode 1 is disc1, episode 2 is disc-vm (four chapters). disc3 is left in Unsorted. */
-const FOLDERS = { 'Anime/Lantern Road/Lantern Road Vol.1': 'disc1', 'Anime/Lantern Road/Lantern Road Vol.2': 'disc-vm' };
+const FOLDERS = { 'Anime/Lantern Road/Lantern Road Vol.1': 'disc1', 'Anime/Lantern Road/Lantern Road Vol.2': 'disc-vm', 'Anime/Lantern Road/Lantern Road Vol.2 (copy)': 'disc-vm' };
 
 let nas: NasTestServer;
 let admin: NasClient;
@@ -128,24 +129,6 @@ describe('check', () => {
     expect(putChoices).toEqual([]);
   });
 
-  it('files the disc on the NAS under the changed title, and the Library follows', async () => {
-    const before = await call('GET', '/api/nas/shows');
-    expect(before.body.shows.find((s: { titleId: string }) => s.titleId === 'anilist:990001')).toMatchObject({ toEncode: 1 });
-    const key = await discKey('anilist:990001', 1);
-    await save(key, { '1': own(1), '3': own(2) });
-    const r = await check(key, '1-2,3-4');
-    expect(r.body).toMatchObject({ nasChoice: 'saved' });
-    expect(putChoices).toEqual([JSON.stringify({ choice: { kind: 'title', titleId: `own:${ownId}`, season: 1, disc: null } })]);
-    // the NAS's own title now lists the disc
-    const detail = await admin.json<TitleDetail>(`titles/${encodeURIComponent(`own:${ownId}`)}`);
-    expect(detail.seasons[0]!.discs).toHaveLength(1);
-    expect((await lantern()).seasons[0]!.discs).toHaveLength(1);
-    // the kept details of both titles were read again, so the Library shows the change at once
-    const after = await call('GET', '/api/nas/shows');
-    expect(after.body.shows.find((s: { titleId: string }) => s.titleId === 'anilist:990001')).toMatchObject({ toEncode: 0 });
-    expect((await call('GET', `/api/nas/shows/${encodeURIComponent(`own:${ownId}`)}`)).body.seasons[0].discs[0].key).toBe(key);
-  });
-
   it('files a disc from Unsorted, which has no match to equal', async () => {
     const key = await unsortedKey('disc3');
     const playlists = (await call('GET', `/api/discs/${encodeURIComponent(key)}/playlists`)).body.playlists as { id: string }[];
@@ -165,5 +148,66 @@ describe('check', () => {
     expect(r.body.nasChoice).toBe('failed');
     expect(r.body.message).toMatch(/unknown title/);
     expect(r.body.info.checked).toBeDefined();
+  });
+
+  it('refuses with record-mismatch, writing nothing, when the saved subtitles were made for another grouping', async () => {
+    const key = await discKey('anilist:990001', 1);
+    await new RecordStore(app.dataDir).write({ disc: { key, label: 'Disc 2' }, playlist: '00001', episodeSpec: '1-3,4-', anilist: null, releases: [], fonts: [], episodes: [], savedAt: '2026-11-10T00:00:00Z' });
+    await save(key, { '1': own(1), '3': own(2) });
+    const r = await check(key, '1-2,3-4');
+    expect([r.status, r.body.error]).toEqual([409, 'record-mismatch']);
+    expect(r.body.message).toContain('grouped as 1-3,4-');
+    expect(putChoices).toEqual([]);
+    const info = (await call('GET', `${infoPath(key)}/info`)).body.info as EpisodeInfo;
+    expect(info.checked).toBeUndefined();
+    expect((await call('GET', '/api/nas/shows/anilist%3A990001')).body.seasons[0].discs[1].checked).toBe(false);
+    // the same episodes written another way are the same list
+    await save(key, { '1': anilist(990001, 2), '4': anilist(990001, 3) });
+    expect((await check(key, '1-3,4-')).body.nasChoice).toBe('unchanged');
+  });
+
+  it('judges mixed across every playlist of the disc that has saved titles', async () => {
+    const key = await discKey('anilist:990001', 1);
+    await save(key, { '1': own(1) }, '00002');
+    await save(key, { '1': anilist(990001, 2) });
+    const r = await check(key, '1-');
+    expect(r.body.nasChoice).toBe('mixed');
+    expect(putChoices).toEqual([]);
+  });
+
+  it('files the disc on the NAS under the changed title, and the Library follows', async () => {
+    const before = await call('GET', '/api/nas/shows');
+    expect(before.body.shows.find((s: { titleId: string }) => s.titleId === 'anilist:990001')).toMatchObject({ toEncode: 1 });
+    const key = await discKey('anilist:990001', 1);
+    const copies = (await lantern()).seasons[0]!.discs[1]!.copies.length;
+    expect(copies).toBeGreaterThan(1);
+    await save(key, { '1': own(1), '3': own(2) });
+    const r = await check(key, '1-2,3-4');
+    expect(r.body).toMatchObject({ nasChoice: 'saved' });
+    // every copy of the disc the NAS holds gets the choice
+    expect(putChoices.length).toBeGreaterThanOrEqual(copies);
+    expect(new Set(putChoices)).toEqual(new Set([JSON.stringify({ choice: { kind: 'title', titleId: `own:${ownId}`, season: 1, disc: null } })]));
+    // the NAS's own title now lists the disc
+    const detail = await admin.json<TitleDetail>(`titles/${encodeURIComponent(`own:${ownId}`)}`);
+    expect(detail.seasons[0]!.discs.length).toBeGreaterThan(0);
+    expect((await lantern()).seasons[0]!.discs).toHaveLength(1);
+    // the kept details of both titles were read again, so the Library shows the change at once
+    const after = await call('GET', '/api/nas/shows');
+    expect(after.body.shows.find((s: { titleId: string }) => s.titleId === 'anilist:990001')).toMatchObject({ toEncode: 0 });
+    expect((await call('GET', `/api/nas/shows/${encodeURIComponent(`own:${ownId}`)}`)).body.seasons[0].discs[0].key).toBe(key);
+  });
+
+  it('decides on the NAS as it is now, not on details it kept', async () => {
+    // the disc is under the own title (filed above): the encoder reads that, then another owner moves it back
+    const key = (await call('GET', `/api/nas/shows/${encodeURIComponent(`own:${ownId}`)}`)).body.seasons[0].discs[0].key as string;
+    expect((await call('GET', `${infoPath(key)}/nas-prefill`)).body.title).toEqual({ source: 'own', ownId, season: 1 });
+    for (const c of (await lantern()).seasons[0]!.discs.flatMap((d) => d.copies).concat((await admin.json<TitleDetail>(`titles/${encodeURIComponent(`own:${ownId}`)}`)).seasons[0]!.discs.flatMap((d) => d.copies))) {
+      const moved = await admin.request(`admin/discs/${c.discId}/choice`, { method: 'PUT', body: JSON.stringify({ choice: { kind: 'title', titleId: 'anilist:990001', season: null, disc: null } }), headers: { 'content-type': 'application/json' } });
+      expect(moved.status).toBe(204);
+    }
+    putChoices = [];
+    await save(key, { '1': own(1) });
+    expect((await check(key, '1-4')).body.nasChoice).toBe('saved');
+    expect(putChoices.length).toBeGreaterThan(0);
   });
 });

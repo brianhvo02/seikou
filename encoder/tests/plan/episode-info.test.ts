@@ -192,6 +192,12 @@ describe('checked mark', () => {
     expect(titlesSignature(a)).not.toBe(titlesSignature({ '1': { ...a['1'], episode: 2 } }));
   });
 
+  it('leaves names out of the signature, so naming an episode keeps it checked', () => {
+    const named = { '1': { ...titles['1'], name: 'Starfall', showName: 'Lantern Notes' } };
+    expect(titlesSignature(named)).toBe(titlesSignature(titles));
+    expect(isChecked(info(mark('1-3,4-'), named), '1-3,4-', 12)).toBe(true);
+  });
+
   it('is checked only for the marked list and titles', () => {
     expect(isChecked(null, '1-3', 12)).toBe(false);
     expect(isChecked(info(), '1-3', 12)).toBe(false);

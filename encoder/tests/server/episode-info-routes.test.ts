@@ -124,6 +124,27 @@ describe('episode info routes', () => {
       expect(isChecked(retitled, '1-3,4-5', 5)).toBe(false);
     });
 
+    it('a PUT without a mark keeps the saved one, which holds through a name and goes with a title (read from the file)', async () => {
+      await put({ chapterNames: {}, titles: { '1': title(1), '4': title(2) } });
+      expect((await check('1-3,4-5')).status).toBe(200);
+      const file = join(fixture.dataDir, 'chapters', fixture.discKey, '00000.json');
+      const mark = (JSON.parse(readFileSync(file, 'utf8')) as EpisodeInfo).checked;
+      expect(mark).toBeDefined();
+      await put({ chapterNames: { '1': 'Avant' }, titles: { '1': { ...title(1), name: 'Starfall' }, '4': title(2) } });
+      const saved = JSON.parse(readFileSync(file, 'utf8')) as EpisodeInfo;
+      expect(saved.checked).toEqual(mark);
+      expect(isChecked(saved, '1-3,4-5', 5)).toBe(true);
+    });
+
+    it('a save and a check fired together both survive', async () => {
+      await put({ chapterNames: {}, titles: { '1': title(1), '4': title(2) } });
+      const [saved, checked] = await Promise.all([put({ chapterNames: { '2': 'Opening' }, titles: { '1': title(1), '4': title(2) } }), check('1-3,4-5')]);
+      expect([saved.status, checked.status]).toEqual([200, 200]);
+      const info = JSON.parse(readFileSync(join(fixture.dataDir, 'chapters', fixture.discKey, '00000.json'), 'utf8')) as EpisodeInfo;
+      expect(info.chapterNames).toEqual({ '2': 'Opening' });
+      expect(isChecked(info, '1-3,4-5', 5)).toBe(true);
+    });
+
     it('check answers 400 for a body that is not an episode list', async () => {
       expect((await check('x')).status).toBe(400);
       expect((await fixture.send(`${base()}/check`, { method: 'POST', body: '{}' })).status).toBe(400);

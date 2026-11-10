@@ -477,4 +477,29 @@ describe('EpisodesPage NAS prefill and Mark checked', () => {
     await waitFor(() => expect((screen.getByLabelText('Episodes') as HTMLInputElement).value).toBe('1-'));
     expect((screen.getByRole('button', { name: 'Mark checked' }) as HTMLButtonElement).disabled).toBe(true);
   });
+
+  it('says the checked line is out of date once the titles change', async () => {
+    const { api, checkPlaylist } = nasApi(THREE);
+    await show(api);
+    await waitFor(() => expect(spec()).toBe('1-2,3-4,5-'));
+    const button = screen.getByRole('button', { name: 'Mark checked' }) as HTMLButtonElement;
+    await waitFor(() => expect(button.disabled).toBe(false));
+    fireEvent.click(button);
+    await screen.findByText('Checked. The NAS now files this disc under Lantern Harbor.');
+    expect(checkPlaylist).toHaveBeenCalled();
+    const field = screen.getByLabelText('AniList episode number of episode 1') as HTMLInputElement;
+    fireEvent.change(field, { target: { value: '9' } });
+    fireEvent.blur(field);
+    expect(await screen.findByText('Changed since it was checked.')).toBeTruthy();
+  });
+
+  it('keeps Mark checked off, with the reason, while the grouping differs from the saved subtitles\'', async () => {
+    const { api, checkPlaylist } = nasApi(THREE, { episodeSpec: '1-3,4-6', anilist: null });
+    await show(api);
+    await waitFor(() => expect(spec()).toBe('1-3,4-'));
+    fireEvent.change(screen.getByLabelText('Episodes'), { target: { value: '1-2,3-6' } });
+    expect(screen.getByText('The saved subtitles were made for episodes grouped as 1-3,4-. Group them that way, or line up the subtitles again.', { selector: '#check-result' })).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Mark checked' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(checkPlaylist).not.toHaveBeenCalled();
+  });
 });

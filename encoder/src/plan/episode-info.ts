@@ -162,9 +162,12 @@ function canonical(value: unknown): string {
   return JSON.stringify(value) ?? 'null';
 }
 
-/** The signature a `CheckedMark` holds: the titles map as canonical JSON (keys sorted at every level). */
+/**
+ * The signature a `CheckedMark` holds: each episode's title and number as canonical JSON (keys sorted at every level).
+ * An episode's name and show name are left out, so naming an episode keeps the disc checked.
+ */
 export function titlesSignature(titles: Readonly<Record<string, EpisodeTitle>>): string {
-  return canonical(titles);
+  return canonical(Object.fromEntries(Object.entries(titles).map(([k, t]) => [k, { title: t.title, episode: t.episode }])));
 }
 
 /**
@@ -193,6 +196,9 @@ function upgraded(json: unknown): unknown {
   return { ...rest, titles };
 }
 
+/** The tail of each file's queue of read-modify-writes (`EpisodeInfoStore.locked`), by file path. */
+const queues = new Map<string, Promise<unknown>>();
+
 /** Reads and saves episode info under `<dataDir>/chapters/<discKey>/<playlist>.json`. */
 export class EpisodeInfoStore {
   constructor(private readonly dataDir: string) {}
@@ -202,6 +208,21 @@ export class EpisodeInfoStore {
     if (!parseDiscKey(discKey)) bad('expected a disc key');
     if (!/^\d{5}$/.test(playlistId)) bad('expected a five-digit playlist id');
     return join(this.dataDir, 'chapters', discKey, `${playlistId}.json`);
+  }
+
+  /**
+   * Runs `work` after every earlier `locked` call for the same disc and playlist has finished, so a read-modify-write
+   * (the info route's PUT, the check) never overwrites a save that landed between its read and its write.
+   */
+  async locked<T>(discKey: string, playlistId: string, work: () => Promise<T>): Promise<T> {
+    const file = this.path(discKey, playlistId);
+    const run = (queues.get(file) ?? Promise.resolve()).then(work, work);
+    const tail = run.catch(() => undefined);
+    queues.set(file, tail);
+    void tail.then(() => {
+      if (queues.get(file) === tail) queues.delete(file);
+    });
+    return run;
   }
 
   /** The saved info, or null when none was saved; a file that is not valid rejects with `info-unreadable`. */

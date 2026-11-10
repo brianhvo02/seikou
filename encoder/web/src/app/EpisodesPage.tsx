@@ -376,7 +376,7 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
 
   /** What the page holds now, so a result line for an earlier state is not shown for a changed one. */
   const stateKey = checkKey(spec, info.draft.titles);
-  const canCheck = episodes.length > 0 && editable && missingTitles(rows).length === 0 && check?.kind !== 'checking';
+  const canCheck = episodes.length > 0 && editable && !mismatch && missingTitles(rows).length === 0 && check?.kind !== 'checking';
   const markChecked = (): void => {
     setCheck({ kind: 'checking' });
     const at = checkKey(spec, toInfo(rows, {}, info.draft.titles).titles);
@@ -498,7 +498,9 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
                   {check?.kind === 'checking' ? 'Checking…' : 'Mark checked'}
                 </button>
                 <p id="check-result" className={check?.kind === 'failed' ? 'error' : 'muted'} role="status">
-                  {check === null || check.kind === 'checking'
+                  {mismatch
+                    ? `The saved subtitles were made for episodes grouped as ${recordSpec}. Group them that way, or line up the subtitles again.`
+                    : check === null || check.kind === 'checking'
                     ? missingTitles(rows).length > 0
                       ? 'Every episode needs a title and a number first.'
                       : 'Confirms these episodes and titles, and files the disc under them on the NAS when they differ.'

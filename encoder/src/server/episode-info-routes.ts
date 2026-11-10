@@ -5,8 +5,10 @@ import { readBody } from '../../../server/src/http';
 import { loadPlaylist } from '../disc/playlist';
 import { errorOfBody, NasError } from '../nas/client';
 import { EpisodeInfoError, EpisodeInfoStore, hasChapterNames, migrateRecordChapters, parseEpisodeInfo, titlesSignature, type EpisodeInfo } from '../plan/episode-info';
-import { EpisodeSpecError, parseEpisodeSpec } from '../plan/episodes';
+import { EpisodeSpecError, parseEpisodeSpec, sameEpisodeList } from '../plan/episodes';
 import { RecordError, RecordStore, withoutChapterNames } from '../subs/record';
+import { readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 import { knownDisc } from './disc-routes';
 import { httpError, json, type AppContext, type RouteTable } from './http';
 import { nasTitlesOf } from './nas-title-routes';
@@ -136,16 +138,19 @@ export const episodeInfoRoutes: RouteTable = [
         return httpError(res, 400, 'bad-info', e.message);
       }
       const store = new EpisodeInfoStore(app.dataDir);
-      // the page sends names and titles only: a mark already saved stays (it holds only while the titles are as it saw them)
-      let kept: EpisodeInfo['checked'];
-      if (parsed.checked === undefined) {
-        try {
-          kept = (await store.read(disc.key, playlistId))?.checked;
-        } catch (e) {
-          if (!(e instanceof EpisodeInfoError)) throw e;
+      const stored = await store.locked(disc.key, playlistId, async () => {
+        // the page sends names and titles only: a mark already saved stays (it holds only while the titles are as it saw them)
+        let kept: EpisodeInfo['checked'];
+        if (parsed.checked === undefined) {
+          try {
+            kept = (await store.read(disc.key, playlistId))?.checked;
+          } catch (e) {
+            if (!(e instanceof EpisodeInfoError)) throw e;
+          }
         }
-      }
-      json(res, 200, { info: await store.save(disc.key, playlistId, kept === undefined ? parsed : { ...parsed, checked: kept }) });
+        return store.save(disc.key, playlistId, kept === undefined ? parsed : { ...parsed, checked: kept });
+      });
+      json(res, 200, { info: stored });
     },
   ],
   [
@@ -209,24 +214,57 @@ export const episodeInfoRoutes: RouteTable = [
         if (!(e instanceof EpisodeSpecError)) throw e;
         return httpError(res, 400, 'bad-request', e.message);
       }
-      const store = new EpisodeInfoStore(app.dataDir);
-      let saved: EpisodeInfo | null;
+      // a subtitle record made for other episodes would not match what is checked
       try {
-        saved = await store.read(disc.key, playlistId);
+        const record = await new RecordStore(app.dataDir).read(disc.key, playlistId);
+        if (record !== null && !sameEpisodeList(record.episodeSpec, episodeSpec, chapters)) {
+          return httpError(res, 409, 'record-mismatch', `The saved subtitles were made for episodes grouped as ${record.episodeSpec}. Group them that way, or line up the subtitles again.`);
+        }
       } catch (e) {
-        if (!(e instanceof EpisodeInfoError)) throw e;
-        return httpError(res, 500, 'info-unreadable', e.message);
+        if (!(e instanceof RecordError)) throw e;
       }
-      const titles = firsts.map((n) => saved?.titles[String(n)]);
-      if (saved === null || firsts.length === 0 || titles.some((t) => t === undefined)) {
-        return httpError(res, 409, 'needs-title', 'Every episode needs a title and a number before the disc can be checked.');
-      }
-      const { chapterNames, titles: all } = saved;
-      const info = await store.save(disc.key, playlistId, { chapterNames, titles: all, checked: { episodeSpec, signature: titlesSignature(all), at: new Date().toISOString() } });
-      json(res, 200, { info, ...(await fileOnNas(app, disc.key, titles.map((t) => t!.title))) });
+      const store = new EpisodeInfoStore(app.dataDir);
+      const done = await store.locked(disc.key, playlistId, async () => {
+        const saved = await store.read(disc.key, playlistId);
+        const titles = firsts.map((n) => saved?.titles[String(n)]);
+        if (saved === null || firsts.length === 0 || titles.some((t) => t === undefined)) return null;
+        const { chapterNames, titles: all } = saved;
+        const info = await store.save(disc.key, playlistId, { chapterNames, titles: all, checked: { episodeSpec, signature: titlesSignature(all), at: new Date().toISOString() } });
+        return { info, titles: titles.map((t) => t!.title) };
+      }).catch((e: unknown) => {
+        if (e instanceof EpisodeInfoError) return e;
+        throw e;
+      });
+      if (done instanceof EpisodeInfoError) return httpError(res, 500, 'info-unreadable', done.message);
+      if (done === null) return httpError(res, 409, 'needs-title', 'Every episode needs a title and a number before the disc can be checked.');
+      // the disc's other playlists with saved titles count too: all of them must be under one show
+      const others = await otherTitles(app.dataDir, disc.key, playlistId);
+      json(res, 200, { info: done.info, ...(await fileOnNas(app, disc.key, [...done.titles, ...others])) });
     },
   ],
 ];
+
+/** The titles saved for the disc's playlists other than `playlistId`; a file that cannot be read counts for none. */
+async function otherTitles(dataDir: string, key: string, playlistId: string): Promise<EncodeTitle[]> {
+  let names: string[];
+  try {
+    names = await readdir(join(dataDir, 'chapters', key));
+  } catch {
+    return [];
+  }
+  const store = new EpisodeInfoStore(dataDir);
+  const out: EncodeTitle[] = [];
+  for (const n of names) {
+    const m = /^(\d{5})\.json$/.exec(n);
+    if (!m || m[1] === playlistId) continue;
+    try {
+      for (const t of Object.values((await store.read(key, m[1]))?.titles ?? {})) out.push(t.title);
+    } catch (e) {
+      if (!(e instanceof EpisodeInfoError)) throw e;
+    }
+  }
+  return out;
+}
 
 /** What the check did to the NAS's library. */
 type NasChoiceAnswer = { nasChoice: 'saved' | 'unchanged' | 'mixed' } | { nasChoice: 'failed'; message: string };
@@ -244,19 +282,23 @@ async function fileOnNas(app: AppContext, key: string, titles: readonly EncodeTi
   if (titles.some((t) => !sameTitle(t, title))) return { nasChoice: 'mixed' };
   const nas = nasTitlesOf(app);
   try {
-    const found = await nas.discMatch(client, key);
+    const found = await nas.discMatch(client, key, { fresh: true });
     if (found === null || (found.title !== null && sameTitle(found.title, title))) return { nasChoice: 'unchanged' };
     const season = title.source === 'tmdb-tv' || title.source === 'own' ? title.season : null;
-    const res = await client.request(`admin/discs/${encodeURIComponent(found.discId)}/choice`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ choice: { kind: 'title', titleId: nasTitleId(title), season, disc: null } }),
-    });
-    if (!res.ok) {
-      const why = await errorOfBody(res);
-      return { nasChoice: 'failed', message: why ?? `the NAS answered ${res.status}` };
+    // every copy of the disc the NAS holds gets the choice; one refusal fails the whole
+    for (const discId of found.discIds) {
+      const res = await client.request(`admin/discs/${encodeURIComponent(discId)}/choice`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ choice: { kind: 'title', titleId: nasTitleId(title), season, disc: null } }),
+      });
+      if (!res.ok) {
+        const why = await errorOfBody(res);
+        await nas.refreshAfterChoice(client, [...new Set([found.titleId, nasTitleId(title)].filter((t): t is string => t !== null))]);
+        return { nasChoice: 'failed', message: why ?? `the NAS answered ${res.status}` };
+      }
+      await res.body?.cancel();
     }
-    await res.body?.cancel();
     await nas.refreshAfterChoice(client, [...new Set([found.titleId, nasTitleId(title)].filter((t): t is string => t !== null))]);
     return { nasChoice: 'saved' };
   } catch (e) {

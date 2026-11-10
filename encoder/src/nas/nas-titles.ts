@@ -127,6 +127,8 @@ export interface ShowAnswer {
 export interface DiscMatch {
   /** The NAS's id of the disc as the encoder mirrors it (what `admin/discs/<id>/choice` takes). */
   readonly discId: string;
+  /** Every NAS disc id the encoder's mirror holds for this disc key (copies of one disc). */
+  readonly discIds: readonly string[];
   /** The title the NAS files the disc under (its season's title); null for a disc in Unsorted, or a season whose title is not known yet. */
   readonly title: EncodeTitle | null;
   /** The NAS's id of the show the disc is filed under; null for a disc in Unsorted. */
@@ -344,25 +346,38 @@ export class NasTitles {
    * the encoder mirrors no such disc. A disc no title lists is in Unsorted (`title` and `titleId` null). Rejects with
    * `NasError` when the NAS cannot be read and nothing is kept.
    */
-  async discMatch(client: NasClient, key: string): Promise<DiscMatch | null> {
+  async discMatch(client: NasClient, key: string, o: { fresh?: boolean } = {}): Promise<DiscMatch | null> {
     const mirror = await this.mirrorDiscs();
     const mine = [...mirror.values()].filter((d) => d.key === key);
     if (mine.length === 0) return null;
-    const { raw } = await this.fetch(client);
+    let { raw } = await this.fetch(client);
     if (raw === null) throw new NasError('unreachable', null, 'The NAS did not answer.');
     const ids = new Set(mine.map((d) => d.discId));
-    let found: DiscMatch | null = null;
-    for (const t of raw.titles) {
-      for (const s of raw.details[t.id]?.seasons ?? []) {
-        if (!s.discs.some((slot) => slot.copies.some((c) => ids.has(c.discId)))) continue;
-        const episodes = (s.episodes ?? [])
-          .filter((e) => ids.has(e.discId))
-          .map((e) => ({ playlistId: e.playlistId, number: e.number, name: e.name }))
-          .sort((a, b) => a.number - b.number);
-        if (found === null || (found.episodes.length === 0 && episodes.length > 0)) found = { discId: mine[0]!.discId, title: seasonTitle(s.id), titleId: t.id, episodes };
+    const discIds = [...ids];
+    const find = (r: Raw): DiscMatch => {
+      let found: DiscMatch | null = null;
+      for (const t of r.titles) {
+        for (const s of r.details[t.id]?.seasons ?? []) {
+          if (!s.discs.some((slot) => slot.copies.some((c) => ids.has(c.discId)))) continue;
+          const episodes = (s.episodes ?? [])
+            .filter((e) => ids.has(e.discId))
+            .map((e) => ({ playlistId: e.playlistId, number: e.number, name: e.name }))
+            .sort((a, b) => a.number - b.number);
+          if (found === null || (found.episodes.length === 0 && episodes.length > 0)) found = { discId: mine[0]!.discId, discIds, title: seasonTitle(s.id), titleId: t.id, episodes };
+        }
+      }
+      return found ?? { discId: mine[0]!.discId, discIds, title: null, titleId: null, episodes: [] };
+    };
+    let found = find(raw);
+    if (o.fresh === true && found.titleId !== null) {
+      // the title's own detail may be up to ten minutes old: read it now before deciding anything on it
+      const again = (await this.fetch(client, { only: found.titleId })).raw;
+      if (again !== null) {
+        raw = again;
+        found = find(raw);
       }
     }
-    return found ?? { discId: mine[0]!.discId, title: null, titleId: null, episodes: [] };
+    return found;
   }
 
   /** Reads the details of the NAS titles `titleIds` and Unsorted again, after the encoder changed where a disc is filed; never rejects. */
