@@ -104,7 +104,7 @@ describe('the Encodes tab', () => {
     show(fakeNas({ configured: true, count: 14, rootEmpty: true }, async () => list), true);
     expect(await screen.findByText('Not filed')).toBeTruthy();
     expect(screen.getByText('misc/Untagged 01.mkv')).toBeTruthy();
-    expect(screen.getByText(/carry no AniList tags/)).toBeTruthy();
+    expect(screen.getByText(/carry no title tags/)).toBeTruthy();
     expect(screen.getByText('The encodes folder is empty, but the library still lists earlier episodes.')).toBeTruthy();
   });
 

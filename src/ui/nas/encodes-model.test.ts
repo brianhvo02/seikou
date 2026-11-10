@@ -6,6 +6,8 @@ import {
 } from './encodes-model';
 import { NasHttpError } from './nas-client';
 
+const al = (anilistId: number) => ({ source: 'anilist' as const, anilistId });
+
 const SHOW: EncodeShow = {
   id: '100', name: 'Starfall Wanderer', poster: null,
   seasons: [
@@ -13,6 +15,15 @@ const SHOW: EncodeShow = {
     { title: { source: 'anilist' as const, anilistId: 103 }, anilistId: 103, name: 'Starfall Wanderer: Ember Road', kind: 'film', number: null, episodes: [{ episode: 1, id: '103-1', title: null, durationMs: 6_000_000 }] },
     { title: { source: 'anilist' as const, anilistId: 104 }, anilistId: 104, name: 'Starfall Wanderer Picture Drama', kind: 'other', number: null, episodes: [{ episode: 1, id: '104-1', title: null, durationMs: 300_000 }] },
     { title: { source: 'anilist' as const, anilistId: 101 }, anilistId: 101, name: 'Starfall Wanderer Season 2', kind: 'season', number: 2, episodes: [{ episode: 1, id: '101-1', title: null, durationMs: 1_440_000 }] },
+  ],
+};
+
+/** A made-up TMDB series with two seasons, and a film beside it. */
+const TV: EncodeShow = {
+  id: 'tv990101', name: 'Harbor Lights', poster: null,
+  seasons: [
+    { title: { source: 'tmdb-tv' as const, tmdbId: 990101, season: 1 }, anilistId: null, name: 'Harbor Lights', kind: 'season', number: 1, episodes: [{ episode: 1, id: 'tv990101s1-1', title: null, durationMs: 1 }, { episode: 2, id: 'tv990101s1-2', title: null, durationMs: 1 }] },
+    { title: { source: 'tmdb-tv' as const, tmdbId: 990101, season: 2 }, anilistId: null, name: 'Harbor Lights', kind: 'season', number: 2, episodes: [{ episode: 1, id: 'tv990101s2-1', title: null, durationMs: 1 }] },
   ],
 };
 
@@ -148,6 +159,16 @@ describe('the show screen', () => {
     expect(groups[2]!.sub).toBe('Film');
   });
 
+  it("keys a show's groups by their title, so rows of titles without an AniList id stay apart", () => {
+    expect(showGroups(SHOW).map((g) => g.key)).toEqual(['100', '101', '103', '104']);
+    const groups = showGroups(TV);
+    expect(groups.map((g) => g.key)).toEqual(['tv990101s1', 'tv990101s2']);
+    expect(groups.map((g) => g.heading)).toEqual(['Season 1', 'Season 2']);
+    // a NAS from before the row titles: the AniList id
+    const old = { ...SHOW, seasons: SHOW.seasons.map(({ title: _t, ...s }) => s) } as unknown as EncodeShow;
+    expect(showGroups(old).map((g) => g.key)).toEqual(['100', '101', '103', '104']);
+  });
+
   it('does not repeat a season named "Season N" under its heading', () => {
     const show: EncodeShow = { ...SHOW, seasons: [{ ...SHOW.seasons[3]!, name: 'Season 2' }] };
     expect(showGroups(show)[0]).toMatchObject({ heading: 'Season 2', sub: null });
@@ -181,6 +202,12 @@ describe('a show whose id changed', () => {
   it('is found again by an episode', () => {
     expect(showContaining([other, SHOW], { encodeId: '103-1' })).toBe('100');
   });
+  it('is found again by a title of any source', () => {
+    expect(showContaining([SHOW, TV], { title: { source: 'tmdb-tv', tmdbId: 990101, season: 2 } })).toBe('tv990101');
+    expect(showContaining([SHOW, TV], { title: { source: 'anilist', anilistId: 101 } })).toBe('100');
+    expect(showContaining([SHOW, TV], { title: { source: 'tmdb-tv', tmdbId: 990101, season: 3 } })).toBeNull();
+  });
+
   it('is not found when no show holds it', () => {
     expect(showContaining([other, SHOW], { anilistId: 999 })).toBeNull();
     expect(showContaining([], { anilistId: 100 })).toBeNull();
@@ -215,6 +242,36 @@ describe('the next episode', () => {
     expect(nextEpisode(show, '100-4')).toBeNull();
   });
 
+  it('goes on from a TMDB season to the next season', () => {
+    expect(nextEpisode(TV, 'tv990101s1-1')?.id).toBe('tv990101s1-2');
+    expect(nextEpisode(TV, 'tv990101s1-2')?.id).toBe('tv990101s2-1');
+    expect(nextEpisode(TV, 'tv990101s2-1')).toBeNull();
+  });
+
+  it("finds the show holding an encode of any title from the list's title parts, fetching only that show", async () => {
+    const asked: string[] = [];
+    const nas = {
+      encodeShow: async (id: string) => {
+        asked.push(id);
+        return id === '100' ? SHOW : id === 'tv990101' ? TV : null;
+      },
+      encodeShows: async () => ({
+        shows: [
+          { id: 'tv990101', name: 'Harbor Lights', poster: null, episodeCount: 3, anilistIds: [], titles: ['tv990101s1', 'tv990101s2'] },
+          { id: '100', name: 'Starfall Wanderer', poster: null, episodeCount: 5, anilistIds: [100, 103, 104, 101], titles: ['100', '103', '104', '101'] },
+        ],
+      }),
+    };
+    expect((await findEncodeShow(nas, { source: 'tmdb-tv', tmdbId: 990101, season: 2 }))?.id).toBe('tv990101');
+    expect(asked).toEqual(['tv990101']);
+    asked.length = 0;
+    expect((await findEncodeShow(nas, { source: 'anilist', anilistId: 101 }))?.id).toBe('100');
+    expect(asked).toEqual(['100']);
+    asked.length = 0;
+    expect(await findEncodeShow(nas, { source: 'tmdb-movie', tmdbId: 990102 })).toBeNull();
+    expect(asked).toEqual([]);
+  });
+
   it("finds the show holding an episode from the list's AniList ids, fetching only that show", async () => {
     const other: EncodeShow = { id: '300', name: 'Lantern Tide', poster: null, seasons: [] };
     const asked: string[] = [];
@@ -229,25 +286,31 @@ describe('the next episode', () => {
       },
       encodeShows: async () => ({ shows: listed }),
     };
-    expect((await findEncodeShow(nas, 101))?.id).toBe('100');
+    expect((await findEncodeShow(nas, al(101)))?.id).toBe('100');
     expect(asked).toEqual(['100']);
     asked.length = 0;
-    expect((await findEncodeShow(nas, 100))?.id).toBe('100');
+    expect((await findEncodeShow(nas, al(100)))?.id).toBe('100');
     expect(asked).toEqual(['100']);
     asked.length = 0;
-    expect(await findEncodeShow(nas, 999)).toBeNull();
+    expect(await findEncodeShow(nas, al(999))).toBeNull();
     expect(asked).toEqual([]);
+
+    // a NAS from before the title parts: AniList ids alone
+    listed = listed.map(({ titles: _titles, ...s }) => s) as typeof listed;
+    asked.length = 0;
+    expect((await findEncodeShow(nas, al(101)))?.id).toBe('100');
+    expect(asked).toEqual(['100']);
 
     // a NAS from before the ids: the show rooted at the entry, else each show in turn
     listed = listed.map(({ anilistIds: _ids, ...s }) => s) as typeof listed;
     asked.length = 0;
-    expect((await findEncodeShow(nas, 100))?.id).toBe('100');
+    expect((await findEncodeShow(nas, al(100)))?.id).toBe('100');
     expect(asked).toEqual(['100']);
     asked.length = 0;
-    expect((await findEncodeShow(nas, 101))?.id).toBe('100');
+    expect((await findEncodeShow(nas, al(101)))?.id).toBe('100');
     expect(asked).toEqual(['101', '300', '100']);
     asked.length = 0;
-    expect(await findEncodeShow(nas, 999)).toBeNull();
+    expect(await findEncodeShow(nas, al(999))).toBeNull();
     expect(asked).toEqual(['999', '300', '100']);
   });
 });

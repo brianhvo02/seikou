@@ -31,6 +31,12 @@ const ROUTES: NasRoute[] = [
   { kind: 'encodePlay', encodeId: '21-3', timeS: null, resume: false },
   { kind: 'encodePlay', encodeId: '21-3', timeS: 754, resume: true },
   { kind: 'encodePlay', encodeId: '21-3', timeS: 0, resume: false },
+  { kind: 'encodeShow', showId: 'tv990101' },
+  { kind: 'encodeShow', showId: 'mv990102' },
+  { kind: 'encodeShow', showId: 'own0f1e2d3c4b5a69788796a5b4c3d2e1f0' },
+  { kind: 'encodePlay', encodeId: 'tv990101s1-2', timeS: null, resume: false },
+  { kind: 'encodePlay', encodeId: 'mv990102-1', timeS: 754, resume: true },
+  { kind: 'encodePlay', encodeId: 'own0f1e2d3c4b5a69788796a5b4c3d2e1f0s2-4', timeS: null, resume: false },
 ];
 
 describe('nas route', () => {
@@ -59,6 +65,12 @@ describe('nas route', () => {
     expect(nasRoutePath({ kind: 'encodeShow', showId: '21' })).toBe('/nas/encodes/show/21');
     expect(nasRoutePath({ kind: 'encodePlay', encodeId: '21-3', timeS: null, resume: false })).toBe('/nas/encodes/play/21-3');
     expect(nasRoutePath({ kind: 'encodePlay', encodeId: '21-3', timeS: 60.7, resume: true })).toBe('/nas/encodes/play/21-3?t=60&resume=1');
+  });
+
+  it('takes encode ids and show ids of any title', () => {
+    expect(parseNasRoute(u('/nas/encodes/play/tv990101s1-2'))).toEqual({ kind: 'encodePlay', encodeId: 'tv990101s1-2', timeS: null, resume: false });
+    expect(parseNasRoute(u('/nas/encodes/show/own0f1e2d3c4b5a69788796a5b4c3d2e1f0'))).toEqual({ kind: 'encodeShow', showId: 'own0f1e2d3c4b5a69788796a5b4c3d2e1f0' });
+    expect(nasRoutePath({ kind: 'encodePlay', encodeId: 'tv990101s1-2', timeS: 60, resume: true })).toBe('/nas/encodes/play/tv990101s1-2?t=60&resume=1');
   });
 
   it('falls back to the encodes list for an unknown encodes path', () => {

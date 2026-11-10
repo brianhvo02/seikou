@@ -65,6 +65,32 @@ describe('the encodes show screen', () => {
     expect(history.push).toHaveBeenCalledWith({ kind: 'encodePlay', encodeId: '100-2', timeS: null, resume: false });
   });
 
+  it("lists a TMDB show's seasons by number with their episodes", async () => {
+    const tv: EncodeShow = {
+      id: 'tv990101', name: 'Harbor Lights', poster: null,
+      seasons: [
+        { title: { source: 'tmdb-tv' as const, tmdbId: 990101, season: 1 }, anilistId: null, name: 'Harbor Lights', kind: 'season', number: 1, episodes: [{ episode: 1, id: 'tv990101s1-1', title: 'Low Tide', durationMs: 1_440_000 }, { episode: 2, id: 'tv990101s1-2', title: null, durationMs: 1_440_000 }] },
+        { title: { source: 'tmdb-tv' as const, tmdbId: 990101, season: 2 }, anilistId: null, name: 'Harbor Lights', kind: 'season', number: 2, episodes: [{ episode: 1, id: 'tv990101s2-1', title: null, durationMs: 1_440_000 }] },
+      ],
+    };
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const nas = fakeNas({ encodeShow: vi.fn(async (id: string) => (id === 'tv990101' ? tv : null)), titleProgress: vi.fn(async () => ({ 'tv990101s1-1': { mkv: { timeUs: 720_000_000, durationUs: 1_440_000_000, finished: false } } })) });
+    const history = fakeHistory();
+    render(<EncodeShowScreen nas={nas} history={history} showId="tv990101" />);
+    const groups = await screen.findAllByTestId('encode-season');
+    expect(groups.map((g) => within(g).getByRole('heading').textContent)).toEqual(['Season 1', 'Season 2']);
+    expect(groups.map((g) => g.getAttribute('data-title'))).toEqual(['tv990101s1', 'tv990101s2']);
+    expect(groups.map((g) => g.getAttribute('data-anilist-id'))).toEqual([null, null]);
+    expect(within(groups[0]!).getAllByTestId('episode-row').map((r) => r.getAttribute('data-encode-id'))).toEqual(['tv990101s1-1', 'tv990101s1-2']);
+    expect(within(groups[1]!).getAllByTestId('episode-row').map((r) => r.getAttribute('data-encode-id'))).toEqual(['tv990101s2-1']);
+    await waitFor(() => expect(nas.titleProgress).toHaveBeenCalledWith('tv990101', { library: 'encodes' }));
+    fireEvent.click(await screen.findByTestId('episode-resume'));
+    expect(history.push).toHaveBeenCalledWith({ kind: 'encodePlay', encodeId: 'tv990101s1-1', timeS: 720, resume: true });
+    // the two rows have no AniList id, and React saw no duplicate keys
+    expect(errors.mock.calls.filter((c) => String(c[0]).includes('same key'))).toEqual([]);
+    errors.mockRestore();
+  });
+
   it('follows a show whose id changed to the show holding it', async () => {
     const moved: EncodeShow = { ...SHOW, id: '90', seasons: [{ title: { source: 'anilist' as const, anilistId: 90 }, anilistId: 90, name: 'Starfall Wanderer Zero', kind: 'season', number: 1, episodes: [] }, ...SHOW.seasons] };
     const nas = fakeNas({

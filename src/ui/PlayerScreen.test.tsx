@@ -152,6 +152,25 @@ describe('the player for an encoded episode', () => {
     expect(t.places.finishNow).toHaveBeenCalledTimes(1);
   });
 
+  it('Next episode goes on from a TMDB season to the next season', async () => {
+    const tv: EncodeShow = {
+      id: 'tv990101', name: 'Harbor Lights', poster: null,
+      seasons: [
+        { title: { source: 'tmdb-tv' as const, tmdbId: 990101, season: 1 }, anilistId: null, name: 'Harbor Lights', kind: 'season', number: 1, episodes: [{ episode: 1, id: 'tv990101s1-1', title: null, durationMs: 1 }, { episode: 2, id: 'tv990101s1-2', title: null, durationMs: 1 }] },
+        { title: { source: 'tmdb-tv' as const, tmdbId: 990101, season: 2 }, anilistId: null, name: 'Harbor Lights', kind: 'season', number: 2, episodes: [{ episode: 1, id: 'tv990101s2-1', title: null, durationMs: 1 }] },
+      ],
+    };
+    const t = setup(snapshotAt('tv990101s1-2', 1310 * S), {
+      encodeShow: vi.fn(async (id: string) => (id === 'tv990101' ? tv : null)),
+      encodeShows: vi.fn(async () => ({ shows: [{ id: 'tv990101', name: 'Harbor Lights', poster: null, episodeCount: 3, anilistIds: [], titles: ['tv990101s1', 'tv990101s2'] }] })),
+    });
+    fireEvent.click(await screen.findByTestId('next-episode'));
+    await waitFor(() => expect(t.controller.openEncode).toHaveBeenCalled());
+    expect(vi.mocked(t.controller.openEncode).mock.calls[0]![0]).toMatchObject({ encodeId: 'tv990101s2-1' });
+    expect(t.places.begin).toHaveBeenCalledWith(expect.objectContaining({ discKey: 'e.tv990101s2.1', encode: true }), expect.anything());
+    expect(t.history.replace).toHaveBeenCalledWith({ kind: 'encodePlay', encodeId: 'tv990101s2-1', timeS: null, resume: false });
+  });
+
   it("offers no Next episode at the show's last episode", async () => {
     const t = setup(snapshotAt('100-2', 1310 * S));
     await waitFor(() => expect(t.nas.encodeShow).toHaveBeenCalled());

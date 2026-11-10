@@ -97,7 +97,7 @@ function EmptyShelf({ title, text, help, history }: { title: string; text: strin
   );
 }
 
-/** The Encodes tab: the owner's encoded episodes by AniList show, with their own Continue watching row. */
+/** The Encodes tab: the owner's encoded episodes by show (AniList, TMDB or own title), with their own Continue watching row. */
 export function EncodesLibrary({ nas, history, owner, route, onClose, player }: EncodesLibraryProps): ReactElement {
   if (route.kind === 'encodeShow') return <EncodeShowScreen nas={nas} history={history} showId={route.showId} />;
   if (route.kind === 'encodePlay') {

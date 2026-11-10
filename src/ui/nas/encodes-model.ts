@@ -7,6 +7,7 @@ import type { ContinueItem, EncodeEpisode, EncodeSeason, EncodeShow, EncodeShowS
 import { ENCODE_PLAYLIST } from '@seikou/nas/place-key';
 import { isShortPlace } from '@seikou/nas/place-rules';
 import { normalizeTitle } from '@seikou/nas/title-text';
+import { titlePart, type EncodeTitle } from '@seikou/nas/encode-title';
 import { NasHttpError, type NasClient } from './nas-client';
 import type { NasRoute } from './nas-route';
 import { progressPercent } from './resume-model';
@@ -19,7 +20,7 @@ export const INDEXING_COPY = 'Indexing the encodes…';
 /** The heading of an owner's empty states. */
 export const NO_ENCODES_YET = 'No encodes yet';
 /** The line above the owner's list of files that couldn't be filed. */
-export const UNFILED_COPY = 'These MKVs carry no AniList tags, so the library can’t place them under a show.';
+export const UNFILED_COPY = 'These MKVs carry no title tags (an AniList, TMDB or own title), so the library can’t place them under a show.';
 
 export type EncodesEmpty =
   /** An owner, and the NAS has no encodes folder. */
@@ -113,6 +114,7 @@ export function continueRoute(item: ContinueItem): Extract<NasRoute, { kind: 'en
 
 /** One group of a show's screen: a season, a film, or another entry. */
 export interface ShowGroup {
+  /** The row's title part (`titlePart`): unique within a show, whatever the source. */
   readonly key: string;
   readonly kind: EncodeSeason['kind'];
   readonly heading: string;
@@ -132,7 +134,9 @@ export function showGroups(show: EncodeShow): ShowGroup[] {
       const numbered = season.kind === 'season' && season.number !== null;
       const heading = numbered ? `Season ${season.number}` : season.name;
       const sub = season.kind === 'film' ? 'Film' : numbered && season.name !== show.name && season.name !== heading ? season.name : null;
-      return { key: String(season.anilistId), kind: season.kind, heading, sub, season };
+      // a row from a NAS before titles beyond AniList has only its AniList id, which is its title part too
+      const title = season.title as EncodeTitle | undefined;
+      return { key: title ? titlePart(title) : String(season.anilistId), kind: season.kind, heading, sub, season };
     });
 }
 
@@ -154,18 +158,62 @@ export function episodeMark(progress: EncodeProgress | null, encodeId: string): 
   return { percent: progressPercent(p), finished: false, resumeUs: isShortPlace(p.timeUs, p.durationUs) ? null : p.timeUs };
 }
 
+/** Whether a show's row holds the encodes of `title` (a row from a NAS before titles beyond AniList has only its AniList id). */
+function rowHolds(season: EncodeSeason, title: EncodeTitle): boolean {
+  // a NAS from before the row titles leaves them out (the wire type says they are there)
+  const rowTitle = season.title as EncodeTitle | undefined;
+  if (rowTitle) return titlePart(rowTitle) === titlePart(title);
+  return title.source === 'anilist' && season.anilistId === title.anilistId;
+}
+
 /**
  * A show id answered 404 (its AniList chain loaded and the show is rooted elsewhere now): the show among `shows` whose
- * seasons hold the AniList id or the episode it was reached by; null for none.
+ * seasons hold the title (or AniList id) or the episode it was reached by; null for none.
  */
-export function showContaining(shows: readonly EncodeShow[], from: { readonly anilistId?: number; readonly encodeId?: string }): string | null {
+export function showContaining(
+  shows: readonly EncodeShow[],
+  from: { readonly anilistId?: number; readonly title?: EncodeTitle; readonly encodeId?: string },
+): string | null {
   for (const show of shows) {
     for (const season of show.seasons) {
-      if (from.anilistId !== undefined && season.anilistId === from.anilistId) return show.id;
+      if (from.anilistId !== undefined && rowHolds(season, { source: 'anilist', anilistId: from.anilistId })) return show.id;
+      if (from.title !== undefined && rowHolds(season, from.title)) return show.id;
       if (from.encodeId !== undefined && season.episodes.some((e) => e.id === from.encodeId)) return show.id;
     }
   }
   return null;
+}
+
+/**
+ * The show of the list that holds `title`, by the title parts the list names for each show (`titles`), or by its
+ * AniList ids (`anilistIds`) on a NAS from before the title parts, which lists AniList titles only: the show's id, null
+ * for none, undefined when the list names neither (a NAS from before both).
+ */
+export function listedShowOf(shows: readonly EncodeShowSummary[], title: EncodeTitle): string | null | undefined {
+  const part = titlePart(title);
+  // a NAS from before them leaves the fields out (the wire type says they are there)
+  const parts = (s: EncodeShowSummary): readonly string[] | undefined => s.titles as readonly string[] | undefined;
+  const ids = (s: EncodeShowSummary): readonly number[] | undefined => s.anilistIds as readonly number[] | undefined;
+  if (shows.some((s) => parts(s) !== undefined)) return shows.find((s) => parts(s)?.includes(part))?.id ?? null;
+  if (shows.some((s) => ids(s) !== undefined)) {
+    if (title.source !== 'anilist') return null;
+    return shows.find((s) => ids(s)?.includes(title.anilistId))?.id ?? null;
+  }
+  return undefined;
+}
+
+/** The id a show rooted at `title` has: an AniList entry's own id, `tv<n>`, `mv<n>` or `own<hex>` (an own title's seasons share it). */
+function rootShowId(title: EncodeTitle): string {
+  switch (title.source) {
+    case 'anilist':
+      return String(title.anilistId);
+    case 'tmdb-tv':
+      return `tv${title.tmdbId}`;
+    case 'tmdb-movie':
+      return `mv${title.tmdbId}`;
+    case 'own':
+      return `own${title.ownId.replaceAll('-', '')}`;
+  }
 }
 
 /** The episode after `encodeId` in its show, by the rule the NAS's Up next uses too (`nextInShow`). */
@@ -174,22 +222,20 @@ export function nextEpisode(show: EncodeShow, encodeId: string): EncodeEpisode |
 }
 
 /**
- * The show holding the episodes of AniList entry `anilistId`: the show list names each show's entries
- * (`anilistIds`), so only that show is fetched. A list without them (a NAS from before them) is walked instead: the
- * show rooted at the entry, then each show in turn until one holds it. Null for none.
+ * The show holding the encodes of `title` (an AniList entry, a TMDB season or film, an own title): the show list names
+ * each show's titles (`listedShowOf`), so only that show is fetched. A list naming neither (a NAS from before them) is
+ * walked instead: the show rooted at the title, then each show in turn until one holds it. Null for none.
  */
-export async function findEncodeShow(nas: Pick<NasClient, 'encodeShow' | 'encodeShows'>, anilistId: number): Promise<EncodeShow | null> {
-  const holds = (show: EncodeShow | null): show is EncodeShow => show !== null && show.seasons.some((s) => s.anilistId === anilistId);
+export async function findEncodeShow(nas: Pick<NasClient, 'encodeShow' | 'encodeShows'>, title: EncodeTitle): Promise<EncodeShow | null> {
+  const holds = (show: EncodeShow | null): show is EncodeShow => show !== null && show.seasons.some((s) => rowHolds(s, title));
   const { shows } = await nas.encodeShows();
-  // a NAS from before the ids leaves them out (the wire type says they are there)
-  const ids = (s: EncodeShowSummary): readonly number[] | undefined => s.anilistIds as readonly number[] | undefined;
-  if (shows.some((s) => ids(s) !== undefined)) {
-    const listed = shows.find((s) => ids(s)?.includes(anilistId));
-    if (!listed) return null;
-    const show = await nas.encodeShow(listed.id);
+  const listed = listedShowOf(shows, title);
+  if (listed !== undefined) {
+    if (listed === null) return null;
+    const show = await nas.encodeShow(listed);
     return holds(show) ? show : null;
   }
-  const root = String(anilistId);
+  const root = rootShowId(title);
   const own = await nas.encodeShow(root);
   if (holds(own)) return own;
   for (const summary of shows) {

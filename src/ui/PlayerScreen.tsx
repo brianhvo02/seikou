@@ -220,12 +220,11 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
   useEffect(() => {
     if (!nas || encodeId === null) return;
     const parsed = parseEncodeId(encodeId);
-    // only AniList encodes have shows the NAS can find for now
-    if (!parsed || parsed.title.source !== 'anilist') return;
-    const { anilistId } = parsed.title;
+    if (!parsed) return;
+    const { title } = parsed;
     let live = true;
     // asked again while the NAS is still indexing its encodes
-    const asking = untilIndexed(() => findEncodeShow(nas, anilistId));
+    const asking = untilIndexed(() => findEncodeShow(nas, title));
     asking.result.then(
       (show) => live && setNextOf({ encodeId, next: show ? nextEpisode(show, encodeId) : null, showName: show?.name ?? null }),
       (err: unknown) => {

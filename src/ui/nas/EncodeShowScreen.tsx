@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { useEffect, useRef, useState, type ReactElement } from 'react';
 import type { EncodeShow } from '@seikou/nas/nas-api';
-import { durationLabel, episodeMark, INDEXING_COPY, indexingRetryMs, showContaining, showGroups, untilIndexed, type EncodeProgress } from './encodes-model';
+import { durationLabel, episodeMark, INDEXING_COPY, indexingRetryMs, listedShowOf, showContaining, showGroups, untilIndexed, type EncodeProgress } from './encodes-model';
 import type { NasClient } from './nas-client';
 import type { NasHistory } from './nas-history';
 import type { NasRoute } from './nas-route';
@@ -25,21 +25,21 @@ const message = (err: unknown): string => (err instanceof Error ? err.message : 
 
 /**
  * A show whose id answered 404: its AniList chain loaded and it is rooted at another entry now (docs/known-issues.md).
- * The show list is read again and the show whose seasons hold the old id is the one, from the list's `anilistIds` (or,
- * from a NAS without them, by fetching its shows in turn); null for none. It stops asking once `live()` is false (the
- * screen left).
+ * The show list is read again and the show whose seasons hold the old id is the one, from the list's titles (or, from a
+ * NAS without them, by fetching its shows in turn); null for none. Only an AniList show moves: a TMDB or own title's
+ * show id (`tv<n>`, `mv<n>`, `own<hex>`) is its title's own and never changes. It stops asking once `live()` is false
+ * (the screen left).
  */
 async function findMoved(nas: Pick<NasClient, 'encodeShow' | 'encodeShows'>, showId: string, live: () => boolean): Promise<string | null> {
-  const anilistId = /^\d+$/.test(showId) ? Number(showId) : undefined;
-  if (anilistId === undefined) return null;
+  if (!/^\d+$/.test(showId)) return null;
+  const title = { source: 'anilist' as const, anilistId: Number(showId) };
   const { shows } = await nas.encodeShows();
-  // the list names each show's AniList entries; a NAS from before them leaves them out, and its shows are walked
-  const ids = (s: (typeof shows)[number]): readonly number[] | undefined => s.anilistIds as readonly number[] | undefined;
-  if (shows.some((s) => ids(s) !== undefined)) return shows.find((s) => ids(s)?.includes(anilistId))?.id ?? null;
+  const listed = listedShowOf(shows, title);
+  if (listed !== undefined) return listed;
   for (const s of shows.slice(0, RESOLVE_LIMIT)) {
     if (!live()) return null;
     const detail = await nas.encodeShow(s.id);
-    if (detail && showContaining([detail], { anilistId }) !== null) return detail.id;
+    if (detail && showContaining([detail], { title }) !== null) return detail.id;
   }
   return null;
 }
@@ -148,7 +148,7 @@ export function EncodeShowScreen({ nas, history, showId }: EncodeShowScreenProps
         </div>
       </header>
       {showGroups(show).map((g) => (
-        <section key={g.key} className="encode-season" data-testid="encode-season" data-anilist-id={g.key} data-kind={g.kind}>
+        <section key={g.key} className="encode-season" data-testid="encode-season" data-title={g.key} data-anilist-id={g.season.anilistId ?? undefined} data-kind={g.kind}>
           <div className="encode-season-head">
             <h3 className="title-section" lang={nameLang(g.heading)}>
               {g.heading}

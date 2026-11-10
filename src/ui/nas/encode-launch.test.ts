@@ -49,4 +49,12 @@ describe('launchEncode', () => {
     expect(f.controller.openEncode).toHaveBeenCalledTimes(1);
     expect(f.places.begin).toHaveBeenCalledTimes(1);
   });
+
+  it('saves the place of an encode of any title under its own key', async () => {
+    const f = fakes(async () => undefined);
+    expect(await launchEncode(f, 'tv990101s1-2')).toBe(true);
+    expect(vi.mocked(f.controller.openEncode).mock.calls[0]![0]).toMatchObject({ encodeId: 'tv990101s1-2' });
+    expect(f.places.begin).toHaveBeenCalledWith(expect.objectContaining({ discKey: 'e.tv990101s1.2', discId: 'tv990101s1-2', encode: true }), undefined);
+    expect(f.playingRoute.encodeId).toBe('tv990101s1-2');
+  });
 });

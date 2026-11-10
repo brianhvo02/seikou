@@ -15,9 +15,12 @@ export type NasRoute =
   | { kind: 'play'; discKey: string; playlistId: string | null; timeS: number | null; resume: boolean }
   /** The Encodes tab: the encoded episodes' shows, filtered by `q`. */
   | { kind: 'encodes'; q: string }
-  /** An encodes show, by its root AniList id (which can change once the chain has loaded: docs/known-issues.md). */
+  /**
+   * An encodes show: an AniList show by its root entry's id (which can change once the chain has loaded:
+   * docs/known-issues.md), else `tv<tmdbId>`, `mv<tmdbId>` or `own<32 hex>`.
+   */
   | { kind: 'encodeShow'; showId: string }
-  /** An encoded episode, `<anilistId>-<episode>`, from `timeS` when given; `resume` as for `play`. */
+  /** An encoded episode, `<titlePart>-<episode>` (`990001-3`, `tv990101s1-2`, `mv990102-1`, `own<hex>s2-4`), from `timeS` when given; `resume` as for `play`. */
   | { kind: 'encodePlay'; encodeId: string; timeS: number | null; resume: boolean };
 
 /** The Encodes tab's routes. */
