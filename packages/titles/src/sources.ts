@@ -36,7 +36,7 @@ export interface Entry {
 export interface MetadataSource {
   /** `urgent` and `signal` are for the owner's lookups: see `PacedOptions`. */
   search(query: string, opts?: { year?: number; kind?: 'series' | 'movie'; urgent?: boolean; signal?: AbortSignal }): Promise<Entry[]>;
-  entry(id: string): Promise<Entry | null>;
+  entry(id: string, opts?: { urgent?: boolean; signal?: AbortSignal }): Promise<Entry | null>;
 }
 
 /** Network errors, 429 after retries, 5xx. */

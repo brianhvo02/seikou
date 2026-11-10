@@ -46,10 +46,18 @@ const A = ev('media1/Anime/火斬りの剣/[BDMV][220629][火斬りの剣][Vol.1
 // a box of three unnumbered-by-name discs, listed out of order
 const BOX = ['media1/Misc/Quiet Harbor/Quiet Harbor Disc 3', 'media1/Misc/Quiet Harbor/Quiet Harbor Disc 1', 'media1/Misc/Quiet Harbor/Quiet Harbor Disc 2'].map((p, i) => ev(p, {}, `FB${i}`));
 const COPY = ev('media2/Downloads/Quiet.Harbor.D1', {}, 'FB1');
+// Tide Bell: an AniList series of two TV entries, a film and a lone TV entry, none of them on any disc
+const rel = (type: string, id: string, format: string, startDate: number) => ({ type, id, format, startDate });
+const TIDE_1 = entry('anilist:990301', { english: 'Tide Bell', romaji: 'Shiokane' }, { relations: [rel('SEQUEL', 'anilist:990302', 'TV', 20230401)] });
+const TIDE_2 = entry('anilist:990302', { english: 'Tide Bell Second', romaji: 'Shiokane Ni' }, { year: 2023, relations: [rel('PREQUEL', 'anilist:990301', 'TV', 20220401)] });
+const TIDE_FILM = entry('anilist:990303', { english: null, romaji: 'Shiokane Gekijouban' }, { format: 'MOVIE', relations: [rel('PREQUEL', 'anilist:990302', 'TV', 20230401)] });
+const LONE = entry('anilist:990304', { english: 'Lone Gull' });
+// a sequel whose prequel AniList doesn't give, so its season can't be counted
+const ORPHAN = entry('anilist:990305', { english: 'Gull Return' }, { relations: [rel('PREQUEL', 'anilist:990398', 'TV', 20210401)] });
 
 type SearchOpts = Parameters<MetadataSource['search']>[1];
 
-function fakeSource(results: Record<string, Entry[]>): MetadataSource & { down: boolean; hold: Promise<void> | null; searches: { query: string; opts: SearchOpts }[]; extra: Entry[] } {
+function fakeSource(results: Record<string, Entry[]>): MetadataSource & { down: boolean; hold: Promise<void> | null; searches: { query: string; opts: SearchOpts }[]; extra: Entry[]; entries: string[] } {
   const byKey = new Map(Object.entries(results).map(([q, es]) => [normalizeTitle(q), es]));
   const byId = new Map(Object.values(results).flat().map((en) => [en.id, en]));
   const src = {
@@ -57,6 +65,7 @@ function fakeSource(results: Record<string, Entry[]>): MetadataSource & { down: 
     hold: null as Promise<void> | null,
     searches: [] as { query: string; opts: SearchOpts }[],
     extra: [] as Entry[],
+    entries: [] as string[],
     async search(query: string, opts?: SearchOpts): Promise<Entry[]> {
       src.searches.push({ query, opts });
       if (src.hold) await src.hold;
@@ -64,6 +73,8 @@ function fakeSource(results: Record<string, Entry[]>): MetadataSource & { down: 
       return [...(byKey.get(normalizeTitle(query)) ?? []), ...(normalizeTitle(query) === 'many' ? src.extra : [])];
     },
     async entry(id: string): Promise<Entry | null> {
+      src.entries.push(id);
+      if (src.hold) await src.hold;
       if (src.down) throw new SourceUnavailable('down');
       return byId.get(id) ?? null;
     },
@@ -106,7 +117,7 @@ async function start(opts: { gate?: 'owners' | 'everyone'; lookupTimeoutMs?: num
   evidence = [A, ...BOX, COPY, ...(opts.more ?? [])];
   vi.spyOn(library, 'evidence').mockImplementation(() => evidence);
   owner = new OwnerStore(data);
-  anilist = fakeSource({ 火斬りの剣: [EMBER], 'Ember Blade': [EMBER] });
+  anilist = fakeSource({ 火斬りの剣: [EMBER], 'Ember Blade': [EMBER], 'Tide Bell': [TIDE_1, TIDE_2, TIDE_FILM, LONE, ORPHAN] });
   artFetch = vi.fn(async () => new Response(Buffer.from('PNGDATA'), { headers: { 'Content-Type': 'image/png' } }));
   service = new TitleService({
     library, owner, dataDir: data, anilist, tmdb: null, discdb: { lookup: () => null }, musicbrainz: null, discogs: null,
@@ -249,6 +260,7 @@ describe('owner title routes', () => {
       ['GET', '/api/admin/unsorted'],
       ['GET', '/api/admin/hidden'],
       ['GET', '/api/admin/lookup?q=x&source=own'],
+      ['GET', '/api/admin/anilist-place/990302'],
       ['PUT', `/api/admin/discs/${encodeURIComponent(A.discId)}/choice`, { choice: { kind: 'hidden' } }],
       ['DELETE', `/api/admin/discs/${encodeURIComponent(A.discId)}/choice`],
       ['PUT', `/api/admin/names/${encodeURIComponent(A.discId)}`, { name: 'x' }],
@@ -713,5 +725,107 @@ describe('final review', () => {
     expect((await send('PUT', `/api/admin/music/${id}`, t, { rejectMatch: false })).status).toBe(204);
     expect((await send('PUT', `/api/admin/music/${id}`, t, { artist: null })).status).toBe(204);
     expect(owner.snapshot().choices.has(discs[0]!.discId)).toBe(false);
+  });
+});
+
+describe('GET admin/anilist-place', () => {
+  const place = async (t: string, id: string | number): Promise<Response> => get(`/api/admin/anilist-place/${id}`, t);
+  const file = async (t: string, d: DiscEvidence, answer: { titleId: string; season: number | null }): Promise<void> => {
+    const res = await send('PUT', `/api/admin/discs/${encodeURIComponent(d.discId)}/choice`, t, { choice: { kind: 'title', titleId: answer.titleId, season: answer.season, disc: null } });
+    expect(res.status).toBe(204);
+  };
+  const detail = async (t: string, id: string): Promise<TitleDetail> => (await get(`/api/titles/${encodeURIComponent(id)}`, t)).json() as Promise<TitleDetail>;
+
+  it("answers a sequel's series and season though the NAS holds no disc of it, and a choice from it lists the disc there", async () => {
+    await start();
+    const t = await token(true);
+    expect(service.catalogue().titles.some((x) => x.id === 'anilist:990301')).toBe(false);
+    const res = await place(t, 990302);
+    expect(res.status).toBe(200);
+    const answer = (await res.json()) as { titleId: string; season: number | null; name: string };
+    expect(answer).toEqual({ titleId: 'anilist:990301', season: 2, name: 'Tide Bell Second' });
+    // both entries of the chain were fetched, urgent, ahead of matching
+    expect(new Set(anilist.entries)).toEqual(new Set(['anilist:990302', 'anilist:990301']));
+    await file(t, A, answer);
+    const shown = await detail(t, 'anilist:990301');
+    expect(shown.seasons.map((s) => [s.id, s.number, s.label])).toEqual([['anilist:990302#season', 2, 'Tide Bell Second']]);
+    expect(shown.seasons[0]!.discs.flatMap((d) => d.copies.map((c) => c.discId))).toEqual([A.discId]);
+    // and it stays there once matching has run again
+    await service.runNow();
+    expect((await detail(t, 'anilist:990301')).seasons.map((s) => s.id)).toEqual(['anilist:990302#season']);
+    expect(service.catalogue().unsorted.map((u) => u.discId)).not.toContain(A.discId);
+  });
+
+  it("answers a first season as its series' season 1, and asks AniList nothing for entries it holds", async () => {
+    await start();
+    const t = await token(true);
+    expect(await (await place(t, 990301)).json()).toEqual({ titleId: 'anilist:990301', season: 1, name: 'Tide Bell' });
+    anilist.entries.length = 0;
+    expect(await (await place(t, 990302)).json()).toEqual({ titleId: 'anilist:990301', season: 2, name: 'Tide Bell Second' });
+    expect(anilist.entries).toEqual([]);
+  });
+
+  it('answers a film as a title of its own with no season, and a lone TV entry as a series of one season', async () => {
+    await start();
+    const t = await token(true);
+    const film = (await (await place(t, 990303)).json()) as { titleId: string; season: number | null };
+    expect(film).toEqual({ titleId: 'anilist:990303', season: null, name: 'Shiokane Gekijouban' });
+    await file(t, A, film);
+    expect((await detail(t, 'anilist:990303')).seasons.flatMap((s) => s.discs.flatMap((d) => d.copies.map((c) => c.discId)))).toEqual([A.discId]);
+    const lone = (await (await place(t, 990304)).json()) as { titleId: string; season: number | null };
+    expect(lone).toEqual({ titleId: 'anilist:990304', season: 1, name: 'Lone Gull' });
+    await file(t, BOX[1]!, lone);
+    const shown = await detail(t, 'anilist:990304');
+    expect(shown.seasons.map((s) => [s.id, s.number])).toEqual([['anilist:990304#season', 1]]);
+    expect(shown.seasons[0]!.discs.flatMap((d) => d.copies.map((c) => c.discId))).toContain(BOX[1]!.discId);
+  });
+
+  it('answers 404 not-found for an entry AniList does not know, 400 for a malformed id and 409 no-season for an uncounted sequel', async () => {
+    await start();
+    const t = await token(true);
+    const res = await place(t, 990399);
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: 'not-found' });
+    for (const bad of ['abc', '0', '12345678901', '-1', 'anilist%3A990301']) expect((await place(t, bad)).status, bad).toBe(400);
+    const orphan = await place(t, 990305);
+    expect(orphan.status).toBe(409);
+    expect(await orphan.json()).toEqual({ error: 'no-season' });
+  });
+
+  it('answers 503 source-unreachable when AniList is down or slow, and shares the lookup limits', async () => {
+    await start({ lookupTimeoutMs: 50 });
+    const t = await token(true);
+    anilist.down = true;
+    const down = await place(t, 990302);
+    expect(down.status).toBe(503);
+    expect(await down.json()).toEqual({ error: 'source-unreachable' });
+    anilist.down = false;
+    anilist.hold = new Promise(() => {});
+    const slow = await place(t, 990302);
+    expect(slow.status).toBe(503);
+    expect(await slow.json()).toEqual({ error: 'source-unreachable' });
+    anilist.hold = null;
+    // the same device's lookups count: 2 so far plus 18 more is the minute's 20
+    for (let i = 0; i < 18; i++) expect((await get('/api/admin/lookup?q=Ember&source=anilist', t)).status, `lookup ${i}`).toBe(200);
+    const over = await place(t, 990302);
+    expect(over.status).toBe(429);
+    expect(await over.json()).toEqual({ error: 'too-many-lookups' });
+  });
+
+  it('answers lookup-busy while a lookup of the same device is in flight', async () => {
+    await start();
+    const t = await token(true);
+    anilist.searches.length = 0; // the start's matching run
+    let release!: () => void;
+    anilist.hold = new Promise((r) => (release = r));
+    const busy = get('/api/admin/lookup?q=Ember%20Blade&source=anilist', t);
+    await vi.waitFor(() => expect(anilist.searches).toHaveLength(1));
+    const second = await place(t, 990302);
+    expect(second.status).toBe(429);
+    expect(await second.json()).toEqual({ error: 'lookup-busy' });
+    release();
+    anilist.hold = null;
+    expect((await busy).status).toBe(200);
+    expect((await place(t, 990302)).status).toBe(200);
   });
 });

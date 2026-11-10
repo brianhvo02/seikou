@@ -129,10 +129,10 @@ export function createAniList(fetch: typeof globalThis.fetch, pacer: Pacer): Met
       const data = (await query(SEARCH, variables, { urgent: opts.urgent, signal: opts.signal })) as { Page?: { media?: readonly Media[] | null } | null } | null;
       return (data?.Page?.media ?? []).map(toEntry);
     },
-    async entry(id) {
+    async entry(id, opts = {}) {
       const m = /^anilist:(\d+)$/.exec(id);
       if (!m) return null;
-      const data = (await query(ENTRY, { id: Number(m[1]), type: 'ANIME' })) as { Media?: Media | null } | null;
+      const data = (await query(ENTRY, { id: Number(m[1]), type: 'ANIME' }, { urgent: opts.urgent, signal: opts.signal })) as { Media?: Media | null } | null;
       return data?.Media ? toEntry(data.Media) : null;
     },
   };

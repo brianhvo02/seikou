@@ -181,6 +181,7 @@ export function adminRoutes(auth: Auth, opts: AdminOptions): Handler {
     const route = `${req.method} ${collection ?? ''}${id === undefined ? '' : '/:id'}`;
     if (opts.titles) {
       if (route === 'GET lookup') return lookupRoute(url, device.id, opts.titles, lookups, opts.lookupTimeoutMs ?? LOOKUP_TIMEOUT_MS);
+      if (route === 'GET anilist-place/:id') return anilistPlaceRoute(id!, device.id, opts.titles, lookups, opts.lookupTimeoutMs ?? LOOKUP_TIMEOUT_MS);
       const answer = await titleAdminRoute(route, id === undefined ? undefined : decode(id), req, url, opts.library, opts.titles);
       if (answer) return answer;
     }
@@ -337,21 +338,45 @@ async function lookupRoute(url: URL, device: string, titles: TitleLibrary, limit
   const source = url.searchParams.get('source');
   if (q.length < 1 || q.length > MAX_QUERY || (source !== 'anilist' && source !== 'tmdb' && source !== 'own')) throw new HttpError(400, 'bad query');
   // own titles are searched locally, so they are not limited
-  const limited = source !== 'own';
-  const refused = limited ? limiter.start(device) : null;
+  if (source === 'own') return json(200, { titles: await titles.service.lookup(q, source) });
+  return limitedLookup(device, limiter, timeoutMs, async (signal) => json(200, { titles: await titles.service.lookup(q, source, signal) }));
+}
+
+/**
+ * Runs an owner's lookup under the device's limits (`limiter`), aborting its signal and answering 503
+ * `source-unreachable` after `timeoutMs`, or when the source is down.
+ */
+async function limitedLookup(device: string, limiter: LookupLimiter, timeoutMs: number, work: (signal: AbortSignal) => Promise<Response>): Promise<Response> {
+  const refused = limiter.start(device);
   if (refused) return refused;
   const abort = new AbortController();
   const timer = setTimeout(() => abort.abort(new SourceUnavailable(`lookup took over ${timeoutMs} ms`)), timeoutMs);
   try {
     const timedOut = new Promise<never>((_, reject) => abort.signal.addEventListener('abort', () => reject(abort.signal.reason as Error), { once: true }));
-    return json(200, { titles: await Promise.race([titles.service.lookup(q, source, abort.signal), timedOut]) });
+    return await Promise.race([work(abort.signal), timedOut]);
   } catch (err) {
     if (err instanceof SourceUnavailable) return json(503, { error: 'source-unreachable' });
     throw err;
   } finally {
     clearTimeout(timer);
-    if (limited) limiter.done(device);
+    limiter.done(device);
   }
+}
+
+/**
+ * `GET admin/anilist-place/<anilistId>`: where an owner's choice files a disc under that AniList entry, even when the
+ * NAS holds no disc of it (`TitleService.anilistPlace`), under the lookups' limits. 404 `not-found` for an entry AniList
+ * doesn't know, 409 `no-season` for a TV entry whose chain gives it no season number.
+ */
+async function anilistPlaceRoute(rawId: string, device: string, titles: TitleLibrary, limiter: LookupLimiter, timeoutMs: number): Promise<Response> {
+  const n = /^[1-9]\d{0,9}$/.test(rawId) ? Number(rawId) : NaN;
+  if (!Number.isSafeInteger(n) || n > 2 ** 31 - 1) throw new HttpError(400, 'bad id');
+  return limitedLookup(device, limiter, timeoutMs, async (signal) => {
+    const place = await titles.service.anilistPlace(n, signal);
+    if (place === 'not-found') return json(404, { error: 'not-found' });
+    if (place === 'no-season') return json(409, { error: 'no-season' });
+    return json(200, place);
+  });
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);

@@ -106,6 +106,13 @@ export type OwnerChoice =
   | { readonly kind: 'music'; readonly name: string | null; readonly artist?: string | null; readonly rejectMatch?: boolean }
   | { readonly kind: 'extras'; readonly titleId: string; readonly season: number | null }
   | { readonly kind: 'hidden' };
+/**
+ * `GET admin/anilist-place/<anilistId>`: where an owner's choice files a disc under that AniList entry, whether or not
+ * the NAS holds a disc of it. A TV entry in a chain is its series (`titleId`, as the catalogue keys it) and its season
+ * number in the chain; a film, OVA or other non-TV entry is a title of its own (`anilist:<id>`) with no season. `name`
+ * is what that season or title shows.
+ */
+export interface AnilistPlace { readonly titleId: string; readonly season: number | null; readonly name: string }
 export interface OwnTitle { readonly id: string; readonly kind: TitleKind; readonly name: string; readonly seasons: number | null }
 /**
  * A title suggested for an Unsorted disc, with the season the owner's Season field starts at (ruling F2): the matcher's

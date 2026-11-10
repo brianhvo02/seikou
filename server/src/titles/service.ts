@@ -7,7 +7,7 @@
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { TitleSummary } from '@seikou/nas/nas-api';
+import type { AnilistPlace, TitleSummary } from '@seikou/nas/nas-api';
 import { nasTitleId } from '@seikou/nas/encode-title';
 import type { EncodeTitle } from '@seikou/nas/encode-title';
 import type { EncodeNames } from '@seikou/titles/encode-catalogue';
@@ -16,7 +16,7 @@ import { isCode, replaceAtomically } from '@seikou/titles/atomic-json';
 import type { LibraryRoot } from '../config';
 import type { Library } from '../library';
 import type { ArtCache } from '@seikou/titles/art';
-import { artIdOf, buildCatalogue, byDiscPath, musicGroupOf } from '@seikou/titles/catalogue';
+import { anilistSeries, artIdOf, buildCatalogue, byDiscPath, isAnilistTv, musicGroupOf } from '@seikou/titles/catalogue';
 import type { Catalogue, FolderCover } from '@seikou/titles/catalogue';
 import { loadDiscDb } from '@seikou/titles/discdb';
 import type { DiscDbHit } from '@seikou/titles/discdb';
@@ -319,6 +319,75 @@ export class TitleService {
         year: en.year, seasons: en.seasons.length, discs: 0, addedAt: 0, own: false,
       };
     });
+  }
+
+  /**
+   * Where an owner's choice files a disc under AniList entry `anilistId` (`GET admin/anilist-place`), whether or not a
+   * disc of it is filed: a TV entry is its series, by the id the catalogue keys the series by, and its place in the chain
+   * (the same numbering the catalogue gives it, falling back to the matcher's season as the catalogue does); any other
+   * entry is a title of its own with no season. The entry and its TV PREQUEL/SEQUEL chain (at most 30, as a run walks
+   * it) come from what is held, else from AniList, urgent and abortable like the owner's lookups; what is fetched is
+   * kept with the filed entries, so a choice made from the answer files the disc there at once. `not-found` when
+   * AniList doesn't know the entry; `no-season` when its chain gives it no season number (a prequel AniList didn't give,
+   * or a branch) and no match filed it with one. A source that is down throws
+   * `SourceUnavailable`.
+   */
+  async anilistPlace(anilistId: number, signal?: AbortSignal): Promise<AnilistPlace | 'not-found' | 'no-season'> {
+    const src = this.opts.anilist;
+    const now = this.now();
+    const fetched = new Map<string, Entry>();
+    const get = async (id: string): Promise<Entry | null> => {
+      const known = this.knownEntry(id) ?? fetched.get(id);
+      if (known) return known;
+      const en = await src.entry(id, { urgent: true, signal });
+      if (en) fetched.set(id, en);
+      return en;
+    };
+    const start = await get(`anilist:${anilistId}`);
+    if (!start) return 'not-found';
+    const named = (en: Entry): string | null => en.names.english ?? en.names.romaji;
+    if (!isAnilistTv(start)) {
+      this.keepFetched(fetched, now);
+      return { titleId: start.id, season: null, name: named(start) ?? start.names.native ?? start.id };
+    }
+    const chain = new Map<string, Entry>();
+    const queue = [start.id];
+    while (queue.length > 0 && chain.size < MAX_CHAIN_ENTRIES) {
+      const id = queue.shift()!;
+      if (chain.has(id)) continue;
+      const en = await get(id);
+      if (!en) continue;
+      chain.set(id, en);
+      for (const r of en.relations) {
+        if ((r.type === 'PREQUEL' || r.type === 'SEQUEL') && TV_FORMATS.has(r.format ?? '') && !chain.has(r.id)) queue.push(r.id);
+      }
+    }
+    this.keepFetched(fetched, now);
+    // the series as the catalogue will build it: over the filed entries with this chain among them
+    const entries = new Map([...this.entries].map(([id, d]) => [id, d.value]));
+    for (const [id, en] of chain) if (!entries.has(id)) entries.set(id, en);
+    const series = anilistSeries(entries).get(start.id)!;
+    let season = series.number.get(start.id) ?? null;
+    if (season === null) {
+      for (const m of this.matches.values()) {
+        if (m.status === 'filed' && m.entryId === start.id && m.season !== null) {
+          season = m.season;
+          break;
+        }
+      }
+    }
+    if (season === null) return 'no-season';
+    return { titleId: series.id, season, name: named(start) ?? `Season ${season}` };
+  }
+
+  /** Keeps entries `anilistPlace` fetched with the filed entries and in the matcher's cache, so the next run needs no lookup. */
+  private keepFetched(fetched: ReadonlyMap<string, Entry>, now: number): void {
+    if (fetched.size === 0) return;
+    for (const [id, en] of fetched) {
+      if (!this.entries.has(id)) this.entries.set(id, { at: now, value: en });
+      this.cache.set(`anilist-entry:${id}`, { at: now, value: [en] });
+    }
+    this.save();
   }
 
   /** The source URLs of a lookup result's poster, by art id, or null; a hit counts as a use. */
