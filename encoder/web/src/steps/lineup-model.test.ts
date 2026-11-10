@@ -1,8 +1,15 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { clock, describeAlignment, firstDialogueMs, formatNudge, nextEpisode, nudgeForKey, previewTiming, previousEpisode } from './lineup-model';
+import { clock, describeAlignment, firstDialogueMs, formatNudge, nextEpisode, nudgeForKey, previewTiming, previousEpisode, sessionKey } from './lineup-model';
 
 describe('lineup-model', () => {
+  it('names a session by its disc, playlist and episode list', () => {
+    const a = { discKey: 'f.abc', playlistId: '00000', episodeSpec: '1-3,4-5' };
+    expect(sessionKey(a)).toBe(sessionKey({ ...a }));
+    expect(sessionKey(a)).not.toBe(sessionKey({ ...a, discKey: 'f.def' }));
+    expect(sessionKey(a)).not.toBe(sessionKey({ ...a, episodeSpec: '1-2' }));
+  });
+
   it('says what lining up found', () => {
     expect(describeAlignment({ kind: 'offset', offsetMs: 1200, confidence: 0.9 })).toBe('Shifted +1.20 s, confident');
     expect(describeAlignment({ kind: 'offset', offsetMs: -840, confidence: 0.9 })).toBe('Shifted −0.84 s, confident');

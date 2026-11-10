@@ -110,6 +110,13 @@ test('pick a show and a release, match, line up, nudge, name a track, save and r
   const alignAsked = page.waitForRequest((r) => new URL(r.url()).pathname === `${api}/episodes/1/align`);
   const subtitleAsked = page.waitForRequest((r) => new URL(r.url()).pathname === `${api}/episodes/1/subtitle`, { timeout: 120_000 });
   await page.getByRole('button', { name: 'Next' }).click();
+  // asked once for the session, before anything is lined up
+  if (session.toolsReady) {
+    const question = page.getByRole('alertdialog', { name: "Line up the subtitles against the disc's audio?" });
+    await expect(question.getByRole('button', { name: 'Line up', exact: true })).toBeFocused();
+    await question.getByRole('button', { name: 'Line up', exact: true }).click();
+    await expect(question).toHaveCount(0);
+  }
   expect((await alignAsked).postDataJSON()).toMatchObject({ release: 'tosho-7002' });
 
   // Step 3, episode 1: lined up, playing, nudged a frame later
@@ -178,6 +185,13 @@ test('pick a show and a release, match, line up, nudge, name a track, save and r
   await expect(details.getByRole('textbox', { name: 'Name of subtitle track 1' })).toHaveValue('Harbor dialogue');
   await details.getByRole('button', { name: 'Close details' }).click();
   await page.getByRole('navigation', { name: 'Steps' }).getByRole('button', { name: /Line up/ }).click();
+  // the reload asks again: step 3 opens on episode 2, which was saved with no timing and would be lined up again
+  if (session.toolsReady) {
+    const question = page.getByRole('alertdialog', { name: "Line up the subtitles against the disc's audio?" });
+    await question.getByRole('button', { name: "Use the release's timing" }).click();
+    await expect(question).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Line up this episode' })).toBeVisible();
+  }
   await lineUpEpisode(page, 1).click();
   await expect(nudgeValue(page)).toHaveText('+0.042 s');
   await page.getByRole('navigation', { name: 'Steps' }).getByRole('button', { name: /Episodes/ }).click();

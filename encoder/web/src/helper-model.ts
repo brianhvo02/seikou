@@ -87,9 +87,18 @@ export interface HelperState {
   readonly metadata: MetadataDraft;
   /** Whether anything changed since the last save or restore. */
   readonly dirty: boolean;
+  /**
+   * The answer to step 3's question, whether to line the episodes up against the disc's audio or use the release's
+   * own timing, for the session `session` names (`sessionKey`); null until it is answered. It lives on the page only:
+   * it is not saved in the record, a restore keeps it, and another session or a reload asks again.
+   */
+  readonly lineUpChoice: { readonly session: string; readonly choice: LineUpChoice } | null;
 }
 
-/** What can happen to the state. Every action but `goTo`, `load`, `saved` and `fillDefaults` marks the state dirty. */
+/** Step 3's question answered: line every episode up against the disc's audio, or use the release's own timing. */
+export type LineUpChoice = 'line-up' | 'original';
+
+/** What can happen to the state. Every action but `goTo`, `load`, `saved`, `fillDefaults` and `chooseLineUp` marks the state dirty. */
 export type HelperAction =
   /** Moves to a step, when `canEnter` allows it. */
   | { readonly type: 'goTo'; readonly step: Step }
@@ -156,8 +165,10 @@ export type HelperAction =
    * (`mergeDefaults`). Filling defaults is not a change the user made, so it leaves `dirty` as it is.
    */
   | { readonly type: 'fillDefaults'; readonly defaults: MetadataDraft }
-  /** Replaces the whole state, such as one restored by `fromRecord`. */
+  /** Replaces the whole state, such as one restored by `fromRecord`; the answer to step 3's question is kept. */
   | { readonly type: 'load'; readonly state: HelperState }
+  /** Notes the answer to step 3's question for the session `session` names. Not saved, so not dirty. */
+  | { readonly type: 'chooseLineUp'; readonly session: string; readonly choice: LineUpChoice }
   /** Notes a successful save: the state is no longer dirty. */
   | { readonly type: 'saved' };
 
@@ -172,6 +183,7 @@ export function initialState(): HelperState {
     timing: {},
     metadata: { episodes: {}, edited: new Set() },
     dirty: false,
+    lineUpChoice: null,
   };
 }
 
@@ -347,7 +359,9 @@ function apply(state: HelperState, action: HelperAction): HelperState {
     case 'goTo':
       return canEnter(state, action.step) ? { ...state, step: action.step } : state;
     case 'load':
-      return action.state;
+      return { ...action.state, lineUpChoice: state.lineUpChoice };
+    case 'chooseLineUp':
+      return { ...state, lineUpChoice: { session: action.session, choice: action.choice } };
     case 'saved':
       return { ...state, dirty: false };
     case 'setTitle': {
@@ -409,7 +423,7 @@ function apply(state: HelperState, action: HelperAction): HelperState {
  */
 export function reduce(state: HelperState, action: HelperAction): HelperState {
   let next = apply(state, action);
-  const quiet = action.type === 'goTo' || action.type === 'load' || action.type === 'saved' || action.type === 'fillDefaults';
+  const quiet = action.type === 'goTo' || action.type === 'load' || action.type === 'saved' || action.type === 'fillDefaults' || action.type === 'chooseLineUp';
   if (!quiet && next !== state) next = { ...next, dirty: true };
   while (next.step > 1 && !canEnter(next, next.step)) next = { ...next, step: (next.step - 1) as Step };
   return next;

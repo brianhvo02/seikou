@@ -296,6 +296,13 @@ describe('reduce', () => {
   it('refuses a step it cannot enter', () => {
     expect(reduce(initialState(), { type: 'goTo', step: 3 }).step).toBe(1);
   });
+
+  it("step 3's answer is not dirty, and a restore keeps it", () => {
+    const answered = reduce({ ...withRelease(), dirty: false }, { type: 'chooseLineUp', session: 's1', choice: 'original' });
+    expect(answered.lineUpChoice).toEqual({ session: 's1', choice: 'original' });
+    expect(answered.dirty).toBe(false);
+    expect(reduce(answered, { type: 'load', state: initialState() }).lineUpChoice).toEqual({ session: 's1', choice: 'original' });
+  });
 });
 
 describe('the pool', () => {

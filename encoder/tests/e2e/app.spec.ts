@@ -103,6 +103,7 @@ test.describe.serial('the app', () => {
     await expect(page.getByRole('group', { name: 'Episode 1, Arrival' })).toBeVisible();
     await page.getByRole('button', { name: 'Next' }).click();
     test.skip(!session.toolsReady, NO_TOOLS);
+    await page.getByRole('alertdialog', { name: "Line up the subtitles against the disc's audio?" }).getByRole('button', { name: 'Line up', exact: true }).click();
     await expect(page.locator('.lineup-status')).toContainText(/Shifted|Could not line up/, { timeout: 120_000 });
     await page.getByRole('button', { name: 'Save for encoding' }).click();
     await expect(page.getByRole('status').filter({ hasText: /^Saved at/ })).toBeVisible();

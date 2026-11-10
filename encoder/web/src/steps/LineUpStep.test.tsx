@@ -9,6 +9,7 @@ import type { AlignAnswer, EpisodesAnswer, FansubAlignment, ReleaseAnswer, Sessi
 import { initialState, reduce, type HelperAction } from '../helper-model';
 import type { PlayerLike } from '../player/use-controller';
 import { LineUpStep } from './LineUpStep';
+import { sessionKey } from './lineup-model';
 
 const hit: TitleHit = { alId: 900101, title: 'Lantern Harbor', nativeTitle: null, year: 2021, format: 'TV', episodes: 2, poster: null };
 const release: ReleaseAnswer = {
@@ -133,26 +134,34 @@ function Harness({
   after = [],
   onAction,
   control,
+  lineUp = 'line-up',
+  info,
 }: {
   api: HelperApi;
   controller: PlayerLike;
   tools?: boolean;
+  /** The answer to the line-up question already given for the session; null when it has not been asked. */
+  lineUp?: 'line-up' | 'original' | null;
+  /** The session, when not the default one. */
+  info?: SessionInfo;
   after?: readonly HelperAction[];
   onAction?: (action: HelperAction) => void;
   /** Filled with the harness's dispatch, so a test can change the state while the step is on screen. */
   control?: { dispatch?: (action: HelperAction) => void };
 }) {
+  const sessionInfo = info ?? session(tools);
   const [state, dispatch] = useReducer(reduce, initialState(), (s) => {
     const withTitle = reduce(s, { type: 'setTitle', title: hit });
     const pooled = reduce(withTitle, { type: 'addRelease', release, from: 'tosho' });
-    return reduce(after.reduce(reduce, pooled), { type: 'goTo', step: 3 });
+    const answered = lineUp === null ? pooled : reduce(pooled, { type: 'chooseLineUp', session: sessionKey(session(tools)), choice: lineUp });
+    return reduce(after.reduce(reduce, answered), { type: 'goTo', step: 3 });
   });
   const send = (action: HelperAction) => {
     onAction?.(action);
     dispatch(action);
   };
   if (control) control.dispatch = dispatch;
-  return <LineUpStep api={api} state={state} dispatch={send} session={session(tools)} episodes={episodes} controller={controller} />;
+  return <LineUpStep api={api} state={state} dispatch={send} session={sessionInfo} episodes={episodes} controller={controller} />;
 }
 
 beforeEach(() => {
@@ -369,5 +378,88 @@ describe('LineUpStep', () => {
     act(() => control.dispatch!({ type: 'chooseFile', episode: 1, releaseKey: 'tosho-11', fileId: 'f1' }));
     await waitFor(() => expect(onAction).toHaveBeenCalledWith({ type: 'setTiming', episode: 1, alignment: { kind: 'offset', offsetMs: 1200, confidence: 0.92 } }));
     expect(api.align).toHaveBeenCalledTimes(1);
+  });
+
+  describe('the line-up question', () => {
+    const question = () => screen.queryByRole('alertdialog', { name: "Line up the subtitles against the disc's audio?" });
+
+    it('asks before anything is lined up or opened', async () => {
+      const api = fakeApi(async () => answer({ kind: 'offset', offsetMs: 1200, confidence: 0.92 }));
+      const controller = fakeController();
+      render(<Harness api={api} controller={controller} lineUp={null} />);
+      const dialog = await screen.findByRole('alertdialog');
+      expect(question()).toBe(dialog);
+      expect(dialog.textContent).toMatch(/can take a while/);
+      expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Line up' }));
+      // Escape is not an answer
+      act(() => {
+        fireEvent.keyDown(window, { key: 'Escape' });
+      });
+      expect(question()).toBeTruthy();
+      expect(api.align).not.toHaveBeenCalled();
+      expect(controller.openRemote).not.toHaveBeenCalled();
+    });
+
+    it('Line up lines this episode up, and the next episode without asking again', async () => {
+      const api = fakeApi(async () => answer({ kind: 'offset', offsetMs: 1200, confidence: 0.92 }));
+      const controller = fakeController();
+      render(<Harness api={api} controller={controller} lineUp={null} />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Line up' }));
+      expect(await screen.findByText('Shifted +1.20 s, confident')).toBeTruthy();
+      expect(question()).toBeNull();
+      expect(api.align).toHaveBeenCalledWith(1, 'tosho-11', 'f1', expect.anything());
+      await waitFor(() => expect(controller.setSubtitleStart).toHaveBeenCalledWith(0, 0));
+      fireEvent.click(screen.getByRole('button', { name: 'Accept, next episode' }));
+      await waitFor(() => expect(api.align).toHaveBeenCalledWith(2, 'tosho-11', 'f2', expect.anything()));
+      expect(question()).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Line up this episode' })).toBeNull();
+    });
+
+    it("Use the release's timing lines nothing up, and Line up this episode lines up that episode alone", async () => {
+      const api = fakeApi(async () => answer({ kind: 'offset', offsetMs: 1200, confidence: 0.92 }));
+      const controller = fakeController();
+      render(<Harness api={api} controller={controller} lineUp={null} />);
+      fireEvent.click(await screen.findByRole('button', { name: "Use the release's timing" }));
+      expect(question()).toBeNull();
+      await waitFor(() => expect(controller.setSubtitleStart).toHaveBeenCalledWith(0, 0));
+      expect(api.subtitleUrl).toHaveBeenLastCalledWith(1, 'tosho-11', 'f1', '2', { kind: 'original' });
+      expect(screen.getByText("Using the release's own timing")).toBeTruthy();
+      fireEvent.click(screen.getByRole('button', { name: 'Accept, next episode' }));
+      await waitFor(() => expect(controller.setSubtitleStart).toHaveBeenCalledWith(0, 60_000_000));
+      expect(question()).toBeNull();
+      expect(api.subtitleUrl).toHaveBeenLastCalledWith(2, 'tosho-11', 'f2', '2', { kind: 'original' });
+      expect(api.align).not.toHaveBeenCalled();
+      // episode 2 alone, on request
+      fireEvent.click(screen.getByRole('button', { name: 'Line up this episode' }));
+      expect(await screen.findByText('Shifted +1.20 s, confident')).toBeTruthy();
+      expect(api.align).toHaveBeenCalledTimes(1);
+      expect(api.align).toHaveBeenCalledWith(2, 'tosho-11', 'f2', expect.anything());
+      await waitFor(() => expect(api.subtitleUrl).toHaveBeenLastCalledWith(2, 'tosho-11', 'f2', '2', { kind: 'offset', offsetMs: 1200, confidence: 0.92 }));
+      expect(screen.queryByRole('button', { name: 'Line up this episode' })).toBeNull();
+      // the session's answer stays: episode 1 is not lined up on going back
+      fireEvent.click(screen.getByRole('button', { name: 'Previous episode' }));
+      await waitFor(() => expect(controller.setSubtitleStart).toHaveBeenLastCalledWith(0, 0));
+      expect(api.align).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole('button', { name: 'Line up this episode' })).toBeTruthy();
+    });
+
+    it('is not asked when lining up cannot run here', async () => {
+      const api = fakeApi(async () => answer({ kind: 'offset', offsetMs: 1200, confidence: 0.92 }));
+      const controller = fakeController();
+      render(<Harness api={api} controller={controller} tools={false} lineUp={null} />);
+      expect(await screen.findByText(/needs VapourSynth with BestSource/)).toBeTruthy();
+      await waitFor(() => expect(controller.setSubtitleStart).toHaveBeenCalledWith(0, 0));
+      expect(question()).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Line up this episode' })).toBeNull();
+      expect(api.align).not.toHaveBeenCalled();
+    });
+
+    it('is asked again for another session', async () => {
+      const api = fakeApi(async () => answer({ kind: 'offset', offsetMs: 1200, confidence: 0.92 }));
+      const controller = fakeController();
+      render(<Harness api={api} controller={controller} lineUp="original" info={{ ...session(), discKey: 'f.def', label: 'HARBOR_2' }} />);
+      expect(await screen.findByRole('alertdialog')).toBe(question());
+      expect(api.align).not.toHaveBeenCalled();
+    });
   });
 });

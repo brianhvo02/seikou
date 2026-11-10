@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type Dispatch } from 'react';
 import { ApiError, type HelperApi } from '../api';
 import type { AlignAnswer, CachedRelease, EpisodesAnswer, FansubAlignment, FetchProgress, SessionInfo } from '../api-types';
-import { episodeFile, type HelperAction, type HelperState } from '../helper-model';
+import { episodeFile, type HelperAction, type HelperState, type LineUpChoice } from '../helper-model';
 import { Player } from '../player/Player';
 import { showAt, type PlayerLike } from '../player/use-controller';
 import { AlignmentStrip } from '../strip/AlignmentStrip';
@@ -21,6 +21,7 @@ import {
   nudgeForKey,
   previewTiming,
   firstDialogueMs,
+  sessionKey,
 } from './lineup-model';
 
 /** What step 3 needs. */
@@ -46,7 +47,6 @@ type LineUp =
   | { readonly status: 'tools-missing' }
   | { readonly status: 'failed'; readonly message: string };
 
-/** What the step says when lining up cannot run on this machine. */
 /** How often a running line-up is asked what it fetches from the NAS. */
 const FETCH_POLL_MS = 1000;
 
@@ -56,6 +56,7 @@ function megabytes(n: number): string {
   return mb < 10 ? mb.toFixed(1) : String(Math.round(mb));
 }
 
+/** What the step says when lining up cannot run on this machine. */
 const TOOLS_MESSAGE = "Lining up needs VapourSynth with BestSource, which this machine does not have. The preview uses the release's own timing.";
 
 /** Input types that take no typed text, so the nudge keys still work while one of them has focus. */
@@ -85,20 +86,72 @@ async function fetchFonts(api: HelperApi, release: CachedRelease): Promise<File[
   );
 }
 
+/**
+ * Step 3's question, asked once per session before the first line-up: line the episodes up against the disc's audio,
+ * or use the release's own timing. It must be answered: Escape and a click beside it do nothing, focus starts on Line
+ * up and Tab stays between the two buttons.
+ */
+function LineUpQuestion({ onAnswer }: { readonly onAnswer: (choice: LineUpChoice) => void }) {
+  const box = useRef<HTMLDivElement>(null);
+  const first = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    first.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        return;
+      }
+      if (e.key !== 'Tab' || box.current === null) return;
+      const buttons = [...box.current.querySelectorAll('button')];
+      if (buttons.length === 0) return;
+      const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
+      const next = at === -1 ? 0 : (at + (e.shiftKey ? buttons.length - 1 : 1)) % buttons.length;
+      e.preventDefault();
+      buttons[next]?.focus();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+  return (
+    <div className="question-backdrop">
+      <div ref={box} className="question" role="alertdialog" aria-modal="true" aria-labelledby="lineup-question-title" aria-describedby="lineup-question-text">
+        <h2 id="lineup-question-title">Line up the subtitles against the disc's audio?</h2>
+        <p id="lineup-question-text" className="muted">
+          Lining up finds where the release's subtitles fall against the disc's speech, one episode at a time. It can take a while, and for a disc
+          on the NAS each episode's clips are downloaded first.
+        </p>
+        <div className="question-actions">
+          <button ref={first} type="button" className="primary" onClick={() => onAnswer('line-up')}>
+            Line up
+          </button>
+          <button type="button" className="quiet" onClick={() => onAnswer('original')}>
+            Use the release's timing
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** The nudge as the engine can hold it: the file offset stays within ten minutes either way. */
 function clampNudge(ms: number): number {
   return Math.max(-MAX_NUDGE_MS, Math.min(MAX_NUDGE_MS, ms));
 }
 
 /**
- * Step 3, one episode at a time: lines the episode's track up against the disc's audio (the backend picks the track
- * with the most dialogue, and its timing applies to every track of the episode), says what it found, and plays the
+ * Step 3, one episode at a time. The first time an episode would be lined up in a helper session, a question asks
+ * whether to line up against the disc's audio or use the release's own timing (`LineUpQuestion`); nothing is lined up,
+ * fetched or opened until it is answered, and the answer covers the session's other episodes. With Line up, each
+ * episode's track is lined up against the disc's audio as it is shown (the backend picks the track
+ * with the most dialogue, and its timing applies to every track of the episode); with the release's timing, each
+ * episode previews at that timing and "Line up this episode" lines up that one alone. An episode whose timing is
+ * already there (restored from the record) is not a reason to ask. The step says what lining up found, and plays the
  * episode in Seikou's engine with the retimed track and the release's fonts. The nudge (`[` `]` by 42 ms, `{` `}` by
  * 10 ms, or the buttons) moves the subtitles live and slides the strip's lower lane. "Accept, next episode", "Use
  * original timing" and "Skip" settle the episode. Each episode uses the file and fonts of its own release
  * (`episodeFile`), so episodes from different releases line up and preview against their own. "Previous episode"
  * returns to the episode before in the list with its timing and nudge as they were, and "Back" goes to the Episodes
- * step. Without VapourSynth it previews at the release's own timing.
+ * step. Without VapourSynth it neither asks nor lines up, and previews at the release's own timing.
  */
 export function LineUpStep({ api, state, dispatch, session, episodes, controller }: LineUpStepProps) {
   const order = episodes.episodes.filter((e) => state.choices[e.index] !== undefined).map((e) => e.index);
@@ -116,6 +169,8 @@ export function LineUpStep({ api, state, dispatch, session, episodes, controller
   const [previewError, setPreviewError] = useState<string | null>(null);
   /** What the running line-up (by its key) fetches from the NAS, while it fetches. */
   const [fetching, setFetching] = useState<{ readonly key: string; readonly progress: FetchProgress } | null>(null);
+  /** The line-ups (by key) asked for with "Line up this episode". */
+  const [requested, setRequested] = useState<ReadonlySet<string>>(() => new Set());
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
 
   const settled = useRef(new Set<string>());
@@ -141,27 +196,35 @@ export function LineUpStep({ api, state, dispatch, session, episodes, controller
   const alignment: FansubAlignment | undefined = timing?.alignment ?? answer?.alignment;
   const fetchTiming = previewTiming(alignment);
   const nudgeMs = clampNudge(timing?.nudgeMs ?? 0);
-  const ready = hasTracks && (!session.toolsReady || (lineup !== undefined && lineup.status !== 'working'));
+  const asked = session.toolsReady && state.lineUpChoice?.session === sessionKey(session) ? state.lineUpChoice.choice : null;
+  // whether this episode's file is lined up: by the session's answer, or asked for this episode alone
+  const runs = session.toolsReady && hasTracks && (asked === 'line-up' || requested.has(lineKey));
+  // the question waits for an episode that would start a line-up: one with tracks, no timing yet, and none run
+  const asking = session.toolsReady && hasTracks && asked === null && timing === undefined && lineup === undefined && !settled.current.has(lineKey);
+  const ready = hasTracks && !asking && (!runs || (lineup !== undefined && lineup.status !== 'working'));
   const trackId = (shown !== null ? previewTracks[shown] : undefined) ?? (answer && chosen.some((t) => t.id === answer.trackId) ? answer.trackId : chosen[0]?.id);
   const loadKey = `${lineKey}:${trackId}:${JSON.stringify(fetchTiming)}`;
   const previewing = loaded === loadKey;
 
-  // Line the episode's file up once per episode, release and file. A timing already there (restored, or the release's
-  // own timing chosen by hand) is kept; the answer still feeds the strip. Choosing another file drops the episode's
-  // timing, so coming back to a file lined up before puts its answer back instead of asking again.
+  // Line the episode's file up once per episode, release and file, when the session's answer is Line up or the episode
+  // alone was asked for. With the session's answer a timing already there (restored, or the release's own timing chosen
+  // by hand) is kept, and the answer still feeds the strip; one asked for by hand replaces it. Choosing another file
+  // drops the episode's timing, so coming back to a file lined up before puts its answer back instead of asking again.
+  const byHand = requested.has(lineKey);
   useEffect(() => {
     if (!hasTracks || !session.toolsReady || shown === null || release === null || fileId === null) return;
     if (settled.current.has(lineKey)) {
       if (answer !== null && timingNow.current[shown] === undefined) dispatch({ type: 'setTiming', episode: shown, alignment: answer.alignment });
       return;
     }
+    if (asked !== 'line-up' && !byHand) return;
     const abort = new AbortController();
     setLineups((l) => ({ ...l, [lineKey]: { status: 'working' } }));
     api.align(shown, release.key, fileId, abort.signal).then(
       (found) => {
         settled.current.add(lineKey);
         setLineups((l) => ({ ...l, [lineKey]: { status: 'done', answer: found } }));
-        if (timingNow.current[shown] === undefined) dispatch({ type: 'setTiming', episode: shown, alignment: found.alignment });
+        if (byHand || timingNow.current[shown] === undefined) dispatch({ type: 'setTiming', episode: shown, alignment: found.alignment });
       },
       (e: unknown) => {
         if (abort.signal.aborted) return;
@@ -171,7 +234,7 @@ export function LineUpStep({ api, state, dispatch, session, episodes, controller
       },
     );
     return () => abort.abort();
-  }, [api, dispatch, hasTracks, session.toolsReady, shown, release, fileId, lineKey, answer]);
+  }, [api, dispatch, hasTracks, session.toolsReady, shown, release, fileId, lineKey, answer, asked, byHand]);
 
   // While a line-up runs, ask now and every second what it fetches from the NAS: a NAS disc's clips are fetched whole
   // before the audio is decoded, which can take minutes.
@@ -331,6 +394,15 @@ export function LineUpStep({ api, state, dispatch, session, episodes, controller
           <div className="lineup-status" role="status">
             {toolsMissing ? (
               <p className="muted">{TOOLS_MESSAGE}</p>
+            ) : asking ? (
+              <p className="muted">Choose how to time the subtitles.</p>
+            ) : lineup === undefined && !runs ? (
+              <div className="lineup-own">
+                <p className="lineup-result">{describeAlignment(alignment ?? { kind: 'original' })}</p>
+                <button type="button" className="quiet" onClick={() => setRequested((r) => new Set(r).add(lineKey))}>
+                  Line up this episode
+                </button>
+              </div>
             ) : lineup === undefined || lineup.status === 'working' ? (
               <p className="working">
                 <span className="spinner" aria-hidden="true" />
@@ -435,6 +507,7 @@ export function LineUpStep({ api, state, dispatch, session, episodes, controller
           </>
         )}
       </div>
+      {asking && <LineUpQuestion onAnswer={(c) => dispatch({ type: 'chooseLineUp', session: sessionKey(session), choice: c })} />}
       {hasTracks && allLinedUp(order, state.choices, state.timing) && (
         <p className="lineup-done" role="status" aria-label="Every episode is lined up">
           Every episode is lined up. Check Details, then Save for encoding.

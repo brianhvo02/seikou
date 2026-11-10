@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 /** Pure helpers of the line-up step: the words for a timing, time formats, and where an episode's preview starts. */
-import type { FansubAlignment } from '../api-types';
+import type { FansubAlignment, SessionInfo } from '../api-types';
 import type { EpisodeChoice, EpisodeTiming } from '../helper-model';
 
 /** A nudge step of the bracket keys and the coarse buttons: about one frame at 24 fps. */
@@ -146,4 +146,13 @@ export function nextEpisode(
 export function previousEpisode(order: readonly number[], from: number): number | null {
   const at = order.indexOf(from);
   return at > 0 ? order[at - 1]! : null;
+}
+
+/**
+ * The name step 3's question is answered under: the session's disc, playlist and episode list. The page's state is
+ * made afresh for each helper session (the helper route keys the page by its session id), so this tells apart only a
+ * session whose page state carries over to another disc or episode list.
+ */
+export function sessionKey(session: Pick<SessionInfo, 'discKey' | 'playlistId' | 'episodeSpec'>): string {
+  return `${session.discKey}/${session.playlistId}/${session.episodeSpec}`;
 }

@@ -41,7 +41,8 @@ function NotFound() {
 function HelperRoute({ token, sessionId }: { readonly token: string; readonly sessionId: string }) {
   const api = useMemo(() => createApi('', token, sessionId), [token, sessionId]);
   useDocumentTitle('Subtitle helper');
-  return <App api={api} />;
+  // keyed by the session, so another session starts from a fresh page state (and asks step 3's question again)
+  return <App key={sessionId} api={api} />;
 }
 
 /** The Episodes page with the page's engine, which is made only once this page is shown. */
