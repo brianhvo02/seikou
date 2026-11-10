@@ -39,6 +39,24 @@ export function titlePart(t: EncodeTitle): string {
   }
 }
 
+/**
+ * The id of the encodes show a title belongs to: `tv<tmdbId>` (a TMDB series' seasons share it), `mv<tmdbId>`, or
+ * `own<32 hex>` (an own title's seasons share it). Null for an AniList entry, whose show id is the root of its
+ * relation chain, which only the catalogue knows.
+ */
+export function showIdOfTitle(t: EncodeTitle): string | null {
+  switch (t.source) {
+    case 'anilist':
+      return null;
+    case 'tmdb-tv':
+      return `tv${t.tmdbId}`;
+    case 'tmdb-movie':
+      return `mv${t.tmdbId}`;
+    case 'own':
+      return `own${t.ownId.replaceAll('-', '')}`;
+  }
+}
+
 /** The title a title part names; null for anything that `titlePart` would not write. */
 export function parseTitlePart(s: string): EncodeTitle | null {
   if (ANILIST_PART.test(s)) return { source: 'anilist', anilistId: Number(s) };

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { nasTitleId, parseTitlePart, sameTitle, titleFromTags, titlePart, titleTags } from './encode-title';
+import { nasTitleId, parseTitlePart, sameTitle, showIdOfTitle, titleFromTags, titlePart, titleTags } from './encode-title';
 import type { EncodeTitle } from './encode-title';
 
 const UUID = '0f0e0d0c-0b0a-4908-8706-050403020100';
@@ -75,5 +75,23 @@ describe('encode titles', () => {
       { SEIKOU_TITLE: 'tmdb-show:5' },
     ];
     for (const tags of bad) expect(titleFromTags(tags), JSON.stringify(tags)).toBeNull();
+  });
+});
+
+describe('showIdOfTitle', () => {
+  it('is null for an AniList entry, whose show is its chain root', () => {
+    expect(showIdOfTitle({ source: 'anilist', anilistId: 990001 })).toBeNull();
+  });
+  it('is tv<n> for every season of a TMDB series', () => {
+    expect(showIdOfTitle({ source: 'tmdb-tv', tmdbId: 990101, season: 1 })).toBe('tv990101');
+    expect(showIdOfTitle({ source: 'tmdb-tv', tmdbId: 990101, season: 2 })).toBe('tv990101');
+  });
+  it('is mv<n> for a TMDB film', () => {
+    expect(showIdOfTitle({ source: 'tmdb-movie', tmdbId: 990201 })).toBe('mv990201');
+  });
+  it('is own<32 hex> for an own title, with or without a season', () => {
+    const ownId = '0f8fad5b-d9cb-469f-a165-70867728950e';
+    expect(showIdOfTitle({ source: 'own', ownId, season: 3 })).toBe('own0f8fad5bd9cb469fa16570867728950e');
+    expect(showIdOfTitle({ source: 'own', ownId, season: null })).toBe('own0f8fad5bd9cb469fa16570867728950e');
   });
 });

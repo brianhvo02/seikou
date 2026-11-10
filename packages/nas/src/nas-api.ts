@@ -153,7 +153,7 @@ export interface DiscPlaces { readonly defaults: PlaceSettings | null; readonly 
 export interface ContinueItem {
   readonly kind: 'resume' | 'up-next';
   readonly discKey: string; readonly discId: string; readonly playlistId: string;
-  /** The encoded episode, `<anilistId>-<episode>`; only on a card of the encodes list. */
+  /** The encoded episode, `<titlePart>-<episode>`; only on a card of the encodes list. */
   readonly encodeId?: string;
   readonly timeUs: number; readonly durationUs: number;
   readonly titleId: string | null; readonly titleName: string | null; readonly poster: string | null;

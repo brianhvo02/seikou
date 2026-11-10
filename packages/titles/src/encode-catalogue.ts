@@ -10,7 +10,7 @@ import type { Series } from './catalogue';
 import type { Entry } from './sources';
 import { nextInShow } from './encode-next';
 import type { EncodeEpisode, EncodeSeason, EncodeShow } from '@seikou/nas/nas-api';
-import { titlePart } from '@seikou/nas/encode-title';
+import { showIdOfTitle, titlePart } from '@seikou/nas/encode-title';
 import type { EncodeTitle } from '@seikou/nas/encode-title';
 
 /** What the catalogue needs of an indexed encode (the server's `EncodeEntry` has all of it). */
@@ -133,26 +133,14 @@ function episodeList(encodes: readonly EncodeEntryLike[]): EncodeEpisode[] {
   return encodes.map((e) => ({ episode: e.episode, id: e.id, title: e.episodeTitle, durationMs: e.durationMs })).sort((a, b) => a.episode - b.episode);
 }
 
-/** The show a title beyond AniList belongs to: `tv<tmdbId>`, `mv<tmdbId>` or `own<32 hex>`. */
-function showIdOf(t: Exclude<EncodeTitle, { source: 'anilist' }>): string {
-  switch (t.source) {
-    case 'tmdb-tv':
-      return `tv${t.tmdbId}`;
-    case 'tmdb-movie':
-      return `mv${t.tmdbId}`;
-    case 'own':
-      return `own${t.ownId.replaceAll('-', '')}`;
-  }
-}
-
 const seasonOf = (t: EncodeTitle): number | null => (t.source === 'tmdb-tv' || t.source === 'own' ? t.season : null);
 
 /** The shows of TMDB and own titles, unsorted (see `buildEncodeCatalogue`). */
 function otherShows(encodes: readonly EncodeEntryLike[], names: EncodeNames): EncodeShow[] {
   const byShow = new Map<string, EncodeEntryLike[]>();
   for (const e of encodes) {
-    if (e.title.source === 'anilist') continue;
-    const id = showIdOf(e.title);
+    const id = showIdOfTitle(e.title);
+    if (id === null) continue; // AniList: grouped by its chain
     byShow.set(id, [...(byShow.get(id) ?? []), e]);
   }
   const shows: EncodeShow[] = [];

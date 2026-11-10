@@ -7,7 +7,7 @@ import type { ContinueItem, EncodeEpisode, EncodeSeason, EncodeShow, EncodeShowS
 import { ENCODE_PLAYLIST } from '@seikou/nas/place-key';
 import { isShortPlace } from '@seikou/nas/place-rules';
 import { normalizeTitle } from '@seikou/nas/title-text';
-import { titlePart, type EncodeTitle } from '@seikou/nas/encode-title';
+import { showIdOfTitle, titlePart, type EncodeTitle } from '@seikou/nas/encode-title';
 import { NasHttpError, type NasClient } from './nas-client';
 import type { NasRoute } from './nas-route';
 import { progressPercent } from './resume-model';
@@ -202,18 +202,9 @@ export function listedShowOf(shows: readonly EncodeShowSummary[], title: EncodeT
   return undefined;
 }
 
-/** The id a show rooted at `title` has: an AniList entry's own id, `tv<n>`, `mv<n>` or `own<hex>` (an own title's seasons share it). */
+/** The id a show rooted at `title` has: an AniList entry's own id (the root's guess), else `showIdOfTitle`'s. */
 function rootShowId(title: EncodeTitle): string {
-  switch (title.source) {
-    case 'anilist':
-      return String(title.anilistId);
-    case 'tmdb-tv':
-      return `tv${title.tmdbId}`;
-    case 'tmdb-movie':
-      return `mv${title.tmdbId}`;
-    case 'own':
-      return `own${title.ownId.replaceAll('-', '')}`;
-  }
+  return showIdOfTitle(title) ?? titlePart(title);
 }
 
 /** The episode after `encodeId` in its show, by the rule the NAS's Up next uses too (`nextInShow`). */

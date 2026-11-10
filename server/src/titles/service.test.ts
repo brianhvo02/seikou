@@ -724,12 +724,31 @@ describe('TitleService', () => {
     const TV: EncodeTitle = { source: 'tmdb-tv', tmdbId: 990101, season: 1 };
     const FILM: EncodeTitle = { source: 'tmdb-movie', tmdbId: 990102 };
 
-    it('asks TMDB for nothing without the key', async () => {
-      const anilist = fake({});
-      const s = service({ evidence: () => [], anilist, tmdb: null });
-      expect(s.encodeNames([TV, FILM])(TV)).toBeNull();
-      await s.encodeEntriesIdle();
-      expect(anilist.calls).toEqual([]);
+    it('asks TMDB for nothing without the key, and asks it with the key', async () => {
+      // without the key there is no TMDB source; the other source and the network must not stand in for it, even
+      // when they could answer the TMDB ids
+      const tvEntry = entry('tmdb-tv:990101', { english: 'Brasswick Lane' });
+      const filmEntry = entry('tmdb-movie:990102', { english: 'Ember Road' });
+      const anilist = fake({}, [tvEntry, filmEntry]);
+      const network = vi.spyOn(globalThis, 'fetch');
+      try {
+        const s = service({ evidence: () => [], anilist, tmdb: null });
+        expect(s.encodeNames([TV, FILM])(TV)).toBeNull();
+        await s.encodeEntriesIdle();
+        expect(s.encodeNames([TV, FILM])(TV)).toBeNull();
+        expect(anilist.calls).toEqual([]);
+        expect(network).not.toHaveBeenCalled();
+        s.close();
+      } finally {
+        network.mockRestore();
+      }
+      // the same titles with a TMDB source: it is asked
+      const tmdb = fake({}, [tvEntry, filmEntry]);
+      const keyed = service({ evidence: () => [], anilist: fake({}), tmdb });
+      keyed.encodeNames([TV, FILM]);
+      await keyed.encodeEntriesIdle();
+      expect(tmdb.calls.length).toBeGreaterThan(0);
+      expect(keyed.encodeNames([TV, FILM])(TV)?.name).toBe('Brasswick Lane');
     });
 
     it('fetches missing TMDB entries in the background, names them with posters, and keeps them across a restart', async () => {
