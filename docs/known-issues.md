@@ -46,6 +46,25 @@ what would change that decision.
 - **An upload needs about 1.1 Mbit/s upstream.** Each 8 MiB upload chunk has a 60 s timeout, so a slower link times out
   on every chunk: the job encodes its other episodes, then waits for the NAS until it is cancelled. *Revisit if* someone uploads over a slow link: size the chunks
   to the measured rate, or lengthen the timeout with the chunk's progress.
+- **A film's bonus disc, filed as a disc slot, must be checked before the film can be queued.** The NAS lists no
+  episodes for a film or an unnumbered group, so the encoder can't tell which of its discs hold something to encode:
+  every disc of such a season blocks Queue until it is checked, a bonus disc included, and its checked groups are the
+  episode count. *Revisit if* it is a nuisance: let the owner mark a disc as not to encode.
+- **An own title has no NAS episode list, so its counts come from checked discs only.** The NAS knows how many
+  episodes AniList and TMDB give a season, not what the owner typed in by hand. A show made of own titles shows "Not
+  checked yet" or "N so far encoded" until its discs are checked, and its season's Queue waits for every disc.
+  *Revisit if* own titles should carry an episode count: let the owner enter it on the NAS.
+- **A queued job is "Queued" only through the disc's current checked grouping.** The season page reads a queued NAS
+  job as the episodes of the checked grouping with the job's playlist and episode list. A job queued for another
+  episode list, or for a disc whose check changed since, shows its episodes as To encode again, and the season's Queue
+  would offer them a second time (the NAS keeps one file for each pair, so a second upload replaces the first).
+  *Revisit if* it happens in practice: key a job's episodes by title and number when it is queued.
+- **A show's details can be up to 10 minutes old.** The NAS's list of shows and which episodes are encoded are asked
+  every time, but a show's detail (its seasons, discs and episode lists) is kept for 10 minutes (`<data>/nas-titles.json`
+  also holds the last answers for when the NAS can't be reached). A disc the owner refiled in Seikou's own admin
+  screens, or a title the NAS matched meanwhile, shows in a show's page only after Rescan, which reads every show's
+  detail again (`?refresh=1`); a check made here refreshes the titles it changed. *Revisit if* the delay confuses: ask
+  the NAS for a catalogue version.
 
 ## Video
 
