@@ -25,10 +25,11 @@ const library = (discs: LibraryAnswer['discs']): LibraryAnswer => ({
   unreadableRoots: [],
   scanning: false,
   discs,
+  nas: { paired: false, scanning: false, reachable: null },
 });
 
 const listed: LibraryAnswer['discs'] = [
-  { key: KEY, label: 'LANTERN_HARBOR_D1', relPath: 'LANTERN_HARBOR_D1', root: '/media/discs', playlistCount: 3, recordPlaylists: ['00800'], otherPaths: [] },
+  { key: KEY, label: 'LANTERN_HARBOR_D1', relPath: 'LANTERN_HARBOR_D1', root: '/media/discs', source: 'local', playlistCount: 3, recordPlaylists: ['00800'], otherPaths: [] },
 ];
 
 function fakeApi(discs: LibraryAnswer['discs'] = listed): AppApi {
@@ -57,6 +58,13 @@ function fakeApi(discs: LibraryAnswer['discs'] = listed): AppApi {
 }
 
 describe('DiscPage', () => {
+  it('a NAS disc says where on the NAS it is', async () => {
+    const nasDisc = { ...listed[0]!, source: 'nas' as const, root: 'NAS', relPath: 'anime/LANTERN_HARBOR_D1' };
+    render(<DiscPage api={fakeApi([nasDisc])} discKey={KEY} />);
+    expect(await screen.findByRole('heading', { name: 'LANTERN_HARBOR_D1' })).toBeTruthy();
+    expect(screen.getByText('On the NAS at anime/LANTERN_HARBOR_D1')).toBeTruthy();
+  });
+
   it('the disc page lists playlists longest first and links to episodes', async () => {
     render(<DiscPage api={fakeApi()} discKey={KEY} />);
     expect(await screen.findByRole('heading', { name: 'LANTERN_HARBOR_D1' })).toBeTruthy();

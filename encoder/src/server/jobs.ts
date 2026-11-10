@@ -720,11 +720,13 @@ export class JobRunner {
 
   /**
    * Points `job` at its disc's folder again when the folder it was queued from no longer holds the disc: the folder the
-   * helper sessions or the library know for its key now. Throws 409 `disc-missing` when neither knows one.
+   * helper sessions or the library know for its key now, or the NAS disc's mirror (made again). Throws 409 `disc-missing` when neither knows one.
    */
   private async findMovedDisc(job: Job): Promise<void> {
     if (await holdsDisc(job.disc.dir)) return;
-    const candidates = [await sessionsOf(this.app).discDirOf(job.disc.key), libraryOf(this.app).dirOf(job.disc.key)];
+    const sessions = sessionsOf(this.app);
+    // a session's folder or the library's (`discDirOf`), the library's own, then a NAS disc's mirror made again
+    const candidates = [await sessions.discDirOf(job.disc.key), libraryOf(this.app).dirOf(job.disc.key), await sessions.mirrorDirFor(job.disc.key)];
     let found: string | null = null;
     for (const dir of candidates) {
       if (dir !== null && (await holdsDisc(dir))) {

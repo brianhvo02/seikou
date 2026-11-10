@@ -23,10 +23,10 @@ const detail = (record: PlaylistDetail['record'] = null): PlaylistDetail => ({
 
 function fakeApi(playlist: PlaylistDetail = detail(), discs: LibraryAnswer['discs'] | null = null): AppApi {
   const listed = discs ?? [
-    { key: KEY, label: 'LANTERN_HARBOR_D1', relPath: 'LANTERN_HARBOR_D1', root: '/media/discs', playlistCount: 1, recordPlaylists: [], otherPaths: [] },
+    { key: KEY, label: 'LANTERN_HARBOR_D1', relPath: 'LANTERN_HARBOR_D1', root: '/media/discs', source: 'local' as const, playlistCount: 1, recordPlaylists: [], otherPaths: [] },
   ];
   return {
-    library: vi.fn(async () => ({ roots: ['/media/discs'], savedRoots: [], runRoots: [], unreadableRoots: [], scanning: false, discs: listed })),
+    library: vi.fn(async () => ({ roots: ['/media/discs'], savedRoots: [], runRoots: [], unreadableRoots: [], scanning: false, discs: listed, nas: { paired: false, scanning: false, reachable: null } })),
     rescan: vi.fn(async () => undefined),
     setRoots: vi.fn(async (r) => r),
     playlists: vi.fn(async () => []),
@@ -195,7 +195,7 @@ describe('EpisodesPage', () => {
     const api = fakeApi();
     const listed = (await api.library()).discs;
     let calls = 0;
-    api.library = vi.fn(async () => ({ roots: [], savedRoots: [], runRoots: [], unreadableRoots: [], scanning: calls === 0, discs: calls++ === 0 ? [] : listed }));
+    api.library = vi.fn(async () => ({ roots: [], savedRoots: [], runRoots: [], unreadableRoots: [], scanning: calls === 0, discs: calls++ === 0 ? [] : listed, nas: { paired: false, scanning: false, reachable: null } }));
     render(<EpisodesPage api={api} discKey={KEY} playlistId="00800" controller={fakeController()} />);
     expect(await screen.findByText('Scanning the library…')).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
@@ -206,7 +206,7 @@ describe('EpisodesPage', () => {
     const api = fakeApi(detail(), []);
     let scanning = true;
     setTimeout(() => (scanning = false), 300);
-    api.library = vi.fn(async () => ({ roots: [], savedRoots: [], runRoots: [], unreadableRoots: [], scanning, discs: [] }));
+    api.library = vi.fn(async () => ({ roots: [], savedRoots: [], runRoots: [], unreadableRoots: [], scanning, discs: [], nas: { paired: false, scanning: false, reachable: null } }));
     api.playlist = vi.fn(async () => {
       throw new ApiError(404, 'disc-changed', 'The helper serves no disc with that key.');
     });

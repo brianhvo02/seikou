@@ -13,18 +13,23 @@ export function folderName(path: string): string {
  * that only repeats the disc's name is left out (so a disc that sits directly in its folder shows the folder alone).
  * Empty when there is one folder and the path is the name.
  */
-export function placeText(disc: Pick<LibraryDiscInfo, 'label' | 'relPath' | 'root'>, rootCount: number): string {
+export function placeText(disc: Pick<LibraryDiscInfo, 'label' | 'relPath' | 'root' | 'source'>, rootCount: number): string {
+  if (disc.source === 'nas') return `On the NAS at ${disc.relPath}`;
   const same = disc.relPath === disc.label;
   if (rootCount <= 1) return same ? '' : disc.relPath;
   const root = folderName(disc.root);
   return same ? root : `${root} / ${disc.relPath}`;
 }
 
+/** The `root` of a disc on the NAS. */
+export const NAS_ROOT = 'NAS';
+
 /**
  * Where another copy of a disc is, as the line "Also at ..." shows it: the path under its library folder, led by the
- * folder's name when there are several folders.
+ * folder's name when there are several folders, or by "the NAS" for a copy there.
  */
 export function otherPlaceText(other: { readonly relPath: string; readonly root: string }, rootCount: number): string {
+  if (other.root === NAS_ROOT) return `the NAS, ${other.relPath}`;
   return rootCount <= 1 ? other.relPath : `${folderName(other.root)} / ${other.relPath}`;
 }
 

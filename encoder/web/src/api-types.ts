@@ -343,15 +343,17 @@ export interface LibraryDiscInfo {
   readonly key: string;
   /** The disc folder's name. */
   readonly label: string;
-  /** The folder's path under its library folder, with `/` separators. */
+  /** The folder's path under its library folder, with `/` separators; for a disc on the NAS, its path there. */
   readonly relPath: string;
-  /** The library folder the disc was found under. */
+  /** The library folder the disc was found under, or `NAS` for a disc on the NAS. */
   readonly root: string;
+  /** Where the disc is: on this machine, or on the NAS (fetched as it is worked on). A disc in both is listed as the local copy. */
+  readonly source: 'local' | 'nas';
   /** How many playlists the disc has. */
   readonly playlistCount: number;
   /** The playlists (five digits) that have a saved subtitle record. */
   readonly recordPlaylists: readonly string[];
-  /** Other folders holding a disc with the same key (copies of it); the disc is listed once, at its first folder. */
+  /** Other folders holding a disc with the same key (copies of it), root `NAS` for copies on the NAS; the disc is listed once, at its first folder. */
   readonly otherPaths: readonly { readonly relPath: string; readonly root: string }[];
 }
 
@@ -367,8 +369,10 @@ export interface LibraryAnswer {
   readonly unreadableRoots: readonly string[];
   /** Whether a scan is running; `discs` is then the last complete scan. */
   readonly scanning: boolean;
-  /** The discs, sorted by path. */
+  /** The discs, sorted by path: those on this machine, then the NAS's. */
   readonly discs: readonly LibraryDiscInfo[];
+  /** The NAS: whether the encoder is paired, whether its listing is being read, and whether the last read reached it (null before the first). */
+  readonly nas: { readonly paired: boolean; readonly scanning: boolean; readonly reachable: boolean | null };
 }
 
 /** The settings of an encode that a profile holds. */

@@ -67,6 +67,8 @@ export interface MirrorEntry {
   readonly holders: Map<string, Set<string>>;
   /** Stream path → the download running for it. */
   readonly inflight: Map<string, Promise<void>>;
+  /** Holders that claim the mirror's metadata (a helper session that plans from it) without holding any clip. */
+  readonly claims: Set<string>;
 }
 
 const registry = new Map<string, Map<string, MirrorEntry>>();
@@ -77,7 +79,7 @@ export function mirrorEntry(dataDir: string, key: string): MirrorEntry {
   let byKey = registry.get(data);
   if (!byKey) registry.set(data, (byKey = new Map()));
   let entry = byKey.get(key);
-  if (!entry) byKey.set(key, (entry = { state: null, tail: Promise.resolve(), holders: new Map(), inflight: new Map() }));
+  if (!entry) byKey.set(key, (entry = { state: null, tail: Promise.resolve(), holders: new Map(), inflight: new Map(), claims: new Set() }));
   return entry;
 }
 
@@ -432,9 +434,9 @@ function sameFiles(a: Record<string, number>, b: Record<string, number>): boolea
   return ka.length === Object.keys(b).length && ka.every((k) => b[k] === a[k]);
 }
 
-/** Whether any holder claims a clip of the mirror. */
+/** Whether any holder claims a clip of the mirror, or the mirror itself. */
 function anyHeld(entry: MirrorEntry): boolean {
-  return [...entry.holders.values()].some((set) => set.size > 0);
+  return entry.claims.size > 0 || [...entry.holders.values()].some((set) => set.size > 0);
 }
 
 /** Makes a sparse file of `size` bytes at `path` (replacing any file there). */
@@ -454,8 +456,8 @@ export async function sparseFile(path: string, size: number): Promise<void> {
  * Returns the mirror folder.
  *
  * Copies of one disc share a key (it covers the stream files only) and may differ in metadata. A mirror whose streams
- * match keeps its fetched ranges; its metadata is rewritten from this manifest when no holder claims any of its clips,
- * and left as the running work started with it otherwise. Either way `discId` becomes the mirror's latest id.
+ * match keeps its fetched ranges; its metadata is rewritten from this manifest when no holder claims any of its clips
+ * or the mirror itself (`claimMirror`), and left as the running work started with it otherwise. Either way `discId` becomes the mirror's latest id.
  */
 export async function ensureMirror(dataDir: string, client: NasClient, discId: string, expectedKey?: string): Promise<{ dir: string; key: string; label: string }> {
   const manifest = await fetchManifest(client, discId);

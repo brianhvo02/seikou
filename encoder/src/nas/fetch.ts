@@ -252,6 +252,20 @@ export async function sweepUnheld(dataDir: string): Promise<void> {
   }
 }
 
+/**
+ * Claims the metadata of mirror `key` for `holder` (`session:<id>`): while any claim or clip holder stands, opening
+ * another copy of the disc leaves the mirror's metadata as it is, so work that planned from it keeps reading the same
+ * files. Claiming twice is one claim.
+ */
+export function claimMirror(dataDir: string, key: string, holder: string): void {
+  mirrorEntry(dataDir, key).claims.add(holder);
+}
+
+/** Drops `holder`'s claim on the metadata of mirror `key`. */
+export function releaseMirror(dataDir: string, key: string, holder: string): void {
+  mirrorEntry(dataDir, key).claims.delete(holder);
+}
+
 /** The stream files episode `index` (1-based) of `episodeSpec` reads (its plan's segments' clips), as '00001.M2TS'. */
 export async function clipsOfEpisode(discDir: string, playlistId: string, episodeSpec: string, index: number): Promise<string[]> {
   const playlist = await loadPlaylist(discDir, playlistId);

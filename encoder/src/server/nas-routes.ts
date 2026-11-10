@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { hostname } from 'node:os';
 import { readBody } from '../../../server/src/http';
 import { hostOf, NasClient, NasError } from '../nas/client';
+import { nasLibraryOf } from '../nas/nas-library';
 import { removeNasPairing } from '../nas/nas-store';
 import { pairWithNas, type PairingInput } from '../nas/pairing';
 import { httpError, json, type AppContext, type RouteTable } from './http';
@@ -107,6 +108,8 @@ async function pair(req: IncomingMessage, res: ServerResponse, app: AppContext):
   } catch (err) {
     return pairingError(res, err);
   }
+  // the newly paired NAS's discs, for the Library
+  void nasLibraryOf(app).scan();
   json(res, 200, await nasStatus(client));
 }
 
@@ -122,7 +125,10 @@ function serially<T>(app: AppContext, change: () => Promise<T>): Promise<T> {
 
 /** Installs `client` (or none), closing the one it replaces so a job still holding it stops. */
 function replaceClient(app: AppContext, client: NasClient | null): NasClient | null {
-  if (app.nas.client !== client) app.nas.client?.close();
+  if (app.nas.client !== client) {
+    app.nas.client?.close();
+    nasLibraryOf(app).forget();
+  }
   app.nas.client = client;
   return client;
 }

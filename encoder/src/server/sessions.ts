@@ -8,6 +8,10 @@ import { readBody } from '../../../server/src/http';
 import { buildManifest } from '../../../server/src/manifest';
 import { discKeyOfFolder } from '../disc/disc-key';
 import { loadPlaylist } from '../disc/playlist';
+import { NasError } from '../nas/client';
+import { claimMirror, ClipFetcher } from '../nas/fetch';
+import { ensureMirror, FetchError, isMirror, mirrorDirOf, readState } from '../nas/mirror';
+import { nasLibraryOf } from '../nas/nas-library';
 import { EpisodeSpecError, parseEpisodeSpec, resolvedSpec } from '../plan/episodes';
 import { httpError, json, type AppContext, type HelperSession, type RouteTable } from './http';
 import { libraryOf } from './library';
@@ -34,9 +38,12 @@ export interface DiscInfo {
 /** A request for a session the backend cannot make, with the HTTP `status` and error `code` to answer it with. */
 export class SessionError extends Error {
   constructor(
-    /** The HTTP status: 400 for a malformed playlist id or episode list, 404 for a missing playlist. */
+    /**
+     * The HTTP status: 400 for a malformed playlist id or episode list, 404 for a missing playlist; on a NAS disc's
+     * mirror, 502 when the NAS cannot be reached, 409 when its disc changed, 507 when the drive has no room.
+     */
     readonly status: number,
-    /** `bad-request`, `bad-episode-spec` or `not-found`. */
+    /** `bad-request`, `bad-episode-spec`, `not-found`, `unreachable`, `disc-changed` or `no-room`. */
     readonly code: string,
     message: string,
   ) {
@@ -58,7 +65,9 @@ export interface SessionInput {
 const discs = new WeakMap<AppContext, Map<string, Promise<DiscInfo>>>();
 
 async function readDisc(root: string): Promise<DiscInfo> {
-  const { key, label } = await discKeyOfFolder(root);
+  const { key, label: folder } = await discKeyOfFolder(root);
+  // A mirror's folder is named by its key; its label is the disc's name on the NAS.
+  const label = (await isMirror(root)) ? ((await readState(root))?.label ?? folder) : folder;
   // The manifest's id is the folder's own hash, not the key, as the NAS gives manifests an id of their own.
   const id16 = createHash('sha256').update(root).digest('hex').slice(0, 16);
   const manifest = await buildManifest(root, { id: id16, name: label });
@@ -89,6 +98,21 @@ export async function discOf(app: AppContext, dir: string): Promise<DiscInfo> {
   return disc;
 }
 
+/** Forgets the disc read from `root`, so the next `discOf` reads it again (a mirror whose metadata was rewritten). */
+function forgetDisc(app: AppContext, root: string): void {
+  discs.get(app)?.delete(root);
+}
+
+/** A `SessionError` for a fetch from the NAS that failed while a session was made. */
+function fetchFailure(e: unknown): SessionError | null {
+  if (e instanceof FetchError) {
+    const status = e.code === 'disc-changed' ? 409 : e.code === 'no-room' ? 507 : 502;
+    return new SessionError(status, e.code, e.message);
+  }
+  if (e instanceof NasError) return new SessionError(502, 'unreachable', e.message);
+  return null;
+}
+
 /** The helper sessions of one app, made on demand and kept for the server's life. */
 export class SessionStore {
   private readonly sessions = new Map<string, HelperSession>();
@@ -96,6 +120,8 @@ export class SessionStore {
   private readonly byInput = new Map<string, string>();
   /** Disc folders by disc key, for every disc a session is on. */
   private readonly discDirs = new Map<string, string>();
+  /** NAS discs' mirrors made or refreshed this run, by key; dropped when a read finds the NAS's disc changed. */
+  private readonly mirrors = new Map<string, Promise<string | null>>();
 
   constructor(private readonly app: AppContext) {}
 
@@ -108,6 +134,18 @@ export class SessionStore {
   async create(input: SessionInput): Promise<HelperSession> {
     if (!/^\d{5}$/.test(input.playlistId)) throw new SessionError(400, 'bad-request', 'A playlist id is five digits.');
     const disc = await discOf(this.app, input.discDir);
+    const mirror = await isMirror(disc.root);
+    if (mirror) {
+      // planning reads each clip's head, which a mirror holds only once fetched
+      const client = this.app.nas.client;
+      if (client === null) throw new SessionError(502, 'unreachable', 'The encoder is not paired with the NAS.');
+      try {
+        await new ClipFetcher({ dataDir: this.app.dataDir, client, key: disc.key }).heads(input.playlistId);
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === 'ENOENT') throw new SessionError(404, 'not-found', `The disc has no playlist ${input.playlistId}.`);
+        throw fetchFailure(e) ?? e;
+      }
+    }
     let chapters: number;
     try {
       chapters = (await loadPlaylist(disc.root, input.playlistId)).chapters.length;
@@ -134,6 +172,9 @@ export class SessionStore {
     this.sessions.set(session.id, session);
     this.byInput.set(inputKey, session.id);
     this.discDirs.set(disc.key, disc.root);
+    // sessions live as long as the server, and so does the claim: another copy opened meanwhile leaves the metadata
+    // the session planned from
+    if (mirror) claimMirror(this.app.dataDir, disc.key, `session:${session.id}`);
     return session;
   }
 
@@ -152,16 +193,76 @@ export class SessionStore {
   }
 
   /**
-   * `byDiscKey`, but a key nobody knows yet while a library scan is running waits for the scan to end (at most
-   * `SCAN_WAIT_MS`) and is looked up again, since the library is incomplete until then.
+   * The folder of the disc with `key`: a session's folder, a local library folder, then a NAS disc's mirror (made or
+   * refreshed through `ensureMirror` once per run). A key nobody knows yet while a library scan is running waits for
+   * the scan to end (at most `SCAN_WAIT_MS`) and is looked up again, since the library is incomplete until then. While
+   * the NAS cannot be reached, a key whose mirror exists resolves to it, so work on fetched data goes on; null when
+   * nothing has the key.
    */
   async discDirOf(key: string): Promise<string | null> {
     const known = this.byDiscKey(key);
     if (known !== null) return known;
     const library = libraryOf(this.app);
-    if (!library.scanning) return null;
-    await library.idle(SCAN_WAIT_MS);
-    return this.byDiscKey(key);
+    if (library.scanning) {
+      await library.idle(SCAN_WAIT_MS);
+      const found = this.byDiscKey(key);
+      if (found !== null) return found;
+    }
+    return this.mirrorDirFor(key);
+  }
+
+  /** The mirror of NAS disc `key`, made or refreshed once per run (see `discDirOf`); null when there is none to be had. */
+  async mirrorDirFor(key: string): Promise<string | null> {
+    const held = this.mirrors.get(key);
+    if (held !== undefined) {
+      const dir = await held.catch(() => null);
+      if (dir !== null && (await isMirror(dir))) return dir;
+      if (this.mirrors.get(key) === held) this.mirrors.delete(key);
+    }
+    const making = this.makeMirror(key);
+    const dir = making.then((m) => m.dir);
+    this.mirrors.set(key, dir);
+    try {
+      const made = await making;
+      // only a mirror refreshed from the NAS is kept for the run; one used as it was is looked at again next time
+      if (!made.ensured && this.mirrors.get(key) === dir) this.mirrors.delete(key);
+      return made.dir;
+    } catch (e) {
+      if (this.mirrors.get(key) === dir) this.mirrors.delete(key);
+      throw e;
+    }
+  }
+
+  /** Drops the run's memory of mirror `key`, so the next lookup asks the NAS again (a read found its disc changed). */
+  forgetMirror(key: string): void {
+    this.mirrors.delete(key);
+  }
+
+  private async makeMirror(key: string): Promise<{ dir: string | null; ensured: boolean }> {
+    let existing: string | null = null;
+    try {
+      const dir = mirrorDirOf(this.app.dataDir, key);
+      if (await isMirror(dir)) existing = dir;
+    } catch {
+      return { dir: null, ensured: false }; // not a disc key
+    }
+    const client = this.app.nas.client;
+    if (client === null) return { dir: null, ensured: false };
+    const kept = { dir: existing, ensured: false };
+    const nas = nasLibraryOf(this.app);
+    if (nas.scanning || nas.reachable === null) await Promise.race([nas.scan(), new Promise<void>((r) => setTimeout(r, SCAN_WAIT_MS).unref())]);
+    const disc = nas.byKey(key);
+    if (disc === null) return nas.reachable === false ? kept : { dir: null, ensured: false };
+    if (nas.reachable === false) return kept;
+    try {
+      const { dir } = await ensureMirror(this.app.dataDir, client, disc.discId, key);
+      forgetDisc(this.app, dir); // its metadata may have been rewritten from this copy
+      return { dir, ensured: true };
+    } catch (e) {
+      if ((e instanceof FetchError && e.code === 'unreachable') || (e instanceof NasError && e.code === 'unreachable')) return kept;
+      if (e instanceof FetchError || e instanceof NasError) return { dir: null, ensured: false };
+      throw e;
+    }
   }
 }
 

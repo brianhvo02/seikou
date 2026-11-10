@@ -3,6 +3,7 @@ import { readdir, realpath, stat } from 'node:fs/promises';
 import { basename, join, relative, sep } from 'node:path';
 import { appSettings } from '../subs/app-settings';
 import { discKeyOfFolder } from '../disc/disc-key';
+import { nasLibraryOf } from '../nas/nas-library';
 import type { AppContext } from './http';
 
 // The disc library: the folders under the user's roots that hold a Blu-ray disc, found by walking the roots a few
@@ -180,9 +181,13 @@ export class Library {
     return [...new Set([...saved.roots, ...this.app.roots])];
   }
 
-  /** Starts a scan unless one is running; resolves when the scan that is running ends. Never rejects. */
+  /**
+   * Starts a scan unless one is running; resolves when the scan that is running ends. Never rejects. While the encoder
+   * is paired, the NAS's discs are listed again beside the local scan (`NasLibrary`), and the scan ends when both have.
+   */
   scan(): Promise<void> {
     if (this.running === null) {
+      const nas = this.app.nas.client === null ? Promise.resolve() : nasLibraryOf(this.app).scan();
       const run = (async (): Promise<void> => {
         try {
           const scan = await scanRoots(await this.roots());
@@ -201,6 +206,7 @@ export class Library {
         } catch {
           // keeps the last complete scan
         } finally {
+          await nas;
           this.running = null;
         }
       })();

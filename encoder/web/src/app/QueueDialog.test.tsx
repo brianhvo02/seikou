@@ -22,8 +22,9 @@ const library: LibraryAnswer = {
   savedRoots: ['/discs'],
   runRoots: [],
   unreadableRoots: [],
+  nas: { paired: false, scanning: false, reachable: null },
   scanning: false,
-  discs: [{ key, label: 'LANTERN_HARBOR_D1', relPath: 'LANTERN_HARBOR_D1', root: '/discs', playlistCount: 2, recordPlaylists: [], otherPaths: [] }],
+  discs: [{ key, label: 'LANTERN_HARBOR_D1', relPath: 'LANTERN_HARBOR_D1', root: '/discs', source: 'local', playlistCount: 2, recordPlaylists: [], otherPaths: [] }],
 };
 const playlist: PlaylistDetail = {
   id: '00001',

@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { readBody } from '../../../server/src/http';
 import { listPlaylists, loadPlaylist } from '../disc/playlist';
 import { appSettings } from '../subs/app-settings';
+import { nasLibraryOf } from '../nas/nas-library';
 import { RecordError, RecordStore } from '../subs/record';
 import { knownDisc } from './disc-routes';
 import { httpError, json, type RouteTable } from './http';
@@ -12,11 +13,19 @@ import { libraryOf, type LibraryDisc } from './library';
 // The library half of the app's API: the discs under the user's roots, their playlists and chapters, and the roots
 // setting.
 
+/** The `root` of a disc on the NAS (local roots are absolute paths, so it never names one). */
+export const NAS_ROOT = 'NAS';
+
 /** A library disc as the page sees it: the scan's entry without the folder's path, plus what the page lists it with. */
 export interface LibraryDiscAnswer extends Omit<LibraryDisc, 'dir'> {
   /**
+   * Where the disc is: a library folder on this machine, or the NAS (then `root` is `NAS` and `relPath` the NAS's
+   * path). A key on both is listed once, as the local copy.
+   */
+  readonly source: 'local' | 'nas';
+  /**
    * Other folders that hold a disc with the same key (copies of it, which share a key on purpose); empty for most
-   * discs. The disc is listed once, at the folder the disc routes read.
+   * discs. The disc is listed once, at the folder the disc routes read. Copies on the NAS have root `NAS`.
    */
   readonly otherPaths: readonly { readonly relPath: string; readonly root: string }[];
   /** How many playlists the disc has; 0 when its PLAYLIST folder cannot be read. */
@@ -37,8 +46,10 @@ export interface LibraryAnswer {
   readonly unreadableRoots: readonly string[];
   /** Whether a scan is running; `discs` is then the last complete scan. */
   readonly scanning: boolean;
-  /** The discs, sorted by path under their root. */
+  /** The discs, sorted by path under their root: the local ones, then the NAS's. */
   readonly discs: readonly LibraryDiscAnswer[];
+  /** The NAS: whether the encoder is paired, whether its listing is being read, and whether the last read reached it (null before the first). */
+  readonly nas: { readonly paired: boolean; readonly scanning: boolean; readonly reachable: boolean | null };
 }
 
 /** One playlist in `GET /api/discs/<key>/playlists`. */
@@ -141,15 +152,53 @@ export const libraryRoutes: RouteTable = [
       // one entry per key, at the first folder (the one the disc routes read); the rest are named as other places
       const byKey = new Map<string, LibraryDisc[]>();
       for (const d of library.discs) byKey.set(d.key, [...(byKey.get(d.key) ?? []), d]);
-      const discs = await Promise.all(
+      const local = await Promise.all(
         [...byKey.values()].map(async ([{ dir, ...disc }, ...others]): Promise<LibraryDiscAnswer> => ({
           ...disc,
+          source: 'local',
           otherPaths: others.map((o) => ({ relPath: o.relPath, root: o.root })),
           playlistCount: await playlistCount(dir),
           recordPlaylists: await recordPlaylists(app.dataDir, disc.key),
         })),
       );
-      const answer: LibraryAnswer = { roots, savedRoots, runRoots, unreadableRoots: library.unreadableRoots, scanning: library.scanning, discs };
+      // the NAS's discs: a key also here adds the NAS's paths to the local entry; copies on the NAS are listed once
+      const nas = nasLibraryOf(app);
+      const paired = app.nas.client !== null;
+      const nasOthers = new Map<string, { relPath: string; root: string }[]>();
+      const nasFirst: LibraryDiscAnswer[] = [];
+      for (const d of paired ? nas.discs() : []) {
+        const others = nasOthers.get(d.key);
+        if (others !== undefined) {
+          others.push({ relPath: d.relPath, root: NAS_ROOT });
+          continue;
+        }
+        nasOthers.set(d.key, []);
+        if (!byKey.has(d.key)) {
+          nasFirst.push({
+            key: d.key,
+            label: d.label,
+            relPath: d.relPath,
+            root: NAS_ROOT,
+            source: 'nas',
+            otherPaths: [],
+            playlistCount: d.playlistCount,
+            recordPlaylists: await recordPlaylists(app.dataDir, d.key),
+          });
+        } else nasOthers.get(d.key)!.push({ relPath: d.relPath, root: NAS_ROOT });
+      }
+      const discs = [...local, ...nasFirst].map((d) => {
+        const more = nasOthers.get(d.key) ?? [];
+        return more.length === 0 ? d : { ...d, otherPaths: [...d.otherPaths, ...more] };
+      });
+      const answer: LibraryAnswer = {
+        roots,
+        savedRoots,
+        runRoots,
+        unreadableRoots: library.unreadableRoots,
+        scanning: library.scanning,
+        discs,
+        nas: { paired, scanning: nas.scanning, reachable: paired ? nas.reachable : null },
+      };
       json(res, 200, answer);
     },
   ],

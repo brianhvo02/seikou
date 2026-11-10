@@ -17,7 +17,7 @@ export interface LibraryPageProps {
 export function filterDiscs(discs: readonly LibraryDiscInfo[], text: string): LibraryDiscInfo[] {
   const words = text.toLowerCase().split(/\s+/).filter((w) => w !== '');
   return discs.filter((d) => {
-    const hay = [d.label, d.relPath, ...d.otherPaths.flatMap((o) => [o.relPath, folderName(o.root)])].join(' ').toLowerCase();
+    const hay = [d.label, d.relPath, d.source === 'nas' ? 'nas' : '', ...d.otherPaths.flatMap((o) => [o.relPath, folderName(o.root)])].join(' ').toLowerCase();
     return words.every((w) => hay.includes(w));
   });
 }
@@ -108,9 +108,10 @@ function RootsEditor({ roots, runRoots, unreadable, onSave }: RootsEditorProps) 
 }
 
 /**
- * The Library page: the discs found under the library folders (name, path, playlist count, a mark when subtitle choices
- * are saved) with a filter, a Rescan button and the folders themselves, editable. With no folders it explains and asks
- * for one; a folder that cannot be read is named while its discs from the last scan stay listed. While a scan runs the
+ * The Library page: the discs found under the library folders and, while paired, on the NAS (name, path, playlist
+ * count, a NAS mark, a mark when subtitle choices are saved) with a filter, a Rescan button and the folders themselves, editable. With no folders it explains and asks
+ * for one (unless the NAS has discs); a folder that cannot be read is named while its discs from the last scan stay
+ * listed, and so is a NAS that cannot be reached. While a scan runs the
  * page asks again every second.
  */
 export function LibraryPage({ api, pollMs = SCAN_POLL_MS }: LibraryPageProps) {
@@ -133,7 +134,7 @@ export function LibraryPage({ api, pollMs = SCAN_POLL_MS }: LibraryPageProps) {
   }, [load]);
 
   // a poll that fails leaves the last answer (still scanning) in place, so the next poll is scheduled from a counter
-  const scanning = library?.scanning === true;
+  const scanning = library?.scanning === true || library?.nas.scanning === true;
   const [polls, setPolls] = useState(0);
   useEffect(() => {
     if (!scanning) return;
@@ -191,7 +192,13 @@ export function LibraryPage({ api, pollMs = SCAN_POLL_MS }: LibraryPageProps) {
         </p>
       )}
 
-      {library.roots.length === 0 ? (
+      {library.nas.paired && library.nas.reachable === false && (
+        <p className="notice" role="status">
+          The NAS can't be reached; its discs are from the last listing.
+        </p>
+      )}
+
+      {library.roots.length === 0 && library.discs.length === 0 ? (
         <section className="empty">
           <h2>No library folders are set</h2>
           <p>Add the folder that holds your decrypted discs. The app looks up to four folders deep for BDMV folders.</p>
@@ -207,7 +214,7 @@ export function LibraryPage({ api, pollMs = SCAN_POLL_MS }: LibraryPageProps) {
             onChange={(e) => setFilter(e.target.value)}
           />
           {library.discs.length === 0 ? (
-            <p className="muted">{scanning ? 'Looking for discs…' : 'No discs found under the library folders.'}</p>
+            <p className="muted">{scanning ? 'Looking for discs…' : library.nas.paired ? 'No discs found under the library folders or on the NAS.' : 'No discs found under the library folders.'}</p>
           ) : shown.length === 0 ? (
             <p className="muted">No disc matches “{filter.trim()}”.</p>
           ) : (
@@ -224,6 +231,11 @@ export function LibraryPage({ api, pollMs = SCAN_POLL_MS }: LibraryPageProps) {
                     ))}
                   </Link>
                   <span className="disc-facts">
+                    {d.source === 'nas' && (
+                      <span className="mark mark-nas" title="On the NAS: fetched as it is worked on">
+                        NAS
+                      </span>
+                    )}
                     <span className="num muted">{playlistWords(d.playlistCount)}</span>
                     {d.recordPlaylists.length > 0 && <span className="mark">Subtitle choices saved</span>}
                   </span>

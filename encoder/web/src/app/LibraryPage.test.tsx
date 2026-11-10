@@ -14,6 +14,7 @@ const disc = (label: string, extra: Partial<LibraryDiscInfo> = {}): LibraryDiscI
   label,
   relPath: `shows/${label}`,
   root: '/media/discs',
+  source: 'local',
   playlistCount: 12,
   recordPlaylists: [],
   otherPaths: [],
@@ -27,6 +28,7 @@ function answer(extra: Partial<LibraryAnswer> = {}): LibraryAnswer {
     runRoots: [],
     unreadableRoots: [],
     scanning: false,
+    nas: { paired: false, scanning: false, reachable: null },
     discs: [disc('LANTERN_HARBOR_D1'), disc('STARFALL_WANDERER_D2', { playlistCount: 7 }), disc('PAPER_KITE_D1')],
     ...extra,
   };
@@ -177,5 +179,36 @@ describe('LibraryPage', () => {
     await screen.findByRole('button', { name: 'Rescan' });
     expect(calls).toBeGreaterThanOrEqual(4);
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('lists the NAS discs with a NAS mark and their NAS path, and a copy on the NAS as another place', async () => {
+    const api = fakeApi({
+      nas: { paired: true, scanning: false, reachable: true },
+      discs: [
+        disc('LANTERN_HARBOR_D1', { otherPaths: [{ relPath: 'anime/LANTERN_HARBOR_D1', root: 'NAS' }] }),
+        disc('STARFALL_WANDERER_D2', { source: 'nas', root: 'NAS', relPath: 'anime/STARFALL_WANDERER_D2' }),
+      ],
+    });
+    render(<LibraryPage api={api} />);
+    await screen.findByText('STARFALL_WANDERER_D2');
+    expect(screen.getAllByText('NAS')).toHaveLength(1);
+    expect(screen.getByText('On the NAS at anime/STARFALL_WANDERER_D2')).toBeTruthy();
+    expect(screen.getByText('Also at the NAS, anime/LANTERN_HARBOR_D1')).toBeTruthy();
+    expect(screen.queryByText(/can't be reached/)).toBeNull();
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Filter discs' }), { target: { value: 'nas' } });
+    expect(screen.getByText('STARFALL_WANDERER_D2')).toBeTruthy();
+  });
+
+  it('says when the NAS cannot be reached, and lists its discs with no library folder set', async () => {
+    const api = fakeApi({
+      roots: [],
+      savedRoots: [],
+      nas: { paired: true, scanning: false, reachable: false },
+      discs: [disc('STARFALL_WANDERER_D2', { source: 'nas', root: 'NAS', relPath: 'anime/STARFALL_WANDERER_D2' })],
+    });
+    render(<LibraryPage api={api} />);
+    expect(await screen.findByText("The NAS can't be reached; its discs are from the last listing.")).toBeTruthy();
+    expect(screen.getByRole('link', { name: /STARFALL_WANDERER_D2/ })).toBeTruthy();
+    expect(screen.queryByText('No library folders are set')).toBeNull();
   });
 });

@@ -1,12 +1,16 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { readFile, stat } from 'node:fs/promises';
-import type { ServerResponse } from 'node:http';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import { parseMpls } from '@seikou/bdmv/mpls-parser';
 // Seikou's NAS server resolves disc paths this way; the helper answers exactly as the NAS does, so the engine opens
 // the disc through the same RemoteSource.
 import { resolveDiscFile } from '../../../server/src/manifest';
+import { parseRange } from '../../../server/src/ranges';
 import { bdmvRoot, listPlaylists, loadPlaylist } from '../disc/playlist';
+import { NasError } from '../nas/client';
+import { readMirrorRange } from '../nas/fetch';
+import { FetchError, isMirror, isStreamPath } from '../nas/mirror';
 import { readPlaylistPmts } from '../disc/pmt';
 import { probeClip, type ClipProbe } from '../disc/probe';
 import { firstStnAudio } from '../plan/audio-streams';
@@ -174,11 +178,82 @@ export async function knownDisc(app: AppContext, res: ServerResponse, captured: 
 /** `/api/discs/<discKey>/files/<path>`, still percent-encoded. */
 const FILE_PATH = /^\/api\/discs\/([^/]+)\/files\/(.+)$/;
 
-/** Answers a disc file, whole or one range; the path is matched in any case under BDMV or CERTIFICATE. */
+/** The most bytes a mirror read takes from the NAS or the mirror at once; a larger range is sent piece by piece. */
+const MIRROR_PIECE_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Answers stream file `path` (a manifest path) of a NAS disc's mirror, whole or one range, through `readMirrorRange`:
+ * fetched bytes from the mirror, the rest from the NAS, never stored. The range is read and sent in pieces of at most
+ * 8 MiB, the first read before the headers go out, so a NAS that cannot be reached or a changed disc is answered as an
+ * error (502 `unreachable`, 404 `disc-changed`); a failure after that cuts the answer short.
+ */
+async function serveMirrorStream(req: IncomingMessage, res: ServerResponse, app: AppContext, disc: DiscInfo, path: string, size: number): Promise<void> {
+  const range = parseRange(req.headers.range, size);
+  if (range === 'unsatisfiable') {
+    res.writeHead(416, { 'Content-Range': `bytes */${size}`, 'Cache-Control': 'no-store' });
+    res.end();
+    return;
+  }
+  const start = range?.start ?? 0;
+  const end = range?.end ?? size - 1;
+  const length = size === 0 ? 0 : end - start + 1;
+  const headers = {
+    'Content-Type': 'application/octet-stream',
+    'Cache-Control': 'no-store',
+    'Accept-Ranges': 'bytes',
+    'Content-Length': String(length),
+    ...(range ? { 'Content-Range': `bytes ${start}-${end}/${size}` } : {}),
+  };
+  if (req.method === 'HEAD' || length === 0) {
+    res.writeHead(range ? 206 : 200, headers);
+    res.end();
+    return;
+  }
+  const client = app.nas.client;
+  if (client === null) return httpError(res, 502, 'unreachable', 'The encoder is not paired with the NAS.');
+  const read = (at: number): Promise<Uint8Array> => readMirrorRange(app.dataDir, client, disc.key, path, at, Math.min(end, at + MIRROR_PIECE_BYTES - 1));
+  let piece: Uint8Array;
+  try {
+    piece = await read(start);
+  } catch (e) {
+    if (e instanceof FetchError && e.code === 'disc-changed') {
+      sessionsOf(app).forgetMirror(disc.key);
+      return httpError(res, 404, 'disc-changed', e.message);
+    }
+    if (e instanceof FetchError || e instanceof NasError) return httpError(res, 502, 'unreachable', e.message);
+    throw e;
+  }
+  res.writeHead(range ? 206 : 200, headers);
+  let closed = false;
+  res.on('close', () => (closed = true));
+  for (let at = start; ; ) {
+    if (!res.write(piece)) await new Promise<void>((r) => res.once('drain', r).once('close', r));
+    at += piece.length;
+    if (at > end || closed) break;
+    try {
+      piece = await read(at);
+    } catch {
+      res.destroy();
+      return;
+    }
+  }
+  res.end();
+}
+
+/**
+ * Answers a disc file, whole or one range; the path is matched in any case under BDMV or CERTIFICATE. A stream file
+ * of a NAS disc's mirror is read through `serveMirrorStream`; a mirror's metadata files are whole and served locally.
+ */
 const serveDiscFile: Route = async (req, res, match, app) => {
   const disc = await knownDisc(app, res, match[1]!);
   if (!disc) return;
   const rel = match[2]!.split('/').map(decodeURIComponent).join('/');
+  const manifestPath = rel.toUpperCase();
+  if (isStreamPath(manifestPath) && (await isMirror(disc.root))) {
+    const listed = disc.manifest.files.find((f) => f.path === manifestPath);
+    if (listed === undefined) return httpError(res, 404, 'not-found', 'The disc has no such file.');
+    return serveMirrorStream(req, res, app, disc, manifestPath, listed.size);
+  }
   const file = await resolveDiscFile(disc.root, rel);
   let size: number | null = null;
   if (file) {

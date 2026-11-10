@@ -1264,6 +1264,21 @@ a {
   color: var(--danger);
 }
 
+/* where a disc lives rather than what was done to it: a small outlined tag, set apart from the accent marks */
+.mark-nas {
+  color: var(--muted);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 0 5px;
+  font-size: 12px;
+  font-weight: 560;
+}
+
+/* a quiet amber line: something to know, nothing broken */
+.notice {
+  color: var(--amber);
+}
+
 .disc-list,
 .playlist-list,
 .root-list {
