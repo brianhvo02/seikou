@@ -64,7 +64,7 @@ export function fitsKey(place: PlaybackPlace): boolean {
   const parsed = parsePlaceKey(place.discKey);
   if (parsed === null) return false;
   if (parsed.kind === 'disc') return true;
-  return place.discId === encodeId(parsed.anilistId, parsed.episode) && place.playlistId === ENCODE_PLAYLIST
+  return place.discId === encodeId(parsed.title, parsed.episode) && place.playlistId === ENCODE_PLAYLIST
     && place.mode === 'none' && place.psrs.length === 0 && place.gprs === null && place.title === null;
 }
 

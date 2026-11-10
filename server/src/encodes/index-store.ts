@@ -182,7 +182,7 @@ export class EncodeIndex {
         size,
         mtimeMs,
         entry: {
-          id: encodeId(anilistId, episode),
+          id: encodeId({ source: 'anilist', anilistId }, episode),
           anilistId,
           episode,
           episodeTitle: mkv.tags.EPISODE_TITLE?.trim() || null,

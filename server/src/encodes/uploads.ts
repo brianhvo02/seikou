@@ -302,7 +302,7 @@ export class UploadStore {
       // one rename over any old file: the old one plays until it lands
       await rename(this.partial(id), finalPath);
       await rm(this.metaFile(id), { force: true });
-      const filed = encodeId(anilistId, episode);
+      const filed = encodeId({ source: 'anilist', anilistId }, episode);
       try {
         return { entry: await this.opts.index.add(finalPath), filed };
       } catch (err) {

@@ -44,10 +44,10 @@ export interface EncodeLaunchDeps {
   readonly playingRoute: PlayingRoute;
 }
 
-/** The place key of an encode id (`e.<anilistId>.<episode>`); null for a malformed id. */
+/** The place key of an encode id (`e.<titlePart>.<episode>`); null for a malformed id. */
 export function encodeKeyOf(encodeId: string): string | null {
   const parsed = parseEncodeId(encodeId);
-  return parsed ? encodePlaceKey(parsed.anilistId, parsed.episode) : null;
+  return parsed ? encodePlaceKey(parsed.title, parsed.episode) : null;
 }
 
 /**

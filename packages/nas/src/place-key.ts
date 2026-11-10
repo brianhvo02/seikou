@@ -2,14 +2,15 @@
 import { parseDiscKey } from './disc-key';
 import type { ParsedDiscKey } from './disc-key';
 import { parseEncodePlaceKey } from './encode-id';
+import type { EncodeTitle } from './encode-title';
 
 /** What a place key names: a disc (by fingerprint or id) or an encoded episode. */
 export type ParsedPlaceKey =
   | { readonly kind: 'disc'; readonly key: ParsedDiscKey }
-  | { readonly kind: 'encode'; readonly anilistId: number; readonly episode: number };
+  | { readonly kind: 'encode'; readonly title: EncodeTitle; readonly episode: number };
 
 /**
- * A place key of either library: `f.`/`d.` for a disc, `e.<anilistId>.<episode>` for an encode; null for anything
+ * A place key of either library: `f.`/`d.` for a disc, `e.<titlePart>.<episode>` for an encode; null for anything
  * else. Only the places store and routes take both; whatever looks a disc up keeps to `parseDiscKey`.
  */
 export function parsePlaceKey(key: string): ParsedPlaceKey | null {

@@ -154,7 +154,7 @@ interface EncodeSlot { readonly show: EncodeShow; readonly season: EncodeSeason;
 /** The encode id an encode place's key names; null for a disc place. */
 function encodeOf(place: PlaybackPlace): string | null {
   const parsed = parseEncodePlaceKey(place.discKey);
-  return parsed ? encodeId(parsed.anilistId, parsed.episode) : null;
+  return parsed ? encodeId(parsed.title, parsed.episode) : null;
 }
 
 function indexEncodes(catalogue: EncodeCatalogue): Map<string, EncodeSlot> {
