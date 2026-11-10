@@ -331,6 +331,14 @@ describe('ClipFetcher', () => {
     expect(rangeRequests).toHaveLength(5);
   });
 
+  it('readMirrorRange stops at an abort of its signal, asking the NAS nothing more', async () => {
+    const controller = new AbortController();
+    beforeFile = () => controller.abort(new DOMException('gone', 'AbortError'));
+    const at = HEAD_BYTES + 1000;
+    await expect(readMirrorRange(dataDir, client, mirror.key, 'BDMV/STREAM/00002.M2TS', at, at + 99, controller.signal)).rejects.toMatchObject({ name: 'AbortError' });
+    expect(rangeRequests).toHaveLength(1);
+  });
+
   it('readMirrorRange reads fetched bytes here and the rest from the NAS, storing none of it', async () => {
     await fetcher().heads('00000');
     rangeRequests = [];

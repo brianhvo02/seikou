@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { mkdtempSync, rmSync } from 'node:fs';
+import { cpSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it } from 'vitest';
@@ -114,4 +114,29 @@ it('lists nothing while not paired', async () => {
   await library.scan();
   app.nas.client = null;
   expect(library.discs()).toEqual([]);
+});
+
+it('a pairing made while a scan for the earlier one runs gets a scan of its own', async () => {
+  const other = await startNasTestServer({
+    encodes: false,
+    prepare: (dir) => cpSync(join(dir, 'disc1'), join(dir, 'disc1-only-here'), { recursive: true }),
+  });
+  const otherApp = await pairedApp(other);
+  try {
+    const library = new NasLibrary(app);
+    const first = library.scan();
+    // Re-paired with another NAS while the first scan runs, as the pair route does it.
+    app.nas.client = otherApp.nas.client;
+    library.forget();
+    const second = library.scan();
+    expect(second).not.toBe(first);
+    await Promise.all([first, second]);
+    const theirs = await standInDiscs(otherApp.nas.client!);
+    expect(library.discs().map((d) => d.discId).sort()).toEqual(theirs.map((d) => d.id).sort());
+    expect(library.discs().some((d) => d.relPath === 'syn/disc1-only-here')).toBe(true);
+    expect(library.reachable).toBe(true);
+  } finally {
+    await other.close();
+    rmSync(otherApp.dataDir, { recursive: true, force: true });
+  }
 });

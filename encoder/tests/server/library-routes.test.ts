@@ -44,6 +44,10 @@ describe('NAS discs in the library', () => {
   }
   let nasDiscs: Disc[];
   let disc1: Disc;
+  /** A folder of local discs: a copy of disc3. */
+  let shelf: string;
+  /** Every disc of the first listing. */
+  let allDiscs: Disc[];
 
   beforeAll(async () => {
     nas = await startNasTestServer({
@@ -62,13 +66,17 @@ describe('NAS discs in the library', () => {
     clip2 = readFileSync(join(nas.discsDir!, 'disc1/BDMV/STREAM/00002.m2ts'));
     const dataDir = mkdtempSync(join(tmpdir(), 'library-routes-'));
     await pairWithNas(dataDir, { code: await nas.ownerCode(), base: nas.base }, 'Seikou encoder on test');
-    app = { dataDir, token: TOKEN, webDir: null, tools: null, sources: {} as AppContext['sources'], roots: [], nas: { client: await NasClient.load(dataDir) } };
+    // A local copy of disc3, which the NAS has too.
+    shelf = mkdtempSync(join(tmpdir(), 'library-routes-shelf-'));
+    cpSync(fx('../fixtures/synthetic/disc3'), join(shelf, 'disc3-here'), { recursive: true });
+    app = { dataDir, token: TOKEN, webDir: null, tools: null, sources: {} as AppContext['sources'], roots: [shelf], nas: { client: await NasClient.load(dataDir) } };
     server = await startHelperServer(app);
     let answer = json<{ scanning: boolean; discs: Disc[]; nas: { scanning: boolean } }>(await get('/api/library'));
     while (answer.scanning || answer.nas.scanning) {
       await new Promise((r) => setTimeout(r, 50));
       answer = json(await get('/api/library'));
     }
+    allDiscs = answer.discs;
     nasDiscs = answer.discs.filter((d) => d.source === 'nas');
     disc1 = nasDiscs.find((d) => d.label === 'disc1')!;
   });
@@ -76,6 +84,7 @@ describe('NAS discs in the library', () => {
     await server.close();
     await nas.close();
     rmSync(app.dataDir, { recursive: true, force: true });
+    rmSync(shelf, { recursive: true, force: true });
   });
 
   it('GET /api/library lists the NAS discs once per key, with the NAS paths of the other copies', async () => {
@@ -85,6 +94,13 @@ describe('NAS discs in the library', () => {
     expect(disc1).toMatchObject({ root: 'NAS', relPath: 'syn/disc1', source: 'nas', playlistCount: 2 });
     expect(disc1.otherPaths).toContainEqual({ relPath: 'syn/disc1-copy', root: 'NAS' });
     expect(new Set(nasDiscs.map((d) => d.key)).size).toBe(nasDiscs.length);
+  });
+
+  it('a disc both here and on the NAS is listed once, as the local copy, with the NAS path among its other places', async () => {
+    const copies = allDiscs.filter((d) => d.label === 'disc3-here' || d.relPath === 'syn/disc3');
+    expect(copies).toHaveLength(1);
+    expect(copies[0]).toMatchObject({ source: 'local', relPath: 'disc3-here', otherPaths: [{ relPath: 'syn/disc3', root: 'NAS' }] });
+    expect(nasDiscs.some((d) => d.key === copies[0]!.key)).toBe(false);
   });
 
   it('serves the NAS disc manifest with the NAS manifest files', async () => {

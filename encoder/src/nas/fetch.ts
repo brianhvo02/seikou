@@ -274,8 +274,19 @@ export async function clipsOfEpisode(discDir: string, playlistId: string, episod
   return [...new Set(episodeItems(playlist, spec).map((item) => `${item.clipId}.M2TS`))];
 }
 
-/** Reads `[start, end]` of a mirror file: local bytes where fetched, else from the NAS (not stored). */
-export async function readMirrorRange(dataDir: string, client: NasClient, key: string, path: string, start: number, end: number): Promise<Uint8Array> {
+/**
+ * Reads `[start, end]` of a mirror file: local bytes where fetched, else from the NAS (not stored). An abort of
+ * `signal` stops the NAS requests and their retries, throwing its reason.
+ */
+export async function readMirrorRange(
+  dataDir: string,
+  client: NasClient,
+  key: string,
+  path: string,
+  start: number,
+  end: number,
+  signal?: AbortSignal,
+): Promise<Uint8Array> {
   const entry = mirrorEntry(dataDir, key);
   const dir = mirrorDirOf(dataDir, key);
   const state = await loadState(dataDir, key, entry);
@@ -304,6 +315,6 @@ export async function readMirrorRange(dataDir: string, client: NasClient, key: s
     }
     return gapsIn(ranges, start, end + 1);
   });
-  for (const [a, b] of gaps) out.set(await fetchMirrorRange(client, entry.state ?? state, path, a, b - 1, size), a - start);
+  for (const [a, b] of gaps) out.set(await fetchMirrorRange(client, entry.state ?? state, path, a, b - 1, size, signal ? { signal } : {}), a - start);
   return out;
 }

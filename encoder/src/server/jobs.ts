@@ -7,6 +7,8 @@ import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { replaceAtomically } from '@seikou/titles';
 import { loadPlaylist } from '../disc/playlist';
+import { NasError } from '../nas/client';
+import { FetchError } from '../nas/mirror';
 import { encodeEpisodes, episodeName, type EncodeEvent, type EncodeOptions } from '../encode';
 import { packageEpisode } from '../package/package';
 import { EpisodeSpecError, parseEpisodeSpec, sameEpisodeList } from '../plan/episodes';
@@ -725,10 +727,21 @@ export class JobRunner {
   private async findMovedDisc(job: Job): Promise<void> {
     if (await holdsDisc(job.disc.dir)) return;
     const sessions = sessionsOf(this.app);
-    // a session's folder or the library's (`discDirOf`), the library's own, then a NAS disc's mirror made again
-    const candidates = [await sessions.discDirOf(job.disc.key), libraryOf(this.app).dirOf(job.disc.key), await sessions.mirrorDirFor(job.disc.key)];
+    // Tried in order, each only when the one before found no folder holding the disc: a session's or the library's
+    // folder (`discDirOf`, which asks the NAS only when neither knows the key), the library's own, then the NAS disc's
+    // mirror made again. A NAS that fails counts as not having it.
+    const nasMiss = (e: unknown): null => {
+      if (e instanceof FetchError || e instanceof NasError) return null;
+      throw e;
+    };
+    const lookups: (() => Promise<string | null>)[] = [
+      () => sessions.discDirOf(job.disc.key).catch(nasMiss),
+      () => Promise.resolve(libraryOf(this.app).dirOf(job.disc.key)),
+      () => sessions.mirrorDirFor(job.disc.key).catch(nasMiss),
+    ];
     let found: string | null = null;
-    for (const dir of candidates) {
+    for (const lookup of lookups) {
+      const dir = await lookup();
       if (dir !== null && (await holdsDisc(dir))) {
         found = dir;
         break;

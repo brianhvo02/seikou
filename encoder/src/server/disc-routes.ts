@@ -211,11 +211,15 @@ async function serveMirrorStream(req: IncomingMessage, res: ServerResponse, app:
   }
   const client = app.nas.client;
   if (client === null) return httpError(res, 502, 'unreachable', 'The encoder is not paired with the NAS.');
-  const read = (at: number): Promise<Uint8Array> => readMirrorRange(app.dataDir, client, disc.key, path, at, Math.min(end, at + MIRROR_PIECE_BYTES - 1));
+  // a client that goes away (the engine abandons a read on a seek) stops the NAS requests and their retries
+  const gone = new AbortController();
+  res.on('close', () => gone.abort(new DOMException('The client went away', 'AbortError')));
+  const read = (at: number): Promise<Uint8Array> => readMirrorRange(app.dataDir, client, disc.key, path, at, Math.min(end, at + MIRROR_PIECE_BYTES - 1), gone.signal);
   let piece: Uint8Array;
   try {
     piece = await read(start);
   } catch (e) {
+    if (gone.signal.aborted) return;
     if (e instanceof FetchError && e.code === 'disc-changed') {
       sessionsOf(app).forgetMirror(disc.key);
       return httpError(res, 404, 'disc-changed', e.message);
@@ -224,12 +228,10 @@ async function serveMirrorStream(req: IncomingMessage, res: ServerResponse, app:
     throw e;
   }
   res.writeHead(range ? 206 : 200, headers);
-  let closed = false;
-  res.on('close', () => (closed = true));
   for (let at = start; ; ) {
     if (!res.write(piece)) await new Promise<void>((r) => res.once('drain', r).once('close', r));
     at += piece.length;
-    if (at > end || closed) break;
+    if (at > end || gone.signal.aborted) break;
     try {
       piece = await read(at);
     } catch {

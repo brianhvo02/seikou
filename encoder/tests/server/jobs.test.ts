@@ -11,6 +11,11 @@ import { JobRunner, jobCli, startJobRunner, type Job, type JobProgress, type Job
 import { safePathSegment } from '../../src/server/job-routes';
 import type { TestOutcome } from '../../src/server/test-encode';
 import { sessionsOf } from '../../src/server/sessions';
+import { libraryOf } from '../../src/server/library';
+import { NasClient } from '../../src/nas/client';
+import { nasLibraryOf } from '../../src/nas/nas-library';
+import { pairWithNas } from '../../src/nas/pairing';
+import { startNasTestServer } from '../nas/nas-test-server';
 import { appSettings } from '../../src/subs/app-settings';
 import { RecordStore, type SubtitleRecord } from '../../src/subs/record';
 import { haveTools, toolPaths } from '../helpers/tools';
@@ -279,6 +284,53 @@ describe('the job runner', () => {
       });
       expect(runner.get(job.id)!.state).toBe('cancelled');
     } finally {
+      rmSync(shelf, { recursive: true, force: true });
+    }
+  });
+
+  it('retry asks the NAS nothing when a local folder holds the disc, even one the NAS has too', async () => {
+    const nas = await startNasTestServer({ encodes: false, prepare: (dir) => cpSync(fixturePath('fixtures/disc-speech'), join(dir, 'speech'), { recursive: true }) });
+    const shelf = realpathSync(mkdtempSync(join(tmpdir(), 'jobs-nas-')));
+    try {
+      await pairWithNas(fx.dataDir, { code: await nas.ownerCode(), base: nas.base }, 'Seikou encoder on test');
+      let nasRequests = 0;
+      fx.app.nas.client = await NasClient.load(fx.dataDir, (input, init) => {
+        nasRequests++;
+        return fetch(input, init);
+      });
+      const first = join(shelf, 'queued', 'Lantern Harbor');
+      cpSync(fixturePath('fixtures/disc-speech'), first, { recursive: true });
+      const session = await sessionsOf(fx.app).create({ discDir: first, playlistId: '00000', episodeSpec: '1-3,4-5' });
+      const runner = startJobRunner(fx.app, deps());
+      await runner.ready;
+      const job = await runner.add(input({ discKey: session.discKey }));
+      (await fake.next()).reject(new Error('vspipe failed'));
+      await until(() => runner.get(job.id)!.state === 'failed', 'failure');
+      // The library (scanned now, the NAS's listing with it) knows the key at home; the NAS lists it too.
+      await appSettings(fx.dataDir).write({ roots: [join(shelf, 'library')] });
+      const library = libraryOf(fx.app);
+      await library.scan();
+      expect(nasLibraryOf(fx.app).byKey(session.discKey)).not.toBeNull();
+
+      // The folder still holds the disc: nothing is asked.
+      nasRequests = 0;
+      await runner.retry(job.id);
+      (await fake.next()).reject(new Error('vspipe failed'));
+      await until(() => runner.get(job.id)!.state === 'failed', 'failure');
+      expect(nasRequests).toBe(0);
+
+      // The disc moved into the library: found there, and the NAS is still not asked.
+      const home = join(shelf, 'library', 'Lantern Harbor');
+      mkdirSync(join(shelf, 'library'));
+      renameSync(first, home);
+      await library.scan();
+      nasRequests = 0;
+      expect((await runner.retry(job.id)).disc.dir).toBe(home);
+      expect(nasRequests).toBe(0);
+      expect(existsSync(join(fx.dataDir, 'fetch'))).toBe(false);
+      await runner.cancel(job.id);
+    } finally {
+      await nas.close();
       rmSync(shelf, { recursive: true, force: true });
     }
   });

@@ -84,6 +84,8 @@ export class NasLibrary {
   private listing: SavedListing | null = null;
   private loaded = false;
   private running: Promise<void> | null = null;
+  /** The client the running scan lists for. */
+  private runningFor: NasClient | null = null;
   private lastReachable: boolean | null = null;
 
   constructor(private readonly app: AppContext) {}
@@ -115,15 +117,20 @@ export class NasLibrary {
    * later scan gets it; a NAS that cannot be listed keeps the last listing (`reachable` false). Never rejects.
    */
   scan(): Promise<void> {
-    this.running ??= this.run().finally(() => {
-      this.running = null;
-    });
+    const client = this.app.nas.client;
+    // a scan running for an earlier pairing drops what it finds, so a new pairing gets a run of its own
+    if (this.running === null || this.runningFor !== client) {
+      const run: Promise<void> = this.run(client).finally(() => {
+        if (this.running === run) this.running = null;
+      });
+      this.running = run;
+      this.runningFor = client;
+    }
     return this.running;
   }
 
-  private async run(): Promise<void> {
+  private async run(client: NasClient | null): Promise<void> {
     await this.load();
-    const client = this.app.nas.client;
     if (client === null) return;
     let entries: DiscEntry[];
     try {
