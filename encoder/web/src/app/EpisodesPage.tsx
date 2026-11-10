@@ -49,7 +49,7 @@ function checkLine(answer: CheckAnswer, show: string | null): string {
     case 'mixed':
       return 'Checked. The episodes span two shows, so the NAS was left as it is.';
     case 'failed':
-      return `Checked. The NAS refused the change: ${answer.message ?? 'it gave no reason'}`;
+      return `Checked. ${answer.message ?? 'The NAS refused the change, giving no reason.'}`;
     default:
       return 'Checked.';
   }

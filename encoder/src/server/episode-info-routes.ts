@@ -266,14 +266,20 @@ async function otherTitles(dataDir: string, key: string, playlistId: string): Pr
   return out;
 }
 
-/** What the check did to the NAS's library. */
+/** What the check did to the NAS's library; a failure's `message` is a whole sentence. */
 type NasChoiceAnswer = { nasChoice: 'saved' | 'unchanged' | 'mixed' } | { nasChoice: 'failed'; message: string };
+
+/** The failure for an AniList entry the NAS's catalogue doesn't hold, so whether it is a series' season can't be told. */
+const UNKNOWN_ANILIST = "The NAS doesn't know this AniList entry yet, so it was left as it is. File the disc in Seikou's Unsorted screen.";
 
 /**
  * The one place the encoder writes the NAS's library: when every episode of a checked playlist is under one title and
- * the NAS files the disc under another (or in Unsorted), the owner's choice for the disc is set to that title. The
- * NAS's answer decides; the details of the titles involved are read again so the Library shows the change. A disc the
- * NAS does not hold, an unpaired app and episodes of two shows change nothing.
+ * the NAS files the disc under another (or in Unsorted), the owner's choice for the disc is set to that title. An
+ * AniList entry that is a season of a series is chosen as the series with that season's number (a series without a
+ * season is Unsorted on the NAS); one the NAS's catalogue doesn't hold is left alone (`failed`). The choice keeps the
+ * number of the disc's slot where it is filed now. The NAS's answer decides; the details of the titles involved are
+ * read again so the Library shows the change. A disc the NAS does not hold, an unpaired app and episodes of two shows
+ * change nothing.
  */
 async function fileOnNas(app: AppContext, key: string, titles: readonly EncodeTitle[]): Promise<NasChoiceAnswer> {
   const client = app.nas.client;
@@ -284,25 +290,31 @@ async function fileOnNas(app: AppContext, key: string, titles: readonly EncodeTi
   try {
     const found = await nas.discMatch(client, key, { fresh: true });
     if (found === null || (found.title !== null && sameTitle(found.title, title))) return { nasChoice: 'unchanged' };
-    const season = title.source === 'tmdb-tv' || title.source === 'own' ? title.season : null;
+    let target: { titleId: string; season: number | null } = { titleId: nasTitleId(title), season: title.source === 'tmdb-tv' || title.source === 'own' ? title.season : null };
+    if (title.source === 'anilist') {
+      const place = await nas.anilistPlace(client, title.anilistId);
+      if (place === null) return { nasChoice: 'failed', message: UNKNOWN_ANILIST };
+      target = place;
+    }
+    const refresh = (): Promise<void> => nas.refreshAfterChoice(client, [...new Set([found.titleId, target.titleId].filter((t): t is string => t !== null))]);
     // every copy of the disc the NAS holds gets the choice; one refusal fails the whole
     for (const discId of found.discIds) {
       const res = await client.request(`admin/discs/${encodeURIComponent(discId)}/choice`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ choice: { kind: 'title', titleId: nasTitleId(title), season, disc: null } }),
+        body: JSON.stringify({ choice: { kind: 'title', titleId: target.titleId, season: target.season, disc: found.discNumber } }),
       });
       if (!res.ok) {
         const why = await errorOfBody(res);
-        await nas.refreshAfterChoice(client, [...new Set([found.titleId, nasTitleId(title)].filter((t): t is string => t !== null))]);
-        return { nasChoice: 'failed', message: why ?? `the NAS answered ${res.status}` };
+        await refresh();
+        return { nasChoice: 'failed', message: `The NAS refused the change: ${why ?? `it answered ${res.status}`}.` };
       }
       await res.body?.cancel();
     }
-    await nas.refreshAfterChoice(client, [...new Set([found.titleId, nasTitleId(title)].filter((t): t is string => t !== null))]);
+    await refresh();
     return { nasChoice: 'saved' };
   } catch (e) {
-    if (e instanceof NasError) return { nasChoice: 'failed', message: e.message };
+    if (e instanceof NasError) return { nasChoice: 'failed', message: `The NAS couldn't be told: ${e.message}` };
     throw e;
   }
 }

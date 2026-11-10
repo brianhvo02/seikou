@@ -108,5 +108,65 @@
       "poster": null,
       "banner": null
     }
+  ],
+  "Willow Lane": [
+    {
+      "source": "anilist",
+      "id": "anilist:990201",
+      "kind": "series",
+      "format": "TV",
+      "names": {
+        "english": "Willow Lane",
+        "romaji": "Yanagi no Komichi",
+        "native": null,
+        "synonyms": []
+      },
+      "animation": true,
+      "year": 2020,
+      "startDate": 20200401,
+      "episodes": 4,
+      "runtimeMin": 0.0667,
+      "seasons": [],
+      "relations": [
+        {
+          "type": "SEQUEL",
+          "id": "anilist:990202",
+          "format": "TV",
+          "startDate": 20210401
+        }
+      ],
+      "poster": null,
+      "banner": null
+    }
+  ],
+  "Willow Lane Encore": [
+    {
+      "source": "anilist",
+      "id": "anilist:990202",
+      "kind": "series",
+      "format": "TV",
+      "names": {
+        "english": "Willow Lane Encore",
+        "romaji": "Yanagi no Komichi Encore",
+        "native": null,
+        "synonyms": []
+      },
+      "animation": true,
+      "year": 2021,
+      "startDate": 20210401,
+      "episodes": 4,
+      "runtimeMin": 0.0667,
+      "seasons": [],
+      "relations": [
+        {
+          "type": "PREQUEL",
+          "id": "anilist:990201",
+          "format": "TV",
+          "startDate": 20200401
+        }
+      ],
+      "poster": null,
+      "banner": null
+    }
   ]
 }

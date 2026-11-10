@@ -484,7 +484,7 @@ export interface NasPrefill {
 /** What `POST /api/discs/<key>/playlists/<id>/check` answers. */
 export interface CheckAnswer {
   readonly info: EpisodeInfo;
-  /** `saved`: the NAS now files the disc under the title; `unchanged`: nothing to change; `mixed`: the episodes span two shows; `failed`: the NAS refused (see `message`). */
+  /** `saved`: the NAS now files the disc under the title; `unchanged`: nothing to change; `mixed`: the episodes span two shows; `failed`: the NAS was left as it is, `message` saying why in a whole sentence (a refusal, a NAS that didn't answer, an AniList entry it doesn't know). */
   readonly nasChoice: 'saved' | 'unchanged' | 'mixed' | 'failed';
   readonly message?: string;
 }

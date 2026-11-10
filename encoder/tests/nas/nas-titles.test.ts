@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { NasClient } from '../../src/nas/client';
-import { DETAIL_TTL_MS, NasTitles, seasonTitle } from '../../src/nas/nas-titles';
+import type { TitleDetail, TitleSummary } from '@seikou/nas/nas-api';
+import { anilistPlace, DETAIL_TTL_MS, NasTitles, seasonTitle } from '../../src/nas/nas-titles';
 import { pairWithNas } from '../../src/nas/pairing';
 import type { AppContext } from '../../src/server/http';
 import { startNasTestServer, type NasTestServer } from './nas-test-server';
@@ -29,6 +30,47 @@ describe('seasonTitle', () => {
     expect(seasonTitle(`own:${UUID.toUpperCase()}#s1`)).toBeNull();
     expect(seasonTitle('music:x#discs')).toBeNull();
     expect(seasonTitle('')).toBeNull();
+  });
+});
+
+describe('anilistPlace', () => {
+  const summary = (id: string, kind: 'series' | 'movie'): TitleSummary =>
+    ({ id, kind, names: { english: id, romaji: null, native: null, synonyms: [], display: null }, poster: null, year: null, seasons: 0, discs: 0, addedAt: 0, own: false }) as TitleSummary;
+  const detail = (t: TitleSummary, seasons: [string, number | null][]): TitleDetail => ({
+    title: t,
+    banner: null,
+    related: [],
+    extras: [],
+    seasons: seasons.map(([id, number]) => ({ id, label: id, number, discs: [], episodes: null, extras: [] })),
+  });
+  const series = summary('anilist:990201', 'series');
+  const film = summary('anilist:990301', 'movie');
+  const ova = summary('anilist:990401', 'series');
+  const titles = [series, film, ova];
+  const details = {
+    [series.id]: detail(series, [
+      ['anilist:990201#season', 1],
+      ['anilist:990202#season', 2],
+      ['anilist:990201#s3', 3],
+    ]),
+    [film.id]: detail(film, [['anilist:990301#discs', null]]),
+    [ova.id]: detail(ova, [['anilist:990401#discs', null]]),
+  };
+
+  it("gives a series member its series and its season's number", () => {
+    expect(anilistPlace(titles, details, 990201)).toEqual({ titleId: 'anilist:990201', season: 1 });
+    expect(anilistPlace(titles, details, 990202)).toEqual({ titleId: 'anilist:990201', season: 2 });
+  });
+
+  it('gives an entry of its own (a film, a non-TV entry) its title and no season', () => {
+    expect(anilistPlace(titles, details, 990301)).toEqual({ titleId: 'anilist:990301', season: null });
+    expect(anilistPlace(titles, details, 990401)).toEqual({ titleId: 'anilist:990401', season: null });
+    expect(anilistPlace([film], {}, 990301)).toEqual({ titleId: 'anilist:990301', season: null });
+  });
+
+  it('answers null for an entry the catalogue does not hold', () => {
+    expect(anilistPlace(titles, details, 990999)).toBeNull();
+    expect(anilistPlace(titles, details, 990203)).toBeNull();
   });
 });
 

@@ -12,8 +12,18 @@ import { startHelperServer, type AppContext, type HelperServer } from '../../src
 import { startNasTestServer, type NasTestServer } from '../nas/nas-test-server';
 
 const TOKEN = 'episode-nas-token';
-/** Lantern Road (AniList 990001): episode 1 is disc1, episode 2 is disc-vm (four chapters). disc3 is left in Unsorted. */
-const FOLDERS = { 'Anime/Lantern Road/Lantern Road Vol.1': 'disc1', 'Anime/Lantern Road/Lantern Road Vol.2': 'disc-vm', 'Anime/Lantern Road/Lantern Road Vol.2 (copy)': 'disc-vm' };
+/**
+ * Lantern Road (AniList 990001): episode 1 is disc1, episode 2 is disc-vm (four chapters). disc3 is left in Unsorted.
+ * Willow Lane is an AniList series of two entries: 990201 (season 1, on disc-subs) and its sequel 990202 (season 2, on
+ * disc-menu, filed as its second disc).
+ */
+const FOLDERS = {
+  'Anime/Lantern Road/Lantern Road Vol.1': 'disc1',
+  'Anime/Lantern Road/Lantern Road Vol.2': 'disc-vm',
+  'Anime/Lantern Road/Lantern Road Vol.2 (copy)': 'disc-vm',
+  'Anime/Willow Lane/Willow Lane Vol.1': 'disc-subs',
+  'Anime/Willow Lane Encore/Willow Lane Encore Vol.2': 'disc-menu',
+};
 
 let nas: NasTestServer;
 let admin: NasClient;
@@ -139,6 +149,19 @@ describe('check', () => {
     expect((await call('GET', '/api/nas/shows')).body.unsorted.map((u: { label: string }) => u.label)).not.toContain('disc3');
   });
 
+  it('writes nothing for an AniList entry the NAS does not know, and says so', async () => {
+    const key = await discKey('anilist:990001', 0);
+    await save(key, { '1': anilist(990999, 1) });
+    const r = await check(key, '1-');
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({
+      nasChoice: 'failed',
+      message: "The NAS doesn't know this AniList entry yet, so it was left as it is. File the disc in Seikou's Unsorted screen.",
+    });
+    expect(r.body.info.checked).toBeDefined();
+    expect(putChoices).toEqual([]);
+  });
+
   it('keeps the disc checked and says why when the NAS refuses the change', async () => {
     const key = await discKey('anilist:990001', 0);
     const unknown = { title: { source: 'own', ownId: '00000000-0000-4000-8000-000000000000', season: 1 }, episode: 1, name: null };
@@ -146,7 +169,7 @@ describe('check', () => {
     const r = await check(key, '1-');
     expect(r.status).toBe(200);
     expect(r.body.nasChoice).toBe('failed');
-    expect(r.body.message).toMatch(/unknown title/);
+    expect(r.body.message).toMatch(/^The NAS refused the change: .*unknown title/);
     expect(r.body.info.checked).toBeDefined();
   });
 
@@ -186,7 +209,7 @@ describe('check', () => {
     expect(r.body).toMatchObject({ nasChoice: 'saved' });
     // every copy of the disc the NAS holds gets the choice
     expect(putChoices.length).toBeGreaterThanOrEqual(copies);
-    expect(new Set(putChoices)).toEqual(new Set([JSON.stringify({ choice: { kind: 'title', titleId: `own:${ownId}`, season: 1, disc: null } })]));
+    expect(new Set(putChoices)).toEqual(new Set([JSON.stringify({ choice: { kind: 'title', titleId: `own:${ownId}`, season: 1, disc: 2 } })]));
     // the NAS's own title now lists the disc
     const detail = await admin.json<TitleDetail>(`titles/${encodeURIComponent(`own:${ownId}`)}`);
     expect(detail.seasons[0]!.discs.length).toBeGreaterThan(0);
@@ -198,16 +221,39 @@ describe('check', () => {
   });
 
   it('decides on the NAS as it is now, not on details it kept', async () => {
-    // the disc is under the own title (filed above): the encoder reads that, then another owner moves it back
-    const key = (await call('GET', `/api/nas/shows/${encodeURIComponent(`own:${ownId}`)}`)).body.seasons[0].discs[0].key as string;
+    // Lantern Road's second disc is under the own title (filed above): the encoder reads that, then another owner moves it back
+    const ownDetail = await admin.json<TitleDetail>(`titles/${encodeURIComponent(`own:${ownId}`)}`);
+    const slot = ownDetail.seasons[0]!.discs.find((d) => d.copies.some((c) => c.folder === 'Anime/Lantern Road/Lantern Road Vol.2'))!;
+    const encoderDiscs = (await call('GET', `/api/nas/shows/${encodeURIComponent(`own:${ownId}`)}`)).body.seasons[0].discs as { key: string; discId: string }[];
+    const key = encoderDiscs.find((d) => slot.copies.some((c) => c.discId === d.discId))!.key;
     expect((await call('GET', `${infoPath(key)}/nas-prefill`)).body.title).toEqual({ source: 'own', ownId, season: 1 });
-    for (const c of (await lantern()).seasons[0]!.discs.flatMap((d) => d.copies).concat((await admin.json<TitleDetail>(`titles/${encodeURIComponent(`own:${ownId}`)}`)).seasons[0]!.discs.flatMap((d) => d.copies))) {
-      const moved = await admin.request(`admin/discs/${c.discId}/choice`, { method: 'PUT', body: JSON.stringify({ choice: { kind: 'title', titleId: 'anilist:990001', season: null, disc: null } }), headers: { 'content-type': 'application/json' } });
+    for (const c of slot.copies) {
+      const moved = await admin.request(`admin/discs/${c.discId}/choice`, { method: 'PUT', body: JSON.stringify({ choice: { kind: 'title', titleId: 'anilist:990001', season: 1, disc: 2 } }), headers: { 'content-type': 'application/json' } });
       expect(moved.status).toBe(204);
     }
+    // filed back under Lantern Road's season, not left in Unsorted
+    expect((await lantern()).seasons[0]!.discs.map((d) => d.number)).toEqual([1, 2]);
     putChoices = [];
     await save(key, { '1': own(1) });
     expect((await check(key, '1-4')).body.nasChoice).toBe('saved');
     expect(putChoices.length).toBeGreaterThan(0);
+  });
+
+  it("files a disc under an AniList TV entry by its series and season, keeping the disc's number", async () => {
+    const willow = async (): Promise<TitleDetail> => admin.json<TitleDetail>('titles/anilist%3A990201');
+    expect((await willow()).seasons.map((s) => [s.id, s.number])).toEqual([
+      ['anilist:990201#season', 1],
+      ['anilist:990202#season', 2],
+    ]);
+    const key = await discKey('anilist:990001', 0);
+    await save(key, { '1': anilist(990202, 1) });
+    const r = await check(key, '1-');
+    expect(r.body).toMatchObject({ nasChoice: 'saved' });
+    expect(new Set(putChoices)).toEqual(new Set([JSON.stringify({ choice: { kind: 'title', titleId: 'anilist:990201', season: 2, disc: 1 } })]));
+    // the series lists the disc under its second season, as disc 1 beside the season's disc 2
+    const season2 = (await willow()).seasons.find((s) => s.id === 'anilist:990202#season')!;
+    expect(season2.discs.map((d) => d.number)).toEqual([1, 2]);
+    expect((await call('GET', '/api/nas/shows')).body.unsorted.map((u: { key: string }) => u.key)).not.toContain(key);
+    expect((await call('GET', `/api/nas/shows/${encodeURIComponent('anilist:990201')}`)).body.seasons[1].discs[0].key).toBe(key);
   });
 });

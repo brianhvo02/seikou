@@ -164,6 +164,34 @@ export interface DiscMatch {
   readonly titleId: string | null;
   /** The episodes the NAS lists on the disc, by playlist, in number order. */
   readonly episodes: readonly { readonly playlistId: string; readonly number: number; readonly name: string | null }[];
+  /** The number of the disc's slot in the season it is filed in; null in Unsorted or a slot without one. */
+  readonly discNumber: number | null;
+}
+
+/** Where an owner's choice files a disc under an AniList entry: the NAS title and the season number it takes. */
+export interface AnilistPlace {
+  readonly titleId: string;
+  readonly season: number | null;
+}
+
+/**
+ * Where the NAS's catalogue (`titles` with their `details`) has AniList entry `anilistId`, for an owner's choice:
+ *
+ * - a member of a series (its season `anilist:<id>#season`): the series' title id and that season's number, since the
+ *   NAS files a series choice without a season in Unsorted;
+ * - an entry of its own (its season `anilist:<id>#discs`, or a film title `anilist:<id>`): that title, no season;
+ * - null when the entry appears nowhere, so which of the two it is can't be told.
+ */
+export function anilistPlace(titles: readonly TitleSummary[], details: Readonly<Record<string, TitleDetail>>, anilistId: number): AnilistPlace | null {
+  const id = `anilist:${anilistId}`;
+  for (const t of titles) {
+    const s = details[t.id]?.seasons.find((x) => x.id === `${id}#season` && x.number !== null);
+    if (s !== undefined) return { titleId: t.id, season: s.number };
+  }
+  for (const t of titles) {
+    if ((details[t.id]?.seasons ?? []).some((x) => x.id === `${id}#discs`) || (t.id === id && t.kind === 'movie')) return { titleId: t.id, season: null };
+  }
+  return null;
 }
 
 /** What the NAS answered, kept whole in `nas-titles.json`. */
@@ -387,15 +415,17 @@ export class NasTitles {
       let found: DiscMatch | null = null;
       for (const t of r.titles) {
         for (const s of r.details[t.id]?.seasons ?? []) {
-          if (!s.discs.some((slot) => slot.copies.some((c) => ids.has(c.discId)))) continue;
+          const slot = s.discs.find((x) => x.copies.some((c) => ids.has(c.discId)));
+          if (slot === undefined) continue;
           const episodes = (s.episodes ?? [])
             .filter((e) => ids.has(e.discId))
             .map((e) => ({ playlistId: e.playlistId, number: e.number, name: e.name }))
             .sort((a, b) => a.number - b.number);
-          if (found === null || (found.episodes.length === 0 && episodes.length > 0)) found = { discId: mine[0]!.discId, discIds, title: seasonTitle(s.id), titleId: t.id, episodes };
+          if (found === null || (found.episodes.length === 0 && episodes.length > 0))
+            found = { discId: mine[0]!.discId, discIds, title: seasonTitle(s.id), titleId: t.id, episodes, discNumber: slot.number };
         }
       }
-      return found ?? { discId: mine[0]!.discId, discIds, title: null, titleId: null, episodes: [] };
+      return found ?? { discId: mine[0]!.discId, discIds, title: null, titleId: null, episodes: [], discNumber: null };
     };
     let found = find(raw);
     if (o.fresh === true && found.titleId !== null) {
@@ -407,6 +437,19 @@ export class NasTitles {
       }
     }
     return found;
+  }
+
+  /**
+   * Where the NAS has AniList entry `anilistId` (`anilistPlace`), decided on the NAS as it is now: a title found in
+   * the kept details is read again and asked once more; an entry found nowhere has every detail read again first.
+   * Rejects with `NasError` when the NAS cannot be read.
+   */
+  async anilistPlace(client: NasClient, anilistId: number): Promise<AnilistPlace | null> {
+    const { raw, reachable } = await this.fetch(client);
+    if (raw === null || !reachable) throw new NasError('unreachable', null, 'The NAS did not answer.');
+    const kept = anilistPlace(raw.titles, raw.details, anilistId);
+    const again = (await this.fetch(client, kept === null ? { refresh: true } : { only: kept.titleId })).raw ?? raw;
+    return anilistPlace(again.titles, again.details, anilistId);
   }
 
   /** Reads the details of the NAS titles `titleIds` and Unsorted again, after the encoder changed where a disc is filed; never rejects. */
