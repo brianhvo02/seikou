@@ -61,9 +61,14 @@ describe('planEpisodes', () => {
     const plans = planEpisodes(p, probes, parseEpisodeSpec('1-2,3-4', 4), lpcm, pmts);
     expect(plans.map((e) => e.segments.map((s) => [s.item.clipId, s.videoFrames, samplesOf(s)])))
       .toEqual([[['00001', [0, 96], [0, 192000]]], [['00002', [0, 96], [0, 192000]]]]);
-    expect(plans[0].chapters).toEqual([{ title: 'Chapter 1', startNs: 0n }, { title: 'Chapter 2', startNs: 2002000000n }]);
+    expect(plans[0].chapters).toEqual([{ title: 'Chapter 1', startNs: 0n, playlistChapter: 1 }, { title: 'Chapter 2', startNs: 2002000000n, playlistChapter: 2 }]);
     expect(plans[0].frameCount).toBe(96);
     expect(plans[0].durationNs).toBe(4004000000n);
+  });
+
+  it('numbers each chapter by the playlist chapter it is', () => {
+    const [ep] = planEpisodes(p, probes, parseEpisodeSpec('2-3', 4), lpcm, pmts);
+    expect(ep!.chapters.map((c) => c.playlistChapter)).toEqual([2, 3]);
   });
 
   it('spans two clips when an episode crosses an item boundary', () => {

@@ -8,14 +8,17 @@ import { FetchCache } from '@seikou/fansubs/fetch-cache';
 import { fixtureFansubSources } from '@seikou/fansubs/fixture-sources';
 import { discKeyOfFolder } from '../src/disc/disc-key';
 import { encodeEpisodes, episodeName, opusArgs, svtArgs, type EncodeEvent, type EncodeOptions } from '../src/encode';
-import { EpisodeSpecError } from '../src/plan/episodes';
+import { EpisodeSpecError, firstFramePlaylistUs, parseEpisodeSpec, planEpisodes } from '../src/plan/episodes';
+import { readPlaylistPmts } from '../src/disc/pmt';
+import { readMkv } from '../src/mux/mkv-file';
+import { nodeRangeReader } from '../src/mux/node-io';
 import { NoAudioChosenError } from '../src/subs/encode-record';
 import { RecordStore, type SubtitleRecord } from '../src/subs/record';
 import { ReleaseCache } from '../src/subs/release-cache';
-import { Id } from '@seikou/matroska';
+import { Id, openMatroska } from '@seikou/matroska';
 import { blocksInOrder, countVideoBlocks, find, findAll, floatOf, parseMkv, stringOf, uintOf } from './helpers/ebml-reader';
 import { loadPlaylist } from '../src/disc/playlist';
-import { probeClip } from '../src/disc/probe';
+import { probeClip, type ClipProbe } from '../src/disc/probe';
 import { ffprobePath, haveFfprobe, haveTools, toolPaths } from './helpers/tools';
 import { fx } from './paths';
 
@@ -448,6 +451,34 @@ describe.skipIf(!haveTools)('end to end on disc-speech with a saved record', () 
         expect(j.streams.filter((s) => s.codec_type === 'attachment')).toHaveLength(1);
       }
     }
+  }, 600_000);
+});
+
+describe.skipIf(!haveTools)('chapter names and tags on disc-speech', () => {
+  it("names the episode's chapters and tags it with its disc, playlist, start and AniList entry", async () => {
+    const out = mkdtempSync(join(tmpdir(), 'et-'));
+    const discDir = fx('fixtures/disc-speech');
+    const opts: EncodeOptions = {
+      discDir, playlistId: '00000', episodes: '1-2,3-4', outDir: join(out, 'mkv'), namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], filmGrain: 4,
+      cacheDir: join(out, 'cache'), tools: toolPaths()!, dataDir: join(out, 'data'), noSubtitles: false, noPgs: false, onlyEpisodes: [2],
+      episodeInfo: { chapterNames: { '3': 'Opening' }, anilist: { '3': { anilistId: 990001, episode: 2, title: null } }, savedAt: '2026-11-09T00:00:00Z' },
+    };
+    const [path] = await encodeEpisodes(opts, () => {});
+    const mkv = await readMkv(path!);
+    expect(mkv.chapters.map((c) => c.title)).toEqual(['Opening', 'Chapter 2']);
+    const { tags } = await openMatroska(await nodeRangeReader(path!));
+    const playlist = await loadPlaylist(discDir, '00000');
+    const probes = new Map<string, ClipProbe>();
+    for (const item of playlist.items) if (!probes.has(item.clipId)) probes.set(item.clipId, await probeClip(item));
+    const [, plan] = planEpisodes(playlist, probes, parseEpisodeSpec('1-2,3-4', playlist.chapters.length), [], await readPlaylistPmts(playlist));
+    expect(tags).toMatchObject({
+      ANILIST_ID: '990001',
+      EPISODE: '2',
+      SEIKOU_PLAYLIST: '00000',
+      SEIKOU_DISC_KEY: (await discKeyOfFolder(discDir)).key,
+      SEIKOU_EPISODE_START_MS: String(Math.round(firstFramePlaylistUs(playlist, plan!) / 1000)),
+    });
+    expect('EPISODE_TITLE' in tags).toBe(false);
   }, 600_000);
 });
 

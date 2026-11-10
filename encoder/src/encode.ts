@@ -17,7 +17,10 @@ import { WavGuardError } from './pipeline/wav-guard';
 import { loadEncodeRecord, NoAudioChosenError } from './subs/encode-record';
 import { episodeSubtitleTracks, recordFontLoader } from './subs/episode-subtitles';
 import { selectAudio, type SelectedAudio } from './plan/audio-streams';
-import { EpisodeSpecError, parseEpisodeSpec, planEpisodes, type EpisodePlan } from './plan/episodes';
+import { EpisodeSpecError, firstFramePlaylistUs, parseEpisodeSpec, planEpisodes, type EpisodePlan } from './plan/episodes';
+import { chapterName, EpisodeInfoStore, type EpisodeInfo } from './plan/episode-info';
+import { discKeyOfFolder } from './disc/disc-key';
+import { episodeTags } from './mux/episode-tags';
 import type { RecordMetadata, SubtitleRecord } from './subs/record';
 
 /** Everything `encodeEpisodes` needs. */
@@ -57,6 +60,8 @@ export interface EncodeOptions {
    * (honouring `noSubtitles`).
    */
   record?: SubtitleRecord | null;
+  /** Chapter names and AniList choices; when left out, `encodeEpisodes` reads them from `<dataDir>/chapters/…`. `null` writes none. */
+  episodeInfo?: EpisodeInfo | null;
   /** Leave the disc's PG subtitle streams out of the MKV. */
   noPgs: boolean;
   /**
@@ -202,8 +207,10 @@ export interface PlanEncodeOptions extends Pick<EncodeOptions, 'crf' | 'preset' 
   cacheDir: string;
   /** The MKV's segment title. */
   title?: string | undefined;
-  /** The helper record's labels for this episode: the video track's name and language and the chapter titles. */
+  /** The helper record's labels for this episode: the video track's name and language. Chapter titles are the plan's. */
   metadata?: RecordMetadata | null;
+  /** Segment-level tags written to the MKV (see `episodeTags`); none when left out. */
+  tags?: Readonly<Record<string, string>>;
   /** Subtitle tracks muxed after the audio. */
   subtitles?: MkvSubtitleTrack[];
   /** Attachments, such as fonts. */
@@ -303,7 +310,8 @@ export async function encodePlan(o: PlanEncodeOptions, onEvent: (e: EncodeEvent)
       })),
       subtitles: o.subtitles ?? [],
       attachments: o.attachments ?? [],
-      chapters: plan.chapters.map((c, i) => ({ ...c, title: metadata?.chapters[i] || c.title })),
+      chapters: plan.chapters.map(({ title, startNs }) => ({ title, startNs })),
+      ...(o.tags !== undefined ? { tags: o.tags } : {}),
     });
     await Promise.all(chains.map((c) => c.done));
     // A finished file of the same name is replaced only now, by the rename.
@@ -335,8 +343,11 @@ export async function encodePlan(o: PlanEncodeOptions, onEvent: (e: EncodeEvent)
  * languages; a stream it does not list is left out with a `log` event), else every audio stream of
  * the playlist in STN order; each becomes an Opus track (160 kb/s up to two channels, 320 above,
  * `opusBitrate` for all when set). The video track takes the record's name and language when there
- * is a record. The MKV's title is the record's episode title, else `title`; chapter titles are the record's, else
- * `Chapter n`. With a record, its ticked ASS tracks (retimed by the saved shift or split and the nudge) and fonts
+ * is a record. The MKV's title is the record's episode title, else `title`. A chapter's title is its name in
+ * `episodeInfo` (by playlist chapter; read from `<dataDir>/chapters/` when left out), else the record's (a record whose
+ * names were not yet moved there), else `Chapter n`. Every MKV is tagged (`episodeTags`) with the disc key, the
+ * playlist, the playlist time of its first frame and the encoder, and with the AniList entry and episode `episodeInfo`
+ * gives the episode's first playlist chapter. With a record, its ticked ASS tracks (retimed by the saved shift or split and the nudge) and fonts
  * are muxed after the audio (`episodeSubtitleTracks`), then the disc's PG subtitle streams as `S_HDMV/PGS` tracks
  * (`episodePgsTracks`) unless `noPgs` is set. `record` is read once: the CLI passes the one it checked, so what is
  * encoded cannot change in between. Every episode is planned before the first is encoded. When any chain fails the others
@@ -378,6 +389,8 @@ export async function encodeEpisodes(
           dataDir: o.dataDir,
           noSubtitles: o.noSubtitles,
         });
+  const discKey = (await discKeyOfFolder(resolve(o.discDir))).key;
+  const info = o.episodeInfo !== undefined ? o.episodeInfo : await new EpisodeInfoStore(o.dataDir).read(discKey, o.playlistId);
   const probes = new Map<string, ClipProbe>();
   for (const item of playlist.items) {
     if (!probes.has(item.clipId)) probes.set(item.clipId, await probeClip(item));
@@ -393,7 +406,9 @@ export async function encodeEpisodes(
     const audio = o.onlyFirstAudio === true ? chosen.slice(0, 1) : chosen;
     const [plan] = planEpisodes(playlist, probes, [spec], audio, pmts);
     const metadata = record?.episodes.find((e) => e.index === index)?.metadata ?? null;
-    return [{ plan: { ...plan!, index }, audio, metadata }];
+    // The saved name of a playlist chapter, else the record's (one not yet moved into the chapter file), else `Chapter n`.
+    const chapters = plan!.chapters.map((c, n) => ({ ...c, title: chapterName(info, c.playlistChapter) || metadata?.chapters[n] || c.title }));
+    return [{ plan: { ...plan!, index, chapters }, audio, metadata }];
   });
 
   // Every episode's subtitles are built before the first encode, so an unreadable or undecodable track fails now and not after hours of encoding.
@@ -436,6 +451,12 @@ export async function encodeEpisodes(
         now,
         title: metadata?.title || o.title,
         metadata,
+        tags: episodeTags({
+          discKey,
+          playlistId: o.playlistId,
+          startMs: Math.round(firstFramePlaylistUs(playlist, plan) / 1000),
+          anilist: plan.chapters[0] === undefined ? null : (info?.anilist[String(plan.chapters[0].playlistChapter)] ?? null),
+        }),
         subtitles: [...ass.tracks, ...pgs],
         attachments: ass.attachments,
       },

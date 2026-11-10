@@ -106,6 +106,8 @@ export interface EpisodeChapter {
   title: string;
   /** Start in nanoseconds from the episode's first frame, on the Matroska millisecond grid of the video blocks. */
   startNs: bigint;
+  /** The playlist's chapter number (1-based) this chapter is. */
+  playlistChapter: number;
 }
 
 /** Everything the encoder needs to cut and mux one episode. */
@@ -227,7 +229,7 @@ function planEpisode(
       framesBefore += s.videoFrames[1] - s.videoFrames[0];
     }
     // On the millisecond grid of the video blocks, so a chapter never lands between two frames' timestamps.
-    chapters.push({ title: `Chapter ${chapters.length + 1}`, startNs: BigInt(videoMs(framesBefore, video)) * 1_000_000n });
+    chapters.push({ title: `Chapter ${chapters.length + 1}`, startNs: BigInt(videoMs(framesBefore, video)) * 1_000_000n, playlistChapter: c.index });
   }
   return { index, segments, chapters, frameCount, durationNs: framesToNs(frameCount, video), video, audio };
 }
