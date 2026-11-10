@@ -58,8 +58,12 @@ describe('ClipFetcher', () => {
         // Clip 2 made longer than a head and a chunk, with bytes that are not zero, so emptying it shows. (APFS fills
         // the holes of a file of 16 MiB or less, so a shorter clip would never read as sparse there.)
         appendFileSync(join(dir, 'disc1/BDMV/STREAM/00002.m2ts'), randomBytes(CHUNK_BYTES + 8 * 1024 * 1024 + 192 * 7));
-        // Another copy of the same disc (same streams, so the same key) whose metadata differs.
+        // A metadata file the manifest does not inline, so it is fetched by range.
+        mkdirSync(join(dir, 'disc1/BDMV/META/DL'), { recursive: true });
+        writeFileSync(join(dir, 'disc1/BDMV/META/DL/bdmt_eng.xml'), Buffer.alloc(64, 0x41));
+        // Another copy of the same disc (same streams, so the same key) whose metadata differs, the same-sized file too.
         cpSync(join(dir, 'disc1'), join(dir, 'disc1-copy'), { recursive: true });
+        writeFileSync(join(dir, 'disc1-copy/BDMV/META/DL/bdmt_eng.xml'), Buffer.alloc(64, 0x42));
         mkdirSync(join(dir, 'disc1-copy/CERTIFICATE'));
         writeFileSync(join(dir, 'disc1-copy/CERTIFICATE/id.bdmv'), Buffer.alloc(64, 1));
       },
@@ -245,6 +249,44 @@ describe('ClipFetcher', () => {
       expect(Buffer.from(await readMirrorRange(dataDir, client, mirror.key, 'BDMV/STREAM/00002.M2TS', at, at + 99)).equals(src('00002.m2ts').subarray(at, at + 100))).toBe(true);
     } finally {
       renameSync(`${copyDir}-gone`, copyDir);
+    }
+  });
+
+  it('a copy opened while clips are held gets its own metadata once they are released', async () => {
+    const copyId = (await client.json<LibraryListing>('library')).discs.find((d) => d.name === 'disc1-copy')!.id;
+    const meta = join(mirror.dir, 'BDMV/META/DL/bdmt_eng.xml');
+    const f = fetcher();
+    await f.hold('job-1', ['00001.M2TS']);
+    await ensureMirror(dataDir, client, copyId, mirror.key);
+    expect(readFileSync(meta)).toEqual(Buffer.alloc(64, 0x41));
+    expect(stateIn(dataDir)).toMatchObject({ discId: copyId, metadataFrom: discId });
+    await f.release('job-1');
+    await ensureMirror(dataDir, client, copyId, mirror.key);
+    expect(readFileSync(meta)).toEqual(Buffer.alloc(64, 0x42));
+    expect(stateIn(dataDir)).toMatchObject({ discId: copyId, metadataFrom: copyId });
+  });
+
+  it('a copy re-ripped under the same id leaves the mirror the other copy still uses', async () => {
+    const copyId = (await client.json<LibraryListing>('library')).discs.find((d) => d.name === 'disc1-copy')!.id;
+    const f = fetcher();
+    await f.hold('job-1', ['00001.M2TS']);
+    await ensureMirror(dataDir, client, copyId, mirror.key);
+    expect(stateIn(dataDir).discIds).toEqual([discId, copyId]);
+    // The copy's clip changes size on the NAS; its index does not, so its disc id stays and its key moves.
+    const clip = join(nas.discsDir!, 'disc1-copy/BDMV/STREAM/00001.m2ts');
+    const size = statSync(clip).size;
+    appendFileSync(clip, Buffer.alloc(192 * 4, 3));
+    try {
+      const moved = await ensureMirror(dataDir, client, copyId);
+      expect(moved.key).not.toBe(mirror.key);
+      expect(existsSync(join(moved.dir, 'fetch.json'))).toBe(true);
+      expect(stateIn(dataDir)).toMatchObject({ discId, discIds: [discId], ranges: { 'BDMV/STREAM/00001.M2TS': [[0, src('00001.m2ts').length]] } });
+      expect(local('00001.m2ts').equals(src('00001.m2ts'))).toBe(true);
+      rangeRequests = [];
+      await f.hold('job-2', ['00001.M2TS']);
+      expect(rangeRequests).toEqual([]);
+    } finally {
+      truncateSync(clip, size);
     }
   });
 

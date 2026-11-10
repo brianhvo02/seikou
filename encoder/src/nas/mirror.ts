@@ -45,6 +45,8 @@ export interface MirrorState {
    * share a key; a range a 404 refuses under one id is asked for under the others before the disc counts as changed.
    */
   discIds: string[];
+  /** The disc id the metadata files on disk came from: a held mirror keeps them when another copy is opened. */
+  metadataFrom: string;
   discKey: string;
   label: string;
   /** Every file of the disc with its size. */
@@ -197,6 +199,7 @@ function validState(v: unknown): v is MirrorState {
     typeof s.ranges === 'object' &&
     s.ranges !== null &&
     Array.isArray(s.heads) &&
+    typeof s.metadataFrom === 'string' &&
     Array.isArray(s.discIds) &&
     s.discIds.every((id) => typeof id === 'string')
   );
@@ -464,7 +467,8 @@ export async function ensureMirror(dataDir: string, client: NasClient, discId: s
   }
   const streams = streamsOf(files);
 
-  // An earlier mirror of this disc (or at this key) whose stream files differ is stale: it goes, and the caller hears of it.
+  // An earlier mirror of this disc (or at this key) whose stream files differ is stale. One that other copies of its
+  // disc still share only forgets this id; one this id alone made goes, held or not, and the caller hears of it.
   let changed = false;
   const root = fetchRootOf(dataDir);
   for (const name of await readdir(root).catch((): string[] => [])) {
@@ -474,6 +478,13 @@ export async function ensureMirror(dataDir: string, client: NasClient, discId: s
       const dir = join(root, name);
       const state = await readState(dir);
       if (state === null || (name !== key && !state.discIds.includes(discId)) || sameFiles(streamsOf(state.files), streams)) return false;
+      const others = state.discIds.filter((id) => id !== discId);
+      if (name !== key && others.length > 0) {
+        const kept: MirrorState = { ...state, discIds: others, discId: state.discId === discId ? others[others.length - 1]! : state.discId };
+        await writeState(dir, kept);
+        entry.state = kept;
+        return false;
+      }
       await rm(dir, { recursive: true, force: true });
       entry.state = null;
       return true;
@@ -517,7 +528,7 @@ export async function ensureMirror(dataDir: string, client: NasClient, discId: s
         const bytes = Buffer.from(inline, 'base64');
         if (bytes.length !== f.size) throw discChanged();
         await writeAtomic(local, bytes);
-      } else if (!(kept !== null && kept.discId === discId && kept.files[f.path] === f.size && sized)) {
+      } else if (!(kept !== null && kept.metadataFrom === discId && kept.files[f.path] === f.size && sized)) {
         // Another copy's file may hold other bytes at the same size, so it is fetched again for this one.
         await writeAtomic(local, await wholeFile(client, discId, f.path, f.size));
       }
@@ -526,7 +537,7 @@ export async function ensureMirror(dataDir: string, client: NasClient, discId: s
     for (const path of Object.keys(previous?.files ?? {})) {
       if (!isStreamPath(path) && files[path] === undefined) await rm(localPathOf(dir, path), { force: true });
     }
-    const state: MirrorState = { discId, discIds, discKey: key, label: manifest.name, files, ranges, heads: [] };
+    const state: MirrorState = { discId, discIds, metadataFrom: discId, discKey: key, label: manifest.name, files, ranges, heads: [] };
     await writeState(dir, state);
     entry.state = state;
     return state.label;
