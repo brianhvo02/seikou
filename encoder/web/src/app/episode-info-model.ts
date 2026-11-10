@@ -72,6 +72,28 @@ export function missingAniList(rows: readonly EpisodeRow[]): number[] {
   return rows.filter((r) => r.anilist === null).map((r) => r.index);
 }
 
+/** The episode indices whose entry is only a suggestion: the backend reads saved choices only, so a NAS encode lacks these too. */
+export function suggestedAniList(rows: readonly EpisodeRow[]): number[] {
+  return rows.filter((r) => r.anilist !== null && r.prefilled).map((r) => r.index);
+}
+
+/** The saved episodes that share one AniList entry and number, in groups of indices; the NAS keeps one file per pair. */
+export function sharedAniList(rows: readonly EpisodeRow[]): number[][] {
+  const byPair = new Map<string, number[]>();
+  for (const r of rows) {
+    if (r.anilist === null || r.prefilled) continue;
+    const pair = `${r.anilist.anilistId}:${r.anilist.episode}`;
+    byPair.set(pair, [...(byPair.get(pair) ?? []), r.index]);
+  }
+  return [...byPair.values()].filter((g) => g.length > 1);
+}
+
+/** Episodes named in words: "Episode 2", "Episodes 1 and 2", "Episodes 1, 3 and 4". */
+export function episodesPhrase(indices: readonly number[]): string {
+  if (indices.length === 1) return `Episode ${indices[0]}`;
+  return `Episodes ${indices.slice(0, -1).join(', ')} and ${indices[indices.length - 1]}`;
+}
+
 /** A chapter name as the file keeps it: trimmed, or null for none (empty, or the encoder's own `Chapter <n>`). */
 function cleanName(name: string): string | null {
   const t = name.trim();

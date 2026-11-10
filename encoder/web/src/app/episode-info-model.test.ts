@@ -1,7 +1,18 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import type { EpisodeInfo } from '../api-types';
-import { episodeRows, firstNumberFor, missingAniList, renumberFrom, toInfo, withTitles, type EpisodeRow } from './episode-info-model';
+import {
+  episodeRows,
+  episodesPhrase,
+  firstNumberFor,
+  missingAniList,
+  renumberFrom,
+  sharedAniList,
+  suggestedAniList,
+  toInfo,
+  withTitles,
+  type EpisodeRow,
+} from './episode-info-model';
 
 const EPISODES = [
   { index: 1, first: 1 },
@@ -99,6 +110,31 @@ describe('withTitles', () => {
 describe('missingAniList', () => {
   it('lists the episodes with no entry', () => {
     expect(missingAniList([row(1, 1, 990010), row(2, 4, null), row(3, 7, 990010), row(4, 10, null)])).toEqual([2, 4]);
+  });
+});
+
+describe('suggestedAniList', () => {
+  it('lists the episodes whose entry is a suggestion never saved', () => {
+    expect(suggestedAniList([row(1, 1, 990010), { ...row(2, 4, 990010), prefilled: true }])).toEqual([2]);
+  });
+});
+
+describe('sharedAniList', () => {
+  it('groups the saved episodes that share one entry and number', () => {
+    const rows = [row(1, 1, 990010, 1), row(2, 4, 990010, 1), row(3, 7, 990011, 1), row(4, 10, 990010, 1), row(5, 13, null)];
+    expect(sharedAniList(rows)).toEqual([[1, 2, 4]]);
+  });
+
+  it('leaves suggestions out', () => {
+    expect(sharedAniList([row(1, 1, 990010, 1), { ...row(2, 4, 990010, 1), prefilled: true }])).toEqual([]);
+  });
+});
+
+describe('episodesPhrase', () => {
+  it('names one, two or more episodes', () => {
+    expect(episodesPhrase([2])).toBe('Episode 2');
+    expect(episodesPhrase([1, 2])).toBe('Episodes 1 and 2');
+    expect(episodesPhrase([1, 3, 4])).toBe('Episodes 1, 3 and 4');
   });
 });
 

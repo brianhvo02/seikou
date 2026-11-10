@@ -56,6 +56,20 @@ describe('SettingsPage', () => {
     });
   });
 
+  it('a profile can send its episodes to the NAS by default, which turns the web package off', async () => {
+    const api = fakeApi([standard, { ...small, settings: { ...small.settings, web: true } }]);
+    render(<SettingsPage api={api} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit Small files' }));
+    expect((screen.getByLabelText('A folder on this Mac') as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByLabelText('The NAS (Encodes library)'));
+    const web = screen.getByLabelText('Web package') as HTMLInputElement;
+    expect(web.disabled).toBe(true);
+    expect(web.checked).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(api.updateProfile).toHaveBeenCalledWith('ab12', 'Small files', { ...small.settings, web: false, destination: 'nas' }));
+    expect(await screen.findByText(/no web package, episode-03\.mkv, to the NAS/)).toBeTruthy();
+  });
+
   it('shows a server error next to the field it names', async () => {
     const api = fakeApi([standard, small], {
       updateProfile: vi.fn(async () => {

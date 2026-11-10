@@ -2136,7 +2136,8 @@ button.quiet.danger {
 }
 
 .episode-failed .episode-name,
-.episode-packaging-failed .episode-name {
+.episode-packaging-failed .episode-name,
+.episode-upload-failed .episode-name {
   color: var(--danger);
 }
 
@@ -2189,6 +2190,65 @@ button.quiet.danger {
 .job-section .actions {
   margin-top: 8px;
   align-items: center;
+}
+
+/* Queue dialog and profile editor: where the episodes go, two radio rows under a legend */
+.queue-destination,
+.profile-destination {
+  border: 0;
+  padding: 0;
+  margin-inline: 0;
+  min-width: 0;
+}
+
+.queue-destination legend,
+.profile-destination legend {
+  padding: 0;
+  margin-bottom: 2px;
+}
+
+.queue-destination input[type='radio'],
+.profile-destination input[type='radio'] {
+  width: auto;
+  flex: none;
+}
+
+.queue-destination .check,
+.profile-destination .check {
+  flex-wrap: nowrap;
+  align-items: center;
+  margin-top: 2px;
+}
+
+/* what a NAS encode lacks: the same amber rule as the record mismatch, a plain list of the episodes to fix */
+.queue-needs {
+  margin-top: 14px;
+  padding: 2px 0 6px 14px;
+  border-left: 2px solid var(--amber);
+}
+
+.queue-needs ul {
+  margin: 6px 0;
+  padding-left: 18px;
+}
+
+.queue-needs li + li {
+  margin-top: 2px;
+}
+
+.queue-form > .warn {
+  margin-top: 10px;
+  font-size: 14px;
+}
+
+/* the line that says where an episode is; a long upload failure wraps under the name */
+.episode-row-head {
+  flex-wrap: wrap;
+}
+
+.episode-status {
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 /* Queue dialog: the test encode's profiles */

@@ -4,6 +4,7 @@ import type { Job, JobEpisode, JobProgress } from '../api-types';
 import type { AppApi } from './app-api';
 import {
   episodeFraction,
+  episodeStatus,
   fileNameOf,
   formatFps,
   formatLeft,
@@ -11,8 +12,10 @@ import {
   isFinished,
   orderJobs,
   overallPercent,
+  sendsToNas,
   stateLabel,
   takeReplacesFilesNotice,
+  waitingText,
 } from './job-model';
 import { useJobs, useJobsStore } from './jobs-context';
 import { useDocumentTitle } from './place';
@@ -52,6 +55,7 @@ function JobRow({ job, progress }: { readonly job: Job; readonly progress: JobPr
         <span className="muted job-meta">
           {test ? 'Test encode' : `Playlist ${job.playlist}, ${episodesText(job.episodes.length)}`}
           {job.state === 'running' && !test && <> , {overallPercent(job, progress)}%</>}
+          {job.waiting !== null && <span className="warn">, {job.waiting.toLowerCase()}</span>}
         </span>
       </Link>
     </li>
@@ -59,24 +63,16 @@ function JobRow({ job, progress }: { readonly job: Job; readonly progress: JobPr
 }
 
 /** One episode of the open job: its bar, and for the running one its speed and time left. */
-function EpisodeRow({ episode, progress }: { readonly episode: JobEpisode; readonly progress: JobProgress | undefined }) {
+function EpisodeRow({ job, episode, progress }: { readonly job: Job; readonly episode: JobEpisode; readonly progress: JobProgress | undefined }) {
   const percent = Math.floor(episodeFraction(episode, progress) * 100);
-  const live = episode.state === 'running' && progress !== undefined && progress.episode === episode.index ? progress : undefined;
-  const status =
-    episode.state === 'packaging-failed'
-      ? 'Encoded, web package failed'
-      : episode.state === 'queued'
-        ? 'Waiting'
-        : episode.state === 'running'
-          ? 'Encoding'
-          : episode.state === 'done'
-            ? 'Done'
-            : 'Failed';
+  const encoding = episode.state === 'running' && (episode.step === null || episode.step === 'encoding');
+  const live = encoding && progress !== undefined && progress.episode === episode.index ? progress : undefined;
+  const status = episodeStatus(job, episode);
   return (
     <li className={`episode-row episode-${episode.state}`}>
       <div className="episode-row-head">
         <span className="episode-name">Episode {episode.index}</span>
-        <span className="muted">{status}</span>
+        <span className={episode.state === 'upload-failed' ? 'error episode-status' : 'muted episode-status'}>{status}</span>
         <span className="num episode-percent">{percent}%</span>
       </div>
       <progress max={100} value={percent} aria-label={`Episode ${episode.index}`} />
@@ -87,7 +83,7 @@ function EpisodeRow({ episode, progress }: { readonly episode: JobEpisode; reado
           {live.etaSeconds !== null && formatLeft(live.etaSeconds)}
         </p>
       )}
-      {episode.error !== undefined && <p className="error">{episode.error}</p>}
+      {episode.error !== undefined && episode.state !== 'upload-failed' && <p className="error">{episode.error}</p>}
     </li>
   );
 }
@@ -174,6 +170,8 @@ function CliBox({ cli }: { readonly cli: string }) {
 
 /** The files a job wrote: each finished episode's MKV, and its web package's `episode.json` when the web package is on. */
 function OutputFiles({ api, job }: { readonly api: AppApi; readonly job: Job }) {
+  // a NAS job's MKVs are removed once the NAS has them; an upload-failed one stays, but in the app's own folder
+  if (sendsToNas(job)) return null;
   const files = job.episodes.filter((e) => (e.state === 'done' || e.state === 'packaging-failed') && e.path !== undefined);
   if (files.length === 0) return null;
   return (
@@ -243,11 +241,17 @@ function JobView({ api, job }: { readonly api: AppApi; readonly job: Job }) {
       <p className="muted">
         {test ? 'Test encode' : <>Playlist <span className="num">{job.playlist}</span>, {episodesText(job.episodes.length)} (<span className="num">{job.episodeSpec}</span>)</>}
         {job.noSubtitles && !test && ', without subtitles'}
+        {sendsToNas(job) && !test && ', to the NAS (Encodes library)'}
       </p>
 
       {replaces && (
         <p className="warn" role="status">
           This encode writes the same episodes into the same folder as an earlier one, so its files replace the files of the earlier encode.
+        </p>
+      )}
+      {job.waiting !== null && (
+        <p className="warn" role="status">
+          {waitingText(job)}
         </p>
       )}
       {job.paused && (
@@ -315,7 +319,7 @@ function JobView({ api, job }: { readonly api: AppApi; readonly job: Job }) {
           <h2 id="job-episodes-heading">Episodes</h2>
           <ol className="episode-rows">
             {job.episodes.map((e) => (
-              <EpisodeRow key={e.index} episode={e} progress={live} />
+              <EpisodeRow key={e.index} job={job} episode={e} progress={live} />
             ))}
           </ol>
         </section>
@@ -336,7 +340,8 @@ function JobView({ api, job }: { readonly api: AppApi; readonly job: Job }) {
 /**
  * The Queue page. Without `jobId` it lists the jobs: the running one first, then those waiting in the order they run,
  * then the finished, newest first. With a `jobId` it shows that job: a bar for each episode (the running one with its
- * speed and time left), a note when a test encode has paused it, the log's last lines (asked for every 2 seconds while
+ * speed and time left, and on a NAS job each episode's fetch and upload), a note when the job waits for the NAS or a test
+ * encode has paused it, the log's last lines (asked for every 2 seconds while
  * the job runs), the equivalent command with a Copy button, Cancel, Retry and Remove, and links to the files it wrote.
  * A test job's row leads to its results page.
  */

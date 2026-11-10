@@ -65,6 +65,51 @@ export function stateLabel(state: JobState, paused = false): string {
   }
 }
 
+/** Bytes done of a total in one unit, the total's: "120 of 640 MB", "1.2 of 4.0 GB" (decimal units). */
+export function formatBytesOf(done: number, total: number): string {
+  if (total >= 1e9) return `${(done / 1e9).toFixed(1)} of ${(total / 1e9).toFixed(1)} GB`;
+  return `${Math.round(done / 1e6)} of ${Math.round(total / 1e6)} MB`;
+}
+
+/**
+ * What an episode of the open job is doing, in a line: "Fetching from the NAS · 1.2 of 4.0 GB", "Encoding",
+ * "Uploading episode 2 of 6 · 45%", "Uploaded" (the NAS took it; its `encodeId` stays on the episode for a later link),
+ * "Upload failed: <reason>", or the plain states.
+ */
+export function episodeStatus(job: Job, episode: JobEpisode): string {
+  switch (episode.state) {
+    case 'queued':
+      return 'Waiting';
+    case 'done':
+      return episode.encodeId !== undefined ? 'Uploaded' : 'Done';
+    case 'packaging-failed':
+      return 'Encoded, web package failed';
+    case 'upload-failed':
+      return `Upload failed: ${episode.error ?? 'the NAS did not take it'}`;
+    case 'failed':
+      return 'Failed';
+    case 'running':
+      if (episode.step === 'fetching') {
+        return episode.stepTotal > 0 ? `Fetching from the NAS · ${formatBytesOf(episode.stepDone, episode.stepTotal)}` : 'Fetching from the NAS';
+      }
+      if (episode.step === 'uploading') {
+        const percent = episode.stepTotal > 0 ? Math.floor((Math.min(episode.stepDone, episode.stepTotal) / episode.stepTotal) * 100) : 0;
+        return `Uploading episode ${episode.index} of ${job.episodes.length} · ${percent}%`;
+      }
+      return 'Encoding';
+  }
+}
+
+/** The job's wait for the NAS with when it is tried again (the runner's `nasRetryMs`, 60 s), or null. */
+export function waitingText(job: Job): string | null {
+  return job.waiting === null ? null : `${job.waiting}. Trying again every minute.`;
+}
+
+/** Whether the job sends its episodes to the NAS rather than a folder. */
+export function sendsToNas(job: Job): boolean {
+  return job.settings.destination === 'nas';
+}
+
 /** Whether a job has stopped for good (it can be removed, and retried unless it is done). */
 export function isFinished(job: Job): boolean {
   return job.state === 'done' || job.state === 'failed' || job.state === 'interrupted' || job.state === 'cancelled';

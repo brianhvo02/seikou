@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { useEffect, useState, type FormEvent } from 'react';
 import { ApiError } from '../api';
-import type { ChapterInfo, Profile } from '../api-types';
+import type { ChapterInfo, EncodeDestination, EpisodeInfo, NasStatus, Profile } from '../api-types';
 import { noteReplacesFiles } from './job-model';
 import { MAX_TEST_PROFILES, testSummary } from './test-model';
 import type { AppApi } from './app-api';
 import { formatLength } from './DiscPage';
+import { episodeRows, episodesPhrase, missingAniList, sharedAniList, suggestedAniList } from './episode-info-model';
 import { episodeLengths, episodesOf, fromSpec } from './grouping';
 import { useDocumentTitle } from './place';
 import { Link, navigate, routeHref } from './router';
@@ -33,6 +34,38 @@ interface Loaded {
   readonly profiles: readonly Profile[];
   /** False when the backend could not suggest an output folder. */
   readonly folderSuggested: boolean;
+  /** The pairing with the NAS; null when the app could not say. */
+  readonly nas: NasStatus | null;
+  /** The saved episode info (null when none is saved), or `unreadable` when it could not be read. */
+  readonly info: EpisodeInfo | null | 'unreadable';
+  /** The show of the saved subtitle record, which the Episodes page suggests for every episode. */
+  readonly recordShow: { readonly id: number } | null;
+}
+
+/** What a NAS encode lacks before it can be queued, or what the backend said it lacks. */
+interface NasNeeds {
+  /** Episodes with no AniList entry. */
+  readonly missing: readonly number[];
+  /** Episodes whose entry is only a suggestion the Episodes page has not saved. */
+  readonly suggested: readonly number[];
+  /** Groups of episodes that share one AniList episode. */
+  readonly shared: readonly (readonly number[])[];
+}
+
+const NO_NEEDS: NasNeeds = { missing: [], suggested: [], shared: [] };
+
+const hasNeeds = (n: NasNeeds): boolean => n.missing.length > 0 || n.suggested.length > 0 || n.shared.length > 0;
+
+const numbers = (v: unknown): number[] => (Array.isArray(v) ? v.filter((x): x is number => typeof x === 'number') : []);
+
+/** The lines that say what a NAS encode lacks: "Episode 2 has no AniList entry" and the like. */
+function needLines(n: NasNeeds): string[] {
+  const has = (list: readonly number[]): string => (list.length === 1 ? 'has' : 'have');
+  return [
+    ...(n.missing.length > 0 ? [`${episodesPhrase(n.missing)} ${has(n.missing)} no AniList entry`] : []),
+    ...(n.suggested.length > 0 ? [`${episodesPhrase(n.suggested)} ${has(n.suggested)} a suggested AniList entry. Confirm on the Episodes page.`] : []),
+    ...n.shared.filter((g) => g.length > 0).map((g) => `${episodesPhrase(g)} ${g.length === 1 ? 'shares' : 'are'} the same AniList episode. The NAS keeps one file for each.`),
+  ];
 }
 
 /** The profile list used when the profiles cannot be read: the built-in Default alone. */
@@ -51,7 +84,11 @@ const text = (v: unknown, fallback: string): string => (typeof v === 'string' ? 
 
 /**
  * The page that queues an encode: the disc, playlist and episode list the route named, a settings profile (with its
- * settings in one line), the output folder (the backend's default, editable) and "Encode without subtitles". Queue
+ * settings in one line), where the episodes go (a folder on this Mac, the profile's choice by default, or the paired NAS's
+ * Encodes library, offered only when paired), the output folder for a folder (the backend's default, editable) and
+ * "Encode without subtitles". To the NAS, Queue waits until every episode has a saved AniList entry, no two share one,
+ * and the NAS keeps encodes, saying what is missing with a link to the Episodes page; the backend's 409
+ * `nas-needs-anilist` and `nas-duplicate-episodes` are shown the same way. Queue
  * encode makes the job and goes to its page (which says once when the job re-encodes into an earlier encode's files). A
  * refusal about the folder (another encode's folder among them) shows beside the folder, any other as an alert;
  * when the saved subtitle choices are for another episode list the alert says both lists and offers to encode without
@@ -69,6 +106,9 @@ export function QueueDialog({ api, discKey, playlistId, spec, noSubtitles: start
   const [mismatch, setMismatch] = useState<Mismatch | null>(null);
   const [testIds, setTestIds] = useState<readonly string[]>([]);
   const [testError, setTestError] = useState<string | null>(null);
+  const [destination, setDestination] = useState<EncodeDestination>('folder');
+  /** What the backend said a NAS encode lacks, from its last refusal. */
+  const [refusedNeeds, setRefusedNeeds] = useState<NasNeeds | null>(null);
   useDocumentTitle(loaded?.label ? `${loaded.label} · queue an encode` : 'Queue an encode · Seikou encoder');
 
   useEffect(() => {
@@ -85,12 +125,29 @@ export function QueueDialog({ api, discKey, playlistId, spec, noSubtitles: start
         (d) => d.outDir as string | null,
         () => null,
       ),
+      api.nas().then(
+        (n): NasStatus | null => n,
+        () => null,
+      ),
+      api.episodeInfo(discKey, playlistId).then(
+        (i): EpisodeInfo | null | 'unreadable' => i,
+        () => 'unreadable' as const,
+      ),
     ]).then(
-      ([library, playlist, profiles, suggested]) => {
+      ([library, playlist, profiles, suggested, nas, info]) => {
         if (!live) return;
-        setLoaded({ label: library.discs.find((d) => d.key === discKey)?.label ?? null, chapters: playlist.chapters, profiles, folderSuggested: suggested !== null });
+        setLoaded({
+          label: library.discs.find((d) => d.key === discKey)?.label ?? null,
+          chapters: playlist.chapters,
+          profiles,
+          folderSuggested: suggested !== null,
+          nas,
+          info,
+          recordShow: playlist.record?.anilist ?? null,
+        });
         const first = profiles.find((p) => p.id === startProfile) ?? profiles[0];
         setProfileId(first?.id ?? 'default');
+        setDestination(first?.settings.destination === 'nas' && nas?.paired === true ? 'nas' : 'folder');
         setTestIds(first === undefined ? [] : [first.id]);
         setOutDir(suggested ?? '');
       },
@@ -128,6 +185,18 @@ export function QueueDialog({ api, discKey, playlistId, spec, noSubtitles: start
   const episodes = grouping === null ? [] : episodesOf(grouping, loaded.chapters.length);
   const lengths = episodeLengths(episodes, loaded.chapters.map((c) => c.lengthMs));
   const label = loaded.label ?? 'This disc';
+  const paired = loaded.nas?.paired === true ? loaded.nas : null;
+  const toNas = destination === 'nas' && paired !== null;
+  const rows = loaded.info === 'unreadable' ? null : episodeRows(episodes.map((e, i) => ({ index: i + 1, first: e.from })), loaded.info, loaded.recordShow);
+  const needs: NasNeeds = rows === null ? NO_NEEDS : { missing: missingAniList(rows), suggested: suggestedAniList(rows), shared: sharedAniList(rows) };
+  const encodesOff = paired?.encodes === 'not-configured';
+  const nasBlocked = toNas && (hasNeeds(needs) || encodesOff);
+
+  const choose = (next: string): void => {
+    setProfileId(next);
+    const picked = loaded.profiles.find((p) => p.id === next);
+    if (picked !== undefined) setDestination(picked.settings.destination === 'nas' && paired !== null ? 'nas' : 'folder');
+  };
 
   const submit = async (without: boolean): Promise<void> => {
     if (profile === undefined) return;
@@ -135,8 +204,10 @@ export function QueueDialog({ api, discKey, playlistId, spec, noSubtitles: start
     setFolderError(null);
     setAlertText(null);
     setMismatch(null);
+    setRefusedNeeds(null);
+    const settings = toNas ? { ...profile.settings, web: false, destination: 'nas' as const } : { ...profile.settings, destination: 'folder' as const };
     try {
-      const job = await api.createJob({ discKey, playlistId, episodeSpec: spec, settings: profile.settings, outDir: outDir.trim(), noSubtitles: without });
+      const job = await api.createJob({ discKey, playlistId, episodeSpec: spec, settings, outDir: toNas ? '' : outDir.trim(), noSubtitles: without });
       if (job.warning === 'replaces-files') noteReplacesFiles(job.id);
       navigate(routeHref({ kind: 'job', jobId: job.id }, location.search));
     } catch (e) {
@@ -144,6 +215,8 @@ export function QueueDialog({ api, discKey, playlistId, spec, noSubtitles: start
       if (!(e instanceof ApiError)) return setAlertText(e instanceof Error ? e.message : String(e));
       if (e.code === 'record-mismatch') return setMismatch({ recordSpec: text(e.details.recordEpisodeSpec, '?'), spec: text(e.details.episodeSpec, spec) });
       if (FOLDER_ERRORS.has(e.code)) return setFolderError(e.message);
+      if (e.code === 'nas-needs-anilist') return setRefusedNeeds({ ...NO_NEEDS, missing: numbers(e.details.episodes) });
+      if (e.code === 'nas-duplicate-episodes') return setRefusedNeeds({ ...NO_NEEDS, shared: [numbers(e.details.episodes)] });
       setAlertText(e.message);
     }
   };
@@ -216,7 +289,7 @@ export function QueueDialog({ api, discKey, playlistId, spec, noSubtitles: start
           <label className="field-label" htmlFor="queue-profile">
             Settings profile
           </label>
-          <select id="queue-profile" value={profileId} disabled={busy} onChange={(e) => setProfileId(e.target.value)}>
+          <select id="queue-profile" value={profileId} disabled={busy} onChange={(e) => choose(e.target.value)}>
             {loaded.profiles.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
@@ -268,34 +341,90 @@ export function QueueDialog({ api, discKey, playlistId, spec, noSubtitles: start
           </div>
         </fieldset>
 
-        <div className="field">
-          <label className="field-label" htmlFor="queue-out">
-            Output folder
+        <fieldset className="field queue-destination" aria-labelledby="queue-destination-legend">
+          <legend className="field-label" id="queue-destination-legend">
+            Where the episodes go
+          </legend>
+          <label className="check">
+            <input type="radio" name="queue-destination" checked={!toNas} disabled={busy} onChange={() => setDestination('folder')} />
+            <span>A folder on this Mac</span>
           </label>
-          <input
-            id="queue-out"
-            type="text"
-            className="num"
-            value={outDir}
-            spellCheck={false}
-            autoComplete="off"
-            disabled={busy}
-            aria-invalid={folderError !== null}
-            aria-describedby={folderError !== null ? 'queue-out-error' : 'queue-out-hint'}
-            onChange={(e) => setOutDir(e.target.value)}
-          />
-          {folderError !== null ? (
-            <span className="error field-error" id="queue-out-error" role="alert">
-              {folderError}
-            </span>
-          ) : (
-            <span className="hint" id="queue-out-hint">
-              {loaded.folderSuggested
-                ? 'A full path. The episodes are written here, and the folder is made if it is missing.'
-                : "Couldn't suggest a folder; type a full path. The folder is made if it is missing."}
-            </span>
-          )}
-        </div>
+          <label className="check">
+            <input
+              type="radio"
+              name="queue-destination"
+              checked={toNas}
+              disabled={busy || paired === null}
+              aria-describedby="queue-nas-hint"
+              onChange={() => setDestination('nas')}
+            />
+            <span>The NAS (Encodes library)</span>
+          </label>
+          <span className="hint queue-destination-hint" id="queue-nas-hint">
+            {paired === null ? (
+              <>
+                Pair with your NAS in <Link to={{ kind: 'settings' }}>Settings</Link>
+              </>
+            ) : (
+              <>
+                Each episode is uploaded to <span className="num">{paired.host}</span> as {paired.personName} once it is encoded, then removed from this
+                Mac. No web package is made.
+              </>
+            )}
+          </span>
+        </fieldset>
+
+        {toNas ? (
+          <>
+            {!paired.reachable && <p className="warn">The NAS isn't answering right now. The encode is queued anyway and waits for it.</p>}
+            {nasBlocked && (
+              <div className="queue-needs">
+                <p>Before this can go to the NAS:</p>
+                <ul>
+                  {encodesOff && <li>The NAS has no encodes folder: ENCODES_MOUNT isn't set in its .env. Set it and restart the NAS.</li>}
+                  {needLines(needs).map((line) => (
+                    <li key={line}>{line}</li>
+                  ))}
+                </ul>
+                {hasNeeds(needs) && (
+                  <p>
+                    <Link to={{ kind: 'episodes', discKey, playlistId }}>Choose them on the Episodes page</Link>
+                  </p>
+                )}
+              </div>
+            )}
+            {loaded.info === 'unreadable' && <p className="warn">Couldn't read the episodes' AniList choices. Queueing checks them.</p>}
+          </>
+        ) : (
+          <div className="field">
+            <label className="field-label" htmlFor="queue-out">
+              Output folder
+            </label>
+            <input
+              id="queue-out"
+              type="text"
+              className="num"
+              value={outDir}
+              spellCheck={false}
+              autoComplete="off"
+              disabled={busy}
+              aria-invalid={folderError !== null}
+              aria-describedby={folderError !== null ? 'queue-out-error' : 'queue-out-hint'}
+              onChange={(e) => setOutDir(e.target.value)}
+            />
+            {folderError !== null ? (
+              <span className="error field-error" id="queue-out-error" role="alert">
+                {folderError}
+              </span>
+            ) : (
+              <span className="hint" id="queue-out-hint">
+                {loaded.folderSuggested
+                  ? 'A full path. The episodes are written here, and the folder is made if it is missing.'
+                  : "Couldn't suggest a folder; type a full path. The folder is made if it is missing."}
+              </span>
+            )}
+          </div>
+        )}
 
         <div className="field">
           <label className="check">
@@ -321,6 +450,18 @@ export function QueueDialog({ api, discKey, playlistId, spec, noSubtitles: start
             </div>
           </div>
         )}
+        {refusedNeeds !== null && (
+          <div className="queue-needs" role="alert">
+            <ul>
+              {needLines(refusedNeeds).map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+            <p>
+              <Link to={{ kind: 'episodes', discKey, playlistId }}>Fix them on the Episodes page</Link>
+            </p>
+          </div>
+        )}
         {alertText !== null && (
           <p className="error" role="alert">
             {alertText}
@@ -328,7 +469,7 @@ export function QueueDialog({ api, discKey, playlistId, spec, noSubtitles: start
         )}
 
         <div className="form-actions">
-          <button type="submit" className="primary" disabled={busy || profile === undefined || episodes.length === 0}>
+          <button type="submit" className="primary" disabled={busy || profile === undefined || episodes.length === 0 || nasBlocked}>
             {busy ? 'Queueing…' : 'Queue encode'}
           </button>
           <Link to={{ kind: 'episodes', discKey, playlistId }} className="quiet-link">

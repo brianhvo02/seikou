@@ -40,6 +40,7 @@ export function profileSummary(s: EncodeSettings): string {
     s.pgs ? 'with PGS' : 'no PGS',
     s.web ? 'web package' : 'no web package',
     exampleName(s.namePattern),
+    ...(s.destination === 'nas' ? ['to the NAS'] : []),
   ];
   return parts.join(', ');
 }
@@ -57,7 +58,7 @@ interface Draft {
   web: boolean;
   namePattern: string;
   extraSvtArgs: string;
-  /** Kept as the profile has it; the profile editor offers no choice of it yet. */
+  /** Where the episodes go by default; the queue dialog starts on it. */
   destination: EncodeSettings['destination'];
 }
 
@@ -85,7 +86,8 @@ function settingsOf(d: Draft): EncodeSettings {
     // text that is not a number goes as typed, so the server refuses it and names the field (null would mean "default")
     opusBitrate: d.opusBitrate.trim() === '' ? null : Number.isNaN(Number(d.opusBitrate)) ? (d.opusBitrate as never) : Number(d.opusBitrate),
     pgs: d.pgs,
-    web: d.web,
+    // the NAS takes MKVs only, so a NAS profile makes no web package
+    web: d.destination === 'nas' ? false : d.web,
     namePattern: d.namePattern,
     destination: d.destination,
   };
@@ -170,11 +172,32 @@ function ProfileForm({ profile, onSave, onCancel }: FormProps) {
         </label>
         <span className="hint">Keep the disc's picture subtitles in each episode.</span>
         <label className="check">
-          <input type="checkbox" checked={draft.web} onChange={(e) => set('web', e.target.checked)} />
+          <input
+            type="checkbox"
+            checked={draft.web && draft.destination !== 'nas'}
+            disabled={draft.destination === 'nas'}
+            onChange={(e) => set('web', e.target.checked)}
+          />
           <span>Web package</span>
         </label>
-        <span className="hint">Also write each episode as a folder for the web player.</span>
+        <span className="hint">
+          {draft.destination === 'nas' ? 'Not made for the NAS, which plays the MKV itself.' : 'Also write each episode as a folder for the web player.'}
+        </span>
       </div>
+      <fieldset className="field profile-destination" aria-labelledby={`${id}-destination`}>
+        <legend className="field-label" id={`${id}-destination`}>
+          Where the episodes go
+        </legend>
+        <label className="check">
+          <input type="radio" name={`${id}-destination`} checked={draft.destination === 'folder'} onChange={() => set('destination', 'folder')} />
+          <span>A folder on this Mac</span>
+        </label>
+        <label className="check">
+          <input type="radio" name={`${id}-destination`} checked={draft.destination === 'nas'} onChange={() => set('destination', 'nas')} />
+          <span>The NAS (Encodes library)</span>
+        </label>
+        <span className="hint">The queue dialog starts on this choice. The NAS needs pairing in Your NAS below.</span>
+      </fieldset>
       {field(
         'namePattern',
         'Output name pattern',
@@ -295,8 +318,8 @@ function ProfileRow({ profile, editing, onEdit, onCancel, onSave, onDuplicate, o
 
 /**
  * The Settings page: the encode settings profiles. The built-in Default comes first and is only duplicated; the others
- * are edited in place (CRF, preset, film grain, Opus bitrate, PGS, web package, output name pattern, extra SVT-AV1
- * arguments), duplicated and deleted after a confirmation. A refused value is shown beside its field. Under them, "Your
+ * are edited in place (CRF, preset, film grain, Opus bitrate, PGS, web package, where the episodes go by default,
+ * output name pattern, extra SVT-AV1 arguments), duplicated and deleted after a confirmation. A refused value is shown beside its field. Under them, "Your
  * NAS" pairs the encoder with the NAS (`NasPairing`).
  */
 export function SettingsPage({ api }: SettingsPageProps) {

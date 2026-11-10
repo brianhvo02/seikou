@@ -3,7 +3,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api';
-import type { LibraryAnswer, PlaylistDetail, Profile } from '../api-types';
+import type { EpisodeInfo, LibraryAnswer, NasStatus, PlaylistDetail, Profile } from '../api-types';
 import type { AppApi } from './app-api';
 import { takeReplacesFilesNotice } from './job-model';
 import { makeJob, DEFAULT_TEST_SETTINGS } from './job-test-support';
@@ -41,6 +41,8 @@ function fakeApi(over: Partial<AppApi> = {}): AppApi {
     jobDefaults: vi.fn(async () => ({ outDir: '/data/output/LANTERN_HARBOR_D1/00001' })),
     createJob: vi.fn(async () => makeJob({ id: 'bbbbbbbbbbbbbbbb' })),
     createSession: vi.fn(async () => 'cccccccccccccccc'),
+    nas: vi.fn(async (): Promise<NasStatus> => ({ paired: false })),
+    episodeInfo: vi.fn(async (): Promise<EpisodeInfo | null> => null),
     ...over,
   } as unknown as AppApi;
 }
@@ -222,5 +224,115 @@ describe('QueueDialog', () => {
     expect((within(group).getByLabelText('Huge') as HTMLInputElement).disabled).toBe(true);
     for (const name of ['Default', 'Small files', 'Tiny']) fireEvent.click(within(group).getByLabelText(name));
     expect((within(group).getByRole('button', { name: 'Run test encode' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  describe('to the NAS', () => {
+    const paired: NasStatus = { paired: true, host: 'nas.example', personName: 'Mika', reachable: true, encodes: 'ready' };
+    const info = (anilist: EpisodeInfo['anilist']): EpisodeInfo => ({ chapterNames: {}, anilist, savedAt: '2026-11-09T10:00:00.000Z' });
+    const both = info({ '1': { anilistId: 990001, episode: 1, title: null }, '4': { anilistId: 990001, episode: 2, title: null } });
+    const nasRadio = () => screen.getByLabelText('The NAS (Encodes library)') as HTMLInputElement;
+    const queueButton = () => screen.getByRole('button', { name: 'Queue encode' }) as HTMLButtonElement;
+
+    it('offers the NAS only when paired, pointing to Settings otherwise', async () => {
+      render(<QueueDialog api={fakeApi()} {...props} />);
+      await screen.findByLabelText('Output folder');
+      expect((screen.getByLabelText('A folder on this Mac') as HTMLInputElement).checked).toBe(true);
+      expect(nasRadio().disabled).toBe(true);
+      expect(screen.getByText(/Pair with your NAS in/).textContent).toBe('Pair with your NAS in Settings');
+      expect(screen.getByRole('link', { name: 'Settings' }).getAttribute('href')).toBe('/settings');
+    });
+
+    it('queues to the NAS with the web package off and no folder field', async () => {
+      const api = fakeApi({ nas: vi.fn(async () => paired), episodeInfo: vi.fn(async () => both), profiles: vi.fn(async () => [small]) });
+      render(<QueueDialog api={api} {...props} />);
+      await screen.findByLabelText('Output folder');
+      fireEvent.click(nasRadio());
+      expect(screen.queryByLabelText('Output folder')).toBeNull();
+      expect(queueButton().disabled).toBe(false);
+      fireEvent.click(queueButton());
+      await waitFor(() =>
+        expect(api.createJob).toHaveBeenCalledWith(expect.objectContaining({ settings: { ...small.settings, web: false, destination: 'nas' } })),
+      );
+    });
+
+    it('a profile that sends to the NAS starts the dialog on the NAS', async () => {
+      const toNas: Profile = { ...small, settings: { ...small.settings, destination: 'nas' } };
+      const api = fakeApi({ nas: vi.fn(async () => paired), episodeInfo: vi.fn(async () => both), profiles: vi.fn(async () => [standard, toNas]) });
+      render(<QueueDialog api={api} {...props} profile="ab12" />);
+      await waitFor(() => expect(nasRadio().checked).toBe(true));
+      fireEvent.change(screen.getByLabelText('Settings profile'), { target: { value: 'default' } });
+      expect((screen.getByLabelText('A folder on this Mac') as HTMLInputElement).checked).toBe(true);
+    });
+
+    it('a profile that sends to the NAS starts on the folder while unpaired', async () => {
+      const toNas: Profile = { ...small, settings: { ...small.settings, destination: 'nas' } };
+      render(<QueueDialog api={fakeApi({ profiles: vi.fn(async () => [toNas]) })} {...props} />);
+      await screen.findByLabelText('Output folder');
+      expect((screen.getByLabelText('A folder on this Mac') as HTMLInputElement).checked).toBe(true);
+    });
+
+    it('holds Queue back while an episode has no AniList entry, linking to the Episodes page', async () => {
+      const api = fakeApi({ nas: vi.fn(async () => paired), episodeInfo: vi.fn(async () => info({ '1': { anilistId: 990001, episode: 1, title: null } })) });
+      render(<QueueDialog api={api} {...props} />);
+      await screen.findByLabelText('Output folder');
+      fireEvent.click(nasRadio());
+      expect(screen.getByText('Episode 2 has no AniList entry')).toBeTruthy();
+      expect(queueButton().disabled).toBe(true);
+      expect(screen.getByRole('link', { name: 'Choose them on the Episodes page' }).getAttribute('href')).toBe(`/disc/${key}/00001`);
+      fireEvent.click(screen.getByLabelText('A folder on this Mac'));
+      expect(queueButton().disabled).toBe(false);
+    });
+
+    it('counts a suggested entry that was never saved as missing', async () => {
+      const api = fakeApi({
+        nas: vi.fn(async () => paired),
+        playlist: vi.fn(async () => ({ ...playlist, record: { episodeSpec: '1-3,4-6', anilist: { id: 990001, title: 'Lantern Harbor' } } })),
+      });
+      render(<QueueDialog api={api} {...props} />);
+      await screen.findByLabelText('Output folder');
+      fireEvent.click(nasRadio());
+      expect(screen.getByText(/Episodes 1 and 2 have a suggested AniList entry\. Confirm on the Episodes page\./)).toBeTruthy();
+      expect(queueButton().disabled).toBe(true);
+    });
+
+    it('names episodes that share one AniList episode', async () => {
+      const same = info({ '1': { anilistId: 990001, episode: 1, title: null }, '4': { anilistId: 990001, episode: 1, title: null } });
+      render(<QueueDialog api={fakeApi({ nas: vi.fn(async () => paired), episodeInfo: vi.fn(async () => same) })} {...props} />);
+      await screen.findByLabelText('Output folder');
+      fireEvent.click(nasRadio());
+      expect(screen.getByText(/Episodes 1 and 2 are the same AniList episode/)).toBeTruthy();
+      expect(queueButton().disabled).toBe(true);
+    });
+
+    it('holds Queue back while encodes are not set up on the NAS', async () => {
+      const off: NasStatus = { ...paired, encodes: 'not-configured' };
+      render(<QueueDialog api={fakeApi({ nas: vi.fn(async () => off), episodeInfo: vi.fn(async () => both) })} {...props} />);
+      await screen.findByLabelText('Output folder');
+      fireEvent.click(nasRadio());
+      expect(screen.getByText(/The NAS has no encodes folder/)).toBeTruthy();
+      expect(queueButton().disabled).toBe(true);
+    });
+
+    it('shows a 409 nas-needs-anilist from the backend the same way', async () => {
+      const createJob = vi.fn(async () => {
+        throw new ApiError(409, 'nas-needs-anilist', 'Every episode needs an AniList entry.', { episodes: [2] });
+      });
+      render(<QueueDialog api={fakeApi({ nas: vi.fn(async () => paired), episodeInfo: vi.fn(async () => both), createJob })} {...props} />);
+      await screen.findByLabelText('Output folder');
+      fireEvent.click(nasRadio());
+      fireEvent.click(queueButton());
+      expect((await screen.findByRole('alert')).textContent).toContain('Episode 2 has no AniList entry');
+    });
+
+    it('shows a 409 nas-duplicate-episodes from the backend, naming the episodes', async () => {
+      const createJob = vi.fn(async () => {
+        throw new ApiError(409, 'nas-duplicate-episodes', 'Two episodes share one.', { episodes: [1, 2] });
+      });
+      render(<QueueDialog api={fakeApi({ nas: vi.fn(async () => paired), episodeInfo: vi.fn(async () => both), createJob })} {...props} />);
+      await screen.findByLabelText('Output folder');
+      fireEvent.click(nasRadio());
+      fireEvent.click(queueButton());
+      expect((await screen.findByRole('alert')).textContent).toContain('Episodes 1 and 2 are the same AniList episode');
+    });
   });
 });
