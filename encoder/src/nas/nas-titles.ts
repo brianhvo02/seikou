@@ -2,16 +2,16 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { encodeId } from '@seikou/nas/encode-id';
-import type { EncodeTitle } from '@seikou/nas/encode-title';
+import { sameTitle, type EncodeTitle } from '@seikou/nas/encode-title';
 import type { DiscSlot, EpisodeRef, TitleDetail, TitleSummary, UnsortedItem } from '@seikou/nas/nas-api';
 import { replaceAtomically } from '@seikou/titles';
 import { EpisodeInfoError, EpisodeInfoStore, isChecked } from '../plan/episode-info';
 import { loadPlaylist } from '../disc/playlist';
-import { EpisodeSpecError, parseEpisodeSpec } from '../plan/episodes';
+import { EpisodeSpecError, parseEpisodeSpec, resolvedSpec } from '../plan/episodes';
 import { RecordError, RecordStore } from '../subs/record';
 import type { AppContext } from '../server/http';
 import { sessionsOf } from '../server/sessions';
-import { NasError, type NasClient } from './client';
+import { errorOfBody, NasError, type NasClient } from './client';
 import { nasLibraryOf, type NasDisc } from './nas-library';
 
 // The NAS's catalogue as the encoder's Library by show reads it: the shows (series and films) with their seasons,
@@ -83,6 +83,11 @@ export interface ShowsAnswer {
   readonly reachable: boolean;
   /** Whether the answer is the kept one, or the NAS's encodes list could not be read now (so the counts may be old). */
   readonly stale: boolean;
+  /**
+   * Whether the NAS said now which episodes its Encodes library holds (a NAS without one holds none). False when it
+   * didn't: the encoded marks are then those of an earlier answer, or none, and nothing may be queued on them.
+   */
+  readonly encodedKnown: boolean;
 }
 
 /** One episode a NAS disc holds. */
@@ -103,16 +108,12 @@ export interface NasSeasonDisc {
   /** Whether the encoder mirrors a copy of this disc, so it can be checked and encoded. */
   readonly available: boolean;
   readonly playlists: { readonly id: string; readonly episodes: NasEpisode[] }[];
-  /**
-   * Checked: every playlist the NAS lists episodes for is checked (`isChecked` of its saved info, on the playlist's real
-   * chapter count); a disc with none listed counts as checked once any playlist saved for it is. An unavailable disc
-   * is never checked.
-   */
+  /** Checked, by `discChecked`: an unavailable disc never is. */
   readonly checked: boolean;
   /**
-   * The disc's checked playlists, each with the episode list a job of it must be queued with (the saved subtitle
-   * record's, else the mark's) and its groups. For a disc the NAS lists episodes for, only those playlists; else every
-   * checked playlist saved for it.
+   * Every checked playlist saved for the disc (`isChecked` of its saved info, on the playlist's real chapter count), in
+   * order, each with the episode list a job of it must be queued with (the saved subtitle record's, else the mark's)
+   * and its groups.
    */
   readonly checkedPlaylists: CheckedPlaylist[];
 }
@@ -131,7 +132,26 @@ export interface CheckedGroup {
 export interface CheckedPlaylist {
   readonly id: string;
   readonly episodeSpec: string;
+  /** The playlist's chapter count. */
+  readonly chapters: number;
+  /** `episodeSpec` with its open end closed at `chapters` (`resolvedSpec`), so a job's list written another way is known as the same. */
+  readonly resolvedSpec: string;
   readonly groups: CheckedGroup[];
+}
+
+/**
+ * The one rule of a checked disc (the page's `discChecked` is the same): at least one of its playlists is checked, and
+ * every episode the NAS lists on it that the Encodes library doesn't hold yet is the season's title with that number
+ * in a group of one of those playlists, whichever playlist the NAS lists it on (a play-all playlist can hold episodes
+ * the NAS lists on their own playlists). A disc the NAS lists nothing on is checked once any playlist of it is.
+ */
+export function discChecked(listed: readonly { readonly episodes: readonly NasEpisode[] }[], title: EncodeTitle | null, checkedPlaylists: readonly CheckedPlaylist[]): boolean {
+  if (checkedPlaylists.length === 0) return false;
+  const groups = checkedPlaylists.flatMap((p) => p.groups);
+  return listed
+    .flatMap((p) => p.episodes)
+    .filter((e) => !e.encoded)
+    .every((e) => title !== null && groups.some((g) => g.title !== null && sameTitle(g.title, title) && g.episode === e.number));
 }
 
 /** One season (or, with `number: null`, a film or a disc-only group) of a show. */
@@ -150,6 +170,8 @@ export interface ShowAnswer {
   readonly seasons: NasSeason[];
   readonly reachable: boolean;
   readonly stale: boolean;
+  /** As in `ShowsAnswer`. */
+  readonly encodedKnown: boolean;
 }
 
 /** Where the NAS files a disc the encoder mirrors, and the episodes it lists on it. */
@@ -237,6 +259,8 @@ interface Fetched {
   readonly raw: Raw | null;
   readonly reachable: boolean;
   readonly stale: boolean;
+  /** The NAS's encodes list was read now (`raw.ids` is the NAS's own). */
+  readonly encodedKnown: boolean;
 }
 
 /** The NAS's catalogue for one app. */
@@ -289,14 +313,14 @@ export class NasTitles {
     }
   }
 
-  /** `encodes/ids`: the ids, `[]` for a NAS that keeps no encodes, `undefined` when it did not answer. */
+  /**
+   * `encodes/ids`: the ids, `[]` for a NAS that keeps no encodes (404 `not-configured`), `undefined` for any other
+   * answer or none, so which episodes are encoded is not known.
+   */
   private async encodeIds(client: NasClient): Promise<string[] | undefined> {
     try {
       const res = await client.request('encodes/ids', { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
-      if (res.status === 404) {
-        await res.body?.cancel();
-        return [];
-      }
+      if (res.status === 404) return (await errorOfBody(res)) === 'not-configured' ? [] : undefined;
       if (!res.ok) {
         await res.body?.cancel();
         return undefined;
@@ -352,7 +376,7 @@ export class NasTitles {
       list = (await client.json<{ titles: TitleSummary[] }>('titles', { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })).titles ?? [];
     } catch (e) {
       if (e instanceof NasError && e.code === 'unauthorized') throw e;
-      return { raw: kept, reachable: false, stale: true };
+      return { raw: kept, reachable: false, stale: true, encodedKnown: false };
     }
     const titles = list.filter((t) => t.kind === 'series' || t.kind === 'movie');
     let stale = false;
@@ -395,7 +419,7 @@ export class NasTitles {
     if (ids === undefined || unsorted === undefined) stale = true;
     const raw: Raw = { base: client.base, titles, details, detailAt, unsorted: unsorted ?? [], ids: ids ?? kept?.ids ?? [] };
     this.store(raw);
-    return { raw, reachable: true, stale };
+    return { raw, reachable: true, stale, encodedKnown: ids !== undefined };
   }
 
   /**
@@ -470,8 +494,8 @@ export class NasTitles {
 
   /** The shows, with how many of their episodes are encoded, and Unsorted. `client` must be the paired one. */
   async shows(client: NasClient, o: { refresh?: boolean } = {}): Promise<ShowsAnswer> {
-    const { raw, reachable, stale } = await this.fetch(client, o);
-    if (raw === null) return { shows: [], unsorted: [], reachable, stale: true };
+    const { raw, reachable, stale, encodedKnown } = await this.fetch(client, o);
+    if (raw === null) return { shows: [], unsorted: [], reachable, stale: true, encodedKnown: false };
     const ids = new Set(raw.ids);
     const mirror = await this.mirrorDiscs();
     const infos = new EpisodeInfoStore(this.app.dataDir);
@@ -515,12 +539,17 @@ export class NasTitles {
       const disc = mirror.get(u.discId);
       return disc === undefined ? [] : [{ key: disc.key, label: disc.label, relPath: disc.relPath }];
     });
-    return { shows, unsorted, reachable, stale };
+    return { shows, unsorted, reachable, stale, encodedKnown };
   }
 
-  /** One show with its seasons, discs, playlists and episodes; null when the NAS has no such show. Always reads that show's detail. */
+  /**
+   * One show with its seasons, discs, playlists and episodes; null when the NAS has no such show. Always reads that
+   * show's detail. Rejects with `NasError` `unreachable` when the NAS doesn't answer and nothing is kept, so whether it
+   * lists the show is not known.
+   */
   async show(client: NasClient, titleId: string): Promise<ShowAnswer | null> {
-    const { raw, reachable, stale } = await this.fetch(client, { only: titleId });
+    const { raw, reachable, stale, encodedKnown } = await this.fetch(client, { only: titleId });
+    if (raw === null && !reachable) throw new NasError('unreachable', null, "The NAS isn't answering, and this app has no earlier listing of it.");
     const summary = raw?.titles.find((t) => t.id === titleId);
     const detail = raw?.details[titleId];
     if (raw === null || summary === undefined || detail === undefined) return null;
@@ -540,6 +569,7 @@ export class NasTitles {
       seasons,
       reachable,
       stale,
+      encodedKnown,
     };
   }
 
@@ -566,15 +596,12 @@ export class NasTitles {
     }
     const playlists = [...byPlaylist].map(([id, eps]) => ({ id, episodes: eps }));
     if (disc === undefined) return { key: null, discId, label: slot.label, available: false, playlists, checked: false, checkedPlaylists: [] };
-    const toCheck = playlists.length > 0 ? playlists.map((p) => p.id) : await this.savedPlaylists(disc.key);
     const checkedPlaylists: CheckedPlaylist[] = [];
-    for (const id of toCheck) {
+    for (const id of await this.savedPlaylists(disc.key)) {
       const c = await this.playlistChecked(disc.key, id, infos, records, ids);
       if (c !== null) checkedPlaylists.push(c);
     }
-    // listed playlists must all be checked; a disc listing none is checked once any saved playlist of it is
-    const checked = playlists.length > 0 ? checkedPlaylists.length === playlists.length : checkedPlaylists.length > 0;
-    return { key: disc.key, discId, label: slot.label, available: true, playlists, checked, checkedPlaylists };
+    return { key: disc.key, discId, label: slot.label, available: true, playlists, checked: discChecked(playlists, title, checkedPlaylists), checkedPlaylists };
   }
 
   /** The chapter count of a mirrored disc's playlist, read from its playlist file; null when it cannot be read. */
@@ -617,14 +644,14 @@ export class NasTitles {
         const episode = t?.episode ?? null;
         return { index: i + 1, title, episode, encoded: title !== null && episode !== null && ids.has(encodeId(title, episode)) };
       });
-      return { id, episodeSpec: spec, groups };
+      return { id, episodeSpec: spec, chapters, resolvedSpec: resolvedSpec(spec, chapters) ?? spec, groups };
     } catch (e) {
       if (e instanceof EpisodeInfoError || e instanceof EpisodeSpecError) return null;
       throw e;
     }
   }
 
-  /** For a disc the NAS lists no episodes for: the playlists saved for it under the data folder, in order. */
+  /** The playlists saved for a disc under the data folder, in order. */
   private async savedPlaylists(key: string): Promise<string[]> {
     let names: string[];
     try {

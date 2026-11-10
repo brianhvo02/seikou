@@ -48,6 +48,7 @@ function useShow(api: AppApi, titleId: string): { readonly show: NasShowAnswer |
             </>,
           );
         } else if (e instanceof ApiError && e.code === 'not-found') setError('The NAS no longer lists this show. It may have been filed under another title.');
+        else if (e instanceof ApiError && e.code === 'nas-unreachable') setError("The NAS isn't answering, and this app has no earlier listing of it. Try again in a moment.");
         else setError(e instanceof Error ? e.message : String(e));
       },
     );
@@ -77,11 +78,18 @@ function Waiting({ error, what }: { readonly error: ReactNode | null; readonly w
 }
 
 /** The line saying the listing is the last one kept, or may be out of date. */
-function StaleLine({ show }: { readonly show: Pick<NasShowAnswer, 'reachable' | 'stale'> }) {
+function StaleLine({ show }: { readonly show: Pick<NasShowAnswer, 'reachable' | 'stale' | 'encodedKnown'> }) {
   if (!show.reachable) {
     return (
       <p className="notice" role="status">
         The NAS can't be reached. This is its last listing, and nothing can be checked or queued until it answers.
+      </p>
+    );
+  }
+  if (!show.encodedKnown) {
+    return (
+      <p className="notice" role="status">
+        The NAS didn't say which episodes its Encodes library holds, so the Encoded marks may be out of date and nothing can be queued until it does.
       </p>
     );
   }
@@ -311,7 +319,7 @@ function DiscBlock({ season, disc, from, reachable, queued, unmapped }: DiscBloc
                 key={`${p.id}:${e.number}`}
                 number={e.number}
                 name={e.name ?? `Episode ${e.number}`}
-                mark={e.encoded ? 'encoded' : isQueued(season, disc, p.id, e.number, queued) ? 'queued' : 'todo'}
+                mark={e.encoded ? 'encoded' : isQueued(season, disc, e.number, queued) ? 'queued' : 'todo'}
               />
             )),
           )}
@@ -324,7 +332,7 @@ function DiscBlock({ season, disc, from, reachable, queued, unmapped }: DiscBloc
                 key={`${p.id}:${g.index}`}
                 number={g.episode}
                 name={g.episode === null ? `Episode ${g.index} of playlist ${p.id}, untitled` : `Episode ${g.episode}`}
-                mark={g.encoded ? 'encoded' : isGroupQueued(disc, p.id, g, queued) ? 'queued' : 'todo'}
+                mark={g.encoded ? 'encoded' : isGroupQueued(disc, g, queued) ? 'queued' : 'todo'}
               />
             )),
           )}
@@ -350,10 +358,26 @@ export interface SeasonPageProps {
   readonly seasonId: string;
 }
 
-/** The episodes of `season` that a NAS job in the app's queue already encodes; null until the queue has been read. */
-function useQueued(season: NasSeason | null): ReadonlySet<string> | null {
-  const { jobs } = useJobs();
-  return jobs === null ? null : season === null ? new Set() : queuedKeys(season, jobs);
+/** How long the season pages wait for the app's queue before saying it can't be read. */
+export const QUEUE_WAIT_MS = 5000;
+
+/**
+ * The episodes of `season` that a NAS job in the app's queue already encodes, null until the queue has been read; and
+ * while it hasn't, why Queue can't be used: the queue stream's problem, else "Reading the queue…" for `QUEUE_WAIT_MS`
+ * and "Can't read the queue" after (`failed` true then too).
+ */
+function useQueued(season: NasSeason | null): { readonly queued: ReadonlySet<string> | null; readonly why: string | null; readonly failed: boolean } {
+  const { jobs, problem } = useJobs();
+  const [late, setLate] = useState(false);
+  const loaded = jobs !== null;
+  useEffect(() => {
+    if (loaded) return;
+    const timer = setTimeout(() => setLate(true), QUEUE_WAIT_MS);
+    return () => clearTimeout(timer);
+  }, [loaded]);
+  if (jobs !== null) return { queued: season === null ? new Set() : queuedKeys(season, jobs), why: null, failed: false };
+  if (problem !== null) return { queued: null, why: `Can't read the queue: ${problem}`, failed: true };
+  return late ? { queued: null, why: "Can't read the queue", failed: true } : { queued: null, why: 'Reading the queue…', failed: false };
 }
 
 const NONE: ReadonlySet<string> = new Set();
@@ -367,7 +391,8 @@ const NONE: ReadonlySet<string> = new Set();
 export function SeasonPage({ api, titleId, seasonId }: SeasonPageProps) {
   const { show, error } = useShow(api, titleId);
   const season = show?.seasons.find((s) => s.id === seasonId) ?? null;
-  const queued = useQueued(season) ?? NONE;
+  const queue = useQueued(season);
+  const queued = queue.queued ?? NONE;
   useDocumentTitle(show === null ? 'Seikou encoder' : `${season?.label ?? 'Season'} · ${show.title.name} · Seikou encoder`);
   if (show === null) return <Waiting error={error} what="the season" />;
   if (season === null) {
@@ -384,7 +409,7 @@ export function SeasonPage({ api, titleId, seasonId }: SeasonPageProps) {
   }
   const from: SeasonRef = { titleId, seasonId };
   const state = seasonState(season, queued);
-  const blocked = queueBlock(season, show.reachable, queued);
+  const blocked = queueBlock(season, show, queued) ?? queue.why;
   const counts = seasonCounts(season);
   const queuedNow = state.jobs.reduce((n, j) => n + (j.only?.length ?? groupsOf(j.episodeSpec)), 0);
   const label =
@@ -393,7 +418,7 @@ export function SeasonPage({ api, titleId, seasonId }: SeasonPageProps) {
       : state.known
         ? `Queue ${countOf(state.toEncode, 'episode', 'episodes')} to the NAS`
         : 'Queue to the NAS';
-  const queue = (): void => navigate(routeHref({ kind: 'seasonQueue', titleId, seasonId }, location.search));
+  const openQueue = (): void => navigate(routeHref({ kind: 'seasonQueue', titleId, seasonId }, location.search));
   const facts = [titleWords(season.title)];
   if (!counts.known) facts.push('some discs not checked yet');
   else if (counts.episodes > 0) facts.push(countOf(counts.episodes, 'episode', 'episodes'), `${state.toEncode} to encode`);
@@ -424,7 +449,7 @@ export function SeasonPage({ api, titleId, seasonId }: SeasonPageProps) {
             {blocked}
           </span>
         )}
-        <button type="button" className="primary" disabled={blocked !== null} aria-describedby={blocked !== null ? 'season-queue-why' : undefined} onClick={queue}>
+        <button type="button" className="primary" disabled={blocked !== null} aria-describedby={blocked !== null ? 'season-queue-why' : undefined} onClick={openQueue}>
           {label}
         </button>
       </div>
@@ -436,10 +461,11 @@ export function SeasonPage({ api, titleId, seasonId }: SeasonPageProps) {
 export function SeasonQueue({ api, titleId, seasonId }: SeasonPageProps) {
   const { show, error } = useShow(api, titleId);
   const season = show?.seasons.find((s) => s.id === seasonId) ?? null;
-  const queued = useQueued(season);
+  const { queued, why, failed } = useQueued(season);
   // the queue as it was when the page opened: the batch's own jobs must not take their episodes out of it as they go in
   const [jobs, setJobs] = useState<ReturnType<typeof seasonState>['jobs'] | null>(null);
-  const blocked = show === null || queued === null ? null : season === null ? 'The NAS no longer lists this season.' : queueBlock(season, show.reachable, queued);
+  const blocked =
+    show === null ? null : season === null ? 'The NAS no longer lists this season.' : queued === null ? (failed ? why : null) : queueBlock(season, show, queued);
   useEffect(() => {
     if (jobs === null && season !== null && queued !== null && blocked === null) setJobs(seasonState(season, queued).jobs);
   }, [jobs, season, blocked, queued]);

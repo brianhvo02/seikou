@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render as rtlRender, screen, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render as rtlRender, screen, within } from '@testing-library/react';
 import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Job, LibraryAnswer, NasSeason, NasShowAnswer } from '../api-types';
@@ -8,14 +8,15 @@ import type { AppApi } from './app-api';
 import type { JobsStore } from './job-events';
 import { JobsProvider } from './jobs-context';
 import { makeJob, UNUSED_ANILIST_API, UNUSED_JOB_API, UNUSED_NAS_API } from './job-test-support';
-import { SeasonPage, SeasonQueue, ShowPage } from './ShowPage';
-import { checked3, disc, groups, KEY, season } from './shows-test-support';
+import { ApiError } from '../api';
+import { QUEUE_WAIT_MS, SeasonPage, SeasonQueue, ShowPage } from './ShowPage';
+import { checked3, disc, groups, KEY, played, season } from './shows-test-support';
 
 afterEach(cleanup);
 
-/** Renders `ui` under a queue holding `jobs`. */
-function render(ui: ReactElement, jobs: readonly Job[] = []) {
-  const snapshot = { jobs, progress: {}, problem: null };
+/** Renders `ui` under a queue holding `jobs` (null: a queue not read yet, with `problem`). */
+function render(ui: ReactElement, jobs: readonly Job[] | null = [], problem: string | null = null) {
+  const snapshot = { jobs, progress: {}, problem };
   const store: JobsStore = { subscribe: () => () => {}, getSnapshot: () => snapshot, applyJob: () => {}, dropJob: () => {} };
   return rtlRender(<JobsProvider store={store}>{ui}</JobsProvider>);
 }
@@ -34,6 +35,7 @@ function answer(seasons: NasSeason[], over: Partial<NasShowAnswer> = {}): NasSho
     seasons,
     reachable: true,
     stale: false,
+    encodedKnown: true,
     ...over,
   };
 }
@@ -57,7 +59,7 @@ const library: LibraryAnswer = {
   })),
 };
 
-function fakeApi(show: NasShowAnswer): AppApi {
+function fakeApi(show: NasShowAnswer | Error): AppApi {
   return {
     library: vi.fn(async () => library),
     rescan: vi.fn(),
@@ -82,7 +84,10 @@ function fakeApi(show: NasShowAnswer): AppApi {
       reachable: true,
       encodes: 'ready' as const,
     })),
-    nasShow: vi.fn(async () => show),
+    nasShow: vi.fn(async () => {
+      if (show instanceof Error) throw show;
+      return show;
+    }),
   } as AppApi;
 }
 
@@ -107,7 +112,7 @@ describe('SeasonPage', () => {
   });
 
   it('warns about a checked disc that misses episodes to encode, offers Check episodes again and blocks Queue', async () => {
-    const short = season({}, { checked: true, checkedPlaylists: [{ id: '00001', episodeSpec: '1-2,3-', groups: groups([9, 12]) }] });
+    const short = season({}, { checkedPlaylists: [played('00001', '1-2,3-', groups([9, 12]), 8)] });
     render(<SeasonPage api={fakeApi(answer([short]))} titleId={TITLE} seasonId="anilist:990001#season" />);
     await screen.findByRole('heading', { name: 'Season 2' });
     const disc3 = screen.getByRole('region', { name: 'Disc 3' });
@@ -133,7 +138,7 @@ describe('SeasonPage', () => {
       label: 'Season 1',
       number: 1,
       title: own,
-      discs: [disc(1, { checked: true, checkedPlaylists: [{ id: '00003', episodeSpec: '1-4,5-', groups: groups([1, 2], [1], own) }] }), disc(2)],
+      discs: [disc(1, { checked: true, checkedPlaylists: [played('00003', '1-4,5-', groups([1, 2], [1], own), 8)] }), disc(2)],
     };
     render(<SeasonPage api={fakeApi(answer([s]))} titleId={TITLE} seasonId={s.id} />);
     await screen.findByRole('heading', { name: 'Season 1' });
@@ -161,6 +166,36 @@ describe('SeasonPage', () => {
     expect(screen.getByText("The NAS isn't answering: this is its last listing")).toBeTruthy();
     expect(screen.queryByRole('link', { name: 'Check episodes' })).toBeNull();
   });
+
+  it('keeps Queue disabled while the NAS has not said which episodes it holds', async () => {
+    render(<SeasonPage api={fakeApi(answer([season({}, checked3)], { stale: true, encodedKnown: false }))} titleId={TITLE} seasonId="anilist:990001#season" />);
+    await screen.findByRole('heading', { name: 'Season 2' });
+    expect(queueButton().disabled).toBe(true);
+    expect(screen.getByText("Can't read which episodes the NAS already has. Try again in a moment")).toBeTruthy();
+    expect(screen.getByText(/didn't say which episodes its Encodes library holds/)).toBeTruthy();
+  });
+
+  it('keeps Queue disabled until the queue is read, and says when it cannot be', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<SeasonPage api={fakeApi(answer([season({}, checked3)]))} titleId={TITLE} seasonId="anilist:990001#season" />, null);
+      await screen.findByRole('heading', { name: 'Season 2' });
+      expect(queueButton().disabled).toBe(true);
+      expect(screen.getByText('Reading the queue…')).toBeTruthy();
+      await act(async () => {
+        vi.advanceTimersByTime(QUEUE_WAIT_MS);
+      });
+      expect(screen.getByText("Can't read the queue")).toBeTruthy();
+      expect(queueButton().disabled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says the NAS isn't answering, not that the show is gone, when nothing of it is kept", async () => {
+    render(<SeasonPage api={fakeApi(new ApiError(503, 'nas-unreachable', 'down'))} titleId={TITLE} seasonId="anilist:990001#season" />);
+    expect((await screen.findByRole('alert')).textContent).toBe("The NAS isn't answering, and this app has no earlier listing of it. Try again in a moment.");
+  });
 });
 
 describe('SeasonQueue', () => {
@@ -186,6 +221,25 @@ describe('SeasonQueue', () => {
     render(<SeasonQueue api={fakeApi(answer([season()]))} titleId={TITLE} seasonId="anilist:990001#season" />);
     expect(await screen.findByText('Check disc 3 first')).toBeTruthy();
     expect(screen.queryByRole('list', { name: 'Encodes to queue' })).toBeNull();
+  });
+
+  it("says the queue can't be read when it never arrives, instead of waiting for ever", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<SeasonQueue api={fakeApi(answer([season({}, checked3)]))} titleId={TITLE} seasonId="anilist:990001#season" />, null);
+      await act(async () => {
+        vi.advanceTimersByTime(QUEUE_WAIT_MS);
+      });
+      expect((await screen.findByRole('alert')).textContent).toBe("Can't read the queue");
+      expect(screen.queryByRole('list', { name: 'Encodes to queue' })).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows the queue stream's problem at once", async () => {
+    render(<SeasonQueue api={fakeApi(answer([season({}, checked3)]))} titleId={TITLE} seasonId="anilist:990001#season" />, null, 'The app stopped answering.');
+    expect((await screen.findByRole('alert')).textContent).toBe("Can't read the queue: The app stopped answering.");
   });
 });
 

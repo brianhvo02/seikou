@@ -88,8 +88,8 @@ describe('createAppApi NAS calls', () => {
     const fetch: FetchLike = async (url) => {
       calls.push(url);
       if (url.includes('/api/nas/lookup')) return ok({ titles: [{ id: 'anilist:990001', poster: '00112233445566778899aabbccddeeff', names: {} }, { id: 'own:x', poster: null, names: {} }] });
-      if (url.endsWith('/api/nas/shows')) return ok({ shows: [show, { ...show, poster: null }], unsorted: [], reachable: true, stale: false });
-      return ok({ title: { titleId: 'anilist:990001', name: 'Lantern Road', poster: show.poster, kind: 'series' }, seasons: [], reachable: true, stale: false });
+      if (url.endsWith('/api/nas/shows')) return ok({ shows: [show, { ...show, poster: null }], unsorted: [], reachable: true, stale: false, encodedKnown: true });
+      return ok({ title: { titleId: 'anilist:990001', name: 'Lantern Road', poster: show.poster, kind: 'series' }, seasons: [], reachable: true, stale: false, encodedKnown: true });
     };
     const api = createAppApi('http://127.0.0.1:4196', 'se cret', fetch);
     const shows = await api.nasShows();

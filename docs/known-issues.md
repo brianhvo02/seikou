@@ -54,8 +54,14 @@ what would change that decision.
   episodes AniList and TMDB give a season, not what the owner typed in by hand. A show made of own titles shows "Not
   checked yet" or "N so far encoded" until its discs are checked, and its season's Queue waits for every disc.
   *Revisit if* own titles should carry an episode count: let the owner enter it on the NAS.
+- **A disc whose episodes each sit on their own playlist is checked once per playlist.** When the NAS lists a disc's
+  episodes on per-episode playlists and no playlist holds them all, each of those playlists is grouped and marked
+  checked on its own, and the season's Queue makes one encode per playlist. A playlist that holds them all (a play-all
+  playlist) is checked once instead: the episodes the NAS lists elsewhere map onto its groups by title and number.
+  *Revisit if* such discs are common: check a disc's per-episode playlists together on one page.
 - **A queued job is "Queued" only through the disc's current checked grouping.** The season page reads a queued NAS
-  job as the episodes of the checked grouping with the job's playlist and episode list. A job queued for another
+  job as the episodes of the checked grouping with the job's playlist and episode list (the same list however it is
+  written). A job queued for another
   episode list, or for a disc whose check changed since, shows its episodes as To encode again, and the season's Queue
   would offer them a second time (the NAS keeps one file for each pair, so a second upload replaces the first).
   *Revisit if* it happens in practice: key a job's episodes by title and number when it is queued.

@@ -223,6 +223,7 @@ describe('LibraryPage', () => {
       unsorted: [{ key: `f.${'e'.repeat(32)}`, label: 'UNTITLED_BD', relPath: 'incoming/UNTITLED_BD' }],
       reachable: true,
       stale: false,
+      encodedKnown: true,
     };
 
     it('opens By show: each show with its seasons, discs and what is encoded, then the unsorted discs', async () => {

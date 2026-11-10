@@ -78,12 +78,14 @@ async function art(res: ServerResponse, client: NasClient, artId: string, size: 
  * The NAS catalogue routes (409 `nas-not-paired` while not paired or after the NAS forgot this device):
  *
  *   GET /api/nas/shows[?refresh=1] `{ shows: [{ titleId, name, poster, kind, seasons, films, encoded, toEncode }],
- *                                 unsorted: [{ key, label, relPath }], reachable, stale }`; while the NAS does not
- *                                 answer, the last answer kept in `<data>/nas-titles.json` with `reachable: false`
+ *                                 unsorted: [{ key, label, relPath }], reachable, stale, encodedKnown }`; while the NAS
+ *                                 does not answer, the last answer kept in `<data>/nas-titles.json` with `reachable:
+ *                                 false`; `encodedKnown` false when the NAS's encodes list was not read now
  *   GET /api/nas/shows/<titleId>  `{ title, seasons: [{ id, label, number, title, discs: [{ key, discId, label,
- *                                 available, playlists: [{ id, episodes: [{ number, name, encoded }] }], checked }] }], reachable,
- *                                 stale }`; films are seasons with `number: null`; 404 `not-found` for a show the NAS
- *                                 does not list
+ *                                 available, playlists: [{ id, episodes: [{ number, name, encoded }] }], checked, checkedPlaylists: [{ id,
+ *                                 episodeSpec, chapters, resolvedSpec, groups }] }] }], reachable, stale, encodedKnown }`;
+ *                                 films are seasons with `number: null`; 404 `not-found` for a show the NAS does not
+ *                                 list, 503 `nas-unreachable` while the NAS doesn't answer and no listing is kept
  *   GET /api/nas/art/<artId>?size= a poster of a show or search result, from the NAS's `art/<id>`; 404 `not-found`
  *                                 for an id that is not 32 hex digits or one the NAS does not know, 502 `bad-cover`
  */
@@ -118,6 +120,7 @@ export const nasTitleRoutes: RouteTable = [
         if (show === null) return httpError(res, 404, 'not-found', 'The NAS does not list that show.');
         json(res, 200, show);
       } catch (err) {
+        if (err instanceof NasError && err.code === 'unreachable') return httpError(res, 503, 'nas-unreachable', err.message);
         unauthorized(res, err);
       }
     },

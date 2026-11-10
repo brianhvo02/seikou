@@ -747,6 +747,11 @@ export interface NasShowsAnswer {
   readonly reachable: boolean;
   /** The answer is the kept one, or its encodes list could not be read now. */
   readonly stale: boolean;
+  /**
+   * The NAS said now which episodes its Encodes library holds. While false the encoded marks are an earlier answer's
+   * (or none), and nothing may be queued on them.
+   */
+  readonly encodedKnown: boolean;
 }
 
 /** The title an encode is tagged with, as `EpisodeTitle` holds it. */
@@ -761,13 +766,21 @@ export interface NasSeasonDisc {
   /** Whether the encoder mirrors a copy of the disc, so it can be checked and encoded; an unavailable disc is never checked. */
   readonly available: boolean;
   readonly playlists: { readonly id: string; readonly episodes: { readonly number: number; readonly name: string | null; readonly encoded: boolean }[] }[];
-  /** Every playlist with episodes is checked (a disc listing none: any saved playlist of it is); false for an unavailable disc. */
+  /** Checked by the rule `discChecked` (shows-model) states; false for an unavailable disc. */
   readonly checked: boolean;
-  /**
-   * The checked playlists (of those listed, or for a disc listing none every saved one): the episode list a job must be
-   * queued with, and its groups.
-   */
-  readonly checkedPlaylists: { readonly id: string; readonly episodeSpec: string; readonly groups: NasCheckedGroup[] }[];
+  /** Every checked playlist of the disc, in order. */
+  readonly checkedPlaylists: NasCheckedPlaylist[];
+}
+
+/** A checked playlist of a disc: the episode list a job of it must be queued with, and its groups. */
+export interface NasCheckedPlaylist {
+  readonly id: string;
+  readonly episodeSpec: string;
+  /** The playlist's chapter count. */
+  readonly chapters: number;
+  /** `episodeSpec` with its open end closed at `chapters`, as `resolvedSpec` (shows-model) writes it: `[[1,3],[4,6]]`. */
+  readonly resolvedSpec: string;
+  readonly groups: NasCheckedGroup[];
 }
 
 /** One episode of a checked playlist's episode list: the title and number its saved info gives it, and whether the Encodes library holds it. */
@@ -795,4 +808,6 @@ export interface NasShowAnswer {
   readonly seasons: NasSeason[];
   readonly reachable: boolean;
   readonly stale: boolean;
+  /** As in `NasShowsAnswer`. */
+  readonly encodedKnown: boolean;
 }

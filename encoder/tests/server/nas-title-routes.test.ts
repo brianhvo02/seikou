@@ -33,6 +33,8 @@ let ownTitleId: string;
 /** The NAS's id of Lantern Road's second disc, whose manifest `failManifest` can make fail. */
 let vmDiscId: string;
 let failManifest: string | null = null;
+/** What the NAS's `encodes/ids` answers in place of the real answer: a status and body, or a network failure (`throw`); null for the real one. */
+let encodeIdsAnswer: { status: number; body: unknown } | 'throw' | null = null;
 let server: HelperServer;
 let app: AppContext;
 
@@ -63,9 +65,14 @@ afterAll(async () => {
 });
 beforeEach(async () => {
   failManifest = null;
+  encodeIdsAnswer = null;
   const realFetch = globalThis.fetch;
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     if (failManifest !== null && String(input).includes(`/discs/${failManifest}/manifest`)) return new Response('{}', { status: 500 });
+    if (encodeIdsAnswer !== null && String(input).endsWith('/encodes/ids')) {
+      if (encodeIdsAnswer === 'throw') throw new DOMException('The operation timed out.', 'TimeoutError');
+      return new Response(JSON.stringify(encodeIdsAnswer.body), { status: encodeIdsAnswer.status, headers: { 'content-type': 'application/json' } });
+    }
     return realFetch(input, init);
   });
   app = { dataDir: mkdtempSync(join(tmpdir(), 'nas-titles-')), token: TOKEN, webDir: null, tools: null, sources: {} as AppContext['sources'], roots: [], nas: { client: null } };
@@ -169,6 +176,8 @@ describe('the NAS catalogue routes', () => {
       {
         id: '00000',
         episodeSpec: '1,2-',
+        chapters: expect.any(Number),
+        resolvedSpec: expect.stringMatching(/^\[\[1,1\],\[2,\d+\]\]$/),
         groups: [
           { index: 1, title: own, episode: 1, encoded: true },
           { index: 2, title: own, episode: 2, encoded: false },
@@ -190,9 +199,9 @@ describe('the NAS catalogue routes', () => {
     const titles = { '1': { title: { source: 'anilist', anilistId: 990001 }, episode: 2, name: null } } as const;
     let key: string;
     const mark = (spec: string, t: EpisodeInfo['titles'] = titles): EpisodeInfo['checked'] => ({ episodeSpec: spec, signature: titlesSignature(t), at: '2026-11-10T01:00:00.000Z' });
-    const writeInfo = (checked: EpisodeInfo['checked'], t: EpisodeInfo['titles'] = titles): void => {
+    const writeInfo = (checked: EpisodeInfo['checked'], t: EpisodeInfo['titles'] = titles, playlist = '00001'): void => {
       mkdirSync(join(app.dataDir, 'chapters', key), { recursive: true });
-      writeFileSync(join(app.dataDir, 'chapters', key, '00001.json'), JSON.stringify({ chapterNames: {}, titles: t, ...(checked ? { checked } : {}), savedAt: '2026-11-10T00:00:00.000Z' }));
+      writeFileSync(join(app.dataDir, 'chapters', key, `${playlist}.json`), JSON.stringify({ chapterNames: {}, titles: t, ...(checked ? { checked } : {}), savedAt: '2026-11-10T00:00:00.000Z' }));
     };
     const writeRecord = (episodeSpec: string): Promise<void> =>
       new RecordStore(app.dataDir).write({ disc: { key, label: 'Disc 2' }, playlist: '00001', episodeSpec, anilist: null, releases: [], fonts: [], episodes: [], savedAt: '2026-11-10T00:00:00Z' });
@@ -233,14 +242,72 @@ describe('the NAS catalogue routes', () => {
         { index: 1, title: { source: 'anilist', anilistId: 990001 }, episode: 2, encoded: false },
         { index: 2, title: null, episode: null, encoded: false },
       ];
-      expect((await disc()).checkedPlaylists).toEqual([{ id: '00001', episodeSpec: '1-2,3-4', groups }]);
+      const resolvedSpec = '[[1,2],[3,4]]';
+      expect((await disc()).checkedPlaylists).toEqual([{ id: '00001', episodeSpec: '1-2,3-4', chapters: 4, resolvedSpec, groups }]);
       await writeRecord('1-2,3-');
-      expect((await disc()).checkedPlaylists).toEqual([{ id: '00001', episodeSpec: '1-2,3-', groups }]);
+      expect((await disc()).checkedPlaylists).toEqual([{ id: '00001', episodeSpec: '1-2,3-', chapters: 4, resolvedSpec, groups }]);
     });
 
     it('is false without a mark', async () => {
       writeInfo(undefined);
       expect(await checked()).toBe(false);
+    });
+
+    it("holds when another playlist's groups give the NAS's episode, and lists every checked playlist", async () => {
+      const playlists = (await get(`/api/discs/${encodeURIComponent(key)}/playlists`)).body.playlists as { id: string; chapters: number }[];
+      const other = playlists.find((p) => p.id === '00002')!;
+      // the NAS lists episode 2 on playlist 00001; only 00002 is checked, its one group episode 2
+      writeInfo(mark('1-'), titles, '00002');
+      const disc = (await show('anilist:990001')).body.seasons[0].discs[1];
+      expect(disc.playlists.map((p: { id: string }) => p.id)).toEqual(['00001']);
+      expect(disc.checked).toBe(true);
+      expect(disc.checkedPlaylists).toEqual([
+        { id: '00002', episodeSpec: '1-', chapters: other.chapters, resolvedSpec: `[[1,${other.chapters}]]`, groups: [{ index: 1, title: { source: 'anilist', anilistId: 990001 }, episode: 2, encoded: false }] },
+      ]);
+      writeInfo(mark('1-2,3-4'));
+      expect((await show('anilist:990001')).body.seasons[0].discs[1].checkedPlaylists.map((p: { id: string }) => p.id)).toEqual(['00001', '00002']);
+    });
+
+    it('is false while a checked playlist gives another episode than the one the NAS lists', async () => {
+      const other = { '1': { title: { source: 'anilist', anilistId: 990001 }, episode: 5, name: null } } as const;
+      writeInfo(mark('1-', other), other, '00002');
+      expect(await checked()).toBe(false);
+    });
+  });
+
+  describe('the encoded state', () => {
+    const lantern = async (): Promise<any> => (await get('/api/nas/shows')).body.shows.find((s: { titleId: string }) => s.titleId === 'anilist:990001');
+
+    it('is known when the NAS lists its encodes', async () => {
+      await pair();
+      expect((await get('/api/nas/shows')).body.encodedKnown).toBe(true);
+      expect((await show('anilist:990001')).body.encodedKnown).toBe(true);
+    });
+
+    it('is none, and known, for a NAS that keeps no Encodes library', async () => {
+      await pair();
+      encodeIdsAnswer = { status: 404, body: { error: 'not-configured' } };
+      const r = await get('/api/nas/shows');
+      expect(r.body).toMatchObject({ encodedKnown: true, stale: false });
+      expect(await lantern()).toMatchObject({ encoded: 0, toEncode: 2 });
+    });
+
+    it('is unknown when the encodes list answers another 404, keeping the ids read before', async () => {
+      await pair();
+      await get('/api/nas/shows');
+      encodeIdsAnswer = { status: 404, body: { error: 'not-found' } };
+      const r = await get('/api/nas/shows');
+      expect(r.body).toMatchObject({ encodedKnown: false, stale: true });
+      expect(await lantern()).toMatchObject({ encoded: 1 });
+      expect((await show('anilist:990001')).body).toMatchObject({ encodedKnown: false, stale: true });
+    });
+
+    it('is unknown when the encodes list times out on a first listing', async () => {
+      await pair();
+      encodeIdsAnswer = 'throw';
+      const r = await get('/api/nas/shows');
+      expect(r.body).toMatchObject({ reachable: true, encodedKnown: false, stale: true });
+      expect((await show('anilist:990001')).body).toMatchObject({ encodedKnown: false });
     });
   });
 
@@ -252,7 +319,7 @@ describe('the NAS catalogue routes', () => {
     try {
       const r = await get('/api/nas/shows');
       expect(r.status).toBe(200);
-      expect(r.body).toMatchObject({ reachable: false, stale: true });
+      expect(r.body).toMatchObject({ reachable: false, stale: true, encodedKnown: false });
       expect(r.body.shows).toEqual(live.body.shows);
       expect(r.body.unsorted).toEqual(live.body.unsorted);
       expect((await show('anilist:990001')).body).toMatchObject({ reachable: false, stale: true });
@@ -270,7 +337,10 @@ describe('the NAS catalogue routes', () => {
     try {
       const r = await get('/api/nas/shows');
       expect(r.status).toBe(200);
-      expect(r.body).toMatchObject({ shows: [], reachable: false });
+      expect(r.body).toMatchObject({ shows: [], reachable: false, encodedKnown: false });
+      // no listing kept and no answer: the show is not known to be gone
+      const one = await show('anilist:990001');
+      expect([one.status, one.body.error]).toEqual([503, 'nas-unreachable']);
     } finally {
       await nas.resume();
     }
