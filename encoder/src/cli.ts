@@ -23,7 +23,7 @@ import { SupError } from './package/sup';
 import { WebmError } from './package/webm';
 import { loadEncodeRecord, MissingSubtitleFilesError, NoAudioChosenError, RecordMismatchError } from './subs/encode-record';
 import { ChainError } from './pipeline/chain';
-import { EpisodeSpecError, parseEpisodeSpec } from './plan/episodes';
+import { EpisodeSpecError, parseEpisodeSpec, parseOnly } from './plan/episodes';
 import { startJobRunner } from './server/jobs';
 import { takeJobsLock, type JobsLock } from './server/jobs-lock';
 import { encoderDeviceName } from './server/nas-routes';
@@ -80,7 +80,7 @@ export function nasRunFailure(err: NasError | FetchError | UploadError | NasUplo
 
 const USAGE = `Usage:
   seikou-encode plan <disc | nas:KEY> [--playlist ID]
-  seikou-encode encode <disc | nas:KEY> --playlist ID --episodes SPEC (--out DIR | --nas [--out DIR])
+  seikou-encode encode <disc | nas:KEY> --playlist ID --episodes SPEC [--only LIST] (--out DIR | --nas [--out DIR])
       [--name PATTERN] [--crf N] [--preset N] [--film-grain N] [--svt-args "..."] [--opus-bitrate N] [--title T] [--cache DIR]
       [--no-subtitles] [--no-pgs] [--web DIR]
   seikou-encode nas pair (--code CODE --base URL | --link URL)
@@ -364,6 +364,7 @@ async function encodeWithNas(o: {
   fromNas: boolean;
   uploadNames: string[] | null;
   episodeCount: number;
+  only: number[] | undefined;
 }): Promise<void> {
   const dataDir = o.dataDir;
   const id = randomBytes(4).toString('hex');
@@ -379,6 +380,7 @@ async function encodeWithNas(o: {
         playlistId: o.options.playlistId,
         episodeSpec: o.options.episodes,
         episodeCount: o.episodeCount,
+        ...(o.only === undefined ? {} : { only: o.only }),
         fetchClips: o.fromNas,
         uploadNames: o.uploadNames,
         holder: `cli:${id}`,
@@ -418,6 +420,7 @@ async function run(argv: string[]): Promise<void> {
       port: { type: 'string' },
       root: { type: 'string', multiple: true },
       'no-open': { type: 'boolean' },
+      only: { type: 'string' },
       'no-subtitles': { type: 'boolean' },
       'no-pgs': { type: 'boolean' },
       web: { type: 'string' },
@@ -495,11 +498,12 @@ async function run(argv: string[]): Promise<void> {
       // A bad episode spec is a usage error (exit 2) whether or not the tools are installed.
       const playlist = await loadPlaylist(discDir, values.playlist);
       const episodeCount = parseEpisodeSpec(values.episodes, playlist.chapters.length).length;
+      const only = values.only === undefined ? undefined : parseOnly(values.only, episodeCount);
       // So are missing episode titles for the NAS, and a saved record that does not fit this encode.
       let uploadNames: string[] | null = null;
       const discKey = client === null ? '' : (await discKeyOfFolder(discDir)).key;
       if (toNas) {
-        const checked = await checkNasDestination({ dataDir, client, discKey, playlistId: values.playlist, episodeSpec: values.episodes, chapters: playlist.chapters.length });
+        const checked = await checkNasDestination({ dataDir, client, discKey, playlistId: values.playlist, episodeSpec: values.episodes, chapters: playlist.chapters.length, only });
         if (!checked.reachable) throw new NasError('unreachable', null, NAS_UNREACHABLE);
         uploadNames = checked.pairs.map(uploadNameOf);
       }
@@ -526,8 +530,8 @@ async function run(argv: string[]): Promise<void> {
         webDir: values.web === undefined ? undefined : resolve(values.web),
       };
       const outDir = values.out === undefined ? undefined : resolve(values.out);
-      if (client === null) await encodeEpisodes({ ...options, outDir: outDir! }, printEncodeEvent);
-      else await encodeWithNas({ options, outDir, dataDir, client, discKey, fromNas: onNas, uploadNames, episodeCount });
+      if (client === null) await encodeEpisodes({ ...options, outDir: outDir!, onlyEpisodes: only }, printEncodeEvent);
+      else await encodeWithNas({ options, outDir, dataDir, client, discKey, fromNas: onNas, uploadNames, episodeCount, only });
     } finally {
       lock?.release();
       client?.close();

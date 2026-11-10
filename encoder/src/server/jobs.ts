@@ -280,7 +280,7 @@ export function jobCli(o: {
   outDir: string;
   noSubtitles: boolean;
   settings: EncodeSettings;
-  /** The episodes the job encodes when not all (the command has no such flag, so a comment names them). */
+  /** The episodes the job encodes when not all, as `--only`. */
   only?: readonly number[];
 }): string {
   const s = o.settings;
@@ -293,8 +293,8 @@ export function jobCli(o: {
   if (o.noSubtitles) words.push('--no-subtitles');
   if (!s.pgs) words.push('--no-pgs');
   if (s.web && !nas) words.push('--web', webDirOf(o.outDir));
-  const command = words.map(shellWord).join(' ');
-  return o.only === undefined ? command : `${command} # the app encodes only episodes ${o.only.join(', ')}`;
+  if (o.only !== undefined) words.push('--only', o.only.join(','));
+  return words.map(shellWord).join(' ');
 }
 
 /** The folder a NAS job's episodes are written to until the NAS has them: `<data>/nas-out/<jobId>`. */
@@ -1092,13 +1092,11 @@ export class JobRunner {
     for (const other of this.jobs) {
       if (other.kind !== 'encode' || !namesCollide(other.settings.namePattern, o.namePattern)) continue;
       if ((await realPathOf(other.outDir)) !== real) continue;
+      const sameList = other.disc.key === o.discKey && other.playlist === o.playlistId && sameListOrFalse(other.episodeSpec, o.episodeSpec, o.chapters);
       // names are made from the episode's number in its list, so the same list's different episodes never meet
-      if (other.disc.key === o.discKey && other.playlist === o.playlistId && sameListOrFalse(other.episodeSpec, o.episodeSpec, o.chapters)) {
+      if (sameList) {
         const mine = new Set(o.only ?? Array.from({ length: other.episodes.length }, (_, i) => i + 1));
-        if (other.episodes.every((e) => e.skipped === true || !mine.has(e.index))) continue;
-      }
-      if (other.disc.key === o.discKey && other.playlist === o.playlistId && sameListOrFalse(other.episodeSpec, o.episodeSpec, o.chapters)) {
-        warning = 'replaces-files';
+        if (!other.episodes.every((e) => e.skipped === true || !mine.has(e.index))) warning = 'replaces-files';
         continue;
       }
       let suggested = '';

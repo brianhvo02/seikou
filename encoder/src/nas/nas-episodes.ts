@@ -19,9 +19,11 @@ export interface NasEpisodesOptions {
   readonly episodeSpec: string;
   /** How many episodes the spec has; they are encoded in order, from 1. */
   readonly episodeCount: number;
+  /** The 1-based episodes to encode, ascending, when not all: only those are fetched, encoded and uploaded. */
+  readonly only?: readonly number[];
   /** Whether the disc is a NAS mirror whose clips are fetched before each episode. */
   readonly fetchClips: boolean;
-  /** The NAS file name of each episode (`<encode id>.mkv`, in episode order), or null to keep the MKVs here. */
+  /** The NAS file name of each episode encoded (`<encode id>.mkv`, in the order they are encoded), or null to keep the MKVs here. */
   readonly uploadNames: readonly string[] | null;
   /** Who holds the clips (`cli:<id>`); every claim is let go of when the loop ends, however it ends. */
   readonly holder: string;
@@ -71,9 +73,10 @@ export async function runNasEpisodes(o: NasEpisodesOptions): Promise<string[]> {
   const stopAhead = (): void => ahead.abort();
   o.signal.addEventListener('abort', stopAhead, { once: true });
   let fetching: Promise<void> | null = null;
+  const todo = o.only ?? Array.from({ length: o.episodeCount }, (_, i) => i + 1);
   const ids: string[] = [];
   try {
-    for (let index = 1; index <= o.episodeCount; index++) {
+    for (const [position, index] of todo.entries()) {
       if (o.signal.aborted) throw new DOMException('Stopped', 'AbortError');
       if (o.fetchClips) {
         const clips = await clipsOf(index);
@@ -82,8 +85,8 @@ export async function runNasEpisodes(o: NasEpisodesOptions): Promise<string[]> {
         await fetching?.catch(() => undefined);
         fetching = null;
         await fetcher(o.signal).hold(o.holder, clips);
-        if (index < o.episodeCount) {
-          const next = fetcher(ahead.signal).hold(o.holder, await clipsOf(index + 1));
+        if (position + 1 < todo.length) {
+          const next = fetcher(ahead.signal).hold(o.holder, await clipsOf(todo[position + 1]!));
           next.catch(() => undefined); // reported by that episode's own fetch step
           fetching = next;
         }
@@ -91,11 +94,11 @@ export async function runNasEpisodes(o: NasEpisodesOptions): Promise<string[]> {
       const path = await o.encode(index);
       if (o.fetchClips) {
         const later = new Set<string>();
-        for (let i = index + 1; i <= o.episodeCount; i++) for (const clip of await clipsOf(i)) later.add(clip);
+        for (const i of todo.slice(position + 1)) for (const clip of await clipsOf(i)) later.add(clip);
         const free = (await clipsOf(index)).filter((c) => !later.has(c));
         if (free.length > 0) await releaseHolder(o.dataDir, o.discKey, o.holder, free);
       }
-      const name = o.uploadNames?.[index - 1];
+      const name = o.uploadNames?.[position];
       if (name === undefined) continue;
       o.log(`Episode ${index}: uploading ${path} to the NAS as ${name}.`);
       const state: UploadState = { id: null, sha256: null, size: 0, sent: 0 };

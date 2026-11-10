@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Job, JobEpisode, JobProgress } from '../api-types';
 import type { AppApi } from './app-api';
 import {
+  encodedCount,
   episodeFraction,
   episodeStatus,
   fileNameOf,
@@ -16,7 +17,6 @@ import {
   stateLabel,
   takeReplacesFilesNotice,
   waitingText,
-  encodedCount,
 } from './job-model';
 import { useJobs, useJobsStore } from './jobs-context';
 import { useDocumentTitle } from './place';

@@ -56,6 +56,26 @@ export function parseEpisodeSpec(text: string, chapterCount: number): EpisodeSpe
 }
 
 /**
+ * The episodes `text` picks out of a list of `episodeCount` (`--only`): comma-separated 1-based numbers or ranges
+ * (`2,4-5`), each within the list and none repeated. Answers them ascending. Throws `EpisodeSpecError`.
+ */
+export function parseOnly(text: string, episodeCount: number): number[] {
+  const picked = new Set<number>();
+  for (const raw of text.split(',')) {
+    const m = /^\s*(\d+)(?:\s*-\s*(\d+))?\s*$/.exec(raw);
+    if (!m) throw new EpisodeSpecError(`Invalid episode "${raw.trim()}" in --only`);
+    const from = Number(m[1]);
+    const to = m[2] === undefined ? from : Number(m[2]);
+    if (from < 1 || to < from || to > episodeCount) throw new EpisodeSpecError(`"${raw.trim()}" in --only is not within the list's ${episodeCount} episodes`);
+    for (let n = from; n <= to; n++) {
+      if (picked.has(n)) throw new EpisodeSpecError(`Episode ${n} is listed twice in --only`);
+      picked.add(n);
+    }
+  }
+  return [...picked].sort((a, b) => a - b);
+}
+
+/**
  * The chapter ranges of `text` with open ends closed at `chapterCount`, as JSON; null for a list that does not parse.
  * Two lists with the same value cut a playlist into the same episodes, however they are written.
  */

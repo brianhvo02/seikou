@@ -836,7 +836,7 @@ describe('a job for only some of the episodes', () => {
     const job = await runner.add(input({ episodeSpec: THREE, noSubtitles: false, only: [3, 2] }));
     expect(job.only).toEqual([2, 3]);
     expect(job.episodes.map((e) => [e.index, e.state, e.skipped])).toEqual([[1, 'done', true], [2, 'queued', undefined], [3, 'queued', undefined]]);
-    expect(job.cli).toMatch(/--episodes 1-2,3-4,5 .*# the app encodes only episodes 2, 3$/);
+    expect(job.cli).toMatch(/--episodes 1-2,3-4,5 .*--only 2,3$/);
     const first = await fake.next();
     // the episode keeps its number in the whole list, and the record is the whole list's
     expect([first.episode, first.options.episodes, first.options.onlyEpisodes]).toEqual([2, THREE, [2]]);

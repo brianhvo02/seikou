@@ -169,3 +169,24 @@ it('a failed encode and an abort let every clip go', async () => {
   await expect(stopped).rejects.toThrow('Stopped');
   expect(whole().filter((c) => c === '00002.M2TS')).toEqual([]);
 });
+
+it('with `only` fetches, encodes and uploads just those episodes', async () => {
+  const encoded: number[] = [];
+  const base = options({
+    only: [2],
+    uploadNames: [`${SHOW}-2.mkv`],
+    encode: (index) => {
+      encoded.push(index);
+      wholeAtEncode.push(whole());
+      const path = join(outDir, `ep-${index}.mkv`);
+      writeFileSync(path, retagged(SHOW, index));
+      return Promise.resolve(path);
+    },
+  });
+  expect(await runNasEpisodes(base)).toEqual([`${SHOW}-2`]);
+  expect(encoded).toEqual([2]);
+  expect(wholeAtEncode[0]).toContain('00002.M2TS');
+  expect(wholeAtEncode[0]).not.toContain('00001.M2TS');
+  expect(existsSync(join(nas.encodesDir!, `${SHOW}/2.mkv`))).toBe(true);
+  expect(existsSync(join(nas.encodesDir!, `${SHOW}/1.mkv`))).toBe(false);
+});

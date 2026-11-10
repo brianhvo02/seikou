@@ -505,9 +505,6 @@ function SingleQueueDialog({ api, discKey, playlistId, spec, noSubtitles: startN
 /** What a batch shows of one of its jobs. */
 type BatchResult = { readonly state: 'queued' } | { readonly state: 'refused'; readonly message: string };
 
-/** The episodes a batch job encodes, as a phrase: "Episode 3", "Episodes 2 and 3". */
-const batchEpisodes = (only: readonly number[]): string => episodesPhrase(only);
-
 /**
  * Queues a batch of jobs, one per disc, with one settings profile and the NAS's Encodes library as the destination.
  * The jobs go in order; a refusal is shown beside the disc it belongs to and the rest are still queued. What was
@@ -608,7 +605,7 @@ function BatchQueueDialog({ api, batch, profile: startProfile }: BatchQueueProps
           return (
             <li key={`${job.discKey}:${job.playlistId}`} className={result?.state === 'refused' ? 'queue-batch-refused' : undefined}>
               <span className="episode-name">{labelOf(job)}</span>
-              <span className="num">{batchEpisodes(job.only)}</span>
+              <span className="num">{episodesPhrase(job.only)}</span>
               {result === undefined && <span className="muted">Not queued yet</span>}
               {result?.state === 'queued' && <span className="muted">Queued</span>}
               {result?.state === 'refused' && (

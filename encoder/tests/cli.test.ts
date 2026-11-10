@@ -43,6 +43,19 @@ it('rejects a bad episode spec with exit code 2', () => {
   expect(() => execFileSync('npx', ['tsx', fx('src/cli.ts'), 'encode', fx('fixtures/disc1'), '--playlist', '00000', '--episodes', '3-2', '--out', '/tmp/x'], { stdio: 'pipe' })).toThrowError(expect.objectContaining({ status: 2 }));
 }, 60_000);
 
+describe('--only', () => {
+  it.each(['0', '3', '1,1', '2-1', 'x', ''])('refuses %j for a two-episode list with exit 2, even with a tool missing', (only) => {
+    const args = [...encodeArgs('1-2,3-4'), '--only', only];
+    expect(() => execFileSync('npx', args, { stdio: 'pipe', env: noSvt })).toThrowError(expect.objectContaining({ status: 2 }));
+  }, 60_000);
+
+  it('a valid list gets past the check (exit 3 without the tools) and the job command carries it', () => {
+    expect(() => execFileSync('npx', [...encodeArgs('1-2,3-4'), '--only', '2'], { stdio: 'pipe', env: noSvt })).toThrowError(expect.objectContaining({ status: 3 }));
+    const line = jobCli({ discDir: '/d', playlistId: '00000', episodeSpec: '1-2,3-4,5', outDir: '/o', noSubtitles: false, settings: DEFAULT_SETTINGS, only: [2, 3] });
+    expect(line).toMatch(/--episodes 1-2,3-4,5 --out \/o .* --only 2,3$/);
+  }, 60_000);
+});
+
 describe('encode with a saved record', () => {
   it('encode with a mismatched record exits 2, even with a tool missing', async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'et-rec-'));
