@@ -1,11 +1,21 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
-import { bestsourceCacheDir, printEncodeEvent, stoppingLine } from '../src/cli';
+import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { bestsourceCacheDir, main, printEncodeEvent, stoppingLine } from '../src/cli';
 import { discKeyOfFolder } from '../src/disc/disc-key';
+import { listPlaylists } from '../src/disc/playlist';
+import { NasClient } from '../src/nas/client';
+import { mirrorDirOf } from '../src/nas/mirror';
+import { NasLibrary } from '../src/nas/nas-library';
+import { EpisodeInfoStore } from '../src/plan/episode-info';
+import { jobCli } from '../src/server/jobs';
+import { takeJobsLock } from '../src/server/jobs-lock';
+import { DEFAULT_SETTINGS } from '../src/server/profiles';
+import { haveTools } from './helpers/tools';
+import { startNasTestServer, type NasTestServer } from './nas/nas-test-server';
 import { RecordStore } from '../src/subs/record';
 import { writeEpisodeMkv } from './package/episode-mkv';
 import { fx } from './paths';
@@ -342,4 +352,187 @@ it('the encode event printer stays quiet for progress and packaging events', () 
     out.mockRestore();
     err.mockRestore();
   }
+});
+
+
+describe('the NAS on the command line', () => {
+  /** The made-up show the CLI's uploads are filed under. */
+  const SHOW = 990003;
+  let nas: NasTestServer;
+  let dataDir: string;
+  /** The key of the encoder's disc1 on the stand-in. */
+  let disc1Key: string;
+  let out: string[];
+  let err: string[];
+
+  /** Runs the command line in this process with the data folder of the test; resolves with the exit code. */
+  const cli = (...argv: string[]): Promise<number> => main(argv);
+
+  beforeAll(async () => {
+    // the encoder's disc1 in place of the library's (which has no PAT, and shares its key as its clips have the same sizes)
+    nas = await startNasTestServer({
+      prepare: (dir) => {
+        rmSync(join(dir, 'disc1'), { recursive: true });
+        rmSync(join(dir, 'disc1.iso'));
+        cpSync(fx('fixtures/disc1'), join(dir, 'disc1'), { recursive: true });
+      },
+    });
+    const probe = mkdtempSync(join(tmpdir(), 'et-cli-nas-probe-'));
+    vi.stubEnv('SEIKOU_ENCODE_DATA', probe);
+    const silent = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      expect(await main(['nas', 'pair', '--code', await nas.ownerCode(), '--base', nas.base])).toBe(0);
+    } finally {
+      silent.mockRestore();
+      vi.unstubAllEnvs();
+    }
+    const library = new NasLibrary({ dataDir: probe, nas: { client: await NasClient.load(probe) } });
+    await library.scan();
+    disc1Key = library.discs().find((d) => d.label === 'disc1')!.key;
+  });
+  afterAll(async () => {
+    await nas.close();
+  });
+  beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), 'et-cli-nas-'));
+    vi.stubEnv('SEIKOU_ENCODE_DATA', dataDir);
+    out = [];
+    err = [];
+    vi.spyOn(console, 'log').mockImplementation((...a: unknown[]) => void out.push(a.join(' ')));
+    vi.spyOn(console, 'error').mockImplementation((...a: unknown[]) => void err.push(a.join(' ')));
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  const pair = async (): Promise<void> => {
+    expect(await cli('nas', 'pair', '--code', await nas.ownerCode('Encoder Owner'), '--base', nas.base)).toBe(0);
+  };
+
+  it('nas pair writes nas.json and says with whom; nas status says the same; nas unpair forgets it', async () => {
+    expect(await cli('nas', 'status')).toBe(0);
+    expect(out).toEqual(['Not paired']);
+    await pair();
+    expect(existsSync(join(dataDir, 'nas.json'))).toBe(true);
+    expect(out.at(-1)).toBe('Paired with 127.0.0.1 as Encoder Owner');
+    expect(await cli('nas', 'status')).toBe(0);
+    expect(out.at(-1)).toBe('Paired with 127.0.0.1 as Encoder Owner');
+    expect(await cli('nas', 'unpair')).toBe(0);
+    expect(existsSync(join(dataDir, 'nas.json'))).toBe(false);
+    expect(await cli('nas', 'status')).toBe(0);
+    expect(out.at(-1)).toBe('Not paired');
+  });
+
+  it('nas pair with a link pairs too; a guest code exits 2 and saves nothing', async () => {
+    expect(await cli('nas', 'pair', '--link', `https://seikou.example/?pair=${await nas.ownerCode('Link Owner')}&nas=${encodeURIComponent(nas.base)}`)).toBe(0);
+    expect(out.at(-1)).toBe('Paired with 127.0.0.1 as Link Owner');
+    const other = mkdtempSync(join(tmpdir(), 'et-cli-nas-guest-'));
+    vi.stubEnv('SEIKOU_ENCODE_DATA', other);
+    expect(await cli('nas', 'pair', '--code', await nas.guestCode(), '--base', nas.base)).toBe(2);
+    expect(err.join('\n')).toContain('not an owner');
+    expect(existsSync(join(other, 'nas.json'))).toBe(false);
+    expect(await cli('nas', 'pair', '--base', nas.base)).toBe(2);
+  });
+
+  it('plan nas:<key> prints the playlists of the NAS disc, and its chapters with --playlist', async () => {
+    await pair();
+    out.length = 0;
+    expect(await cli('plan', `nas:${disc1Key}`)).toBe(0);
+    const here = await listPlaylists(fx('fixtures/disc1'));
+    expect(out.map((l) => l.split('  ')[0])).toEqual(here.map((p) => p.id));
+    out.length = 0;
+    expect(await cli('plan', `nas:${disc1Key}`, '--playlist', '00000')).toBe(0);
+    expect(out).toContain(' 1  00:00.000  00001');
+    expect(out).toContain(' 4  00:06.000  00002');
+  });
+
+  it('a NAS disc or the NAS destination needs a pairing, and an unknown key or --web with --nas exits 2', async () => {
+    expect(await cli('plan', `nas:${disc1Key}`)).toBe(2);
+    expect(err.join('\n')).toContain('seikou-encode nas pair');
+    expect(await cli('encode', fx('fixtures/disc1'), '--playlist', '00000', '--episodes', '1-2,3-4', '--nas')).toBe(2);
+    await pair();
+    err.length = 0;
+    const unknown = `f.${'0'.repeat(64)}`;
+    expect(await cli('plan', `nas:${unknown}`)).toBe(2);
+    expect(err).toEqual([`The NAS has no disc with key ${unknown}.`]);
+    expect(await cli('encode', `nas:${disc1Key}`, '--playlist', '00000', '--episodes', '1-2,3-4', '--nas', '--web', '/tmp/x')).toBe(2);
+    expect(await cli('encode', `nas:${disc1Key}`, '--playlist', '00000', '--episodes', '1-2,3-4')).toBe(2);
+  });
+
+  it('takes the command a queued NAS job prints', async () => {
+    await pair();
+    const cliLine = jobCli({ discDir: '/unused', nasKey: disc1Key, playlistId: '00000', episodeSpec: '1-2,3-4', outDir: '/unused', noSubtitles: true, settings: { ...DEFAULT_SETTINGS, destination: 'nas', opusBitrate: 128 } });
+    // the words as a POSIX shell splits the line
+    const words = execFileSync('sh', ['-c', `printf '%s\\0' ${cliLine}`]).toString().split('\0').slice(0, -1);
+    expect(words.slice(0, 3)).toEqual(['seikou-encode', 'encode', `nas:${disc1Key}`]);
+    // it gets as far as the AniList check, which this disc's playlist has no choices for
+    expect(await cli(...words.slice(1))).toBe(2);
+    expect(err).toEqual(['Episodes 1, 2 need an AniList entry and number before they can go to the NAS. Set them on the Episodes page.']);
+  });
+
+  it('encode nas:<key> … --nas without AniList choices exits 2 naming the episodes, even with a tool missing', async () => {
+    await pair();
+    vi.stubEnv('ENCODING_TOOLS_SVT', '/nonexistent/SvtAv1EncApp');
+    await new EpisodeInfoStore(dataDir).save(disc1Key, '00000', { chapterNames: {}, anilist: { '1': { anilistId: SHOW, episode: 1, title: null } } });
+    expect(await cli('encode', `nas:${disc1Key}`, '--playlist', '00000', '--episodes', '1-2,3-4', '--nas', '--no-subtitles')).toBe(2);
+    expect(err).toEqual(['Episode 2 needs an AniList entry and number before they can go to the NAS. Set them on the Episodes page.']);
+    await new EpisodeInfoStore(dataDir).save(disc1Key, '00000', { chapterNames: {}, anilist: {} });
+    err.length = 0;
+    expect(await cli('encode', `nas:${disc1Key}`, '--playlist', '00000', '--episodes', '1-2,3-4', '--nas', '--no-subtitles')).toBe(2);
+    expect(err[0]).toContain('Episodes 1, 2 need an AniList entry');
+    // with the choices made, the missing tool is what stops it, and the clips it fetched are let go of
+    await new EpisodeInfoStore(dataDir).save(disc1Key, '00000', {
+      chapterNames: {},
+      anilist: { '1': { anilistId: SHOW, episode: 1, title: null }, '3': { anilistId: SHOW, episode: 2, title: null } },
+    });
+    expect(await cli('encode', `nas:${disc1Key}`, '--playlist', '00000', '--episodes', '1-2,3-4', '--nas', '--no-subtitles')).toBe(3);
+  });
+
+  it('encode of a NAS disc refuses while another process runs the queue of the data folder', async () => {
+    await pair();
+    const held = takeJobsLock(dataDir);
+    if (!('lock' in held)) throw new Error('the lock is taken');
+    try {
+      err.length = 0;
+      expect(await cli('encode', `nas:${disc1Key}`, '--playlist', '00000', '--episodes', '1-2,3-4', '--out', join(dataDir, 'out'), '--no-subtitles')).toBe(1);
+      expect(err).toEqual([`Another seikou-encode app (pid ${process.pid}) is using the data folder ${dataDir}; queue this encode there, or stop it first.`]);
+      // nothing of the disc was mirrored
+      expect(existsSync(mirrorDirOf(dataDir, disc1Key))).toBe(false);
+    } finally {
+      held.lock.release();
+    }
+  });
+
+  it('a NAS that does not answer exits 1 with one line', async () => {
+    await pair();
+    await nas.pause();
+    try {
+      err.length = 0;
+      expect(await cli('plan', `nas:${disc1Key}`)).toBe(1);
+      expect(err).toEqual(["The NAS can't be reached."]);
+    } finally {
+      await nas.resume();
+    }
+  });
+
+  it.skipIf(!haveTools)('encode nas:<key> … --nas fetches, encodes and uploads each episode, and leaves nothing behind', async () => {
+    await pair();
+    await new EpisodeInfoStore(dataDir).save(disc1Key, '00000', {
+      chapterNames: {},
+      anilist: { '1': { anilistId: SHOW, episode: 1, title: null }, '3': { anilistId: SHOW, episode: 2, title: null } },
+    });
+    try {
+      const code = await cli('encode', `nas:${disc1Key}`, '--playlist', '00000', '--episodes', '1-2,3-4', '--nas', '--no-subtitles', '--crf', '50', '--preset', '12');
+      expect([code, code === 0 ? '' : err.join('\n')]).toEqual([0, '']);
+      expect(out.filter((l) => l.includes(': on the NAS as ')).map((l) => l.split(';')[0])).toEqual([`Episode 1: on the NAS as ${SHOW}-1`, `Episode 2: on the NAS as ${SHOW}-2`]);
+      expect(readdirSync(join(nas.encodesDir!, String(SHOW))).sort()).toEqual(['1.mkv', '2.mkv']);
+      // the MKVs left this computer with their folder, and the clips are back to their heads
+      expect(readdirSync(join(dataDir, 'nas-out'))).toEqual([]);
+      const state = JSON.parse(readFileSync(join(mirrorDirOf(dataDir, disc1Key), 'fetch.json'), 'utf8')) as { files: Record<string, number>; ranges: Record<string, [number, number][]> };
+      for (const [path, ranges] of Object.entries(state.ranges)) expect([path, ranges.reduce((n, [a, b]) => n + b - a, 0)]).toEqual([path, Math.min(state.files[path]!, 4 * 1024 * 1024)]);
+    } finally {
+      rmSync(join(nas.encodesDir!, String(SHOW)), { recursive: true, force: true });
+    }
+  }, 300_000);
 });

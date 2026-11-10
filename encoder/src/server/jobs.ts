@@ -7,11 +7,11 @@ import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { replaceAtomically } from '@seikou/titles';
 import { loadPlaylist } from '../disc/playlist';
-import { errorOfBody, NasError, type NasClient } from '../nas/client';
+import { NasError, type NasClient } from '../nas/client';
+import { aniListPairs, checkNasDestination, NasDestinationError, uploadNameOf, type AniListPair } from '../nas/destination';
 import { ClipFetcher, clipsOfEpisode, releaseHolder, sweepUnheld } from '../nas/fetch';
 import { defaultSleep, FetchError, isMirror } from '../nas/mirror';
 import { abandonUpload, UPLOAD_CHUNK_BYTES, uploadEpisode, UploadError, type UploadState } from '../nas/upload';
-import { EpisodeInfoError, EpisodeInfoStore } from '../plan/episode-info';
 import { encodeEpisodes, episodeName, type EncodeEvent, type EncodeOptions } from '../encode';
 import { packageEpisode } from '../package/package';
 import { EpisodeSpecError, parseEpisodeSpec, sameEpisodeList } from '../plan/episodes';
@@ -210,8 +210,6 @@ export interface JobRunnerDeps {
 export const WAITING_FOR_NAS = 'Waiting for the NAS';
 /** Why a NAS job fails when the app was unpaired or the NAS no longer knows it. */
 const UNPAIRED = 'This app is no longer paired with the NAS; pair again and retry.';
-/** How long queueing waits for the NAS's `encodes/status`. */
-const STATUS_TIMEOUT_MS = 10_000;
 
 const PROGRESS_INTERVAL_MS = 1000;
 /** The most lines the log route answers. */
@@ -224,6 +222,12 @@ const EPISODE_STATES: ReadonlySet<string> = new Set(['queued', 'running', 'done'
 const EPISODE_STEPS: ReadonlySet<string> = new Set(['fetching', 'encoding', 'uploading']);
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/** A refusal of the NAS checks as the 409 the queue answers; anything else as it is. */
+function asJobError(e: unknown): unknown {
+  if (!(e instanceof NasDestinationError)) return e;
+  return new JobError(409, e.code, e.message, e.episodes === undefined ? {} : { episodes: [...e.episodes] });
+}
 
 /** `sameEpisodeList`, with a list that no longer fits the playlist counted as different. */
 function sameListOrFalse(a: string, b: string, chapters: number): boolean {
@@ -1078,70 +1082,16 @@ export class JobRunner {
   }
 
   /**
-   * Checks what an encode to the NAS needs before it is queued: every episode has an AniList entry and number on its
-   * first chapter (409 `nas-needs-anilist` with the 1-based `episodes` that lack one), no two episodes share an entry
-   * and number (409 `nas-duplicate-episodes` with every episode of such a pair, since the NAS keeps one file per
-   * pair), and the NAS takes encodes (409 `nas-encodes-off` when `encodes/status` says it has no encodes folder; 409
-   * `nas-not-paired` when it no longer knows this app). A NAS that does not answer is no refusal: the job waits for it.
+   * Checks what an encode to the NAS needs before it is queued (see `checkNasDestination` in `src/nas/destination.ts`),
+   * answering its refusals as 409 with their code (and `episodes`, when they name some). A NAS that does not answer is
+   * no refusal: the job waits for it.
    */
   private async checkNasDestination(discKey: string, playlistId: string, episodeSpec: string, chapters: number): Promise<void> {
-    const pairs = await this.aniListOf(discKey, playlistId, episodeSpec, chapters);
-    const missing = pairs.flatMap((p, i) => (p === null ? [i + 1] : []));
-    if (missing.length > 0) {
-      throw new JobError(409, 'nas-needs-anilist', `Episode${missing.length === 1 ? '' : 's'} ${missing.join(', ')} need an AniList entry and number before they can go to the NAS. Set them on the Episodes page.`, {
-        episodes: missing,
-      });
-    }
-    const keys = pairs.map((p) => `${p!.anilistId}-${p!.episode}`);
-    const shared = keys.flatMap((k, i) => (keys.indexOf(k) !== keys.lastIndexOf(k) ? [i + 1] : []));
-    if (shared.length > 0) {
-      throw new JobError(409, 'nas-duplicate-episodes', `Episodes ${shared.join(', ')} share an AniList entry and number, and the NAS keeps one file for each. Fix the numbers on the Episodes page.`, {
-        episodes: shared,
-      });
-    }
-    const client = this.app.nas.client;
-    if (client === null) throw new JobError(409, 'nas-not-paired', 'This app is not paired with a NAS. Pair it in Settings first.');
-    const off = (): JobError => new JobError(409, 'nas-encodes-off', 'The NAS has no encodes folder set up, so it takes no encodes. Set ENCODES_DIR on the NAS first.');
-    let res: Response;
     try {
-      res = await client.request('encodes/status', { signal: AbortSignal.timeout(STATUS_TIMEOUT_MS) });
+      await checkNasDestination({ dataDir: this.app.dataDir, client: this.app.nas.client, discKey, playlistId, episodeSpec, chapters });
     } catch (e) {
-      if (e instanceof NasError && e.code === 'unauthorized') throw new JobError(409, 'nas-not-paired', 'The NAS no longer knows this app. Pair it again in Settings.');
-      if (e instanceof NasError) return; // not answering: the job waits for it
-      throw e;
+      throw asJobError(e);
     }
-    if (res.status === 401) {
-      await res.body?.cancel();
-      throw new JobError(409, 'nas-not-paired', 'The NAS no longer knows this app. Pair it again in Settings.');
-    }
-    if (res.status === 404) {
-      if ((await errorOfBody(res)) === 'not-configured') throw off();
-      return;
-    }
-    if (!res.ok) {
-      await res.body?.cancel();
-      return;
-    }
-    const status = (await res.json().catch(() => null)) as { configured?: unknown } | null;
-    if (status?.configured === false) throw off();
-  }
-
-  /**
-   * Each episode's AniList entry and number, from the episode info saved for the disc's playlist and keyed by the
-   * episode's first chapter; null for an episode without one. An unreadable info file is 409 `info-unreadable`.
-   */
-  private async aniListOf(discKey: string, playlistId: string, episodeSpec: string, chapters: number): Promise<({ anilistId: number; episode: number } | null)[]> {
-    let info: Awaited<ReturnType<EpisodeInfoStore['read']>>;
-    try {
-      info = await new EpisodeInfoStore(this.app.dataDir).read(discKey, playlistId);
-    } catch (e) {
-      if (e instanceof EpisodeInfoError) throw new JobError(409, 'info-unreadable', e.message);
-      throw e;
-    }
-    return parseEpisodeSpec(episodeSpec, chapters).map((spec) => {
-      const entry = info?.anilist[String(spec.from)];
-      return entry === undefined ? null : { anilistId: entry.anilistId, episode: entry.episode };
-    });
   }
 
   private iso(): string {
@@ -1501,9 +1451,14 @@ export class JobRunner {
   /** The file name the NAS gets an episode under, `<anilistId>-<episode>.mkv`, from the episode info saved now. */
   private async uploadName(job: Job, ep: JobEpisode): Promise<string> {
     const chapters = (await loadPlaylist(job.disc.dir, job.playlist)).chapters.length;
-    const pair = (await this.aniListOf(job.disc.key, job.playlist, job.episodeSpec, chapters))[ep.index - 1];
+    let pair: AniListPair | null | undefined;
+    try {
+      pair = (await aniListPairs(this.app.dataDir, job.disc.key, job.playlist, job.episodeSpec, chapters))[ep.index - 1];
+    } catch (e) {
+      throw asJobError(e);
+    }
     if (pair === null || pair === undefined) throw new Error(`Episode ${ep.index} has no AniList entry and number; set one on the Episodes page and retry.`);
-    return `${pair.anilistId}-${pair.episode}.mkv`;
+    return uploadNameOf(pair);
   }
 
   /**

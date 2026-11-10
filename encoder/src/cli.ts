@@ -2,12 +2,21 @@
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { statSync } from 'node:fs';
+import { mkdir, rmdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
+import { discKeyOfFolder } from './disc/disc-key';
 import { listPlaylists, loadPlaylist } from './disc/playlist';
-import { encodeEpisodes, type EncodeEvent } from './encode';
-import { NasClient } from './nas/client';
+import { encodeEpisodes, episodeName, type EncodeEvent, type EncodeOptions } from './encode';
+import { hostOf, NasClient, NasError } from './nas/client';
+import { checkNasDestination, NasDestinationError, uploadNameOf } from './nas/destination';
+import { ensureMirror, FetchError } from './nas/mirror';
+import { NasLibrary } from './nas/nas-library';
+import { NasUploadFailed, runNasEpisodes } from './nas/nas-episodes';
+import { readNasPairing, removeNasPairing } from './nas/nas-store';
+import { pairWithNas } from './nas/pairing';
+import { UploadError } from './nas/upload';
 import { MkvReadError } from '@seikou/matroska';
 import { packageEpisode, PackageError } from './package/package';
 import { SupError } from './package/sup';
@@ -16,7 +25,8 @@ import { loadEncodeRecord, MissingSubtitleFilesError, NoAudioChosenError, Record
 import { ChainError } from './pipeline/chain';
 import { EpisodeSpecError, parseEpisodeSpec } from './plan/episodes';
 import { startJobRunner } from './server/jobs';
-import { takeJobsLock } from './server/jobs-lock';
+import { takeJobsLock, type JobsLock } from './server/jobs-lock';
+import { encoderDeviceName } from './server/nas-routes';
 import { startHelperServer, type AppContext } from './server/server';
 import { createSources } from './server/sources';
 import { appDataDir } from './subs/app-data';
@@ -32,11 +42,36 @@ class WebDirMissingError extends Error {}
 /** Thrown by `app` when another process runs the data folder's encode queue; the command line answers it with exit code 1. */
 class QueueElsewhereError extends Error {}
 
+/** A refusal that is no usage mistake (not paired, an unknown NAS disc): exit code 2, the message without the usage. */
+class RefusedError extends Error {}
+
+/** Thrown when an encode to the NAS or of a NAS disc was stopped with Ctrl-C; exit code 1. */
+class StoppedError extends Error {}
+
+/** What the command line says when the NAS does not answer. */
+const NAS_UNREACHABLE = "The NAS can't be reached.";
+/** What it says when the NAS no longer knows this encoder. */
+const NAS_FORGOT = 'The NAS no longer knows this encoder. Pair it again with seikou-encode nas pair.';
+/** The disc argument of a NAS disc: `nas:<disc key>`. */
+const NAS_DISC = 'nas:';
+/** How long the command line waits for the NAS to say it knows this encoder. */
+const NAS_ANSWER_MS = 15_000;
+
+/** One line for a NAS failure: no answer is `The NAS can't be reached.`, a NAS that forgot this encoder says so. */
+function nasFailure(err: unknown): string {
+  if ((err instanceof NasError || err instanceof FetchError || err instanceof UploadError) && err.code === 'unreachable') return NAS_UNREACHABLE;
+  if (err instanceof NasError && err.code === 'unauthorized') return NAS_FORGOT;
+  return err instanceof Error ? err.message : String(err);
+}
+
 const USAGE = `Usage:
-  seikou-encode plan <disc> [--playlist ID]
-  seikou-encode encode <disc> --playlist ID --episodes SPEC --out DIR
+  seikou-encode plan <disc | nas:KEY> [--playlist ID]
+  seikou-encode encode <disc | nas:KEY> --playlist ID --episodes SPEC (--out DIR | --nas [--out DIR])
       [--name PATTERN] [--crf N] [--preset N] [--film-grain N] [--svt-args "..."] [--opus-bitrate N] [--title T] [--cache DIR]
       [--no-subtitles] [--no-pgs] [--web DIR]
+  seikou-encode nas pair (--code CODE --base URL | --link URL)
+  seikou-encode nas status
+  seikou-encode nas unpair
   seikou-encode package <episode.mkv> --out DIR
   seikou-encode serve <disc> --playlist ID --episodes SPEC [--port N] [--no-open]
   seikou-encode app [--root DIR]... [--port N] [--no-open]`;
@@ -205,6 +240,151 @@ async function serve(
   await server.close();
 }
 
+/** `nas pair`, `nas status` and `nas unpair`; `extra` counts the positionals after the subcommand. */
+async function nasCommand(sub: string | undefined, extra: number, values: { code?: string; base?: string; link?: string }): Promise<void> {
+  if (extra > 0) throw new UsageError('expected: nas pair | nas status | nas unpair');
+  const dataDir = appDataDir();
+  if (sub === 'pair') {
+    if (values.link === undefined && (values.code === undefined || values.base === undefined)) throw new UsageError('nas pair needs --code CODE --base URL, or --link URL');
+    let paired: Awaited<ReturnType<typeof pairWithNas>>;
+    try {
+      paired = await pairWithNas(dataDir, values.link === undefined ? { code: values.code, base: values.base } : { link: values.link }, encoderDeviceName());
+    } catch (err) {
+      // a code or address the encoder or the NAS refuses is for the user to fix; a NAS that does not answer is a failure
+      if (err instanceof NasError && (err.code === 'bad-address' || err.code === 'not-owner' || (err.code === 'http' && [400, 401, 404].includes(err.status ?? 0)))) {
+        throw new RefusedError(err.message);
+      }
+      throw err;
+    }
+    console.log(`Paired with ${hostOf(paired.base)} as ${paired.personName}`);
+    return;
+  }
+  if (sub === 'status') {
+    const pairing = await readNasPairing(dataDir);
+    console.log(pairing === null ? 'Not paired' : `Paired with ${hostOf(pairing.base)} as ${pairing.personName}`);
+    return;
+  }
+  if (sub === 'unpair') {
+    const pairing = await readNasPairing(dataDir);
+    await removeNasPairing(dataDir);
+    console.log(pairing === null ? 'Not paired' : `Unpaired from ${hostOf(pairing.base)}. The NAS lists this encoder until an owner removes it in Seikou's admin screen.`);
+    return;
+  }
+  throw new UsageError(`unknown nas command "${sub ?? ''}"`);
+}
+
+/** The pairing's NAS client, once the NAS has said it knows it. Not paired, or forgotten by the NAS, is a refusal (exit 2). */
+async function nasClient(dataDir: string): Promise<NasClient> {
+  const client = await NasClient.load(dataDir);
+  if (client === null) throw new RefusedError('This encoder is not paired with a NAS. Pair it first: seikou-encode nas pair --code CODE --base URL');
+  try {
+    await client.me({ signal: AbortSignal.timeout(NAS_ANSWER_MS) });
+  } catch (err) {
+    client.close();
+    if (err instanceof NasError && err.code === 'unauthorized') throw new RefusedError(NAS_FORGOT);
+    throw err;
+  }
+  return client;
+}
+
+/** The disc folder of a `plan` or `encode` argument: a folder here, or the mirror of `nas:<key>`, whose id a listing of the NAS gives. */
+async function discOfArgument(arg: string, dataDir: string, client: NasClient | null): Promise<string> {
+  if (!arg.startsWith(NAS_DISC) || client === null) return resolve(arg);
+  const key = arg.slice(NAS_DISC.length);
+  const library = new NasLibrary({ dataDir, nas: { client } });
+  await library.scan();
+  if (library.reachable === false) throw new NasError('unreachable', null, NAS_UNREACHABLE);
+  const disc = library.byKey(key);
+  if (disc === null) throw new RefusedError(`The NAS has no disc with key ${key}.`);
+  return (await ensureMirror(dataDir, client, disc.discId, key)).dir;
+}
+
+/**
+ * Runs `work` with an abort signal that Ctrl-C (or SIGTERM) sets, so a NAS run lets go of its clips before the process
+ * ends; a stopped run rejects with `StoppedError`. A second Ctrl-C quits at once, since the first took the only listener.
+ */
+async function stoppable<T>(work: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  const stop = (): void => controller.abort();
+  process.once('SIGINT', stop);
+  process.once('SIGTERM', stop);
+  try {
+    return await work(controller.signal);
+  } catch (err) {
+    // the tools hear Ctrl-C too, and may fail before the abort reaches the encode
+    if (controller.signal.aborted) throw new StoppedError('Stopped.');
+    throw err;
+  } finally {
+    process.off('SIGINT', stop);
+    process.off('SIGTERM', stop);
+  }
+}
+
+/** The encode options `encodeWithNas` sets the rest of. */
+type NasEncodeOptions = Omit<EncodeOptions, 'outDir' | 'signal' | 'onlyEpisodes'>;
+
+/**
+ * The data folder's queue lock, which `encode` holds while it works on a NAS disc: clip claims live in one process, so
+ * an app running the queue beside it would empty the clips this encode fetched, or rewrite the mirror under it.
+ */
+function takeQueueLock(dataDir: string): JobsLock {
+  const attempt = takeJobsLock(dataDir);
+  if ('heldBy' in attempt) {
+    throw new QueueElsewhereError(`Another seikou-encode app (pid ${attempt.heldBy}) is using the data folder ${dataDir}; queue this encode there, or stop it first.`);
+  }
+  return attempt.lock;
+}
+
+/**
+ * The NAS part of `encode` (see `runNasEpisodes`): each episode encoded on its own, a NAS disc's clips fetched one
+ * episode ahead and let go of after, and with `uploadNames` each MKV uploaded and deleted once the NAS has it. Without
+ * an output folder the MKVs go to `<data>/nas-out/cli-<8 hex>/`, removed at the end when empty (an MKV whose upload
+ * failed stays).
+ */
+async function encodeWithNas(o: {
+  options: NasEncodeOptions;
+  dataDir: string;
+  outDir: string | undefined;
+  client: NasClient;
+  discKey: string;
+  fromNas: boolean;
+  uploadNames: string[] | null;
+  episodeCount: number;
+}): Promise<void> {
+  const dataDir = o.dataDir;
+  const id = randomBytes(4).toString('hex');
+  const outDir = o.outDir ?? join(dataDir, 'nas-out', `cli-${id}`);
+  try {
+    await mkdir(outDir, { recursive: true });
+    await stoppable((signal) =>
+      runNasEpisodes({
+        dataDir,
+        client: o.client,
+        discDir: o.options.discDir,
+        discKey: o.discKey,
+        playlistId: o.options.playlistId,
+        episodeSpec: o.options.episodes,
+        episodeCount: o.episodeCount,
+        fetchClips: o.fromNas,
+        uploadNames: o.uploadNames,
+        holder: `cli:${id}`,
+        signal,
+        log: (line) => console.log(line),
+        encode: async (index) => {
+          let path = join(outDir, `${episodeName(o.options.namePattern, index)}.mkv`);
+          await encodeEpisodes({ ...o.options, outDir, signal, onlyEpisodes: [index] }, (e) => {
+            if (e.kind === 'episode-done' && e.path !== undefined) path = e.path;
+            printEncodeEvent(e);
+          });
+          return path;
+        },
+      }),
+    );
+  } finally {
+    if (o.outDir === undefined) await rmdir(outDir).catch(() => undefined);
+  }
+}
+
 async function run(argv: string[]): Promise<void> {
   const { values, positionals } = parseArgs({
     args: argv,
@@ -227,9 +407,17 @@ async function run(argv: string[]): Promise<void> {
       'no-subtitles': { type: 'boolean' },
       'no-pgs': { type: 'boolean' },
       web: { type: 'string' },
+      nas: { type: 'boolean' },
+      code: { type: 'string' },
+      base: { type: 'string' },
+      link: { type: 'string' },
     },
   });
   const [command, disc] = positionals;
+  if (command === 'nas') {
+    await nasCommand(disc, positionals.length - 2, values);
+    return;
+  }
   if (command === 'app') {
     if (positionals.length > 1) throw new UsageError('expected: app [--root DIR]… [--port N] [--no-open]');
     const port = values.port === undefined ? 0 : intOption(values.port, 'port');
@@ -246,14 +434,24 @@ async function run(argv: string[]): Promise<void> {
   }
   if (disc === undefined || positionals.length > 2) throw new UsageError('expected: <command> <disc>');
 
+  const onNas = disc.startsWith(NAS_DISC);
+
   if (command === 'plan') {
+    const dataDir = appDataDir();
+    const client = onNas ? await nasClient(dataDir) : null;
+    let dir: string;
+    try {
+      dir = await discOfArgument(disc, dataDir, client);
+    } finally {
+      client?.close();
+    }
     if (values.playlist === undefined) {
-      for (const p of await listPlaylists(disc)) {
+      for (const p of await listPlaylists(dir)) {
         console.log(`${p.id}  ${mmss(p.duration45)}  ${p.clipIds.join(',')}`);
       }
       return;
     }
-    const playlist = await loadPlaylist(disc, values.playlist);
+    const playlist = await loadPlaylist(dir, values.playlist);
     for (const c of playlist.chapters) {
       const clip = playlist.items[c.itemIndex]?.clipId ?? '';
       console.log(`${String(c.index).padStart(2)}  ${mmssmmm(c.start45)}  ${clip}`);
@@ -264,28 +462,40 @@ async function run(argv: string[]): Promise<void> {
   if (command === 'encode') {
     if (values.playlist === undefined) throw new UsageError('--playlist is required');
     if (values.episodes === undefined) throw new UsageError('--episodes is required');
-    if (values.out === undefined) throw new UsageError('--out is required');
-    const outDir = resolve(values.out);
+    const toNas = values.nas === true;
+    if (!toNas && values.out === undefined) throw new UsageError('--out (or --nas) is required');
+    // the NAS's Encodes library plays the MKV itself
+    if (toNas && values.web !== undefined) throw new UsageError('--web does not go with --nas');
     const cacheDir = bestsourceCacheDir(values.cache);
     const opusBitrate =
       values['opus-bitrate'] === undefined ? undefined : intOption(values['opus-bitrate'], 'opus-bitrate');
     const crf = values.crf === undefined ? 25 : intOption(values.crf, 'crf');
     const preset = values.preset === undefined ? 4 : intOption(values.preset, 'preset');
     const filmGrain = values['film-grain'] === undefined ? 4 : intOption(values['film-grain'], 'film-grain');
-    // A bad episode spec is a usage error (exit 2) whether or not the tools are installed.
-    const playlist = await loadPlaylist(resolve(disc), values.playlist);
-    parseEpisodeSpec(values.episodes, playlist.chapters.length);
-    // A saved record that does not fit this encode is a usage error too, whether or not the tools are installed.
     const dataDir = appDataDir();
-    const noSubtitles = values['no-subtitles'] === true;
-    const record = await loadEncodeRecord({ discDir: resolve(disc), playlistId: values.playlist, episodeSpec: values.episodes, dataDir, noSubtitles });
-    const tools = findTools();
-    await encodeEpisodes(
-      {
-        discDir: disc,
+    const client = onNas || toNas ? await nasClient(dataDir) : null;
+    let lock: JobsLock | null = null;
+    try {
+      lock = onNas ? takeQueueLock(dataDir) : null;
+      const discDir = await discOfArgument(disc, dataDir, client);
+      // A bad episode spec is a usage error (exit 2) whether or not the tools are installed.
+      const playlist = await loadPlaylist(discDir, values.playlist);
+      const episodeCount = parseEpisodeSpec(values.episodes, playlist.chapters.length).length;
+      // So are missing AniList choices for the NAS, and a saved record that does not fit this encode.
+      let uploadNames: string[] | null = null;
+      const discKey = client === null ? '' : (await discKeyOfFolder(discDir)).key;
+      if (toNas) {
+        const checked = await checkNasDestination({ dataDir, client, discKey, playlistId: values.playlist, episodeSpec: values.episodes, chapters: playlist.chapters.length });
+        if (!checked.reachable) throw new NasError('unreachable', null, NAS_UNREACHABLE);
+        uploadNames = checked.pairs.map(uploadNameOf);
+      }
+      const noSubtitles = values['no-subtitles'] === true;
+      const record = await loadEncodeRecord({ discDir, playlistId: values.playlist, episodeSpec: values.episodes, dataDir, noSubtitles });
+      const tools = findTools();
+      const options: NasEncodeOptions = {
+        discDir,
         playlistId: values.playlist,
         episodes: values.episodes,
-        outDir,
         namePattern: values.name ?? 'episode-{n}',
         crf,
         preset,
@@ -300,9 +510,14 @@ async function run(argv: string[]): Promise<void> {
         record,
         noPgs: values['no-pgs'] === true,
         webDir: values.web === undefined ? undefined : resolve(values.web),
-      },
-      printEncodeEvent,
-    );
+      };
+      const outDir = values.out === undefined ? undefined : resolve(values.out);
+      if (client === null) await encodeEpisodes({ ...options, outDir: outDir! }, printEncodeEvent);
+      else await encodeWithNas({ options, outDir, dataDir, client, discKey, fromNas: onNas, uploadNames, episodeCount });
+    } finally {
+      lock?.release();
+      client?.close();
+    }
     return;
   }
 
@@ -326,10 +541,11 @@ export function printEncodeEvent(e: EncodeEvent): void {
 
 /**
  * Runs the command line and returns the process exit code: 0 success, 1 encode or packaging failure (`package` on a
- * file that is not a readable Matroska file with an AV1 track, too; `app` when another process runs the data folder's
- * encode queue), 2 usage
- * error, bad episode list or a saved record that does not fit the encode (another playlist or episode list, or an
- * episode with no audio stream ticked), 3 required tools missing (or, for `serve` and `app`, the page not built). Output goes to stdout and stderr; nothing
+ * file that is not a readable Matroska file with an AV1 track, too; `app`, and `encode` of a NAS disc, when another
+ * process runs the data folder's encode queue; a NAS that does not answer, a failed fetch or upload, a stop with
+ * Ctrl-C), 2 usage error, bad episode list or a saved record that does not fit the encode (another playlist or episode
+ * list, or an episode with no audio stream ticked), not paired or a refused pairing, an unknown `nas:` key, or an
+ * encode the NAS can't take (see `checkNasDestination`), 3 required tools missing (or, for `serve` and `app`, the page not built). Output goes to stdout and stderr; nothing
  * is thrown.
  */
 export async function main(argv: string[]): Promise<number> {
@@ -345,9 +561,17 @@ export async function main(argv: string[]): Promise<number> {
       console.error(err.message);
       return 2;
     }
-    if (err instanceof RecordMismatchError || err instanceof NoAudioChosenError) {
+    if (err instanceof RecordMismatchError || err instanceof NoAudioChosenError || err instanceof RefusedError || err instanceof NasDestinationError) {
       console.error(err.message);
       return 2;
+    }
+    if (err instanceof NasUploadFailed) {
+      console.error(`${nasFailure(err.cause)}\nThe MKV of episode ${err.episode} is kept at ${err.path}.`);
+      return 1;
+    }
+    if (err instanceof NasError || err instanceof FetchError || err instanceof UploadError || err instanceof StoppedError) {
+      console.error(nasFailure(err));
+      return 1;
     }
     if (err instanceof MkvReadError || err instanceof WebmError || err instanceof PackageError || err instanceof SupError) {
       console.error(`Packaging failed: ${err.message}`);

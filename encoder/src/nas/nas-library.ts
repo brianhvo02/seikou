@@ -88,7 +88,8 @@ export class NasLibrary {
   private runningFor: NasClient | null = null;
   private lastReachable: boolean | null = null;
 
-  constructor(private readonly app: AppContext) {}
+  /** `app` needs only its data folder and NAS holder, so the command line can list the NAS without a backend. */
+  constructor(private readonly app: Pick<AppContext, 'dataDir' | 'nas'>) {}
 
   private get file(): string {
     return join(this.app.dataDir, 'nas-library.json');

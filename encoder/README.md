@@ -30,9 +30,24 @@ npm run seikou-encode -- serve encoder/fixtures/disc1 --playlist 00000 --episode
 
 # Start the app: disc library, episode grouping, subtitle helper, settings profiles and the encode queue
 npm run seikou-encode -- app --root /path/to/discs
+
+# Pair with Seikou's NAS (an owner code with the API address, or the pairing link), see whether it is paired, forget it
+npm run seikou-encode -- nas pair --code K7QM-4XP2-R9TD --base https://nas.example/bluray/api/
+npm run seikou-encode -- nas status
+npm run seikou-encode -- nas unpair
+
+# A disc on the NAS, by its key (as the app's queue prints it), and episodes sent to the NAS's Encodes library
+npm run seikou-encode -- plan nas:f.0123…
+npm run seikou-encode -- encode nas:f.0123… --playlist 00000 --episodes "1-2,3-4" --nas
 ```
 
 `--episodes` is a comma-separated list of ascending, non-overlapping chapter ranges, one episode each. Options: `--name PATTERN` (default `episode-{n}`, `{n}` is the episode number padded to 2 digits), `--crf N` (25), `--preset N` (4), `--film-grain N` (4, SVT-AV1's film-grain synthesis level), `--svt-args "..."` (extra SVT-AV1 arguments), `--opus-bitrate N` (for every audio stream; by default 160 for mono or stereo, 320 otherwise), `--title T` (the MKV's title when the record names none for the episode), `--cache DIR` (where BestSource keeps its index files; default `bestsource/` in the data directory below), `--no-subtitles` (ignore the helper's saved record: no ASS tracks, fonts, titles or names, and every audio stream goes in) and `--no-pgs` (leave the disc's PG streams out) and `--web DIR` (package each episode into `DIR/<name>/` as soon as its MKV is complete; see below).
+
+### The NAS on the command line
+
+`nas pair --code CODE --base URL` (or `--link URL`) pairs as the app's Settings does and prints `Paired with <host> as <person>`; `nas status` prints the same, or `Not paired`; `nas unpair` forgets the pairing here. A code or address the NAS or the encoder refuses (a typo, a used code, a code for a person who is not an owner) is exit code 2; a NAS that does not answer, 1.
+
+`plan` and `encode` take `nas:<disc key>` for a disc on the paired NAS: the NAS's library is listed to find the disc (the listing is kept in `nas-library.json`, so only new discs' manifests are fetched), and its metadata is mirrored into the data directory as the app does. `encode` then fetches each episode's clips before encoding it (the next episode's while one encodes) and lets go of them once no later episode needs them, and of all of them when it ends, Ctrl-C included. While it works on a NAS disc it holds the data directory's queue lock (see below), so it refuses to start beside an app that runs the queue (exit code 1). `--nas` sends each episode to the NAS's Encodes library as soon as it is encoded, under `<anilistId>-<episode>.mkv`, and deletes it here once the NAS has filed it; it needs every episode's AniList entry and number saved on the app's Episodes page (exit code 2 naming the episodes that have none, or that share one) and a NAS that keeps encodes, and goes without `--web`. Without `--out` the MKVs are written to `nas-out/cli-<8 hex>/` in the data directory, removed at the end when empty. Not being paired, a NAS that no longer knows this encoder and a key the NAS has no disc for are exit code 2. A NAS that does not answer stops the command with `The NAS can't be reached.` (exit code 1; the app's queue is what waits for it), and so does a failed fetch, encode or upload; an episode whose upload failed keeps its MKV, and the message says where. `jobCli` prints a queued job as this command.
 
 `encode` reads the record the helper saved for the disc and playlist from the data directory. It must have been saved for the same playlist and `--episodes` list, or the command stops with exit code 2 and says so (re-save it in the helper, or pass `--no-subtitles`). If the record has no entry for one of the episodes of `--episodes`, it stops the same way (exit code 2) naming the episode. If the record ticks no audio stream for an episode, it stops with exit code 2 naming the episode. If subtitle or font files the record names are gone from the data directory, it stops with exit code 1 naming the release. With no saved record it encodes without the helper's subtitle choices.
 
@@ -109,7 +124,7 @@ The encoder keeps what it learns and downloads in one directory: saved subtitle 
 
 `SEIKOU_ENCODE_FIXTURE=<folder>` makes `serve` read SeaDex, Anime Tosho and AniList answers and AniList covers from recorded files in that folder (`seadex.json`, `tosho.json`, `anilist.json`, `files/`, `covers/`) instead of the network. It is for tests; `encoder/tests/fixtures/fansubs/` is an example with made-up titles.
 
-Exit codes: 0 success, 1 encode or packaging failure, 2 usage error, bad episode spec, a saved record that does not match the encode (including one with no entry for an episode) or that ticks no audio stream for an episode, 3 required tools missing (for `serve` and `app`, the page not built).
+Exit codes: 0 success, 1 encode or packaging failure (and for the NAS: a NAS that does not answer, a failed fetch or upload, a stop with Ctrl-C, or an app running the queue on the same data directory), 2 usage error, bad episode spec, a saved record that does not match the encode (including one with no entry for an episode) or that ticks no audio stream for an episode (and for the NAS: not paired, a refused pairing code, an unknown `nas:` key, episodes without an AniList entry and number or sharing one, a NAS without encodes), 3 required tools missing (for `serve` and `app`, the page not built).
 
 `app [--root DIR]… [--port N] [--no-open]` starts the same backend with no helper session and opens its front page, printing `App: http://127.0.0.1:<port>/?t=<token>`. The page's disc library is every folder holding `BDMV/index.bdmv` up to four folders below the library folders: the ones saved in `settings.json` in the data directory (set from the page) and the `--root` folders of this run, which are not saved. A link that leads out of a library folder is not followed. With no saved folders and no `--root` it prints one line saying so (folders can be added in the app or with `--root DIR`). A folder that cannot be read (an unmounted drive) keeps the discs found under it in the last scan and is reported as unreadable. It needs the built page like `serve` does, and runs until Ctrl-C.
 
