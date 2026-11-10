@@ -208,7 +208,8 @@ const serveSample: Route = async (req, res, match, app) => {
  * The job routes:
  *
  *   GET /api/jobs                    `{ jobs: Job[] }`, oldest first
- *   POST /api/jobs                   body `{ kind?, discKey, playlistId, episodeSpec, settings, outDir, noSubtitles? }`, or
+ *   POST /api/jobs                   body `{ kind?, discKey, playlistId, episodeSpec, settings, outDir, noSubtitles? }`
+ *                                    (`outDir` ignored when `settings.destination` is `nas`), or
  *                                    for a test `{ kind: 'test', discKey, playlistId, episodeSpec, profiles }` with one to
  *                                    three `{ id, name, settings }`; 201 with the Job, or 200 with the Job and
  *                                    `warning: 'replaces-files'` for a re-encode into the folder of an earlier one
@@ -222,7 +223,8 @@ const serveSample: Route = async (req, res, match, app) => {
  *   GET|HEAD /api/outputs/<id>/<path>   one of that job's own files (see `isJobFile`), whole or one range
  *   GET|HEAD /api/tests/<id>/<profile>/<n>.webm   a test job's sample, whole or one range, as `video/webm`
  *
- * Refusals are `{ error, message, ... }` (see `JobRunner.add`); an unknown job answers 404 `not-found`. While
+ * Refusals are `{ error, message, ... }` (see `JobRunner.add`; the NAS refusals `nas-needs-anilist` and
+ * `nas-duplicate-episodes` carry the 1-based `episodes`); an unknown job answers 404 `not-found`. While
  * `jobs.json` cannot be read, every job route, the list and the event stream included, answers 500 `jobs-unreadable`
  * (the stream before it opens, so a browser's EventSource fails and does not reconnect), never an empty queue. While
  * another process holds the data folder's queue lock (a `serve` started beside an `app`), every route that reads or

@@ -39,6 +39,10 @@ export interface NasTestServer {
   readonly dataDir: string;
   /** Moves the NAS's clock past every session it has given, as if it had forgotten them all. */
   expireSessions(): void;
+  /** Stops answering: the server closes its port and every connection, keeping its state. */
+  pause(): Promise<void>;
+  /** Answers again on the same port, as it was before `pause`. */
+  resume(): Promise<void>;
   /** Stops the server and removes its folders. */
   close(): Promise<void>;
 }
@@ -108,7 +112,14 @@ export async function startNasTestServer(opts: NasTestServerOptions = {}): Promi
     }),
   );
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
-  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/`;
+  const port = (server.address() as AddressInfo).port;
+  const base = `http://127.0.0.1:${port}/api/`;
+  const stop = (): Promise<void> =>
+    new Promise<void>((r) => {
+      if (!server.listening) return r();
+      server.close(() => r());
+      server.closeAllConnections();
+    });
   const code = (name: string, owner: boolean): Promise<string> => Promise.resolve(auth.createCode({ newPerson: { name, owner } }).code);
 
   return {
@@ -121,12 +132,13 @@ export async function startNasTestServer(opts: NasTestServerOptions = {}): Promi
     expireSessions() {
       clockOffset += SESSION_LIFE_MS;
     },
+    pause: stop,
+    async resume() {
+      if (!server.listening) await new Promise<void>((r) => server.listen(port, '127.0.0.1', r));
+    },
     async close() {
       encodes?.close();
-      await new Promise<void>((r) => {
-        server.close(() => r());
-        server.closeAllConnections();
-      });
+      await stop();
       rmSync(tmp, { recursive: true, force: true });
     },
   };

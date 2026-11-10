@@ -399,7 +399,12 @@ export interface EncodeSettings {
   readonly web: boolean;
   /** The episode file name without its extension; contains `{n}`, the episode number. */
   readonly namePattern: string;
+  /** Where the episodes go: a folder on this machine, or the paired NAS's Encodes library (`web` is then off). */
+  readonly destination: EncodeDestination;
 }
+
+/** Where a job's episodes go. */
+export type EncodeDestination = 'folder' | 'nas';
 
 /** A named set of encode settings (`GET /api/profiles`). */
 export interface Profile {
@@ -481,8 +486,22 @@ export type JobKind = 'encode' | 'test';
 /** Where a job is. */
 export type JobState = 'queued' | 'running' | 'done' | 'failed' | 'interrupted' | 'cancelled';
 
-/** Where one episode of a job is; `packaging-failed` means the MKV is complete but its web package is not. */
-export type JobEpisodeState = 'queued' | 'running' | 'done' | 'packaging-failed' | 'failed';
+/**
+ * Where one episode of a job is; `packaging-failed` means the MKV is complete but its web package is not, and
+ * `upload-failed` that the MKV is complete and kept but the NAS has not taken it (a retry uploads it again).
+ */
+export type JobEpisodeState = 'queued' | 'running' | 'done' | 'packaging-failed' | 'upload-failed' | 'failed';
+
+/** What a running episode is doing. */
+export type JobEpisodeStep = 'fetching' | 'encoding' | 'uploading';
+
+/** Where an episode's upload to the NAS is: the NAS's upload id, the file's hash and size, and the bytes the NAS holds. */
+export interface JobUploadState {
+  readonly id: string | null;
+  readonly sha256: string | null;
+  readonly size: number;
+  readonly sent: number;
+}
 
 /** One episode of a job. */
 export interface JobEpisode {
@@ -500,6 +519,16 @@ export interface JobEpisode {
   readonly path?: string;
   /** Why the episode failed. */
   readonly error?: string;
+  /** What the running episode is doing; null otherwise. */
+  readonly step: JobEpisodeStep | null;
+  /** Bytes fetched or uploaded so far in the current step. */
+  readonly stepDone: number;
+  /** Bytes the current fetch or upload moves in all; 0 until known, and while encoding. */
+  readonly stepTotal: number;
+  /** A NAS episode's upload, until the NAS has filed it. */
+  readonly upload?: JobUploadState;
+  /** The NAS's id of the uploaded episode (`<anilistId>-<episode>`). */
+  readonly encodeId?: string;
 }
 
 /** A queued encode or test, as `GET /api/jobs` answers it. */
@@ -522,6 +551,8 @@ export interface Job {
   readonly noSubtitles: boolean;
   /** Where the job is. */
   readonly state: JobState;
+  /** `Waiting for the NAS` while a step waits for the NAS to answer again; null otherwise. */
+  readonly waiting: string | null;
   /** True while a test encode runs ahead of this queued job between two of its episodes. */
   readonly paused: boolean;
   /** ISO 8601 time the job was queued. */

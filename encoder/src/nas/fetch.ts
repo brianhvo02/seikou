@@ -110,18 +110,8 @@ export class ClipFetcher {
   }
 
   /** Drops `holder`'s claim; a clip no holder claims is emptied back to a sparse file keeping its head. */
-  async release(holder: string, clips?: readonly string[]): Promise<void> {
-    const paths = clips === undefined ? [...this.entry.holders.keys()] : [...new Set(clips.map(streamPathOf))];
-    const freed: string[] = [];
-    for (const path of paths) {
-      const set = this.entry.holders.get(path);
-      if (!set?.delete(holder)) continue;
-      if (set.size === 0) {
-        this.entry.holders.delete(path);
-        freed.push(path);
-      }
-    }
-    for (const path of freed) await emptyClip(this.dataDir, this.key, this.entry, path);
+  release(holder: string, clips?: readonly string[]): Promise<void> {
+    return releaseHolder(this.dataDir, this.key, holder, clips);
   }
 
   private sizeOf(files: Record<string, number>, path: string): number {
@@ -236,6 +226,26 @@ async function emptyClip(dataDir: string, key: string, entry: MirrorEntry, path:
       await fh.close();
     }
   });
+}
+
+/**
+ * Drops `holder`'s claim on `clips` (stream file names such as '00001.M2TS'; every clip when omitted) of mirror `key`
+ * in `dataDir`; a clip no holder claims then is emptied back to a sparse file keeping its head. Needs no NAS client, so
+ * a job can let go of its clips after the app was unpaired.
+ */
+export async function releaseHolder(dataDir: string, key: string, holder: string, clips?: readonly string[]): Promise<void> {
+  const entry = mirrorEntry(dataDir, key);
+  const paths = clips === undefined ? [...entry.holders.keys()] : [...new Set(clips.map(streamPathOf))];
+  const freed: string[] = [];
+  for (const path of paths) {
+    const set = entry.holders.get(path);
+    if (!set?.delete(holder)) continue;
+    if (set.size === 0) {
+      entry.holders.delete(path);
+      freed.push(path);
+    }
+  }
+  for (const path of freed) await emptyClip(dataDir, key, entry, path);
 }
 
 /**

@@ -9,7 +9,7 @@ import { exampleName, SettingsPage } from './SettingsPage';
 
 afterEach(cleanup);
 
-const defaults: EncodeSettings = { crf: 25, preset: 4, filmGrain: 4, extraSvtArgs: [], opusBitrate: null, pgs: true, web: false, namePattern: 'episode-{n}' };
+const defaults: EncodeSettings = { crf: 25, preset: 4, filmGrain: 4, extraSvtArgs: [], opusBitrate: null, pgs: true, web: false, namePattern: 'episode-{n}', destination: 'folder' };
 const standard: Profile = { id: 'default', name: 'Default', builtIn: true, settings: defaults };
 const small: Profile = { id: 'ab12', name: 'Small files', builtIn: false, settings: { ...defaults, crf: 32, opusBitrate: 96, extraSvtArgs: ['--lookahead', '40'] } };
 

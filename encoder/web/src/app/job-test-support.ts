@@ -100,11 +100,12 @@ export const DEFAULT_TEST_SETTINGS: EncodeSettings = {
   pgs: true,
   web: false,
   namePattern: 'episode-{n}',
+  destination: 'folder',
 };
 
 /** An episode of a made-up job. */
 export function makeEpisode(index: number, over: Partial<JobEpisode> = {}): JobEpisode {
-  return { index, state: 'queued', framesDone: 0, frames: 0, encoded: false, ...over };
+  return { index, state: 'queued', framesDone: 0, frames: 0, encoded: false, step: null, stepDone: 0, stepTotal: 0, ...over };
 }
 
 /** A running encode of three episodes, the second one encoding, with `over` replacing any field. */
@@ -119,6 +120,7 @@ export function makeJob(over: Partial<Job> = {}): Job {
     outDir: '/out/lantern',
     noSubtitles: false,
     state: 'running',
+    waiting: null,
     paused: false,
     createdAt: '2026-11-08T10:00:00.000Z',
     startedAt: '2026-11-08T10:00:05.000Z',

@@ -7,8 +7,11 @@ import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { replaceAtomically } from '@seikou/titles';
 import { loadPlaylist } from '../disc/playlist';
-import { NasError } from '../nas/client';
-import { FetchError } from '../nas/mirror';
+import { errorOfBody, NasError, type NasClient } from '../nas/client';
+import { ClipFetcher, clipsOfEpisode, releaseHolder, sweepUnheld } from '../nas/fetch';
+import { defaultSleep, FetchError, isMirror } from '../nas/mirror';
+import { abandonUpload, uploadEpisode, UploadError, type UploadState } from '../nas/upload';
+import { EpisodeInfoError, EpisodeInfoStore } from '../plan/episode-info';
 import { encodeEpisodes, episodeName, type EncodeEvent, type EncodeOptions } from '../encode';
 import { packageEpisode } from '../package/package';
 import { EpisodeSpecError, parseEpisodeSpec, sameEpisodeList } from '../plan/episodes';
@@ -32,8 +35,14 @@ export type JobKind = 'encode' | 'test';
 /** Where a job is: waiting, encoding, or finished one of four ways. */
 export type JobState = 'queued' | 'running' | 'done' | 'failed' | 'interrupted' | 'cancelled';
 
-/** Where one episode of a job is. `packaging-failed`: the MKV is complete but the web package is not. */
-export type EpisodeState = 'queued' | 'running' | 'done' | 'packaging-failed' | 'failed';
+/**
+ * Where one episode of a job is. `packaging-failed`: the MKV is complete but the web package is not.
+ * `upload-failed`: the MKV is complete and kept, but the NAS has not taken it; a retry uploads it again.
+ */
+export type EpisodeState = 'queued' | 'running' | 'done' | 'packaging-failed' | 'upload-failed' | 'failed';
+
+/** What a running episode is doing: fetching its clips from the NAS, encoding, or uploading to the NAS. */
+export type EpisodeStep = 'fetching' | 'encoding' | 'uploading';
 
 /** One episode of a job. */
 export interface JobEpisode {
@@ -51,6 +60,16 @@ export interface JobEpisode {
   path?: string;
   /** Why the episode failed. */
   error?: string;
+  /** What the running episode is doing; null otherwise. */
+  step: EpisodeStep | null;
+  /** Bytes fetched or uploaded so far in the current step (0 while encoding). */
+  stepDone: number;
+  /** Bytes the current fetch or upload moves in all; 0 until known, and while encoding. */
+  stepTotal: number;
+  /** A NAS episode's upload, kept so a retry resumes it; gone once the NAS has filed the episode. */
+  upload?: UploadState;
+  /** The NAS's id of the uploaded episode (`<anilistId>-<episode>`). */
+  encodeId?: string;
 }
 
 /** One queued encode or test, as `jobs.json` keeps it and the job routes answer it. */
@@ -70,12 +89,14 @@ export interface Job {
   readonly episodeSpec: string;
   /** The job's own copy of the settings it was queued with. */
   readonly settings: EncodeSettings;
-  /** The absolute folder the episodes are written to (for a test, `<data>/tests/<id>`). */
+  /** The absolute folder the episodes are written to (for a test, `<data>/tests/<id>`; for the NAS, `<data>/nas-out/<id>`). */
   readonly outDir: string;
   /** Whether the encode leaves the saved subtitle record out. */
   readonly noSubtitles: boolean;
   /** Where the job is. */
   state: JobState;
+  /** `Waiting for the NAS` while a step waits for the NAS to answer again (tried every minute); null otherwise. */
+  waiting: string | null;
   /** True while a test job runs ahead of this one between two of its episodes; the job is then `queued` and resumes first. */
   paused: boolean;
   /** ISO 8601 times. */
@@ -177,7 +198,18 @@ export interface JobRunnerDeps {
   readonly now: () => number;
   /** Hears about problems with `jobs.json` and the logs. */
   readonly log: (message: string) => void;
+  /** How long a step waits before trying the NAS again after it stopped answering. Default 60 s. */
+  readonly nasRetryMs: number;
+  /** The waits between one NAS request's own retries (1, 2, 4 and 8 s). Default the timer. */
+  readonly nasSleep: (ms: number) => Promise<void>;
 }
+
+/** What a job shows while it waits for the NAS. */
+export const WAITING_FOR_NAS = 'Waiting for the NAS';
+/** Why a NAS job fails when the app was unpaired or the NAS no longer knows it. */
+const UNPAIRED = 'This app is no longer paired with the NAS; pair again and retry.';
+/** How long queueing waits for the NAS's `encodes/status`. */
+const STATUS_TIMEOUT_MS = 10_000;
 
 const PROGRESS_INTERVAL_MS = 1000;
 /** The most lines the log route answers. */
@@ -186,7 +218,8 @@ export const MAX_LOG_TAIL = 2000;
 const FINISHED: ReadonlySet<JobState> = new Set(['done', 'failed', 'interrupted', 'cancelled']);
 const RETRYABLE: ReadonlySet<JobState> = new Set(['failed', 'interrupted', 'cancelled']);
 const JOB_STATES: ReadonlySet<string> = new Set(['queued', 'running', ...FINISHED]);
-const EPISODE_STATES: ReadonlySet<string> = new Set(['queued', 'running', 'done', 'packaging-failed', 'failed']);
+const EPISODE_STATES: ReadonlySet<string> = new Set(['queued', 'running', 'done', 'packaging-failed', 'upload-failed', 'failed']);
+const EPISODE_STEPS: ReadonlySet<string> = new Set(['fetching', 'encoding', 'uploading']);
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
@@ -206,21 +239,37 @@ function shellWord(text: string): string {
 }
 
 /**
- * The `seikou-encode encode …` command that encodes what a job with these values does: the disc folder, playlist,
- * episode list and output folder, then the name pattern, CRF, preset and film grain, and the flags the other settings
- * imply (`--svt-args`, `--opus-bitrate`, `--no-subtitles`, `--no-pgs`, `--web <outDir>/web`). Every word is quoted for
- * a POSIX shell, so the command can be pasted.
+ * The `seikou-encode encode …` command that encodes what a job with these values does: the disc folder (`nas:<key>`
+ * for a NAS disc, given its key as `nasKey`), playlist, episode list and output folder (`--nas` instead for the NAS
+ * destination), then the name pattern, CRF, preset and film grain, and the flags the other settings imply
+ * (`--svt-args`, `--opus-bitrate`, `--no-subtitles`, `--no-pgs`, `--web <outDir>/web`). Every word is quoted for a
+ * POSIX shell, so the command can be pasted.
  */
-export function jobCli(o: { discDir: string; playlistId: string; episodeSpec: string; outDir: string; noSubtitles: boolean; settings: EncodeSettings }): string {
+export function jobCli(o: {
+  discDir: string;
+  nasKey?: string | null;
+  playlistId: string;
+  episodeSpec: string;
+  outDir: string;
+  noSubtitles: boolean;
+  settings: EncodeSettings;
+}): string {
   const s = o.settings;
-  const words = ['seikou-encode', 'encode', o.discDir, '--playlist', o.playlistId, '--episodes', o.episodeSpec, '--out', o.outDir];
+  const nas = s.destination === 'nas';
+  const disc = o.nasKey ? `nas:${o.nasKey}` : o.discDir;
+  const words = ['seikou-encode', 'encode', disc, '--playlist', o.playlistId, '--episodes', o.episodeSpec, ...(nas ? ['--nas'] : ['--out', o.outDir])];
   words.push('--name', s.namePattern, '--crf', String(s.crf), '--preset', String(s.preset), '--film-grain', String(s.filmGrain));
   if (s.extraSvtArgs.length > 0) words.push('--svt-args', s.extraSvtArgs.join(' '));
   if (s.opusBitrate !== null) words.push('--opus-bitrate', String(s.opusBitrate));
   if (o.noSubtitles) words.push('--no-subtitles');
   if (!s.pgs) words.push('--no-pgs');
-  if (s.web) words.push('--web', webDirOf(o.outDir));
+  if (s.web && !nas) words.push('--web', webDirOf(o.outDir));
   return words.map(shellWord).join(' ');
+}
+
+/** The folder a NAS job's episodes are written to until the NAS has them: `<data>/nas-out/<jobId>`. */
+export function nasOutDirOf(dataDir: string, jobId: string): string {
+  return join(dataDir, 'nas-out', jobId);
 }
 
 /** The folder a job's web packages go to. */
@@ -302,11 +351,31 @@ function parseStoredJob(value: unknown): Job {
     if (typeof ep !== 'object' || ep === null || typeof ep.index !== 'number' || !Number.isInteger(ep.index) || ep.index < 1) throw new Error('bad episode');
     if (!EPISODE_STATES.has(str(ep.state, 'episode state'))) throw new Error('bad episode state');
     if (typeof ep.framesDone !== 'number' || typeof ep.frames !== 'number') throw new Error('bad episode frames');
-    const out: JobEpisode = { index: ep.index, state: ep.state as EpisodeState, framesDone: ep.framesDone, frames: ep.frames, encoded: ep.encoded === true };
+    // Jobs written before the NAS destination have no step, step bytes, upload or encode id.
+    const step = ep.step === undefined || ep.step === null ? null : str(ep.step, 'episode step');
+    if (step !== null && !EPISODE_STEPS.has(step)) throw new Error('bad episode step');
+    const count = (v: unknown, name: string): number => {
+      if (v === undefined) return 0;
+      if (typeof v !== 'number' || !Number.isSafeInteger(v) || v < 0) throw new Error(`bad episode ${name}`);
+      return v;
+    };
+    const out: JobEpisode = {
+      index: ep.index,
+      state: ep.state as EpisodeState,
+      framesDone: ep.framesDone,
+      frames: ep.frames,
+      encoded: ep.encoded === true,
+      step: step as EpisodeStep | null,
+      stepDone: count(ep.stepDone, 'stepDone'),
+      stepTotal: count(ep.stepTotal, 'stepTotal'),
+    };
     const path = optStr(ep.path, 'episode path');
     const error = optStr(ep.error, 'episode error');
+    const encodeId = optStr(ep.encodeId, 'episode encodeId');
     if (path !== undefined) out.path = path;
     if (error !== undefined) out.error = error;
+    if (encodeId !== undefined) out.encodeId = encodeId;
+    if (ep.upload !== undefined) out.upload = parseUploadState(ep.upload);
     return out;
   });
   const job: Job = {
@@ -319,6 +388,7 @@ function parseStoredJob(value: unknown): Job {
     outDir,
     noSubtitles: j.noSubtitles === true,
     state: j.state as JobState,
+    waiting: j.waiting === undefined || j.waiting === null ? null : str(j.waiting, 'waiting'),
     paused: j.paused === true,
     createdAt: str(j.createdAt, 'createdAt'),
     episodes,
@@ -331,6 +401,17 @@ function parseStoredJob(value: unknown): Job {
     if (v !== undefined) job[key] = v;
   }
   return job;
+}
+
+/** Checks a stored upload state; throws on anything this runner did not write. */
+function parseUploadState(value: unknown): UploadState {
+  if (typeof value !== 'object' || value === null) throw new Error('episode upload is not an object');
+  const u = value as Record<string, unknown>;
+  const id = u.id === null ? null : typeof u.id === 'string' && /^[0-9a-f]{16}$/.test(u.id) ? u.id : undefined;
+  const sha256 = u.sha256 === null ? null : typeof u.sha256 === 'string' && /^[0-9a-f]{64}$/.test(u.sha256) ? u.sha256 : undefined;
+  const whole = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+  if (id === undefined || sha256 === undefined || !whole(u.size) || !whole(u.sent)) throw new Error('bad episode upload');
+  return { id, sha256, size: u.size, sent: u.sent };
 }
 
 /** Checks a stored test plan; throws on anything this runner did not write. */
@@ -486,6 +567,8 @@ export class JobRunner {
       },
       now: Date.now,
       log: (m) => console.error(m),
+      nasRetryMs: 60_000,
+      nasSleep: defaultSleep,
       ...deps,
     };
     this.events.setMaxListeners(100);
@@ -522,16 +605,19 @@ export class JobRunner {
         this.jobs = loaded.jobs;
       }
       for (const job of this.jobs) {
+        job.waiting = null;
         // A test interrupted by an earlier stop (Ctrl-C saves it as interrupted) loses its samples too: its retry starts over.
         if (job.kind === 'test' && job.state === 'interrupted') await this.removeTestFolder(job);
         if (job.state !== 'running') continue;
         job.state = 'interrupted';
         job.finishedAt = this.iso();
-        for (const ep of job.episodes) this.settleStopped(job, ep, 'The app stopped before this episode was packaged.');
+        for (const ep of job.episodes) this.settleStopped(job, ep, 'The app stopped');
         await this.removePartials(job);
         if (job.kind === 'test') await this.removeTestFolder(job);
         this.appendLog(job, 'Interrupted: the app stopped while the job was running.');
       }
+      // Holders live in memory, so after a start no clip of a NAS disc is held: each goes back to its head.
+      await sweepUnheld(this.app.dataDir).catch((e: unknown) => this.deps.log(`The fetched NAS clips could not be emptied: ${message(e)}`));
       this.loaded = true;
       if (this.jobs.length > 0) this.persist();
       this.pump();
@@ -559,7 +645,11 @@ export class JobRunner {
    * folder), 409 `record-mismatch` (the saved subtitle record is for another episode list or misses an
    * episode; `recordEpisodeSpec` and `episodeSpec` name both lists), 409 `no-audio-chosen`, 409 `subtitle-files-missing`,
    * 409 `record-unreadable`, and 500 `jobs-unreadable`. The record is not checked with `noSubtitles` or for a test job.
-   * The output folder is made when missing. A job for the same disc, playlist and episode list as the job whose folder
+   * The output folder is made when missing. With `settings.destination: 'nas'` the output folder is ignored (the job
+   * writes to `<data>/nas-out/<id>`), `web` is turned off, and the NAS checks apply (see `checkNasDestination`): 409
+   * `nas-not-paired`, `nas-needs-anilist` and `nas-duplicate-episodes` (each with `episodes`), `nas-encodes-off` and
+   * `info-unreadable`. A disc that is a NAS mirror needs the pairing too (409 `nas-not-paired`), and a test of one is
+   * refused with 409 `nas-test-unsupported`. A job for the same disc, playlist and episode list as the job whose folder
    * and names it shares is a re-encode, not a refusal: it is queued and answered with `warning: 'replaces-files'`.
    */
   async add(input: JobInput): Promise<QueuedJob> {
@@ -594,6 +684,14 @@ export class JobRunner {
     const dir = await sessionsOf(this.app).discDirOf(discKey);
     if (dir === null) throw new JobError(404, 'not-found', 'No disc the app knows has that key.');
     const disc = await discOf(this.app, dir);
+    const onNas = await isMirror(disc.root);
+    if (onNas && kind === 'test') throw new JobError(409, 'nas-test-unsupported', 'Test encodes need the disc on this Mac.');
+    const toNas = kind === 'encode' && settings.destination === 'nas';
+    // The web package is for a folder; the NAS's Encodes library plays the MKV itself.
+    if (toNas) settings = { ...settings, web: false };
+    if ((onNas || toNas) && this.app.nas.client === null) {
+      throw new JobError(409, 'nas-not-paired', 'This app is not paired with a NAS. Pair it in Settings first.');
+    }
     let playlist: Awaited<ReturnType<typeof loadPlaylist>>;
     try {
       playlist = await loadPlaylist(disc.root, playlistId);
@@ -611,11 +709,15 @@ export class JobRunner {
       if (e instanceof EpisodeSpecError) throw new JobError(400, 'bad-episode-spec', e.message);
       throw e;
     }
+    if (toNas) await this.checkNasDestination(disc.key, playlistId, episodeSpec, chapters);
     const id = randomBytes(8).toString('hex');
     let outDir: string;
     let warning: QueuedJob['warning'];
     if (kind === 'test') {
       outDir = testDirOf(this.app.dataDir, id);
+    } else if (toNas) {
+      outDir = nasOutDirOf(this.app.dataDir, id);
+      if (!noSubtitles) await this.checkRecord(disc.root, disc.key, playlistId, episodeSpec, chapters);
     } else {
       outDir = await this.checkOutputFolder(input.outDir, disc.root);
       warning = await this.checkOutputInUse({ outDir, discKey: disc.key, playlistId, episodeSpec, chapters, namePattern: settings.namePattern });
@@ -633,14 +735,15 @@ export class JobRunner {
       outDir,
       noSubtitles,
       state: 'queued',
+      waiting: null,
       paused: false,
       createdAt: this.iso(),
       episodes: Array.from(
         { length: test === undefined ? episodeCount : test.stretches.length * test.profiles.length },
-        (_, i): JobEpisode => ({ index: i + 1, state: 'queued', framesDone: 0, frames: 0, encoded: false }),
+        (_, i): JobEpisode => ({ index: i + 1, state: 'queued', framesDone: 0, frames: 0, encoded: false, step: null, stepDone: 0, stepTotal: 0 }),
       ),
       recordSavedAt: null,
-      cli: kind === 'test' ? '' : jobCli({ discDir: disc.root, playlistId, episodeSpec, outDir, noSubtitles, settings }),
+      cli: kind === 'test' ? '' : jobCli({ discDir: disc.root, nasKey: onNas ? disc.key : null, playlistId, episodeSpec, outDir, noSubtitles, settings }),
     };
     if (test !== undefined) job.test = test;
     this.jobs.push(job);
@@ -669,6 +772,8 @@ export class JobRunner {
       job.paused = false;
       job.finishedAt = this.iso();
       this.appendLog(job, 'Cancelled.');
+      // a job paused for a test kept its clips for its next episode
+      await this.releaseClips(job);
       this.persist();
     } else {
       throw new JobError(409, 'not-cancellable', 'Only a queued or running job can be cancelled.');
@@ -678,7 +783,8 @@ export class JobRunner {
 
   /**
    * Queues a failed, interrupted or cancelled job again. It encodes only the episodes not done (an episode whose
-   * packaging failed is packaged again from its MKV, not encoded); when the subtitle record was saved again since the
+   * packaging failed is packaged again from its MKV, not encoded, and one whose upload failed is uploaded again,
+   * resuming the NAS's upload when it still has it); when the subtitle record was saved again since the
    * job's first run, every episode is encoded again. When the job's disc folder no longer holds `BDMV/index.bdmv`, the
    * disc is looked up again by its key (in the helper sessions and the library, waiting for a running scan); found, the
    * job's folder and command move there; not found, the retry is refused with 409 `disc-missing`. 404 `not-found`; 409
@@ -693,6 +799,7 @@ export class JobRunner {
     await this.findMovedDisc(job);
     job.state = 'queued';
     job.paused = false;
+    job.waiting = null;
     delete job.error;
     delete job.finishedAt;
     for (const ep of job.episodes) {
@@ -706,7 +813,8 @@ export class JobRunner {
 
   /**
    * Removes a finished job from the queue, and its log; an encode's output files stay, a test's sample folder is
-   * deleted. 404 `not-found`; 409 `not-finished`.
+   * deleted, and so is a NAS job's `<data>/nas-out/<id>` (with any episode the NAS never took). 404 `not-found`; 409
+   * `not-finished`.
    */
   async remove(id: string): Promise<void> {
     await this.ready;
@@ -718,6 +826,7 @@ export class JobRunner {
     this.persist();
     await rm(this.logFile(job.id), { force: true });
     if (job.kind === 'test') await this.removeTestFolder(job);
+    if (this.toNas(job)) await rm(nasOutDirOf(this.app.dataDir, job.id), { recursive: true, force: true });
   }
 
   /**
@@ -753,7 +862,8 @@ export class JobRunner {
     const from = job.disc.dir;
     job.disc = { ...job.disc, dir: found };
     if (job.kind === 'encode') {
-      job.cli = jobCli({ discDir: found, playlistId: job.playlist, episodeSpec: job.episodeSpec, outDir: job.outDir, noSubtitles: job.noSubtitles, settings: job.settings });
+      const nasKey = (await isMirror(found)) ? job.disc.key : null;
+      job.cli = jobCli({ discDir: found, nasKey, playlistId: job.playlist, episodeSpec: job.episodeSpec, outDir: job.outDir, noSubtitles: job.noSubtitles, settings: job.settings });
     }
     this.appendLog(job, `The disc is now at ${found} (it was at ${from}).`);
   }
@@ -801,13 +911,16 @@ export class JobRunner {
   }
 
   /**
-   * What stopping the runner now waits for: `packaging episode <n>` while an episode's web package is made, `the tool
-   * chain` while the encoding tools run, and null when no job runs.
+   * What stopping the runner now waits for: `the fetch of episode <n> from the NAS` and `the upload of episode <n> to
+   * the NAS` during those steps, `packaging episode <n>` while an episode's web package is made, `the tool chain` while
+   * the encoding tools run, and null when no job runs.
    */
   waitingFor(): string | null {
     const job = this.current?.job;
     if (job === undefined) return null;
     const ep = job.episodes.find((e) => e.state === 'running');
+    if (ep?.step === 'fetching') return `the fetch of episode ${ep.index} from the NAS`;
+    if (ep?.step === 'uploading') return `the upload of episode ${ep.index} to the NAS`;
     if (job.kind === 'encode' && ep !== undefined && ep.encoded && job.settings.web) return `packaging episode ${ep.index}`;
     return 'the tool chain';
   }
@@ -954,6 +1067,73 @@ export class JobRunner {
     }
   }
 
+  /**
+   * Checks what an encode to the NAS needs before it is queued: every episode has an AniList entry and number on its
+   * first chapter (409 `nas-needs-anilist` with the 1-based `episodes` that lack one), no two episodes share an entry
+   * and number (409 `nas-duplicate-episodes` with every episode of such a pair, since the NAS keeps one file per
+   * pair), and the NAS takes encodes (409 `nas-encodes-off` when `encodes/status` says it has no encodes folder; 409
+   * `nas-not-paired` when it no longer knows this app). A NAS that does not answer is no refusal: the job waits for it.
+   */
+  private async checkNasDestination(discKey: string, playlistId: string, episodeSpec: string, chapters: number): Promise<void> {
+    const pairs = await this.aniListOf(discKey, playlistId, episodeSpec, chapters);
+    const missing = pairs.flatMap((p, i) => (p === null ? [i + 1] : []));
+    if (missing.length > 0) {
+      throw new JobError(409, 'nas-needs-anilist', `Episode${missing.length === 1 ? '' : 's'} ${missing.join(', ')} need an AniList entry and number before they can go to the NAS. Set them on the Episodes page.`, {
+        episodes: missing,
+      });
+    }
+    const keys = pairs.map((p) => `${p!.anilistId}-${p!.episode}`);
+    const shared = keys.flatMap((k, i) => (keys.indexOf(k) !== keys.lastIndexOf(k) ? [i + 1] : []));
+    if (shared.length > 0) {
+      throw new JobError(409, 'nas-duplicate-episodes', `Episodes ${shared.join(', ')} share an AniList entry and number, and the NAS keeps one file for each. Fix the numbers on the Episodes page.`, {
+        episodes: shared,
+      });
+    }
+    const client = this.app.nas.client;
+    if (client === null) throw new JobError(409, 'nas-not-paired', 'This app is not paired with a NAS. Pair it in Settings first.');
+    const off = (): JobError => new JobError(409, 'nas-encodes-off', 'The NAS has no encodes folder set up, so it takes no encodes. Set ENCODES_DIR on the NAS first.');
+    let res: Response;
+    try {
+      res = await client.request('encodes/status', { signal: AbortSignal.timeout(STATUS_TIMEOUT_MS) });
+    } catch (e) {
+      if (e instanceof NasError && e.code === 'unauthorized') throw new JobError(409, 'nas-not-paired', 'The NAS no longer knows this app. Pair it again in Settings.');
+      if (e instanceof NasError) return; // not answering: the job waits for it
+      throw e;
+    }
+    if (res.status === 401) {
+      await res.body?.cancel();
+      throw new JobError(409, 'nas-not-paired', 'The NAS no longer knows this app. Pair it again in Settings.');
+    }
+    if (res.status === 404) {
+      if ((await errorOfBody(res)) === 'not-configured') throw off();
+      return;
+    }
+    if (!res.ok) {
+      await res.body?.cancel();
+      return;
+    }
+    const status = (await res.json().catch(() => null)) as { configured?: unknown } | null;
+    if (status?.configured === false) throw off();
+  }
+
+  /**
+   * Each episode's AniList entry and number, from the episode info saved for the disc's playlist and keyed by the
+   * episode's first chapter; null for an episode without one. An unreadable info file is 409 `info-unreadable`.
+   */
+  private async aniListOf(discKey: string, playlistId: string, episodeSpec: string, chapters: number): Promise<({ anilistId: number; episode: number } | null)[]> {
+    let info: Awaited<ReturnType<EpisodeInfoStore['read']>>;
+    try {
+      info = await new EpisodeInfoStore(this.app.dataDir).read(discKey, playlistId);
+    } catch (e) {
+      if (e instanceof EpisodeInfoError) throw new JobError(409, 'info-unreadable', e.message);
+      throw e;
+    }
+    return parseEpisodeSpec(episodeSpec, chapters).map((spec) => {
+      const entry = info?.anilist[String(spec.from)];
+      return entry === undefined ? null : { anilistId: entry.anilistId, episode: entry.episode };
+    });
+  }
+
   private iso(): string {
     return new Date(this.deps.now()).toISOString();
   }
@@ -984,19 +1164,37 @@ export class JobRunner {
     this.events.emit('jobs', this.list());
   }
 
+  /** An episode as if never run; an upload the NAS still holds for it is dropped there, since its file is encoded again. */
   private resetEpisode(ep: JobEpisode): void {
     ep.state = 'queued';
     ep.framesDone = 0;
     ep.encoded = false;
+    ep.step = null;
+    ep.stepDone = 0;
+    ep.stepTotal = 0;
     delete ep.error;
+    delete ep.encodeId;
+    const uploadId = ep.upload?.id;
+    delete ep.upload;
+    const client = this.app.nas.client;
+    if (uploadId && client !== null) void abandonUpload(client, uploadId);
   }
 
-  /** The state of an episode that was running when its job stopped. */
-  private settleStopped(job: Job, ep: JobEpisode, unpackaged: string): void {
+  /** Whether `job` sends its episodes to the NAS. */
+  private toNas(job: Job): boolean {
+    return job.kind === 'encode' && job.settings.destination === 'nas';
+  }
+
+  /** The state of an episode that was running when its job stopped; `who` is `The app stopped` or `The job stopped`. */
+  private settleStopped(job: Job, ep: JobEpisode, who: string): void {
     if (ep.state !== 'running') return;
-    if (ep.encoded && job.settings.web) {
+    ep.step = null;
+    if (ep.encoded && this.toNas(job)) {
+      ep.state = 'upload-failed';
+      ep.error = `${who} before this episode was uploaded.`;
+    } else if (ep.encoded && job.settings.web) {
       ep.state = 'packaging-failed';
-      ep.error = unpackaged;
+      ep.error = `${who} before this episode was packaged.`;
     } else if (ep.encoded) {
       ep.state = 'done';
     } else {
@@ -1061,11 +1259,18 @@ export class JobRunner {
           this.appendLog(job, 'Paused for a test encode; resumes at the next episode.');
           return;
         }
+        // cleaned up before the job reads as done: its clips let go, and for the NAS, whose episodes are all there now,
+        // the folder they were written to
+        await this.releaseClips(job);
+        if (this.toNas(job)) {
+          await rm(nasOutDirOf(this.app.dataDir, job.id), { recursive: true, force: true }).catch((e: unknown) => this.deps.log(`The folder of job ${job.id} could not be removed: ${message(e)}`));
+        }
         job.state = 'done';
         job.finishedAt = this.iso();
         this.appendLog(job, 'State: done.');
       } catch (e) {
-        for (const ep of job.episodes) this.settleStopped(job, ep, 'The job stopped before this episode was packaged.');
+        await this.releaseClips(job);
+        for (const ep of job.episodes) this.settleStopped(job, ep, 'The job stopped');
         await this.removePartials(job);
         job.finishedAt = this.iso();
         // While the runner stops, any failure is the stop's doing: Ctrl-C reaches the tools too, and may fail them
@@ -1080,6 +1285,7 @@ export class JobRunner {
         }
       } finally {
         this.current = null;
+        job.waiting = null;
         this.persist();
       }
     })();
@@ -1120,18 +1326,229 @@ export class JobRunner {
       this.appendLog(job, 'The subtitle choices were saved again since the last run, so every episode is encoded again.');
     }
     job.recordSavedAt = savedAt;
-    for (const ep of job.episodes) {
-      if (ep.state === 'done') continue;
-      if (signal.aborted) throw new DOMException('The job was cancelled', 'AbortError');
-      if (this.jobs.some((j) => j.kind === 'test' && j.state === 'queued')) return 'paused';
-      if (ep.state === 'packaging-failed') await this.repackage(job, ep);
-      else await this.encodeEpisode(job, ep, record, tools, signal);
+    const onNas = await isMirror(job.disc.dir);
+    // the fetch of the next episode's clips, which runs while an episode encodes and stops with the job
+    const ahead = new AbortController();
+    const stopAhead = (): void => ahead.abort();
+    signal.addEventListener('abort', stopAhead, { once: true });
+    const fetches = new Map<number, Promise<void>>();
+    try {
+      for (const ep of job.episodes) {
+        if (ep.state === 'done') continue;
+        if (signal.aborted) throw new DOMException('The job was cancelled', 'AbortError');
+        // a pause keeps the clips the job holds (and the next episode's, fetched ahead) for when it resumes
+        if (this.jobs.some((j) => j.kind === 'test' && j.state === 'queued')) return 'paused';
+        if (ep.state === 'packaging-failed') {
+          await this.repackage(job, ep);
+          continue;
+        }
+        if (ep.state === 'upload-failed') {
+          await this.upload(job, ep, signal);
+          continue;
+        }
+        if (onNas) await this.fetchEpisode(job, ep, signal, ahead.signal, fetches);
+        await this.encodeEpisode(job, ep, record, tools, signal);
+        if (onNas) await this.releaseEncoded(job, ep);
+        if (this.toNas(job)) await this.upload(job, ep, signal);
+      }
+    } finally {
+      signal.removeEventListener('abort', stopAhead);
+      ahead.abort();
+      await Promise.allSettled(fetches.values());
     }
+  }
+
+  /** The NAS client to use now; a job of an app no longer paired fails. */
+  private nasClient(): NasClient {
+    const client = this.app.nas.client;
+    if (client === null) throw new Error(UNPAIRED);
+    return client;
+  }
+
+  /**
+   * Runs `step` until it succeeds. While the NAS does not answer (or its encodes folder is missing) the job shows
+   * `Waiting for the NAS` and tries again every `nasRetryMs`; an abort of `signal` stops the wait at once. A NAS that
+   * no longer knows the app, or an app no longer paired, fails the job; anything else is the step's failure.
+   */
+  private async untilNas<T>(job: Job, signal: AbortSignal, step: () => Promise<T>): Promise<T> {
+    for (;;) {
+      try {
+        const out = await step();
+        if (job.waiting !== null) {
+          job.waiting = null;
+          this.appendLog(job, 'The NAS answers again.');
+          this.persist();
+        }
+        return out;
+      } catch (e) {
+        if (signal.aborted) throw e;
+        if (e instanceof NasError && e.code === 'unauthorized') throw new Error(UNPAIRED);
+        const waits =
+          (e instanceof FetchError && e.code === 'unreachable') ||
+          (e instanceof NasError && e.code === 'unreachable') ||
+          (e instanceof UploadError && (e.code === 'unreachable' || e.code === 'folder-unavailable'));
+        if (!waits) throw e;
+        if (job.waiting === null) {
+          job.waiting = WAITING_FOR_NAS;
+          this.appendLog(job, `Waiting for the NAS: ${message(e)}`);
+          this.persist();
+        }
+        await new Promise<void>((resolve, reject) => {
+          const onAbort = (): void => {
+            clearTimeout(timer);
+            reject(new DOMException('The job was cancelled', 'AbortError'));
+          };
+          const timer = setTimeout(() => {
+            signal.removeEventListener('abort', onAbort);
+            resolve();
+          }, this.deps.nasRetryMs);
+          signal.addEventListener('abort', onAbort, { once: true });
+        });
+      }
+    }
+  }
+
+  /** Follows a fetch's or an upload's bytes: kept on the episode, and told at most once a second (and at the end). */
+  private onStep(job: Job, ep: JobEpisode, done: number, total: number): void {
+    ep.stepDone = done;
+    ep.stepTotal = total;
+    const key = `${job.id}:${ep.index}:step`;
+    const now = this.deps.now();
+    const last = this.lastProgress.get(key);
+    if (done < total && last !== undefined && now - last < PROGRESS_INTERVAL_MS) return;
+    this.lastProgress.set(key, now);
+    this.persist();
+  }
+
+  /**
+   * Has the clips of a NAS disc's episode here, whole, held for the job (`job:<id>`): it waits for the fetch of them
+   * that ran while the episode before encoded (whose failure is this step's), then fetches what is missing, then starts
+   * fetching the next episode's clips in the background.
+   */
+  private async fetchEpisode(job: Job, ep: JobEpisode, signal: AbortSignal, ahead: AbortSignal, fetches: Map<number, Promise<void>>): Promise<void> {
+    const holder = `job:${job.id}`;
+    const clips = await clipsOfEpisode(job.disc.dir, job.playlist, job.episodeSpec, ep.index);
+    this.resetEpisode(ep);
+    ep.state = 'running';
+    ep.step = 'fetching';
+    this.appendLog(job, `Episode ${ep.index}: fetching ${clips.join(', ')} from the NAS.`);
+    this.persist();
+    try {
+      await this.untilNas(job, signal, async () => {
+        const before = fetches.get(ep.index);
+        if (before !== undefined) {
+          fetches.delete(ep.index);
+          await before;
+        }
+        const fetcher = new ClipFetcher({
+          dataDir: this.app.dataDir,
+          client: this.nasClient(),
+          key: job.disc.key,
+          signal,
+          sleep: this.deps.nasSleep,
+          onProgress: (p) => this.onStep(job, ep, p.bytesDone, p.bytes),
+        });
+        await fetcher.hold(holder, clips);
+      });
+    } catch (e) {
+      if (!signal.aborted && !this.stopping) {
+        ep.state = 'failed';
+        ep.step = null;
+        ep.error = message(e);
+      }
+      throw e;
+    } finally {
+      this.lastProgress.delete(`${job.id}:${ep.index}:step`);
+    }
+    const next = job.episodes.find((e) => e.index > ep.index && !e.encoded && e.state !== 'done');
+    const client = this.app.nas.client;
+    if (next === undefined || client === null) return;
+    const nextClips = await clipsOfEpisode(job.disc.dir, job.playlist, job.episodeSpec, next.index);
+    const fetching = new ClipFetcher({ dataDir: this.app.dataDir, client, key: job.disc.key, signal: ahead, sleep: this.deps.nasSleep }).hold(holder, nextClips);
+    fetching.catch(() => undefined); // reported by that episode's own fetch step
+    fetches.set(next.index, fetching);
+  }
+
+  /** Lets go of the clips of a NAS disc's encoded episode that no later episode of the job still needs. */
+  private async releaseEncoded(job: Job, ep: JobEpisode): Promise<void> {
+    const mine = await clipsOfEpisode(job.disc.dir, job.playlist, job.episodeSpec, ep.index);
+    const later = new Set<string>();
+    for (const e of job.episodes) {
+      if (e.index <= ep.index || e.encoded || e.state === 'done') continue;
+      for (const clip of await clipsOfEpisode(job.disc.dir, job.playlist, job.episodeSpec, e.index)) later.add(clip);
+    }
+    const free = mine.filter((c) => !later.has(c));
+    if (free.length > 0) await releaseHolder(this.app.dataDir, job.disc.key, `job:${job.id}`, free);
+  }
+
+  /** Lets go of every clip the job holds (none for a job on a local disc). */
+  private async releaseClips(job: Job): Promise<void> {
+    if (job.kind !== 'encode') return;
+    await releaseHolder(this.app.dataDir, job.disc.key, `job:${job.id}`).catch((e: unknown) => this.deps.log(`The NAS clips of job ${job.id} could not be emptied: ${message(e)}`));
+  }
+
+  /** The file name the NAS gets an episode under, `<anilistId>-<episode>.mkv`, from the episode info saved now. */
+  private async uploadName(job: Job, ep: JobEpisode): Promise<string> {
+    const chapters = (await loadPlaylist(job.disc.dir, job.playlist)).chapters.length;
+    const pair = (await this.aniListOf(job.disc.key, job.playlist, job.episodeSpec, chapters))[ep.index - 1];
+    if (pair === null || pair === undefined) throw new Error(`Episode ${ep.index} has no AniList entry and number; set one on the Episodes page and retry.`);
+    return `${pair.anilistId}-${pair.episode}.mkv`;
+  }
+
+  /**
+   * Uploads an encoded episode's MKV to the NAS, resuming the upload kept on the episode, then deletes the MKV and
+   * marks the episode done with the NAS's encode id; only the NAS's `complete` answer counts. A failed upload marks the
+   * episode `upload-failed` with the MKV kept, and fails the job.
+   */
+  private async upload(job: Job, ep: JobEpisode, signal: AbortSignal): Promise<void> {
+    const path = ep.path ?? this.mkvPath(job, ep);
+    const state: UploadState = ep.upload ?? { id: null, sha256: null, size: 0, sent: 0 };
+    ep.upload = state;
+    ep.state = 'running';
+    ep.encoded = true;
+    ep.path = path;
+    ep.step = 'uploading';
+    ep.stepDone = state.sent;
+    ep.stepTotal = state.size;
+    delete ep.error;
+    this.appendLog(job, `Episode ${ep.index}: uploading to the NAS${state.id === null ? '' : ', resuming its upload'}.`);
+    this.persist();
+    let encodeId: string;
+    try {
+      const name = await this.uploadName(job, ep);
+      encodeId = await this.untilNas(job, signal, () =>
+        uploadEpisode(this.nasClient(), path, name, state, {
+          signal,
+          sleep: this.deps.nasSleep,
+          onProgress: (sent, size) => this.onStep(job, ep, sent, size),
+          onState: () => this.persist(),
+        }),
+      );
+    } catch (e) {
+      if (!signal.aborted && !this.stopping) {
+        ep.state = 'upload-failed';
+        ep.step = null;
+        ep.error = message(e);
+      }
+      throw e;
+    } finally {
+      this.lastProgress.delete(`${job.id}:${ep.index}:step`);
+    }
+    await unlink(path).catch((e: unknown) => {
+      if ((e as NodeJS.ErrnoException).code !== 'ENOENT') this.deps.log(`${path} is on the NAS but could not be deleted here: ${message(e)}`);
+    });
+    ep.state = 'done';
+    ep.step = null;
+    ep.encodeId = encodeId;
+    delete ep.upload;
+    this.appendLog(job, `Episode ${ep.index}: on the NAS as ${encodeId}; ${path} deleted.`);
+    this.persist();
   }
 
   private async encodeEpisode(job: Job, ep: JobEpisode, record: SubtitleRecord | null, tools: NonNullable<AppContext['tools']>, signal: AbortSignal): Promise<void> {
     this.resetEpisode(ep);
     ep.state = 'running';
+    ep.step = 'encoding';
     this.appendLog(job, `Episode ${ep.index}: encoding.`);
     this.persist();
     const s = job.settings;
@@ -1173,7 +1590,17 @@ export class JobRunner {
       this.lastProgress.delete(key);
     }
     // The encode resolved, so the episode is complete even if its closing events were not seen.
-    if (ep.state === 'running') this.markDone(job, ep, this.mkvPath(job, ep));
+    if (ep.state === 'running') this.markEncoded(job, ep, ep.path ?? this.mkvPath(job, ep));
+  }
+
+  /** An episode whose MKV is complete: done, or, for the NAS, encoded and waiting for its upload. */
+  private markEncoded(job: Job, ep: JobEpisode, path: string): void {
+    if (!this.toNas(job)) return this.markDone(job, ep, path);
+    if (ep.encoded && ep.path === path) return;
+    ep.encoded = true;
+    ep.path = path;
+    this.appendLog(job, `Episode ${ep.index}: encoded.`);
+    this.persist();
   }
 
   /** Packages an episode's finished MKV again; the episode is encoded only once. */
@@ -1201,6 +1628,7 @@ export class JobRunner {
   private markDone(job: Job, ep: JobEpisode, path: string): void {
     ep.state = 'done';
     ep.encoded = true;
+    ep.step = null;
     ep.path = path;
     delete ep.error;
     this.appendLog(job, `Episode ${ep.index}: done.`);
@@ -1228,7 +1656,7 @@ export class JobRunner {
         this.onProgress(job, ep, e);
         return;
       case 'episode-done':
-        if (ep && ep.state !== 'done') this.markDone(job, ep, e.path ?? this.mkvPath(job, ep));
+        if (ep && ep.state !== 'done') this.markEncoded(job, ep, e.path ?? ep.path ?? this.mkvPath(job, ep));
         return;
       case 'packaged':
         this.appendLog(job, `Episode ${e.episode}: packaged into ${e.path ?? ''}.`);
@@ -1263,7 +1691,7 @@ export class JobRunner {
           this.appendLog(job, `Episode ${ep.index}: encoded; packaging.`);
           this.persist();
         } else {
-          this.markDone(job, ep, ep.path);
+          this.markEncoded(job, ep, ep.path);
         }
       }
     }

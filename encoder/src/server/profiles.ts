@@ -25,7 +25,15 @@ export interface EncodeSettings {
   readonly web: boolean;
   /** The episode file name without its extension; must contain `{n}`, which becomes the episode number. */
   readonly namePattern: string;
+  /**
+   * Where the episodes go: `folder`, an output folder on this machine, or `nas`, the paired NAS's Encodes library (each
+   * episode uploaded once encoded, then deleted here). Settings saved before there was a choice read as `folder`.
+   */
+  readonly destination: EncodeDestination;
 }
+
+/** Where a job's episodes go. */
+export type EncodeDestination = 'folder' | 'nas';
 
 /** A profile: a name and the settings it stands for. */
 export interface Profile {
@@ -52,6 +60,7 @@ export const DEFAULT_SETTINGS: EncodeSettings = {
   pgs: true,
   web: false,
   namePattern: 'episode-{n}',
+  destination: 'folder',
 };
 
 /** What a profile call is refused for: an HTTP status, a code the page tests, and the field at fault when there is one. */
@@ -135,7 +144,9 @@ export function parseSettings(value: unknown): EncodeSettings {
       throw bad('extraSvtArgs', `${option} is set by the encoder (from the fields above or the pipeline), so it cannot be an extra argument.`);
     }
   }
-  return { crf, preset, filmGrain, extraSvtArgs: [...(args as string[])], opusBitrate, pgs: s.pgs, web: s.web, namePattern };
+  const destination = s.destination ?? 'folder';
+  if (destination !== 'folder' && destination !== 'nas') throw bad('destination', 'The destination must be "folder" or "nas".');
+  return { crf, preset, filmGrain, extraSvtArgs: [...(args as string[])], opusBitrate, pgs: s.pgs, web: s.web, namePattern, destination };
 }
 
 function parseName(value: unknown): string {

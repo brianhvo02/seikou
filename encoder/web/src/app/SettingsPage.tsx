@@ -27,6 +27,7 @@ export const STARTING_SETTINGS: EncodeSettings = {
   pgs: true,
   web: false,
   namePattern: 'episode-{n}',
+  destination: 'folder',
 };
 
 /** The settings as one line of plain words, for a profile's row. */
@@ -56,6 +57,8 @@ interface Draft {
   web: boolean;
   namePattern: string;
   extraSvtArgs: string;
+  /** Kept as the profile has it; the profile editor offers no choice of it yet. */
+  destination: EncodeSettings['destination'];
 }
 
 function draftOf(name: string, s: EncodeSettings): Draft {
@@ -69,6 +72,7 @@ function draftOf(name: string, s: EncodeSettings): Draft {
     web: s.web,
     namePattern: s.namePattern,
     extraSvtArgs: s.extraSvtArgs.join(' '),
+    destination: s.destination,
   };
 }
 
@@ -83,6 +87,7 @@ function settingsOf(d: Draft): EncodeSettings {
     pgs: d.pgs,
     web: d.web,
     namePattern: d.namePattern,
+    destination: d.destination,
   };
 }
 
