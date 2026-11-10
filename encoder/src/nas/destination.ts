@@ -63,16 +63,20 @@ export async function checkNasDestination(o: {
   playlistId: string;
   episodeSpec: string;
   chapters: number;
+  /** The 1-based episodes to encode, when not all: the others are not checked and not in `pairs`. */
+  only?: readonly number[];
 }): Promise<{ pairs: EpisodeTitle[]; reachable: boolean }> {
-  const found = await episodeTitles(o.dataDir, o.discKey, o.playlistId, o.episodeSpec, o.chapters);
-  const missing = found.flatMap((p, i) => (p === null ? [i + 1] : []));
+  const all = await episodeTitles(o.dataDir, o.discKey, o.playlistId, o.episodeSpec, o.chapters);
+  const numbers = all.map((_, i) => i + 1).filter((n) => o.only === undefined || o.only.includes(n));
+  const found = numbers.map((n) => all[n - 1]!);
+  const missing = found.flatMap((p, i) => (p === null ? [numbers[i]!] : []));
   if (missing.length > 0) {
     const who = missing.length === 1 ? `Episode ${missing[0]!} needs` : `Episodes ${missing.join(', ')} need`;
     throw new NasDestinationError('nas-needs-title', `${who} a title and number before they can go to the NAS. Set them on the Episodes page.`, missing);
   }
   const pairs = found as EpisodeTitle[];
   const keys = pairs.map(uploadNameOf);
-  const shared = keys.flatMap((k, i) => (keys.indexOf(k) !== keys.lastIndexOf(k) ? [i + 1] : []));
+  const shared = keys.flatMap((k, i) => (keys.indexOf(k) !== keys.lastIndexOf(k) ? [numbers[i]!] : []));
   if (shared.length > 0) {
     throw new NasDestinationError(
       'nas-duplicate-episodes',

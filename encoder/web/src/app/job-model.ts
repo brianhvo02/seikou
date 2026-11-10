@@ -13,6 +13,11 @@ export function episodeFraction(episode: JobEpisode, progress?: JobProgress): nu
   return Math.min(1, done / frames);
 }
 
+/** How many of the job's episodes it encodes: those it was not queued without. */
+export function encodedCount(job: Job): number {
+  return job.episodes.filter((e) => e.skipped !== true).length;
+}
+
 /** The episode being encoded now, or null. */
 export function runningEpisode(job: Job): JobEpisode | null {
   return job.episodes.find((e) => e.state === 'running') ?? null;
@@ -20,9 +25,10 @@ export function runningEpisode(job: Job): JobEpisode | null {
 
 /** The share of the whole job that is done, from 0 to 100, every episode counting the same. */
 export function overallPercent(job: Job, progress?: JobProgress): number {
-  if (job.episodes.length === 0) return job.state === 'done' ? 100 : 0;
-  const sum = job.episodes.reduce((n, e) => n + episodeFraction(e, progress), 0);
-  return Math.floor((sum / job.episodes.length) * 100);
+  const counted = job.episodes.filter((e) => e.skipped !== true);
+  if (counted.length === 0) return job.state === 'done' ? 100 : 0;
+  const sum = counted.reduce((n, e) => n + episodeFraction(e, progress), 0);
+  return Math.floor((sum / counted.length) * 100);
 }
 
 /**
@@ -77,6 +83,7 @@ export function formatBytesOf(done: number, total: number): string {
  * "Encoded · upload waits for the NAS", "Upload failed: <reason>", or the plain states.
  */
 export function episodeStatus(job: Job, episode: JobEpisode): string {
+  if (episode.skipped === true) return 'Already encoded';
   switch (episode.state) {
     case 'queued':
       return 'Waiting';

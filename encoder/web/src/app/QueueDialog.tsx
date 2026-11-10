@@ -13,9 +13,11 @@ import { Link, navigate, routeHref } from './router';
 import { profileSummary, STARTING_SETTINGS } from './SettingsPage';
 
 /** What the dialog needs: the backend client and what the route named. */
-export interface QueueDialogProps {
+export interface SingleQueueProps {
   /** The backend client. */
   readonly api: AppApi;
+  /** No batch: this dialog queues the one encode its route named. */
+  readonly batch?: undefined;
   /** The library disc. */
   readonly discKey: string;
   /** Five-digit name of the playlist. */
@@ -27,6 +29,25 @@ export interface QueueDialogProps {
   /** The profile to start with, by id; the first profile when left out or unknown. */
   readonly profile?: string | undefined;
 }
+
+/** One job of a batch: a disc's playlist and episode list, and the 1-based episodes of it still to encode. */
+export interface BatchJob {
+  readonly discKey: string;
+  readonly playlistId: string;
+  readonly episodeSpec: string;
+  readonly only: readonly number[];
+}
+
+/** A batch: the jobs a season's Queue made, queued in order with one profile to the NAS's Encodes library. */
+export interface BatchQueueProps {
+  readonly api: AppApi;
+  readonly batch: readonly BatchJob[];
+  /** The profile to start with, by id; the first profile when left out or unknown. */
+  readonly profile?: string | undefined;
+}
+
+/** What the dialog takes: the one encode its route named, or a batch. */
+export type QueueDialogProps = SingleQueueProps | BatchQueueProps;
 
 interface Loaded {
   readonly label: string | null;
@@ -94,7 +115,7 @@ const text = (v: unknown, fallback: string): string => (typeof v === 'string' ? 
  * when the saved subtitle choices are for another episode list the alert says both lists and offers to encode without
  * subtitles or to open the helper for this list.
  */
-export function QueueDialog({ api, discKey, playlistId, spec, noSubtitles: startNoSubtitles, profile: startProfile }: QueueDialogProps) {
+function SingleQueueDialog({ api, discKey, playlistId, spec, noSubtitles: startNoSubtitles, profile: startProfile }: SingleQueueProps) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [profileId, setProfileId] = useState('default');
@@ -479,4 +500,170 @@ export function QueueDialog({ api, discKey, playlistId, spec, noSubtitles: start
       </form>
     </main>
   );
+}
+
+/** What a batch shows of one of its jobs. */
+type BatchResult = { readonly state: 'queued' } | { readonly state: 'refused'; readonly message: string };
+
+/** The episodes a batch job encodes, as a phrase: "Episode 3", "Episodes 2 and 3". */
+const batchEpisodes = (only: readonly number[]): string => episodesPhrase(only);
+
+/**
+ * Queues a batch of jobs, one per disc, with one settings profile and the NAS's Encodes library as the destination.
+ * The jobs go in order; a refusal is shown beside the disc it belongs to and the rest are still queued. What was
+ * refused can be tried again once its cause is fixed.
+ */
+function BatchQueueDialog({ api, batch, profile: startProfile }: BatchQueueProps) {
+  const [loaded, setLoaded] = useState<{ profiles: readonly Profile[]; labels: ReadonlyMap<string, string>; nas: NasStatus | null } | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [profileId, setProfileId] = useState('default');
+  const [results, setResults] = useState<ReadonlyMap<number, BatchResult>>(new Map());
+  const [busy, setBusy] = useState(false);
+  useDocumentTitle('Queue encodes · Seikou encoder');
+
+  useEffect(() => {
+    let live = true;
+    Promise.all([
+      api.library(),
+      api.profiles().then(
+        (p) => (p.length > 0 ? p : FALLBACK_PROFILES),
+        () => FALLBACK_PROFILES,
+      ),
+      api.nas().then(
+        (n): NasStatus | null => n,
+        () => null,
+      ),
+    ]).then(
+      ([library, profiles, nas]) => {
+        if (!live) return;
+        setLoaded({ profiles, labels: new Map(library.discs.map((d) => [d.key, d.label])), nas });
+        setProfileId((profiles.find((p) => p.id === startProfile) ?? profiles[0])?.id ?? 'default');
+      },
+      (e: unknown) => {
+        if (live) setLoadError(e instanceof Error ? e.message : String(e));
+      },
+    );
+    return () => {
+      live = false;
+    };
+  }, [api, startProfile]);
+
+  if (loadError !== null) {
+    return (
+      <main className="content wide">
+        <p className="error" role="alert">
+          {loadError}
+        </p>
+        <p>
+          <Link to={{ kind: 'library' }}>Back to the library</Link>
+        </p>
+      </main>
+    );
+  }
+  if (loaded === null) {
+    return (
+      <main className="content wide">
+        <p className="muted">Reading the discs…</p>
+      </main>
+    );
+  }
+
+  const profile = loaded.profiles.find((p) => p.id === profileId) ?? loaded.profiles[0];
+  const paired = loaded.nas?.paired === true ? loaded.nas : null;
+  const encodesOff = paired?.encodes === 'not-configured';
+  const labelOf = (job: BatchJob): string => loaded.labels.get(job.discKey) ?? 'A disc';
+  const waiting = batch.flatMap((_, i) => (results.get(i)?.state === 'queued' ? [] : [i]));
+  const refused = batch.filter((_, i) => results.get(i)?.state === 'refused').length;
+
+  const run = async (): Promise<void> => {
+    if (profile === undefined || paired === null) return;
+    setBusy(true);
+    const settings = { ...profile.settings, web: false, destination: 'nas' as const };
+    const next = new Map(results);
+    for (const i of waiting) {
+      const job = batch[i]!;
+      try {
+        await api.createJob({ discKey: job.discKey, playlistId: job.playlistId, episodeSpec: job.episodeSpec, only: job.only, settings, outDir: '', noSubtitles: false });
+        next.set(i, { state: 'queued' });
+      } catch (e) {
+        next.set(i, { state: 'refused', message: e instanceof Error ? e.message : String(e) });
+      }
+      setResults(new Map(next));
+    }
+    setBusy(false);
+    if (batch.every((_, i) => next.get(i)?.state === 'queued')) navigate(routeHref({ kind: 'queue' }, location.search));
+  };
+
+  const count = waiting.length;
+  return (
+    <main className="content wide queue-dialog">
+      <p className="crumb">
+        <Link to={{ kind: 'library' }}>Library</Link>
+      </p>
+      <h1 className="page-title disc-title">Queue {batch.length === 1 ? 'an encode' : `${batch.length} encodes`}</h1>
+      <p className="muted">Each goes to the NAS's Encodes library with the same settings, one after another.</p>
+      <ol className="episode-summary" aria-label="Encodes to queue">
+        {batch.map((job, i) => {
+          const result = results.get(i);
+          return (
+            <li key={`${job.discKey}:${job.playlistId}`} className={result?.state === 'refused' ? 'queue-batch-refused' : undefined}>
+              <span className="episode-name">{labelOf(job)}</span>
+              <span className="num">{batchEpisodes(job.only)}</span>
+              {result === undefined && <span className="muted">Not queued yet</span>}
+              {result?.state === 'queued' && <span className="muted">Queued</span>}
+              {result?.state === 'refused' && (
+                <span className="error" role="alert">
+                  {labelOf(job)} was refused: {result.message}
+                </span>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+      <form
+        className="queue-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void run();
+        }}
+      >
+        <div className="field">
+          <label className="field-label" htmlFor="queue-profile">
+            Settings profile
+          </label>
+          <select id="queue-profile" value={profileId} disabled={busy} onChange={(e) => setProfileId(e.target.value)}>
+            {loaded.profiles.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          {profile !== undefined && <span className="hint">{profileSummary(profile.settings)}</span>}
+        </div>
+        {paired === null && (
+          <p className="warn">
+            Pair with your NAS in <Link to={{ kind: 'settings' }}>Settings</Link> first.
+          </p>
+        )}
+        {encodesOff && <p className="warn">The NAS has no encodes folder: ENCODES_MOUNT isn't set in its .env.</p>}
+        {paired !== null && !paired.reachable && <p className="warn">The NAS isn't answering right now. The encodes are queued anyway and wait for it.</p>}
+        <div className="form-actions">
+          <button type="submit" className="primary" disabled={busy || profile === undefined || paired === null || encodesOff || count === 0}>
+            {busy ? 'Queueing…' : refused > 0 ? `Queue the ${count} left` : `Queue ${count === 1 ? 'encode' : `${count} encodes`}`}
+          </button>
+          <Link to={{ kind: 'library' }} className="quiet-link">
+            Back to the library
+          </Link>
+        </div>
+      </form>
+    </main>
+  );
+}
+
+/**
+ * The page that queues encodes: one the route named (`SingleQueueDialog`), or with `batch` the jobs a season's Queue
+ * made (`BatchQueueDialog`).
+ */
+export function QueueDialog(props: QueueDialogProps) {
+  return props.batch !== undefined ? <BatchQueueDialog api={props.api} batch={props.batch} profile={props.profile} /> : <SingleQueueDialog {...props} />;
 }

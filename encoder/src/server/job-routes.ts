@@ -208,7 +208,7 @@ const serveSample: Route = async (req, res, match, app) => {
  * The job routes:
  *
  *   GET /api/jobs                    `{ jobs: Job[] }`, oldest first
- *   POST /api/jobs                   body `{ kind?, discKey, playlistId, episodeSpec, settings, outDir, noSubtitles? }`
+ *   POST /api/jobs                   body `{ kind?, discKey, playlistId, episodeSpec, only?, settings, outDir, noSubtitles? }`
  *                                    (`outDir` ignored when `settings.destination` is `nas`), or
  *                                    for a test `{ kind: 'test', discKey, playlistId, episodeSpec, profiles }` with one to
  *                                    three `{ id, name, settings }`; 201 with the Job, or 200 with the Job and
@@ -254,6 +254,7 @@ export const jobRoutes: RouteTable = [
           discKey: body.discKey,
           playlistId: body.playlistId,
           episodeSpec: body.episodeSpec,
+          only: body.only,
           settings: body.settings,
           profiles: body.profiles,
           outDir: body.outDir,

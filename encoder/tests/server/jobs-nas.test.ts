@@ -374,6 +374,28 @@ describe('a NAS job', () => {
     expect([failed.state, failed.error, failed.episodes[0]!.error]).toEqual(['failed', said, said]);
   });
 
+  it('with `only`, checks, fetches, encodes and uploads just those episodes', async () => {
+    const runner = startJobRunner(fx.app, deps());
+    await runner.ready;
+    // episode 1 has no title, and would share episode 2's number if it had one: neither matters, since it is skipped
+    await new EpisodeInfoStore(fx.dataDir).save(nasKey, '00000', {
+      chapterNames: {},
+      titles: { '4': { title: { source: 'anilist', anilistId: SHOW }, episode: 2, name: null } },
+    });
+    const all = await runner.add(input()).catch((e: unknown) => e);
+    expect([(all as JobError).code, (all as JobError).extra.episodes]).toEqual(['nas-needs-title', [1]]);
+    const job = await runner.add(input({ only: [2] }));
+    expect(job.episodes.map((e) => [e.state, e.skipped])).toEqual([['done', true], ['queued', undefined]]);
+    await until(() => ['done', 'failed'].includes(runner.get(job.id)!.state), 'the job to end');
+    const done = runner.get(job.id)!;
+    expect([done.state, done.error]).toEqual(['done', undefined]);
+    expect(done.episodes.map((e) => [e.state, e.encodeId, e.skipped])).toEqual([['done', undefined, true], ['done', `${SHOW}-2`, undefined]]);
+    expect(seen.map((s) => s.episode)).toEqual([2]);
+    expect(mirrorState().whole).not.toContain('00001.M2TS');
+    expect(existsSync(join(nas.encodesDir!, `${SHOW}/2.mkv`))).toBe(true);
+    expect(existsSync(join(nas.encodesDir!, `${SHOW}/1.mkv`))).toBe(false);
+  });
+
   it('queueing refuses episodes without AniList, duplicate pairs, and an unpaired app', async () => {
     const runner = startJobRunner(fx.app, deps());
     await runner.ready;

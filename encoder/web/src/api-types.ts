@@ -557,6 +557,8 @@ export interface JobEpisode {
   readonly upload?: JobUploadState;
   /** The NAS's id of the uploaded episode (`<anilistId>-<episode>`). */
   readonly encodeId?: string;
+  /** True for an episode the job was queued without (`Job.only`): already encoded elsewhere, never fetched or encoded. */
+  readonly skipped?: true;
 }
 
 /** A queued encode or test, as `GET /api/jobs` answers it. */
@@ -571,6 +573,8 @@ export interface Job {
   readonly playlist: string;
   /** The episode list as it was given. */
   readonly episodeSpec: string;
+  /** The 1-based episodes of the list this job encodes, when it was queued for only some of them. */
+  readonly only?: readonly number[];
   /** The settings the job was queued with. */
   readonly settings: EncodeSettings;
   /** The absolute folder the episodes are written to. */
@@ -679,6 +683,8 @@ export interface NewJob {
   readonly playlistId: string;
   /** The episode list. */
   readonly episodeSpec: string;
+  /** The 1-based episodes of the list to encode; the rest are skipped. Every episode when left out. */
+  readonly only?: readonly number[];
   /** The settings: a copy of a profile's. */
   readonly settings: EncodeSettings;
   /** The absolute output folder. */

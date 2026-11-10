@@ -16,6 +16,7 @@ import {
   stateLabel,
   takeReplacesFilesNotice,
   waitingText,
+  encodedCount,
 } from './job-model';
 import { useJobs, useJobsStore } from './jobs-context';
 import { useDocumentTitle } from './place';
@@ -53,7 +54,7 @@ function JobRow({ job, progress }: { readonly job: Job; readonly progress: JobPr
         <span className="job-name">{job.disc.label}</span>
         <StateMark job={job} />
         <span className="muted job-meta">
-          {test ? 'Test encode' : `Playlist ${job.playlist}, ${episodesText(job.episodes.length)}`}
+          {test ? 'Test encode' : `Playlist ${job.playlist}, ${episodesText(encodedCount(job))}`}
           {job.state === 'running' && !test && <> , {overallPercent(job, progress)}%</>}
           {job.waiting !== null && <span className="warn">, {job.waiting.charAt(0).toLowerCase() + job.waiting.slice(1)}</span>}
         </span>
@@ -73,9 +74,9 @@ function EpisodeRow({ job, episode, progress }: { readonly job: Job; readonly ep
       <div className="episode-row-head">
         <span className="episode-name">Episode {episode.index}</span>
         <span className={episode.state === 'upload-failed' ? 'error episode-status' : 'muted episode-status'}>{status}</span>
-        <span className="num episode-percent">{percent}%</span>
+        {episode.skipped !== true && <span className="num episode-percent">{percent}%</span>}
       </div>
-      <progress max={100} value={percent} aria-label={`Episode ${episode.index}`} />
+      {episode.skipped !== true && <progress max={100} value={percent} aria-label={`Episode ${episode.index}`} />}
       {live !== undefined && (
         <p className="muted num episode-speed">
           {live.fps !== null && formatFps(live.fps)}
@@ -239,7 +240,8 @@ function JobView({ api, job }: { readonly api: AppApi; readonly job: Job }) {
         <StateMark job={job} />
       </div>
       <p className="muted">
-        {test ? 'Test encode' : <>Playlist <span className="num">{job.playlist}</span>, {episodesText(job.episodes.length)} (<span className="num">{job.episodeSpec}</span>)</>}
+        {test ? 'Test encode' : <>Playlist <span className="num">{job.playlist}</span>, {episodesText(encodedCount(job))} (<span className="num">{job.episodeSpec}</span>)
+            {encodedCount(job) < job.episodes.length && <>, {job.episodes.length - encodedCount(job)} already encoded</>}</>}
         {job.noSubtitles && !test && ', without subtitles'}
         {sendsToNas(job) && !test && ', to the NAS (Encodes library)'}
       </p>

@@ -73,6 +73,8 @@ export interface JobEpisode {
   upload?: UploadState;
   /** The NAS's id of the uploaded episode (`<encode id>`). */
   encodeId?: string;
+  /** True for an episode the job was queued without (`Job.only`): created `done`, never fetched, encoded or uploaded. */
+  skipped?: true;
 }
 
 /** One queued encode or test, as `jobs.json` keeps it and the job routes answer it. */
@@ -90,6 +92,11 @@ export interface Job {
   readonly playlist: string;
   /** The episode list as it was given. */
   readonly episodeSpec: string;
+  /**
+   * The 1-based episodes of `episodeSpec` the job encodes, when it was queued for only some of them (the rest are
+   * `skipped`); absent when it encodes them all. The subtitle record still covers the whole `episodeSpec`.
+   */
+  readonly only?: readonly number[];
   /** The job's own copy of the settings it was queued with. */
   readonly settings: EncodeSettings;
   /** The absolute folder the episodes are written to (for a test, `<data>/tests/<id>`; for the NAS, `<data>/nas-out/<id>`). */
@@ -139,6 +146,11 @@ export interface JobInput {
   readonly playlistId: unknown;
   /** The episode list. */
   readonly episodeSpec: unknown;
+  /**
+   * The 1-based episodes of the list to encode (a non-empty list of distinct numbers within it); the others are
+   * skipped. The saved subtitle record is still checked against the whole list. Absent: every episode. Ignored for a test.
+   */
+  readonly only?: unknown;
   /** The settings (see `parseSettings`); ignored for a test job, which takes its first profile's. */
   readonly settings?: unknown;
   /** A test job's one to three profiles, each `{ id, name, settings }` (see `parseTestProfiles`). */
@@ -268,6 +280,8 @@ export function jobCli(o: {
   outDir: string;
   noSubtitles: boolean;
   settings: EncodeSettings;
+  /** The episodes the job encodes when not all (the command has no such flag, so a comment names them). */
+  only?: readonly number[];
 }): string {
   const s = o.settings;
   const nas = s.destination === 'nas';
@@ -279,7 +293,8 @@ export function jobCli(o: {
   if (o.noSubtitles) words.push('--no-subtitles');
   if (!s.pgs) words.push('--no-pgs');
   if (s.web && !nas) words.push('--web', webDirOf(o.outDir));
-  return words.map(shellWord).join(' ');
+  const command = words.map(shellWord).join(' ');
+  return o.only === undefined ? command : `${command} # the app encodes only episodes ${o.only.join(', ')}`;
 }
 
 /** The folder a NAS job's episodes are written to until the NAS has them: `<data>/nas-out/<jobId>`. */
@@ -390,6 +405,7 @@ function parseStoredJob(value: unknown): Job {
     if (path !== undefined) out.path = path;
     if (error !== undefined) out.error = error;
     if (encodeId !== undefined) out.encodeId = encodeId;
+    if (ep.skipped === true) out.skipped = true;
     if (ep.upload !== undefined) out.upload = parseUploadState(ep.upload);
     return out;
   });
@@ -399,6 +415,7 @@ function parseStoredJob(value: unknown): Job {
     disc: { key: str(disc.key, 'disc key'), label: str(disc.label, 'disc label'), dir: str(disc.dir, 'disc dir') },
     playlist: str(j.playlist, 'playlist'),
     episodeSpec: str(j.episodeSpec, 'episodeSpec'),
+    ...(j.only === undefined ? {} : { only: parseStoredOnly(j.only) }),
     settings: parseSettings(j.settings),
     outDir,
     noSubtitles: j.noSubtitles === true,
@@ -416,6 +433,17 @@ function parseStoredJob(value: unknown): Job {
     if (v !== undefined) job[key] = v;
   }
   return job;
+}
+
+/** Checks a stored `only` list; throws on anything but a non-empty list of distinct positive whole numbers. */
+function parseStoredOnly(value: unknown): number[] {
+  if (!Array.isArray(value) || value.length === 0) throw new Error('job only is not a list');
+  const seen = new Set<number>();
+  for (const n of value) {
+    if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 1 || seen.has(n)) throw new Error('bad job only');
+    seen.add(n);
+  }
+  return value as number[];
 }
 
 /** Checks a stored upload state; throws on anything this runner did not write. */
@@ -726,7 +754,20 @@ export class JobRunner {
       if (e instanceof EpisodeSpecError) throw new JobError(400, 'bad-episode-spec', e.message);
       throw e;
     }
-    if (toNas) await this.checkNasDestination(disc.key, playlistId, episodeSpec, chapters);
+    let only: number[] | undefined;
+    if (kind === 'encode' && input.only !== undefined) {
+      const list = input.only;
+      const bad = (): JobError => new JobError(400, 'bad-request', `only must list distinct episode numbers from 1 to ${episodeCount}, at least one.`);
+      if (!Array.isArray(list) || list.length === 0) throw bad();
+      const seen = new Set<number>();
+      for (const n of list) {
+        if (typeof n !== 'number' || !Number.isSafeInteger(n) || n < 1 || n > episodeCount || seen.has(n)) throw bad();
+        seen.add(n);
+      }
+      only = [...seen].sort((a, b) => a - b);
+      if (only.length === episodeCount) only = undefined;
+    }
+    if (toNas) await this.checkNasDestination(disc.key, playlistId, episodeSpec, chapters, only);
     const id = randomBytes(8).toString('hex');
     let outDir: string;
     let warning: QueuedJob['warning'];
@@ -737,7 +778,7 @@ export class JobRunner {
       if (!noSubtitles) await this.checkRecord(disc.root, disc.key, playlistId, episodeSpec, chapters);
     } else {
       outDir = await this.checkOutputFolder(input.outDir, disc.root);
-      warning = await this.checkOutputInUse({ outDir, discKey: disc.key, playlistId, episodeSpec, chapters, namePattern: settings.namePattern });
+      warning = await this.checkOutputInUse({ outDir, discKey: disc.key, playlistId, episodeSpec, chapters, namePattern: settings.namePattern, only });
       if (!noSubtitles) await this.checkRecord(disc.root, disc.key, playlistId, episodeSpec, chapters);
     }
     await mkdir(outDir, { recursive: true });
@@ -748,6 +789,7 @@ export class JobRunner {
       disc: { key: disc.key, label: disc.label, dir: disc.root },
       playlist: playlistId,
       episodeSpec,
+      ...(only === undefined ? {} : { only }),
       settings,
       outDir,
       noSubtitles,
@@ -757,10 +799,13 @@ export class JobRunner {
       createdAt: this.iso(),
       episodes: Array.from(
         { length: test === undefined ? episodeCount : test.stretches.length * test.profiles.length },
-        (_, i): JobEpisode => ({ index: i + 1, state: 'queued', framesDone: 0, frames: 0, encoded: false, step: null, stepDone: 0, stepTotal: 0 }),
+        (_, i): JobEpisode =>
+          only !== undefined && !only.includes(i + 1)
+            ? { index: i + 1, state: 'done', framesDone: 0, frames: 0, encoded: false, step: null, stepDone: 0, stepTotal: 0, skipped: true }
+            : { index: i + 1, state: 'queued', framesDone: 0, frames: 0, encoded: false, step: null, stepDone: 0, stepTotal: 0 },
       ),
       recordSavedAt: null,
-      cli: kind === 'test' ? '' : jobCli({ discDir: disc.root, nasKey: onNas ? disc.key : null, playlistId, episodeSpec, outDir, noSubtitles, settings }),
+      cli: kind === 'test' ? '' : jobCli({ discDir: disc.root, nasKey: onNas ? disc.key : null, playlistId, episodeSpec, outDir, noSubtitles, settings, only }),
     };
     if (test !== undefined) job.test = test;
     this.jobs.push(job);
@@ -887,7 +932,7 @@ export class JobRunner {
     job.disc = { ...job.disc, dir: found };
     if (job.kind === 'encode') {
       const nasKey = (await isMirror(found)) ? job.disc.key : null;
-      job.cli = jobCli({ discDir: found, nasKey, playlistId: job.playlist, episodeSpec: job.episodeSpec, outDir: job.outDir, noSubtitles: job.noSubtitles, settings: job.settings });
+      job.cli = jobCli({ discDir: found, nasKey, playlistId: job.playlist, episodeSpec: job.episodeSpec, outDir: job.outDir, noSubtitles: job.noSubtitles, settings: job.settings, only: job.only });
     }
     this.appendLog(job, `The disc is now at ${found} (it was at ${from}).`);
   }
@@ -1037,6 +1082,7 @@ export class JobRunner {
     episodeSpec: string;
     chapters: number;
     namePattern: string;
+    only?: readonly number[];
   }): Promise<QueuedJob['warning']> {
     const real = await realPathOf(o.outDir);
     const usedFolders = new Set<string>();
@@ -1046,6 +1092,11 @@ export class JobRunner {
     for (const other of this.jobs) {
       if (other.kind !== 'encode' || !namesCollide(other.settings.namePattern, o.namePattern)) continue;
       if ((await realPathOf(other.outDir)) !== real) continue;
+      // names are made from the episode's number in its list, so the same list's different episodes never meet
+      if (other.disc.key === o.discKey && other.playlist === o.playlistId && sameListOrFalse(other.episodeSpec, o.episodeSpec, o.chapters)) {
+        const mine = new Set(o.only ?? Array.from({ length: other.episodes.length }, (_, i) => i + 1));
+        if (other.episodes.every((e) => e.skipped === true || !mine.has(e.index))) continue;
+      }
       if (other.disc.key === o.discKey && other.playlist === o.playlistId && sameListOrFalse(other.episodeSpec, o.episodeSpec, o.chapters)) {
         warning = 'replaces-files';
         continue;
@@ -1096,9 +1147,9 @@ export class JobRunner {
    * answering its refusals as 409 with their code (and `episodes`, when they name some). A NAS that does not answer is
    * no refusal: the job waits for it.
    */
-  private async checkNasDestination(discKey: string, playlistId: string, episodeSpec: string, chapters: number): Promise<void> {
+  private async checkNasDestination(discKey: string, playlistId: string, episodeSpec: string, chapters: number, only?: readonly number[]): Promise<void> {
     try {
-      await checkNasDestination({ dataDir: this.app.dataDir, client: this.app.nas.client, discKey, playlistId, episodeSpec, chapters });
+      await checkNasDestination({ dataDir: this.app.dataDir, client: this.app.nas.client, discKey, playlistId, episodeSpec, chapters, only });
     } catch (e) {
       throw asJobError(e);
     }
@@ -1295,7 +1346,7 @@ export class JobRunner {
       : await loadEncodeRecord({ discDir: job.disc.dir, playlistId: job.playlist, episodeSpec: job.episodeSpec, dataDir: this.app.dataDir, noSubtitles: false });
     const savedAt = record?.savedAt ?? null;
     if (!firstRun && savedAt !== job.recordSavedAt) {
-      for (const ep of job.episodes) this.resetEpisode(ep);
+      for (const ep of job.episodes) if (ep.skipped !== true) this.resetEpisode(ep);
       this.appendLog(job, 'The subtitle choices were saved again since the last run, so every episode is encoded again.');
     }
     job.recordSavedAt = savedAt;

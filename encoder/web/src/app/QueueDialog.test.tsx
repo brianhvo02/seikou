@@ -336,3 +336,52 @@ describe('QueueDialog', () => {
     });
   });
 });
+
+describe('QueueDialog with a batch', () => {
+  const keyB = `f.${'b'.repeat(32)}`;
+  const withTwo: LibraryAnswer = {
+    ...library,
+    nas: { paired: true, scanning: false, reachable: true },
+    discs: [...library.discs, { ...library.discs[0]!, key: keyB, label: 'LANTERN_HARBOR_D2', relPath: 'LANTERN_HARBOR_D2' }],
+  };
+  const batch = [
+    { discKey: key, playlistId: '00001', episodeSpec: '1-3,4-6', only: [2] },
+    { discKey: keyB, playlistId: '00002', episodeSpec: '1-3,4-6', only: [1, 2] },
+  ];
+  const paired: NasStatus = { paired: true, host: 'nas.example', personName: 'Owner', reachable: true, encodes: 'ready' } as unknown as NasStatus;
+
+  it('queues the jobs in order with one profile to the NAS, and goes on after a refusal', async () => {
+    const createJob = vi
+      .fn()
+      .mockResolvedValueOnce(makeJob({ id: 'bbbbbbbbbbbbbbbb' }))
+      .mockRejectedValueOnce(new ApiError(409, 'nas-needs-title', 'Episode 2 needs a title and number.', { episodes: [2] }));
+    const api = fakeApi({ library: vi.fn(async () => withTwo), nas: vi.fn(async () => paired), createJob });
+    render(<QueueDialog api={api} batch={batch} />);
+    await screen.findByText('LANTERN_HARBOR_D1');
+    fireEvent.change(screen.getByLabelText('Settings profile'), { target: { value: 'ab12' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Queue 2 encodes' }));
+    await waitFor(() => expect(createJob).toHaveBeenCalledTimes(2));
+    const nas = { ...small.settings, web: false, destination: 'nas' };
+    expect(createJob).toHaveBeenNthCalledWith(1, { discKey: key, playlistId: '00001', episodeSpec: '1-3,4-6', only: [2], settings: nas, outDir: '', noSubtitles: false });
+    expect(createJob).toHaveBeenNthCalledWith(2, { discKey: keyB, playlistId: '00002', episodeSpec: '1-3,4-6', only: [1, 2], settings: nas, outDir: '', noSubtitles: false });
+    expect((await screen.findByRole('alert')).textContent).toBe('LANTERN_HARBOR_D2 was refused: Episode 2 needs a title and number.');
+    // the page stays, and what is left can be tried again
+    expect(location.pathname).not.toBe('/queue');
+    expect(screen.getByRole('button', { name: 'Queue the 1 left' })).toBeTruthy();
+  });
+
+  it('goes to the queue once every job is queued', async () => {
+    const api = fakeApi({ library: vi.fn(async () => withTwo), nas: vi.fn(async () => paired) });
+    render(<QueueDialog api={api} batch={batch} />);
+    await screen.findByText('LANTERN_HARBOR_D1');
+    fireEvent.click(screen.getByRole('button', { name: 'Queue 2 encodes' }));
+    await waitFor(() => expect(location.pathname).toBe('/queue'));
+  });
+
+  it('cannot queue without a pairing', async () => {
+    render(<QueueDialog api={fakeApi({ library: vi.fn(async () => withTwo) })} batch={batch} />);
+    await screen.findByText('LANTERN_HARBOR_D1');
+    expect((screen.getByRole('button', { name: 'Queue 2 encodes' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+

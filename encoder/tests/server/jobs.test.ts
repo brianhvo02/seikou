@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { episodeName, type EncodeEvent, type EncodeOptions } from '../../src/encode';
 import { DEFAULT_SETTINGS, type EncodeSettings } from '../../src/server/profiles';
-import { JobRunner, jobCli, startJobRunner, type Job, type JobProgress, type JobRunnerDeps } from '../../src/server/jobs';
+import { JobError, JobRunner, jobCli, startJobRunner, type Job, type JobProgress, type JobRunnerDeps } from '../../src/server/jobs';
 import { safePathSegment } from '../../src/server/job-routes';
 import type { TestOutcome } from '../../src/server/test-encode';
 import { sessionsOf } from '../../src/server/sessions';
@@ -823,5 +823,82 @@ describe('GET /api/jobs/defaults', () => {
     expect(safePathSegment('  .hidden. ')).toBe('hidden');
     expect(safePathSegment('')).toBe('disc');
     expect(safePathSegment('x'.repeat(300)).length).toBe(100);
+  });
+});
+
+describe('a job for only some of the episodes', () => {
+  const THREE = '1-2,3-4,5';
+
+  it('keeps the saved record of the whole list, encodes only the wanted episodes and shows the rest as skipped', async () => {
+    await new RecordStore(fx.dataDir).write(record(THREE, 3, '2026-11-08T10:00:00.000Z'));
+    const runner = startJobRunner(fx.app, deps());
+    await runner.ready;
+    const job = await runner.add(input({ episodeSpec: THREE, noSubtitles: false, only: [3, 2] }));
+    expect(job.only).toEqual([2, 3]);
+    expect(job.episodes.map((e) => [e.index, e.state, e.skipped])).toEqual([[1, 'done', true], [2, 'queued', undefined], [3, 'queued', undefined]]);
+    expect(job.cli).toMatch(/--episodes 1-2,3-4,5 .*# the app encodes only episodes 2, 3$/);
+    const first = await fake.next();
+    // the episode keeps its number in the whole list, and the record is the whole list's
+    expect([first.episode, first.options.episodes, first.options.onlyEpisodes]).toEqual([2, THREE, [2]]);
+    expect(first.options.record?.episodeSpec).toBe(THREE);
+    expect(first.options.record?.episodes.map((e) => e.index)).toEqual([1, 2, 3]);
+    FakeEncoder.complete(first);
+    const second = await fake.next();
+    expect(second.episode).toBe(3);
+    FakeEncoder.complete(second);
+    await until(() => runner.get(job.id)!.state === 'done', 'job done');
+    expect(fake.calls.map((c) => c.episode)).toEqual([2, 3]);
+    const stored = JSON.parse(readFileSync(join(fx.dataDir, 'jobs.json'), 'utf8')) as { jobs: Job[] };
+    expect(stored.jobs[0]!.only).toEqual([2, 3]);
+    expect(stored.jobs[0]!.episodes[0]).toMatchObject({ index: 1, state: 'done', skipped: true });
+  });
+
+  it('survives a restart and is not encoded again by a retry', async () => {
+    const runner = startJobRunner(fx.app, deps());
+    await runner.ready;
+    const job = await runner.add(input({ only: [2] }));
+    const call = await fake.next();
+    call.reject(new Error('encoder crashed'));
+    await until(() => runner.get(job.id)!.state === 'failed', 'failed');
+    expect(JSON.parse(readFileSync(join(fx.dataDir, 'jobs.json'), 'utf8')).jobs[0].only).toEqual([2]);
+    await runner.retry(job.id);
+    const again = await fake.next();
+    expect(again.episode).toBe(2);
+    expect(runner.get(job.id)!.episodes[0]).toMatchObject({ state: 'done', skipped: true });
+  });
+
+  it('refuses an empty list, a repeated number, one outside the list, and a non-list with 400 bad-request', async () => {
+    const runner = startJobRunner(fx.app, deps());
+    await runner.ready;
+    for (const only of [[], [1, 1], [0], [4], [1.5], ['1'], 2]) {
+      const err = (await runner.add(input({ episodeSpec: THREE, only })).catch((e: unknown) => e)) as JobError;
+      expect([JSON.stringify(only), err.status, err.code]).toEqual([JSON.stringify(only), 400, 'bad-request']);
+    }
+    expect(runner.list()).toEqual([]);
+    const refused = await post({ discKey: fx.discKey, playlistId: '00000', episodeSpec: THREE, only: [9], settings: settings(), outDir: join(outRoot, 'x'), noSubtitles: true });
+    expect(refused.status).toBe(400);
+  });
+
+  it('all episodes listed is the same as no list', async () => {
+    const runner = startJobRunner(fx.app, deps());
+    await runner.ready;
+    const job = await runner.add(input({ episodeSpec: THREE, only: [1, 2, 3] }));
+    expect(job.only).toBeUndefined();
+    expect(job.episodes.every((e) => e.skipped === undefined)).toBe(true);
+  });
+
+  it('episodes it skips do not count toward output-in-use', async () => {
+    const runner = startJobRunner(fx.app, deps());
+    await runner.ready;
+    const a = await runner.add(input({ episodeSpec: THREE, only: [1] }));
+    // another episode of the same list into the same folder makes other file names
+    const b = await runner.add(input({ episodeSpec: THREE, only: [2, 3] }));
+    expect(b.warning).toBeUndefined();
+    // the same episode again is a re-encode
+    const c = await runner.add(input({ episodeSpec: THREE, only: [1] }));
+    expect(c.warning).toBe('replaces-files');
+    // another disc's episodes with the same names are refused
+    await expect(runner.add(input({ episodeSpec: '1-2,3-5', only: [1] }))).rejects.toMatchObject({ code: 'output-in-use' });
+    expect(a.id).not.toBe(b.id);
   });
 });
