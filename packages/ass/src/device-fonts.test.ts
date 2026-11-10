@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { deviceFaceInfo, localNames, type DeviceFontSource } from './device-fonts';
 import { readFontFile } from './font-tables';
 import { AssFonts, type FontRequest } from './fonts';
@@ -106,6 +106,51 @@ describe('device fonts', () => {
     expect(f.hasPending()).toBe(false);
     expect(f.resolve(req('Arial')).fallback).toBe(true);
     expect(f.missingFamilies()).toEqual(['Arial']);
+  });
+
+  it('never asks for the bundled default family, so its lines keep the bundled face', async () => {
+    const { source, asked } = fakeDevice({ 'dejavu sans': ['regular'] });
+    const f = await fonts(source);
+    f.resolve(req('dejavu sans'));
+    await f.ready();
+    expect(asked).toEqual([]);
+    expect(f.resolve(req('DejaVu Sans')).face.postscriptName).toBe('DejaVuSans');
+  });
+
+  it('looks up at most 32 families; later ones take the default and are reported missing', async () => {
+    const families = Array.from({ length: 34 }, (_, i) => `Family ${i}`);
+    const { source, asked } = fakeDevice(Object.fromEntries(families.map((n) => [n.toLowerCase(), ['regular'] as const])));
+    const f = await fonts(source);
+    for (const n of families) f.resolve(req(n));
+    await f.ready();
+    expect(asked).toHaveLength(32 * 4);
+    expect(f.resolve(req('Family 31')).fallback).toBe(false);
+    expect(f.resolve(req('Family 32')).fallback).toBe(true);
+    expect(f.missingFamilies()).toEqual(['Family 32', 'Family 33']);
+  });
+
+  it('counts a lookup that takes over 3 s as a miss, and unloads a face that arrives after', async () => {
+    vi.useFakeTimers();
+    try {
+      let late: (m: { ascent: number; descent: number }) => void = () => {};
+      const unloaded: string[] = [];
+      const source: DeviceFontSource = {
+        load: (_css, names) => (names[0] === 'Stuck' ? new Promise((r) => { late = r; }) : new Promise(() => {})),
+        unload: (css) => { unloaded.push(css); },
+      };
+      const f = await fonts(source);
+      f.resolve(req('Stuck'));
+      const ready = f.ready();
+      await vi.advanceTimersByTimeAsync(3000);
+      await ready;
+      expect(f.resolve(req('Stuck')).fallback).toBe(true);
+      expect(f.missingFamilies()).toEqual(['Stuck']);
+      late({ ascent: 0.9, descent: 0.2 });
+      await vi.runAllTimersAsync();
+      expect(unloaded).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('unloads the device faces on dispose', async () => {

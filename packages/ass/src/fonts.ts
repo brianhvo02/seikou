@@ -13,7 +13,7 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later AND ISC
  */
 
-import { DEVICE_STYLES, deviceFaceInfo, localNames, type DeviceFontSource } from './device-fonts';
+import { DEVICE_STYLES, deviceFaceInfo, localNames, type DeviceFaceMetrics, type DeviceFontSource } from './device-fonts';
 import { extractFace, FontFileError, readFontFile, type FaceInfo, type FontFile } from './font-tables';
 
 /** ASS_FontDesc: `bold` is a weight (ass_update_font maps \b1 to 700, \b0 to 400), `italic` 0 or 100 (or the \i value). */
@@ -39,6 +39,10 @@ export interface FontLoader {
 }
 
 const DEFAULT_FAMILY = 'DejaVu Sans';
+/** Device fonts: families looked up per AssFonts at most; later ones take the default font and are reported missing. */
+const MAX_DEVICE_FAMILIES = 32;
+/** Device fonts: a style's lookup that takes longer counts as a miss, so a stuck local() load can't hold lines back. */
+const DEVICE_LOOKUP_TIMEOUT_MS = 3000;
 const ITALIC_SHEAR_TT = 0x05700 / 0x10000;
 const ITALIC_SHEAR_PS = 0x02d24 / 0x10000;
 
@@ -189,7 +193,11 @@ export class AssFonts {
     const key = lower(family);
     const known = this.deviceFaces.get(key);
     if (known !== undefined) return known;
-    if (this.device && !this.probing.has(key)) this.probing.set(key, this.lookUp(this.device, family, key));
+    // the bundled default's own family keeps the bundled face, exactly
+    if (this.defaultEntry.face.families.some((n) => lower(n) === key)) return null;
+    if (this.device && !this.probing.has(key) && this.deviceFaces.size + this.probing.size < MAX_DEVICE_FAMILIES) {
+      this.probing.set(key, this.lookUp(this.device, family, key));
+    }
     return null;
   }
 
@@ -198,7 +206,7 @@ export class AssFonts {
     const found = await Promise.all(DEVICE_STYLES.map(async (style): Promise<Entry | null> => {
       const uid = this.nextUid++;
       const cssFamily = `assd-${uid}`;
-      const m = await device.load(cssFamily, localNames(family, style)).catch(() => null);
+      const m = await this.loadInTime(device, cssFamily, localNames(family, style));
       return m ? { face: deviceFaceInfo(family, style, m), file: null, uid, cssFamily } : null;
     }));
     const entries = found.filter((e): e is Entry => e !== null);
@@ -214,6 +222,25 @@ export class AssFonts {
       this.deviceCss.add(e.cssFamily!);
     }
     if (entries.length) this.reselect = true;
+  }
+
+  /** Device fonts: one style's lookup, null after DEVICE_LOOKUP_TIMEOUT_MS; a face that arrives later is unloaded. */
+  private loadInTime(device: DeviceFontSource, cssFamily: string, names: readonly string[]): Promise<DeviceFaceMetrics | null> {
+    return new Promise((resolve) => {
+      let timedOut = false;
+      const timer = setTimeout(() => {
+        timedOut = true;
+        resolve(null);
+      }, DEVICE_LOOKUP_TIMEOUT_MS);
+      device.load(cssFamily, names).then((m) => {
+        clearTimeout(timer);
+        if (timedOut && m) device.unload(cssFamily);
+        resolve(m);
+      }, () => {
+        clearTimeout(timer);
+        resolve(null);
+      });
+    });
   }
 
   /** Device fonts: find_font's scoring among a family's installed faces (they cover every character). */

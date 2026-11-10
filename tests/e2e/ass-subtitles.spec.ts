@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { ASS_OVER_BUDGET_SHARE, collectWindows, expectInSync } from './telemetry';
+import { renamedFont } from './font-rename';
 import { CHROME_ONLY, setFolder, skipWithoutH264 } from './support';
 
 test.skip(({ browserName, isMobile }) => browserName !== 'chromium' || isMobile, CHROME_ONLY);
@@ -101,14 +102,16 @@ test('loads an ASS file and its fonts dropped on the player', async ({ page }) =
   expect(t.ass?.events).toBe(2);
 });
 
-test('names a missing family, and Add fonts… clears it', async ({ page }) => {
+test('names a missing family, and Add fonts… clears it', async ({ page }, testInfo) => {
+  // a made-up family no device has installed (an installed one is now drawn from the device and not missing)
+  const font = renamedFont(`${FONTS}/DejaVuSerif.ttf`, testInfo.outputPath('StarfallPen.ttf'), [['DejaVu Serif', 'Starfall Pen'], ['DejaVuSerif', 'StarfallPen']]);
   await play(page);
   await pick(page, 'subtitle-load', [`${FX}/missing-font.ass`]);
-  await expect(page.getByRole('status').filter({ hasText: 'Some fonts are missing and were replaced: DejaVu Serif' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Some fonts are missing and were replaced: Starfall Pen' })).toBeVisible();
   await openMenu(page);
-  await expect(page.getByTestId('subtitle-missing-fonts')).toHaveText('Missing fonts: DejaVu Serif');
+  await expect(page.getByTestId('subtitle-missing-fonts')).toHaveText('Missing fonts: Starfall Pen');
   await page.keyboard.press('Escape');
-  await pick(page, 'subtitle-add-fonts', [`${FONTS}/DejaVuSerif.ttf`]);
+  await pick(page, 'subtitle-add-fonts', [font]);
   await openMenu(page);
   await expect(page.getByTestId('subtitle-missing-fonts')).toHaveCount(0);
 });

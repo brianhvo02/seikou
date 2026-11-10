@@ -110,7 +110,9 @@ what would change that decision.
   names), with no access to its tables: the ascender and descender are the browser's font box, every character
   counts as covered (the browser's own fallback draws one the face lacks, where libass would use DejaVu Sans), there
   are no GSUB ligature clusters, and underline and strike-out use typical proportions. Safari offers only fonts that
-  ship with the system, not ones the user installed, and phones have few of the Windows fonts fansubs name. The
+  ship with the system, not ones the user installed; iPhone and iPad ship Arial, Times New Roman, Trebuchet MS,
+  Verdana, Georgia and Courier New, while Android usually has none of the Windows fonts fansubs name. At most 32
+  families are looked up per subtitle set, and a style whose lookup takes over 3 s counts as missing. The
   libass comparison (`npm run test:ass`) runs with device fonts off, as libass's harness has no system fonts.
 - **WOFF2 fonts are not accepted** (Brotli and table transforms); `.ttf`, `.otf`, `.ttc` and `.woff` are. A local
   pick ignores WOFF2 files, the subtitle store refuses them at upload (the upload screen says to convert them to TTF

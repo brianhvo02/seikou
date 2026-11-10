@@ -29,7 +29,7 @@ A disc may block something at a given moment. The player then says "The disc doe
 Add `.srt`, `.ass` or `.ssa` files from the Subtitles menu (**Load subtitle files…**), or drop them on the player.
 
 - A text file that is not UTF-8 asks you to choose its encoding.
-- ASS files use their own fonts if you add them (**Add fonts…**, or drop font files with the subtitles: `.ttf`, `.otf`, `.ttc`, `.woff`; WOFF2 fonts can't be used, so convert them to TTF or OTF first). A font the subtitles name but don't include (Arial or Times New Roman, say) is taken from your device when it has it; computers usually have the common ones, phones and tablets often don't. The menu lists any font that is still missing.
+- ASS files use their own fonts if you add them (**Add fonts…**, or drop font files with the subtitles: `.ttf`, `.otf`, `.ttc`, `.woff`; WOFF2 fonts can't be used, so convert them to TTF or OTF first). A font the subtitles name but don't include (Arial or Times New Roman, say) is taken from your device when it has it. Computers, iPhones and iPads have the common ones (Arial, Times New Roman, Trebuchet MS, Verdana, Georgia, Courier New); Android phones and tablets usually don't. The menu lists any font that is still missing.
 - Each file has a timing shift, in steps of 100 ms. `[` makes the subtitles earlier and `]` later.
 - **Size** in the menu makes the text smaller or larger (50% to 200%).
 - **Remove subtitle files** clears them.
