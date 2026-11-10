@@ -1482,12 +1482,119 @@ a {
 }
 
 .episode-summary > li {
+  padding: 8px 0 10px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.episode-head {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   gap: 0 14px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--rule);
+}
+
+/* an episode's AniList entry under its name: a small cover, the show, the number field and AniList's title */
+.episode-anilist {
+  margin-top: 6px;
+}
+
+.episode-anilist-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cover.cover-small {
+  width: 32px;
+  height: 45px;
+}
+
+.episode-anilist-text {
+  flex: 1;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.episode-anilist-show {
+  font-size: 14px;
+  font-weight: 560;
+  overflow-wrap: anywhere;
+}
+
+/* a suggestion not yet saved: its number field dashed until the user changes something */
+.episode-anilist-suggested .episode-anilist-number input {
+  border-style: dashed;
+}
+
+.episode-anilist-number {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 10px;
+  font-size: 14px;
+}
+
+.episode-anilist-number label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.episode-anilist-number input[type='number'] {
+  width: 4.5rem;
+  min-height: 30px;
+  padding: 0 8px;
+}
+
+.episode-anilist-number input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.episode-anilist-title {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.episode-anilist-line button.quiet {
+  flex: none;
+  min-height: 32px;
+  padding: 0 12px;
+}
+
+.episode-anilist-change {
+  margin: 10px 0 2px 42px;
+  padding-left: 12px;
+  border-left: 2px solid var(--rule);
+}
+
+.episode-anilist-change .results {
+  margin: 0 0 8px;
+}
+
+.episode-anilist-change .search + * {
+  margin-top: 8px;
+}
+
+.episode-anilist-change .show-row .mark {
+  font-size: 12px;
+}
+
+.info-save {
+  font-size: 13px;
+  min-height: 1.5em;
+}
+
+.info-save-failed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+}
+
+.info-save-failed button.quiet {
+  min-height: 30px;
+  padding: 0 10px;
 }
 
 .episode-name {
@@ -1505,7 +1612,7 @@ a {
 
 .chapter {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 5.5rem 4.5rem 7rem;
+  grid-template-columns: minmax(0, 1fr) 5rem 4rem 6.5rem;
   align-items: center;
   gap: 0 8px;
   border-bottom: 1px solid var(--rule);
@@ -1527,7 +1634,7 @@ a {
 
 .chapter-seek {
   display: grid;
-  grid-template-columns: 2rem 5rem 1fr;
+  grid-template-columns: 1.5rem 4rem 1fr;
   align-items: baseline;
   gap: 0 8px;
   background: none;
@@ -1559,9 +1666,63 @@ a {
   accent-color: var(--accent);
 }
 
+/* the chapter's name, on its own line under the row, lined up with the start time */
+.chapter-name {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 4px 8px calc(4px + 1.5rem + 8px);
+}
+
+.chapter-name select,
+.chapter-name input[type='text'] {
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  font-size: 14px;
+}
+
+.chapter-name select {
+  max-width: 100%;
+  min-height: 28px;
+}
+
+/* an unnamed chapter's picker stays quiet until it is pointed at */
+.chapter-name select.unnamed {
+  color: var(--muted);
+  background: transparent;
+  border-color: transparent;
+  padding-left: 0;
+}
+
+.chapter-name select.unnamed:hover:not(:disabled),
+.chapter-name select.unnamed:focus-visible {
+  border-color: var(--rule);
+  padding-left: 8px;
+}
+
+.chapter-name input[type='text'] {
+  flex: 1;
+  min-width: 8rem;
+}
+
+.chapter-name select:disabled,
+.chapter-name input:disabled {
+  color: var(--dim);
+}
+
+.chapter-skipped .chapter-name {
+  opacity: 0.45;
+}
+
 @media (max-width: 520px) {
   .chapter {
-    grid-template-columns: minmax(0, 1fr) 4.5rem 7rem;
+    grid-template-columns: minmax(0, 1fr) 4rem 6.5rem;
   }
 
   .chapter-mark {

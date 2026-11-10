@@ -155,7 +155,7 @@ describe('library routes', () => {
     expect((await send(`/api/discs/${key}/playlists/09999`)).status).toBe(404);
   });
 
-  it('record episode spec is reported', async () => {
+  it('record episode spec and AniList show are reported', async () => {
     const record: SubtitleRecord = {
       disc: { key, label: 'speech' },
       playlist: '00000',
@@ -168,9 +168,11 @@ describe('library routes', () => {
     };
     await new RecordStore(dataDir).write(record);
     const r = await send(`/api/discs/${key}/playlists/00000`);
-    expect(r.json.record).toEqual({ episodeSpec: '1-3,4-5' });
+    expect(r.json.record).toEqual({ episodeSpec: '1-3,4-5', anilist: null });
     const lib = await send('/api/library');
     expect(lib.json.discs[0].recordPlaylists).toEqual(['00000']);
+    await new RecordStore(dataDir).write({ ...record, anilist: { id: 990010, title: 'Lantern Harbor', episodeOffset: 12 } });
+    expect((await send(`/api/discs/${key}/playlists/00000`)).json.record).toEqual({ episodeSpec: '1-3,4-5', anilist: { id: 990010, title: 'Lantern Harbor' } });
   });
 
   it('rescan answers at once and the scan finishes', async () => {

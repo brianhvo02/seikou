@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import type { ChapterInfo } from '../api-types';
+import { ChapterNamePicker } from './ChapterNamePicker';
 import { formatLength } from './DiscPage';
 import type { EpisodeRange, Grouping } from './grouping';
 
@@ -19,14 +20,21 @@ export interface ChapterListProps {
   readonly onToggleSplit: (n: number) => void;
   /** The "skip" toggle of chapter `n` (1-based) was changed. */
   readonly onToggleSkip: (n: number) => void;
+  /** Each chapter's name by chapter number (as a string key); a chapter missing has none. */
+  readonly names: Readonly<Record<string, string>>;
+  /** True while the names cannot be changed. */
+  readonly namesDisabled: boolean;
+  /** Chapter `n`'s name was changed; empty for none. */
+  readonly onName: (n: number, name: string) => void;
 }
 
 /**
  * The playlist's chapters, one row each: the chapter's number, start and length (a button that shows the playlist from
  * there), a toggle that cuts the episode after it (not on the last chapter) and one that leaves it out of every
- * episode. The first chapter of each episode carries the episode's number, and the row of the chapter being played is marked.
+ * episode, and under them the chapter's name (`ChapterNamePicker`). The first chapter of each episode carries the
+ * episode's number, and the row of the chapter being played is marked.
  */
-export function ChapterList({ chapters, grouping, episodes, currentIndex, onSeek, onToggleSplit, onToggleSkip }: ChapterListProps) {
+export function ChapterList({ chapters, grouping, episodes, currentIndex, onSeek, onToggleSplit, onToggleSkip, names, namesDisabled, onName }: ChapterListProps) {
   const episodeStartingAt = new Map(episodes.map((e, i) => [e.from, i + 1]));
   return (
     <ol className="chapter-list" aria-label="Chapters">
@@ -68,6 +76,7 @@ export function ChapterList({ chapters, grouping, episodes, currentIndex, onSeek
                 <span>Split after</span>
               </label>
             )}
+            <ChapterNamePicker chapter={c.index} name={names[String(c.index)] ?? ''} disabled={namesDisabled} onChange={(name) => onName(c.index, name)} />
           </li>
         );
       })}

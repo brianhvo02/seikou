@@ -421,8 +421,11 @@ export interface PlaylistDetail {
   readonly durationMs: number;
   /** The chapters in order. */
   readonly chapters: readonly ChapterInfo[];
-  /** The episode list of the playlist's saved subtitle record, or null when none is saved. */
-  readonly record: { readonly episodeSpec: string } | null;
+  /**
+   * The episode list and AniList show of the playlist's saved subtitle record, or null when none is saved. The show
+   * carries no episode offset: that is the release's numbering, never AniList's.
+   */
+  readonly record: { readonly episodeSpec: string; readonly anilist: { readonly id: number; readonly title: string } | null } | null;
 }
 
 /** AniList's place for one episode, keyed in `EpisodeInfo.anilist` by the playlist chapter the episode starts at. */

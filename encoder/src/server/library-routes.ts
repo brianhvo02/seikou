@@ -73,8 +73,11 @@ export interface PlaylistAnswer {
   readonly durationMs: number;
   /** The chapters in order. */
   readonly chapters: readonly ChapterAnswer[];
-  /** The episode list of the playlist's saved subtitle record, or null when none is saved. */
-  readonly record: { readonly episodeSpec: string } | null;
+  /**
+   * The episode list and AniList show of the playlist's saved subtitle record, or null when none is saved. The show
+   * leaves out the record's episode offset, which is the release's numbering, not AniList's.
+   */
+  readonly record: { readonly episodeSpec: string; readonly anilist: { readonly id: number; readonly title: string } | null } | null;
 }
 
 /** How long `GET /api/library` waits for the first scan before it answers with an empty list and `scanning`. */
@@ -241,7 +244,9 @@ export const libraryRoutes: RouteTable = [
       let record: PlaylistAnswer['record'] = null;
       try {
         const saved = await new RecordStore(app.dataDir).read(disc.key, id);
-        if (saved !== null) record = { episodeSpec: saved.episodeSpec };
+        if (saved !== null) {
+          record = { episodeSpec: saved.episodeSpec, anilist: saved.anilist === null ? null : { id: saved.anilist.id, title: saved.anilist.title } };
+        }
       } catch (e) {
         if (!(e instanceof RecordError)) throw e;
       }

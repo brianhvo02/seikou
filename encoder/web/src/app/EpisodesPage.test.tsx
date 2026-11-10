@@ -3,7 +3,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api';
-import type { LibraryAnswer, PlaylistDetail } from '../api-types';
+import type { AniListEntry, EpisodeInfo, LibraryAnswer, PlaylistDetail, TitleHit } from '../api-types';
 import type { PlayerLike } from '../player/use-controller';
 import type { AppApi } from './app-api';
 import { EpisodesPage } from './EpisodesPage';
@@ -126,7 +126,7 @@ describe('EpisodesPage', () => {
   });
 
   it('a record with another spec shows the warning', async () => {
-    await show(fakeApi(detail({ episodeSpec: '1-3,4-6' })));
+    await show(fakeApi(detail({ episodeSpec: '1-3,4-6', anilist: null })));
     expect(spec()).toBe('1-3,4-');
     expect(screen.queryByText(/won't match/)).toBeNull();
     click('Split after chapter 5', 'checkbox');
@@ -222,5 +222,140 @@ describe('EpisodesPage', () => {
     });
     render(<EpisodesPage api={api} discKey={KEY} playlistId="00800" controller={fakeController()} />);
     expect((await screen.findByRole('alert')).textContent).toContain('not in the library');
+  });
+});
+
+const hit = (alId: number, title: string): TitleHit => ({ alId, title, nativeTitle: null, year: 2024, format: 'TV', episodes: 12, poster: null });
+
+/** A fake whose episode info saves answer like the backend, and whose AniList knows two made-up seasons. */
+function infoApi(record: PlaylistDetail['record'] = null) {
+  const api = fakeApi(detail(record));
+  const saveEpisodeInfo = vi.fn(async (_k: string, _p: string, info: Omit<EpisodeInfo, 'savedAt'>): Promise<EpisodeInfo> => ({ ...info, savedAt: '2026-11-09T10:00:00.000Z' }));
+  api.saveEpisodeInfo = saveEpisodeInfo;
+  api.searchAniList = vi.fn(async () => [hit(990011, 'Lantern Harbor Season 2')]);
+  api.aniListEntry = vi.fn(
+    async (id: number): Promise<AniListEntry> => ({
+      ...hit(id, id === 990010 ? 'Lantern Harbor' : 'Lantern Harbor Season 2'),
+      sequel: id === 990010 ? hit(990011, 'Lantern Harbor Season 2') : null,
+    }),
+  );
+  api.aniListEpisodes = vi.fn(async (id: number): Promise<Record<number, string>> => (id === 990011 ? { 1: 'Cold Water' } : {}));
+  return { api, saveEpisodeInfo };
+}
+
+const RECORD = { episodeSpec: '1-2,3-4,5-6', anilist: { id: 990010, title: 'Lantern Harbor' } };
+
+describe('EpisodesPage chapter names and AniList', () => {
+  const ready = async (label: string) => waitFor(() => expect((screen.getByLabelText(label) as HTMLSelectElement).disabled).toBe(false));
+
+  it('saves a chapter name picked from the list', async () => {
+    const { api, saveEpisodeInfo } = infoApi();
+    await show(api);
+    await ready('Name of chapter 1');
+    fireEvent.change(screen.getByLabelText('Name of chapter 1'), { target: { value: 'Opening' } });
+    await waitFor(() => expect(saveEpisodeInfo).toHaveBeenCalledTimes(1));
+    expect(saveEpisodeInfo.mock.calls[0]![2]).toEqual({ chapterNames: { '1': 'Opening' }, anilist: {} });
+    expect(await screen.findByText('Saved')).toBeTruthy();
+  });
+
+  it('saves a custom name typed after picking Custom, once typing stops', async () => {
+    const { api, saveEpisodeInfo } = infoApi();
+    await show(api);
+    await ready('Name of chapter 2');
+    const select = screen.getByLabelText('Name of chapter 2') as HTMLSelectElement;
+    const custom = [...select.options].find((o) => o.text === 'Custom…')!;
+    fireEvent.change(select, { target: { value: custom.value } });
+    expect(saveEpisodeInfo).not.toHaveBeenCalled();
+    const field = screen.getByLabelText('Custom name for chapter 2');
+    fireEvent.change(field, { target: { value: 'Cold' } });
+    fireEvent.change(field, { target: { value: 'Cold open' } });
+    await waitFor(() => expect(saveEpisodeInfo).toHaveBeenCalled());
+    expect(saveEpisodeInfo).toHaveBeenCalledTimes(1);
+    expect(saveEpisodeInfo.mock.calls[0]![2].chapterNames).toEqual({ '2': 'Cold open' });
+  });
+
+  it('prefills from the record show without saving until something changes', async () => {
+    const { api, saveEpisodeInfo } = infoApi(RECORD);
+    await show(api);
+    const list = screen.getByRole('list', { name: 'Episodes made' });
+    await waitFor(() => expect(list.textContent).toContain('Lantern Harbor'));
+    expect(screen.getAllByText('Suggested')).toHaveLength(3);
+    expect((screen.getByLabelText('AniList episode number of episode 3') as HTMLInputElement).value).toBe('3');
+    await new Promise((r) => setTimeout(r, 700));
+    expect(saveEpisodeInfo).not.toHaveBeenCalled();
+  });
+
+  it('Change, search and pick saves the choice and renumbers the episodes after it', async () => {
+    const { api, saveEpisodeInfo } = infoApi(RECORD);
+    await show(api);
+    const change = screen.getByRole('button', { name: 'Change the AniList entry of episode 2' }) as HTMLButtonElement;
+    await waitFor(() => expect(change.disabled).toBe(false));
+    fireEvent.click(change);
+    fireEvent.change(screen.getByLabelText('Search AniList for episode 2'), { target: { value: 'lantern' } });
+    fireEvent.submit(screen.getByRole('search'));
+    fireEvent.click(await screen.findByRole('button', { name: /^Lantern Harbor Season 2/ }));
+    expect(api.searchAniList).toHaveBeenCalledWith('lantern');
+    await waitFor(() =>
+      expect(saveEpisodeInfo.mock.lastCall?.[2].anilist).toEqual({
+        '1': { anilistId: 990010, episode: 1, title: null },
+        '3': { anilistId: 990011, episode: 1, title: 'Cold Water' },
+        '5': { anilistId: 990011, episode: 2, title: null },
+      }),
+    );
+    expect(screen.queryByText('Suggested')).toBeNull();
+    expect(screen.getByText('Cold Water')).toBeTruthy();
+  });
+
+  it('offers the next season first in Change', async () => {
+    const { api, saveEpisodeInfo } = infoApi(RECORD);
+    await show(api);
+    const change = screen.getByRole('button', { name: 'Change the AniList entry of episode 3' }) as HTMLButtonElement;
+    await waitFor(() => expect(change.disabled).toBe(false));
+    fireEvent.click(change);
+    fireEvent.click(await screen.findByRole('button', { name: /^Next season/ }));
+    await waitFor(() => expect(saveEpisodeInfo.mock.lastCall?.[2].anilist['5']).toEqual({ anilistId: 990011, episode: 1, title: 'Cold Water' }));
+    expect(api.searchAniList).not.toHaveBeenCalled();
+  });
+
+  it('a new episode number renumbers the episodes after it in the same entry', async () => {
+    const { api, saveEpisodeInfo } = infoApi(RECORD);
+    await show(api);
+    const field = screen.getByLabelText('AniList episode number of episode 2') as HTMLInputElement;
+    await waitFor(() => expect(field.disabled).toBe(false));
+    fireEvent.change(field, { target: { value: '7' } });
+    fireEvent.blur(field);
+    await waitFor(() => expect(saveEpisodeInfo).toHaveBeenCalled());
+    const anilist = saveEpisodeInfo.mock.lastCall![2].anilist;
+    expect([anilist['1']?.episode, anilist['3']?.episode, anilist['5']?.episode]).toEqual([1, 7, 8]);
+  });
+
+  it('a failed save keeps the edit, says why and offers Retry', async () => {
+    const { api, saveEpisodeInfo } = infoApi();
+    saveEpisodeInfo.mockRejectedValueOnce(new Error('The disk is full.'));
+    await show(api);
+    await ready('Name of chapter 1');
+    fireEvent.change(screen.getByLabelText('Name of chapter 1'), { target: { value: 'Ending' } });
+    expect(await screen.findByText('Not saved: The disk is full.')).toBeTruthy();
+    expect((screen.getByLabelText('Name of chapter 1') as HTMLSelectElement).value).toBe('Ending');
+    click('Retry');
+    await waitFor(() => expect(saveEpisodeInfo).toHaveBeenCalledTimes(2));
+    expect(saveEpisodeInfo.mock.calls[1]![2].chapterNames).toEqual({ '1': 'Ending' });
+    expect(await screen.findByText('Saved')).toBeTruthy();
+  });
+
+  it('shows saved names and choices, and keeps choices of chapters that start no episode now', async () => {
+    const { api, saveEpisodeInfo } = infoApi();
+    const saved: EpisodeInfo = {
+      chapterNames: { '3': 'Cold open' },
+      anilist: { '1': { anilistId: 990010, episode: 4, title: 'Low Tide' }, '4': { anilistId: 990010, episode: 5, title: null } },
+      savedAt: '2026-11-08T10:00:00.000Z',
+    };
+    api.episodeInfo = vi.fn(async () => saved);
+    await show(api);
+    expect(await screen.findByDisplayValue('Cold open')).toBeTruthy();
+    expect(screen.getByText('Low Tide')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('Name of chapter 1'), { target: { value: 'Avant' } });
+    await waitFor(() => expect(saveEpisodeInfo).toHaveBeenCalled());
+    expect(saveEpisodeInfo.mock.calls[0]![2]).toEqual({ chapterNames: { '1': 'Avant', '3': 'Cold open' }, anilist: saved.anilist });
   });
 });
