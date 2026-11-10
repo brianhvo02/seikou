@@ -186,7 +186,7 @@ function planEpisode(
   let itemStart45 = 0;
   for (const item of playlist.items) {
     const itemEnd45 = itemStart45 + (item.outTime45 - item.inTime45);
-    if (startPlaylist45 < itemEnd45 && endPlaylist45 > itemStart45) {
+    if (overlapsItem(startPlaylist45, endPlaylist45, itemStart45, itemEnd45)) {
       const probe = probeOf(probes, item.clipId);
       // Samples are counted at the rate each stream was given with (the STN's, which the decode is checked against), not the CLPI's.
       const itemAudio = streams.map((st) => ({ ...audioOf(probe, st.pid), sampleRate: st.sampleRate }));
@@ -273,13 +273,40 @@ export function planEpisodes(
   audio: readonly Pick<SelectedAudio, 'pid' | 'sampleRate'>[],
   pmts: Map<string, PmtInfo>,
 ): EpisodePlan[] {
-  const chapterCount = playlist.chapters.length;
   return specs.map((spec, i) => {
-    const last = spec.to ?? chapterCount;
-    const start = playlist.chapters[spec.from - 1].start45;
-    const end = last < chapterCount ? playlist.chapters[last].start45 : playlist.duration45;
-    return planEpisode(i + 1, playlist, probes, audio, pmts, start, end, spec.from, last);
+    const { start45, end45, last } = episodeSpan(playlist, spec);
+    return planEpisode(i + 1, playlist, probes, audio, pmts, start45, end45, spec.from, last);
   });
+}
+
+/** The playlist time an episode spans (45 kHz ticks, `end45` exclusive) and its last chapter. */
+function episodeSpan(playlist: Pick<Playlist, 'chapters' | 'duration45'>, spec: EpisodeSpec): { start45: number; end45: number; last: number } {
+  const chapterCount = playlist.chapters.length;
+  const last = spec.to ?? chapterCount;
+  const start45 = playlist.chapters[spec.from - 1].start45;
+  const end45 = last < chapterCount ? playlist.chapters[last].start45 : playlist.duration45;
+  return { start45, end45, last };
+}
+
+/**
+ * The play items `spec`'s episode plays, in order: those `planEpisodes` makes its segments of. It needs no probes, so
+ * it tells which clips an episode reads before any of them is there.
+ */
+export function episodeItems(playlist: Pick<Playlist, 'chapters' | 'duration45' | 'items'>, spec: EpisodeSpec): PlaylistItem[] {
+  const { start45, end45 } = episodeSpan(playlist, spec);
+  const out: PlaylistItem[] = [];
+  let itemStart45 = 0;
+  for (const item of playlist.items) {
+    const itemEnd45 = itemStart45 + (item.outTime45 - item.inTime45);
+    if (overlapsItem(start45, end45, itemStart45, itemEnd45)) out.push(item);
+    itemStart45 = itemEnd45;
+  }
+  return out;
+}
+
+/** Whether the playlist stretch `[start45, end45)` touches the item played over `[itemStart45, itemEnd45)`. */
+function overlapsItem(start45: number, end45: number, itemStart45: number, itemEnd45: number): boolean {
+  return start45 < itemEnd45 && end45 > itemStart45;
 }
 
 /** A stretch of playlist time, in milliseconds from the playlist's start; `endMs` is exclusive. */
