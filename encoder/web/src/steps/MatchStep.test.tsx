@@ -53,6 +53,7 @@ function fakeApi(titles: Record<number, string>): HelperApi {
     upload: notCalled,
     release: notCalled,
     align: notCalled,
+    lineUpFetch: notCalled,
     subtitleUrl: () => '',
     fontUrl: () => '',
     record: notCalled,

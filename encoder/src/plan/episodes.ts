@@ -256,11 +256,11 @@ export function firstFramePlaylistUs(playlist: Pick<Playlist, 'items'>, plan: Ep
 /**
  * Plans one episode per spec. An episode runs from its first chapter to the start of the chapter
  * after its last (or the end of the playlist). Chapters between ranges that no spec covers are
- * skipped. `probes` holds a probe for every clip the playlist plays, keyed by clip id; `audio`
+ * skipped. `probes` holds a probe for every clip the specs' episodes play (`episodeItems`), keyed by clip id; `audio`
  * lists the audio streams to cut, by PID, in track order (an empty list cuts no audio), each with
  * the sample rate its samples are counted at: `SelectedAudio.sampleRate`, the STN entry's rate, the
- * same one the decode is checked against, which a clip's CLPI can contradict; `pmts` holds every
- * clip's PMT (`readPlaylistPmts`), which gives each stream's BestSource track number per clip.
+ * same one the decode is checked against, which a clip's CLPI can contradict; `pmts` holds those
+ * clips' PMTs (`readPlaylistPmts`), which gives each stream's BestSource track number per clip.
  * Throws when a probe or an audio PID is missing, when clips inside one episode differ in frame
  * rate or a play item's STN entry gives a stream another sample rate (they could not be joined
  * into one stream), and

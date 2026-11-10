@@ -209,6 +209,12 @@ export interface Span {
   readonly toMs: number;
 }
 
+/** What a line-up is fetching from the NAS now (`GET /api/sessions/<id>/episodes/<n>/fetch`): bytes fetched of those it needs. */
+export interface FetchProgress {
+  readonly bytesDone: number;
+  readonly bytes: number;
+}
+
 /** `POST /api/sessions/<id>/episodes/<n>/align`. */
 export interface AlignAnswer {
   /** The timing found for the episode's tracks, or why there is none. */

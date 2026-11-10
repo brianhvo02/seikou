@@ -10,11 +10,13 @@ import type { FansubAlignment } from '@seikou/nas/nas-api';
 import { readBody } from '../../../server/src/http';
 import { EpisodeAudioCache } from '../audio/episode-audio-cache';
 import { decodeEpisodeAudio16k, episodeReader } from '../audio/episode-audio';
+import { assertFetched, assertPlanFetched, ClipFetcher, clipsOfEpisode } from '../nas/fetch';
+import { isMirror } from '../nas/mirror';
 import type { EpisodePlan } from '../plan/episodes';
 import type { CachedTrack } from '../subs/release-cache';
 import { DiscRequestError, episodePlans } from './disc-routes';
 import { releaseCacheOf } from './fansub-routes';
-import { sessionsOf } from './sessions';
+import { fetchFailure, sessionsOf } from './sessions';
 import { httpError, json, sessionRoute, type AppContext, type HelperSession, type RouteTable } from './http';
 
 // The line-up half of the helper's API: an episode's chosen track is lined up against the disc's own audio, decoded
@@ -70,12 +72,59 @@ export function episodeAudioCacheOf(app: AppContext): EpisodeAudioCache<string> 
       const [id, episode] = key.split('/');
       const session = sessionsOf(app).get(id!);
       if (session === null) throw new Error(`no session ${id}`);
-      const plans = await episodePlans(session);
-      return decodeEpisodeAudio16k(plans[Number(episode) - 1]!, tools, cacheDir, signal);
+      const plan = (await episodePlans(session))[Number(episode) - 1]!;
+      // The align route fetches a NAS disc's clips first; BestSource would read a clip that is only a head as zeros.
+      await assertPlanFetched(plan);
+      return decodeEpisodeAudio16k(plan, tools, cacheDir, signal);
     }, KEEP_EPISODES);
     audioCaches.set(app, cache);
   }
   return cache;
+}
+
+/** What a line-up is fetching from the NAS, by `episodeAudioKey`, while it fetches. */
+const fetchProgress = new WeakMap<AppContext, Map<string, { bytesDone: number; bytes: number }>>();
+
+function progressOf(app: AppContext): Map<string, { bytesDone: number; bytes: number }> {
+  let progress = fetchProgress.get(app);
+  if (!progress) fetchProgress.set(app, (progress = new Map()));
+  return progress;
+}
+
+/**
+ * Has episode `episode`'s clips whole before its audio is decoded, when the session's disc is a NAS disc's mirror:
+ * held for `session:<id>` (the holder of the session's mirror claim), so they stay until the server stops, and
+ * fetched with their progress kept for `GET /episodes/<n>/fetch`. Answers the request and resolves false when the
+ * fetch fails (502 `unreachable`, 409 `disc-changed`, 507 `no-room`); true otherwise, at once on a local disc.
+ */
+async function fetchEpisodeClips(res: ServerResponse, app: AppContext, session: HelperSession, episode: number, signal: AbortSignal): Promise<boolean> {
+  if (!(await isMirror(session.discDir))) return true;
+  const clips = await clipsOfEpisode(session.discDir, session.playlistId, session.episodeSpec, episode);
+  const client = app.nas.client;
+  if (client === null) {
+    // Clips fetched before the pairing went still line up.
+    try {
+      await assertFetched(session.discDir, clips);
+      return true;
+    } catch {
+      httpError(res, 502, 'unreachable', 'The encoder is not paired with the NAS.');
+      return false;
+    }
+  }
+  const key = episodeAudioKey(session, episode);
+  const progress = progressOf(app);
+  try {
+    await new ClipFetcher({ dataDir: app.dataDir, client, key: session.discKey, signal, onProgress: (p) => progress.set(key, p) }).hold(`session:${session.id}`, clips);
+    return true;
+  } catch (e) {
+    if (signal.aborted) return false; // nobody to answer
+    const failure = fetchFailure(e);
+    if (failure === null) throw e;
+    httpError(res, failure.status, failure.code, failure.message);
+    return false;
+  } finally {
+    progress.delete(key);
+  }
 }
 
 /** The runs of a speech mask (one value per 10 ms frame from 0 ms) as spans, runs less than 200 ms apart joined. */
@@ -188,14 +237,19 @@ function timingOf(raw: string | null): FansubAlignment | null {
  *
  *   POST /episodes/<n>/align       body `{ release, fileId }`: lines the file's track with the most dialogue up
  *                                  against episode n's disc audio and answers `AlignAnswer`
+ *   GET  /episodes/<n>/fetch       `{ fetching: { bytesDone, bytes } | null }`: what a line-up of episode n is
+ *                                  fetching from the NAS now, null when it fetches nothing
  *   GET  /episodes/<n>/subtitle?release=&file=&track=&timing=
  *                                  the track as `text/plain; charset=utf-8`, retimed with `timing` (base64url
  *                                  JSON of a `FansubAlignment`; absent means the track's own timing)
  *
  * Episodes are numbered from 1 in the session's episode list. The first align of an episode decodes its audio through
  * vspipe (tens of seconds; BestSource indexes the clips on the very first run); the last two decodes, of any
- * session, are kept. A client that goes away stops a decode nobody else waits for. Errors: 400 `bad-request`, 404 `not-found` (episode, release,
- * file or track), 422 as `GET /episodes`, 503 `tools-missing` when vspipe or BestSource is missing.
+ * session, are kept. A client that goes away stops a decode nobody else waits for. On a NAS disc's mirror the episode's
+ * clips are first fetched whole and held for the session until the server stops (the queue runner's start sweep
+ * empties them on the next run). Errors: 400 `bad-request`, 404 `not-found` (episode, release, file or track), 422 as
+ * `GET /episodes`, 503 `tools-missing` when vspipe or BestSource is missing; on a NAS disc, 502 `unreachable`, 409
+ * `disc-changed` or 507 `no-room` when the clips cannot be fetched.
  */
 export const alignRoutes: RouteTable = [
   [
@@ -225,6 +279,7 @@ export const alignRoutes: RouteTable = [
       const chosen = mostDialogue(texts);
 
       const { plans, episode } = found;
+      if (!(await fetchEpisodeClips(res, app, session, episode, signal))) return;
       const durationMs = Number(plans[episode - 1]!.durationNs / 1_000_000n);
       let pcm16k: Int16Array;
       let alignment: FansubAlignment;
@@ -242,6 +297,15 @@ export const alignRoutes: RouteTable = [
         dialogue: dialogueIntervals(chosen.text),
       };
       json(res, 200, answer);
+    }),
+  ],
+  [
+    'GET',
+    /^\/episodes\/(\d{1,4})\/fetch$/,
+    sessionRoute(async (_req, res, match, app, session) => {
+      const found = await planOf(res, session, match[1]!);
+      if (!found) return;
+      json(res, 200, { fetching: progressOf(app).get(episodeAudioKey(session, found.episode)) ?? null });
     }),
   ],
   [

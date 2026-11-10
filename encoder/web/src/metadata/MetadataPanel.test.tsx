@@ -80,6 +80,7 @@ function infoApi(info: EpisodeInfo | null | 'failed' = null): HelperApi {
     upload: notCalled,
     release: notCalled,
     align: notCalled,
+    lineUpFetch: notCalled,
     subtitleUrl: () => '',
     fontUrl: () => '',
     record: notCalled,

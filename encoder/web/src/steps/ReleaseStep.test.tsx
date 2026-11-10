@@ -89,6 +89,7 @@ function fakeApi(overrides: Partial<HelperApi> = {}): HelperApi {
     upload: vi.fn(async () => answer),
     release: vi.fn(async () => answer),
     align: notCalled,
+    lineUpFetch: notCalled,
     subtitleUrl: () => '',
     fontUrl: () => '',
     record: notCalled,

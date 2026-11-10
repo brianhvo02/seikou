@@ -8,6 +8,7 @@ import { readPlaylistPmts } from './disc/pmt';
 import { probeClip, type ClipProbe } from './disc/probe';
 import { type MkvAttachment, type MkvSubtitleTrack } from '@seikou/matroska';
 import { writeMkv } from './mux/mkv-file';
+import { assertPlanFetched } from './nas/fetch';
 import { packageEpisode } from './package/package';
 import { readIvf } from './mux/ivf';
 import { readOggOpus } from './mux/ogg';
@@ -17,7 +18,7 @@ import { WavGuardError } from './pipeline/wav-guard';
 import { loadEncodeRecord, NoAudioChosenError } from './subs/encode-record';
 import { episodeSubtitleTracks, recordFontLoader } from './subs/episode-subtitles';
 import { selectAudio, type SelectedAudio } from './plan/audio-streams';
-import { EpisodeSpecError, firstFramePlaylistUs, parseEpisodeSpec, planEpisodes, type EpisodePlan } from './plan/episodes';
+import { episodeItems, EpisodeSpecError, firstFramePlaylistUs, parseEpisodeSpec, planEpisodes, type EpisodePlan } from './plan/episodes';
 import { chapterName, EpisodeInfoStore, type EpisodeInfo } from './plan/episode-info';
 import { discKeyOfFolder } from './disc/disc-key';
 import { episodeTags } from './mux/episode-tags';
@@ -224,7 +225,9 @@ export interface PlanEncodeOptions extends Pick<EncodeOptions, 'crf' | 'preset' 
  * survives a failure. `progress` events count the video packets written, at most once a second, and a closing one at
  * 100% follows the rename. When any chain fails the others are stopped, every tool has exited and the partial file is
  * removed before the error is thrown: the chain's own (`ChainError`, `WavGuardError`) when there is one, since a
- * downstream parse error is usually its symptom. `o.signal` aborts the same way and rejects with an `AbortError`.
+ * downstream parse error is usually its symptom. `o.signal` aborts the same way and rejects with an `AbortError`. On a
+ * NAS disc's mirror every clip of the plan must have been fetched whole, else it throws (`assertPlanFetched`) before
+ * any tool starts.
  */
 export async function encodePlan(o: PlanEncodeOptions, onEvent: (e: EncodeEvent) => void): Promise<void> {
   const isAborted = (): boolean => o.signal?.aborted === true;
@@ -234,6 +237,8 @@ export async function encodePlan(o: PlanEncodeOptions, onEvent: (e: EncodeEvent)
   const metadata = o.metadata ?? null;
   const partialPath = `${outPath}.partial`;
   if (isAborted()) throw abortError();
+  // BestSource reads the plan's clips whole; on a NAS disc's mirror a clip still only a head would read as zeros.
+  await assertPlanFetched(plan);
   const tmp = await mkdtemp(join(tmpdir(), 'encoding-tools-'));
   const chains: Chain[] = [];
   // The first real failure of a chain: an abort that arrives later does not replace it.
@@ -363,6 +368,10 @@ export async function encodePlan(o: PlanEncodeOptions, onEvent: (e: EncodeEvent)
  * packets written (see `EncodeEvent`). With `onlyEpisodes` only those episodes are encoded, named as in the full list.
  * `signal` aborts the run (see `EncodeOptions.signal`). With `webDir`, a `packaged` event follows each package and a
  * failed one sends `package-failed` first, then throws as before, with the MKV kept.
+ *
+ * Only the clips the encoded episodes play are read: probed and their PMTs read while planning, then read whole. On a
+ * NAS disc's mirror those must have been fetched whole (a job holds them) before an episode's PG streams are read, and
+ * it throws `Clip <name> is not fetched from the NAS yet` otherwise; the other clips need not be there at all.
  */
 export async function encodeEpisodes(
   o: EncodeOptions,
@@ -391,16 +400,17 @@ export async function encodeEpisodes(
         });
   const discKey = (await discKeyOfFolder(resolve(o.discDir))).key;
   const info = o.episodeInfo !== undefined ? o.episodeInfo : await new EpisodeInfoStore(o.dataDir).read(discKey, o.playlistId);
+  // Only the clips the wanted episodes play are probed and their PMTs read: on a NAS disc's mirror the others may be
+  // only heads, or the episodes may be all a job fetched.
+  const items = [...new Map(specs.flatMap((spec, i) => (wanted(i + 1) ? episodeItems(playlist, spec) : [])).map((item) => [item.clipId, item])).values()];
   const probes = new Map<string, ClipProbe>();
-  for (const item of playlist.items) {
-    if (!probes.has(item.clipId)) probes.set(item.clipId, await probeClip(item));
-  }
+  for (const item of items) probes.set(item.clipId, await probeClip(item));
   // Each episode keeps its own audio streams (a record can tick different ones per episode), so each is planned alone.
-  const pmts = await readPlaylistPmts(playlist);
+  const pmts = await readPlaylistPmts({ items });
   const episodes = specs.flatMap((spec, i): { plan: EpisodePlan; audio: SelectedAudio[]; metadata: RecordMetadata | null }[] => {
     const index = i + 1;
     if (!wanted(index)) return [];
-    const chosen = selectAudio(playlist, probes, record, index, (message) => onEvent({ kind: 'log', episode: index, message }));
+    const chosen = selectAudio(playlist, record, index, (message) => onEvent({ kind: 'log', episode: index, message }));
     // The record's ticked streams may all be missing from the playlist; an episode is never encoded without sound.
     if (record !== null && chosen.length === 0) throw new NoAudioChosenError(index);
     const audio = o.onlyFirstAudio === true ? chosen.slice(0, 1) : chosen;
@@ -434,6 +444,8 @@ export async function encodeEpisodes(
     // Read before any tool starts: the PG streams come straight from the disc and need no cleanup when they fail.
     // ASS tracks come first, then the disc's PGS tracks.
     const ass = subtitles.get(plan.index) ?? { tracks: [], attachments: [] };
+    // The PG reader and BestSource read the episode's clips whole; on a mirror they must have been fetched.
+    await assertPlanFetched(plan);
     const pgs = o.noPgs ? [] : await episodePgsTracks(plan, playlist, (message) => onEvent({ kind: 'log', episode: plan.index, message }));
     await encodePlan(
       {

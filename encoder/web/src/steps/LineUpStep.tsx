@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { useEffect, useRef, useState, useSyncExternalStore, type Dispatch } from 'react';
 import { ApiError, type HelperApi } from '../api';
-import type { AlignAnswer, CachedRelease, EpisodesAnswer, FansubAlignment, SessionInfo } from '../api-types';
+import type { AlignAnswer, CachedRelease, EpisodesAnswer, FansubAlignment, FetchProgress, SessionInfo } from '../api-types';
 import { episodeFile, type HelperAction, type HelperState } from '../helper-model';
 import { Player } from '../player/Player';
 import { showAt, type PlayerLike } from '../player/use-controller';
@@ -47,6 +47,15 @@ type LineUp =
   | { readonly status: 'failed'; readonly message: string };
 
 /** What the step says when lining up cannot run on this machine. */
+/** How often a running line-up is asked what it fetches from the NAS. */
+const FETCH_POLL_MS = 1000;
+
+/** Bytes as megabytes for the fetch line: one decimal under 10 MB, whole above. */
+function megabytes(n: number): string {
+  const mb = n / 1_000_000;
+  return mb < 10 ? mb.toFixed(1) : String(Math.round(mb));
+}
+
 const TOOLS_MESSAGE = "Lining up needs VapourSynth with BestSource, which this machine does not have. The preview uses the release's own timing.";
 
 /** Input types that take no typed text, so the nudge keys still work while one of them has focus. */
@@ -105,6 +114,8 @@ export function LineUpStep({ api, state, dispatch, session, episodes, controller
   const [previewTracks, setPreviewTracks] = useState<Readonly<Record<number, string>>>({});
   const [loaded, setLoaded] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  /** What the running line-up (by its key) fetches from the NAS, while it fetches. */
+  const [fetching, setFetching] = useState<{ readonly key: string; readonly progress: FetchProgress } | null>(null);
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
 
   const settled = useRef(new Set<string>());
@@ -161,6 +172,34 @@ export function LineUpStep({ api, state, dispatch, session, episodes, controller
     );
     return () => abort.abort();
   }, [api, dispatch, hasTracks, session.toolsReady, shown, release, fileId, lineKey, answer]);
+
+  // While a line-up runs, ask now and every second what it fetches from the NAS: a NAS disc's clips are fetched whole
+  // before the audio is decoded, which can take minutes.
+  const working = lineup?.status === 'working';
+  useEffect(() => {
+    if (!working || shown === null) return;
+    const abort = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const ask = (): void => {
+      api.lineUpFetch(shown, abort.signal).then(
+        (progress) => {
+          if (abort.signal.aborted) return;
+          setFetching(progress === null ? null : { key: lineKey, progress });
+          timer = setTimeout(ask, FETCH_POLL_MS);
+        },
+        () => {
+          if (!abort.signal.aborted) timer = setTimeout(ask, FETCH_POLL_MS);
+        },
+      );
+    };
+    ask();
+    return () => {
+      abort.abort();
+      clearTimeout(timer);
+      setFetching(null);
+    };
+  }, [api, working, shown, lineKey]);
+  const fetchingNow = working && fetching?.key === lineKey ? fetching.progress : null;
 
   // Load the preview track (retimed as found) with the release's fonts, place it at the episode's start, and on a new
   // episode go to its first dialogue line. Everything is sent to the engine in order, so the track lands on the disc
@@ -295,7 +334,9 @@ export function LineUpStep({ api, state, dispatch, session, episodes, controller
             ) : lineup === undefined || lineup.status === 'working' ? (
               <p className="working">
                 <span className="spinner" aria-hidden="true" />
-                Lining up episode {episode.index} against the disc's audio
+                {fetchingNow !== null
+                  ? `Fetching from the NAS (${megabytes(fetchingNow.bytesDone)} of ${megabytes(fetchingNow.bytes)} MB)`
+                  : `Lining up episode ${episode.index} against the disc's audio`}
               </p>
             ) : lineup.status === 'failed' ? (
               <p className="error">Lining up failed: {lineup.message} The preview uses the release's own timing.</p>

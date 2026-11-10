@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -547,4 +547,22 @@ it('reads every episode\'s subtitle files before any tool starts', async () => {
   // The tools are missing, so reaching the first encode would fail with a spawn error instead.
   await expect(encodeEpisodes(opts, () => {})).rejects.toMatchObject({ code: 'ENOENT', path: expect.stringContaining('gone.ass') });
   expect(existsSync(join(out, 'mkv'))).toBe(false);
+});
+
+it("plans an episode from its own clips alone: another clip's bytes are never read", async () => {
+  const out = mkdtempSync(join(tmpdir(), 'et-'));
+  const discDir = join(out, 'disc1');
+  cpSync(fx('fixtures/disc1'), discDir, { recursive: true });
+  // Clip 1 holds episode 1 (chapters 1-2) alone; zeroed, it has no PAT, PMT or PES, so reading it fails.
+  const clip1 = join(discDir, 'BDMV/STREAM/00001.m2ts');
+  writeFileSync(clip1, Buffer.alloc(statSync(clip1).size));
+  const missing = { vspipe: '/nonexistent/vspipe', svt: '/nonexistent/SvtAv1EncApp', opusenc: '/nonexistent/opusenc' };
+  const opts = (only: number): EncodeOptions => ({ discDir, playlistId: '00000', episodes: '1-2,3-4', outDir: join(out, `mkv-${only}`), namePattern: 'ep-{n}', crf: 50, preset: 10, extraSvtArgs: [], filmGrain: 4, cacheDir: join(out, 'cache'), tools: missing, dataDir: join(out, 'data'), noSubtitles: false, noPgs: false, record: null, episodeInfo: null, onlyEpisodes: [only] });
+  const events: EncodeEvent[] = [];
+  // The tools are missing, so the run fails only once episode 2's encode starts.
+  const err = await encodeEpisodes(opts(2), (e) => events.push(e)).catch((e: unknown) => e);
+  expect(events.filter((e) => e.kind === 'episode-start').map((e) => e.episode)).toEqual([2]);
+  expect(String(err)).not.toMatch(/00001/);
+  // Episode 1 does read the zeroed clip.
+  await expect(encodeEpisodes(opts(1), () => {})).rejects.toThrow(/00001/);
 });

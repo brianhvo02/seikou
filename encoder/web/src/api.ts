@@ -7,6 +7,7 @@ import type {
   EpisodeInfo,
   EpisodesAnswer,
   FansubAlignment,
+  FetchProgress,
   RecordAnswer,
   ReleaseAnswer,
   SeaDexAnswer,
@@ -59,6 +60,8 @@ export interface HelperApi {
   release(key: string, offset: number): Promise<ReleaseAnswer>;
   /** Lines a release file's tracks up against an episode's disc audio; slow the first time (it decodes the audio). */
   align(episode: number, release: string, fileId: string, signal?: AbortSignal): Promise<AlignAnswer>;
+  /** What a line-up of the episode is fetching from the NAS now (a NAS disc's clips, before decoding), or null. */
+  lineUpFetch(episode: number, signal?: AbortSignal): Promise<FetchProgress | null>;
   /** URL of a track retimed with `timing` (`original` gives the release's own bytes), token included. */
   subtitleUrl(episode: number, release: string, fileId: string, trackId: string, timing: FansubAlignment): string;
   /** URL of a release's font by its original name, token included. */
@@ -206,6 +209,7 @@ export function createApi(base: string, token: string, sessionId: string, fetchI
     },
     release: (key, offset) => request('GET', `${sessionPath}/releases/${enc(key)}?${q({ offset })}`),
     align: (episode, release, fileId, signal) => request('POST', `${sessionPath}/episodes/${episode}/align`, { release, fileId }, signal),
+    lineUpFetch: async (episode, signal) => (await request<{ fetching: FetchProgress | null }>('GET', `${sessionPath}/episodes/${episode}/fetch`, undefined, signal)).fetching,
     subtitleUrl(episode, release, fileId, trackId, timing) {
       const params: Record<string, string> = { release, file: fileId, track: trackId };
       if (timing.kind !== 'original') params.timing = base64UrlJson(timing);

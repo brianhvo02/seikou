@@ -9,7 +9,7 @@ import { loadPlaylist } from '../../src/disc/playlist';
 import { probeClip, type ClipProbe } from '../../src/disc/probe';
 import { parseEpisodeSpec, planEpisodes } from '../../src/plan/episodes';
 import { NasClient } from '../../src/nas/client';
-import { ClipFetcher, clipsOfEpisode, readMirrorRange, sweepUnheld } from '../../src/nas/fetch';
+import { assertFetched, ClipFetcher, clipsOfEpisode, readMirrorRange, sweepUnheld } from '../../src/nas/fetch';
 import { CHUNK_BYTES, ensureMirror, FetchError, HEAD_BYTES, locked, mirrorEntry } from '../../src/nas/mirror';
 import { pairWithNas } from '../../src/nas/pairing';
 import { startNasTestServer, type NasTestServer } from './nas-test-server';
@@ -105,6 +105,16 @@ describe('ClipFetcher', () => {
     expect(progress.at(-1)).toEqual({ bytesDone: src('00001.m2ts').length, bytes: src('00001.m2ts').length });
     await fetcher().hold('job-2', ['00001.M2TS']);
     expect(rangeRequests).toHaveLength(1);
+  });
+
+  it('assertFetched refuses a clip that is only a head, passes once it is whole, and passes any folder that is not a mirror', async () => {
+    await fetcher().heads('00000');
+    // Clip 1 is shorter than a head, so its head is all of it.
+    await expect(assertFetched(mirror.dir, ['00001.M2TS'])).resolves.toBeUndefined();
+    await expect(assertFetched(mirror.dir, ['00001.M2TS', '00002.M2TS'])).rejects.toThrow('Clip 00002.M2TS is not fetched from the NAS yet');
+    await fetcher().hold('job-1', ['00002.M2TS']);
+    await expect(assertFetched(mirror.dir, ['00001.M2TS', '00002.M2TS'])).resolves.toBeUndefined();
+    await expect(assertFetched(FIXTURE_DISC1, ['00001.M2TS', '00009.M2TS'])).resolves.toBeUndefined();
   });
 
   it('after an abort mid-fetch, a new hold fetches only the missing ranges, and a refreshed mirror keeps them', async () => {

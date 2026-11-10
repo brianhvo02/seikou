@@ -14,7 +14,7 @@ import { FetchError, isMirror, isStreamPath } from '../nas/mirror';
 import { readPlaylistPmts } from '../disc/pmt';
 import { probeClip, type ClipProbe } from '../disc/probe';
 import { firstStnAudio } from '../plan/audio-streams';
-import { EpisodeSpecError, firstFramePlaylistUs, parseEpisodeSpec, planEpisodes, type EpisodePlan, type EpisodeSpec } from '../plan/episodes';
+import { episodeItems, EpisodeSpecError, firstFramePlaylistUs, parseEpisodeSpec, planEpisodes, type EpisodePlan, type EpisodeSpec } from '../plan/episodes';
 import { httpError, json, sendFile, sessionRoute, type AppContext, type HelperSession, type Route, type RouteTable } from './http';
 import { discOf, sessionsOf, type DiscInfo } from './sessions';
 
@@ -110,12 +110,14 @@ async function planTimes(session: HelperSession): Promise<PlannedEpisodes> {
     throw e;
   }
   if (playlist.items[0]?.audioPids[0] === undefined) throw new DiscRequestError(422, 'no-audio', `Playlist ${session.playlistId} has no audio stream`);
+  // Only the clips the episodes play are read, each at its head (a NAS disc's mirror holds the heads of them all).
+  const items = [...new Map(specs.flatMap((spec) => episodeItems(playlist, spec)).map((item) => [item.clipId, item])).values()];
   const probes = new Map<string, ClipProbe>();
-  for (const item of playlist.items) if (!probes.has(item.clipId)) probes.set(item.clipId, await probeClip(item));
+  for (const item of items) probes.set(item.clipId, await probeClip(item));
   // Alignment listens to the playlist's first STN audio stream, which BestSource finds through each clip's PMT.
-  const first = firstStnAudio(playlist, probes);
+  const first = firstStnAudio(playlist);
   const firstAudio = first === null ? [] : [first];
-  const plans = planEpisodes(playlist, probes, specs, firstAudio, await readPlaylistPmts(playlist));
+  const plans = planEpisodes(playlist, probes, specs, firstAudio, await readPlaylistPmts({ items }));
 
   const episodes = plans.map((plan): EpisodeTimes => {
     const startUs = firstFramePlaylistUs(playlist, plan);

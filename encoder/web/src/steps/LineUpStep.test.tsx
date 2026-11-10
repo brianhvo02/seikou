@@ -49,7 +49,7 @@ const episodes: EpisodesAnswer = {
 
 const ASS = '[Script Info]\nScriptType: v4.00+\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\nDialogue: 0,0:00:05.00,0:00:07.00,Default,,0,0,0,,Hello\n';
 
-function fakeApi(align: HelperApi['align']): HelperApi {
+function fakeApi(align: HelperApi['align'], lineUpFetch: HelperApi['lineUpFetch'] = async () => null): HelperApi {
   const notCalled = () => Promise.reject(new Error('not expected'));
   return {
     session: notCalled,
@@ -62,6 +62,7 @@ function fakeApi(align: HelperApi['align']): HelperApi {
     upload: notCalled,
     release: notCalled,
     align: vi.fn(align),
+    lineUpFetch: vi.fn(lineUpFetch),
     subtitleUrl: vi.fn((episode: number, rel: string, file: string, track: string, timing: FansubAlignment) => `/sub/${episode}/${rel}/${file}/${track}/${timing.kind}`),
     fontUrl: vi.fn((rel: string, name: string) => `/font/${rel}/${encodeURIComponent(name)}`),
     record: notCalled,
@@ -231,6 +232,20 @@ describe('LineUpStep', () => {
     expect(await screen.findByText('Could not line up: too little dialogue')).toBeTruthy();
     await waitFor(() => expect(controller.loadSubtitleFiles).toHaveBeenCalled());
     expect(api.subtitleUrl).toHaveBeenLastCalledWith(1, 'tosho-11', 'f1', '2', { kind: 'original' });
+  });
+
+  it("says what it fetches from the NAS while the episode's clips arrive, then lines up", async () => {
+    let finish: (a: AlignAnswer) => void = () => {};
+    const api = fakeApi(
+      () => new Promise<AlignAnswer>((resolve) => (finish = resolve)),
+      async () => ({ bytesDone: 1_500_000, bytes: 5_031_936 }),
+    );
+    render(<Harness api={api} controller={fakeController()} />);
+    expect(await screen.findByText('Fetching from the NAS (1.5 of 5.0 MB)')).toBeTruthy();
+    expect(api.lineUpFetch).toHaveBeenCalledWith(1, expect.anything());
+    act(() => finish(answer({ kind: 'offset', offsetMs: 1200, confidence: 0.92 })));
+    expect(await screen.findByText('Shifted +1.20 s, confident')).toBeTruthy();
+    expect(screen.queryByText(/Fetching from the NAS/)).toBeNull();
   });
 
   it('without tools it previews at original timing with the VapourSynth message', async () => {

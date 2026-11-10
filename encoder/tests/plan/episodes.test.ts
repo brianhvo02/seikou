@@ -94,7 +94,7 @@ describe('planEpisodes', () => {
     // The CLPI says 48 kHz; the playlist's STN entries say 96 kHz, which is what BestSource's decode is held to.
     expect(probe00001.audio[0]!.sampleRate).toBe(48000);
     const stn96 = { ...p, items: p.items.map((item) => ({ ...item, audioRateCodes: item.audioRateCodes.map(() => 4) })) };
-    const audio = selectAudio(stn96, probes, null, 1);
+    const audio = selectAudio(stn96, null, 1);
     expect(audio.map((a) => a.sampleRate)).toEqual([96000]);
     const [ep] = planEpisodes(stn96, probes, parseEpisodeSpec('1-2', 4), audio, pmts);
     expect(samplesOf(ep!.segments[0]!)).toEqual([0, 384000]);

@@ -262,13 +262,13 @@ export async function runTestEncode(
   }
   const pmts = await readPlaylistPmts(playlist);
   const log = (message: string): void => onEvent({ kind: 'log', episode: 0, message });
-  const every = selectAudio(playlist, probes, null, 1, log);
+  const every = selectAudio(playlist, null, 1, log);
   const shared = every.slice(0, 1);
   let audioStreams = every.length;
   if (!job.noSubtitles) {
     try {
       const record = await loadEncodeRecord({ discDir: job.disc.dir, playlistId: job.playlist, episodeSpec: job.episodeSpec, dataDir: ctx.dataDir, noSubtitles: false });
-      if (record !== null) audioStreams = selectAudio(playlist, probes, record, 1, () => undefined).length;
+      if (record !== null) audioStreams = selectAudio(playlist, record, 1, () => undefined).length;
     } catch (e) {
       log(`The saved subtitle choices cannot be used for the audio stream count (${e instanceof Error ? e.message : String(e)}); counting every audio stream.`);
     }

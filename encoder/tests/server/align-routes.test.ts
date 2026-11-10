@@ -1,12 +1,21 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { readdirSync, readFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import type { FansubAlignment } from '@seikou/nas/nas-api';
+import { fixtureFansubSources } from '@seikou/fansubs/fixture-sources';
+import type { FansubAlignment, LibraryListing } from '@seikou/nas/nas-api';
 import { EpisodeAudioCache } from '../../src/audio/episode-audio-cache';
+import { NasClient } from '../../src/nas/client';
+import { ensureMirror } from '../../src/nas/mirror';
+import { pairWithNas } from '../../src/nas/pairing';
 import { episodeAudioCacheOf, episodeAudioKey } from '../../src/server/align-routes';
 import type { AppContext, HelperSession } from '../../src/server/http';
+import { startHelperServer, type HelperServer } from '../../src/server/server';
+import { fixtureAniList } from '../../src/subs/fixture-anilist';
 import { haveTools, toolPaths } from '../helpers/tools';
+import { startNasTestServer, type NasTestServer } from '../nas/nas-test-server';
+import { fx } from '../paths';
 import { jsonOf, startRouteFixture, type RouteFixture } from './route-fixture';
 
 interface Span {
@@ -185,5 +194,66 @@ describe('EpisodeAudioCache', () => {
     second.abort(new Error('second gone'));
     await expect(p2).rejects.toThrow('second gone');
     expect(loadSignal?.aborted).toBe(true);
+  });
+});
+
+describe('the line-up on a NAS disc', () => {
+  let nas: NasTestServer;
+  let server: HelperServer;
+  let app: AppContext;
+  let sessionId: string;
+  let mirrorDir: string;
+  const token = 'align-nas-token';
+
+  const call = (sub: string, init: RequestInit = {}): Promise<Response> =>
+    fetch(`http://127.0.0.1:${server.port}/api/sessions/${sessionId}${sub}`, { ...init, headers: { authorization: `Bearer ${token}` } });
+  const lineUp = (episode: number): Promise<Response> =>
+    call(`/episodes/${episode}/align`, { method: 'POST', body: JSON.stringify({ release: 'tosho-7001', fileId: '7101' }) });
+  const nasClip = (name: string): Buffer => readFileSync(join(nas.discsDir!, 'speech/BDMV/STREAM', name));
+  const mirrorClip = (name: string): Buffer => readFileSync(join(mirrorDir, 'BDMV/STREAM', name));
+
+  beforeAll(async () => {
+    // The speech disc's clips carry a PAT and PMT, which planning reads (the synthetic discs' do not).
+    nas = await startNasTestServer({ encodes: false, prepare: (dir) => cpSync(fx('fixtures/disc-speech'), join(dir, 'speech'), { recursive: true }) });
+    const dataDir = mkdtempSync(join(tmpdir(), 'align-nas-'));
+    await pairWithNas(dataDir, { code: await nas.ownerCode(), base: nas.base }, 'Seikou encoder on test');
+    const client = (await NasClient.load(dataDir))!;
+    const fansubs = fixtureFansubSources(fx('tests/fixtures/fansubs'));
+    const anilist = fixtureAniList(fx('tests/fixtures/fansubs'));
+    // Tools that are not there: the line-up gets as far as decoding, which then fails.
+    const missing = { vspipe: '/nonexistent/vspipe', svt: '/nonexistent/SvtAv1EncApp', opusenc: '/nonexistent/opusenc' };
+    app = {
+      dataDir,
+      token,
+      webDir: null,
+      tools: missing,
+      sources: { seadex: fansubs.seadex, tosho: fansubs.tosho, anilist: anilist.source, episodes: anilist.episodes, covers: anilist.covers },
+      roots: [],
+      nas: { client },
+    };
+    server = await startHelperServer(app);
+    const discId = (await client.json<LibraryListing>('library?path=syn')).discs.find((d) => d.name === 'speech')!.id;
+    mirrorDir = (await ensureMirror(dataDir, client, discId)).dir;
+    sessionId = (await server.sessions.create({ discDir: mirrorDir, playlistId: '00000', episodeSpec: '1-3,4-5' })).id;
+    expect((await call('/fansubs/fetch', { method: 'POST', body: JSON.stringify({ toshoId: 7001 }) })).status).toBe(200);
+  });
+  afterAll(async () => {
+    await server.close();
+    await nas.close();
+    rmSync(app.dataDir, { recursive: true, force: true });
+  });
+
+  it("fetches the episode's clips before decoding, and a second line-up fetches nothing", async () => {
+    // Episode 1 (chapters 1-3) plays clip 1 alone, which is longer than a head.
+    expect(mirrorClip('00001.m2ts').equals(nasClip('00001.m2ts'))).toBe(false);
+    // Decoding fails without vspipe, after the fetch.
+    expect((await lineUp(1)).status).toBe(500);
+    expect(mirrorClip('00001.m2ts').equals(nasClip('00001.m2ts'))).toBe(true);
+    expect(await (await call('/episodes/1/fetch')).json()).toEqual({ fetching: null });
+
+    const record = statSync(join(mirrorDir, 'fetch.json')).mtimeMs;
+    expect((await lineUp(1)).status).toBe(500);
+    // Nothing was fetched: the mirror's record, written after each fetched chunk, is as it was.
+    expect(statSync(join(mirrorDir, 'fetch.json')).mtimeMs).toBe(record);
   });
 });

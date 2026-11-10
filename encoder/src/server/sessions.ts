@@ -103,8 +103,8 @@ function forgetDisc(app: AppContext, root: string): void {
   discs.get(app)?.delete(root);
 }
 
-/** A `SessionError` for a fetch from the NAS that failed while a session was made. */
-function fetchFailure(e: unknown): SessionError | null {
+/** A `SessionError` for a failed fetch from the NAS (a `FetchError`, or a `NasError` as `unreachable`); null for any other error. */
+export function fetchFailure(e: unknown): SessionError | null {
   if (e instanceof FetchError) {
     const status = e.code === 'disc-changed' ? 409 : e.code === 'no-room' ? 507 : 502;
     return new SessionError(status, e.code, e.message);

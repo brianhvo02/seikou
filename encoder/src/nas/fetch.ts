@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { open, readdir, readFile, statfs } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { parseDiscKey } from '@seikou/nas/disc-key';
 import { loadPlaylist } from '../disc/playlist';
-import { episodeItems, parseEpisodeSpec } from '../plan/episodes';
+import { episodeItems, parseEpisodeSpec, type EpisodePlan } from '../plan/episodes';
 import type { NasClient } from './client';
 import {
   addRange,
@@ -15,6 +16,7 @@ import {
   fetchRootOf,
   gapsIn,
   headLength,
+  isMirror,
   isStreamPath,
   loadState,
   localPathOf,
@@ -272,6 +274,31 @@ export async function clipsOfEpisode(discDir: string, playlistId: string, episod
   const spec = parseEpisodeSpec(episodeSpec, playlist.chapters.length)[index - 1];
   if (spec === undefined) throw new RangeError(`Episode ${index} is not in the list ${episodeSpec}.`);
   return [...new Set(episodeItems(playlist, spec).map((item) => `${item.clipId}.M2TS`))];
+}
+
+/**
+ * Throws `Error('Clip <name> is not fetched from the NAS yet')` for the first of `clips` (stream file names such as
+ * '00001.M2TS') that mirror `dir` (the folder holding BDMV) does not hold whole, as its `fetch.json` records; a folder
+ * that is not a mirror passes. A guard against a bug, run before anything reads a clip past its head (BestSource,
+ * the PG reader): every such reader works on clips a holder has fetched.
+ */
+export async function assertFetched(dir: string, clips: readonly string[]): Promise<void> {
+  if (!(await isMirror(dir))) return;
+  const state = await readState(dir);
+  for (const clip of clips) {
+    const path = streamPathOf(clip);
+    const size = state?.files[path];
+    if (size === undefined || gapsIn(state?.ranges[path] ?? [], 0, size).length > 0) throw new Error(`Clip ${clip} is not fetched from the NAS yet`);
+  }
+}
+
+/** `assertFetched` for the clips `plan`'s segments read, on the disc they lie on. */
+export async function assertPlanFetched(plan: Pick<EpisodePlan, 'segments'>): Promise<void> {
+  const first = plan.segments[0];
+  if (first === undefined) return;
+  // A clip lies at <disc>/BDMV/STREAM/<clip>.m2ts.
+  const dir = dirname(dirname(dirname(first.item.m2tsPath)));
+  await assertFetched(dir, [...new Set(plan.segments.map((s) => `${s.item.clipId}.M2TS`))]);
 }
 
 /**
