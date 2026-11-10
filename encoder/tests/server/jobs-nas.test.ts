@@ -201,7 +201,7 @@ describe('a NAS job', () => {
     expect(done.episodes.map((e) => e.encodeId)).toEqual([`${SHOW}-1`, `${SHOW}-2`]);
   });
 
-  it('a cancel during the wait stops the job at once and releases its clips', async () => {
+  it('a cancel during the wait stops the job at once, releases its clips and keeps the MKVs', async () => {
     await chooseAniList([1, 4]);
     gates.set(1, gate());
     const runner = startJobRunner(fx.app, deps({ nasRetryMs: 60_000 }));
@@ -212,14 +212,68 @@ describe('a NAS job', () => {
     await nas.pause();
     try {
       gates.get(1)!.open();
+      // episode 2's clips are here, so it encodes while episode 1's upload waits; then only uploads are left
       await until(() => runner.get(job.id)!.waiting !== null, 'the wait');
+      expect(seen.map((s) => s.episode)).toEqual([1, 2]);
       const cancelled = await runner.cancel(job.id);
       expect(cancelled.state).toBe('cancelled');
-      expect(cancelled.episodes[0]!.state).toBe('upload-failed');
+      expect(cancelled.episodes.map((e) => e.state)).toEqual(['upload-failed', 'upload-failed']);
+      for (const e of cancelled.episodes) expect(existsSync(e.path!)).toBe(true);
     } finally {
       await nas.resume();
     }
     expect(mirrorState().whole).toEqual([]);
+    // a retry uploads both from their MKVs, encoding nothing again
+    await runner.retry(job.id);
+    await until(() => ['done', 'failed'].includes(runner.get(job.id)!.state), 'the retry to end');
+    expect(runner.get(job.id)!.episodes.map((e) => e.encodeId)).toEqual([`${SHOW}-1`, `${SHOW}-2`]);
+    expect(seen.map((s) => s.episode)).toEqual([1, 2]);
+  });
+
+  it('a waiting upload does not hold the runner: the episodes after it encode, then all upload in order', async () => {
+    // a local disc in three episodes, so nothing but the uploads needs the NAS
+    await new EpisodeInfoStore(fx.dataDir).save(fx.discKey, '00000', {
+      chapterNames: {},
+      anilist: Object.fromEntries([1, 3, 5].map((c, i) => [String(c), { anilistId: SHOW, episode: i + 1, title: null }])),
+    });
+    gates.set(1, gate());
+    gates.set(2, gate());
+    const runner = startJobRunner(fx.app, deps({ nasRetryMs: 20 }));
+    await runner.ready;
+    const job = await runner.add(input({ discKey: fx.discKey, episodeSpec: '1-2,3-4,5' }));
+    await until(() => seen.length === 1, 'episode 1 to encode');
+    await nas.pause();
+    let resumed = false;
+    try {
+      gates.get(1)!.open();
+      await until(() => seen.length === 2, 'episode 2 to encode');
+      const during = runner.get(job.id)!;
+      expect([during.waiting, during.episodes[0]!.state, during.episodes[0]!.encoded]).toEqual([null, 'upload-waiting', true]);
+      expect(during.episodes[0]!.upload?.sha256).toMatch(/^[0-9a-f]{64}$/);
+      gates.get(2)!.open();
+      await until(() => runner.get(job.id)!.waiting !== null, 'the wait once only uploads are left');
+      const waiting = runner.get(job.id)!;
+      expect(seen.map((s) => s.episode)).toEqual([1, 2, 3]);
+      expect(waiting.waiting).toBe('Waiting for the NAS');
+      expect(waiting.episodes.map((e) => [e.state, e.step])).toEqual([
+        ['running', 'uploading'],
+        ['upload-waiting', null],
+        ['upload-waiting', null],
+      ]);
+      for (const e of waiting.episodes) expect(existsSync(e.path!)).toBe(true);
+      await nas.resume();
+      resumed = true;
+    } finally {
+      if (!resumed) await nas.resume();
+    }
+    await until(() => ['done', 'failed'].includes(runner.get(job.id)!.state), 'the job to end');
+    const done = runner.get(job.id)!;
+    expect([done.state, done.waiting, done.error]).toEqual(['done', null, undefined]);
+    expect(done.episodes.map((e) => e.encodeId)).toEqual([`${SHOW}-1`, `${SHOW}-2`, `${SHOW}-3`]);
+    // nothing encoded twice, and the uploads went in episode order
+    expect(seen.map((s) => s.episode)).toEqual([1, 2, 3]);
+    const filed = (await runner.logTail(job.id, 200)).filter((l) => l.includes(': on the NAS as ')).map((l) => /Episode (\d+):/.exec(l)![1]);
+    expect(filed).toEqual(['1', '2', '3']);
   });
 
   it('an interrupted upload resumes the upload id it stored', async () => {

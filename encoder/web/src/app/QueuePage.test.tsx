@@ -63,11 +63,14 @@ describe('QueuePage', () => {
         makeEpisode(2, { state: 'running', step: 'uploading', stepDone: 45, stepTotal: 100, frames: 1000, framesDone: 1000 }),
         makeEpisode(3, { state: 'running', step: 'fetching', stepDone: 1.2e9, stepTotal: 4e9 }),
         makeEpisode(4, { state: 'upload-failed', encoded: true, error: 'The NAS has no room.' }),
+        makeEpisode(5, { state: 'upload-waiting', encoded: true, frames: 1000, framesDone: 1000 }),
       ],
     });
     setup(fakeApi(), [job], job.id);
+    expect(screen.getByText('Encoded · upload waits for the NAS')).toBeTruthy();
+    expect(screen.getByRole('progressbar', { name: 'Episode 5' }).getAttribute('value')).toBe('100');
     expect(screen.getByText('Uploaded')).toBeTruthy();
-    expect(screen.getByText('Uploading episode 2 of 4 · 45%')).toBeTruthy();
+    expect(screen.getByText('Uploading episode 2 of 5 · 45%')).toBeTruthy();
     expect(screen.getByText('Fetching from the NAS · 1.2 of 4.0 GB')).toBeTruthy();
     expect(screen.getAllByText('Upload failed: The NAS has no room.')).toHaveLength(1);
     expect(screen.getByText('Waiting for the NAS. Trying again every minute.').getAttribute('role')).toBe('status');

@@ -40,7 +40,7 @@ what would change that decision.
   while another process holds the lock. *Revisit if* both are needed at once: keep the holders on disk, or queue the command line's encode through the
   running app.
 - **An upload needs about 1.1 Mbit/s upstream.** Each 8 MiB upload chunk has a 60 s timeout, so a slower link times out
-  on every chunk, and the job waits for the NAS until it is cancelled. *Revisit if* someone uploads over a slow link: size the chunks
+  on every chunk: the job encodes its other episodes, then waits for the NAS until it is cancelled. *Revisit if* someone uploads over a slow link: size the chunks
   to the measured rate, or lengthen the timeout with the chunk's progress.
 
 ## Video

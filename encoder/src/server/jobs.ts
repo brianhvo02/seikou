@@ -38,8 +38,10 @@ export type JobState = 'queued' | 'running' | 'done' | 'failed' | 'interrupted' 
 /**
  * Where one episode of a job is. `packaging-failed`: the MKV is complete but the web package is not.
  * `upload-failed`: the MKV is complete and kept, but the NAS has not taken it; a retry uploads it again.
+ * `upload-waiting`: the MKV is complete and kept, and its upload waits for the NAS to answer while the job goes on
+ * encoding; the runner uploads it before the job ends.
  */
-export type EpisodeState = 'queued' | 'running' | 'done' | 'packaging-failed' | 'upload-failed' | 'failed';
+export type EpisodeState = 'queued' | 'running' | 'done' | 'packaging-failed' | 'upload-failed' | 'upload-waiting' | 'failed';
 
 /** What a running episode is doing: fetching its clips from the NAS, encoding, or uploading to the NAS. */
 export type EpisodeStep = 'fetching' | 'encoding' | 'uploading';
@@ -208,6 +210,8 @@ export interface JobRunnerDeps {
 
 /** What a job shows while it waits for the NAS. */
 export const WAITING_FOR_NAS = 'Waiting for the NAS';
+/** A step that found the NAS away when it was not to wait for it; the message is the step's. */
+class NasAway extends Error {}
 /** Why a job fails when its NAS disc changed on the NAS since it was opened: retrying meets the same change. */
 export function discChangedMessage(label: string): string {
   return `The disc ${label} changed on the NAS since it was opened. Open it again from the Library and queue it again.`;
@@ -222,7 +226,7 @@ export const MAX_LOG_TAIL = 2000;
 const FINISHED: ReadonlySet<JobState> = new Set(['done', 'failed', 'interrupted', 'cancelled']);
 const RETRYABLE: ReadonlySet<JobState> = new Set(['failed', 'interrupted', 'cancelled']);
 const JOB_STATES: ReadonlySet<string> = new Set(['queued', 'running', ...FINISHED]);
-const EPISODE_STATES: ReadonlySet<string> = new Set(['queued', 'running', 'done', 'packaging-failed', 'upload-failed', 'failed']);
+const EPISODE_STATES: ReadonlySet<string> = new Set(['queued', 'running', 'done', 'packaging-failed', 'upload-failed', 'upload-waiting', 'failed']);
 const EPISODE_STEPS: ReadonlySet<string> = new Set(['fetching', 'encoding', 'uploading']);
 
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -1150,9 +1154,12 @@ export class JobRunner {
     return job.kind === 'encode' && job.settings.destination === 'nas';
   }
 
-  /** The state of an episode that was running when its job stopped; `who` is `The app stopped` or `The job stopped`. */
+  /**
+   * The state of an episode that was running, or whose upload waited, when its job stopped; `who` is `The app stopped`
+   * or `The job stopped`.
+   */
   private settleStopped(job: Job, ep: JobEpisode, who: string): void {
-    if (ep.state !== 'running') return;
+    if (ep.state !== 'running' && ep.state !== 'upload-waiting') return;
     ep.step = null;
     if (ep.encoded && this.toNas(job)) {
       ep.state = 'upload-failed';
@@ -1308,15 +1315,24 @@ export class JobRunner {
           await this.repackage(job, ep);
           continue;
         }
-        if (ep.state === 'upload-failed') {
-          await this.upload(job, ep, signal);
+        if (ep.state === 'upload-failed' || ep.state === 'upload-waiting') {
+          await this.uploadPending(job, signal, false);
           continue;
         }
+        // a NAS disc's fetch still waits for the NAS when the clips are not here yet
         if (onNas) await this.fetchEpisode(job, ep, signal, ahead.signal, fetches);
         await this.encodeEpisode(job, ep, record, tools, signal);
         if (onNas) await this.releaseEncoded(job, ep);
-        if (this.toNas(job)) await this.upload(job, ep, signal);
+        if (this.toNas(job)) {
+          // pending until an upload pass takes it, which goes in episode order
+          ep.state = 'upload-waiting';
+          ep.step = null;
+          this.persist();
+          await this.uploadPending(job, signal, false);
+        }
       }
+      // nothing but uploads left: the job waits for the NAS until each is uploaded
+      if (this.toNas(job)) await this.uploadPending(job, signal, true);
     } finally {
       signal.removeEventListener('abort', stopAhead);
       ahead.abort();
@@ -1333,10 +1349,11 @@ export class JobRunner {
 
   /**
    * Runs `step` until it succeeds. While the NAS does not answer (or its encodes folder is missing) the job shows
-   * `Waiting for the NAS` and tries again every `nasRetryMs`; an abort of `signal` stops the wait at once. A NAS that
-   * no longer knows the app, or an app no longer paired, fails the job; anything else is the step's failure.
+   * `Waiting for the NAS` and tries again every `nasRetryMs`; an abort of `signal` stops the wait at once. With
+   * `wait: false` it does not wait but throws `NasAway` at once. A NAS that no longer knows the app, or an app no longer
+   * paired, fails the job; anything else is the step's failure.
    */
-  private async untilNas<T>(job: Job, signal: AbortSignal, step: () => Promise<T>): Promise<T> {
+  private async untilNas<T>(job: Job, signal: AbortSignal, step: () => Promise<T>, wait = true): Promise<T> {
     for (;;) {
       try {
         const out = await step();
@@ -1354,6 +1371,7 @@ export class JobRunner {
           (e instanceof NasError && e.code === 'unreachable') ||
           (e instanceof UploadError && (e.code === 'unreachable' || e.code === 'folder-unavailable'));
         if (!waits) throw e;
+        if (!wait) throw new NasAway(message(e));
         if (job.waiting === null) {
           job.waiting = WAITING_FOR_NAS;
           this.appendLog(job, `Waiting for the NAS: ${message(e)}`);
@@ -1469,11 +1487,24 @@ export class JobRunner {
   }
 
   /**
+   * Uploads the job's encoded episodes whose upload is pending (`upload-waiting` or `upload-failed`), in episode order.
+   * With `wait` each waits for the NAS as long as it takes (`untilNas`); without, the first that finds the NAS away is
+   * left `upload-waiting`, with every later one, and the job goes on.
+   */
+  private async uploadPending(job: Job, signal: AbortSignal, wait: boolean): Promise<void> {
+    for (const ep of job.episodes) {
+      if (ep.state !== 'upload-waiting' && ep.state !== 'upload-failed') continue;
+      if ((await this.upload(job, ep, signal, wait)) === 'away') return;
+    }
+  }
+
+  /**
    * Uploads an encoded episode's MKV to the NAS, resuming the upload kept on the episode, then deletes the MKV and
    * marks the episode done with the NAS's encode id; only the NAS's `complete` answer counts. A failed upload marks the
-   * episode `upload-failed` with the MKV kept, and fails the job.
+   * episode `upload-failed` with the MKV kept, and fails the job. Without `wait`, a NAS that is away leaves the episode
+   * `upload-waiting` (its MKV and upload state kept) and answers 'away'.
    */
-  private async upload(job: Job, ep: JobEpisode, signal: AbortSignal): Promise<void> {
+  private async upload(job: Job, ep: JobEpisode, signal: AbortSignal, wait = true): Promise<'away' | void> {
     const path = ep.path ?? this.mkvPath(job, ep);
     const state: UploadState = ep.upload ?? { id: null, sha256: null, size: 0, sent: 0 };
     ep.upload = state;
@@ -1497,8 +1528,16 @@ export class JobRunner {
           onState: () => this.persist(),
           chunkBytes: this.deps.uploadChunkBytes,
         }),
+        wait,
       );
     } catch (e) {
+      if (e instanceof NasAway) {
+        ep.state = 'upload-waiting';
+        ep.step = null;
+        this.appendLog(job, `Episode ${ep.index}: encoded; its upload waits for the NAS (${e.message}).`);
+        this.persist();
+        return 'away';
+      }
       if (!signal.aborted && !this.stopping) {
         ep.state = 'upload-failed';
         ep.step = null;

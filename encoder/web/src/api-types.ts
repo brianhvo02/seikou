@@ -487,10 +487,11 @@ export type JobKind = 'encode' | 'test';
 export type JobState = 'queued' | 'running' | 'done' | 'failed' | 'interrupted' | 'cancelled';
 
 /**
- * Where one episode of a job is; `packaging-failed` means the MKV is complete but its web package is not, and
- * `upload-failed` that the MKV is complete and kept but the NAS has not taken it (a retry uploads it again).
+ * Where one episode of a job is; `packaging-failed` means the MKV is complete but its web package is not,
+ * `upload-failed` that the MKV is complete and kept but the NAS has not taken it (a retry uploads it again), and
+ * `upload-waiting` that the MKV is complete and its upload waits for the NAS while the job goes on encoding.
  */
-export type JobEpisodeState = 'queued' | 'running' | 'done' | 'packaging-failed' | 'upload-failed' | 'failed';
+export type JobEpisodeState = 'queued' | 'running' | 'done' | 'packaging-failed' | 'upload-failed' | 'upload-waiting' | 'failed';
 
 /** What a running episode is doing. */
 export type JobEpisodeStep = 'fetching' | 'encoding' | 'uploading';

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { episodeStatus, formatBytesOf, waitingText } from './job-model';
+import { episodeFraction, episodeStatus, formatBytesOf, waitingText } from './job-model';
 import { DEFAULT_TEST_SETTINGS, makeEpisode, makeJob } from './job-test-support';
 
 const nasJob = (episodes = 6) =>
@@ -39,6 +39,12 @@ describe('episodeStatus', () => {
     const ep = makeEpisode(2, { state: 'upload-failed', encoded: true, error: 'The NAS has no room.' });
     expect(episodeStatus(nasJob(), ep)).toBe('Upload failed: The NAS has no room.');
     expect(episodeStatus(nasJob(), makeEpisode(2, { state: 'upload-failed' }))).toBe('Upload failed: the NAS did not take it');
+  });
+
+  it('an encoded episode whose upload waits for the NAS says so, and counts as encoded', () => {
+    const ep = makeEpisode(1, { state: 'upload-waiting', encoded: true, frames: 1000, framesDone: 1000 });
+    expect(episodeStatus(nasJob(), ep)).toBe('Encoded · upload waits for the NAS');
+    expect(episodeFraction(makeEpisode(1, { state: 'upload-waiting', encoded: true }))).toBe(1);
   });
 
   it('keeps the other states as the page said them', () => {

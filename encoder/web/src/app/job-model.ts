@@ -5,7 +5,7 @@ import type { Job, JobEpisode, JobProgress, JobState } from '../api-types';
 
 /** The share (0 to 1) of an episode that is encoded; the live `progress` report, when it is for this episode, is newer than the job's. */
 export function episodeFraction(episode: JobEpisode, progress?: JobProgress): number {
-  if (episode.state === 'done' || episode.state === 'packaging-failed') return 1;
+  if (episode.state === 'done' || episode.state === 'packaging-failed' || episode.state === 'upload-waiting') return 1;
   const live = progress !== undefined && progress.episode === episode.index && episode.state === 'running';
   const done = live ? progress.framesDone : episode.framesDone;
   const frames = live ? progress.frames : episode.frames;
@@ -74,7 +74,7 @@ export function formatBytesOf(done: number, total: number): string {
 /**
  * What an episode of the open job is doing, in a line: "Fetching from the NAS · 1.2 of 4.0 GB", "Encoding",
  * "Uploading episode 2 of 6 · 45%", "Uploaded" (the NAS took it; its `encodeId` stays on the episode for a later link),
- * "Upload failed: <reason>", or the plain states.
+ * "Encoded · upload waits for the NAS", "Upload failed: <reason>", or the plain states.
  */
 export function episodeStatus(job: Job, episode: JobEpisode): string {
   switch (episode.state) {
@@ -86,6 +86,8 @@ export function episodeStatus(job: Job, episode: JobEpisode): string {
       return 'Encoded, web package failed';
     case 'upload-failed':
       return `Upload failed: ${episode.error ?? 'the NAS did not take it'}`;
+    case 'upload-waiting':
+      return 'Encoded · upload waits for the NAS';
     case 'failed':
       return 'Failed';
     case 'running':
