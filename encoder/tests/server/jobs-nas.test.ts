@@ -54,6 +54,8 @@ let seen: Seen[];
 let gates: Map<number, { promise: Promise<void>; open: () => void }>;
 /** Requests the NAS was sent, as `<method> <path>`. */
 let requests: string[];
+/** The `Content-Range` of every PUT the NAS answered. */
+let putsAnswered: string[];
 /** Runs before each request goes out; may return a promise the request waits for. */
 let beforeRequest: (method: string, path: string, signal: AbortSignal | null) => Promise<void> | void;
 
@@ -118,6 +120,7 @@ beforeEach(async () => {
   seen = [];
   gates = new Map();
   requests = [];
+  putsAnswered = [];
   beforeRequest = () => {};
   await pairWithNas(fx.dataDir, { code: await nas.ownerCode(), base: nas.base }, 'Seikou encoder on test');
   fx.app.nas.client = await NasClient.load(fx.dataDir, async (url, init) => {
@@ -125,7 +128,9 @@ beforeEach(async () => {
     const path = new URL(String(url)).pathname.replace(/^\/api\//, '');
     requests.push(`${method} ${path}`);
     await beforeRequest(method, path, init?.signal ?? null);
-    return fetch(url, init);
+    const res = await fetch(url, init);
+    if (method === 'PUT' && res.ok) putsAnswered.push(new Headers(init?.headers).get('content-range') ?? '');
+    return res;
   });
   const library = nasLibraryOf(fx.app);
   await library.scan();
@@ -248,6 +253,53 @@ describe('a NAS job', () => {
     expect(requests.filter((r) => r === 'POST encodes/uploads')).toHaveLength(1); // episode 2's only
     // Episode 1 was not encoded again.
     expect(seen.map((s) => s.episode)).toEqual([1, 2]);
+  });
+
+  it('a NAS that stops answering after the first piece of an upload gets only the missing pieces once back', async () => {
+    await chooseAniList([1, 4]);
+    let paused = false;
+    beforeRequest = async (method) => {
+      if (method === 'PUT' && putsAnswered.length === 1 && !paused) {
+        paused = true;
+        await nas.pause();
+      }
+    };
+    // three pieces an episode
+    const runner = startJobRunner(fx.app, deps({ uploadChunkBytes: 400_000 }));
+    await runner.ready;
+    const job = await runner.add(input());
+    await until(() => runner.get(job.id)!.waiting !== null, 'the wait');
+    expect(runner.get(job.id)!.episodes[0]!.step).toBe('uploading');
+    await nas.resume();
+    await until(() => ['done', 'failed'].includes(runner.get(job.id)!.state), 'the job to end');
+    expect(runner.get(job.id)!.state).toBe('done');
+    expect(putsAnswered).toHaveLength(6);
+    expect(new Set(putsAnswered).size).toBe(3); // each episode's three pieces, none of episode 1's sent twice
+    expect(putsAnswered.slice(0, 3)).toEqual([...new Set(putsAnswered.slice(0, 3))]);
+    expect(seen.map((x) => x.episode)).toEqual([1, 2]);
+  });
+
+  it('removing a job drops the upload it left open on the NAS', async () => {
+    await chooseAniList([1, 4]);
+    const blocked = gate();
+    beforeRequest = (method, _path, signal) => {
+      if (method !== 'PUT') return;
+      return new Promise<void>((_resolve, reject) => {
+        blocked.open();
+        signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+    };
+    const runner = startJobRunner(fx.app, deps());
+    await runner.ready;
+    const job = await runner.add(input());
+    await blocked.promise;
+    beforeRequest = () => {};
+    const cancelled = await runner.cancel(job.id);
+    const uploadId = cancelled.episodes[0]!.upload!.id!;
+    expect(existsSync(join(nas.encodesDir!, '.uploads', `${uploadId}.json`))).toBe(true);
+    await runner.remove(job.id);
+    expect(existsSync(join(nas.encodesDir!, '.uploads', `${uploadId}.json`))).toBe(false);
+    expect(existsSync(join(fx.dataDir, 'nas-out', job.id))).toBe(false);
   });
 
   it('queueing refuses episodes without AniList, duplicate pairs, and an unpaired app', async () => {

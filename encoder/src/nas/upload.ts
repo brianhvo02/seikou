@@ -62,6 +62,9 @@ type Ranges = readonly (readonly [number, number])[];
 /** A failure worth another try: no answer, or a 5xx other than the folder's. */
 class Retryable extends Error {}
 
+/** How long one request (an open, a piece, a status, the completion) may take before it counts as unanswered. */
+const REQUEST_TIMEOUT_MS = 60_000;
+
 /** How many times an upload starts over (a forgotten id, a hash mismatch) before it gives up. */
 const MAX_FRESH_STARTS = 3;
 
@@ -112,7 +115,9 @@ function pause(ms: number, sleep: (ms: number) => Promise<void>, signal?: AbortS
  * Uploads `path` as `name` (`<anilistId>-<episode>.mkv`): hashes once (kept in `state`), creates or resumes the upload
  * (a stored id whose GET is 404 starts over), PUTs the missing ranges in order, completes. Resolves with the NAS's
  * encode id (`entry.id`, or `filed`'s id when `entry` is null). `state` is changed in place, and `onState` hears each
- * change. Each request is tried again after 1, 2, 4 and 8 s on a network error or a 5xx, then fails `unreachable`. A
+ * change. Each request is tried again after 1, 2, 4 and 8 s on a network error, a 5xx or 60 s without an answer, then
+ * fails `unreachable`. The NAS answers a POST of a file this device already has open with that upload's id, so a lost
+ * answer to it is resumed. A
  * closed client or a session the NAS refuses throws `NasError('unauthorized')`.
  */
 export async function uploadEpisode(client: NasClient, path: string, name: string, state: UploadState, o: UploadOptions = {}): Promise<string> {
@@ -123,11 +128,14 @@ export async function uploadEpisode(client: NasClient, path: string, name: strin
   const changed = (): void => o.onState?.({ ...state });
 
   /** `attempt`'s answer, tried again on no answer or a 5xx (but the folder's 503) as the network rules say. */
-  const send = async (what: string, attempt: () => Promise<Response>): Promise<Response> => {
+  const send = async (what: string, attempt: (s: AbortSignal) => Promise<Response>): Promise<Response> => {
     for (let i = 0; ; i++) {
       signal?.throwIfAborted();
       try {
-        const res = await attempt();
+        // each request has its own time limit, so a NAS gone without a reset does not hold a piece for minutes; running
+        // out of it counts as no answer
+        const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+        const res = await attempt(signal ? AbortSignal.any([signal, timeout]) : timeout);
         if (res.status < 500 || res.status === 503) {
           if (res.status !== 503) return res;
           // 503 is either the folder's (an answer) or a busy server (another try)
@@ -193,7 +201,7 @@ export async function uploadEpisode(client: NasClient, path: string, name: strin
     let ranges: Ranges = [];
     if (state.id !== null) {
       const id = state.id;
-      const res = await send('an upload', () => client.request(`encodes/uploads/${id}`, signal ? { signal } : {}));
+      const res = await send('an upload', (s) => client.request(`encodes/uploads/${id}`, { signal: s }));
       if (res.status === 404 && (await errorOfBody(res.clone())) !== 'not-configured') {
         await res.body?.cancel();
         await startOver(false);
@@ -208,7 +216,7 @@ export async function uploadEpisode(client: NasClient, path: string, name: strin
       ranges = body.ranges as Ranges;
     } else {
       const body = { size, sha256: state.sha256, name };
-      const res = await send('a new upload', () => client.request('encodes/uploads', jsonPost(body, signal)));
+      const res = await send('a new upload', (s) => client.request('encodes/uploads', jsonPost(body, s)));
       if (res.status === 409 && (await errorOfBody(res.clone())) === 'in-progress') {
         await res.body?.cancel();
         throw new UploadError('refused', 'Another upload of this episode is open on the NAS; it is removed after 24 hours unused.');
@@ -218,6 +226,8 @@ export async function uploadEpisode(client: NasClient, path: string, name: strin
       if (typeof id !== 'string' || !/^[0-9a-f]{16}$/.test(id)) throw new UploadError('refused', `${host} gave an upload id the encoder cannot read.`);
       state.id = id;
       changed();
+      // the NAS may answer with an upload this device opened before (its answer lost): ask what it holds
+      continue;
     }
     const id = state.id;
     state.sent = storedOf(ranges);
@@ -233,8 +243,8 @@ export async function uploadEpisode(client: NasClient, path: string, name: strin
           const bytes = new Uint8Array(b - a + 1);
           const { bytesRead } = await fh.read(bytes, 0, bytes.length, a);
           if (bytesRead !== bytes.length) throw new UploadError('refused', `${path} changed while it was being uploaded.`);
-          const res = await send('a piece of an upload', () =>
-            client.request(`encodes/uploads/${id}`, { method: 'PUT', headers: { 'Content-Range': `bytes ${a}-${b}/${size}` }, body: bytes, ...(signal ? { signal } : {}) }),
+          const res = await send('a piece of an upload', (s) =>
+            client.request(`encodes/uploads/${id}`, { method: 'PUT', headers: { 'Content-Range': `bytes ${a}-${b}/${size}` }, body: bytes, signal: s }),
           );
           if (res.status === 404 && (await errorOfBody(res.clone())) !== 'not-configured') {
             await res.body?.cancel();
@@ -257,7 +267,7 @@ export async function uploadEpisode(client: NasClient, path: string, name: strin
       continue;
     }
 
-    const res = await send('completing an upload', () => client.request(`encodes/uploads/${id}/complete`, { method: 'POST', ...(signal ? { signal } : {}) }));
+    const res = await send('completing an upload', (s) => client.request(`encodes/uploads/${id}/complete`, { method: 'POST', signal: s }));
     if (res.ok) {
       const done = (await res.json()) as { entry?: { id?: unknown } | null; filed?: unknown };
       const encodeId = typeof done.entry?.id === 'string' ? done.entry.id : typeof done.filed === 'string' ? done.filed : null;
@@ -303,7 +313,7 @@ export async function uploadEpisode(client: NasClient, path: string, name: strin
 /** Drops upload `id` on the NAS, best effort: an upload a job no longer resumes. */
 export async function abandonUpload(client: NasClient, id: string): Promise<void> {
   try {
-    const res = await client.request(`encodes/uploads/${id}`, { method: 'DELETE' });
+    const res = await client.request(`encodes/uploads/${id}`, { method: 'DELETE', signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
     await res.body?.cancel();
   } catch {
     // the NAS drops an upload left 24 hours unused anyway

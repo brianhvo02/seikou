@@ -167,7 +167,12 @@ export class UploadStore {
     if (state.rootMissing || state.rootEmpty) throw refuse();
   }
 
-  /** One creation at a time, so the same-name and room checks can't both pass for two POSTs. */
+  /**
+   * Opens an upload and answers its id; one creation at a time, so the same-name and room checks can't both pass for
+   * two POSTs. An open upload of the same name is 409 `in-progress` when another device made it; when this device did,
+   * its id is answered again if size and hash match (a POST whose answer was lost is resumed, not locked out), and it
+   * is dropped for the new upload if they don't (a re-encode whose old upload id was lost).
+   */
   create(deviceId: string, input: Record<string, unknown>): Promise<string> {
     const run = this.creating.then(() => this.createOne(deviceId, input));
     this.creating = run.catch(() => {});
@@ -188,11 +193,26 @@ export class UploadStore {
     }
     let owed = 0;
     let mine = 0;
+    const wanted = sha256.toLowerCase();
     for (const file of await readdir(this.uploads)) {
       if (!file.endsWith('.json')) continue;
-      const other = await this.readMeta(file.slice(0, -5));
+      const otherId = file.slice(0, -5);
+      const other = await this.readMeta(otherId);
       if (!other) continue;
-      if (other.name === name) throw new UploadError(409, 'in-progress');
+      if (other.name === name) {
+        // another device's open upload of the name stands; this device's own is taken up again (its answer to the
+        // POST may have been lost) when it is the same file, and dropped for the new one when it is not
+        if (other.deviceId !== deviceId) throw new UploadError(409, 'in-progress');
+        if (other.size === size && other.sha256 === wanted) {
+          await this.locked(otherId, async () => {
+            const meta = await this.readMeta(otherId);
+            if (meta) this.writeMeta(otherId, { ...meta, touchedAt: this.now() });
+          });
+          return otherId;
+        }
+        await this.locked(otherId, () => this.discard(otherId));
+        continue;
+      }
       if (other.deviceId === deviceId) mine++;
       owed += other.size - other.ranges.reduce((n, [x, y]) => n + (y - x + 1), 0);
     }
@@ -206,7 +226,7 @@ export class UploadStore {
     } finally {
       await handle.close();
     }
-    this.writeMeta(id, { size, sha256: sha256.toLowerCase(), name, deviceId, ranges: [], touchedAt: this.now() });
+    this.writeMeta(id, { size, sha256: wanted, name, deviceId, ranges: [], touchedAt: this.now() });
     return id;
   }
 

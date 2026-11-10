@@ -216,14 +216,34 @@ describe('encode uploads', () => {
     expect(readdirSync(join(dir, '.uploads'))).toEqual([]);
   });
 
-  it('refuses a second open upload of a name, and bad ranges', async () => {
+  it("answers a device's own open upload of the same file again, replaces one of another file, and refuses another device's", async () => {
     await start();
     const t = await token('Owner', true);
     const body = { size: 100, sha256: ZERO, name: 'x.mkv' };
     const id = await createId(t, body);
-    const dup = await create(t, body);
+    expect((await put(t, id, Buffer.alloc(100), 0, 39)).status).toBe(204);
+    // the same device asks again, as after a lost answer: the same upload, its stored range kept
+    const again = await create(t, body);
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual({ id });
+    expect(await (await call('GET', `uploads/${id}`, t)).json()).toEqual({ size: 100, ranges: [[0, 39]] });
+    // another file under the name from the same device: the old upload goes, a new one opens
+    const other = await createId(t, { size: 120, sha256: '1'.repeat(64), name: 'x.mkv' });
+    expect(other).not.toBe(id);
+    expect((await call('GET', `uploads/${id}`, t)).status).toBe(404);
+    expect(readdirSync(join(dir, '.uploads')).sort()).toEqual([`${other}.json`, `${other}.partial`]);
+    // another device's upload of the name stands
+    const t2 = await token('Second owner', true);
+    const dup = await create(t2, { size: 120, sha256: '1'.repeat(64), name: 'x.mkv' });
     expect(dup.status).toBe(409);
     expect(await dup.json()).toEqual({ error: 'in-progress' });
+  });
+
+  it('refuses bad ranges', async () => {
+    await start();
+    const t = await token('Owner', true);
+    const body = { size: 100, sha256: ZERO, name: 'x.mkv' };
+    const id = await createId(t, body);
     const bytes = Buffer.alloc(100);
     expect((await call('PUT', `uploads/${id}`, t, { body: bytes, headers: { 'Content-Range': 'bytes 0-99/101' } })).status).toBe(400);
     expect((await call('PUT', `uploads/${id}`, t, { body: bytes, headers: { 'Content-Range': 'bytes 50-149/100' } })).status).toBe(400);
@@ -285,8 +305,16 @@ describe('encode uploads', () => {
     await start();
     const t = await token('Owner', true);
     const body = { size: 10, sha256: ZERO, name: 'same.mkv' };
-    const statuses = (await Promise.all([create(t, body), create(t, body), create(t, body)])).map((r) => r.status).sort();
-    expect(statuses).toEqual([200, 409, 409]);
+    const answers = await Promise.all([create(t, body), create(t, body), create(t, body)]);
+    expect(answers.map((r) => r.status)).toEqual([200, 200, 200]);
+    const ids = await Promise.all(answers.map(async (r) => ((await r.json()) as { id: string }).id));
+    expect(new Set(ids).size).toBe(1);
+    expect(readdirSync(join(dir, '.uploads')).sort()).toEqual([`${ids[0]}.json`, `${ids[0]}.partial`]);
+    // from two devices, one stands and the other is refused
+    const t2 = await token('Second owner', true);
+    const other = { size: 10, sha256: ZERO, name: 'other.mkv' };
+    const statuses = (await Promise.all([create(t, other), create(t2, other)])).map((r) => r.status).sort();
+    expect(statuses).toEqual([200, 409]);
   });
 
   it('refused PUTs close the connection', async () => {

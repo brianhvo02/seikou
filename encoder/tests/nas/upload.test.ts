@@ -23,6 +23,8 @@ describe('uploadEpisode', () => {
   let requests: string[];
   /** Runs after each answer arrives. */
   let afterAnswer: (method: string, path: string) => void;
+  /** Whether the answer to a request is lost on the way back (the NAS has acted on it). */
+  let dropAnswer: (method: string, path: string) => boolean;
 
   const puts = (): number => requests.filter((r) => r.startsWith('PUT ')).length;
 
@@ -37,6 +39,7 @@ describe('uploadEpisode', () => {
     file = join(dataDir, 'episode.mkv');
     requests = [];
     afterAnswer = () => {};
+    dropAnswer = () => false;
     await pairWithNas(dataDir, { code: await nas.ownerCode(), base: nas.base }, 'Seikou encoder on test');
     client = (await NasClient.load(dataDir, async (input, init) => {
       const url = new URL(String(input));
@@ -45,6 +48,10 @@ describe('uploadEpisode', () => {
       requests.push(`${method} ${path}`);
       const res = await fetch(input, init);
       afterAnswer(method, path);
+      if (dropAnswer(method, path)) {
+        await res.body?.cancel();
+        throw new TypeError('fetch failed');
+      }
       return res;
     }))!;
   });
@@ -105,6 +112,35 @@ describe('uploadEpisode', () => {
     expect(await uploadEpisode(client, file, '990002-1.mkv', state, { chunkBytes: CHUNK, sleep: noWait })).toBe('990002-1');
     expect(requests.slice(0, 2)).toEqual([`GET encodes/uploads/${forgotten}`, 'POST encodes/uploads']);
     expect(puts()).toBe(3);
+  });
+
+  it('a lost answer to the POST resumes the upload the NAS opened, with no lockout', async () => {
+    writeFileSync(file, retagged(990002, 1));
+    let lost = false;
+    dropAnswer = (method, path) => {
+      if (method !== 'POST' || path !== 'encodes/uploads' || lost) return false;
+      lost = true;
+      return true;
+    };
+    const state = fresh();
+    expect(await uploadEpisode(client, file, '990002-1.mkv', state, { chunkBytes: CHUNK, sleep: noWait })).toBe('990002-1');
+    expect(requests.filter((r) => r === 'POST encodes/uploads')).toHaveLength(2);
+    expect(puts()).toBe(3);
+    expect(readdirSync(join(nas.encodesDir!, '.uploads'))).toEqual([]);
+
+    // the app gone before it kept the id: a fresh state opens the same upload again and sends only what is missing
+    rmSync(join(nas.encodesDir!, '990002'), { recursive: true, force: true });
+    const controller = new AbortController();
+    afterAnswer = (method) => {
+      if (method === 'PUT') controller.abort();
+    };
+    const first = fresh();
+    await expect(uploadEpisode(client, file, '990002-1.mkv', first, { chunkBytes: CHUNK, sleep: noWait, signal: controller.signal })).rejects.toThrow();
+    afterAnswer = () => {};
+    requests = [];
+    const again = fresh();
+    expect(await uploadEpisode(client, file, '990002-1.mkv', again, { chunkBytes: CHUNK, sleep: noWait, onState: (s) => expect(s.id === null || s.id === first.id).toBe(true) })).toBe('990002-1');
+    expect(puts()).toBe(2);
   });
 
   it('a file without ANILIST_ID is bad-tags, and the NAS keeps no upload of it', async () => {

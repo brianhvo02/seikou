@@ -10,7 +10,7 @@ import { loadPlaylist } from '../disc/playlist';
 import { errorOfBody, NasError, type NasClient } from '../nas/client';
 import { ClipFetcher, clipsOfEpisode, releaseHolder, sweepUnheld } from '../nas/fetch';
 import { defaultSleep, FetchError, isMirror } from '../nas/mirror';
-import { abandonUpload, uploadEpisode, UploadError, type UploadState } from '../nas/upload';
+import { abandonUpload, UPLOAD_CHUNK_BYTES, uploadEpisode, UploadError, type UploadState } from '../nas/upload';
 import { EpisodeInfoError, EpisodeInfoStore } from '../plan/episode-info';
 import { encodeEpisodes, episodeName, type EncodeEvent, type EncodeOptions } from '../encode';
 import { packageEpisode } from '../package/package';
@@ -202,6 +202,8 @@ export interface JobRunnerDeps {
   readonly nasRetryMs: number;
   /** The waits between one NAS request's own retries (1, 2, 4 and 8 s). Default the timer. */
   readonly nasSleep: (ms: number) => Promise<void>;
+  /** Bytes per upload request. Default `UPLOAD_CHUNK_BYTES` (8 MiB). */
+  readonly uploadChunkBytes: number;
 }
 
 /** What a job shows while it waits for the NAS. */
@@ -569,6 +571,7 @@ export class JobRunner {
       log: (m) => console.error(m),
       nasRetryMs: 60_000,
       nasSleep: defaultSleep,
+      uploadChunkBytes: UPLOAD_CHUNK_BYTES,
       ...deps,
     };
     this.events.setMaxListeners(100);
@@ -813,7 +816,8 @@ export class JobRunner {
 
   /**
    * Removes a finished job from the queue, and its log; an encode's output files stay, a test's sample folder is
-   * deleted, and so is a NAS job's `<data>/nas-out/<id>` (with any episode the NAS never took). 404 `not-found`; 409
+   * deleted, and so is a NAS job's `<data>/nas-out/<id>` (with any episode the NAS never took), whose open uploads on
+   * the NAS are dropped too, best effort. 404 `not-found`; 409
    * `not-finished`.
    */
   async remove(id: string): Promise<void> {
@@ -826,7 +830,13 @@ export class JobRunner {
     this.persist();
     await rm(this.logFile(job.id), { force: true });
     if (job.kind === 'test') await this.removeTestFolder(job);
-    if (this.toNas(job)) await rm(nasOutDirOf(this.app.dataDir, job.id), { recursive: true, force: true });
+    if (this.toNas(job)) {
+      await rm(nasOutDirOf(this.app.dataDir, job.id), { recursive: true, force: true });
+      // the uploads the job leaves open on the NAS, dropped there; a NAS that does not answer drops them after 24 hours
+      const client = this.app.nas.client;
+      const open = job.episodes.flatMap((ep) => (ep.upload?.id ? [ep.upload.id] : []));
+      if (client !== null) await Promise.all(open.map((uploadId) => abandonUpload(client, uploadId)));
+    }
   }
 
   /**
@@ -1336,7 +1346,8 @@ export class JobRunner {
       for (const ep of job.episodes) {
         if (ep.state === 'done') continue;
         if (signal.aborted) throw new DOMException('The job was cancelled', 'AbortError');
-        // a pause keeps the clips the job holds (and the next episode's, fetched ahead) for when it resumes
+        // a pause keeps the clips the job holds for when it resumes; the fetch running ahead stops (below), its claim and
+        // what it fetched staying, so the resumed job's fetch step fetches only the rest
         if (this.jobs.some((j) => j.kind === 'test' && j.state === 'queued')) return 'paused';
         if (ep.state === 'packaging-failed') {
           await this.repackage(job, ep);
@@ -1522,6 +1533,7 @@ export class JobRunner {
           sleep: this.deps.nasSleep,
           onProgress: (sent, size) => this.onStep(job, ep, sent, size),
           onState: () => this.persist(),
+          chunkBytes: this.deps.uploadChunkBytes,
         }),
       );
     } catch (e) {
