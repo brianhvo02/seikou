@@ -21,6 +21,8 @@ export class NasError extends Error {
     readonly status: number | null,
     message: string,
     readonly error: string | null = null,
+    /** The answer's `Retry-After`, when it had one. */
+    readonly retryAfter: string | null = null,
   ) {
     super(message);
     this.name = 'NasError';
@@ -222,7 +224,7 @@ export class NasClient {
       const error = await errorOfBody(res);
       const what = path.split('?')[0];
       if (res.status === 401) throw new NasError('unauthorized', 401, `${this.host} refused the encoder's session for ${what}. Pair it again.`, error);
-      throw new NasError('http', res.status, `${this.host} answered ${res.status}${error === null ? '' : ` (${error})`} for ${what}.`, error);
+      throw new NasError('http', res.status, `${this.host} answered ${res.status}${error === null ? '' : ` (${error})`} for ${what}.`, error, res.headers.get('Retry-After'));
     }
     return (await res.json()) as T;
   }

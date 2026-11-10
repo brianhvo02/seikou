@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
+import type { EncodeTitle } from '@seikou/nas/encode-title';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { ApiError } from '../api';
 import type { AniListEntry, ChapterInfo, EpisodeTimes, LibraryDiscInfo, PlaylistDetail, TitleHit } from '../api-types';
@@ -98,6 +99,7 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
   const [text, setText] = useState('');
   const [textError, setTextError] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [nasPaired, setNasPaired] = useState(false);
   const playing = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const info = useInfoDraft(api, discKey, playlistId);
   // AniList's answers for the entries on the page: entries (with their next season) and shows picked from a search
@@ -125,6 +127,7 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
       ([library, playlist]) => {
         if (!live) return;
         const disc = library.discs.find((d) => d.key === discKey) ?? null;
+        setNasPaired(library.nas.paired);
         if (disc === null && library.scanning) return again();
         setScanning(false);
         const start = initialGrouping(playlist.record, playlist.chapters.length);
@@ -294,9 +297,12 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
     setHits((m) => ({ ...m, [hit.alId]: hit }));
     saveRows(renumberFrom(rows, i, hit.alId, firstNumberFor(rows, i, hit.alId)));
   };
+  const pickTitle = (i: number, title: EncodeTitle, showName: string): void => {
+    saveRows(renumberFrom(rows, i, title, firstNumberFor(rows, i, title), showName));
+  };
   const renumber = (i: number, episode: number): void => {
-    const id = aniListIdOf(rows[i]?.title ?? null);
-    if (id !== null) saveRows(renumberFrom(rows, i, id, episode));
+    const t = rows[i]?.title ?? null;
+    if (t !== null) saveRows(renumberFrom(rows, i, t.title, episode, t.showName ?? null));
   };
   const showOf = (id: number): TitleHit | null => entries[id] ?? hits[id] ?? (recordShow !== null && recordShow.id === id ? nameOnly(id, recordShow.title) : null);
   /** The next season to offer a row: of its own entry, else of the episode before's. */
@@ -387,7 +393,9 @@ export function EpisodesPage({ api, discKey, playlistId, controller }: EpisodesP
                           show={aniListIdOf(row.title) === null ? null : showOf(aniListIdOf(row.title)!)}
                           sequel={sequelFor(i)}
                           disabled={!editable}
+                          nasPaired={nasPaired}
                           onPick={(hit) => pickEntry(i, hit)}
+                          onPickTitle={(title, showName) => pickTitle(i, title, showName)}
                           onNumber={(n) => renumber(i, n)}
                         />
                       )}

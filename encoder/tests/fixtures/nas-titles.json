@@ -1,0 +1,57 @@
+{
+  "Lantern Road": [
+    {
+      "source": "anilist",
+      "id": "anilist:990001",
+      "kind": "series",
+      "format": "TV",
+      "names": { "english": "Lantern Road", "romaji": "Tomoshibi no Michi", "native": null, "synonyms": [] },
+      "animation": true,
+      "year": 2022,
+      "startDate": 20220401,
+      "episodes": 12,
+      "runtimeMin": 24,
+      "seasons": [],
+      "relations": [],
+      "poster": null,
+      "banner": null
+    }
+  ],
+  "Lantern Harbour": [
+    {
+      "source": "anilist",
+      "id": "anilist:990102",
+      "kind": "series",
+      "format": "TV",
+      "names": { "english": "Lantern Harbour", "romaji": "Tomoshibi no Minato", "native": null, "synonyms": [] },
+      "animation": true,
+      "year": 2023,
+      "startDate": 20230401,
+      "episodes": 12,
+      "runtimeMin": 24,
+      "seasons": [],
+      "relations": [],
+      "poster": null,
+      "banner": null
+    },
+    {
+      "source": "tmdb",
+      "id": "tmdb-tv:990101",
+      "kind": "series",
+      "format": null,
+      "names": { "english": "Lantern Harbour", "romaji": null, "native": null, "synonyms": [] },
+      "animation": false,
+      "year": 2019,
+      "startDate": 20190510,
+      "episodes": 18,
+      "runtimeMin": 45,
+      "seasons": [
+        { "number": 1, "episodes": 10, "runtimeMin": 45 },
+        { "number": 2, "episodes": 8, "runtimeMin": 45 }
+      ],
+      "relations": [],
+      "poster": null,
+      "banner": null
+    }
+  ]
+}

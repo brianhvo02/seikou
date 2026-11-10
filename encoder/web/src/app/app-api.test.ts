@@ -66,4 +66,19 @@ describe('createAppApi NAS calls', () => {
       ['DELETE', '/api/nas', undefined],
     ]);
   });
+
+  it('looks titles up by source and makes an own title', async () => {
+    const calls: [string, string, unknown][] = [];
+    const fetch: FetchLike = async (url, init) => {
+      calls.push([init?.method ?? 'GET', url, init?.body]);
+      return ok(url.includes('lookup') ? { titles: [] } : { id: 'own:x', kind: 'movie', name: 'Harbour Film', seasons: null });
+    };
+    const api = createAppApi('', 'secret', fetch);
+    expect(await api.lookupTitles('lantern harbour', 'tmdb')).toEqual([]);
+    expect(await api.createOwnTitle({ kind: 'movie', name: 'Harbour Film', seasons: null })).toMatchObject({ name: 'Harbour Film' });
+    expect(calls).toEqual([
+      ['GET', '/api/nas/lookup?q=lantern+harbour&source=tmdb', undefined],
+      ['POST', '/api/nas/own-titles', JSON.stringify({ kind: 'movie', name: 'Harbour Film', seasons: null })],
+    ]);
+  });
 });

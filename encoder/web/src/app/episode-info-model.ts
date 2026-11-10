@@ -4,6 +4,7 @@
  * episode info by the playlist chapter it starts at, so regrouping keeps what was chosen. Pure.
  */
 import { encodeId } from '@seikou/nas/encode-id';
+import { sameTitle, titlePart, type EncodeTitle } from '@seikou/nas/encode-title';
 import type { EpisodeInfo, EpisodeTitle } from '../api-types';
 
 /** The names the chapter picker offers besides "No name" and a custom one; the backend's `CHAPTER_NAMES`, repeated because the page never imports the backend. */
@@ -44,29 +45,40 @@ export function aniListIdOf(t: EpisodeTitle | null): number | null {
   return t !== null && t.title.source === 'anilist' ? t.title.anilistId : null;
 }
 
-/** Renumbers from `row` on: that row gets `entryId` and `first`, each later row of the same entry run the next number, until a row whose entry was set by hand to another one. */
-export function renumberFrom(rows: readonly EpisodeRow[], row: number, entryId: number, first: number): EpisodeRow[] {
+/** An AniList entry's id as the title it names; a title passes as it is. */
+const titleOf = (entry: number | EncodeTitle): EncodeTitle => (typeof entry === 'number' ? { source: 'anilist', anilistId: entry } : entry);
+
+/**
+ * Renumbers from `row` on: that row gets `entry` (an AniList id, or any title, with `showName` for one the NAS may not
+ * know) and `first`, each later row of the same run the next number, until a row whose title was set by hand to
+ * another one. The run is the rows of the title the row had, of the title it gets, and rows with none; every row it
+ * sets keeps that title and show name.
+ */
+export function renumberFrom(rows: readonly EpisodeRow[], row: number, entry: number | EncodeTitle, first: number, showName: string | null = null): EpisodeRow[] {
   const start = rows[row];
   if (start === undefined) return [...rows];
-  // the run: rows of the entry the row had, of the entry it gets, and rows with none
-  const runIds = new Set([entryId, ...(aniListIdOf(start.title) === null ? [] : [aniListIdOf(start.title)!])]);
+  const title = titleOf(entry);
+  const runParts = new Set([titlePart(title), ...(start.title === null ? [] : [titlePart(start.title.title)])]);
   const out = [...rows];
   let number = first;
   for (let i = row; i < rows.length; i++) {
     const r = rows[i]!;
-    const own = aniListIdOf(r.title);
-    if (i > row && r.title !== null && (own === null || !runIds.has(own))) break;
-    const same = r.title !== null && own === entryId && r.title.episode === number;
-    out[i] = { ...r, title: { title: { source: 'anilist', anilistId: entryId }, episode: number, name: same ? r.title!.name : null }, prefilled: false };
+    if (i > row && r.title !== null && !runParts.has(titlePart(r.title.title))) break;
+    const same = r.title !== null && sameTitle(r.title.title, title) && r.title.episode === number;
+    out[i] = {
+      ...r,
+      title: { title, episode: number, name: same ? r.title!.name : null, ...(title.source === 'anilist' || showName === null ? {} : { showName }) },
+      prefilled: false,
+    };
     number += 1;
   }
   return out;
 }
 
-/** The number a row given `entryId` starts at: one after the row before when that row has the same entry, else 1. */
-export function firstNumberFor(rows: readonly EpisodeRow[], row: number, entryId: number): number {
+/** The number a row given `entry` starts at: one after the row before when that row has the same title, else 1. */
+export function firstNumberFor(rows: readonly EpisodeRow[], row: number, entry: number | EncodeTitle): number {
   const before = rows[row - 1]?.title ?? null;
-  return before !== null && aniListIdOf(before) === entryId ? before.episode + 1 : 1;
+  return before !== null && sameTitle(before.title, titleOf(entry)) ? before.episode + 1 : 1;
 }
 
 /** The rows of entry `entryId` with their titles from AniList's (`titles`, keyed by episode number); null where it has none. */

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, rmSync, utimesSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,11 +13,17 @@ import { createServer } from '../../../server/src/http';
 import { Library } from '../../../server/src/library';
 import type { TitleLibrary } from '../../../server/src/routes/titles';
 import { Store } from '../../../server/src/store';
+import { fixtureSources, TitleService } from '../../../server/src/titles/service';
+import { ArtCache } from '@seikou/titles/art';
+import { OwnerStore } from '@seikou/titles/owner-store';
+import type { Entry } from '@seikou/titles/sources';
 
 // Seikou's NAS server, in this process, for the encoder's NAS tests: its real pairing, session, me, disc and encodes
 // routes on 127.0.0.1, over temporary copies of the fixtures. Codes are minted straight through its `Auth`.
 
 const REPO = fileURLToPath(new URL('../../../', import.meta.url));
+/** The made-up AniList and TMDB entries `titles: true` searches: an AniList series, "Lantern Harbour" on both, a TMDB series (id 990101, two seasons). */
+const TITLES_FIXTURE = fileURLToPath(new URL('../fixtures/nas-titles.json', import.meta.url));
 /** Long enough ago that the NAS counts every copied file as settled. */
 const SETTLED = new Date('2024-01-01T00:00:00Z');
 /** Past a session's hour, so every token the NAS gave before lapses. */
@@ -51,6 +57,12 @@ export interface NasTestServer {
 export interface NasTestServerOptions {
   readonly encodes?: boolean;
   readonly discs?: boolean;
+  /**
+   * A real title library (`TitleService` with an `OwnerStore` in the data folder) over the recorded entries of
+   * `fixtures/nas-titles.json` in place of the stub: `admin/lookup` finds AniList and TMDB entries and the owner's own
+   * titles, and `admin/titles` makes them. Off by default.
+   */
+  readonly titles?: boolean;
   /** Changes the copy of the disc library (its folder given) before it is backdated and scanned. */
   readonly prepare?: (discsDir: string) => void;
 }
@@ -95,10 +107,30 @@ export async function startNasTestServer(opts: NasTestServerOptions = {}): Promi
     encodeUploads = new UploadStore({ dir: encodesDir, index: encodes, log: () => {} });
   }
 
-  const titles = {
-    service: { gate: () => 'everyone', entriesFor: () => new Map(), addEncodeArt: () => {}, encodeArtUrls: () => null },
-    owner: {},
-  } as unknown as TitleLibrary;
+  let titleService: TitleService | null = null;
+  let titles: TitleLibrary;
+  if (opts.titles === true) {
+    const owner = new OwnerStore(dataDir);
+    titleService = new TitleService({
+      library,
+      owner,
+      dataDir,
+      ...fixtureSources(JSON.parse(readFileSync(TITLES_FIXTURE, 'utf8')) as Record<string, Entry[]>),
+      discdb: { lookup: () => null },
+      art: new ArtCache(join(dataDir, 'art'), fetch),
+      musicbrainz: null,
+      discogs: null,
+      folderCover: async () => null,
+      locateRelease: () => null,
+      titleLibrary: 'everyone',
+    });
+    titles = { service: titleService, owner };
+  } else {
+    titles = {
+      service: { gate: () => 'everyone', entriesFor: () => new Map(), addEncodeArt: () => {}, encodeArtUrls: () => null },
+      owner: {},
+    } as unknown as TitleLibrary;
+  }
   const server = createServer(
     appHandlers({
       auth,
@@ -138,6 +170,7 @@ export async function startNasTestServer(opts: NasTestServerOptions = {}): Promi
     },
     async close() {
       encodes?.close();
+      titleService?.close();
       await stop();
       rmSync(tmp, { recursive: true, force: true });
     },

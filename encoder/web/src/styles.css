@@ -1659,6 +1659,67 @@ a {
   font-size: 12px;
 }
 
+.episode-anilist-change .show-row .mark {
+  margin-right: 8px;
+}
+
+/* the season asked for a picked series, and the by-hand form: quiet fields under the results, in the same rail */
+.title-season,
+.title-by-hand {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 8px 0;
+  font-size: 14px;
+}
+
+.title-season label,
+.title-by-hand label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.title-by-hand input[type='text'] {
+  width: min(20rem, 100%);
+}
+
+.title-by-hand input[type='number'],
+.title-season input[type='number'] {
+  width: 4.5rem;
+  min-height: 30px;
+  padding: 0 8px;
+}
+
+.title-by-hand input[aria-invalid='true'],
+.title-season input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+
+.title-by-hand fieldset {
+  display: inline-flex;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.title-by-hand legend {
+  float: left;
+  margin-right: 8px;
+  padding: 0;
+}
+
+.title-by-hand .error {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.title-by-hand-box {
+  margin-top: 8px;
+}
+
 .info-save {
   font-size: 13px;
   min-height: 1.5em;

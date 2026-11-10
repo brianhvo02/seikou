@@ -2,7 +2,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { hostname } from 'node:os';
 import { readBody } from '../../../server/src/http';
-import { hostOf, NasClient, NasError } from '../nas/client';
+import { hostOf, jsonPost, NasClient, NasError } from '../nas/client';
 import { nasLibraryOf } from '../nas/nas-library';
 import { removeNasPairing } from '../nas/nas-store';
 import { pairWithNas, type PairingInput } from '../nas/pairing';
@@ -16,6 +16,10 @@ const MAX_BODY = 16 * 1024;
 const STATUS_TIMEOUT_MS = 5_000;
 /** The NAS refuses a device name over 100 characters. */
 const MAX_DEVICE_NAME = 100;
+/** How long a title lookup may take: the NAS gives up on a source after 10 s. */
+const LOOKUP_TIMEOUT_MS = 15_000;
+/** The NAS refuses an own title's name over 200 characters. */
+const MAX_TITLE_NAME = 200;
 
 /** Whether the NAS keeps encodes: its `ENCODES_DIR` is set (`ready`), not set, or unknown (the NAS did not answer). */
 export type NasEncodesState = 'ready' | 'not-configured' | 'unknown';
@@ -133,6 +137,82 @@ function replaceClient(app: AppContext, client: NasClient | null): NasClient | n
   return client;
 }
 
+/** The longest search text the NAS accepts. */
+const MAX_QUERY = 200;
+const SOURCES = ['anilist', 'tmdb', 'own'] as const;
+const KINDS = ['series', 'movie'] as const;
+/** The most seasons the NAS accepts for an own series. */
+const MAX_SEASONS = 1000;
+
+/**
+ * Answers a failed NAS call: no client or a NAS that forgot this device `nas-not-paired` 409, a NAS that is not an
+ * owner's `not-owner` 409, the NAS's own 429 and 503 as they are (with their `Retry-After`), no answer `unreachable` 502,
+ * anything else `nas-error` 502.
+ */
+function nasCallError(res: ServerResponse, err: unknown): void {
+  if (!(err instanceof NasError)) throw err;
+  if (err.code === 'unauthorized') return httpError(res, 409, 'nas-not-paired', 'The NAS no longer knows this app. Pair it again in Settings.');
+  if (err.code === 'http' && err.status === 403) return httpError(res, 409, 'not-owner', 'This app is not an owner device of the NAS.');
+  if (err.code === 'http' && (err.status === 429 || err.status === 503)) {
+    if (err.retryAfter !== null) res.setHeader('Retry-After', err.retryAfter);
+    return httpError(res, err.status, err.error ?? (err.status === 429 ? 'too-many-lookups' : 'source-unreachable'), err.message);
+  }
+  if (err.code === 'unreachable') return httpError(res, 502, 'unreachable', err.message);
+  return httpError(res, 502, 'nas-error', err.message);
+}
+
+function pairedClient(res: ServerResponse, app: AppContext): NasClient | null {
+  if (app.nas.client !== null) return app.nas.client;
+  httpError(res, 409, 'nas-not-paired', 'This app is not paired with a NAS. Pair it in Settings first.');
+  return null;
+}
+
+/** `GET /api/nas/lookup?q=&source=`: the NAS's `admin/lookup`. */
+async function lookup(req: IncomingMessage, res: ServerResponse, app: AppContext): Promise<void> {
+  const client = pairedClient(res, app);
+  if (client === null) return;
+  const params = new URL(req.url ?? '/', 'http://localhost').searchParams;
+  const q = params.get('q')?.trim() ?? '';
+  const source = SOURCES.find((s) => s === params.get('source'));
+  if (q === '' || q.length > MAX_QUERY || source === undefined) return httpError(res, 400, 'bad-request', 'Give q (1 to 200 characters) and source (anilist, tmdb or own).');
+  try {
+    const answer = await client.json<{ titles: unknown }>(`admin/lookup?${new URLSearchParams({ q, source }).toString()}`, { signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS) });
+    json(res, 200, { titles: Array.isArray(answer.titles) ? answer.titles : [] });
+  } catch (err) {
+    nasCallError(res, err);
+  }
+}
+
+/** `POST /api/nas/own-titles`: the NAS's `admin/titles`, for a title no source has. */
+async function createOwnTitle(req: IncomingMessage, res: ServerResponse, app: AppContext): Promise<void> {
+  const client = pairedClient(res, app);
+  if (client === null) return;
+  const bytes = await readBody(req, MAX_BODY);
+  if (bytes === null) {
+    res.setHeader('Connection', 'close');
+    return httpError(res, 413, 'too-large', 'That request is too large.');
+  }
+  let body: unknown = null;
+  try {
+    body = JSON.parse(bytes.toString('utf8'));
+  } catch {
+    // not JSON
+  }
+  const { kind, name, seasons } = (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>;
+  const k = KINDS.find((x) => x === kind);
+  const n = typeof name === 'string' ? name.trim() : '';
+  const count = seasons ?? null;
+  const countOk = count === null || (typeof count === 'number' && Number.isInteger(count) && count >= 1 && count <= MAX_SEASONS);
+  if (k === undefined || n === '' || n.length > MAX_TITLE_NAME || !countOk || (k === 'movie' && count !== null)) {
+    return httpError(res, 400, 'bad-request', 'Give kind (series or movie), a name and, for a series, its number of seasons.');
+  }
+  try {
+    json(res, 200, await client.json('admin/titles', jsonPost({ kind: k, name: n, seasons: count }, AbortSignal.timeout(LOOKUP_TIMEOUT_MS))));
+  } catch (err) {
+    nasCallError(res, err);
+  }
+}
+
 /**
  * The NAS routes:
  *
@@ -140,10 +220,15 @@ function replaceClient(app: AppContext, client: NasClient | null): NasClient | n
  *   POST   /api/nas/pair   body `{ code, base }` or `{ link }`; the same answer, or 400 `bad-address`, `bad-code` or
  *                          `bad-request`, 409 `not-owner`, 429 `too-many-tries`, 502 `unreachable`, 413 `too-large`
  *   DELETE /api/nas        `{ paired: false }`: forgets the pairing here (the NAS still lists the device)
+ *   GET    /api/nas/lookup?q=&source=anilist|tmdb|own   `{ titles: TitleSummary[] }`, the NAS's `admin/lookup`; 400 `bad-request`,
+ *                          409 `nas-not-paired` or `not-owner`, 429 and 503 (`source-unreachable`) as the NAS answered, 502 `unreachable`
+ *   POST   /api/nas/own-titles   body `{ kind: 'series' | 'movie', name, seasons }`; the NAS's `OwnTitle` (`admin/titles`); the same errors
  */
 export const nasRoutes: RouteTable = [
   ['GET', /^\/api\/nas$/, async (_req, res, _m, app) => json(res, 200, await nasStatus(app.nas.client))],
   ['POST', /^\/api\/nas\/pair$/, (req, res, _m, app) => pair(req, res, app)],
+  ['GET', /^\/api\/nas\/lookup$/, (req, res, _m, app) => lookup(req, res, app)],
+  ['POST', /^\/api\/nas\/own-titles$/, (req, res, _m, app) => createOwnTitle(req, res, app)],
   [
     'DELETE',
     /^\/api\/nas$/,

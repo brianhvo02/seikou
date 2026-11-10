@@ -9,9 +9,12 @@ import { startHelperServer, type AppContext, type HelperServer } from '../../src
 import { startNasTestServer, type NasTestServer } from '../nas/nas-test-server';
 
 const TOKEN = 'nas-routes-token';
+/** Node's own fetch, before any test spies on it. */
+const nativeFetch = globalThis.fetch;
 
 let nas: NasTestServer;
 let bare: NasTestServer;
+let titled: NasTestServer;
 let server: HelperServer;
 let app: AppContext;
 /** Every body the app answered, and every session token the NAS gave, to check no answer leaks one. */
@@ -19,10 +22,14 @@ let answers: string[];
 let tokens: string[];
 
 beforeAll(async () => {
-  [nas, bare] = await Promise.all([startNasTestServer({ discs: false }), startNasTestServer({ discs: false, encodes: false })]);
+  [nas, bare, titled] = await Promise.all([
+    startNasTestServer({ discs: false }),
+    startNasTestServer({ discs: false, encodes: false }),
+    startNasTestServer({ discs: false, encodes: false, titles: true }),
+  ]);
 });
 afterAll(async () => {
-  await Promise.all([nas.close(), bare.close()]);
+  await Promise.all([nas.close(), bare.close(), titled.close()]);
 });
 
 beforeEach(async () => {
@@ -126,5 +133,62 @@ describe('the NAS routes', () => {
     await gone.close();
     expect((await call('GET', '/api/nas')).body).toEqual({ paired: true, host: '127.0.0.1', personName: 'Rin Owner', reachable: false, encodes: 'unknown' });
     expect(readFileSync(join(app.dataDir, 'nas.json'), 'utf8')).toContain('Rin Owner');
+  });
+});
+
+describe('the NAS title routes', () => {
+  const lookup = (q: string, source: string) => call('GET', `/api/nas/lookup?${new URLSearchParams({ q, source }).toString()}`);
+  const pairTitled = async (): Promise<void> => {
+    await call('POST', '/api/nas/pair', { code: await titled.ownerCode('Mika Owner'), base: titled.base });
+  };
+
+  it('finds an AniList and a TMDB entry by source', async () => {
+    await pairTitled();
+    const anilist = await lookup('Lantern Harbour', 'anilist');
+    expect(anilist.status).toBe(200);
+    expect((anilist.body.titles as { id: string }[]).map((t) => t.id)).toEqual(['anilist:990102']);
+    const tmdb = await lookup('Lantern Harbour', 'tmdb');
+    expect(tmdb.body.titles).toMatchObject([{ id: 'tmdb-tv:990101', kind: 'series', year: 2019, seasons: 2, own: false }]);
+    expect((await lookup('Nothing Here', 'tmdb')).body).toEqual({ titles: [] });
+  });
+
+  it('makes an own title and then finds it by source own', async () => {
+    await pairTitled();
+    const made = await call('POST', '/api/nas/own-titles', { kind: 'series', name: 'Harbour Notes', seasons: 2 });
+    expect(made.status).toBe(200);
+    expect(made.body).toMatchObject({ kind: 'series', name: 'Harbour Notes', seasons: 2 });
+    expect(String(made.body.id)).toMatch(/^own:[0-9a-f-]{36}$/);
+    const found = await lookup('harbour notes', 'own');
+    expect(found.body.titles).toMatchObject([{ id: made.body.id, kind: 'series', own: true, seasons: 2 }]);
+    const film = await call('POST', '/api/nas/own-titles', { kind: 'movie', name: 'Harbour Film', seasons: null });
+    expect(film.body).toMatchObject({ kind: 'movie', name: 'Harbour Film', seasons: null });
+  });
+
+  it('refuses a bad query, a bad title and an unpaired app', async () => {
+    expect(await lookup('x', 'tmdb')).toMatchObject({ status: 409, body: { error: 'nas-not-paired' } });
+    expect(await call('POST', '/api/nas/own-titles', { kind: 'series', name: 'X', seasons: 1 })).toMatchObject({ status: 409, body: { error: 'nas-not-paired' } });
+    await pairTitled();
+    expect(await lookup('', 'tmdb')).toMatchObject({ status: 400, body: { error: 'bad-request' } });
+    expect(await lookup('x', 'imdb')).toMatchObject({ status: 400, body: { error: 'bad-request' } });
+    expect(await call('POST', '/api/nas/own-titles', { kind: 'music', name: 'X', seasons: null })).toMatchObject({ status: 400, body: { error: 'bad-request' } });
+    expect(await call('POST', '/api/nas/own-titles', { kind: 'movie', name: '  ', seasons: null })).toMatchObject({ status: 400, body: { error: 'bad-request' } });
+    expect(await call('POST', '/api/nas/own-titles', { kind: 'series', name: 'X', seasons: 0 })).toMatchObject({ status: 400, body: { error: 'bad-request' } });
+  });
+
+  it('passes on the NAS limits and a NAS that does not answer', async () => {
+    await pairTitled();
+    let fake: { status: number; body: unknown } | null = null;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) =>
+      fake !== null && String(input).includes('/admin/lookup')
+        ? new Response(JSON.stringify(fake.body), { status: fake.status, headers: { 'Content-Type': 'application/json', 'Retry-After': '7' } })
+        : nativeFetch(input, init));
+    fake = { status: 503, body: { error: 'source-unreachable' } };
+    expect(await lookup('x', 'tmdb')).toMatchObject({ status: 503, body: { error: 'source-unreachable' } });
+    fake = { status: 429, body: { error: 'too-many-lookups' } };
+    expect(await lookup('x', 'tmdb')).toMatchObject({ status: 429, body: { error: 'too-many-lookups' } });
+    fake = null;
+    await titled.pause();
+    expect(await lookup('x', 'tmdb')).toMatchObject({ status: 502, body: { error: 'unreachable' } });
+    await titled.resume();
   });
 });

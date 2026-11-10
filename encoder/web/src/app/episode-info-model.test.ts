@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
+import type { EncodeTitle } from '@seikou/nas/encode-title';
 import type { EpisodeInfo, EpisodeTitle } from '../api-types';
 import {
   aniListIdOf,
@@ -89,6 +90,40 @@ describe('renumberFrom', () => {
   it('drops the prefilled mark of the rows it sets', () => {
     const rows = renumberFrom(episodeRows(EPISODES, null, { id: 990010 }), 2, 990011, 1);
     expect(rows.map((r) => r.prefilled)).toEqual([true, true, false, false]);
+  });
+});
+
+describe('renumberFrom with a title of another source', () => {
+  const harbour: EncodeTitle = { source: 'tmdb-tv', tmdbId: 990101, season: 2 };
+  const tv = (index: number, episode: number, name: string | null = null): EpisodeRow => ({
+    index,
+    firstChapter: index * 3 - 2,
+    title: { title: harbour, episode, name, showName: 'Lantern Harbour' },
+    prefilled: false,
+  });
+
+  it('keeps the title and show name of a TMDB run it renumbers', () => {
+    const rows = renumberFrom([tv(1, 1), tv(2, 2), tv(3, 3, 'Kept?')], 1, harbour, 5, 'Lantern Harbour');
+    expect(rows.map((r) => r.title)).toEqual([
+      { title: harbour, episode: 1, name: null, showName: 'Lantern Harbour' },
+      { title: harbour, episode: 5, name: null, showName: 'Lantern Harbour' },
+      { title: harbour, episode: 6, name: null, showName: 'Lantern Harbour' },
+    ]);
+  });
+
+  it('gives a picked own title and its name to the run, rows with none included, and stops at another title', () => {
+    const mine: EncodeTitle = { source: 'own', ownId: '0b7a1f4e-3c52-4d0a-9a55-2f6e8c1d7b90', season: 1 };
+    const rows = renumberFrom([row(1, 1, 990010), row(2, 4, null), row(3, 7, 990012, 4)], 0, mine, 1, 'Harbour Notes');
+    expect(rows.map((r) => [r.title?.title, r.title?.episode, r.title?.showName])).toEqual([
+      [mine, 1, 'Harbour Notes'],
+      [mine, 2, 'Harbour Notes'],
+      [{ source: 'anilist', anilistId: 990012 }, 4, undefined],
+    ]);
+  });
+
+  it('numbers after the row before when it has the same title', () => {
+    expect(firstNumberFor([tv(1, 3), row(2, 4, null)], 1, harbour)).toBe(4);
+    expect(firstNumberFor([tv(1, 3), row(2, 4, null)], 1, { ...harbour, season: 1 })).toBe(1);
   });
 });
 

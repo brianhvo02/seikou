@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api';
 import type { AniListEntry, EpisodeInfo, LibraryAnswer, PlaylistDetail, TitleHit } from '../api-types';
+import type { TitleSummary } from '@seikou/nas/nas-api';
 import type { PlayerLike } from '../player/use-controller';
 import type { AppApi } from './app-api';
 import { EpisodesPage } from './EpisodesPage';
@@ -305,6 +306,37 @@ describe('EpisodesPage chapter names and AniList', () => {
     );
     expect(screen.queryByText('Suggested')).toBeNull();
     expect(screen.getByText('Cold Water')).toBeTruthy();
+  });
+
+  it('paired with a NAS, picking a TMDB season saves the title with the show name and renumbers the rest', async () => {
+    const { api, saveEpisodeInfo } = infoApi(RECORD);
+    api.library = vi.fn(async () => ({ roots: [], savedRoots: [], runRoots: [], unreadableRoots: [], scanning: false, discs: [{ key: KEY, label: 'LANTERN_HARBOR_D1', relPath: 'LANTERN_HARBOR_D1', root: '/media/discs', source: 'local' as const, playlistCount: 1, recordPlaylists: [], otherPaths: [] }], nas: { paired: true, scanning: false, reachable: true } }));
+    api.lookupTitles = vi.fn(async (_q: string, source: string): Promise<TitleSummary[]> =>
+      source === 'tmdb' ? [{ id: 'tmdb-tv:990101', kind: 'series' as const, names: { english: 'Lantern Harbour', romaji: null, native: null, synonyms: [], display: null }, poster: null, year: 2019, seasons: 2, discs: 0, addedAt: 0, own: false }] : [],
+    );
+    await show(api);
+    const change = screen.getByRole('button', { name: 'Change the AniList entry of episode 2' }) as HTMLButtonElement;
+    await waitFor(() => expect(change.disabled).toBe(false));
+    fireEvent.click(change);
+    fireEvent.change(screen.getByLabelText('Search for episode 2'), { target: { value: 'lantern' } });
+    fireEvent.submit(screen.getByRole('search'));
+    fireEvent.click(await screen.findByRole('button', { name: /^TMDB\s*Lantern Harbour/ }));
+    fireEvent.change(screen.getByLabelText('Season of Lantern Harbour'), { target: { value: '2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Use this season' }));
+    const tv = { source: 'tmdb-tv', tmdbId: 990101, season: 2 };
+    await waitFor(() =>
+      expect(saveEpisodeInfo.mock.lastCall?.[2].titles).toEqual({
+        '1': { title: { source: 'anilist', anilistId: 990010 }, episode: 1, name: null },
+        '3': { title: tv, episode: 1, name: null, showName: 'Lantern Harbour' },
+        '5': { title: tv, episode: 2, name: null, showName: 'Lantern Harbour' },
+      }),
+    );
+    // renumbering a TMDB row keeps its title and show name
+    const field = screen.getByLabelText('AniList episode number of episode 2') as HTMLInputElement;
+    fireEvent.change(field, { target: { value: '4' } });
+    fireEvent.blur(field);
+    await waitFor(() => expect(saveEpisodeInfo.mock.lastCall?.[2].titles['3']).toEqual({ title: tv, episode: 4, name: null, showName: 'Lantern Harbour' }));
+    expect(saveEpisodeInfo.mock.lastCall?.[2].titles['5']).toEqual({ title: tv, episode: 5, name: null, showName: 'Lantern Harbour' });
   });
 
   it('offers the next season first in Change', async () => {

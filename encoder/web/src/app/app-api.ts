@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { ApiError, episodeInfoCalls, errorOf, type FetchLike } from '../api';
 import type { RemoteDiscSpec } from '@seikou/engine';
-import type { DiscManifest } from '@seikou/nas/nas-api';
+import type { DiscManifest, OwnTitle, TitleSummary } from '@seikou/nas/nas-api';
 import type { AniListEntry, EncodeSettings, EpisodeInfo, Job, LibraryAnswer, NasPairingRequest, NasStatus, NewJob, NewTest, PlaylistDetail, PlaylistSummary, Profile, QueuedJob, TitleHit } from '../api-types';
 
 // The app pages' client for the backend's library routes, carrying the run's token.
@@ -73,6 +73,13 @@ export interface AppApi {
    * `too-many-tries` or `unreachable`, each with a message to show.
    */
   pairNas(request: NasPairingRequest): Promise<NasStatus>;
+  /**
+   * The NAS's search of one source (`anilist`, `tmdb` or the owner's `own` titles); rejects with `ApiError`
+   * `nas-not-paired`, `source-unreachable` (503), `too-many-lookups` or `lookup-busy` (429), `unreachable`.
+   */
+  lookupTitles(q: string, source: 'anilist' | 'tmdb' | 'own'): Promise<TitleSummary[]>;
+  /** Makes an own title on the NAS for a show no source lists (`seasons` only for a series); rejects like `lookupTitles`. */
+  createOwnTitle(title: { readonly kind: 'series' | 'movie'; readonly name: string; readonly seasons: number | null }): Promise<OwnTitle>;
   /** Forgets the pairing on this machine (the NAS keeps listing the device until an owner removes it). */
   unpairNas(): Promise<void>;
 }
@@ -178,6 +185,10 @@ export function createAppApi(base: string, token: string, fetchImpl: FetchLike =
     },
     nas: () => request('GET', '/api/nas'),
     pairNas: (body) => request('POST', '/api/nas/pair', body),
+    async lookupTitles(q, source) {
+      return (await request<{ titles: TitleSummary[] }>('GET', `/api/nas/lookup?${new URLSearchParams({ q, source }).toString()}`)).titles;
+    },
+    createOwnTitle: (title) => request('POST', '/api/nas/own-titles', title),
     async unpairNas() {
       await request('DELETE', '/api/nas');
     },
