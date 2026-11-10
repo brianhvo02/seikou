@@ -247,6 +247,18 @@ describe('LibraryPage', () => {
       expect(await screen.findByText("The NAS can't be reached. These are its shows from the last listing.")).toBeTruthy();
     });
 
+    it('keeps a filter per view', async () => {
+      const nasShows = vi.fn(async () => shows);
+      const api = fakeApi({ ...paired, discs: [disc('LANTERN_HARBOR_D1'), nasDisc] }, { nasShows });
+      const { rerender } = render(<LibraryPage api={api} view="shows" />);
+      fireEvent.change(await screen.findByRole('searchbox', { name: 'Filter shows' }), { target: { value: 'harbour' } });
+      rerender(<LibraryPage api={api} view="mac" />);
+      expect((screen.getByRole('searchbox', { name: 'Filter discs' }) as HTMLInputElement).value).toBe('');
+      expect(screen.getByText('LANTERN_HARBOR_D1')).toBeTruthy();
+      rerender(<LibraryPage api={api} view="shows" />);
+      expect((screen.getByRole('searchbox', { name: 'Filter shows' }) as HTMLInputElement).value).toBe('harbour');
+    });
+
     it('lists the discs on this Mac, with the folders, under This Mac', async () => {
       render(<LibraryPage api={fakeApi({ ...paired, discs: [disc('LANTERN_HARBOR_D1'), nasDisc] })} view="mac" />);
       expect(await screen.findByText('LANTERN_HARBOR_D1')).toBeTruthy();

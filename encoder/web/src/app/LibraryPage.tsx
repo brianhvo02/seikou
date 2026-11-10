@@ -137,7 +137,8 @@ export function LibraryPage({ api, pollMs = SCAN_POLL_MS, view: asked }: Library
   useDocumentTitle('Seikou encoder');
   const [library, setLibrary] = useState<LibraryAnswer | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState('');
+  // each view keeps its own filter text, so a show's name typed in By show doesn't empty This Mac
+  const [filters, setFilters] = useState<Readonly<Record<string, string>>>({});
   const [showsRefresh, setShowsRefresh] = useState(0);
 
   const load = useCallback(async () => {
@@ -194,6 +195,8 @@ export function LibraryPage({ api, pollMs = SCAN_POLL_MS, view: asked }: Library
   }
 
   const view: LibraryView | null = library.nas.paired ? (asked ?? 'shows') : null;
+  const filter = filters[view ?? 'all'] ?? '';
+  const setFilter = (text: string): void => setFilters((f) => ({ ...f, [view ?? 'all']: text }));
   const inView = view === 'folder' ? library.discs.filter((d) => d.source === 'nas' || d.otherPaths.some((o) => o.root === 'NAS')) : view === 'mac' ? library.discs.filter((d) => d.source === 'local') : library.discs;
   const shown = filterDiscs(inView, filter);
   return (

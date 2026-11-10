@@ -725,9 +725,9 @@ export interface NasShow {
   readonly films: number;
   /** Disc slots over all its seasons and films. */
   readonly discs: number;
-  /** Episodes of the show the Encodes library already holds. */
+  /** Episodes of the show the Encodes library already holds (for a season the NAS lists none for, of its discs checked here). */
   readonly encoded: number;
-  /** Episodes of the show it does not hold yet. */
+  /** The same episodes it does not hold yet. */
   readonly toEncode: number;
 }
 
@@ -765,9 +765,18 @@ export interface NasSeasonDisc {
   readonly checked: boolean;
   /**
    * The checked playlists (of those listed, or for a disc listing none every saved one): the episode list a job must be
-   * queued with, and the episode number each episode of it was given (null for none).
+   * queued with, and its groups.
    */
-  readonly checkedPlaylists: { readonly id: string; readonly episodeSpec: string; readonly episodes: (number | null)[] }[];
+  readonly checkedPlaylists: { readonly id: string; readonly episodeSpec: string; readonly groups: NasCheckedGroup[] }[];
+}
+
+/** One episode of a checked playlist's episode list: the title and number its saved info gives it, and whether the Encodes library holds it. */
+export interface NasCheckedGroup {
+  /** 1-based position in the episode list, as a job's `only` takes it. */
+  readonly index: number;
+  readonly title: NasEncodeTitle | null;
+  readonly episode: number | null;
+  readonly encoded: boolean;
 }
 
 /** One season, or with `number: null` a film or disc-only group. */

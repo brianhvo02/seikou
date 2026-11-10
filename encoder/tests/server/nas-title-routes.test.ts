@@ -153,6 +153,32 @@ describe('the NAS catalogue routes', () => {
     expect(own.discs[0]).toMatchObject({ available: true, playlists: [], checked: false });
   });
 
+  it('give an own title\'s checked disc its groups, the one the Encodes library holds marked encoded, and count them on the show', async () => {
+    await pair();
+    const before = (await show(ownTitleId)).body.seasons[0].discs[0];
+    const own = { source: 'own', ownId: ownTitleId.slice('own:'.length), season: 1 } as const;
+    const titles = { '1': { title: own, episode: 1, name: null }, '2': { title: own, episode: 2, name: null } };
+    mkdirSync(join(app.dataDir, 'chapters', before.key), { recursive: true });
+    writeFileSync(
+      join(app.dataDir, 'chapters', before.key, '00000.json'),
+      JSON.stringify({ chapterNames: {}, titles, checked: { episodeSpec: '1,2-', signature: titlesSignature(titles), at: '2026-11-10T01:00:00.000Z' }, savedAt: '2026-11-10T00:00:00.000Z' }),
+    );
+    const disc = (await show(ownTitleId)).body.seasons[0].discs[0];
+    expect(disc.checked).toBe(true);
+    expect(disc.checkedPlaylists).toEqual([
+      {
+        id: '00000',
+        episodeSpec: '1,2-',
+        groups: [
+          { index: 1, title: own, episode: 1, encoded: true },
+          { index: 2, title: own, episode: 2, encoded: false },
+        ],
+      },
+    ]);
+    const listed = (await get('/api/nas/shows')).body.shows.find((s: { titleId: string }) => s.titleId === ownTitleId);
+    expect(listed).toMatchObject({ encoded: 1, toEncode: 1 });
+  });
+
   it('list a disc the encoder mirrors no copy of as unavailable, never checked', async () => {
     failManifest = vmDiscId;
     await pair();
@@ -203,9 +229,13 @@ describe('the NAS catalogue routes', () => {
       const disc = async (): Promise<any> => (await show('anilist:990001')).body.seasons[0].discs[1];
       expect((await disc()).checkedPlaylists).toEqual([]);
       writeInfo(mark('1-2,3-4'));
-      expect((await disc()).checkedPlaylists).toEqual([{ id: '00001', episodeSpec: '1-2,3-4', episodes: [2, null] }]);
+      const groups = [
+        { index: 1, title: { source: 'anilist', anilistId: 990001 }, episode: 2, encoded: false },
+        { index: 2, title: null, episode: null, encoded: false },
+      ];
+      expect((await disc()).checkedPlaylists).toEqual([{ id: '00001', episodeSpec: '1-2,3-4', groups }]);
       await writeRecord('1-2,3-');
-      expect((await disc()).checkedPlaylists).toEqual([{ id: '00001', episodeSpec: '1-2,3-', episodes: [2, null] }]);
+      expect((await disc()).checkedPlaylists).toEqual([{ id: '00001', episodeSpec: '1-2,3-', groups }]);
     });
 
     it('is false without a mark', async () => {

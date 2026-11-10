@@ -6,7 +6,20 @@ import type { AppApi } from './app-api';
 import { useDocumentTitle } from './place';
 import { QueueDialog } from './QueueDialog';
 import { Link, navigate, routeHref, type SeasonRef } from './router';
-import { checkTarget, needsCheck, queueBlock, seasonCounts, seasonState } from './shows-model';
+import { useJobs } from './jobs-context';
+import {
+  checkTarget,
+  groupsOf,
+  isGroupQueued,
+  isQueued,
+  needsCheck,
+  queueBlock,
+  queuedKeys,
+  seasonCounts,
+  seasonState,
+  unmappedText,
+  type Unmapped,
+} from './shows-model';
 
 // A NAS show (its seasons and films), one season disc by disc with what is encoded and what is checked, and the batch
 // queue of what the season has left.
@@ -94,9 +107,18 @@ export function Poster({ src, name, large = false }: { readonly src: string | nu
 }
 
 /** How much of `total` is encoded, as words and a thin bar. */
-export function EncodedMeter({ encoded, total }: { readonly encoded: number; readonly total: number }) {
-  const words =
-    total === 0 ? 'No episode list' : encoded === 0 ? `None of ${total} encoded` : encoded === total ? `All ${total} encoded` : `${encoded} of ${total} encoded`;
+export function EncodedMeter({ encoded, total, known = true }: { readonly encoded: number; readonly total: number; readonly known?: boolean }) {
+  const words = !known
+    ? total === 0
+      ? 'Not checked yet'
+      : `${encoded} of ${total} so far encoded`
+    : total === 0
+      ? 'No episode list'
+      : encoded === 0
+        ? `None of ${total} encoded`
+        : encoded === total
+          ? `All ${total} encoded`
+          : `${encoded} of ${total} encoded`;
   return (
     <span className="encoded-meter num">
       <span className={encoded > 0 && encoded === total ? 'encoded-all' : undefined}>{words}</span>
@@ -135,7 +157,7 @@ function SeasonRow({ titleId, season }: { readonly titleId: string; readonly sea
           {countOf(season.discs.length, 'disc', 'discs')}
           {season.title === null && ', entry not loaded yet'}
         </span>
-        <EncodedMeter encoded={counts.encoded} total={counts.episodes} />
+        <EncodedMeter encoded={counts.encoded} total={counts.episodes} known={counts.known} />
       </Link>
     </li>
   );
@@ -204,7 +226,7 @@ export function ShowPage({ api, titleId }: ShowPageProps) {
   );
 }
 
-/** Episode numbers as `eps 5–8`, `ep 5`, or the list when they aren't a run. */
+/** Episode numbers as `episodes 5–8`, `episode 5`, or the list when they aren't a run. */
 function episodesWords(numbers: readonly number[]): string {
   if (numbers.length === 0) return '';
   if (numbers.length === 1) return `episode ${numbers[0]}`;
@@ -212,37 +234,47 @@ function episodesWords(numbers: readonly number[]): string {
   return run ? `episodes ${numbers[0]}–${numbers[numbers.length - 1]}` : `episodes ${numbers.join(', ')}`;
 }
 
-/** One disc of a season: its playlists and episodes, Encoded or To encode, and whether it is checked. */
-function DiscBlock({
-  disc,
-  from,
-  needsCheck,
-  reachable,
-}: {
+/** An episode row: its number, name and mark. */
+function EpisodeRow({ number, name, mark }: { readonly number: number | null; readonly name: string; readonly mark: 'encoded' | 'queued' | 'todo' }) {
+  return (
+    <li className={mark === 'todo' ? undefined : 'is-encoded'}>
+      <span className="season-ep-number num">{number ?? ''}</span>
+      <span className="season-ep-name">{name}</span>
+      <span className={`season-ep-state ${mark === 'encoded' ? 'encoded' : mark === 'queued' ? 'queued' : ''}`.trim()}>
+        {mark === 'encoded' ? 'Encoded' : mark === 'queued' ? 'Queued' : 'To encode'}
+      </span>
+    </li>
+  );
+}
+
+interface DiscBlockProps {
+  readonly season: NasSeason;
   readonly disc: NasSeasonDisc;
   readonly from: SeasonRef;
-  readonly needsCheck: boolean;
   /** False while the NAS doesn't answer: a disc can't be checked then. */
   readonly reachable: boolean;
-}) {
+  /** The episodes a NAS job in the queue already encodes (`queuedKeys`). */
+  readonly queued: ReadonlySet<string>;
+  /** The disc's NAS episodes to encode that no checked group gives, when there are any. */
+  readonly unmapped: Unmapped | undefined;
+}
+
+/** One disc of a season: its playlists and episodes, Encoded, Queued or To encode, and whether it is checked. */
+function DiscBlock({ season, disc, from, reachable, queued, unmapped }: DiscBlockProps) {
   const headingId = `disc-${disc.discId}`;
-  const target = checkTarget(disc);
   const listed = disc.playlists.filter((p) => p.episodes.length > 0);
+  const recheck = needsCheck(season, disc) || unmapped !== undefined;
+  const target = unmapped !== undefined ? ({ kind: 'playlist', playlistId: unmapped.playlistId } as const) : checkTarget(disc);
   const left = listed.flatMap((p) => p.episodes).filter((e) => !e.encoded).length;
   let state: ReactNode;
   if (!disc.available) state = <span className="disc-state disc-state-missing">Not in this app's NAS listing</span>;
-  else if (disc.checked && !needsCheck) state = <span className="disc-state disc-state-checked">Checked</span>;
-  else if (needsCheck && !reachable) state = <span className="disc-state">Not checked</span>;
-  else if (needsCheck && target !== null) {
+  else if (!recheck && disc.checked) state = <span className="disc-state disc-state-checked">Checked</span>;
+  else if (recheck && !reachable) state = <span className="disc-state">Not checked</span>;
+  else if (recheck && target !== null && disc.key !== null) {
     const to =
       target.kind === 'playlist'
-        ? ({
-            kind: 'episodes',
-            discKey: disc.key!,
-            playlistId: target.playlistId,
-            from,
-          } as const)
-        : ({ kind: 'disc', discKey: disc.key!, from } as const);
+        ? ({ kind: 'episodes', discKey: disc.key, playlistId: target.playlistId, from } as const)
+        : ({ kind: 'disc', discKey: disc.key, from } as const);
     state = (
       <Link to={to} className="disc-check">
         Check episodes
@@ -250,6 +282,7 @@ function DiscBlock({
     );
   } else if (listed.length > 0 && left === 0) state = <span className="disc-state disc-state-checked">All encoded</span>;
   else state = null;
+  const checkedGroups = disc.checked ? disc.checkedPlaylists : [];
   return (
     <section className="season-disc" aria-labelledby={headingId}>
       <div className="season-disc-head">
@@ -259,21 +292,40 @@ function DiscBlock({
         <span className="muted season-disc-playlists num">
           {listed.length > 0
             ? listed.map((p) => `playlist ${p.id}, ${episodesWords(p.episodes.map((e) => e.number))}`).join('; ')
-            : disc.checkedPlaylists.length > 0
-              ? disc.checkedPlaylists.map((p) => `playlist ${p.id}, ${countOf(p.episodeSpec.split(',').length, 'episode', 'episodes')}`).join('; ')
+            : checkedGroups.length > 0
+              ? checkedGroups.map((p) => `playlist ${p.id}, ${countOf(groupsOf(p.episodeSpec), 'episode', 'episodes')}`).join('; ')
               : 'no episode list on the NAS'}
         </span>
         {state}
       </div>
+      {unmapped !== undefined && (
+        <p className="season-disc-warn" role="status">
+          {unmappedText(unmapped)}.
+        </p>
+      )}
       {listed.length > 0 ? (
         <ol className="season-episodes">
           {listed.flatMap((p) =>
             p.episodes.map((e) => (
-              <li key={`${p.id}:${e.number}`} className={e.encoded ? 'is-encoded' : undefined}>
-                <span className="season-ep-number num">{e.number}</span>
-                <span className={e.name === null ? 'season-ep-name muted' : 'season-ep-name'}>{e.name ?? `Episode ${e.number}`}</span>
-                <span className={e.encoded ? 'season-ep-state encoded' : 'season-ep-state'}>{e.encoded ? 'Encoded' : 'To encode'}</span>
-              </li>
+              <EpisodeRow
+                key={`${p.id}:${e.number}`}
+                number={e.number}
+                name={e.name ?? `Episode ${e.number}`}
+                mark={e.encoded ? 'encoded' : isQueued(season, disc, p.id, e.number, queued) ? 'queued' : 'todo'}
+              />
+            )),
+          )}
+        </ol>
+      ) : checkedGroups.length > 0 ? (
+        <ol className="season-episodes">
+          {checkedGroups.flatMap((p) =>
+            p.groups.map((g) => (
+              <EpisodeRow
+                key={`${p.id}:${g.index}`}
+                number={g.episode}
+                name={g.episode === null ? `Episode ${g.index} of playlist ${p.id}, untitled` : `Episode ${g.episode}`}
+                mark={g.encoded ? 'encoded' : isGroupQueued(disc, p.id, g, queued) ? 'queued' : 'todo'}
+              />
             )),
           )}
         </ol>
@@ -281,11 +333,9 @@ function DiscBlock({
         <p className="season-disc-note muted">
           {!disc.available
             ? 'Rescan the Library to read it.'
-            : disc.checked
-              ? "The NAS doesn't list its episodes, so its checked grouping is queued whole."
-              : needsCheck
-                ? "The NAS doesn't say which episodes this disc holds. Check episodes to group its chapters."
-                : 'No episodes listed on this disc.'}
+            : recheck
+              ? "The NAS doesn't say which episodes this disc holds. Check episodes to group its chapters."
+              : 'No episodes listed on this disc.'}
         </p>
       )}
     </section>
@@ -300,14 +350,24 @@ export interface SeasonPageProps {
   readonly seasonId: string;
 }
 
+/** The episodes of `season` that a NAS job in the app's queue already encodes; null until the queue has been read. */
+function useQueued(season: NasSeason | null): ReadonlySet<string> | null {
+  const { jobs } = useJobs();
+  return jobs === null ? null : season === null ? new Set() : queuedKeys(season, jobs);
+}
+
+const NONE: ReadonlySet<string> = new Set();
+
 /**
- * One season (or film) of a NAS show, disc by disc: each episode Encoded or To encode, each disc with episodes left
- * Checked or with Check episodes (the Episodes page, which leads back here), and Queue for what the season has left,
- * disabled with the reason until every such disc is checked and the NAS answers.
+ * One season (or film) of a NAS show, disc by disc: each episode Encoded, Queued (a NAS job here already encodes it)
+ * or To encode, each disc with episodes left Checked or with Check episodes (the Episodes page, which leads back here),
+ * and Queue for what the season has left, disabled with the reason until every such disc is checked and the NAS
+ * answers.
  */
 export function SeasonPage({ api, titleId, seasonId }: SeasonPageProps) {
   const { show, error } = useShow(api, titleId);
   const season = show?.seasons.find((s) => s.id === seasonId) ?? null;
+  const queued = useQueued(season) ?? NONE;
   useDocumentTitle(show === null ? 'Seikou encoder' : `${season?.label ?? 'Season'} · ${show.title.name} · Seikou encoder`);
   if (show === null) return <Waiting error={error} what="the season" />;
   if (season === null) {
@@ -323,43 +383,69 @@ export function SeasonPage({ api, titleId, seasonId }: SeasonPageProps) {
     );
   }
   const from: SeasonRef = { titleId, seasonId };
-  const state = seasonState(season);
-  const blocked = queueBlock(season, show.reachable);
+  const state = seasonState(season, queued);
+  const blocked = queueBlock(season, show.reachable, queued);
   const counts = seasonCounts(season);
-  const queued = blocked === null ? state.jobs.reduce((n, j) => n + (j.only?.length ?? j.episodeSpec.split(',').length), 0) : state.toEncode;
+  const queuedNow = state.jobs.reduce((n, j) => n + (j.only?.length ?? groupsOf(j.episodeSpec)), 0);
+  const label =
+    blocked === null
+      ? `Queue ${countOf(queuedNow, 'episode', 'episodes')} to the NAS`
+      : state.known
+        ? `Queue ${countOf(state.toEncode, 'episode', 'episodes')} to the NAS`
+        : 'Queue to the NAS';
   const queue = (): void => navigate(routeHref({ kind: 'seasonQueue', titleId, seasonId }, location.search));
+  const facts = [titleWords(season.title)];
+  if (!counts.known) facts.push('some discs not checked yet');
+  else if (counts.episodes > 0) facts.push(countOf(counts.episodes, 'episode', 'episodes'), `${state.toEncode} to encode`);
+  if (state.queued > 0) facts.push(`${state.queued} in the queue`);
   return (
     <main className="content wide season-page">
       <p className="crumb">
         <Link to={{ kind: 'library' }}>Library</Link> / <Link to={{ kind: 'show', titleId }}>{show.title.name}</Link>
       </p>
       <h1 className="page-title">{season.label}</h1>
-      <p className="muted num">
-        {titleWords(season.title)}
-        {counts.episodes > 0 && `, ${countOf(counts.episodes, 'episode', 'episodes')}, ${counts.toEncode} to encode`}
-      </p>
+      <p className="muted num">{facts.join(', ')}</p>
       <StaleLine show={show} />
       {season.discs.length === 0 && <p className="muted">The NAS lists no discs here.</p>}
       {season.discs.map((d) => (
-        <DiscBlock key={d.discId} disc={d} from={from} needsCheck={needsCheck(season, d)} reachable={show.reachable} />
+        <DiscBlock
+          key={d.discId}
+          season={season}
+          disc={d}
+          from={from}
+          reachable={show.reachable}
+          queued={queued}
+          unmapped={state.unmapped.find((u) => u.discId === d.discId)}
+        />
       ))}
       <div className="season-queue">
-        {blocked !== null && <span className="season-queue-why">{blocked}</span>}
-        <button type="button" className="primary" disabled={blocked !== null} onClick={queue}>
-          Queue {countOf(queued, 'episode', 'episodes')} to the NAS
+        {blocked !== null && (
+          <span id="season-queue-why" className="season-queue-why">
+            {blocked}
+          </span>
+        )}
+        <button type="button" className="primary" disabled={blocked !== null} aria-describedby={blocked !== null ? 'season-queue-why' : undefined} onClick={queue}>
+          {label}
         </button>
       </div>
     </main>
   );
 }
 
-/** The batch queue of a season: its jobs worked out again from the NAS's answer, or why it can't be queued. */
+/** The batch queue of a season: its jobs worked out again from the NAS's answer and the app's queue, or why it can't be queued. */
 export function SeasonQueue({ api, titleId, seasonId }: SeasonPageProps) {
   const { show, error } = useShow(api, titleId);
+  const season = show?.seasons.find((s) => s.id === seasonId) ?? null;
+  const queued = useQueued(season);
+  // the queue as it was when the page opened: the batch's own jobs must not take their episodes out of it as they go in
+  const [jobs, setJobs] = useState<ReturnType<typeof seasonState>['jobs'] | null>(null);
+  const blocked = show === null || queued === null ? null : season === null ? 'The NAS no longer lists this season.' : queueBlock(season, show.reachable, queued);
+  useEffect(() => {
+    if (jobs === null && season !== null && queued !== null && blocked === null) setJobs(seasonState(season, queued).jobs);
+  }, [jobs, season, blocked, queued]);
   if (show === null) return <Waiting error={error} what="the season" />;
-  const season = show.seasons.find((s) => s.id === seasonId) ?? null;
-  const blocked = season === null ? 'The NAS no longer lists this season.' : queueBlock(season, show.reachable);
-  if (season === null || blocked !== null) {
+  if (jobs !== null) return <QueueDialog api={api} batch={jobs} from={{ titleId, seasonId }} />;
+  if (blocked !== null) {
     return (
       <main className="content wide">
         <p className="crumb">
@@ -371,5 +457,5 @@ export function SeasonQueue({ api, titleId, seasonId }: SeasonPageProps) {
       </main>
     );
   }
-  return <QueueDialog api={api} batch={seasonState(season).jobs} from={{ titleId, seasonId }} />;
+  return <Waiting error={null} what="the season" />;
 }

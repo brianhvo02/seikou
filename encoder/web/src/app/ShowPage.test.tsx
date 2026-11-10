@@ -1,14 +1,24 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render as rtlRender, screen, within } from '@testing-library/react';
+import type { ReactElement } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LibraryAnswer, NasSeason, NasShowAnswer } from '../api-types';
+import type { Job, LibraryAnswer, NasSeason, NasShowAnswer } from '../api-types';
 import type { AppApi } from './app-api';
-import { UNUSED_ANILIST_API, UNUSED_JOB_API, UNUSED_NAS_API } from './job-test-support';
+import type { JobsStore } from './job-events';
+import { JobsProvider } from './jobs-context';
+import { makeJob, UNUSED_ANILIST_API, UNUSED_JOB_API, UNUSED_NAS_API } from './job-test-support';
 import { SeasonPage, SeasonQueue, ShowPage } from './ShowPage';
-import { KEY, season } from './shows-test-support';
+import { checked3, disc, groups, KEY, season } from './shows-test-support';
 
 afterEach(cleanup);
+
+/** Renders `ui` under a queue holding `jobs`. */
+function render(ui: ReactElement, jobs: readonly Job[] = []) {
+  const snapshot = { jobs, progress: {}, problem: null };
+  const store: JobsStore = { subscribe: () => () => {}, getSnapshot: () => snapshot, applyJob: () => {}, dropJob: () => {} };
+  return rtlRender(<JobsProvider store={store}>{ui}</JobsProvider>);
+}
 beforeEach(() => history.replaceState(null, '', '/?t=tok'));
 
 const TITLE = 'anilist:990001';
@@ -76,10 +86,6 @@ function fakeApi(show: NasShowAnswer): AppApi {
   } as AppApi;
 }
 
-const checked3 = {
-  checked: true,
-  checkedPlaylists: [{ id: '00001', episodeSpec: '1-2,3-4,5-6,7-', episodes: [9, 10, 11, 12] }],
-};
 const queueButton = (): HTMLButtonElement => screen.getByRole('button', { name: /^Queue \d+ episodes? to the NAS$/ });
 
 describe('SeasonPage', () => {
@@ -97,6 +103,46 @@ describe('SeasonPage', () => {
     expect(queueButton().disabled).toBe(true);
     expect(queueButton().textContent).toBe('Queue 7 episodes to the NAS');
     expect(screen.getByText('Check disc 3 first')).toBeTruthy();
+    expect(queueButton().getAttribute('aria-describedby')).toBe(screen.getByText('Check disc 3 first').id);
+  });
+
+  it('warns about a checked disc that misses episodes to encode, offers Check episodes again and blocks Queue', async () => {
+    const short = season({}, { checked: true, checkedPlaylists: [{ id: '00001', episodeSpec: '1-2,3-', groups: groups([9, 12]) }] });
+    render(<SeasonPage api={fakeApi(answer([short]))} titleId={TITLE} seasonId="anilist:990001#season" />);
+    await screen.findByRole('heading', { name: 'Season 2' });
+    const disc3 = screen.getByRole('region', { name: 'Disc 3' });
+    expect(within(disc3).getByText("Disc 3's checked episodes don't include 10 and 11: check it again.")).toBeTruthy();
+    expect(within(disc3).getByRole('link', { name: 'Check episodes' })).toBeTruthy();
+    expect(within(disc3).queryByText('Checked')).toBeNull();
+    expect(queueButton().disabled).toBe(true);
+  });
+
+  it('marks what a NAS job in the queue already encodes as Queued and leaves it out', async () => {
+    const job = makeJob({ disc: { key: KEY(3), label: 'D3', dir: '/x' }, playlist: '00001', episodeSpec: '1-2,3-4,5-6,7-', state: 'queued' });
+    const nasJob: Job = { ...job, settings: { ...job.settings, destination: 'nas' } };
+    render(<SeasonPage api={fakeApi(answer([season({}, checked3)]))} titleId={TITLE} seasonId="anilist:990001#season" />, [nasJob]);
+    await screen.findByRole('heading', { name: 'Season 2' });
+    expect(within(screen.getByRole('region', { name: 'Disc 3' })).getAllByText('Queued')).toHaveLength(4);
+    expect(queueButton().textContent).toBe('Queue 3 episodes to the NAS');
+  });
+
+  it('claims no count while a disc of a season with no episode list is unchecked, and lists checked groups', async () => {
+    const own = { source: 'own', ownId: '5f0c2a1e-0000-4000-8000-000000000001', season: 1 } as const;
+    const s: NasSeason = {
+      id: `own:${own.ownId}#s1`,
+      label: 'Season 1',
+      number: 1,
+      title: own,
+      discs: [disc(1, { checked: true, checkedPlaylists: [{ id: '00003', episodeSpec: '1-4,5-', groups: groups([1, 2], [1], own) }] }), disc(2)],
+    };
+    render(<SeasonPage api={fakeApi(answer([s]))} titleId={TITLE} seasonId={s.id} />);
+    await screen.findByRole('heading', { name: 'Season 1' });
+    const button = screen.getByRole('button', { name: 'Queue to the NAS' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(screen.queryByText(/\d+ to encode/)).toBeNull();
+    const disc1 = screen.getByRole('region', { name: 'Disc 1' });
+    expect(within(disc1).getByText('Encoded')).toBeTruthy();
+    expect(within(disc1).getByText('To encode')).toBeTruthy();
   });
 
   it('enables Queue once every disc is checked, and opens the batch queue', async () => {
@@ -125,6 +171,15 @@ describe('SeasonQueue', () => {
     expect(items.map((li) => li.textContent)).toEqual([expect.stringContaining('STARFALL_D2'), expect.stringContaining('STARFALL_D3')]);
     expect(items[0]!.textContent).toContain('Episodes 2, 3 and 4');
     expect(items[1]!.textContent).toContain('Episodes 1, 2, 3 and 4');
+  });
+
+  it('leaves out of the batch what a NAS job in the queue already encodes', async () => {
+    const job = makeJob({ disc: { key: KEY(3), label: 'D3', dir: '/x' }, playlist: '00001', episodeSpec: '1-2,3-4,5-6,7-', only: [1, 2], state: 'running' });
+    render(<SeasonQueue api={fakeApi(answer([season({}, checked3)]))} titleId={TITLE} seasonId="anilist:990001#season" />, [
+      { ...job, settings: { ...job.settings, destination: 'nas' } },
+    ]);
+    const items = within(await screen.findByRole('list', { name: 'Encodes to queue' })).getAllByRole('listitem');
+    expect(items[1]!.textContent).toContain('Episodes 3 and 4');
   });
 
   it('refuses to queue a season that is not ready, saying why', async () => {

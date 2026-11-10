@@ -58,9 +58,12 @@ export interface NasShow {
   readonly films: number;
   /** Disc slots over all its seasons and films. */
   readonly discs: number;
-  /** Episodes the NAS lists for the show that the Encodes library already holds. */
+  /**
+   * Episodes the NAS lists for the show that the Encodes library already holds; for a season the NAS lists none for,
+   * the episodes of its discs checked here that it holds.
+   */
   readonly encoded: number;
-  /** Episodes the NAS lists for the show that it does not hold yet. */
+  /** The same episodes that it does not hold yet. */
   readonly toEncode: number;
 }
 
@@ -108,17 +111,27 @@ export interface NasSeasonDisc {
   readonly checked: boolean;
   /**
    * The disc's checked playlists, each with the episode list a job of it must be queued with (the saved subtitle
-   * record's, else the mark's) and, per episode of that list, the number its saved title gives it (null for none). For
-   * a disc the NAS lists episodes for, only those playlists; else every checked playlist saved for it.
+   * record's, else the mark's) and its groups. For a disc the NAS lists episodes for, only those playlists; else every
+   * checked playlist saved for it.
    */
   readonly checkedPlaylists: CheckedPlaylist[];
 }
 
-/** A checked playlist of a disc: its episode list, and the episode number each of its episodes was given. */
+/** One episode of a checked playlist's episode list: the title and number its saved info gives it, and whether that episode is encoded. */
+export interface CheckedGroup {
+  /** 1-based position in the episode list, as a job's `only` takes it. */
+  readonly index: number;
+  readonly title: EncodeTitle | null;
+  readonly episode: number | null;
+  /** The Encodes library holds `encodeId(title, episode)`; false without a title and number. */
+  readonly encoded: boolean;
+}
+
+/** A checked playlist of a disc: its episode list and its groups. */
 export interface CheckedPlaylist {
   readonly id: string;
   readonly episodeSpec: string;
-  readonly episodes: (number | null)[];
+  readonly groups: CheckedGroup[];
 }
 
 /** One season (or, with `number: null`, a film or a disc-only group) of a show. */
@@ -418,18 +431,32 @@ export class NasTitles {
     if (raw === null) return { shows: [], unsorted: [], reachable, stale: true };
     const ids = new Set(raw.ids);
     const mirror = await this.mirrorDiscs();
-    const shows = raw.titles.map((t): NasShow => {
+    const infos = new EpisodeInfoStore(this.app.dataDir);
+    const records = new RecordStore(this.app.dataDir);
+    const shows: NasShow[] = [];
+    for (const t of raw.titles) {
       const seasons = raw.details[t.id]?.seasons ?? [];
       let encoded = 0;
       let toEncode = 0;
       for (const s of seasons) {
         const title = seasonTitle(s.id);
+        if ((s.episodes ?? []).length === 0) {
+          // no episode list on the NAS: count the groups of the discs checked here (an unchecked disc is not known)
+          for (const slot of s.discs) {
+            const disc = await this.discOf(slot, s.episodes, mirror, title, ids, infos, records);
+            for (const g of disc.checkedPlaylists.flatMap((p) => p.groups)) {
+              if (g.encoded) encoded++;
+              else toEncode++;
+            }
+          }
+          continue;
+        }
         for (const e of s.episodes ?? []) {
           if (title !== null && ids.has(encodeId(title, e.number))) encoded++;
           else toEncode++;
         }
       }
-      return {
+      shows.push({
         titleId: t.id,
         name: showName(t),
         poster: posterRoute(t.poster),
@@ -439,8 +466,8 @@ export class NasTitles {
         discs: seasons.reduce((n, s) => n + s.discs.length, 0),
         encoded,
         toEncode,
-      };
-    });
+      });
+    }
     const unsorted = raw.unsorted.flatMap((u): NasUnsorted[] => {
       const disc = mirror.get(u.discId);
       return disc === undefined ? [] : [{ key: disc.key, label: disc.label, relPath: disc.relPath }];
@@ -499,7 +526,7 @@ export class NasTitles {
     const toCheck = playlists.length > 0 ? playlists.map((p) => p.id) : await this.savedPlaylists(disc.key);
     const checkedPlaylists: CheckedPlaylist[] = [];
     for (const id of toCheck) {
-      const c = await this.playlistChecked(disc.key, id, infos, records);
+      const c = await this.playlistChecked(disc.key, id, infos, records, ids);
       if (c !== null) checkedPlaylists.push(c);
     }
     // listed playlists must all be checked; a disc listing none is checked once any saved playlist of it is
@@ -526,10 +553,10 @@ export class NasTitles {
   /**
    * Playlist `id` of the disc when it is checked, else null: its saved info has a mark that holds (`isChecked`) for
    * the saved subtitle record's episode list (the mark's own without a record), on the playlist's real chapter count.
-   * A playlist whose chapters cannot be read is not checked. The answer carries that episode list and the number the
-   * saved titles give each of its episodes.
+   * A playlist whose chapters cannot be read is not checked. The answer carries that episode list and, per episode of
+   * it, the title and number the saved info gives it and whether the Encodes library (`ids`) holds that episode.
    */
-  private async playlistChecked(key: string, id: string, infos: EpisodeInfoStore, records: RecordStore): Promise<CheckedPlaylist | null> {
+  private async playlistChecked(key: string, id: string, infos: EpisodeInfoStore, records: RecordStore, ids: ReadonlySet<string>): Promise<CheckedPlaylist | null> {
     try {
       const info = await infos.read(key, id);
       if (info?.checked === undefined) return null;
@@ -541,8 +568,13 @@ export class NasTitles {
       }
       const chapters = await this.chaptersOf(key, id);
       if (chapters === null || !isChecked(info, spec, chapters)) return null;
-      const episodes = parseEpisodeSpec(spec, chapters).map((e) => info.titles[String(e.from)]?.episode ?? null);
-      return { id, episodeSpec: spec, episodes };
+      const groups = parseEpisodeSpec(spec, chapters).map((e, i): CheckedGroup => {
+        const t = info.titles[String(e.from)];
+        const title = t?.title ?? null;
+        const episode = t?.episode ?? null;
+        return { index: i + 1, title, episode, encoded: title !== null && episode !== null && ids.has(encodeId(title, episode)) };
+      });
+      return { id, episodeSpec: spec, groups };
     } catch (e) {
       if (e instanceof EpisodeInfoError || e instanceof EpisodeSpecError) return null;
       throw e;

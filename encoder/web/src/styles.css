@@ -2892,6 +2892,18 @@ button.quiet.danger {
   color: var(--ok);
 }
 
+/* already in this app's queue for the NAS */
+.season-ep-state.queued {
+  color: var(--accent);
+}
+
+.content .season-disc-warn {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--amber);
+  font-size: 13px;
+}
+
 .content .season-disc-note {
   padding: 10px 12px;
   font-size: 14px;
