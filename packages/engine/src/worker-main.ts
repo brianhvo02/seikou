@@ -9,6 +9,7 @@
  */
 
 import { readFontFile } from '@seikou/ass/font-tables';
+import { createDeviceFontSource } from '@seikou/ass/device-fonts';
 import { createFontFaceLoader } from '@seikou/ass/fonts';
 import { createCanvasMeasurer } from '@seikou/ass/measure';
 import { drawWarped } from '@seikou/ass/warp';
@@ -92,13 +93,16 @@ export function startEngineWorker(options: EngineWorkerOptions): Player {
     playerSettings: playerSettingsForLocale(navigator.language),
     bdjLog: (line, error) => (error ? console.warn : console.debug)(`[BD-J] ${line}`),
     log: (line) => console.info(`[engine] ${line}`),
-    // ASS: fonts in the worker's FontFaceSet, DejaVu Sans as the default font (libass's fallback in our harness)
+    // ASS: fonts in the worker's FontFaceSet, then the device's installed fonts, DejaVu Sans as the default font (libass's fallback in our harness)
     createAssDeps: async () => {
       const response = await fetch(defaultFontUrl, { signal: AbortSignal.timeout(ASSET_FETCH_TIMEOUT_MS) });
       const defaultFont = await readFontFile('DejaVuSans.ttf', new Uint8Array(await response.arrayBuffer()));
+      const fontSet = (self as unknown as { fonts: FontFaceSet }).fonts;
       return {
-        loader: createFontFaceLoader((self as unknown as { fonts: FontFaceSet }).fonts),
+        loader: createFontFaceLoader(fontSet),
         defaultFont,
+        // a family the subtitles name but nothing supplied: the device's installed font, when it has one
+        deviceFonts: createDeviceFontSource(fontSet, new OffscreenCanvas(1, 1).getContext('2d')!),
         measurer: createCanvasMeasurer(new OffscreenCanvas(1, 1).getContext('2d', { willReadFrequently: true })!),
         createCanvas: (w, h) => new OffscreenCanvas(w, h),
         Path2D,

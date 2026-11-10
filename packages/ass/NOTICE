@@ -36,7 +36,7 @@ libass 0.17.5 (https://github.com/libass/libass, commit 4a05d81), ISC License
     frame.ts          from libass/ass_render.c (ass_render_frame, event boxes, device positions)
     raster.ts         from libass/ass_render.c (filters, quantize_transform positions, composition, clips),
                           ass_bitmap.c (ass_fix_outline), ass_font.c (emboldening, italic, decorations)
-  gsub.ts, measure.ts, warp.ts, renderer.ts, trace.ts and trace-format.ts are original implementations; they
+  gsub.ts, measure.ts, device-fonts.ts, warp.ts, renderer.ts, trace.ts and trace-format.ts are original implementations; they
   contain no libass, libbluray or FFmpeg code.
 
 DejaVu fonts 2.37 (https://dejavu-fonts.github.io), Bitstream Vera / DejaVu licence

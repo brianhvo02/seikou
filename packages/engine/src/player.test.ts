@@ -2074,6 +2074,17 @@ describe('Player text subtitles', () => {
     expect(fontNotices(h)).toHaveLength(1);
   });
 
+  it('takes a family nothing supplied from the device, with no missing-font notice', async () => {
+    const asked: string[] = [];
+    const deviceFonts = { load: async (_css: string, names: readonly string[]) => { asked.push(names[0]!); return names.includes('Starfall Sans') ? { ascent: 0.9, descent: 0.2 } : null; }, unload: () => undefined };
+    const base = fakeAssDeps();
+    const h = await raw({ createAssDeps: async () => ({ ...(await base()), deviceFonts }) });
+    await h.player.handle({ type: 'addTextSubtitles', files: [file('sign.ass', ass('Starfall Sans', dialogue('0:00:01.00', '0:00:02.00', 'hi')))] });
+    expect(asked).toContain('Starfall Sans');
+    expect(lastText(h)!.missingFonts).toEqual([]);
+    expect(fontNotices(h)).toEqual([]);
+  });
+
   it('names unreadable font files', async () => {
     const h = await raw();
     await h.player.handle({ type: 'addTextSubtitles', files: [file('sign.ass', ass('DejaVu Sans', dialogue('0:00:01.00', '0:00:02.00', 'hi')))], fonts: [{ name: 'broken.ttf', bytes: new ArrayBuffer(10) }] });

@@ -19,7 +19,7 @@ const page: AssTracePage = {
   async run(scriptUrl, fontUrls, times, pixels, storage) {
     const track = parseAss(new TextDecoder().decode(await bytesOf(scriptUrl)));
     const defaultFont = await readFontFile('DejaVuSans.ttf', await bytesOf('/fixtures/ass/fonts/DejaVuSans.ttf'));
-    const fonts = new AssFonts(createFontFaceLoader(document.fonts), defaultFont);
+    const fonts = new AssFonts(createFontFaceLoader(document.fonts), defaultFont, { deviceFonts: null }); // libass has no system fonts in the harness
     // libass registers a script's [Fonts] before the fonts directory
     await fonts.add(track.fonts.map((f) => ({ name: f.name, bytes: f.bytes })));
     await fonts.add(await Promise.all(fontUrls.map(async (u) => ({ name: u.split('/').pop()!, bytes: await bytesOf(u) }))));
@@ -85,7 +85,7 @@ const sessionPage: AssSessionPage = {
   async open(scriptUrl, fontUrls, storage) {
     const track = parseAss(new TextDecoder().decode(await bytesOf(scriptUrl)));
     const defaultFont = await readFontFile('DejaVuSans.ttf', await bytesOf('/fixtures/ass/fonts/DejaVuSans.ttf'));
-    const fonts = new AssFonts(createFontFaceLoader(document.fonts), defaultFont);
+    const fonts = new AssFonts(createFontFaceLoader(document.fonts), defaultFont, { deviceFonts: null }); // libass has no system fonts in the harness
     await fonts.add(track.fonts.map((f) => ({ name: f.name, bytes: f.bytes })));
     await fonts.add(await Promise.all(fontUrls.map(async (u) => ({ name: decodeURIComponent(u.split('/').pop()!), bytes: await bytesOf(u) }))));
     const settings: RenderSettings = { frameWidth: 1920, frameHeight: 1080, storageWidth: storage?.[0] ?? 1920, storageHeight: storage?.[1] ?? 1080, fontScale: 1 };

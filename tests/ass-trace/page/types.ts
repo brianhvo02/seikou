@@ -29,3 +29,21 @@ export interface AssSessionPage {
     readonly renderMs: readonly { readonly t: number; readonly ms: number; readonly animated: boolean }[];
   }>;
 }
+
+/** What the device-font worker reports for one family (window.deviceCheck.inWorker). */
+export interface DeviceWorkerResult {
+  /** The default font drew the family (no supplied or installed face). */
+  readonly fallback: boolean;
+  readonly missingFamilies: readonly string[];
+  /** Width of the test line at 100px in the face chosen, and in DejaVu Sans. */
+  readonly advance: number;
+  readonly defaultAdvance: number;
+  readonly ascender: number;
+  readonly descender: number;
+}
+
+export interface DeviceCheckPage {
+  /** Whether `local(family)` loads on the page itself (the device has the font and the browser allows it). */
+  localOnPage(family: string): Promise<boolean>;
+  inWorker(family: string): Promise<DeviceWorkerResult>;
+}

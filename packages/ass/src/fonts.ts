@@ -7,9 +7,13 @@
  * ass_font_get_index, the synthetic-style conditions of ass_font_get_glyph, ass_glyph_italicize's shear,
  * ass_face_set_size. libass is ISC-licensed; see packages/ass/NOTICE. Modified for bluray-web, 2026.
  *
+ * Not from libass: the device-font branch (marked "device fonts" below, the rest in device-fonts.ts), which stands in
+ * for libass's system font provider when a family matches no supplied face. Supplied faces are matched as before.
+ *
  * SPDX-License-Identifier: LGPL-2.1-or-later AND ISC
  */
 
+import { DEVICE_STYLES, deviceFaceInfo, localNames, type DeviceFontSource } from './device-fonts';
 import { extractFace, FontFileError, readFontFile, type FaceInfo, type FontFile } from './font-tables';
 
 /** ASS_FontDesc: `bold` is a weight (ass_update_font maps \b1 to 700, \b0 to 400), `italic` 0 or 100 (or the \i value). */
@@ -38,7 +42,16 @@ const DEFAULT_FAMILY = 'DejaVu Sans';
 const ITALIC_SHEAR_TT = 0x05700 / 0x10000;
 const ITALIC_SHEAR_PS = 0x02d24 / 0x10000;
 
-interface Entry { readonly face: FaceInfo; readonly file: FontFile; readonly uid: number }
+/** A supplied face (`file`), or an installed one (device fonts: `file` null, registered under `cssFamily` already). */
+interface Entry { readonly face: FaceInfo; readonly file: FontFile | null; readonly uid: number; readonly cssFamily?: string }
+
+export interface AssFontsOptions {
+  /**
+   * Where a family no supplied face matches is looked up before falling back to the default font; null or absent
+   * keeps libass's behaviour with no system fonts (the comparison harness needs that, for exact goldens).
+   */
+  readonly deviceFonts?: DeviceFontSource | null;
+}
 
 const lower = (s: string): string => s.toLowerCase();
 
@@ -92,9 +105,20 @@ export class AssFonts {
   private readonly missing = new Map<string, string>();
   private readonly entryOf = new WeakMap<ResolvedFace, Entry>();
   private nextUid = 1;
+  // device fonts: the installed faces of each family looked up (lower case; null when the device has none), the
+  // lookups in flight, the requests made since the last add() (selected again once a lookup finds faces), and the
+  // installed faces' private CSS families
+  private readonly device: DeviceFontSource | null;
+  private readonly deviceFaces = new Map<string, readonly Entry[] | null>();
+  private readonly probing = new Map<string, Promise<void>>();
+  private readonly requests = new Map<string, FontRequest>();
+  private readonly deviceCss = new Set<string>();
+  private reselect = false;
+  private disposed = false;
 
-  constructor(private readonly loader: FontLoader, defaultFont: FontFile) {
+  constructor(private readonly loader: FontLoader, defaultFont: FontFile, options: AssFontsOptions = {}) {
     this.defaultEntry = { face: defaultFont.faces[0]!, file: defaultFont, uid: 0 };
+    this.device = options.deviceFonts ?? null;
   }
 
   /** Adds font files in the order libass would see them ([Fonts] of the script first, then the user's files). */
@@ -114,6 +138,7 @@ export class AssFonts {
     // a new face can change what a request selects (libass rebuilds its font cache on ass_fonts_update)
     this.fonts.clear();
     this.missing.clear();
+    this.requests.clear();
     return { unreadable };
   }
 
@@ -149,15 +174,59 @@ export class AssFonts {
       const r = this.findFont(req.family, req.bold, italic, code);
       nameMatch = r.nameMatch;
       if (r.entry) return { entry: r.entry, requested: true, nameMatch };
+      // device fonts: no supplied face carries the name, so an installed face of the family draws, once looked up
+      if (!nameMatch) {
+        const installed = this.installed(req.family);
+        if (installed) return { entry: this.closest(installed, req.bold, italic), requested: true, nameMatch };
+      }
     }
     const d = this.findFont(DEFAULT_FAMILY, req.bold, italic, code);
     return { entry: d.entry ?? this.defaultEntry, requested: false, nameMatch };
   }
 
+  /** Device fonts: the family's installed faces, null when it has none or isn't looked up yet (which starts that). */
+  private installed(family: string): readonly Entry[] | null {
+    const key = lower(family);
+    const known = this.deviceFaces.get(key);
+    if (known !== undefined) return known;
+    if (this.device && !this.probing.has(key)) this.probing.set(key, this.lookUp(this.device, family, key));
+    return null;
+  }
+
+  /** Device fonts: asks for each style of the family once, for the renderer's life (a miss is remembered too). */
+  private async lookUp(device: DeviceFontSource, family: string, key: string): Promise<void> {
+    const found = await Promise.all(DEVICE_STYLES.map(async (style): Promise<Entry | null> => {
+      const uid = this.nextUid++;
+      const cssFamily = `assd-${uid}`;
+      const m = await device.load(cssFamily, localNames(family, style)).catch(() => null);
+      return m ? { face: deviceFaceInfo(family, style, m), file: null, uid, cssFamily } : null;
+    }));
+    const entries = found.filter((e): e is Entry => e !== null);
+    this.probing.delete(key);
+    if (this.disposed) {
+      for (const e of entries) device.unload(e.cssFamily!);
+      return;
+    }
+    this.deviceFaces.set(key, entries.length ? entries : null);
+    for (const e of entries) {
+      this.css.set(e.uid, e.cssFamily!);
+      this.loaded.add(e.uid);
+      this.deviceCss.add(e.cssFamily!);
+    }
+    if (entries.length) this.reselect = true;
+  }
+
+  /** Device fonts: find_font's scoring among a family's installed faces (they cover every character). */
+  private closest(entries: readonly Entry[], weight: number, italic: boolean): Entry {
+    let best = entries[0]!;
+    for (const e of entries) if (similarity(e.face, weight, italic) < similarity(best.face, weight, italic)) best = e;
+    return best;
+  }
+
   private resolved(entry: Entry, req: FontRequest, fallback: boolean): ResolvedFace {
     let cssFamily = this.css.get(entry.uid);
     if (cssFamily === undefined) {
-      cssFamily = `assf-${entry.uid}`;
+      cssFamily = entry.cssFamily ?? `assf-${entry.uid}`;
       this.css.set(entry.uid, cssFamily);
     }
     const face = entry.face;
@@ -179,6 +248,7 @@ export class AssFonts {
       if (req.family !== '' && !s.nameMatch && !this.missing.has(lower(req.family))) this.missing.set(lower(req.family), req.family);
       state = { faces: [this.resolved(s.entry, req, !s.requested)] };
       this.fonts.set(key, state);
+      this.requests.set(key, req);
     }
     return state;
   }
@@ -204,11 +274,20 @@ export class AssFonts {
 
   /** Registers every face resolved so far that is not registered yet. */
   async ready(): Promise<void> {
+    // device fonts: wait for the lookups, then select again the requests a found face may now draw
+    while (this.probing.size) await Promise.all(this.probing.values());
+    if (this.reselect) {
+      this.reselect = false;
+      const requests = [...this.requests.values()];
+      this.fonts.clear();
+      this.missing.clear();
+      for (const r of requests) this.font(r);
+    }
     const pending: Promise<void>[] = [];
     for (const state of this.fonts.values()) {
       for (const f of state.faces) {
         const entry = this.entryOf.get(f)!;
-        if (this.loaded.has(entry.uid)) continue;
+        if (this.loaded.has(entry.uid) || !entry.file) continue;
         this.loaded.add(entry.uid);
         pending.push(this.loader.load(f.cssFamily, extractFace(entry.file, entry.face.index)));
       }
@@ -218,17 +297,26 @@ export class AssFonts {
 
   /** Faces resolved but not registered yet: layout measured them with a fallback until ready() completes. */
   hasPending(): boolean {
+    if (this.probing.size || this.reselect) return true;
     for (const state of this.fonts.values()) for (const f of state.faces) if (!this.loaded.has(this.entryOf.get(f)!.uid)) return true;
     return false;
   }
 
-  /** Requested families no supplied face matched by name, in first-request order, case-insensitively unique. */
+  /**
+   * Requested families no supplied face matched by name and no installed face drew (device fonts), in first-request
+   * order, case-insensitively unique. A family still being looked up on the device counts as missing.
+   */
   missingFamilies(): readonly string[] {
-    return [...this.missing.values()];
+    return [...this.missing.values()].filter((f) => !this.deviceFaces.get(lower(f)));
   }
 
   dispose(): void {
-    for (const uid of this.loaded) this.loader.unload(this.css.get(uid)!);
+    this.disposed = true;
+    for (const uid of this.loaded) {
+      const css = this.css.get(uid)!;
+      if (this.deviceCss.has(css)) this.device!.unload(css);
+      else this.loader.unload(css);
+    }
     this.loaded.clear();
   }
 }

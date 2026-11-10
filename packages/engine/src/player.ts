@@ -72,6 +72,7 @@ import { PLAYABLE_AUDIO, audioEntryFor, chooseStreams } from './playback/stream-
 import { audioTracks } from './playback/tracks';
 import type { FontFile } from '@seikou/ass/font-tables';
 import { AssFonts, type FontLoader } from '@seikou/ass/fonts';
+import type { DeviceFontSource } from '@seikou/ass/device-fonts';
 import type { GlyphMeasurer } from '@seikou/ass/measure';
 import { looksLikeAss, parseAss } from '@seikou/ass/parse';
 import { AssRenderer, type AssRendererDeps } from '@seikou/ass/renderer';
@@ -206,6 +207,8 @@ const defaultSetTimer = (ms: number, fn: () => void): (() => void) => {
 export interface AssDeps {
   readonly loader: FontLoader;
   readonly defaultFont: FontFile;
+  /** Installed fonts for a family nothing supplied (the browser's local()); absent, the default font draws it. */
+  readonly deviceFonts?: DeviceFontSource | null;
   readonly measurer: GlyphMeasurer;
   readonly createCanvas: (w: number, h: number) => OffscreenCanvas;
   readonly Path2D: typeof Path2D;
@@ -1200,7 +1203,7 @@ export class Player {
     try {
       const deps = await pending;
       if (subs !== this.encodeSubs) return;
-      fonts = new AssFonts(deps.loader, deps.defaultFont);
+      fonts = new AssFonts(deps.loader, deps.defaultFont, { deviceFonts: deps.deviceFonts ?? null });
       const tracks = [...subs.ass.values()];
       await fonts.add(tracks.flatMap((a) => a.track.fonts));
       const attached = await Promise.all(fontAttachments(file.attachments).map(async (a) => ({ name: a.name, bytes: await a.data().catch(() => new Uint8Array(0)) })));
@@ -2762,7 +2765,7 @@ export class Player {
       if (!pending) return;
       deps = await pending;
       if (generation !== this.textLoadGeneration) return;
-      fonts = new AssFonts(deps.loader, deps.defaultFont);
+      fonts = new AssFonts(deps.loader, deps.defaultFont, { deviceFonts: deps.deviceFonts ?? null });
       // libass registers a script's [Fonts] before other fonts
       await fonts.add(assTracks.flatMap((t) => t.fonts));
       unreadable = (await fonts.add(fontFiles.map((f) => ({ name: f.name, bytes: new Uint8Array(f.bytes) })))).unreadable;
