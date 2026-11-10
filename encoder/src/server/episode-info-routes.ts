@@ -22,32 +22,34 @@ const MAX_INFO_BYTES = 64 * 1024;
  * the record is then saved again with every episode's `chapters` emptied (its `savedAt` kept), so the migration never
  * runs twice and a name the user removes since stays removed. Both the info and the record routes call it before they
  * answer, so whichever the page asks first migrates. A record or info file that cannot be read is left as it is; a
- * record whose names are all empty or `Chapter <n>` is only emptied, without reading the playlist.
+ * record whose names are all empty or `Chapter <n>` is only emptied, without reading the playlist. It runs under the
+ * info's lock (`EpisodeInfoStore.locked`), as every other write of the info does.
  */
 export async function migrateChapterNames(dataDir: string, discDir: string, discKey: string, playlistId: string): Promise<void> {
-  const records = new RecordStore(dataDir);
-  let record;
+  const store = new EpisodeInfoStore(dataDir);
   try {
-    record = await records.read(discKey, playlistId);
+    // under the info's lock, so a save of the info (the PUT, the check) never lands between this read and write
+    await store.locked(discKey, playlistId, async () => {
+      const records = new RecordStore(dataDir);
+      let record;
+      try {
+        record = await records.read(discKey, playlistId);
+      } catch (e) {
+        if (e instanceof RecordError) return;
+        throw e;
+      }
+      if (record === null || !record.episodes.some((e) => e.metadata.chapters.length > 0)) return;
+      if (hasChapterNames(record)) {
+        const info = await store.read(discKey, playlistId); // unreadable: keep the names in the record until it can be read
+        const chapterCount = (await loadPlaylist(discDir, playlistId)).chapters.length;
+        const moved = migrateRecordChapters(info, record, record.episodeSpec, chapterCount);
+        if (moved !== null) await store.save(discKey, playlistId, moved);
+      }
+      await records.write(withoutChapterNames(record));
+    });
   } catch (e) {
-    if (e instanceof RecordError) return;
-    throw e;
+    if (!(e instanceof EpisodeInfoError)) throw e;
   }
-  if (record === null || !record.episodes.some((e) => e.metadata.chapters.length > 0)) return;
-  if (hasChapterNames(record)) {
-    const store = new EpisodeInfoStore(dataDir);
-    let info;
-    try {
-      info = await store.read(discKey, playlistId);
-    } catch (e) {
-      if (e instanceof EpisodeInfoError) return; // keep the names in the record until the info can be read
-      throw e;
-    }
-    const chapterCount = (await loadPlaylist(discDir, playlistId)).chapters.length;
-    const moved = migrateRecordChapters(info, record, record.episodeSpec, chapterCount);
-    if (moved !== null) await store.save(discKey, playlistId, moved);
-  }
-  await records.write(withoutChapterNames(record));
 }
 
 /** `/api/discs/<discKey>/playlists/<id>/info`, still percent-encoded. */

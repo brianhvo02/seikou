@@ -2,7 +2,7 @@
 import { readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { isChecked, type EpisodeInfo } from '../../src/plan/episode-info';
+import { EpisodeInfoStore, isChecked, type EpisodeInfo } from '../../src/plan/episode-info';
 import { evenSpec } from '../../src/server/episode-info-routes';
 import { RecordStore, type SubtitleRecord } from '../../src/subs/record';
 import { jsonOf, startRouteFixture, type RouteFixture } from './route-fixture';
@@ -81,6 +81,41 @@ describe('episode info routes', () => {
     expect((JSON.parse(readFileSync(recordFile, 'utf8')) as SubtitleRecord).episodes.map((e) => e.metadata.chapters)).toEqual([[], []]);
     // the next read finds nothing more to move
     expect(jsonOf<{ info: EpisodeInfo | null }>(await fixture.send(path())).info).toEqual(info);
+  });
+
+  it("moves an older record's names only once the info's other writers are done, keeping what they saved", async () => {
+    rmSync(join(fixture.dataDir, 'chapters', fixture.discKey, '00000.json'), { force: true });
+    const metadata = (chapters: string[]) => ({ title: '', video: { name: '', language: 'jpn' }, audio: [], chapters });
+    await new RecordStore(fixture.dataDir).write({
+      disc: { key: fixture.discKey, label: 'Starfall Wanderer' },
+      playlist: '00000',
+      episodeSpec: '1-3,4-5',
+      anilist: null,
+      releases: [],
+      fonts: [],
+      episodes: [
+        { index: 1, title: 'One', tracks: [], metadata: metadata(['Avant', 'Opening', '']) },
+        { index: 2, title: 'Two', tracks: [], metadata: metadata(['', 'Preview']) },
+      ],
+      savedAt: '2026-11-01T00:00:00.000Z',
+    });
+    const recordFile = join(fixture.dataDir, 'subtitles', fixture.discKey, '00000.json');
+    const chaptersOfRecord = (): string[][] => (JSON.parse(readFileSync(recordFile, 'utf8')) as SubtitleRecord).episodes.map((e) => e.metadata.chapters);
+    const store = new EpisodeInfoStore(fixture.dataDir);
+    let release!: () => void;
+    const held = store.locked(fixture.discKey, '00000', async () => {
+      await new Promise<void>((r) => (release = r));
+      await store.save(fixture.discKey, '00000', { chapterNames: { '1': 'Cold open' }, titles: {} });
+    });
+    const reading = fixture.send(path());
+    await new Promise((r) => setTimeout(r, 150));
+    // the migration waits for the lock: the record still holds its names
+    expect(chaptersOfRecord()).toEqual([['Avant', 'Opening', ''], ['', 'Preview']]);
+    release();
+    await held;
+    const { info } = jsonOf<{ info: EpisodeInfo | null }>(await reading);
+    expect(info?.chapterNames).toEqual({ '1': 'Cold open', '2': 'Opening', '5': 'Preview' });
+    expect(chaptersOfRecord()).toEqual([[], []]);
   });
 
   it('a body over 64 KiB answers 413', async () => {
