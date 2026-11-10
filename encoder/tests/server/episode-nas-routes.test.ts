@@ -34,6 +34,8 @@ let app: AppContext;
 let putChoices: string[] = [];
 /** Answers `admin/anilist-place` as a NAS from before the route does: 404 with the plain `not found`. */
 let olderNas = false;
+/** Answers `admin/anilist-place` with 409 `no-season`, as for an entry the NAS can't number. */
+let noSeason = false;
 
 beforeAll(async () => {
   nas = await startNasTestServer({ titles: true, titleDiscs: FOLDERS });
@@ -50,8 +52,10 @@ afterAll(async () => {
 beforeEach(async () => {
   putChoices = [];
   olderNas = false;
+  noSeason = false;
   const realFetch = globalThis.fetch;
   vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    if (noSeason && /\/admin\/anilist-place\//.test(String(input))) return new Response(JSON.stringify({ error: 'no-season' }), { status: 409, headers: { 'content-type': 'application/json' } });
     if (olderNas && /\/admin\/anilist-place\//.test(String(input))) return new Response(JSON.stringify({ error: 'not found' }), { status: 404, headers: { 'content-type': 'application/json' } });
     if (init?.method === 'PUT' && /\/admin\/discs\/[^/]+\/choice/.test(String(input))) putChoices.push(String(init.body));
     return realFetch(input, init);
@@ -286,6 +290,23 @@ describe('check', () => {
     putChoices = [];
     await save(key, { '1': anilist(990202, 1) });
     expect((await check(key, '1-')).body).toMatchObject({ nasChoice: 'saved' });
+    expect(new Set(putChoices)).toEqual(new Set([JSON.stringify({ choice: { kind: 'title', titleId: 'anilist:990201', season: 2, disc: null } })]));
+  });
+
+  it("says the NAS can't tell the season when it can't number the entry and its catalogue doesn't hold it either", async () => {
+    const key = (await call('GET', `/api/nas/shows/${encodeURIComponent('anilist:990201')}`)).body.seasons[0].discs[0].key as string;
+    await save(key, { '1': anilist(990999, 1) });
+    noSeason = true;
+    const r = await check(key, '1-');
+    expect(r.body).toMatchObject({
+      nasChoice: 'failed',
+      message: "The NAS can't tell which season of its show this AniList entry is, so it was left as it is. File it with “File differently…” in Seikou instead.",
+    });
+    expect(putChoices).toEqual([]);
+    // one its catalogue holds is filed from there
+    const otherKey = await discKey(`own:${ownId}`, 0);
+    await save(otherKey, { '1': anilist(990202, 1) });
+    expect((await check(otherKey, '1-')).body).toMatchObject({ nasChoice: 'saved' });
     expect(new Set(putChoices)).toEqual(new Set([JSON.stringify({ choice: { kind: 'title', titleId: 'anilist:990201', season: 2, disc: null } })]));
   });
 });

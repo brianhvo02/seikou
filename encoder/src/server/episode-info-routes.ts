@@ -275,15 +275,18 @@ type NasChoiceAnswer = { nasChoice: 'saved' | 'unchanged' | 'mixed' } | { nasCho
 
 /** The failure for an AniList entry the NAS's catalogue doesn't hold, so whether it is a series' season can't be told. */
 const UNKNOWN_ANILIST = "The NAS doesn't know this AniList entry yet, so it was left as it is. File it with “File differently…” in Seikou instead.";
+/** The failure for an AniList entry the NAS can't number (409 `no-season`) and its catalogue doesn't hold either. */
+const NO_SEASON = "The NAS can't tell which season of its show this AniList entry is, so it was left as it is. File it with “File differently…” in Seikou instead.";
 
 /**
  * Where the NAS files a disc under AniList entry `anilistId`, from its `admin/anilist-place` (through the lookup line,
  * so it never overlaps the title picker's lookups): a TV entry as its series and season, held on the NAS or not, any
- * other as itself with no season. Null when the NAS says AniList doesn't know the entry. A NAS from before the route
- * (a 404 that isn't `not-found`) and an entry the NAS can't number (409 `no-season`) are looked for in the NAS's
- * catalogue instead (`NasTitles.anilistPlace`), null when it holds the entry nowhere. Rejects with `NasError` otherwise.
+ * other as itself with no season. `unknown` when the NAS says AniList doesn't know the entry. A NAS from before the
+ * route (a 404 that isn't `not-found`) and an entry the NAS can't number (409 `no-season`) are looked for in the NAS's
+ * catalogue instead (`NasTitles.anilistPlace`); when it holds the entry nowhere, the answer is `unknown`, or
+ * `no-season` after a 409. Rejects with `NasError` otherwise.
  */
-async function anilistPlaceOn(client: NasClient, nas: NasTitles, anilistId: number): Promise<AnilistPlace | null> {
+async function anilistPlaceOn(client: NasClient, nas: NasTitles, anilistId: number): Promise<AnilistPlace | 'unknown' | 'no-season'> {
   try {
     const place = await queuedLookup<unknown>(client, `admin/anilist-place/${anilistId}`);
     const p = place as Partial<Record<keyof AnilistPlace, unknown>> | null;
@@ -294,8 +297,9 @@ async function anilistPlaceOn(client: NasClient, nas: NasTitles, anilistId: numb
     return { titleId: p.titleId, season: season as number | null };
   } catch (e) {
     if (!(e instanceof NasError)) throw e;
-    if (e.status === 404 && e.error === 'not-found') return null;
-    if ((e.status === 404 && e.code === 'http') || (e.status === 409 && e.error === 'no-season')) return nas.anilistPlace(client, anilistId);
+    if (e.status === 404 && e.error === 'not-found') return 'unknown';
+    const noSeason = e.status === 409 && e.error === 'no-season';
+    if ((e.status === 404 && e.code === 'http') || noSeason) return (await nas.anilistPlace(client, anilistId)) ?? (noSeason ? 'no-season' : 'unknown');
     throw e;
   }
 }
@@ -322,7 +326,8 @@ async function fileOnNas(app: AppContext, key: string, titles: readonly EncodeTi
     let target: { titleId: string; season: number | null } = { titleId: nasTitleId(title), season: title.source === 'tmdb-tv' || title.source === 'own' ? title.season : null };
     if (title.source === 'anilist') {
       const place = await anilistPlaceOn(client, nas, title.anilistId);
-      if (place === null) return { nasChoice: 'failed', message: UNKNOWN_ANILIST };
+      if (place === 'unknown') return { nasChoice: 'failed', message: UNKNOWN_ANILIST };
+      if (place === 'no-season') return { nasChoice: 'failed', message: NO_SEASON };
       target = place;
     }
     const refresh = (): Promise<void> => nas.refreshAfterChoice(client, [...new Set([found.titleId, target.titleId].filter((t): t is string => t !== null))]);

@@ -54,6 +54,10 @@ const TIDE_FILM = entry('anilist:990303', { english: null, romaji: 'Shiokane Gek
 const LONE = entry('anilist:990304', { english: 'Lone Gull' });
 // a sequel whose prequel AniList doesn't give, so its season can't be counted
 const ORPHAN = entry('anilist:990305', { english: 'Gull Return' }, { relations: [rel('PREQUEL', 'anilist:990398', 'TV', 20210401)] });
+// a series that forks: two TV sequels of one first season, both its second
+const FORK = entry('anilist:990310', { english: 'Fork Road' }, { relations: [rel('SEQUEL', 'anilist:990311', 'TV', 20230101), rel('SEQUEL', 'anilist:990312', 'TV', 20230701)] });
+const FORK_A = entry('anilist:990311', { english: 'Fork Road East' }, { year: 2023, relations: [rel('PREQUEL', 'anilist:990310', 'TV', 20220101)] });
+const FORK_B = entry('anilist:990312', { english: 'Fork Road West' }, { year: 2023, relations: [rel('PREQUEL', 'anilist:990310', 'TV', 20220101)] });
 
 type SearchOpts = Parameters<MetadataSource['search']>[1];
 
@@ -117,7 +121,7 @@ async function start(opts: { gate?: 'owners' | 'everyone'; lookupTimeoutMs?: num
   evidence = [A, ...BOX, COPY, ...(opts.more ?? [])];
   vi.spyOn(library, 'evidence').mockImplementation(() => evidence);
   owner = new OwnerStore(data);
-  anilist = fakeSource({ 火斬りの剣: [EMBER], 'Ember Blade': [EMBER], 'Tide Bell': [TIDE_1, TIDE_2, TIDE_FILM, LONE, ORPHAN] });
+  anilist = fakeSource({ 火斬りの剣: [EMBER], 'Ember Blade': [EMBER], 'Tide Bell': [TIDE_1, TIDE_2, TIDE_FILM, LONE, ORPHAN, FORK, FORK_A, FORK_B] });
   artFetch = vi.fn(async () => new Response(Buffer.from('PNGDATA'), { headers: { 'Content-Type': 'image/png' } }));
   service = new TitleService({
     library, owner, dataDir: data, anilist, tmdb: null, discdb: { lookup: () => null }, musicbrainz: null, discogs: null,
@@ -756,6 +760,25 @@ describe('GET admin/anilist-place', () => {
     expect(service.catalogue().unsorted.map((u) => u.discId)).not.toContain(A.discId);
   });
 
+  it('keeps the chain it answered from with the filed entries, so the choice files the disc at once though the entries were only loaded for the encodes', async () => {
+    await start();
+    const t = await token(true);
+    service.entriesFor([990302]);
+    await service.encodeEntriesIdle();
+    anilist.entries.length = 0;
+    expect(await (await place(t, 990302)).json()).toEqual({ titleId: 'anilist:990301', season: 2, name: 'Tide Bell Second' });
+    expect(anilist.entries).toEqual([]);
+    // a run started now would wait on AniList: the disc must be filed without one
+    let release!: () => void;
+    anilist.hold = new Promise((r) => (release = r));
+    await file(t, A, { titleId: 'anilist:990301', season: 2 });
+    const shown = await detail(t, 'anilist:990301');
+    expect(shown.seasons.map((s) => s.id)).toEqual(['anilist:990302#season']);
+    expect(shown.seasons[0]!.discs.flatMap((d) => d.copies.map((c) => c.discId))).toEqual([A.discId]);
+    release();
+    anilist.hold = null;
+  });
+
   it("answers a first season as its series' season 1, and asks AniList nothing for entries it holds", async () => {
     await start();
     const t = await token(true);
@@ -790,6 +813,11 @@ describe('GET admin/anilist-place', () => {
     const orphan = await place(t, 990305);
     expect(orphan.status).toBe(409);
     expect(await orphan.json()).toEqual({ error: 'no-season' });
+    // two sequels that would both be season 2: a choice by number would file into one of them, so neither is answered
+    const fork = await place(t, 990311);
+    expect(fork.status).toBe(409);
+    expect(await fork.json()).toEqual({ error: 'no-season' });
+    expect(await (await place(t, 990310)).json()).toEqual({ titleId: 'anilist:990310', season: 1, name: 'Fork Road' });
   });
 
   it('answers 503 source-unreachable when AniList is down or slow, and shares the lookup limits', async () => {

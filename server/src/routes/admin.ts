@@ -366,7 +366,8 @@ async function limitedLookup(device: string, limiter: LookupLimiter, timeoutMs: 
 /**
  * `GET admin/anilist-place/<anilistId>`: where an owner's choice files a disc under that AniList entry, even when the
  * NAS holds no disc of it (`TitleService.anilistPlace`), under the lookups' limits. 404 `not-found` for an entry AniList
- * doesn't know, 409 `no-season` for a TV entry whose chain gives it no season number.
+ * doesn't know, 409 `no-season` for a TV entry whose chain gives it no season number, or one another member of
+ * its series shares.
  */
 async function anilistPlaceRoute(rawId: string, device: string, titles: TitleLibrary, limiter: LookupLimiter, timeoutMs: number): Promise<Response> {
   const n = /^[1-9]\d{0,9}$/.test(rawId) ? Number(rawId) : NaN;

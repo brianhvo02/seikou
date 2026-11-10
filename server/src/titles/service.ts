@@ -326,11 +326,11 @@ export class TitleService {
    * disc of it is filed: a TV entry is its series, by the id the catalogue keys the series by, and its place in the chain
    * (the same numbering the catalogue gives it, falling back to the matcher's season as the catalogue does); any other
    * entry is a title of its own with no season. The entry and its TV PREQUEL/SEQUEL chain (at most 30, as a run walks
-   * it) come from what is held, else from AniList, urgent and abortable like the owner's lookups; what is fetched is
-   * kept with the filed entries, so a choice made from the answer files the disc there at once. `not-found` when
-   * AniList doesn't know the entry; `no-season` when its chain gives it no season number (a prequel AniList didn't give,
-   * or a branch) and no match filed it with one. A source that is down throws
-   * `SourceUnavailable`.
+   * it) come from what is held, else from AniList, urgent and abortable like the owner's lookups; the entries the
+   * answer used are kept with the filed entries, so a choice made from the answer files the disc there at once.
+   * `not-found` when AniList doesn't know the entry; `no-season` when its chain gives it no season number (a prequel
+   * AniList didn't give, or a branch) and no match filed it with one, or another member of the series has the same
+   * number. A source that is down throws `SourceUnavailable`.
    */
   async anilistPlace(anilistId: number, signal?: AbortSignal): Promise<AnilistPlace | 'not-found' | 'no-season'> {
     const src = this.opts.anilist;
@@ -347,7 +347,7 @@ export class TitleService {
     if (!start) return 'not-found';
     const named = (en: Entry): string | null => en.names.english ?? en.names.romaji;
     if (!isAnilistTv(start)) {
-      this.keepFetched(fetched, now);
+      this.keepUsed([start], fetched, now);
       return { titleId: start.id, season: null, name: named(start) ?? start.names.native ?? start.id };
     }
     const chain = new Map<string, Entry>();
@@ -362,32 +362,42 @@ export class TitleService {
         if ((r.type === 'PREQUEL' || r.type === 'SEQUEL') && TV_FORMATS.has(r.format ?? '') && !chain.has(r.id)) queue.push(r.id);
       }
     }
-    this.keepFetched(fetched, now);
+    this.keepUsed([...chain.values()], fetched, now);
     // the series as the catalogue will build it: over the filed entries with this chain among them
     const entries = new Map([...this.entries].map(([id, d]) => [id, d.value]));
     for (const [id, en] of chain) if (!entries.has(id)) entries.set(id, en);
     const series = anilistSeries(entries).get(start.id)!;
-    let season = series.number.get(start.id) ?? null;
-    if (season === null) {
-      for (const m of this.matches.values()) {
-        if (m.status === 'filed' && m.entryId === start.id && m.season !== null) {
-          season = m.season;
-          break;
-        }
-      }
-    }
+    // the catalogue's numbering: the chain's count, else the matcher's season (ruling T7h)
+    const matcherSeason = new Map<string, number>();
+    for (const m of this.matches.values()) if (m.status === 'filed' && m.season !== null && !matcherSeason.has(m.entryId)) matcherSeason.set(m.entryId, m.season);
+    const seasonOf = (id: string): number | null => series.number.get(id) ?? matcherSeason.get(id) ?? null;
+    const season = seasonOf(start.id);
     if (season === null) return 'no-season';
+    // a choice names the season by number, which files into the first member with it: another with the same number
+    // (a fork in the chain) would take the disc
+    if (series.members.some((m) => m.id !== start.id && seasonOf(m.id) === season)) return 'no-season';
     return { titleId: series.id, season, name: named(start) ?? `Season ${season}` };
   }
 
-  /** Keeps entries `anilistPlace` fetched with the filed entries and in the matcher's cache, so the next run needs no lookup. */
-  private keepFetched(fetched: ReadonlyMap<string, Entry>, now: number): void {
-    if (fetched.size === 0) return;
-    for (const [id, en] of fetched) {
-      if (!this.entries.has(id)) this.entries.set(id, { at: now, value: en });
-      this.cache.set(`anilist-entry:${id}`, { at: now, value: [en] });
+  /**
+   * Keeps the entries `anilistPlace` answered from (`used`, wherever they were held: fetched, the matcher's cache or the
+   * encodes' entries) with the filed entries, which alone build the catalogue, so a choice made from the answer files
+   * the disc there at once; and those it fetched (`fetched`) in the matcher's cache, so the next run needs no lookup.
+   * A run already under way replaces the filed entries with its own copy when it ends; the choice's own run (`no-title`
+   * then) loads them again.
+   */
+  private keepUsed(used: readonly Entry[], fetched: ReadonlyMap<string, Entry>, now: number): void {
+    let changed = false;
+    for (const en of used) {
+      if (this.entries.has(en.id)) continue;
+      this.entries.set(en.id, { at: now, value: en });
+      changed = true;
     }
-    this.save();
+    for (const [id, en] of fetched) {
+      this.cache.set(`anilist-entry:${id}`, { at: now, value: [en] });
+      changed = true;
+    }
+    if (changed) this.save();
   }
 
   /** The source URLs of a lookup result's poster, by art id, or null; a hit counts as a use. */
