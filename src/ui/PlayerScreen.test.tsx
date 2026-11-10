@@ -28,7 +28,7 @@ const S = 1e6;
 const SHOW: EncodeShow = {
   id: '100', name: 'Starfall Wanderer', poster: null,
   seasons: [
-    { anilistId: 100, name: 'Starfall Wanderer', kind: 'season', number: 1, episodes: [{ episode: 1, id: '100-1', title: null, durationMs: 1 }, { episode: 2, id: '100-2', title: null, durationMs: 1 }] },
+    { title: { source: 'anilist' as const, anilistId: 100 }, anilistId: 100, name: 'Starfall Wanderer', kind: 'season', number: 1, episodes: [{ episode: 1, id: '100-1', title: null, durationMs: 1 }, { episode: 2, id: '100-2', title: null, durationMs: 1 }] },
   ],
 };
 const CHAPTERS = [

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { DiscManifest } from '@seikou/nas/nas-api';
+import type { EncodeTitle } from '@seikou/nas/encode-title';
 import { appHandlers } from '../app';
 import { Auth } from '../auth';
 import { BdjStore } from '../bdj-store';
@@ -23,6 +24,7 @@ let close: (() => void) | undefined;
 let auth: Auth;
 let gate: 'owners' | 'everyone';
 let known: Map<number, Entry>;
+let names: (t: EncodeTitle) => { name: string; poster: string | null; film?: boolean } | null;
 const arts = new Map<string, unknown>();
 
 /** A made-up AniList TV entry. */
@@ -44,7 +46,7 @@ async function start(configured: boolean, opts: { scan?: boolean; waitMs?: numbe
   const library = new Library([], join(data, 'library.json'), { scanPauseMs: 0 });
   const encodes = configured ? new EncodeIndex({ dir: opts.dirOverride ?? dir, dataDir: data, log: () => {}, settleMs: 0 }) : undefined;
   if (encodes && opts.scan !== false) void encodes.scan().catch(() => {});
-  const titles = { service: { gate: () => gate, entriesFor: () => known, addEncodeArt: (a: Map<string, unknown>) => { for (const [k, v] of a) arts.set(k, v); } }, owner: {} } as unknown as TitleLibrary;
+  const titles = { service: { gate: () => gate, entriesFor: () => known, encodeNames: () => names, addEncodeArt: (a: Map<string, unknown>) => { for (const [k, v] of a) arts.set(k, v); } }, owner: {} } as unknown as TitleLibrary;
   const server = createServer(appHandlers({
     auth, library, bdjStore: new BdjStore(data), publicBase: 'https://nas.example/bluray/api/', titles, ...(encodes ? { encodes } : {}), ...(opts.waitMs !== undefined ? { encodesWaitMs: opts.waitMs } : {}),
   }));
@@ -61,6 +63,7 @@ beforeEach(() => {
   tmp = mkdtempSync(join(tmpdir(), 'encodes-routes-'));
   gate = 'everyone';
   known = new Map();
+  names = () => null;
   arts.clear();
 });
 afterEach(() => {
@@ -280,6 +283,40 @@ describe('encodes routes', () => {
       expect((await library('shows', guest)).status).toBe(404);
       const owner = await token('Owner', true);
       expect((((await (await library('shows', owner)).json()) as { shows: { anilistIds: number[] }[] }).shows[0]!.anilistIds)).toEqual([990001, 990002]);
+    });
+
+    it('lists shows of every kind of title, and serves a TMDB series with its seasons', async () => {
+      const put = (folder: string, file: string, episode: 1 | 2, tags: Record<string, string | null>): void => {
+        mkdirSync(join(tmp, 'encodes', folder), { recursive: true });
+        // the disc's tags make room for the longer title tags
+        writeFileSync(join(tmp, 'encodes', folder, file), retagged(episode, { ANILIST_ID: null, ENCODER: null, SEIKOU_DISC_KEY: null, SEIKOU_PLAYLIST: null, SEIKOU_EPISODE_START_MS: null, ...tags }));
+      };
+      put('tv990101s1', '1.mkv', 1, { SEIKOU_TITLE: 'tmdb-tv:990101', SEASON: '1', EPISODE: '1' });
+      put('tv990101s1', '2.mkv', 2, { SEIKOU_TITLE: 'tmdb-tv:990101', SEASON: '1', EPISODE: '2' });
+      put('tv990101s2', '1.mkv', 1, { SEIKOU_TITLE: 'tmdb-tv:990101', SEASON: '2', EPISODE: '1' });
+      put('mv990102', '1.mkv', 1, { SEIKOU_TITLE: 'tmdb-movie:990102', EPISODE: '1' });
+      put('own-a', '1.mkv', 1, { SEIKOU_TITLE: 'own:00000000-0000-4000-8000-00000000000a', EPISODE: '1', TITLE_NAME: 'Starfall' });
+      put('own-b', '1.mkv', 1, { SEIKOU_TITLE: 'own:00000000-0000-4000-8000-00000000000b', EPISODE: '1', TITLE_NAME: 'Starfall' });
+      names = (t) => (t.source === 'tmdb-tv' ? { name: 'Brasswick Lane', poster: null } : null);
+      const index = await start(true);
+      await index!.ready(5000);
+      const t = await token('Guest', false);
+      const list = (await (await library('shows', t)).json()) as { shows: { id: string; name: string; episodeCount: number; anilistIds: number[]; titles: string[] }[] };
+      expect(list.shows.map((s) => [s.id, s.name, s.episodeCount, s.anilistIds, s.titles])).toEqual([
+        ['990001', 'AniList 990001', 1, [990001], ['990001']],
+        ['tv990101', 'Brasswick Lane', 3, [], ['tv990101s1', 'tv990101s2']],
+        ['own0000000000004000800000000000000a', 'Starfall', 1, [], ['own0000000000004000800000000000000a']],
+        ['own0000000000004000800000000000000b', 'Starfall', 1, [], ['own0000000000004000800000000000000b']],
+        ['mv990102', 'TMDB 990102', 1, [], ['mv990102']],
+      ]);
+      const show = (await (await library('shows/tv990101', t)).json()) as { seasons: { number: number; title: EncodeTitle; episodes: { id: string }[] }[] };
+      expect(show.seasons.map((s) => [s.number, s.title, s.episodes.map((e) => e.id)])).toEqual([
+        [1, { source: 'tmdb-tv', tmdbId: 990101, season: 1 }, ['tv990101s1-1', 'tv990101s1-2']],
+        [2, { source: 'tmdb-tv', tmdbId: 990101, season: 2 }, ['tv990101s2-1']],
+      ]);
+      expect((await library('shows/own0000000000004000800000000000000a', t)).status).toBe(200);
+      expect((await library('shows/mv990102', t)).status).toBe(200);
+      expect((await library('shows/tv12', t)).status).toBe(404);
     });
 
     it('a show whose metadata is not loaded yet is named by its AniList id', async () => {

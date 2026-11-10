@@ -9,10 +9,10 @@ import { NasHttpError } from './nas-client';
 const SHOW: EncodeShow = {
   id: '100', name: 'Starfall Wanderer', poster: null,
   seasons: [
-    { anilistId: 100, name: 'Starfall Wanderer', kind: 'season', number: 1, episodes: [{ episode: 1, id: '100-1', title: 'The Long Night', durationMs: 1_440_000 }, { episode: 2, id: '100-2', title: null, durationMs: 1_420_000 }] },
-    { anilistId: 103, name: 'Starfall Wanderer: Ember Road', kind: 'film', number: null, episodes: [{ episode: 1, id: '103-1', title: null, durationMs: 6_000_000 }] },
-    { anilistId: 104, name: 'Starfall Wanderer Picture Drama', kind: 'other', number: null, episodes: [{ episode: 1, id: '104-1', title: null, durationMs: 300_000 }] },
-    { anilistId: 101, name: 'Starfall Wanderer Season 2', kind: 'season', number: 2, episodes: [{ episode: 1, id: '101-1', title: null, durationMs: 1_440_000 }] },
+    { title: { source: 'anilist' as const, anilistId: 100 }, anilistId: 100, name: 'Starfall Wanderer', kind: 'season', number: 1, episodes: [{ episode: 1, id: '100-1', title: 'The Long Night', durationMs: 1_440_000 }, { episode: 2, id: '100-2', title: null, durationMs: 1_420_000 }] },
+    { title: { source: 'anilist' as const, anilistId: 103 }, anilistId: 103, name: 'Starfall Wanderer: Ember Road', kind: 'film', number: null, episodes: [{ episode: 1, id: '103-1', title: null, durationMs: 6_000_000 }] },
+    { title: { source: 'anilist' as const, anilistId: 104 }, anilistId: 104, name: 'Starfall Wanderer Picture Drama', kind: 'other', number: null, episodes: [{ episode: 1, id: '104-1', title: null, durationMs: 300_000 }] },
+    { title: { source: 'anilist' as const, anilistId: 101 }, anilistId: 101, name: 'Starfall Wanderer Season 2', kind: 'season', number: 2, episodes: [{ episode: 1, id: '101-1', title: null, durationMs: 1_440_000 }] },
   ],
 };
 
@@ -108,8 +108,8 @@ describe('indexing', () => {
 
 describe('the show grid', () => {
   const shows: EncodeShowSummary[] = [
-    { id: '100', name: 'Starfall Wanderer', poster: null, episodeCount: 12, anilistIds: [100] },
-    { id: '200', name: 'Lantern Tide', poster: 'p', episodeCount: 1, anilistIds: [200] },
+    { id: '100', name: 'Starfall Wanderer', poster: null, episodeCount: 12, anilistIds: [100], titles: ['100'] },
+    { id: '200', name: 'Lantern Tide', poster: 'p', episodeCount: 1, anilistIds: [200], titles: ['200'] },
   ];
   it('counts episodes', () => {
     expect(episodeCountLabel(1)).toBe('1 episode');
@@ -174,7 +174,7 @@ describe('the show screen', () => {
 });
 
 describe('a show whose id changed', () => {
-  const other: EncodeShow = { id: '300', name: 'Lantern Tide', poster: null, seasons: [{ anilistId: 300, name: 'Lantern Tide', kind: 'season', number: 1, episodes: [{ episode: 1, id: '300-1', title: null, durationMs: 1 }] }] };
+  const other: EncodeShow = { id: '300', name: 'Lantern Tide', poster: null, seasons: [{ title: { source: 'anilist' as const, anilistId: 300 }, anilistId: 300, name: 'Lantern Tide', kind: 'season', number: 1, episodes: [{ episode: 1, id: '300-1', title: null, durationMs: 1 }] }] };
   it('is found again by an AniList id among its seasons', () => {
     expect(showContaining([other, SHOW], { anilistId: 101 })).toBe('100');
   });
@@ -201,7 +201,7 @@ describe('the next episode', () => {
   });
 
   it('goes on within an other row, as the NAS\'s Up next does', () => {
-    const ova = { anilistId: 105, name: 'Starfall Wanderer OVA', kind: 'other' as const, number: null, episodes: [{ episode: 1, id: '105-1', title: null, durationMs: 1 }, { episode: 2, id: '105-2', title: null, durationMs: 1 }] };
+    const ova = { title: { source: 'anilist' as const, anilistId: 105 }, anilistId: 105, name: 'Starfall Wanderer OVA', kind: 'other' as const, number: null, episodes: [{ episode: 1, id: '105-1', title: null, durationMs: 1 }, { episode: 2, id: '105-2', title: null, durationMs: 1 }] };
     const show: EncodeShow = { ...SHOW, seasons: [...SHOW.seasons, ova] };
     expect(nextEpisode(show, '105-1')?.id).toBe('105-2');
     expect(nextEpisode(show, '105-2')).toBeNull();
@@ -219,8 +219,8 @@ describe('the next episode', () => {
     const other: EncodeShow = { id: '300', name: 'Lantern Tide', poster: null, seasons: [] };
     const asked: string[] = [];
     let listed = [
-      { id: '300', name: 'Lantern Tide', poster: null, episodeCount: 1, anilistIds: [300] },
-      { id: '100', name: 'Starfall Wanderer', poster: null, episodeCount: 5, anilistIds: [100, 103, 104, 101] },
+      { id: '300', name: 'Lantern Tide', poster: null, episodeCount: 1, anilistIds: [300], titles: ['300'] },
+      { id: '100', name: 'Starfall Wanderer', poster: null, episodeCount: 5, anilistIds: [100, 103, 104, 101], titles: ['100', '103', '104', '101'] },
     ];
     const nas = {
       encodeShow: async (id: string) => {

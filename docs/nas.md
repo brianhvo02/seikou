@@ -31,7 +31,7 @@ If the owner has not opened the library to everyone, you see the folders only. O
 
 ## Encodes
 
-The **Encodes** tab, beside **Discs** on the NAS screens, lists episodes encoded with the Seikou encoder: one MKV file per episode, with AV1 video, Opus audio, ASS and PGS subtitles, and named chapters. Episodes are grouped by show, using AniList: a show's seasons, then its films and other entries. **Continue watching** and **Up next** on this tab work as they do for discs, and places on encodes are kept apart from places on discs.
+The **Encodes** tab, beside **Discs** on the NAS screens, lists episodes encoded with the Seikou encoder: one MKV file per episode, with AV1 video, Opus audio, ASS and PGS subtitles, and named chapters. Episodes are grouped by show. An anime tagged with AniList is grouped by AniList: a show's seasons, then its films and other entries. A series tagged with TMDB shows its seasons in order, a TMDB film is a show of its own, and one of your own titles shows its seasons, or its episodes as one row. TMDB titles are named from TMDB when the NAS has a TMDB key, your own titles by the names you gave them; otherwise a show takes the name the encoder wrote into its files. **Continue watching** and **Up next** on this tab work as they do for discs, and places on encodes are kept apart from places on discs.
 
 ### Setting it up (owner)
 

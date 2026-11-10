@@ -11,8 +11,8 @@ afterEach(cleanup);
 
 const LIST: EncodeShowList = {
   shows: [
-    { id: '100', name: 'Starfall Wanderer', poster: null, episodeCount: 12, anilistIds: [100] },
-    { id: '200', name: 'Lantern Tide', poster: null, episodeCount: 1, anilistIds: [200] },
+    { id: '100', name: 'Starfall Wanderer', poster: null, episodeCount: 12, anilistIds: [100], titles: ['100'] },
+    { id: '200', name: 'Lantern Tide', poster: null, episodeCount: 1, anilistIds: [200], titles: ['200'] },
   ],
 };
 

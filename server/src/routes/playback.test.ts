@@ -238,7 +238,7 @@ describe('Continue watching routes', () => {
 describe('encode places', () => {
   const EKEY = 'e.990001.1';
   const encodePlace = (over: Partial<PlaybackPlace> = {}): PlaybackPlace => place({ discKey: EKEY, discId: '990001-1', playlistId: 'mkv', psrs: [], ...over });
-  const entry = (episode: number) => ({ id: `990001-${episode}`, anilistId: 990001, episode, episodeTitle: null, durationMs: 1_440_000, path: '/x' });
+  const entry = (episode: number) => ({ id: `990001-${episode}`, title: { source: 'anilist' as const, anilistId: 990001 }, titleName: null, anilistId: 990001, episode, episodeTitle: null, durationMs: 1_440_000, path: '/x' });
   let gate: 'owners' | 'everyone' = 'everyone';
   let url = '';
   let stop: (() => void) | undefined;
@@ -246,7 +246,7 @@ describe('encode places', () => {
   beforeEach(async () => {
     gate = 'everyone';
     const library = new Library([], join(data, 'library.json'), { scanPauseMs: 0 });
-    const titles = { service: { gate: () => gate, catalogue: () => ({ titles: [], detail: () => null }), entriesFor: () => new Map(), addEncodeArt: () => {} }, owner: {} } as unknown as TitleLibrary;
+    const titles = { service: { gate: () => gate, catalogue: () => ({ titles: [], detail: () => null }), entriesFor: () => new Map(), encodeNames: () => () => null, addEncodeArt: () => {} }, owner: {} } as unknown as TitleLibrary;
     const encodes = { ready: async () => true, list: () => [entry(1), entry(2)] } as unknown as EncodeIndex;
     const server = createServer(appHandlers({ auth, library, bdjStore: new BdjStore(data), playbackStore: new PlaybackStore(data), publicBase: 'https://nas.example/bluray/api/', titles, encodes }));
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));

@@ -8,6 +8,9 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { TitleSummary } from '@seikou/nas/nas-api';
+import { nasTitleId } from '@seikou/nas/encode-title';
+import type { EncodeTitle } from '@seikou/nas/encode-title';
+import type { EncodeNames } from '@seikou/titles/encode-catalogue';
 import { normalizeTitle } from '@seikou/nas/title-text';
 import { isCode, replaceAtomically } from '@seikou/titles/atomic-json';
 import type { LibraryRoot } from '../config';
@@ -51,7 +54,7 @@ const isNullableNumber = (v: unknown): v is number | null => v === null || (type
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 /** A stored encode entry with the fields the encodes catalogue reads, all of the right shape. */
 function isStoredEntry(id: string, en: unknown): en is Entry {
-  if (!/^anilist:\d+$/.test(id) || !isRecord(en) || en.id !== id || !isNullableString(en.format) || !isNullableNumber(en.year)) return false;
+  if (!/^(?:anilist|tmdb-tv|tmdb-movie):\d+$/.test(id) || !isRecord(en) || en.id !== id || !isNullableString(en.format) || !isNullableNumber(en.year)) return false;
   if (en.startDate !== undefined && !isNullableNumber(en.startDate)) return false;
   const names = en.names;
   if (!isRecord(names) || !isNullableString(names.english) || !isNullableString(names.romaji) || !isNullableString(names.native)) return false;
@@ -213,7 +216,7 @@ export class TitleService {
   private readonly lookupArt = new Map<string, { small: string; large: string }>();
   /** Posters of the encodes catalogue's shows, by art id. */
   private readonly encodeArt = new Map<string, { small: string; large: string }>();
-  /** AniList entries loaded for the encodes catalogue, kept in memory. */
+  /** AniList and TMDB entries loaded for the encodes catalogue, by entry id (`anilist:1`, `tmdb-tv:2`), kept in memory. */
   private readonly encodeEntries = new Map<string, Entry>();
   /** Ids to fetch for the encodes, each with its place in the walk that wanted it (1 for a start id). */
   private readonly encodeWanted = new Map<string, number>();
@@ -368,14 +371,51 @@ export class TitleService {
         for (const next of chainIds(en)) if (!walked.has(next)) queue.push(next);
       }
     }
-    if (ids.length > 0) this.pruneEncodeEntries(this.chainsOf(ids));
+    if (ids.length > 0) {
+      const chains = this.chainsOf(ids);
+      this.pruneEncodeEntries((id) => sourceOf(id) !== 'anilist' || chains.has(id));
+    }
     this.fetchMissing(missing);
     return out;
   }
 
+  /**
+   * Names for the encodes of TMDB and own titles in `titles` (AniList's come from `entriesFor`), for
+   * `buildEncodeCatalogue`. A TMDB title is named by its entry (filed, from the matcher's cache, or loaded for the
+   * encodes), its poster registered for the art route; a missing entry is fetched in the background through the paced
+   * TMDB source (never without `TMDB_API_KEY`) and kept in `encode-entries.json`, so a later call has it. An own title
+   * is named from the owner's own titles, and a deleted one gets null. Never waits for the network. Held TMDB entries
+   * no title in `titles` names are dropped.
+   */
+  encodeNames(titles: readonly EncodeTitle[]): EncodeNames {
+    const own = new Map(this.opts.owner.snapshot().ownTitles.map((t) => [t.id, t]));
+    const tmdbIds = new Set(titles.filter((t) => t.source === 'tmdb-tv' || t.source === 'tmdb-movie').map(nasTitleId));
+    if (tmdbIds.size > 0) this.pruneEncodeEntries((id) => sourceOf(id) !== 'tmdb' || tmdbIds.has(id));
+    if (this.opts.tmdb) {
+      // a TMDB entry has no chain to follow: each is wanted at the walk's end
+      this.fetchMissing(new Map([...tmdbIds].filter((id) => !this.knownEntry(id)).map((id) => [id, MAX_CHAIN_ENTRIES])));
+    }
+    return (t) => {
+      if (t.source === 'anilist') return null;
+      if (t.source === 'own') {
+        const title = own.get(nasTitleId(t));
+        return title ? { name: title.name, poster: null, film: title.kind === 'movie' } : null;
+      }
+      const en = this.knownEntry(nasTitleId(t));
+      const name = en ? (en.names.english ?? en.names.romaji ?? en.names.native) : null;
+      if (!en || name === null) return null;
+      let poster: string | null = null;
+      if (en.poster) {
+        poster = artIdOf(en.poster);
+        this.addEncodeArt(new Map([[poster, en.poster]]));
+      }
+      return { name, poster, film: t.source === 'tmdb-movie' };
+    };
+  }
+
   /** An entry already held: filed, from the matcher's cache, or loaded for the encodes. */
   private knownEntry(id: string): Entry | undefined {
-    return this.entries.get(id)?.value ?? this.cache.get(`anilist-entry:${id}`)?.value[0] ?? this.encodeEntries.get(id);
+    return this.entries.get(id)?.value ?? this.cache.get(`${sourceOf(id) ?? 'anilist'}-entry:${id}`)?.value[0] ?? this.encodeEntries.get(id);
   }
 
   /**
@@ -454,10 +494,10 @@ export class TitleService {
     })();
   }
 
-  /** Drops loaded encode entries outside `keep` (the chains of the encode index's ids) and saves if any went. */
-  private pruneEncodeEntries(keep: ReadonlySet<string>): void {
+  /** Drops loaded encode entries `keep` refuses (off the chains of the encode index's ids, or named by no encode) and saves if any went. */
+  private pruneEncodeEntries(keep: (id: string) => boolean): void {
     for (const id of [...this.encodeEntries.keys()]) {
-      if (keep.has(id)) continue;
+      if (keep(id)) continue;
       this.encodeEntries.delete(id);
       this.encodeEntriesDirty = true;
     }
@@ -501,7 +541,7 @@ export class TitleService {
     return this.encodeArt.get(artId) ?? null;
   }
 
-  /** Resolves when the background fetch for `entriesFor` is idle (tests). */
+  /** Resolves when the background fetch for `entriesFor` and `encodeNames` is idle (tests). */
   async encodeEntriesIdle(): Promise<void> {
     while (this.encodeFetching) await this.encodeFetching;
   }

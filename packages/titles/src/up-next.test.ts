@@ -139,12 +139,12 @@ describe('encodes', () => {
   const show: EncodeShow = {
     id: '990001', name: 'Lantern Road', poster: 'art-lr',
     seasons: [
-      { anilistId: 990001, name: 'Season 1', kind: 'season', number: 1, episodes: [episode(990001, 1), episode(990001, 2)] },
-      { anilistId: 990002, name: 'Season 2', kind: 'season', number: 2, episodes: [episode(990002, 1)] },
-      { anilistId: 990003, name: 'Lantern Road: The Film', kind: 'film', number: null, episodes: [episode(990003, 1)] },
+      { title: { source: 'anilist', anilistId: 990001 }, anilistId: 990001, name: 'Season 1', kind: 'season', number: 1, episodes: [episode(990001, 1), episode(990001, 2)] },
+      { title: { source: 'anilist', anilistId: 990002 }, anilistId: 990002, name: 'Season 2', kind: 'season', number: 2, episodes: [episode(990002, 1)] },
+      { title: { source: 'anilist', anilistId: 990003 }, anilistId: 990003, name: 'Lantern Road: The Film', kind: 'film', number: null, episodes: [episode(990003, 1)] },
     ],
   };
-  const lone: EncodeShow = { id: '990009', name: 'Quiet Film', poster: null, seasons: [{ anilistId: 990009, name: 'Quiet Film', kind: 'film', number: null, episodes: [episode(990009, 1)] }] };
+  const lone: EncodeShow = { id: '990009', name: 'Quiet Film', poster: null, seasons: [{ title: { source: 'anilist', anilistId: 990009 }, anilistId: 990009, name: 'Quiet Film', kind: 'film', number: null, episodes: [episode(990009, 1)] }] };
   const encodes: EncodeCatalogue = { shows: [show, lone], show: (id) => [show, lone].find((s) => s.id === id) ?? null, art: new Map() };
   const at = (anilistId: number, n: number, over: Partial<PlaybackPlace> = {}): PlaybackPlace =>
     place(`${anilistId}-${n}`, 'mkv', { discKey: `e.${anilistId}.${n}`, ...over });
@@ -179,6 +179,24 @@ describe('encodes', () => {
     expect(continueWatchingEncodes([at(990005, 1)], encodes)[0]).toMatchObject({ kind: 'resume', encodeId: '990005-1', titleId: null, titleName: null, episode: null });
     expect(continueWatchingEncodes([at(990005, 1, { finished: true })], encodes)).toEqual([]);
     expect(continueWatchingEncodes([at(990009, 1)], encodes)[0]).toMatchObject({ kindOfTitle: 'movie', titleName: 'Quiet Film' });
+  });
+
+  it('a TMDB episode makes a resume card and leads on to the next season', () => {
+    const tvEp = (season: number, n: number): EncodeEpisode => ({ episode: n, id: `tv990101s${season}-${n}`, title: null, durationMs: 1_440_000 });
+    const tv: EncodeShow = {
+      id: 'tv990101', name: 'Brasswick Lane', poster: null,
+      seasons: [
+        { title: { source: 'tmdb-tv', tmdbId: 990101, season: 1 }, anilistId: null, name: 'Season 1', kind: 'season', number: 1, episodes: [tvEp(1, 1)] },
+        { title: { source: 'tmdb-tv', tmdbId: 990101, season: 2 }, anilistId: null, name: 'Season 2', kind: 'season', number: 2, episodes: [tvEp(2, 1)] },
+      ],
+    };
+    const cat: EncodeCatalogue = { shows: [tv], show: (id) => (id === tv.id ? tv : null), art: new Map() };
+    const tvAt = (season: number, n: number, over: Partial<PlaybackPlace> = {}): PlaybackPlace =>
+      place(`tv990101s${season}-${n}`, 'mkv', { discKey: `e.tv990101s${season}.${n}`, ...over });
+    expect(continueWatchingEncodes([tvAt(1, 1)], cat)).toEqual([expect.objectContaining({
+      kind: 'resume', encodeId: 'tv990101s1-1', titleId: 'tv990101', titleName: 'Brasswick Lane', seasonId: 'tv990101s1', seasonNumber: 1, kindOfTitle: 'series',
+    })]);
+    expect(continueWatchingEncodes([tvAt(1, 1, { finished: true })], cat)[0]).toMatchObject({ kind: 'up-next', encodeId: 'tv990101s2-1', seasonId: 'tv990101s2' });
   });
 
   it("a show's progress is keyed by encode id", () => {

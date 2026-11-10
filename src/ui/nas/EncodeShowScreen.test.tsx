@@ -12,9 +12,9 @@ afterEach(cleanup);
 const SHOW: EncodeShow = {
   id: '100', name: 'Starfall Wanderer', poster: null,
   seasons: [
-    { anilistId: 100, name: 'Starfall Wanderer', kind: 'season', number: 1, episodes: [{ episode: 1, id: '100-1', title: 'The Long Night', durationMs: 1_440_000 }, { episode: 2, id: '100-2', title: null, durationMs: 1_420_000 }] },
-    { anilistId: 103, name: 'Starfall Wanderer: Ember Road', kind: 'film', number: null, episodes: [{ episode: 1, id: '103-1', title: null, durationMs: 6_000_000 }] },
-    { anilistId: 101, name: 'Starfall Wanderer Season 2', kind: 'season', number: 2, episodes: [{ episode: 1, id: '101-1', title: null, durationMs: 1_440_000 }] },
+    { title: { source: 'anilist' as const, anilistId: 100 }, anilistId: 100, name: 'Starfall Wanderer', kind: 'season', number: 1, episodes: [{ episode: 1, id: '100-1', title: 'The Long Night', durationMs: 1_440_000 }, { episode: 2, id: '100-2', title: null, durationMs: 1_420_000 }] },
+    { title: { source: 'anilist' as const, anilistId: 103 }, anilistId: 103, name: 'Starfall Wanderer: Ember Road', kind: 'film', number: null, episodes: [{ episode: 1, id: '103-1', title: null, durationMs: 6_000_000 }] },
+    { title: { source: 'anilist' as const, anilistId: 101 }, anilistId: 101, name: 'Starfall Wanderer Season 2', kind: 'season', number: 2, episodes: [{ episode: 1, id: '101-1', title: null, durationMs: 1_440_000 }] },
   ],
 };
 
@@ -66,11 +66,11 @@ describe('the encodes show screen', () => {
   });
 
   it('follows a show whose id changed to the show holding it', async () => {
-    const moved: EncodeShow = { ...SHOW, id: '90', seasons: [{ anilistId: 90, name: 'Starfall Wanderer Zero', kind: 'season', number: 1, episodes: [] }, ...SHOW.seasons] };
+    const moved: EncodeShow = { ...SHOW, id: '90', seasons: [{ title: { source: 'anilist' as const, anilistId: 90 }, anilistId: 90, name: 'Starfall Wanderer Zero', kind: 'season', number: 1, episodes: [] }, ...SHOW.seasons] };
     const nas = fakeNas({
       encodeShow: vi.fn(async (id: string) => (id === '90' ? moved : id === '300' ? { id: '300', name: 'Lantern Tide', poster: null, seasons: [] } : null)),
       encodeShows: vi.fn(async () => ({
-        shows: [{ id: '300', name: 'Lantern Tide', poster: null, episodeCount: 1, anilistIds: [300] }, { id: '90', name: 'Starfall Wanderer', poster: null, episodeCount: 4, anilistIds: [90, 100, 103, 101] }],
+        shows: [{ id: '300', name: 'Lantern Tide', poster: null, episodeCount: 1, anilistIds: [300], titles: ['300'] }, { id: '90', name: 'Starfall Wanderer', poster: null, episodeCount: 4, anilistIds: [90, 100, 103, 101], titles: ['90', '100', '103', '101'] }],
       })),
     });
     const history = fakeHistory();
@@ -81,7 +81,7 @@ describe('the encodes show screen', () => {
   });
 
   it('follows a moved show on a NAS whose list has no AniList ids, by fetching its shows', async () => {
-    const moved: EncodeShow = { ...SHOW, id: '90', seasons: [{ anilistId: 90, name: 'Starfall Wanderer Zero', kind: 'season', number: 1, episodes: [] }, ...SHOW.seasons] };
+    const moved: EncodeShow = { ...SHOW, id: '90', seasons: [{ title: { source: 'anilist' as const, anilistId: 90 }, anilistId: 90, name: 'Starfall Wanderer Zero', kind: 'season', number: 1, episodes: [] }, ...SHOW.seasons] };
     const nas = fakeNas({
       encodeShow: vi.fn(async (id: string) => (id === '90' ? moved : id === '300' ? { id: '300', name: 'Lantern Tide', poster: null, seasons: [] } : null)),
       encodeShows: vi.fn(async () => ({ shows: [{ id: '300', name: 'Lantern Tide', poster: null, episodeCount: 1 }, { id: '90', name: 'Starfall Wanderer', poster: null, episodeCount: 4 }] })),
@@ -93,7 +93,7 @@ describe('the encodes show screen', () => {
   });
 
   it('goes back to the list when no show holds it', async () => {
-    const nas = fakeNas({ encodeShow: vi.fn(async () => null), encodeShows: vi.fn(async () => ({ shows: [{ id: '300', name: 'Lantern Tide', poster: null, episodeCount: 1, anilistIds: [300] }] })) });
+    const nas = fakeNas({ encodeShow: vi.fn(async () => null), encodeShows: vi.fn(async () => ({ shows: [{ id: '300', name: 'Lantern Tide', poster: null, episodeCount: 1, anilistIds: [300], titles: ['300'] }] })) });
     const history = fakeHistory();
     render(<EncodeShowScreen nas={nas} history={history} showId="100" />);
     await waitFor(() => expect(history.replace).toHaveBeenCalledWith({ kind: 'encodes', q: '' }));
@@ -102,7 +102,7 @@ describe('the encodes show screen', () => {
   it('shows not-found when the show it was sent to answers 404 too, without looking again', async () => {
     const nas = fakeNas({
       encodeShow: vi.fn(async () => null),
-      encodeShows: vi.fn(async () => ({ shows: [{ id: '90', name: 'Starfall Wanderer', poster: null, episodeCount: 4, anilistIds: [90, 100] }] })),
+      encodeShows: vi.fn(async () => ({ shows: [{ id: '90', name: 'Starfall Wanderer', poster: null, episodeCount: 4, anilistIds: [90, 100], titles: ['90', '100'] }] })),
     });
     const history = fakeHistory();
     const { rerender } = render(<EncodeShowScreen nas={nas} history={history} showId="100" />);

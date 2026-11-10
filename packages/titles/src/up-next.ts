@@ -4,6 +4,7 @@
  */
 import type { ContinueItem, EpisodeRef, PlaybackPlace, PlaylistProgress, TitleDetail, TitleSummary } from '@seikou/nas/nas-api';
 import { encodeId, parseEncodePlaceKey } from '@seikou/nas/encode-id';
+import { titlePart } from '@seikou/nas/encode-title';
 import { ENCODE_PLAYLIST } from '@seikou/nas/place-key';
 import { isShortPlace } from '@seikou/nas/place-rules';
 import type { Catalogue } from './catalogue';
@@ -166,7 +167,7 @@ function indexEncodes(catalogue: EncodeCatalogue): Map<string, EncodeSlot> {
 function encodeFields(slot: EncodeSlot): Pick<ContinueItem, 'titleId' | 'titleName' | 'poster' | 'seasonId' | 'seasonNumber' | 'episode' | 'kindOfTitle'> {
   const { show, season, episode } = slot;
   return {
-    titleId: show.id, titleName: show.name, poster: show.poster, seasonId: String(season.anilistId), seasonNumber: season.number, episode: episode.episode,
+    titleId: show.id, titleName: show.name, poster: show.poster, seasonId: titlePart(season.title), seasonNumber: season.number, episode: episode.episode,
     kindOfTitle: show.seasons.every((s) => s.kind === 'film') ? 'movie' : 'series',
   };
 }

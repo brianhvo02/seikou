@@ -12,6 +12,7 @@ import type { MusicRelease, MusicSource } from '@seikou/titles/music-sources';
 import { downloadRootNames, fixtureSources, loadDiscDbOrNone, releaseFolderOf, TitleService } from './service';
 import { SourceUnavailable } from '@seikou/titles/sources';
 import type { Entry, EntryNames, MetadataSource } from '@seikou/titles/sources';
+import type { EncodeTitle } from '@seikou/nas/encode-title';
 
 // Every title and path here is made up (ruling R4).
 
@@ -716,6 +717,61 @@ describe('TitleService', () => {
       offline.down = true;
       const s = service({ evidence: () => [], anilist: offline });
       expect([...s.entriesFor([3000, 3001]).keys()]).toEqual([3000]);
+    });
+  });
+
+  describe('encodeNames', () => {
+    const TV: EncodeTitle = { source: 'tmdb-tv', tmdbId: 990101, season: 1 };
+    const FILM: EncodeTitle = { source: 'tmdb-movie', tmdbId: 990102 };
+
+    it('asks TMDB for nothing without the key', async () => {
+      const anilist = fake({});
+      const s = service({ evidence: () => [], anilist, tmdb: null });
+      expect(s.encodeNames([TV, FILM])(TV)).toBeNull();
+      await s.encodeEntriesIdle();
+      expect(anilist.calls).toEqual([]);
+    });
+
+    it('fetches missing TMDB entries in the background, names them with posters, and keeps them across a restart', async () => {
+      const poster = { small: 'https://img.example/tv-s.jpg', large: 'https://img.example/tv-l.jpg' };
+      const tmdb = fake({}, [entry('tmdb-tv:990101', { english: 'Brasswick Lane' }, { poster }), entry('tmdb-movie:990102', { english: 'Ember Road' })]);
+      const s = service({ evidence: () => [], anilist: fake({}), tmdb });
+      expect(s.encodeNames([TV, FILM])(TV)).toBeNull();
+      await s.encodeEntriesIdle();
+      expect(tmdb.calls.sort()).toEqual(['entry:tmdb-movie:990102', 'entry:tmdb-tv:990101']);
+      const names = s.encodeNames([TV, FILM]);
+      const tv = names(TV)!;
+      expect(tv.name).toBe('Brasswick Lane');
+      expect(s.encodeArtUrls(tv.poster!)).toEqual(poster);
+      expect(names(FILM)).toEqual({ name: 'Ember Road', poster: null, film: true });
+      // a season of the same series is named by the same entry
+      expect(names({ ...TV, season: 2 })?.name).toBe('Brasswick Lane');
+      s.close();
+      const offline = fake({});
+      offline.down = true;
+      const again = service({ evidence: () => [], anilist: fake({}), tmdb: offline });
+      expect(again.encodeNames([TV])(TV)?.name).toBe('Brasswick Lane');
+      // AniList's walk keeps the TMDB entries, and TMDB's keeps the AniList ones
+      again.entriesFor([5]);
+      expect(again.encodeNames([TV])(TV)?.name).toBe('Brasswick Lane');
+    });
+
+    it('names own titles from the owner store, and a deleted one not at all', () => {
+      const owner = new OwnerStore(dir);
+      const own = owner.createTitle('movie', 'Quiet Harbour', null);
+      const s = service({ evidence: () => [], anilist: fake({}), owner });
+      const title: EncodeTitle = { source: 'own', ownId: own.id.slice('own:'.length), season: null };
+      expect(s.encodeNames([title])(title)).toEqual({ name: 'Quiet Harbour', poster: null, film: true });
+      owner.deleteTitle(own.id);
+      expect(s.encodeNames([title])(title)).toBeNull();
+    });
+
+    it('loads an older encode-entries.json that holds only AniList entries', () => {
+      writeFileSync(join(dir, 'encode-entries.json'), JSON.stringify({ version: 1, entries: { 'anilist:3000': entry('anilist:3000', { english: 'Good' }) } }));
+      const offline = fake({});
+      offline.down = true;
+      const s = service({ evidence: () => [], anilist: offline });
+      expect([...s.entriesFor([3000]).keys()]).toEqual([3000]);
     });
   });
 

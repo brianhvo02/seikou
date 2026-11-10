@@ -286,7 +286,7 @@ export interface LevelAt {
   readonly audio: number;
 }
 
-/* The encodes library (`/api/encodes/…`): the NAS's encoded episodes, grouped by AniList show. */
+/* The encodes library (`/api/encodes/…`): the NAS's encoded episodes, grouped by show (AniList, TMDB or the owner's own titles). */
 
 /** One episode of a season. */
 export interface EncodeEpisode {
@@ -297,19 +297,28 @@ export interface EncodeEpisode {
   readonly durationMs: number;
 }
 
-/** One AniList entry with encodes: a TV season, a film, or another row (OVA, special). Only entries with encodes exist. */
+/**
+ * One row of a show with encodes: an AniList entry (a TV season, a film, or another row such as an OVA), a TMDB
+ * series' season, a TMDB film, or an own title (by season, or one row). Only rows with encodes exist.
+ */
 export interface EncodeSeason {
-  readonly anilistId: number;
+  /** The title the row's encodes are tagged with. */
+  readonly title: EncodeTitle;
+  /** The AniList entry's id, else null. */
+  readonly anilistId: number | null;
   readonly name: string;
   readonly kind: 'season' | 'film' | 'other';
-  /** The place in the series' chain for a season, else null. */
+  /** The season's number (its place in an AniList series' chain, a TMDB or own title's season number), else null. */
   readonly number: number | null;
   readonly episodes: readonly EncodeEpisode[];
 }
 
 /** A show: a series' seasons then its films and others, or one film. `poster` is an art id, never a URL. */
 export interface EncodeShow {
-  /** The root AniList entry's id, as a string. */
+  /**
+   * An AniList show's root entry id, as a string; `tv<tmdbId>` for a TMDB series, `mv<tmdbId>` for a TMDB film,
+   * `own<32 hex>` for an own title.
+   */
   readonly id: string;
   readonly name: string;
   readonly poster: string | null;
@@ -334,6 +343,8 @@ export interface EncodeShowSummary {
   readonly episodeCount: number;
   /** The AniList ids of the show's seasons, films and other entries: where an episode's show is found in one request. */
   readonly anilistIds: readonly number[];
+  /** The title parts (`titlePart`) of the show's rows, AniList's included. */
+  readonly titles: readonly string[];
 }
 
 /** `GET encodes/shows`: the shows by name, and for owners the files the index could not file (paths under the encodes folder). */

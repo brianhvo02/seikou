@@ -7,8 +7,10 @@ import type { EncodeEpisode, EncodeShow } from '@seikou/nas/nas-api';
 
 /**
  * The episode after `encodeId` in `show`: the next episode number its row holds (a season's, or an OVA's or another
- * non-film row's), else, for a TV season, the first episode of the next season with episodes (in the show's order).
- * Nothing follows a film, a non-season row's last episode or the last season's. Null when the show doesn't hold it.
+ * non-film row's), else, for a season (an AniList TV season, a TMDB or own title's season), the first episode of the
+ * next season with episodes, in the show's order (a TMDB or own title's seasons are ordered by number). Nothing follows
+ * a film, a non-season row's last episode or the last season's; a season never leads into a film or another row.
+ * Null when the show doesn't hold it.
  */
 export function nextInShow(show: EncodeShow, encodeId: string): EncodeEpisode | null {
   const at = show.seasons.findIndex((s) => s.episodes.some((e) => e.id === encodeId));

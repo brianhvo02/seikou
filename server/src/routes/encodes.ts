@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { stat } from 'node:fs/promises';
 import type { DiscManifest } from '@seikou/nas/nas-api';
+import { titlePart } from '@seikou/nas/encode-title';
 import { buildEncodeCatalogue } from '@seikou/titles/encode-catalogue';
 import type { EncodeCatalogue } from '@seikou/titles/encode-catalogue';
 import type { Auth } from '../auth';
@@ -19,7 +20,8 @@ const ROUTE = new RegExp(`^/api/encodes/(?:(status)|(${ID})(?:/(manifest|files/E
 /** A request that arrives during the first scan waits for it this long, then gets 503 `indexing`. */
 export const FIRST_SCAN_WAIT_MS = 30_000;
 
-const SHOWS_ROUTE = /^\/api\/encodes\/(?:shows(?:\/(\d+))?|(ids))$/;
+/** A show's id: an AniList entry's number, `tv<tmdbId>`, `mv<tmdbId>` or `own<32 hex>`. */
+const SHOWS_ROUTE = /^\/api\/encodes\/(?:shows(?:\/(\d{1,15}|tv\d{1,15}|mv\d{1,15}|own[0-9a-f]{32}))?|(ids))$/;
 const UPLOAD_ROUTE = /^\/api\/encodes\/uploads(?:\/([^/]+)(\/complete)?)?$/;
 const DELETE_ROUTE = new RegExp(`^/api/encodes/(${ID})$`);
 const CONTENT_RANGE = /^bytes (\d{1,15})-(\d{1,15})\/(\d{1,15})$/;
@@ -33,9 +35,10 @@ const notFound = (): Response => json(404, { error: 'not found' });
  * `GET /api/encodes/<id>/manifest` (a `DiscManifest` with the one file `EPISODE.MKV`) and
  * `GET|HEAD /api/encodes/<id>/files/EPISODE.MKV` (the file or a `Range` of it). With that base the engine reads an
  * encode as it reads a NAS disc. Without `encodes` only `status` answers, with `configured: false`.
- * The library: `GET /api/encodes/shows` (`{ shows: { id, name, poster, episodeCount, anilistIds }[], unfiled? }`, `anilistIds` the AniList entries of a show's seasons, `unfiled`, the files
- * the index could not file, as paths under `ENCODES_DIR`, for owners only) and `GET /api/encodes/shows/<id>` (an `EncodeShow`), grouped by AniList as
- * the disc catalogue is. They answer from the entries the title service has cached and never wait for AniList.
+ * The library: `GET /api/encodes/shows` (`{ shows: { id, name, poster, episodeCount, anilistIds, titles }[], unfiled? }`, `anilistIds` the AniList entries of a show's seasons,
+ * `titles` the title parts of its rows, `unfiled`, the files the index could not file, as paths under `ENCODES_DIR`, for owners only) and
+ * `GET /api/encodes/shows/<id>` (an `EncodeShow`; `<id>` an AniList number, `tv<n>`, `mv<n>` or `own<hex>`), AniList titles grouped as the disc
+ * catalogue groups them. They answer from the entries the title service has cached and never wait for AniList or TMDB.
  * `GET /api/encodes/ids` (`{ ids }`, every listed encode's id, sorted) answers under the same rules.
  * An encode's id is `<titlePart>-<episode>` (`@seikou/nas`'s `encode-id.ts`): an AniList entry's, a TMDB series
  * season's, a TMDB film's or an own title's.
@@ -123,7 +126,8 @@ export function encodeRoutes(auth: Auth, encodes: EncodeIndex | undefined, title
       return show ? json(200, show) : notFound();
     }
     const shows = built.shows.map((s) => ({
-      id: s.id, name: s.name, poster: s.poster, episodeCount: s.seasons.reduce((n, x) => n + x.episodes.length, 0), anilistIds: s.seasons.map((x) => x.anilistId),
+      id: s.id, name: s.name, poster: s.poster, episodeCount: s.seasons.reduce((n, x) => n + x.episodes.length, 0),
+      anilistIds: s.seasons.flatMap((x) => (x.anilistId === null ? [] : [x.anilistId])), titles: s.seasons.map((x) => titlePart(x.title)),
     }));
     return json(200, { shows, ...(device.owner ? { unfiled: encodes.unfiled().map((u) => ({ path: encodes.relativePath(u.path), size: u.size })) } : {}) });
   };
@@ -166,13 +170,16 @@ export function encodeRoutes(auth: Auth, encodes: EncodeIndex | undefined, title
 }
 
 /**
- * The AniList encodes grouped by AniList, from the entries the title service has cached; the posters are registered
- * for the art route. Encodes of other titles are not grouped yet.
+ * Every encode grouped into shows, from the AniList entries, TMDB entries and own titles the title service holds (it
+ * fetches missing entries in the background); the posters are registered for the art route.
  */
 export function encodeCatalogueOf(encodes: EncodeIndex, titles: TitleLibrary | undefined): EncodeCatalogue {
-  const list = encodes.list().filter((e): e is EncodeEntry & { anilistId: number } => e.anilistId !== null);
-  const entries = titles ? titles.service.entriesFor([...new Set(list.map((e) => e.anilistId))]) : new Map();
-  const built = buildEncodeCatalogue(list, entries);
+  const list = encodes.list();
+  const anilistIds = [...new Set(list.flatMap((e) => (e.title.source === 'anilist' ? [e.title.anilistId] : [])))];
+  const entries = titles ? titles.service.entriesFor(anilistIds) : new Map();
+  const others = [...new Map(list.filter((e) => e.title.source !== 'anilist').map((e) => [titlePart(e.title), e.title])).values()];
+  const names = titles ? titles.service.encodeNames(others) : undefined;
+  const built = buildEncodeCatalogue(list, entries, names);
   titles?.service.addEncodeArt(built.art);
   return built;
 }
