@@ -26,7 +26,7 @@ describe('loadSite', () => {
   it('reads the package and its README', () => {
     expect(demo.name).toBe('demo');
     expect(demo.readme).toContain('Demo package');
-    expect(demo.exports.map((e) => e.name)).toEqual(['DemoPlayer', 'Mode', 'parse', 'ParseOptions']);
+    expect(demo.exports.map((e) => e.name)).toEqual(['DemoPlayer', 'Mode', 'parse', 'ParseOptions', 'pick']);
   });
 
   it('writes a function signature, its params, return and throws', () => {
@@ -66,12 +66,36 @@ describe('loadSite', () => {
 
   it('renders interfaces and type aliases', () => {
     expect(find('ParseOptions').members[0]!.signatures[0]!.text).toBe('strict?: boolean');
+    expect(find('ParseOptions').members[1]!.signatures[0]!.text).toBe('onData: ((data: string) => void) | null');
     expect(find('Mode').signatures[0]!.text).toBe("type Mode = 'fast' | 'exact' | ParseOptions[]");
   });
 
   it('lists as usedBy the exports whose examples mention a type', () => {
-    expect(find('ParseOptions').usedBy).toEqual(['parse']);
+    expect(find('ParseOptions').usedBy).toEqual(['parse', 'pick']);
     expect(find('Mode').usedBy).toEqual([]);
+  });
+
+  it('gives a class constructor the class example when it has none', () => {
+    const ctor = find('DemoPlayer').members.find((m) => m.kind === 'constructor')!;
+    expect(ctor.example).toEqual(find('DemoPlayer').example);
+    for (const e of site[0]!.exports) for (const n of needsExample(e)) expect(n === e.name ? e.example : e.members.find((m) => m.name === n)!.example).toBeDefined();
+  });
+
+  it('leaves type parameters and undocumented names out of typeRefs', () => {
+    const sig = find('pick').signatures[0]!;
+    expect(sig.text).toBe('function pick<T>(items: T[], via: Via): T');
+    expect(sig.typeRefs).toEqual([]);
+    expect(sig.params.flatMap((p) => p.typeRefs)).toEqual([]);
+  });
+
+  it('refuses an item with two @example tags', () => {
+    const model = JSON.parse(readFileSync(fixture, 'utf8')) as { children: { children: { name: string; signatures: { comment: { blockTags: unknown[] } }[] }[] }[]; seikouSourceHash: string };
+    const parse = model.children[0]!.children.find((c) => c.name === 'parse')!;
+    parse.signatures[0]!.comment.blockTags.push({ tag: '@example', content: [{ kind: 'text', text: '../examples/player.ts' }] });
+    model.seikouSourceHash = sourceHash(root);
+    const path = join(mkdtempSync(join(tmpdir(), 'devsite-model-')), 'model.json');
+    writeFileSync(path, JSON.stringify(model));
+    expect(() => loadSite(path, root)).toThrow('demo/parse has 2 @example tags');
   });
 
   it('throws on a model built from other sources', () => {

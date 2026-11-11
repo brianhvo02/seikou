@@ -133,7 +133,9 @@ function typeText(t: TType | undefined, refs: Collect, ctx: 'top' | 'arr' | 'uni
     case 'reference': {
       const name = String(t.name);
       const pkg = typeof t.package === 'string' && t.package.startsWith('@seikou/') ? t.package.slice('@seikou/'.length) : null;
-      refs(name.includes('.') ? name.split('.')[0]! : name, pkg);
+      // Type parameters and names the model does not document (an unresolved target) have no page to link.
+      const documented = !t.refersToTypeParameter && !(pkg !== null && typeof t.target === 'object' && t.target !== null);
+      if (documented) refs(name.includes('.') ? name.split('.')[0]! : name, pkg);
       const args = list(t.typeArguments);
       return args.length ? `${name}<${args.map((a) => r(a)).join(', ')}>` : name;
     }
@@ -176,8 +178,14 @@ function typeText(t: TType | undefined, refs: Collect, ctx: 'top' | 'arr' | 'uni
       const nm = t.nameType ? ` as ${r(t.nameType)}` : '';
       return `{ ${ro}[${String(t.parameter)} in ${r(t.parameterType)}${nm}]${opt}: ${r(t.templateType)} }`;
     }
-    case 'reflection':
-      return declText((t.declaration as Refl), refs);
+    case 'reflection': {
+      const d = t.declaration as Refl;
+      const text = declText(d, refs);
+      const fn = (d.signatures?.length ?? 0) > 0 && !d.children?.length;
+      if (!fn || ctx === 'top') return text;
+      // One signature is a bare arrow type; several were already joined with `|` and parenthesised one by one.
+      return d.signatures!.length === 1 || ctx !== 'union' ? `(${text})` : text;
+    }
     case 'unknown':
       return String(t.name);
     default:
@@ -282,8 +290,10 @@ function propertySignature(name: string, d: Refl): DevSignature {
 
 // --- examples ---
 
-function exampleRef(c: Comment | undefined): string | undefined {
-  const tag = tagsOf(c, '@example')[0];
+function exampleRef(c: Comment | undefined, item: string): string | undefined {
+  const tags = tagsOf(c, '@example');
+  if (tags.length > 1) throw new Error(`${item} has ${tags.length} @example tags; an item takes one`);
+  const tag = tags[0];
   if (!tag) return undefined;
   const raw = parts(tag.content)
     .replace(/^\s*```[a-z]*\s*/i, '')
@@ -374,7 +384,7 @@ function makeMember(c: Refl, className: string, repoRoot: string): DevMember | n
   } else {
     return null;
   }
-  const ref = exampleRef(comment);
+  const ref = exampleRef(comment, `${className}.${c.name}`);
   const file = sourceOf(src, c).file;
   const member: DevMember = { name: c.name, kind, summary: splitSummary(comment).summary, signatures };
   return ref ? { ...member, example: readExample(ref, file, repoRoot) } : member;
@@ -401,9 +411,12 @@ function makeExport(pkg: string, r: Refl, repoRoot: string): DevExport | null {
     const text = kind === 'type' ? `type ${r.name}${tparamsText(r.typeParameters, () => {})} = ${t}` : `const ${r.name}: ${t}`;
     signatures = [{ text, params: [], returns: { type: t, doc: '' }, throws: [], typeRefs: [...found.values()] }];
   }
-  const ref = exampleRef(comment);
+  const ref = exampleRef(comment, `${pkg}/${r.name}`);
+  const example = ref ? readExample(ref, source.file, repoRoot) : undefined;
+  // A class's example is its constructor's unless the constructor has its own.
+  if (kind === 'class' && example) members = members.map((m) => (m.kind === 'constructor' && !m.example ? { ...m, example } : m));
   const base = { pkg, name: r.name, kind, summary, body, signatures, members, usedBy: [] as string[], source };
-  return ref ? { ...base, example: readExample(ref, source.file, repoRoot) } : base;
+  return example ? { ...base, example } : base;
 }
 
 /** Fills `usedBy`: the exports whose examples (or whose members' examples) mention each name. */

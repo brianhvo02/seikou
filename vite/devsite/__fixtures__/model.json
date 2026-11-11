@@ -163,6 +163,159 @@
                   }
                 ]
               }
+            },
+            {
+              "id": 19,
+              "name": "onData",
+              "variant": "declaration",
+              "kind": 1024,
+              "flags": {},
+              "type": {
+                "type": "union",
+                "types": [
+                  {
+                    "type": "reflection",
+                    "declaration": {
+                      "id": 20,
+                      "name": "__type",
+                      "variant": "declaration",
+                      "kind": 65536,
+                      "flags": {},
+                      "signatures": [
+                        {
+                          "id": 21,
+                          "name": "__type",
+                          "variant": "signature",
+                          "kind": 4096,
+                          "flags": {},
+                          "parameters": [
+                            {
+                              "id": 22,
+                              "name": "data",
+                              "variant": "param",
+                              "kind": 32768,
+                              "flags": {},
+                              "type": {
+                                "type": "intrinsic",
+                                "name": "string"
+                              }
+                            }
+                          ],
+                          "type": {
+                            "type": "intrinsic",
+                            "name": "void"
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "type": "literal",
+                    "value": null
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "id": 23,
+          "name": "pick",
+          "variant": "declaration",
+          "kind": 64,
+          "flags": {},
+          "sources": [
+            {
+              "fileName": "packages/demo/src/parse.ts",
+              "line": 12,
+              "character": 0
+            }
+          ],
+          "signatures": [
+            {
+              "id": 24,
+              "name": "pick",
+              "variant": "signature",
+              "kind": 4096,
+              "flags": {},
+              "sources": [
+                {
+                  "fileName": "packages/demo/src/parse.ts",
+                  "line": 12,
+                  "character": 0
+                }
+              ],
+              "comment": {
+                "summary": [
+                  {
+                    "kind": "text",
+                    "text": "Picks one."
+                  }
+                ],
+                "blockTags": [
+                  {
+                    "tag": "@example",
+                    "content": [
+                      {
+                        "kind": "text",
+                        "text": "../examples/parse.ts"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "typeParameters": [
+                {
+                  "id": 25,
+                  "name": "T",
+                  "variant": "typeParam",
+                  "kind": 131072,
+                  "flags": {}
+                }
+              ],
+              "parameters": [
+                {
+                  "id": 26,
+                  "name": "items",
+                  "variant": "param",
+                  "kind": 32768,
+                  "flags": {},
+                  "type": {
+                    "type": "array",
+                    "elementType": {
+                      "type": "reference",
+                      "target": 25,
+                      "name": "T",
+                      "package": "@seikou/demo",
+                      "refersToTypeParameter": true
+                    }
+                  }
+                },
+                {
+                  "id": 27,
+                  "name": "via",
+                  "variant": "param",
+                  "kind": 32768,
+                  "flags": {},
+                  "type": {
+                    "type": "reference",
+                    "target": {
+                      "packageName": "@seikou/demo",
+                      "packagePath": "src/parse.ts",
+                      "qualifiedName": "Via"
+                    },
+                    "name": "Via",
+                    "package": "@seikou/demo"
+                  }
+                }
+              ],
+              "type": {
+                "type": "reference",
+                "target": 25,
+                "name": "T",
+                "package": "@seikou/demo",
+                "refersToTypeParameter": true
+              }
             }
           ]
         },
