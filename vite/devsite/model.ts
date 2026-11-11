@@ -475,12 +475,22 @@ export function missingExamples(e: DevExport): readonly string[] {
 }
 
 
-function* exampleFiles(dir: string, rel: string): Generator<string> {
-  if (!existsSync(dir)) return;
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isDirectory()) yield* exampleFiles(join(dir, entry.name), posix.join(rel, entry.name));
-    else if (entry.name.endsWith('.ts')) yield posix.join(rel, entry.name);
+/** Every `.ts` file under `packages/<pkg>/examples/`, as a path from `repoRoot`, sorted. */
+export function exampleFiles(repoRoot: string): string[] {
+  const out: string[] = [];
+  const walk = (dir: string, rel: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) walk(join(dir, entry.name), posix.join(rel, entry.name));
+      else if (entry.name.endsWith('.ts')) out.push(posix.join(rel, entry.name));
+    }
+  };
+  const packages = join(repoRoot, 'packages');
+  if (!existsSync(packages)) return out;
+  for (const pkg of readdirSync(packages)) {
+    const dir = join(packages, pkg, 'examples');
+    if (existsSync(dir)) walk(dir, `packages/${pkg}/examples`);
   }
+  return out.sort();
 }
 
 /** The module specifiers an example's source imports (static, dynamic and re-exports). */
@@ -506,13 +516,12 @@ export function exampleProblems(site: readonly DevPackage[], repoRoot: string = 
       for (const m of e.members) if (m.example) used.add(m.example.file);
     }
   }
-  for (const p of site) {
-    for (const file of exampleFiles(join(repoRoot, 'packages', p.name, 'examples'), `packages/${p.name}/examples`)) {
-      if (!used.has(file)) problems.push(`${file} is named by no export`);
-      for (const spec of importsOf(readFileSync(join(repoRoot, file), 'utf8'))) {
-        if (spec.startsWith('node:') || /^@seikou\/[a-z]+$/.test(spec)) continue;
-        problems.push(`${file} imports ${spec}; an example imports only a @seikou/<package> root`);
-      }
+  const named = new Set(site.map((p) => p.name));
+  for (const file of exampleFiles(repoRoot)) {
+    if (named.has(file.split('/')[1]!) && !used.has(file)) problems.push(`${file} is named by no export`);
+    for (const spec of importsOf(readFileSync(join(repoRoot, file), 'utf8'))) {
+      if (spec.startsWith('node:') || /^@seikou\/[a-z]+$/.test(spec)) continue;
+      problems.push(`${file} imports ${spec}; an example imports only a @seikou/<package> root`);
     }
   }
   return problems;

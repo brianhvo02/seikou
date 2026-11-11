@@ -1,33 +1,17 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { exampleProblems, loadSite, type DevPackage } from '../vite/devsite/model';
+import { exampleFiles, exampleProblems, loadSite, type DevPackage } from '../vite/devsite/model';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const modelPath = resolve(root, '.cache/devsite/model.json');
 
-/** Every `.ts` file under `packages/<pkg>/examples/`, as a path from the repository root. */
-function exampleFiles(): string[] {
-  const out: string[] = [];
-  const walk = (dir: string, rel: string): void => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      if (entry.isDirectory()) walk(join(dir, entry.name), `${rel}/${entry.name}`);
-      else if (entry.name.endsWith('.ts')) out.push(`${rel}/${entry.name}`);
-    }
-  };
-  for (const pkg of readdirSync(join(root, 'packages'))) {
-    const dir = join(root, 'packages', pkg, 'examples');
-    if (existsSync(dir)) walk(dir, `packages/${pkg}/examples`);
-  }
-  return out.sort();
-}
-
 describe('node examples', () => {
   // Browser examples (*.browser.ts) run in tests/e2e/examples.spec.ts.
-  for (const file of exampleFiles().filter((f) => !f.endsWith('.browser.ts'))) {
+  for (const file of exampleFiles(root).filter((f) => !f.endsWith('.browser.ts'))) {
     it(file, async () => {
       const mod = (await import(pathToFileURL(join(root, file)).href)) as { default?: unknown };
       expect(typeof mod.default, `${file} must export default async function example()`).toBe('function');
