@@ -36,7 +36,7 @@ const REFRESH_MS = 30 * DAY_MS;
 const SEARCH_CACHE_MS = 30 * DAY_MS;
 /** How often the timer checks whether a retry or refresh is due. */
 const TICK_MS = DAY_MS;
-/** Entries loaded per PREQUEL/SEQUEL chain, at most, so a long franchise or a loop in the sources' relations can't make one disc fetch without end. */
+/** Entries loaded per PREQUEL/SEQUEL chain, at most, so a long franchise can't make one disc fetch without end; it is also the place a TMDB entry takes in the encodes' walk order (the last). */
 const MAX_CHAIN_ENTRIES = 30;
 const TV_FORMATS = new Set(['TV', 'TV_SHORT']);
 /** The matcher's cache keys for entries looked up by id (`anilist-entry:anilist:1`, `tmdb-entry:tmdb-tv:2`). */
@@ -62,7 +62,7 @@ function isStoredEntry(id: string, en: unknown): en is Entry {
   return Array.isArray(en.relations) && en.relations.every((r) =>
     isRecord(r) && typeof r.type === 'string' && typeof r.id === 'string' && isNullableString(r.format) && isNullableNumber(r.startDate));
 }
-/** Posters of lookup results kept for `GET art/<id>`, at most, so the art route can serve results the catalogue doesn't hold; the least recently used go first. */
+/** Posters of lookup results kept for `GET art/<id>`, at most, so the art route can serve results the catalogue doesn't hold; the least recently used go first; the same cap holds the encodes catalogue's posters. */
 const MAX_LOOKUP_ART = 500;
 /** A run saves and publishes its progress after this many groups, or this long, whichever comes first, so a restart resumes where it stopped and the library fills in while a first run goes. */
 const CHECKPOINT_GROUPS = 25;
@@ -218,8 +218,8 @@ export function fixtureSources(recorded: Readonly<Record<string, readonly Entry[
 
 /**
  * Matches the library's discs to titles and builds the catalogue the title routes serve. One instance per server. A
- * matching run (`runNow`) never fails for an unreachable source: the discs it couldn't match go to Unsorted with the
- * reason `source-unreachable`, and the next run tries again; the owner's `lookup` and `anilistPlace` instead throw
+ * matching run (`runNow`) never fails for an unreachable source: an unmatched disc goes to Unsorted with the reason
+ * `source-unreachable` (unless it was filed before, when it stays filed), and the next run tries again; the owner's `lookup` and `anilistPlace` instead throw
  * `SourceUnavailable`, so the owner is told.
  */
 export class TitleService {

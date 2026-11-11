@@ -176,21 +176,27 @@ export const ALIGNED_UNIT_BYTES = 6144;
 /** A BDMV source packet: a 4-byte arrival time stamp and a 188-byte transport stream packet. */
 export const SOURCE_PACKET_BYTES = 192;
 const TS_PACKET_BYTES = 188;
-/** Room for the clip's graphics in every interval's budget: this much with one PG or IG stream (or none). */
-/** 1.5 Mb/s, in bits per second. */
+/**
+ * Room for the clip's graphics in every interval's budget: this much with one PG or IG stream (or none).
+ * 1.5 Mb/s, in bits per second.
+ */
 export const GRAPHICS_ALLOWANCE_BPS = 1_500_000;
 /**
  * More room per PG stream beyond the first, since every language's subtitles change at once. With 2 s intervals, 11-PG
  * discs (bursts of 420 KB in 0.75 s, a 5-PG film's 768 KB in 1 s) fit with at least 240 KB to spare at phone-720 across
  * 12 sampled discs, and the video is squeezed below its peak in 0.13% of intervals (7.4% with no merge and 1.5 Mb/s).
+ * 50 kb/s, in bits per second.
  */
-/** 50 kb/s, in bits per second. */
 export const PG_EXTRA_BPS = 50_000;
-/** More room per IG stream (menu pages arrive in bursts). */
-/** 1 Mb/s, in bits per second. */
+/**
+ * More room per IG stream (menu pages arrive in bursts).
+ * 1 Mb/s, in bits per second.
+ */
 export const IG_EXTRA_BPS = 1_000_000;
-/** The least room for graphics in any interval, per PG or IG stream: a display set arrives whole (binds only below 2 s). */
-/** 32 KB. */
+/**
+ * The least room for graphics in any interval, per PG or IG stream: a display set arrives whole (binds only below 2 s).
+ * 32 KB.
+ */
 export const GRAPHICS_BURST_BYTES = 32 * 1024;
 /**
  * EP intervals shorter than this (2 s) are merged with the next ones (a clip's last with the one before), within one
@@ -198,11 +204,13 @@ export const GRAPHICS_BURST_BYTES = 32 * 1024;
  * source's IDR or a clip's audio tail, and over 2 s a burst of subtitles is a small part of the budget. The merged-away
  * EP entries are dropped from the level's EP map (a seek lands on the entry before, at most 2 s earlier), and keyframes
  * are forced only at the kept ones.
+ * 90,000 ticks of the 45 kHz clock.
  */
-/** 90,000 ticks of the 45 kHz clock. */
 export const MIN_INTERVAL_45 = 90_000;
-/** The rate an over-budget interval's video is re-encoded down to, at the least (`encodeIntervalAt`). */
-/** 1 Mb/s, in bits per second. */
+/**
+ * The rate an over-budget interval's video is re-encoded down to, at the least (`encodeIntervalAt`).
+ * 1 Mb/s, in bits per second.
+ */
 export const VIDEO_FLOOR_BPS = 1_000_000;
 /** The least room for an interval's video, an IDR at the floor rate with room (measured 4 to 18 KB on Quick Sync). */
 const IDR_ALLOWANCE_BYTES = 48 * 1024;
@@ -210,8 +218,8 @@ const IDR_ALLOWANCE_BYTES = 48 * 1024;
  * Bumped whenever the plan's formula changes, so no segment cached under an earlier plan is served (part of
  * `planHash`): 2 merges short intervals, counts the audio at its packets' rate and sizes the graphics room by the clip's
  * PG and IG streams.
+ * The plan's formula version.
  */
-/** The plan's formula version. */
 export const BUDGET_VERSION = 2;
 
 /** The plan's knobs, for the real-disc simulation; production uses the constants above. */

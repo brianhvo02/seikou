@@ -259,8 +259,9 @@ interface MapToWrite {
 /**
  * The CPI section with these EP maps. A coarse entry opens whenever the PTS bits above the fine
  * entry's (45 kHz bit 19 up) or the SPN bits above the low 17 change, which is what libbluray's
- * `_parse_ep_map_stream` and `_parse_cpi` recover when they join coarse and fine entries. The fine entry holds PTS
- * bits 8 to 18 and SPN bits 0 to 16, the coarse entry PTS bits 19 to 32 and the whole SPN.
+ * `_parse_ep_map_stream` and `_parse_cpi` recover when they join coarse and fine entries. The fine entry holds 45 kHz
+ * PTS bits 8 to 18 and SPN bits 0 to 16; the coarse entry holds PTS bits 18 to 31 (libbluray masks bit 18 when it
+ * joins them) and the whole SPN.
  */
 function writeCpi(original: Uint8Array, maps: readonly MapToWrite[]): Uint8Array {
   const w = new BeWriter();

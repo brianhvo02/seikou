@@ -124,8 +124,8 @@ async function signal(request: Request, env: Env): Promise<Response> {
 export default {
   /**
    * Routes: `POST /nas`, `POST /codes`, `DELETE /codes` and `POST /codes/lookup` (to the registry; 404 for another
-   * path, 405 for another method, 413 for a body over `MAX_BODY_BYTES`, 403 `nas-not-allowed` for a NAS off
-   * `NAS_IDS`); `GET /signal/nas` and `GET /signal/device` (WebSocket upgrades: 426 without the upgrade header, 400
+   * path, 405 for another method, 413 for a body over `MAX_BODY_BYTES`, 403 `nas-not-allowed` on `POST /nas` for a
+   * key whose NAS id is off `NAS_IDS`, and 404 `unknown code` from the lookup for a code of such a NAS); `GET /signal/nas` and `GET /signal/device` (WebSocket upgrades: 426 without the upgrade header, 400
    * for a bad `nasId`, 403 `nas-not-allowed`, 429 past the per-address attempt limit); `POST /turn` (see `turnRoute`).
    */
   async fetch(request: Request, env: Env): Promise<Response> {
