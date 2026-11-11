@@ -8,9 +8,6 @@ import { oldNameComments, privateHistoryComments, stackedDocComments, undocument
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** Glob patterns, relative to the repository root, of the source areas that meet the documentation standard. Each documentation task adds its own. */
-export const ENROLLED: readonly string[] = ['encoder/src/**', 'encoder/web/src/**', 'packages/bdmv/src/**', 'packages/pg/src/**', 'packages/ass/src/**', 'packages/nas/src/**', 'packages/titles/src/**', 'packages/fansubs/src/**', 'packages/matroska/src/**', 'packages/engine/src/**', 'rendezvous/src/**', 'server/src/**', 'src/*.ts', 'src/*.tsx', 'src/ui/*.ts', 'src/ui/*.tsx', 'src/ui/help/**', 'src/ui/nas/**', 'src/probe/**', 'src/wasm/**', 'src/bdj/**'];
-
 /**
  * The tracked `.ts` and `.tsx` files that match the globs, without tests, declaration files and
  * `src/bdj-classlib/`, sorted, as absolute paths.
@@ -24,13 +21,21 @@ export function scopeFiles(globs: readonly string[]): string[] {
     .map((f) => resolve(root, f));
 }
 
+/**
+ * Glob patterns, relative to the repository root, of the source the documentation standard covers:
+ * every package, the app, the NAS server, the rendezvous Worker and the encoder. `scopeFiles` leaves
+ * out tests, declaration files and `src/bdj-classlib/`. `src/ui/anime4k/` holds only the vendored
+ * Anime4K shaders and their configs, no TypeScript, so it adds no file.
+ */
+export const SCOPE: readonly string[] = ['packages/*/src/**', 'src/**', 'server/src/**', 'rendezvous/src/**', 'encoder/src/**', 'encoder/web/src/**'];
+
 function strip(file: string): string {
   return file.slice(root.length + 1);
 }
 
 describe('documentation standard', () => {
-  const files = scopeFiles(ENROLLED);
-  it('finds the enrolled files', () => expect(files.length).toBeGreaterThan(10));
+  const files = scopeFiles(SCOPE);
+  it('finds the files in scope', () => expect(files.length).toBeGreaterThan(10));
   it('every export has a doc comment', () =>
     expect(undocumentedExports(files).map((u) => `${strip(u.file)}:${u.line} ${u.name}`)).toEqual([]));
   it('no comment points at private planning history', () =>

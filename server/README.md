@@ -24,7 +24,7 @@ Settings come from environment variables, read in [`src/config.ts`](src/config.t
 
 ## Modules
 
-Top level of [`src/`](src):
+[`src/README.md`](src/README.md) explains how the code fits together: the handler chain, people and sessions, the data directory and the routes. Top level of [`src/`](src):
 
 | File | What it does |
 | --- | --- |

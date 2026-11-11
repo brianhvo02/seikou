@@ -142,6 +142,13 @@ what would change that decision.
 - **WOFF2 fonts are not accepted** (Brotli and table transforms); `.ttf`, `.otf`, `.ttc` and `.woff` are. A local
   pick ignores WOFF2 files, the subtitle store refuses them at upload (the upload screen says to convert them to TTF
   or OTF), and fansub font packs leave them out. Fansub fonts are TTF/OTF. *Revisit if* a release ships WOFF2.
+- **An encode can carry a WOFF2 font the player can't use.** Fonts dropped on the player are filtered to `.ttf`,
+  `.otf`, `.ttc` and `.woff` (`FONT_EXTENSIONS` in `packages/engine/src/controller/drop-files.ts`), but the encoder
+  accepts `.woff2` among the subtitle helper's own files (`encoder/src/subs/release-cache.ts`) and attaches it to the
+  MKV (`encoder/src/subs/episode-subtitles.ts`) and packages it (`encoder/src/package/package.ts`), and the engine's
+  MKV font filter (`fontAttachments` in `packages/engine/src/encode/mkv-subtitles.ts`) passes it to the ASS renderer,
+  which counts it unreadable, so its family falls back like a missing font. *Revisit if* WOFF2 is decoded (then accept
+  it on drop too) or if the encoder should refuse or convert it at upload, as the subtitle store does.
 - **Legacy `Effect` field effects (`Banner`, `Scroll up`, `Scroll down`) are ignored**, and `Comment`, `Picture`,
   `Sound`, `Movie` and `Command` events are skipped. *Revisit if* a real file uses them.
 - **Right-to-left text is reordered by Chrome within a style run only**; libass's FriBidi reordering across runs is

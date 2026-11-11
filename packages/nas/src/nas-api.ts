@@ -88,7 +88,7 @@ export interface CodeRegistration {
   readonly codeHash: string;
   /** Where the code leads; the WebRTC route is added by the Worker from `nasId`. */
   readonly routes: { readonly https?: string };
-  /** Epoch ms; at most 15 minutes ahead. */
+  /** Epoch ms; the Worker refuses one in the past or more than 3 days and an hour ahead (`MAX_CODE_AHEAD_MS` in `rendezvous/src/protocol.ts`: invites live 3 days). */
   readonly expiresAt: number;
   /** Base64url signature, as described above. */
   readonly signature: string;
