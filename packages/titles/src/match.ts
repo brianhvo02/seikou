@@ -395,7 +395,7 @@ async function matchGroup(group: string, discs: readonly DiscEvidence[], ctx: Ma
 
   // folders above the discs, from the group folder up to the first one that names something, at most MAX_ANCESTORS
   // levels up; a root's top-level folder counts (category names are dropped by nameParse), and is far like any other
-  //; a folder naming only structure (`Season 1`, `Volume 2`) isn't a level for the folders above it
+  // a folder naming only structure (`Season 1`, `Volume 2`) isn't a level for the folders above it
   const segs = discs[0]!.segments;
   const ancestors: Piece[] = [];
   const ancestorText: string[] = [];
@@ -449,7 +449,6 @@ async function decide(e: DiscEvidence, given: readonly Piece[], hit: DiscDbHit |
   // a disc folder's label is set aside, when other evidence fits an entry, if its own exact fits are ambiguous (two or
   // more entries) or include an entry the other evidence fits: it adds nothing then. A label naming exactly one entry
   // that nothing else fits is kept, so a misplaced disc shows as a disagreement. Its disc number always counts
-  //
   const otherFits = new Set(given.flatMap((p) => (p.label ? [] : p.found.filter((en) => fit(p, en, null) > 0).map((en) => en.id))));
   const setAside = (p: Piece): boolean => {
     const exact = new Set(p.found.filter((en) => fit(p, en, null) === EXACT).map((en) => en.id));
@@ -576,8 +575,8 @@ async function decide(e: DiscEvidence, given: readonly Piece[], hit: DiscDbHit |
   }
   scored = scored.filter((s) => !dropped.has(s.entry.id));
   // an exactly fitting AniList entry wins over TMDB only when every TMDB entry titled like the evidence, of any year
-  // the evidence's year allows (any when it has none), is its animated twin; any other same-titled TMDB entry (live action, unknown genre, another kind or year) means the
-  // evidence may be that one; and a twin is exactly one TMDB entry, so two twins of one AniList
+  // the evidence's year allows (any when it has none), is its animated twin; any other same-titled TMDB entry (live
+  // action, unknown genre, another kind or year) means the evidence may be that one; and a twin is exactly one TMDB entry, so two twins of one AniList
   // entry mean one of them is another show
   const anilistExact = scored.filter((s) => s.entry.source === 'anilist' && s.exact).map((s) => s.entry);
   let twinIds = new Set<string>();

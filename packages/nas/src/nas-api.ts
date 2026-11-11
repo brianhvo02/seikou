@@ -190,7 +190,7 @@ export interface DiscRef {
 export interface DiscSlot {
   /** The disc's number in the season, null when it has none. */
   readonly number: number | null;
-  /** Shown for the slot: `Disc N`, or for a disc with no number the first copy's name. */
+  /** Shown for the slot: `Disc N`, or for a disc with no number the first copy's display name, else the last segment of its folder. */
   readonly label: string;
   /** Every copy of the disc, the preferred one first. */
   readonly copies: readonly DiscRef[];
@@ -467,7 +467,7 @@ export interface FansubTitleState {
   readonly lastRunAt: number | null;
   /** True while a run is in progress. */
   readonly running: boolean;
-  /** True when the last run found no release at all. */
+  /** True when the last run attached no track to any episode (no release found, or none gave a usable track). */
   readonly nothingFound: boolean;
   readonly seasons: Readonly<Record<string, FansubSeasonLine>>;
   readonly episodes: Readonly<Record<string, FansubEpisodeMark>>;
@@ -511,7 +511,7 @@ export type FansubPick = StoredSubtitle & { readonly pick: true; readonly source
 export type FansubAlignment =
   /** One offset for the whole track, in milliseconds, with the aligner's confidence. */
   | { readonly kind: 'offset'; readonly offsetMs: number; readonly confidence: number }
-  /** A different offset from each `fromMs` (milliseconds of playlist time) on, where the disc has a cut the release lacks. */
+  /** A different offset from each `fromMs` (milliseconds in the subtitle track's own time, before any offset) on, for a stretch where the disc and the release differ. */
   | { readonly kind: 'split'; readonly parts: readonly { readonly fromMs: number; readonly offsetMs: number }[]; readonly confidence: number }
   /** No line-up found; the track keeps its own timing. */
   | { readonly kind: 'none'; readonly reason: 'no-speech' | 'low-confidence' }
@@ -604,7 +604,7 @@ export interface EncodeShow {
 
 /** `GET encodes/status`. `scanning` while the first scan runs; `rootMissing`, `rootEmpty` and `scanError` are the index's state. */
 export interface EncodesStatus {
-  /** False when the NAS has no encodes folder (`ENCODES_DIR`); the other fields are then absent. */
+  /** False when the NAS has no encodes folder (`ENCODES_DIR`); `count` is then 0 and the other fields are absent. */
   readonly configured: boolean;
   /** How many encodes the index lists. */
   readonly count?: number;
