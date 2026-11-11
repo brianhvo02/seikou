@@ -49,7 +49,6 @@ describe('example check', () => {
   model('every public function has an example', () => {
     expect(present, `${modelPath} is missing; run npm run devsite:install && npm run devsite:model`).toBe(true);
     const problems = exampleProblems(loadSite(modelPath, root), root);
-    if (problems.length > 0) console.warn(`${problems.length} example problems (set DEVSITE_EXAMPLES_STRICT=1 to fail):\n${problems.join('\n')}`);
-    if (process.env.DEVSITE_EXAMPLES_STRICT === '1') expect(problems).toEqual([]);
+    expect(problems).toEqual([]);
   });
 });

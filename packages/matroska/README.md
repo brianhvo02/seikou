@@ -2,6 +2,8 @@
 
 Matroska and WebM reading and writing for any JavaScript host: Node, browsers and workers (no `node:` imports, no `Buffer`). It is what the encoder uses to write its MKV files and what the player's engine uses to read them.
 
+The reference, with an example for every function, is at [/developers/matroska](https://bluray.pages.dev/developers/matroska).
+
 ## What it does
 
 - `writeMatroska` muxes AV1 video, Opus audio, subtitle tracks (`S_TEXT/ASS`, `S_HDMV/PGS`), attached files, chapters and Segment tags through an `MkvSink`. It writes Cues for video key frames and for every subtitle block, so a player can seek. `checkMatroskaInput` runs the checks that need no packets, so a caller can refuse a bad input before it opens a file.

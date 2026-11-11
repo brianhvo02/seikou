@@ -2,6 +2,8 @@
 
 The wire contract between Seikou's NAS server, the player and the pairing Worker. It is types and small pure functions with no I/O, so the three sides share one definition instead of keeping copies. It needs nothing from its consumer.
 
+The reference, with an example for every function, is at [/developers/nas](https://bluray.pages.dev/developers/nas).
+
 ## Modules
 
 All sources are in `src/`. The package root exports the names listed in `public-api.txt`; every module can also be imported by path (`@seikou/nas/<module>`), and what the root leaves out is internal and can change without notice.

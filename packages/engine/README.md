@@ -4,6 +4,8 @@ The Blu-ray player engine for browsers. It opens a disc from local files or a NA
 
 On the page, `createController({ worker, profile })` returns a `PlayerController`, an external store over the worker's messages that also plays the audio through an AudioWorklet. The engine also plays the AV1 and Opus episodes the Seikou encoder makes, from Matroska files.
 
+The reference, with an example for every function, is at [/developers/engine](https://bluray.pages.dev/developers/engine).
+
 ## Modules
 
 All of it lives in `src/`. The package root exports the names listed in `public-api.txt`; every module can also be imported by path (`@seikou/engine/<module>`), and what the root leaves out is internal and can change without notice.

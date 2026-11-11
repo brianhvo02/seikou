@@ -2,7 +2,7 @@
 
 This guide is for someone who wants Seikou's player, or parts of it, in their own page or tool. It covers the packages, how to host a page that plays discs, a minimal player, discs from a server, subtitles, BD-J, the licences, and the parsers on their own.
 
-Everything named here is exported by a package under `packages/` in the Seikou repository. Each export has a doc comment in the source, which is the reference for its units, failure behaviour and the thread it runs on.
+Everything named here is exported by a package under `packages/` in the Seikou repository. Each export has a doc comment in the source, which is the reference for its units, failure behaviour and the thread it runs on. The same comments are published as a reference site, with a runnable example for every function, at [/developers](https://bluray.pages.dev/developers); each package has its own page at `/developers/<package>`, such as `/developers/bdmv`.
 
 ## 1. The packages
 

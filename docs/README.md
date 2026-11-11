@@ -31,6 +31,7 @@ For turning a disc's episodes into AV1 and Opus MKVs, and sending them to the NA
 
 The `@seikou/*` packages, each with what it does, its modules, what a consumer provides and its references.
 
+- [Developer reference](https://bluray.pages.dev/developers): every package's public API, with a runnable example for each function.
 - [Integrating Seikou](integrating.md): using the packages in your own page or tool, with a minimal player, hosting, subtitles, BD-J and the licences.
 - [@seikou/bdmv](../packages/bdmv/README.md): the Blu-ray format, ISO images and the M2TS demuxer.
 - [@seikou/engine](../packages/engine/README.md): the player engine.
@@ -47,6 +48,7 @@ The `@seikou/*` packages, each with what it does, its modules, what a consumer p
 - [tools/bdj-library](../tools/bdj-library/README.md): the BD-J library check.
 - [tools/disc-server](../tools/disc-server/README.md): a development server that speaks the NAS's disc API.
 - [tools/devices](../tools/devices/README.md): device automation over WebDriver.
+- [tools/devsite](../tools/devsite/README.md): builds the model the developer site is rendered from.
 
 ## The project
 

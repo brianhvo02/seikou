@@ -2,6 +2,8 @@
 
 Naming a disc library. The package turns folder names and disc evidence into titles, seasons, episodes and music releases, looks them up on public metadata sources, and builds the catalogue a player shows. It is used by Seikou's NAS server. Most of it is pure functions; the parts that keep files on disk (`ArtCache`, `OwnerStore`, the atomic-write helpers) use Node's `node:` modules.
 
+The reference, with an example for every function, is at [/developers/titles](https://bluray.pages.dev/developers/titles).
+
 ## Modules
 
 All sources are in `src/`. The package root exports the names listed in `public-api.txt`; every module can also be imported by path (`@seikou/titles/<module>`), and what the root leaves out is internal and can change without notice.

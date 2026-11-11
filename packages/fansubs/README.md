@@ -2,6 +2,8 @@
 
 Finding and timing fansub subtitles for a disc. The package finds a title's best releases, picks one subtitle file per episode, downloads it with its fonts, reads the disc's dialogue audio, and shifts the subtitles until their dialogue lines up with the disc's. It is used by Seikou's NAS server and runs in Node.
 
+The reference, with an example for every function, is at [/developers/fansubs](https://bluray.pages.dev/developers/fansubs).
+
 ## Modules
 
 All sources are in `src/`. The package root exports the names listed in `public-api.txt`; every module can also be imported by path (`@seikou/fansubs/<module>`), and what the root leaves out is internal and can change without notice.

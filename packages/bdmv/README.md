@@ -2,6 +2,8 @@
 
 The Blu-ray disc format, read without a player. This package parses a disc's files and demuxes its video and audio, so a browser player, a server and the tests can all read a disc with the same code. It takes its input as bytes or a `ByteSource`, so it runs in a page, a worker or Node.
 
+The reference, with an example for every function, is at [/developers/bdmv](https://bluray.pages.dev/developers/bdmv).
+
 ## Modules
 
 All of it lives in `src/`. The package root exports the names listed in `public-api.txt`; every module can also be imported by path (`@seikou/bdmv/<module>`), and what the root leaves out is internal and can change without notice.
