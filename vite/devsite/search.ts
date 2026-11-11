@@ -39,6 +39,8 @@ export interface SearchDeps {
 export class SearchBox {
   private entries: readonly SearchEntry[] | null = null;
   private loading: Promise<void> | null = null;
+  /** The last load failed; the next focus (or keystroke) tries again. */
+  private failed = false;
   private results: SearchEntry[] = [];
   private active = -1;
   private readonly input: HTMLInputElement;
@@ -81,13 +83,19 @@ export class SearchBox {
   }
 
   private load(): Promise<void> {
-    this.loading ??= this.deps.load().then(
+    if (this.loading) return this.loading;
+    this.failed = false;
+    this.loading = this.deps.load().then(
       (entries) => {
         this.entries = entries;
+        this.failed = false;
         if (this.input.value.trim()) this.update();
       },
       () => {
-        this.entries = [];
+        // Not kept: a later focus loads again.
+        this.loading = null;
+        this.failed = true;
+        if (this.input.value.trim()) this.update();
       },
     );
     return this.loading;
@@ -98,7 +106,7 @@ export class SearchBox {
   };
 
   private readonly onInput = (): void => {
-    if (this.entries === null) void this.load();
+    if (this.entries === null && !this.failed) void this.load();
     this.update();
   };
 
@@ -141,16 +149,17 @@ export class SearchBox {
     }
     this.results = filterEntries(this.entries ?? [], q);
     this.active = this.results.length ? 0 : -1;
-    this.render(this.entries === null);
+    this.render(this.entries === null ? (this.failed ? 'failed' : 'loading') : 'ready');
   }
 
-  private render(loading: boolean): void {
+  private render(state: 'loading' | 'failed' | 'ready'): void {
     const doc = this.list.ownerDocument;
     this.list.replaceChildren();
     if (!this.results.length) {
       const li = doc.createElement('li');
       li.className = 'search-empty';
-      li.textContent = loading ? 'Loading the exports…' : 'No export matches';
+      li.textContent =
+        state === 'loading' ? 'Loading the exports…' : state === 'failed' ? 'The exports could not be loaded. Try again in a moment.' : 'No export matches';
       this.list.append(li);
     }
     this.results.forEach((e, i) => {

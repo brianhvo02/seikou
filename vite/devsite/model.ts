@@ -35,6 +35,16 @@ export interface DevMember {
   readonly signatures: readonly DevSignature[];
   readonly example?: DevExample;
 }
+/** A type a class extends or implements, as written, with the names it mentions. */
+export interface DevHeritageType {
+  readonly text: string;
+  readonly typeRefs: readonly DevTypeRef[];
+}
+/** What a class extends and implements. */
+export interface DevHeritage {
+  readonly extends: readonly DevHeritageType[];
+  readonly implements: readonly DevHeritageType[];
+}
 export interface DevExport {
   readonly pkg: string;
   readonly name: string;
@@ -44,6 +54,8 @@ export interface DevExport {
   readonly signatures: readonly DevSignature[];
   readonly members: readonly DevMember[];
   readonly example?: DevExample;
+  /** A class's `extends` and `implements` clauses (absent for other kinds, and for a class with neither). */
+  readonly heritage?: DevHeritage;
   readonly usedBy: readonly string[];
   readonly source: { file: string; line: number };
 }
@@ -73,6 +85,7 @@ interface TType {
   [k: string]: unknown;
 }
 interface Refl {
+  id?: number;
   name: string;
   kind: number;
   flags?: Record<string, boolean>;
@@ -86,6 +99,9 @@ interface Refl {
   typeParameters?: Refl[];
   type?: TType;
   defaultValue?: string;
+  extendedTypes?: TType[];
+  implementedTypes?: TType[];
+  inheritedFrom?: TType;
 }
 
 const K = { Enum: 8, Variable: 32, Function: 64, Class: 128, Interface: 256, Constructor: 512, Property: 1024, Method: 2048, Accessor: 262144, TypeAlias: 2097152 } as const;
@@ -358,8 +374,44 @@ function kindOf(k: number): DevExport['kind'] | null {
   }
 }
 
-function makeMember(c: Refl, className: string, repoRoot: string): DevMember | null {
-  if (c.flags?.isPrivate || c.flags?.isProtected) return null;
+/** Every reflection of the model by id, for following what a member is inherited from. */
+type ById = ReadonlyMap<number, Refl>;
+
+function indexById(r: Refl & { children?: Refl[] }, out: Map<number, Refl> = new Map()): Map<number, Refl> {
+  if (typeof r.id === 'number') out.set(r.id, r);
+  for (const c of r.children ?? []) indexById(c, out);
+  return out;
+}
+
+/**
+ * A member a class inherits from outside the documented packages (`Error`'s `message` or `stack`), directly or
+ * through a documented class that inherits it in turn: the chain of `inheritedFrom` targets ends outside the model.
+ * The constructor is kept, since it is how the class is built.
+ */
+function inheritedFromOutside(c: Refl, byId: ById): boolean {
+  if (c.kind === K.Constructor) return false;
+  let at: Refl | undefined = c;
+  for (let hops = 0; at?.inheritedFrom && hops < 32; hops++) {
+    const t = at.inheritedFrom.target;
+    if (!(typeof t === 'number' && t >= 0)) return true;
+    at = byId.get(t);
+    if (!at) return true;
+  }
+  return false;
+}
+
+function heritageTypes(types: TType[] | undefined): DevHeritageType[] {
+  return (types ?? []).map((t) => {
+    const found = new Map<string, DevTypeRef>();
+    const text = typeText(t, (n, pkg) => {
+      found.set(`${pkg}:${n}`, { name: n, pkg });
+    });
+    return { text, typeRefs: [...found.values()] };
+  });
+}
+
+function makeMember(c: Refl, className: string, repoRoot: string, byId: ById): DevMember | null {
+  if (c.flags?.isPrivate || c.flags?.isProtected || inheritedFromOutside(c, byId)) return null;
   let kind: DevMember['kind'];
   let signatures: DevSignature[];
   let comment: Comment | undefined = c.comment;
@@ -390,7 +442,7 @@ function makeMember(c: Refl, className: string, repoRoot: string): DevMember | n
   return ref ? { ...member, example: readExample(ref, file, repoRoot) } : member;
 }
 
-function makeExport(pkg: string, r: Refl, repoRoot: string): DevExport | null {
+function makeExport(pkg: string, r: Refl, repoRoot: string, byId: ById): DevExport | null {
   const kind = kindOf(r.kind);
   if (!kind) return null;
   const first = r.signatures?.[0];
@@ -402,7 +454,7 @@ function makeExport(pkg: string, r: Refl, repoRoot: string): DevExport | null {
   if (kind === 'function') {
     signatures = (r.signatures ?? []).map((s) => makeSignature(r.name, s, 'function', undefined));
   } else if (kind === 'class' || kind === 'interface' || kind === 'enum') {
-    members = (r.children ?? []).map((c) => makeMember(c, r.name, repoRoot)).filter((m): m is DevMember => !!m);
+    members = (r.children ?? []).map((c) => makeMember(c, r.name, repoRoot, byId)).filter((m): m is DevMember => !!m);
   } else if (kind === 'type' || kind === 'variable') {
     const found = new Map<string, DevTypeRef>();
     const t = typeText(r.type, (n, p) => {
@@ -415,8 +467,10 @@ function makeExport(pkg: string, r: Refl, repoRoot: string): DevExport | null {
   const example = ref ? readExample(ref, source.file, repoRoot) : undefined;
   // A class's example is its constructor's unless the constructor has its own.
   if (kind === 'class' && example) members = members.map((m) => (m.kind === 'constructor' && !m.example ? { ...m, example } : m));
-  const base = { pkg, name: r.name, kind, summary, body, signatures, members, usedBy: [] as string[], source };
-  return example ? { ...base, example } : base;
+  const base: DevExport = { pkg, name: r.name, kind, summary, body, signatures, members, usedBy: [] as string[], source };
+  const heritage = kind === 'class' ? { extends: heritageTypes(r.extendedTypes), implements: heritageTypes(r.implementedTypes) } : null;
+  const withHeritage = heritage && (heritage.extends.length || heritage.implements.length) ? { ...base, heritage } : base;
+  return example ? { ...withHeritage, example } : withHeritage;
 }
 
 /** Fills `usedBy`: the exports whose examples (or whose members' examples) mention each name. */
@@ -447,12 +501,13 @@ function linkUsedBy(pkgs: DevPackage[]): DevPackage[] {
 export function loadSite(modelPath: string, repoRoot: string): DevPackage[] {
   const model = JSON.parse(readFileSync(modelPath, 'utf8')) as { seikouSourceHash?: string; children?: (Refl & { children?: Refl[] })[] };
   if (model.seikouSourceHash !== sourceHash(repoRoot)) throw new Error('stale model: run npm run devsite:model');
+  const byId = indexById(model as Refl & { children?: Refl[] });
   const pkgs = (model.children ?? []).map((mod): DevPackage => {
     const readmePath = join(repoRoot, 'packages', mod.name, 'README.md');
     return {
       name: mod.name,
       readme: existsSync(readmePath) ? readFileSync(readmePath, 'utf8') : '',
-      exports: (mod.children ?? []).map((c) => makeExport(mod.name, c, repoRoot)).filter((e): e is DevExport => !!e).sort((a, b) => a.name.localeCompare(b.name)),
+      exports: (mod.children ?? []).map((c) => makeExport(mod.name, c, repoRoot, byId)).filter((e): e is DevExport => !!e).sort((a, b) => a.name.localeCompare(b.name)),
     };
   });
   return linkUsedBy(pkgs.sort((a, b) => a.name.localeCompare(b.name)));

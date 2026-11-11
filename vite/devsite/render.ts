@@ -86,12 +86,15 @@ function siteIndex(site: readonly DevPackage[]): SiteIndex {
   return idx;
 }
 
-/** The page of a public export named `name`, looked up in `pkg` first, then in any package; null when there is none. */
+/**
+ * The page of a public export named `name`: in `pkg` when it exports one, else in the one package that does; null
+ * when none does, or when several do and none is `pkg` (the name alone cannot say which is meant).
+ */
 function exportPage(site: readonly DevPackage[], name: string, pkg: string | null): string | null {
   const idx = siteIndex(site);
   if (pkg !== null && idx.names.get(pkg)?.has(name)) return devHref(pkg, name);
-  const any = idx.byName.get(name)?.[0];
-  return any === undefined ? null : devHref(any, name);
+  const owners = idx.byName.get(name) ?? [];
+  return owners.length === 1 ? devHref(owners[0]!, name) : null;
 }
 
 /** The links a signature may make: each type it names that is a public export of the package the model says. */
@@ -387,7 +390,7 @@ function pre(lines: readonly string[], links: ReadonlyMap<string, string>, rowId
 
 /** The page a link in a README, doc comment or the guide goes to: a developer page, a help page or the file on GitHub. */
 function linkTarget(link: string, fromFile: string, site: readonly DevPackage[] | undefined): string | null {
-  if (link.startsWith('#')) return `#doc-${link.slice(1)}`;
+  if (link.startsWith('#')) return HASH_MARK + link.slice(1);
   if (!/^[a-z][a-z0-9+.-]*:/i.test(link) && !/^[\\/]{2}/.test(link)) {
     try {
       const base = new URL(`https://repo.invalid/${fromFile}`);
@@ -406,6 +409,18 @@ function linkTarget(link: string, fromFile: string, site: readonly DevPackage[] 
   return helpHref(link, fromFile);
 }
 
+/**
+ * An in-page link a Markdown text makes: which id it names is only known once the page is whole (a heading of the
+ * README or doc comment is `doc-<slug>`), so it is written with this mark and settled by `settleHashLinks`.
+ */
+const HASH_MARK = '#\u0001';
+
+/** Points each marked in-page link at the prose heading it names when the page has one, else leaves it as written. */
+function settleHashLinks(html: string): string {
+  const ids = new Set([...html.matchAll(/\sid="([^"]*)"/g)].map((m) => m[1]!));
+  return html.replace(/href="#\u0001([^"]*)"/g, (_, target: string) => `href="#${ids.has(`doc-${target}`) ? `doc-${target}` : target}"`);
+}
+
 /** A heading's visible text, as GitHub slugs it. */
 function headingText(tokens: Token[]): string {
   return new Parser().parseInline(tokens, new TextRenderer());
@@ -419,13 +434,15 @@ function headingText(tokens: Token[]): string {
 class Markdown {
   private readonly slug = uniqueSlugger();
   private readonly marked: Marked;
+  /** While set, links render as their text: for a sentence inside a row that is itself a link. */
+  private unlinked = false;
 
   constructor(
     private readonly fromFile: string,
     private readonly site: readonly DevPackage[] | undefined,
   ) {
     const slug = this.slug;
-    const target = (href: string): string | null => linkTarget(href, this.fromFile, this.site);
+    const target = (href: string): string | null => (this.unlinked ? null : linkTarget(href, this.fromFile, this.site));
     const highlightBlock = (code: string, lang: string | undefined): string =>
       lang === undefined || /^(ts|tsx|typescript|js|jsx|javascript|mjs)$/i.test(lang)
         ? highlight(code, 'code', importLinks(this.site, code))
@@ -465,6 +482,16 @@ class Markdown {
     return this.marked.parseInline(markdown.replace(/\s+/g, ' ').trim(), {
       async: false,
     });
+  }
+
+  /** Inline Markdown for a row that is a link as a whole: code spans and emphasis kept, links as their text. */
+  rowText(markdown: string): string {
+    this.unlinked = true;
+    try {
+      return this.inline(markdown);
+    } finally {
+      this.unlinked = false;
+    }
   }
 
   /** Block Markdown without its leading `# ` heading, and that heading's text (null when there is none). */
@@ -507,7 +534,11 @@ interface PageParts {
   readonly assets: PageAssets;
 }
 
-function page({ title, description, main, nav, assets }: PageParts): string {
+function page(parts: PageParts): string {
+  return settleHashLinks(frame(parts));
+}
+
+function frame({ title, description, main, nav, assets }: PageParts): string {
   const styles = assets.stylesheets.map((href) => `<link rel="stylesheet" href="${escapeHtml(href)}">`).join('\n');
   return `<!doctype html>
 <html lang="en">
@@ -683,14 +714,19 @@ function paramsTable(
   return `<table class="params"><thead class="visually-hidden"><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead><tbody>\n${body}\n</tbody></table>`;
 }
 
-/** `Throws` rows: an entry that starts with a type name puts that name first, linked when it is public. */
+/**
+ * `Throws` rows. An entry whose first word is an error type puts that type first, linked when it is public: the word is
+ * one when it is backticked, names a public export, or ends in `Error`. Any other entry ("If the bytes are short…") is
+ * a sentence.
+ */
 function throwsList(entries: readonly string[], site: readonly DevPackage[], pkg: string, md: Markdown): string {
   const items = entries.map((t) => {
-    const m = /^`?([A-Z][\w$]*)`?(?=\s|$)\s*([\s\S]*)$/.exec(t);
-    if (!m) return `<li>${md.inline(t)}</li>`;
-    const href = exportPage(site, m[1]!, pkg);
-    const name = href ? `<a class="type-link" href="${escapeHtml(href)}">${escapeHtml(m[1]!)}</a>` : escapeHtml(m[1]!);
-    return `<li><code>${name}</code> ${md.inline(m[2]!)}</li>`;
+    const m = /^(?:`([A-Za-z_$][\w$]*)`|([A-Za-z_$][\w$]*))(?=\s|$)\s*([\s\S]*)$/.exec(t);
+    const type = m?.[1] ?? m?.[2];
+    const href = type === undefined ? null : exportPage(site, type, pkg);
+    if (!m || type === undefined || !(m[1] !== undefined || href !== null || /Error$/.test(type))) return `<li>${md.inline(t)}</li>`;
+    const name = href ? `<a class="type-link" href="${escapeHtml(href)}">${escapeHtml(type)}</a>` : escapeHtml(type);
+    return `<li><code>${name}</code> ${md.inline(m[3]!)}</li>`;
   });
   return `<ul class="throws">${items.join('')}</ul>`;
 }
@@ -830,6 +866,23 @@ function sourceLink(e: DevExport): string {
   return `<p class="source-link">Source: <a href="${escapeHtml(href)}"><code>${escapeHtml(e.source.file)}${e.source.line ? `:${e.source.line}` : ''}</code></a></p>`;
 }
 
+/** `class X extends Y implements A, B`, each public type a link. */
+function classSignature(e: DevExport, site: readonly DevPackage[]): string {
+  const h = e.heritage;
+  const all = [...(h?.extends ?? []), ...(h?.implements ?? [])];
+  const links = typeLinks(
+    site,
+    all.flatMap((t) => t.typeRefs),
+  );
+  const clause = (word: string, types: readonly { text: string }[] | undefined): string =>
+    types?.length ? ` ${kw(word)} ${types.map((t) => tidy(t.text)).join(', ')}` : '';
+  return pre([`${kw('class')} ${declName(e.name)}${clause('extends', h?.extends)}${clause('implements', h?.implements)}`], links);
+}
+
+function sameExample(a: DevExample, b: DevExample): boolean {
+  return a.file === b.file && a.region === b.region && a.code === b.code;
+}
+
 /** A constant's signature, with a long type behind a disclosure under a short one. */
 function variableSignature(e: DevExport, s: DevSignature, links: ReadonlyMap<string, string>): string {
   const lines = signatureLines(s, 'variable', e.name);
@@ -856,7 +909,7 @@ export function renderIndex(site: readonly DevPackage[], assets: PageAssets = DE
       .filter((p): p is DevPackage => !!p)
       .map(
         (p) =>
-          `        <li><a class="pkg-row" href="${escapeHtml(devHref(p.name))}"><code class="pkg-name">@seikou/${escapeHtml(p.name)}</code><span class="pkg-summary">${md.inline(readmeSummary(p.readme))}</span></a></li>`,
+          `        <li><a class="pkg-row" href="${escapeHtml(devHref(p.name))}"><code class="pkg-name">@seikou/${escapeHtml(p.name)}</code><span class="pkg-summary">${md.rowText(readmeSummary(p.readme))}</span></a></li>`,
       );
     return rows.length
       ? `      <section class="pkg-group"><h2 id="${g.id}">${g.title}</h2><ul class="pkg-list">\n${rows.join('\n')}\n      </ul></section>`
@@ -868,7 +921,7 @@ export function renderIndex(site: readonly DevPackage[], assets: PageAssets = DE
       `      <section class="pkg-group"><h2 id="other">Other packages</h2><ul class="pkg-list">\n${others
         .map(
           (p) =>
-            `        <li><a class="pkg-row" href="${escapeHtml(devHref(p.name))}"><code class="pkg-name">@seikou/${escapeHtml(p.name)}</code><span class="pkg-summary">${md.inline(readmeSummary(p.readme))}</span></a></li>`,
+            `        <li><a class="pkg-row" href="${escapeHtml(devHref(p.name))}"><code class="pkg-name">@seikou/${escapeHtml(p.name)}</code><span class="pkg-summary">${md.rowText(readmeSummary(p.readme))}</span></a></li>`,
         )
         .join('\n')}\n      </ul></section>`,
     );
@@ -896,7 +949,7 @@ export function renderPackage(p: DevPackage, site: readonly DevPackage[], assets
       `      <section class="export-group"><h2 id="kind-${g.id}">${g.title}</h2><ul class="export-list">\n${g.exports
         .map(
           (e) =>
-            `        <li><a class="export-row" href="${escapeHtml(devHref(p.name, e.name))}"><code class="export-row-name">${escapeHtml(e.name)}</code><span class="export-row-summary">${md.inline(firstSentence(e.summary))}</span></a></li>`,
+            `        <li><a class="export-row" href="${escapeHtml(devHref(p.name, e.name))}"><code class="export-row-name">${escapeHtml(e.name)}</code><span class="export-row-summary">${md.rowText(firstSentence(e.summary))}</span></a></li>`,
         )
         .join('\n')}\n      </ul></section>`,
   );
@@ -938,8 +991,12 @@ export function renderExport(e: DevExport, site: readonly DevPackage[], assets: 
       break;
     }
     case 'class': {
-      parts.push(pre([`${kw('class')} ${declName(e.name)}`], new Map()));
+      parts.push(classSignature(e, site));
       parts.push(prose(docOf(e), md));
+      // The constructor shows the class example when it has none of its own; otherwise the class's comes here.
+      const ctor = e.members.find((m) => m.kind === 'constructor');
+      if (e.example && !(ctor?.example && sameExample(ctor.example, e.example)))
+        parts.push(section(rows, 'example', 'Example', exampleFigure(e.example, site, e)));
       if (e.members.length) {
         parts.push(`<nav class="member-index" aria-labelledby="members">
 <h2 id="members">Members</h2>
@@ -947,7 +1004,6 @@ export function renderExport(e: DevExport, site: readonly DevPackage[], assets: 
 </nav>`);
       }
       parts.push(...e.members.map((m) => memberSection(e, m, site, md)));
-      if (e.example && !e.members.some((m) => m.kind === 'constructor')) parts.push(section(rows, 'example', 'Example', exampleFigure(e.example, site, e)));
       parts.push(usedBy(e, site));
       break;
     }

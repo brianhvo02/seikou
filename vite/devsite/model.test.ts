@@ -98,6 +98,31 @@ describe('loadSite', () => {
     expect(() => loadSite(path, root)).toThrow('demo/parse has 2 @example tags');
   });
 
+  it('reads a class’s heritage, and leaves out what it inherits from outside the packages', () => {
+    type Node = { name: string; kind: number; children?: Node[]; [k: string]: unknown };
+    const model = JSON.parse(readFileSync(fixture, 'utf8')) as { children: Node[]; seikouSourceHash: string };
+    const player = model.children[0]!.children!.find((c) => c.name === 'DemoPlayer')!;
+    player.extendedTypes = [{ type: 'reference', target: { packageName: 'typescript', qualifiedName: 'Error' }, name: 'Error', package: 'typescript' }];
+    player.implementedTypes = [{ type: 'reference', target: 1, name: 'ParseOptions', package: '@seikou/demo' }];
+    const open = player.children!.find((c) => c.name === 'open')!;
+    player.children!.push({ ...open, id: 901, name: 'stack', inheritedFrom: { type: 'reference', target: -1, name: 'Error.stack' } });
+    player.children!.push({ ...open, id: 902, name: 'fromBase', inheritedFrom: { type: 'reference', target: 13, name: 'Base.fromBase' } });
+    // A documented member that itself comes from outside: what inherits it is left out too.
+    const options = model.children[0]!.children!.find((c) => c.name === 'ParseOptions')!;
+    options.children!.find((c) => c.name === 'strict')!.inheritedFrom = { type: 'reference', target: -1, name: 'Error.strict' };
+    player.children!.push({ ...open, id: 903, name: 'viaStrict', inheritedFrom: { type: 'reference', target: 7, name: 'ParseOptions.strict' } });
+    model.seikouSourceHash = sourceHash(root);
+    const path = join(mkdtempSync(join(tmpdir(), 'devsite-model-')), 'model.json');
+    writeFileSync(path, JSON.stringify(model));
+    const cls = loadSite(path, root)[0]!.exports.find((e) => e.name === 'DemoPlayer')!;
+    expect(cls.heritage).toEqual({
+      extends: [{ text: 'Error', typeRefs: [{ name: 'Error', pkg: null }] }],
+      implements: [{ text: 'ParseOptions', typeRefs: [{ name: 'ParseOptions', pkg: 'demo' }] }],
+    });
+    expect(cls.members.map((m) => m.name)).toEqual(['constructor', 'open', 'last', 'fromBase']);
+    expect(find('DemoPlayer').heritage).toBeUndefined();
+  });
+
   it('throws on a model built from other sources', () => {
     expect(() => loadSite(modelWithHash('0'.repeat(64)), root)).toThrow('stale model: run npm run devsite:model');
   });

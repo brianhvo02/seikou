@@ -1,0 +1,169 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: LGPL-3.0-or-later -->
+<!--
+  A static mock of a developer page, for the look (docs/superpowers/specs/2026-11-10-developer-site-look.md §7 is the
+  markup contract the page templates follow). Content is from the real packages. ?theme=light|dark forces a theme.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f8fe">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0a1330">
+<title>Id · @seikou/matroska · Seikou developers</title>
+<script>(function () {
+var choice = 'auto';
+try { var v = window.localStorage.getItem('bluray-web:theme'); if (v === 'light' || v === 'dark') choice = v; } catch (e) {}
+var m = /[?&]theme=(light|dark)/.exec(location.search); if (m) choice = m[1];
+var theme = choice === 'auto' ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : choice;
+document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme;
+})();</script>
+<link rel="icon" href="../../../public/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../../node_modules/@fontsource-variable/instrument-sans/wdth.css">
+<link rel="stylesheet" href="../../../src/ui/tokens.css">
+<link rel="stylesheet" href="../site.css">
+</head>
+<body class="dev">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="dev-bar">
+    <a class="dev-home" href="mock-index.html"><img src="../../../public/favicon.svg" alt="" width="28" height="28"><span class="dev-home-name">Seikou</span><span class="dev-home-sub">developers</span></a>
+    <form class="search" role="search" action="#" onsubmit="return false">
+      <label class="visually-hidden" for="search-input">Search exports</label>
+      <input class="search-input" id="search-input" type="search" placeholder="Search exports" autocomplete="off" aria-controls="search-results" aria-expanded="false">
+      <ul class="search-results" id="search-results" role="listbox" hidden>
+        <li class="search-result" role="option" aria-selected="true"><a href="mock-function.html"><span class="search-name">parseMpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">Parses the bytes of a .mpls playlist (libbluray _parse_playlist and _parse_playlistmark).</span></a></li>
+        <li class="search-result" role="option" aria-selected="false"><a href="mock-type.html"><span class="search-name">Mpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">A parsed BDMV/PLAYLIST/*.mpls playlist, libbluray MPLS_PL (mpls_data.h).</span></a></li>
+      </ul>
+    </form>
+    <a class="dev-bar-packages" href="#packages">Packages</a>
+    <fieldset class="theme-switch">
+      <legend class="visually-hidden">Theme</legend>
+      <label class="theme-option" title="Auto"><input type="radio" name="theme" value="auto" aria-label="Auto" checked><span class="theme-word" aria-hidden="true">Auto</span><svg class="theme-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M8 2a6 6 0 1 0 0 12A6 6 0 0 0 8 2Zm0 1.5v9a4.5 4.5 0 0 1 0-9Z"/></svg></label>
+      <label class="theme-option" title="Light"><input type="radio" name="theme" value="light" aria-label="Light"><span class="theme-word" aria-hidden="true">Light</span><svg class="theme-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 .75v2M8 13.25v2M.75 8h2M13.25 8h2M2.9 2.9l1.4 1.4M11.7 11.7l1.4 1.4M2.9 13.1l1.4-1.4M11.7 4.3l1.4-1.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></label>
+      <label class="theme-option" title="Dark"><input type="radio" name="theme" value="dark" aria-label="Dark"><span class="theme-word" aria-hidden="true">Dark</span><svg class="theme-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M13.5 10.2A6 6 0 0 1 5.8 2.5a6 6 0 1 0 7.7 7.7Z"/></svg></label>
+    </fieldset>
+  </header>
+  <div class="dev-layout">
+    <main class="dev-main" id="main">
+      <nav class="crumbs" aria-label="Breadcrumb"><a href="#">@seikou/matroska</a><span class="crumb-sep" aria-hidden="true">/</span><span aria-current="page">Id</span></nav>
+      <h1 class="page-title">Id</h1>
+      <p class="export-kind">A constant in <a href="#"><code>@seikou/matroska</code></a>.</p>
+<pre class="signature"><code><span class="tok-k">const</span> <span class="sig-name">Id</span><span class="tok-p">:</span> { … }</code></pre>
+<details class="sig-full"><summary>The whole type, 85 fields</summary>
+<pre class="signature"><code><span class="tok-k">const</span> <span class="sig-name">Id</span><span class="tok-p">:</span> {
+  <span class="tok-k">readonly</span> AttachedFile<span class="tok-p">:</span> <span class="tok-n">24999</span>;
+  <span class="tok-k">readonly</span> Attachments<span class="tok-p">:</span> <span class="tok-n">423732329</span>;
+  <span class="tok-k">readonly</span> Audio<span class="tok-p">:</span> <span class="tok-n">225</span>;
+  <span class="tok-k">readonly</span> Block<span class="tok-p">:</span> <span class="tok-n">161</span>;
+  <span class="tok-k">readonly</span> BlockDuration<span class="tok-p">:</span> <span class="tok-n">155</span>;
+  <span class="tok-k">readonly</span> BlockGroup<span class="tok-p">:</span> <span class="tok-n">160</span>;
+  <span class="tok-k">readonly</span> Channels<span class="tok-p">:</span> <span class="tok-n">159</span>;
+  <span class="tok-k">readonly</span> ChapLanguage<span class="tok-p">:</span> <span class="tok-n">17276</span>;
+  <span class="tok-k">readonly</span> ChapString<span class="tok-p">:</span> <span class="tok-n">133</span>;
+  <span class="tok-k">readonly</span> ChapterAtom<span class="tok-p">:</span> <span class="tok-n">182</span>;
+  <span class="tok-k">readonly</span> ChapterDisplay<span class="tok-p">:</span> <span class="tok-n">128</span>;
+  <span class="tok-k">readonly</span> ChapterFlagEnabled<span class="tok-p">:</span> <span class="tok-n">17816</span>;
+  <span class="tok-k">readonly</span> ChapterFlagHidden<span class="tok-p">:</span> <span class="tok-n">152</span>;
+  <span class="tok-k">readonly</span> Chapters<span class="tok-p">:</span> <span class="tok-n">272869232</span>;
+  <span class="tok-k">readonly</span> ChapterTimeEnd<span class="tok-p">:</span> <span class="tok-n">146</span>;
+  <span class="tok-k">readonly</span> ChapterTimeStart<span class="tok-p">:</span> <span class="tok-n">145</span>;
+  <span class="tok-k">readonly</span> ChapterUID<span class="tok-p">:</span> <span class="tok-n">29636</span>;
+  <span class="tok-k">readonly</span> Cluster<span class="tok-p">:</span> <span class="tok-n">524531317</span>;
+  <span class="tok-k">readonly</span> CodecDelay<span class="tok-p">:</span> <span class="tok-n">22186</span>;
+  <span class="tok-k">readonly</span> CodecID<span class="tok-p">:</span> <span class="tok-n">134</span>;
+  <span class="tok-k">readonly</span> CodecPrivate<span class="tok-p">:</span> <span class="tok-n">25506</span>;
+  <span class="tok-k">readonly</span> CueClusterPosition<span class="tok-p">:</span> <span class="tok-n">241</span>;
+  <span class="tok-k">readonly</span> CueDuration<span class="tok-p">:</span> <span class="tok-n">178</span>;
+  <span class="tok-k">readonly</span> CuePoint<span class="tok-p">:</span> <span class="tok-n">187</span>;
+  <span class="tok-k">readonly</span> CueRelativePosition<span class="tok-p">:</span> <span class="tok-n">240</span>;
+  <span class="tok-k">readonly</span> Cues<span class="tok-p">:</span> <span class="tok-n">475249515</span>;
+  <span class="tok-k">readonly</span> CueTime<span class="tok-p">:</span> <span class="tok-n">179</span>;
+  <span class="tok-k">readonly</span> CueTrack<span class="tok-p">:</span> <span class="tok-n">247</span>;
+  <span class="tok-k">readonly</span> CueTrackPositions<span class="tok-p">:</span> <span class="tok-n">183</span>;
+  <span class="tok-k">readonly</span> DefaultDuration<span class="tok-p">:</span> <span class="tok-n">2352003</span>;
+  <span class="tok-k">readonly</span> DiscardPadding<span class="tok-p">:</span> <span class="tok-n">30114</span>;
+  <span class="tok-k">readonly</span> DocType<span class="tok-p">:</span> <span class="tok-n">17026</span>;
+  <span class="tok-k">readonly</span> DocTypeReadVersion<span class="tok-p">:</span> <span class="tok-n">17029</span>;
+  <span class="tok-k">readonly</span> DocTypeVersion<span class="tok-p">:</span> <span class="tok-n">17031</span>;
+  <span class="tok-k">readonly</span> Duration<span class="tok-p">:</span> <span class="tok-n">17545</span>;
+  <span class="tok-k">readonly</span> EBML<span class="tok-p">:</span> <span class="tok-n">440786851</span>;
+  <span class="tok-k">readonly</span> EBMLMaxIDLength<span class="tok-p">:</span> <span class="tok-n">17138</span>;
+  <span class="tok-k">readonly</span> EBMLMaxSizeLength<span class="tok-p">:</span> <span class="tok-n">17139</span>;
+  <span class="tok-k">readonly</span> EBMLReadVersion<span class="tok-p">:</span> <span class="tok-n">17143</span>;
+  <span class="tok-k">readonly</span> EBMLVersion<span class="tok-p">:</span> <span class="tok-n">17030</span>;
+  <span class="tok-k">readonly</span> EditionEntry<span class="tok-p">:</span> <span class="tok-n">17849</span>;
+  <span class="tok-k">readonly</span> EditionFlagDefault<span class="tok-p">:</span> <span class="tok-n">17883</span>;
+  <span class="tok-k">readonly</span> EditionUID<span class="tok-p">:</span> <span class="tok-n">17852</span>;
+  <span class="tok-k">readonly</span> FileData<span class="tok-p">:</span> <span class="tok-n">18012</span>;
+  <span class="tok-k">readonly</span> FileDescription<span class="tok-p">:</span> <span class="tok-n">18046</span>;
+  <span class="tok-k">readonly</span> FileMediaType<span class="tok-p">:</span> <span class="tok-n">18016</span>;
+  <span class="tok-k">readonly</span> FileName<span class="tok-p">:</span> <span class="tok-n">18030</span>;
+  <span class="tok-k">readonly</span> FileUID<span class="tok-p">:</span> <span class="tok-n">18094</span>;
+  <span class="tok-k">readonly</span> FlagDefault<span class="tok-p">:</span> <span class="tok-n">136</span>;
+  <span class="tok-k">readonly</span> FlagForced<span class="tok-p">:</span> <span class="tok-n">21930</span>;
+  <span class="tok-k">readonly</span> FlagLacing<span class="tok-p">:</span> <span class="tok-n">156</span>;
+  <span class="tok-k">readonly</span> Info<span class="tok-p">:</span> <span class="tok-n">357149030</span>;
+  <span class="tok-k">readonly</span> Language<span class="tok-p">:</span> <span class="tok-n">2274716</span>;
+  <span class="tok-k">readonly</span> MuxingApp<span class="tok-p">:</span> <span class="tok-n">19840</span>;
+  <span class="tok-k">readonly</span> Name<span class="tok-p">:</span> <span class="tok-n">21358</span>;
+  <span class="tok-k">readonly</span> PixelHeight<span class="tok-p">:</span> <span class="tok-n">186</span>;
+  <span class="tok-k">readonly</span> PixelWidth<span class="tok-p">:</span> <span class="tok-n">176</span>;
+  <span class="tok-k">readonly</span> ReferenceBlock<span class="tok-p">:</span> <span class="tok-n">251</span>;
+  <span class="tok-k">readonly</span> SamplingFrequency<span class="tok-p">:</span> <span class="tok-n">181</span>;
+  <span class="tok-k">readonly</span> Seek<span class="tok-p">:</span> <span class="tok-n">19899</span>;
+  <span class="tok-k">readonly</span> SeekHead<span class="tok-p">:</span> <span class="tok-n">290298740</span>;
+  <span class="tok-k">readonly</span> SeekID<span class="tok-p">:</span> <span class="tok-n">21419</span>;
+  <span class="tok-k">readonly</span> SeekPosition<span class="tok-p">:</span> <span class="tok-n">21420</span>;
+  <span class="tok-k">readonly</span> SeekPreRoll<span class="tok-p">:</span> <span class="tok-n">22203</span>;
+  <span class="tok-k">readonly</span> Segment<span class="tok-p">:</span> <span class="tok-n">408125543</span>;
+  <span class="tok-k">readonly</span> SimpleBlock<span class="tok-p">:</span> <span class="tok-n">163</span>;
+  <span class="tok-k">readonly</span> SimpleTag<span class="tok-p">:</span> <span class="tok-n">26568</span>;
+  <span class="tok-k">readonly</span> Tag<span class="tok-p">:</span> <span class="tok-n">29555</span>;
+  <span class="tok-k">readonly</span> TagName<span class="tok-p">:</span> <span class="tok-n">17827</span>;
+  <span class="tok-k">readonly</span> Tags<span class="tok-p">:</span> <span class="tok-n">307544935</span>;
+  <span class="tok-k">readonly</span> TagString<span class="tok-p">:</span> <span class="tok-n">17543</span>;
+  <span class="tok-k">readonly</span> Targets<span class="tok-p">:</span> <span class="tok-n">25536</span>;
+  <span class="tok-k">readonly</span> TargetType<span class="tok-p">:</span> <span class="tok-n">25546</span>;
+  <span class="tok-k">readonly</span> TargetTypeValue<span class="tok-p">:</span> <span class="tok-n">26826</span>;
+  <span class="tok-k">readonly</span> Timestamp<span class="tok-p">:</span> <span class="tok-n">231</span>;
+  <span class="tok-k">readonly</span> TimestampScale<span class="tok-p">:</span> <span class="tok-n">2807729</span>;
+  <span class="tok-k">readonly</span> Title<span class="tok-p">:</span> <span class="tok-n">31657</span>;
+  <span class="tok-k">readonly</span> TrackEntry<span class="tok-p">:</span> <span class="tok-n">174</span>;
+  <span class="tok-k">readonly</span> TrackNumber<span class="tok-p">:</span> <span class="tok-n">215</span>;
+  <span class="tok-k">readonly</span> Tracks<span class="tok-p">:</span> <span class="tok-n">374648427</span>;
+  <span class="tok-k">readonly</span> TrackType<span class="tok-p">:</span> <span class="tok-n">131</span>;
+  <span class="tok-k">readonly</span> TrackUID<span class="tok-p">:</span> <span class="tok-n">29637</span>;
+  <span class="tok-k">readonly</span> Video<span class="tok-p">:</span> <span class="tok-n">224</span>;
+  <span class="tok-k">readonly</span> Void<span class="tok-p">:</span> <span class="tok-n">236</span>;
+  <span class="tok-k">readonly</span> WritingApp<span class="tok-p">:</span> <span class="tok-n">22337</span>;
+}</code></pre>
+</details>
+<div class="prose"><p>Matroska / EBML element ids used by the writer, written with their length-marker bits as they
+appear in the file (so a 4-byte id such as <code>Segment</code> has its first byte&#39;s top bits set).
+Each entry names the element and the section that defines it: RFC 9559 (Matroska) for the
+Segment and everything inside it, RFC 8794 (EBML) for the header elements and <code>Void</code>.
+Ids were checked against the RFC text. <code>idBytes</code> in <code>ebml.ts</code> turns one into its bytes.</p>
+</div>
+<p class="source-link">Source: <a href="https://github.com/brianhvo02/seikou/blob/main/packages/matroska/src/ids.ts#L10"><code>packages/matroska/src/ids.ts:10</code></a></p>
+    </main>
+    <nav class="dev-nav" id="packages" aria-label="Packages">
+      <h2 class="nav-heading">Packages</h2>
+      <ul class="nav-list">
+      <li><a href="#">bdmv</a></li>
+      <li><a href="#">pg</a></li>
+      <li><a href="#">ass</a></li>
+      <li><a href="#">engine</a></li>
+      <li><a href="#" aria-current="true">matroska</a>
+        <div class="nav-exports"><h3 class="nav-kind">Functions</h3><ul><li><a href="#"><code>ascii</code></a></li><li><a href="#"><code>binary</code></a></li><li><a href="#"><code>blobRangeReader</code></a></li><li><a href="#"><code>checkMatroskaInput</code></a></li><li><a href="#"><code>childOf</code></a></li><li><a href="#"><code>concat</code></a></li><li><a href="#"><code>find</code></a></li><li><a href="#"><code>findAll</code></a></li><li><a href="#"><code>float64</code></a></li><li><a href="#"><code>floatOf</code></a></li><li><a href="#"><code>frameDurationNs</code></a></li><li><a href="#"><code>framesToNs</code></a></li><li><a href="#"><code>master</code></a></li><li><a href="#"><code>openMatroska</code></a></li><li><a href="#"><code>parseMkv</code></a></li><li><a href="#"><code>readMatroska</code></a></li><li><a href="#"><code>sint</code></a></li><li><a href="#"><code>stringOf</code></a></li><li><a href="#"><code>uint</code></a></li><li><a href="#"><code>uintOf</code></a></li><li><a href="#"><code>utf8</code></a></li><li><a href="#"><code>videoMs</code></a></li><li><a href="#"><code>voidElement</code></a></li><li><a href="#"><code>writeMatroska</code></a></li></ul><h3 class="nav-kind">Classes</h3><ul><li><a href="#"><code>EbmlError</code></a></li><li><a href="#"><code>MkvReadError</code></a></li><li><a href="#"><code>NotMatroskaError</code></a></li></ul><h3 class="nav-kind">Interfaces</h3><ul><li><a href="#"><code>AudioPacket</code></a></li><li><a href="#"><code>AudioTrackInfo</code></a></li><li><a href="#"><code>EbmlNode</code></a></li><li><a href="#"><code>MatroskaFile</code></a></li><li><a href="#"><code>MkvAttachedFile</code></a></li><li><a href="#"><code>MkvAttachment</code></a></li><li><a href="#"><code>MkvBlock</code></a></li><li><a href="#"><code>MkvChapter</code></a></li><li><a href="#"><code>MkvChapterInfo</code></a></li><li><a href="#"><code>MkvInput</code></a></li><li><a href="#"><code>MkvResult</code></a></li><li><a href="#"><code>MkvSink</code></a></li><li><a href="#"><code>MkvTrack</code></a></li><li><a href="#"><code>ParsedMkv</code></a></li><li><a href="#"><code>RangeReader</code></a></li><li><a href="#"><code>SubtitleBlock</code></a></li><li><a href="#"><code>TrackLabel</code></a></li><li><a href="#"><code>VideoPacket</code></a></li><li><a href="#"><code>VideoTrackInfo</code></a></li></ul><h3 class="nav-kind">Types</h3><ul><li><a href="#"><code>MkvAudioTrack</code></a></li><li><a href="#"><code>MkvSubtitleTrack</code></a></li><li><a href="#"><code>MkvVideoPacket</code></a></li></ul><h3 class="nav-kind">Constants</h3><ul><li><a href="#" aria-current="page"><code>Id</code></a></li></ul></div>
+      </li>
+      <li><a href="#">nas</a></li>
+      <li><a href="#">titles</a></li>
+      <li><a href="#">fansubs</a></li>
+      </ul>
+      <h2 class="nav-heading">Guide</h2>
+      <ul class="nav-list"><li><a href="#">Integrating the player</a></li></ul>
+    </nav>
+  </div>
+  <footer class="dev-foot"><a href="https://github.com/brianhvo02/seikou">Source on GitHub</a></footer>
+</body>
+</html>

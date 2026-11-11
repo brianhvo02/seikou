@@ -81,7 +81,7 @@ const tricky: DevPackage = {
       pkg: 'bdmv',
       name: 'openLongly',
       kind: 'function',
-      summary: 'Opens something with a long list of parameters.',
+      summary: 'Opens something with a [long](https://example.com/) list of parameters.',
       body: '',
       signatures: [
         sig('function openLongly(path: string, offset: number, length: number, signal?: AbortSignal): Promise<Uint8Array<ArrayBufferLike>>', {
@@ -93,6 +93,7 @@ const tricky: DevPackage = {
             typeRefs: [],
           })),
           returns: { type: 'Promise<Uint8Array<ArrayBufferLike>>', doc: '' },
+          throws: ['If the bytes are short, nothing is read.', '`RangeTrouble` past the end.', 'MadeUpError when the disc is lost.', 'Thing when it is odd.'],
         }),
       ],
       members: [],
@@ -129,7 +130,7 @@ const tricky: DevPackage = {
           ],
         },
       ],
-      usedBy: ['readThing'],
+      usedBy: ['readThing', 'Shared', 'Lonely'],
       source: { file: 'packages/bdmv/src/thing.ts', line: 3 },
     },
     {
@@ -139,6 +140,11 @@ const tricky: DevPackage = {
       summary: 'Bytes that do not parse.',
       body: '',
       signatures: [],
+      heritage: {
+        extends: [{ text: 'Error', typeRefs: [{ name: 'Error', pkg: null }] }],
+        implements: [{ text: 'Thing', typeRefs: [{ name: 'Thing', pkg: 'bdmv' }] }],
+      },
+      example: { file: 'packages/bdmv/examples/parse-error-class.ts', code: "throw new ParseError('bad');\n" },
       members: [
         {
           name: 'constructor',
@@ -158,6 +164,7 @@ const tricky: DevPackage = {
               returns: { type: 'ParseError', doc: '' },
             }),
           ],
+          example: { file: 'packages/bdmv/examples/parse-error-new.ts', code: "const e = new ParseError('x');\n" },
         },
         {
           name: 'open',
@@ -215,12 +222,25 @@ const tricky: DevPackage = {
     },
   ],
 };
+/** A made-up export of `pkg` with nothing but a name. */
+const bare = (pkg: string, name: string): DevExport => ({
+  pkg,
+  name,
+  kind: 'type',
+  summary: `${name}.`,
+  body: '',
+  signatures: [sig(`type ${name} = string`)],
+  members: [],
+  usedBy: [],
+  source: { file: `packages/${pkg}/src/x.ts`, line: 1 },
+});
 const other: DevPackage = {
   name: 'engine',
-  readme: '# @seikou/engine\n\nThe made-up engine. More.\n',
-  exports: [],
+  readme: '# @seikou/engine\n\nThe made-up engine, from [the guide](../../docs/integrating.md). More.\n',
+  exports: [bare('engine', 'Shared'), bare('engine', 'Lonely')],
 };
-const site = [tricky, other];
+const third: DevPackage = { name: 'nas', readme: '# @seikou/nas\n\nThe made-up wire.\n', exports: [bare('nas', 'Shared')] };
+const site = [tricky, other, third];
 const exp = (name: string): DevExport => tricky.exports.find((e) => e.name === name)!;
 
 const VOID = new Set('area base br col embed hr img input link meta source track wbr'.split(' '));
@@ -240,7 +260,10 @@ function tagProblems(html: string): string[] {
     if (close) {
       const top = stack.pop();
       if (top !== name) problems.push(`</${name}> closes <${top ?? 'nothing'}> at ${m.index}`);
-    } else if (!VOID.has(name) && !selfClose && !['path', 'circle'].includes(name)) stack.push(name);
+    } else if (!VOID.has(name) && !selfClose && !['path', 'circle'].includes(name)) {
+      if (name === 'a' && stack.includes('a')) problems.push(`<a> inside <a> at ${m.index}`);
+      stack.push(name);
+    }
   }
   if (stack.length) problems.push(`unclosed: ${stack.join(' > ')}`);
   for (const m of body.matchAll(/<[^>]*</g)) problems.push(`'<' inside a tag at ${m.index}`);
@@ -356,6 +379,66 @@ describe('interface and class pages', () => {
   });
 });
 
+describe('review fixes', () => {
+  it('never puts a link inside a row link: a summary’s link is its text', () => {
+    for (const html of [renderPackage(tricky, site), renderIndex(site)]) {
+      expect(tagProblems(html)).toEqual([]);
+      for (const row of parse(html).querySelectorAll('a.export-row, a.pkg-row')) expect(row.querySelector('a')).toBeNull();
+    }
+    const row = [...parse(renderPackage(tricky, site)).querySelectorAll('a.export-row')].find((a) => a.querySelector('code')!.textContent === 'openLongly')!;
+    expect(row.querySelector('.export-row-summary')!.textContent).toBe('Opens something with a long list of parameters.');
+    expect(tagProblems('<a href="#x"><span><a href="#y">y</a></span></a>')).toEqual(['<a> inside <a> at 19']);
+  });
+
+  it('shows a class’s heritage after its name, public types linked', () => {
+    const doc = parse(renderExport(exp('ParseError'), site));
+    const sig = doc.querySelector('pre.signature')!;
+    expect(sig.textContent).toBe('class ParseError extends Error implements Thing');
+    expect([...sig.querySelectorAll('a.type-link')].map((a) => a.getAttribute('href'))).toEqual(['/developers/bdmv/Thing']);
+    expect([...sig.querySelectorAll('.tok-k')].map((k) => k.textContent)).toEqual(['class', 'extends', 'implements']);
+  });
+
+  it('shows the class example and the constructor’s own one', () => {
+    const doc = parse(renderExport(exp('ParseError'), site));
+    expect([...doc.querySelectorAll('.example-file code')].map((c) => c.textContent)).toEqual([
+      'packages/bdmv/examples/parse-error-class.ts',
+      'packages/bdmv/examples/parse-error-new.ts',
+      'packages/bdmv/examples/parse-error.ts',
+    ]);
+    expect(doc.getElementById('example')).not.toBeNull();
+  });
+
+  it('takes a Throws entry’s first word as a type only when it is backticked, public or an Error', () => {
+    const items = [...parse(renderExport(exp('openLongly'), site)).querySelectorAll('.throws li')];
+    expect(items.map((li) => [li.querySelector(':scope > code:first-child')?.textContent ?? null, li.textContent])).toEqual([
+      [null, 'If the bytes are short, nothing is read.'],
+      ['RangeTrouble', 'RangeTrouble past the end.'],
+      ['MadeUpError', 'MadeUpError when the disc is lost.'],
+      ['Thing', 'Thing when it is odd.'],
+    ]);
+    expect(items[3]!.querySelector('a.type-link')!.getAttribute('href')).toBe('/developers/bdmv/Thing');
+  });
+
+  it('links a Used by name in the one package that exports it, and no link when several do', () => {
+    const items = [...parse(renderExport(exp('Thing'), site)).querySelectorAll('.used-by li')];
+    expect(items.map((li) => [li.textContent, li.querySelector('a')?.getAttribute('href') ?? null])).toEqual([
+      ['readThing', '/developers/bdmv/readThing'],
+      ['Shared', null],
+      ['Lonely', '/developers/engine/Lonely'],
+    ]);
+  });
+
+  it('points an in-page link at a prose heading only when the page has it', () => {
+    const hashy: DevExport = {
+      ...bare('bdmv', 'hashy'),
+      summary: 'See [usage](#usage), the [members](#members) and [elsewhere](#nowhere).',
+      body: '## Usage\n\nCall it.',
+    };
+    const links = [...parse(renderExport(hashy, site)).querySelectorAll('.prose a')].map((a) => a.getAttribute('href'));
+    expect(links).toEqual(['#doc-usage', '#members', '#nowhere']);
+  });
+});
+
 describe('package, index, guide and 404', () => {
   it('a package page shows its README without the title, headings prefixed, then its exports by kind', () => {
     const doc = parse(renderPackage(tricky, site));
@@ -380,7 +463,8 @@ describe('package, index, guide and 404', () => {
     expect(doc.title).toBe('Seikou developers');
     expect([...doc.querySelectorAll('.pkg-row')].map((a) => [a.getAttribute('href'), a.querySelector('.pkg-summary')!.textContent])).toEqual([
       ['/developers/bdmv', 'The made-up disc format.'],
-      ['/developers/engine', 'The made-up engine.'],
+      ['/developers/engine', 'The made-up engine, from the guide.'],
+      ['/developers/nas', 'The made-up wire.'],
     ]);
     expect(doc.querySelector('.dev-nav')).toBeNull();
     expect(doc.querySelector('.dev-bar-packages')).toBeNull();
@@ -441,7 +525,7 @@ describe('every page', () => {
 describe('searchIndex', () => {
   it('has one entry per public export, with a plain first sentence', () => {
     const entries = searchIndex(site);
-    expect(entries.length).toBe(tricky.exports.length);
+    expect(entries.length).toBe(site.reduce((n, p) => n + p.exports.length, 0));
     expect(entries[0]).toEqual({
       pkg: 'bdmv',
       name: 'readThing',

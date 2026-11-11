@@ -148,6 +148,21 @@ describe('SearchBox', () => {
     expect(list.hidden).toBe(true);
   });
 
+  it('says a failed load, and loads again on the next focus', async () => {
+    box.dispose();
+    let calls = 0;
+    const flaky = vi.fn(() => (++calls === 1 ? Promise.reject(new Error('offline')) : Promise.resolve(ENTRIES)));
+    box = new SearchBox(form, { load: flaky, navigate });
+    input.dispatchEvent(new FocusEvent('focus'));
+    await box.ready().catch(() => undefined);
+    type('mpls');
+    expect(list.querySelector('li.search-empty')!.textContent).toBe('The exports could not be loaded. Try again in a moment.');
+    input.dispatchEvent(new FocusEvent('focus'));
+    await box.ready();
+    expect(flaky).toHaveBeenCalledTimes(2);
+    expect(box.shown().map((e) => e.name)).toEqual(['Mpls', 'parseMpls', 'openDisc']);
+  });
+
   it('shows the summary as text, never as markup', async () => {
     box.dispose();
     box = new SearchBox(form, {
