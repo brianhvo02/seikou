@@ -7,7 +7,10 @@
   "workspaces": ["packages/*"],
   "scripts": {
     "dev": "vite",
+    "prebuild": "npm run devsite:model",
     "build": "tsc -b && vite build",
+    "devsite:install": "npm ci --prefix tools/devsite",
+    "devsite:model": "node tools/devsite/model.mjs",
     "preview": "vite preview",
     "typecheck": "tsc -b",
     "test": "vitest run",

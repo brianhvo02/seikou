@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable", "DOM.AsyncIterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "strict": true,
+    "types": ["vite/client"],
+    "typeRoots": ["../../node_modules/@types"],
+    "baseUrl": "../..",
+    "paths": {
+      "vite/client": ["node_modules/vite/client.d.ts"]
+    }
+  },
+  "include": ["../../packages/*/src/**/*.ts"],
+  "exclude": ["../../packages/*/src/**/*.test.ts"]
+}

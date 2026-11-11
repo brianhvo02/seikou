@@ -1,0 +1,11 @@
+{
+  "name": "seikou-devsite-tools",
+  "private": true,
+  "type": "module",
+  "license": "LGPL-3.0-or-later",
+  "description": "TypeDoc on TypeScript 5.9 for the developer site's model; the repository itself is on TypeScript 7.",
+  "devDependencies": {
+    "typescript": "~5.9.0",
+    "typedoc": "~0.28.20"
+  }
+}

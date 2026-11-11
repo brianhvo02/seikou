@@ -811,7 +811,7 @@ export class PlayerController {
     this.post({ type: 'removeTextSubtitle' });
   }
 
-  /** [ and ]: moves the showing subtitle file's cues by `deltaMs`, with a short notice of the new offset. */
+  /** The `[` and `]` keys move the showing subtitle file's cues by `deltaMs`, with a short notice of the new offset. */
   shiftSubtitles(deltaMs: number): void {
     const subs = this.snapshot.subtitles;
     const text = subs?.text;
