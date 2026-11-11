@@ -1,5 +1,5 @@
 /**
- * Where viewers' Anime Tosho picks are kept (spec §9): `<dataDir>/fansubs/picks/<id>/` holds a pick's `meta.json` and
+ * Where viewers' Anime Tosho picks are kept: `<dataDir>/fansubs/picks/<id>/` holds a pick's `meta.json` and
  * lined-up file, and fonts live once each in `<dataDir>/fansubs/pick-fonts/<sha256>`, since every file of a release
  * carries the same font pack. Picks unused for 30 days go, and the least recently used go first when the picks pass
  * their byte budget. The metas are held in memory, loaded once. Original code.
@@ -19,14 +19,18 @@ export class PickTooLarge extends Error {
   override name = 'PickTooLarge';
 }
 
+/** One stored pick as `meta.json` holds it. */
 export interface PickFile {
   readonly subtitle: FansubPick;
+  /** Epoch ms of the last use, noted at most once an hour; picks unused for 30 days are removed. */
   readonly usedAt: number;
 }
 
+/** What a `PickStore` needs from its host. */
 export interface PickStoreOptions {
   /** `FANSUB_PICKS_BYTES`: what the picks may hold in all. */
   readonly maxBytes: number;
+  /** The clock, in epoch ms. */
   readonly now: () => number;
   /** Whether a build of this pick id is running (its temp folder isn't a leftover). */
   readonly building: (id: string) => boolean;
@@ -35,6 +39,11 @@ export interface PickStoreOptions {
 /** A pick's own bytes: its file and any font kept in its own folder (picks from before the pool). */
 const ownBytes = (s: FansubPick): number => s.fileSize + s.fonts.reduce((n, f) => n + (f.hash ? 0 : f.size), 0);
 
+/**
+ * The viewers' own Anime Tosho picks on disk under `<dataDir>/fansubs/`: each pick's folder holds its `meta.json` and
+ * lined-up file, and fonts are pooled by content in `pick-fonts/`. It keeps the total under `maxBytes` by removing the
+ * least recently used picks. It uses synchronous file calls and is meant to run inside one server process.
+ */
 export class PickStore {
   private readonly root: string;
   private readonly fontsDir: string;
@@ -54,6 +63,7 @@ export class PickStore {
     this.sweep();
   }
 
+  /** The pick with this id, or null. */
   get(id: string): PickFile | null {
     return this.entries.get(id) ?? null;
   }
@@ -66,6 +76,7 @@ export class PickStore {
     return join(this.root, id, 'sub', kept.subtitle.fileName);
   }
 
+  /** The path of the pick's font by file name, or null when the pick or the font is unknown; a use keeps the pick. */
   fontPath(id: string, name: string): string | null {
     const kept = this.entries.get(id);
     const font = kept?.subtitle.fonts.find((f) => f.name === name);

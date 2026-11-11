@@ -16,6 +16,7 @@ export class LockHeldError extends Error {
   }
 }
 
+/** Whether `err` is a Node error with this `code`, such as `ENOENT`. */
 export function isCode(err: unknown, code: string): boolean {
   return (err as NodeJS.ErrnoException | null)?.code === code;
 }

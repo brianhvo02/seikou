@@ -14,11 +14,11 @@ const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_SAVE_DELAY_MS = 5_000;
 const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/;
 const SIZES = new Set(['small', 'large']);
-/** Raster types only: an SVG served from the API origin could run script (T8f). */
+/** Raster types only: an SVG served from the API origin could run script. */
 const TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 const INDEX = 'index.json';
 const STORED_NAME = /^[A-Za-z0-9_-]{1,64}-(?:small|large)$/;
-/** Art comes from these hosts over https, never elsewhere (M4). */
+/** Art comes from these hosts over https, never elsewhere. */
 const ART_HOSTS = new Set(['s4.anilist.co', 'image.tmdb.org', 'coverartarchive.org', 'i.discogs.com']);
 /** Cover Art Archive redirects to archive.org, which redirects to one of its data nodes (`dnNNNNNN.ca.archive.org`); each hop is checked on its own. */
 const MAX_REDIRECTS = 5;
@@ -45,7 +45,9 @@ interface Stored {
   usedAt: number;
 }
 
+/** Tuning for an `ArtCache`; each has a default, and tests set them. */
 export interface ArtCacheOptions {
+  /** The clock, in epoch ms; `Date.now` by default. */
   readonly now?: () => number;
   /** Larger bodies are abandoned. Default 5 MB. */
   readonly maxBytes?: number;
@@ -55,6 +57,11 @@ export interface ArtCacheOptions {
   readonly saveDelayMs?: number;
 }
 
+/**
+ * The NAS's cache of poster, banner and cover images under one folder, kept within a byte budget by removing the least
+ * recently used. Images are fetched from allowed https hosts (or read from a folder cover's file) and served at their
+ * own sizes. It is synchronous on its index and runs in one server process.
+ */
 export class ArtCache {
   private readonly index: string;
   private readonly files = new Map<string, Stored>();
@@ -98,7 +105,9 @@ export class ArtCache {
     }
   }
 
-  /** The cached image, fetched from `url` when it isn't cached; null when the fetch fails or isn't an allowed image. */
+  /**
+   * The cached image, fetched from `source` (a URL, or a folder cover's `{ file }`) when it isn't cached, keyed by
+   * `artId` and `size`; calls for one image share one fetch; null when the fetch fails or isn't an allowed image. */
   get(artId: string, size: 'small' | 'large', source: string | { readonly file: string }): Promise<{ path: string; type: string } | null> {
     if (!SAFE_ID.test(artId) || !SIZES.has(size)) return Promise.resolve(null);
     const name = `${artId}-${size}`;

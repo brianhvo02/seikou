@@ -1,6 +1,6 @@
 /**
- * The episode guess from playlists (spec §8): episode-length playlists, numbered in disc order. It answers null,
- * meaning no Episodes tab, whenever it is unsure (ruling T7d). Original code.
+ * The episode guess from playlists: episode-length playlists, numbered in disc order. It answers null,
+ * meaning no Episodes tab, whenever it is unsure. Original code.
  */
 import type { EpisodeRef } from '@seikou/nas/nas-api';
 import type { DiscEvidence } from './disc-evidence';
@@ -11,7 +11,7 @@ type Playlist = DiscEvidence['playlists'][number];
 const RUNTIME_TOLERANCE = 0.25;
 /**
  * Playlists between the episode window and these shares of the runtime may or may not be episodes (a special, a long
- * finale), so a disc holding one, other than a play-all, isn't guessed (ruling T7g).
+ * finale), so a disc holding one, other than a play-all, isn't guessed.
  */
 const UNCERTAIN_BELOW = 0.6;
 const UNCERTAIN_ABOVE = 1.6;

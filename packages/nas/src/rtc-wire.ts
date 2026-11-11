@@ -7,16 +7,43 @@
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
+/*
+ * Frame layout. A data channel carries two kinds of message, and every request on it has a number `id`, a positive
+ * integer of at most 0xffffffff that the client picks (starting at 1) and the server echoes.
+ *
+ * Text messages are heads: UTF-8 JSON objects of at most MAX_HEAD_BYTES bytes, each with a `t` and an `id`:
+ *   {"t":"req","id":n,"method":"GET","path":"/bluray/api/...?q","headers":{...}}   client to server, opens a request;
+ *       `method` is 1 to 16 capital letters, `path` starts with `/`, header names are lower case
+ *   {"t":"body-end","id":n}                    client to server, the request body is complete (sent for every request)
+ *   {"t":"res","id":n,"status":200,"headers":{...}}   server to client, the response head; `status` is 200 to 599
+ *   {"t":"end","id":n}                         server to client, the response body is complete
+ *   {"t":"error","id":n,"message":"..."}       server to client, the request failed; the message is at most 1000 characters
+ *   {"t":"cancel","id":n}                      client to server, the client no longer wants the response
+ *
+ * Binary messages carry body bytes: bytes 0 to 3 are the request id as a big-endian unsigned 32-bit integer, and the
+ * rest (at most MAX_CHUNK minus 4 bytes) is the next piece of that request's body (client to server) or of its response
+ * body (server to client). Pieces arrive in order, because the channel is ordered and reliable.
+ *
+ * A request's order is: `req`, its binary body pieces, `body-end`; the response is `res`, its binary pieces, then
+ * `end` or `error`. A `res` and its pieces may go out before the request body is complete. Anything that breaks these
+ * rules (a malformed head, an unknown id, a frame sent in the wrong direction) closes the channel.
+ */
+
 /**
  * The part of a data channel the wire needs; werift's and the browser's channels are adapted to it. Binary messages
  * arrive as Uint8Array.
  */
 export interface WireChannel {
+  /** Sends one message: a string as a text message, bytes as a binary message. Throws when the channel is closed. */
   send(data: string | Uint8Array): void;
+  /** Bytes queued to send and not yet written to the network. */
   readonly bufferedAmount: number;
+  /** The wire sets it to LOW_WATER; `onbufferedamountlow` fires when `bufferedAmount` falls to it. */
   bufferedAmountLowThreshold: number;
   onbufferedamountlow: (() => void) | null;
+  /** Called with each message received. */
   onmessage: ((data: string | Uint8Array) => void) | null;
+  /** Called when the channel closes, from either side. */
   onclose: (() => void) | null;
   close(): void;
 }
@@ -40,20 +67,27 @@ const PAYLOAD_BYTES = MAX_CHUNK - ID_BYTES;
 const MAX_ID = 0xffffffff;
 const MAX_ERROR_MESSAGE = 1000;
 
+/** A request as a `WireServer` hands it to its handler. */
 export interface WireRequest {
+  /** The method, upper case. */
   readonly method: string;
   /** The path and query, e.g. `/bluray/api/discs/x/files/BDMV/index.bdmv?t=…`. */
   readonly path: string;
   /** Lower-case names. */
   readonly headers: Record<string, string>;
+  /** The request body as it arrives; empty for a request with none. Iterating it throws if the request is cancelled. */
   readonly body: AsyncIterable<Uint8Array>;
   /** Aborts when the client cancels the request or the channel closes. */
   readonly signal: AbortSignal;
 }
 
+/** What a `WireServer` handler answers with. */
 export interface WireResponse {
+  /** 200 to 599; a handler that returns anything else makes the server answer `error`. */
   readonly status: number;
+  /** Header names and values; the head with them must fit MAX_HEAD_BYTES. */
   readonly headers: Record<string, string>;
+  /** The body, or null for none. A string is sent as UTF-8. It is ignored for HEAD and for a status with no body. */
   readonly body: AsyncIterable<Uint8Array> | Uint8Array | string | null;
 }
 

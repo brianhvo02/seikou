@@ -1,5 +1,5 @@
 /**
- * Title text normalisation (spec §10), shared by the NAS server's matcher and the app's library search, so a title
+ * Title text normalisation, shared by the NAS server's matcher and the app's library search, so a title
  * matches the same way on both sides. Original code.
  */
 

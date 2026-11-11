@@ -9,47 +9,64 @@ export const TRACK_DOWNLOAD_BYTES = 64 * 1024 * 1024;
 /** The most a font pack's download may be. */
 export const PACK_DOWNLOAD_BYTES = 256 * 1024 * 1024;
 
+/** One subtitle track of a file on Anime Tosho. */
 export interface ToshoTrack {
   /** Index among the file's subtitle attachments, from 0. */
   readonly track: number;
   /** ISO 639-2, `und` when missing. */
   readonly language: string;
   readonly name: string;
+  /** The subtitle format, such as `ASS` or `SRT`. */
   readonly format: string;
+  /** Where the track's `.xz` download is. */
   readonly url: string;
+  /** The file's default and forced flags for the track. */
   readonly isDefault: boolean;
   readonly forced: boolean;
 }
 
+/** One file of an Anime Tosho release. */
 export interface ToshoFile {
   readonly id: number;
   readonly name: string;
+  /** The file's size in bytes. */
   readonly size: number;
+  /** Its subtitle tracks. */
   readonly tracks: readonly ToshoTrack[];
 }
 
+/** One release on Anime Tosho. */
 export interface ToshoRelease {
   readonly id: number;
   readonly title: string;
+  /** The torrent's info hash, 40 hex digits. */
   readonly infoHash: string;
+  /** The feed's status word for the release. */
   readonly status: string;
+  /** The feed's `is_seadex` flag for the release. */
   readonly isSeadex: boolean;
   /** Seconds since the epoch, as the feed gives it. */
   readonly date: number;
+  /** The release's files; empty for a search result, which doesn't load them. */
   readonly files: readonly ToshoFile[];
 }
 
+/** The part of Anime Tosho this package uses. */
 export interface Tosho {
+  /** The release with this info hash, files loaded, or null when the feed has none. */
   byHash(infoHash: string, opts?: PacedOptions): Promise<ToshoRelease | null>;
+  /** The release with this id, files loaded, or null when the feed has none. */
   byId(id: number, opts?: PacedOptions): Promise<ToshoRelease | null>;
   /** The first page (at most 30 releases), files not loaded. */
   search(query: string, opts?: PacedOptions): Promise<readonly ToshoRelease[]>;
   /** The bytes at `url`; past `maxBytes` (declared or as they arrive) it throws `TooLargeArchive`. */
   download(url: string, opts?: PacedOptions, maxBytes?: number): Promise<Buffer>;
+  /** The URL of the file's font pack (a `.7z`) in Anime Tosho's storage; the pack may not exist (`download` then throws `NotFoundOnTosho`). */
   fontPackUrl(fileId: number): string;
 }
 
 /** A download Anime Tosho answers 404. */
+/** Thrown by a download for which Anime Tosho answers 404, or whose URL leaves the hosts a download may use or redirects too often. */
 export class NotFoundOnTosho extends Error {
   override name = 'NotFoundOnTosho';
   constructor(url: string) {
@@ -167,6 +184,12 @@ function urlCheck(bases: { feed: string; site: string }): (url: string) => boole
   };
 }
 
+/**
+ * An Anime Tosho client. `fetch` is injected, `pacer` spaces the calls, `userAgent` is sent with each, and `bases` are the
+ * feed's and the storage site's URLs. A download follows at most three redirects and only to Anime Tosho's own hosts
+ * (and loopback for tests), else it throws `NotFoundOnTosho`. A network error, a bad status or an unreadable answer
+ * throws `SourceUnavailable`.
+ */
 export function createTosho(fetch: typeof globalThis.fetch, pacer: Pacer, userAgent: string, bases: { feed: string; site: string }): Tosho {
   const allowed = urlCheck(bases);
   /** One paced GET, following at most three redirects and checking every URL; the raw response when it is fine. */

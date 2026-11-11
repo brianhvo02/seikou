@@ -1,7 +1,9 @@
 /** What a metadata source (AniList, TMDB) knows about one series or film. */
 
+/** The two metadata sources. */
 export type SourceName = 'anilist' | 'tmdb';
 
+/** An entry's names in each form the source gives; any may be null. */
 export interface EntryNames {
   readonly english: string | null;
   readonly romaji: string | null;
@@ -9,6 +11,7 @@ export interface EntryNames {
   readonly synonyms: readonly string[];
 }
 
+/** One series or film as a source describes it. */
 export interface Entry {
   readonly source: SourceName;
   readonly id: string; // 'anilist:154587', 'tmdb-tv:65930', 'tmdb-movie:12345'
@@ -20,7 +23,7 @@ export interface Entry {
   readonly year: number | null;
   /**
    * When it started: AniList's startDate, TMDB's first-air or release date, as YYYYMMDD with 00 for an unknown month
-   * or day. Optional: entries saved before it have none (M11).
+   * or day. Optional: entries saved before it have none.
    */
   readonly startDate?: number | null;
   readonly episodes: number | null;
@@ -33,9 +36,11 @@ export interface Entry {
   readonly banner: string | null;
 }
 
+/** A metadata source (AniList or TMDB). Its calls are paced and throw `SourceUnavailable` on a network error, a 5xx or rate limiting. */
 export interface MetadataSource {
-  /** `urgent` and `signal` are for the owner's lookups: see `PacedOptions`. */
+  /** Entries matching `query`, optionally narrowed by year and kind. `urgent` and `signal` are for the owner's lookups: see `PacedOptions`. */
   search(query: string, opts?: { year?: number; kind?: 'series' | 'movie'; urgent?: boolean; signal?: AbortSignal }): Promise<Entry[]>;
+  /** The entry with this id (`anilist:<n>`, `tmdb-tv:<n>`, `tmdb-movie:<n>`), or null when the source has none. */
   entry(id: string, opts?: { urgent?: boolean; signal?: AbortSignal }): Promise<Entry | null>;
 }
 

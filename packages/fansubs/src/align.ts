@@ -12,14 +12,21 @@ import { speechMask } from './speech';
 
 type Span = { readonly fromMs: number; readonly toMs: number };
 
+/** What the aligner compares: the disc's speech and the track's dialogue. */
 export interface AlignInput {
+  /** Disc audio windows to find speech in; `alignWhole` takes the whole episode as `windows[0]`. */
   readonly windows: readonly AudioWindow[];
+  /** The track's dialogue lines as spans of the track's own time, in milliseconds. */
   readonly dialogue: readonly Span[];
 }
 
+/** The best offset found in one audio window. */
 export interface WindowOffset {
+  /** Where the window starts in the episode, in milliseconds. */
   readonly startMs: number;
+  /** The offset, in milliseconds, to add to the track's times to line it up inside this window. */
   readonly offsetMs: number;
+  /** The share of the window's dialogue frames that land on speech at that offset, from 0 to 1. */
   readonly score: number;
 }
 
@@ -411,6 +418,7 @@ export function alignWhole(input: AlignInput, perWindow: readonly WindowOffset[]
   return { kind: 'split', parts: pick.parts.map(({ fromMs, offsetMs }) => ({ fromMs, offsetMs })), confidence: round2(pick.score) };
 }
 
+/** Options of `align` and `alignAudio`. */
 export interface AlignOptions {
   /** The sampled windows, instead of `windowsFor(durationMs)` (tests). */
   readonly windows?: readonly TimeWindow[];

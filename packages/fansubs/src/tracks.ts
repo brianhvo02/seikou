@@ -7,7 +7,7 @@ import type { FetchCache } from './fetch-cache';
 import { TRACK_DOWNLOAD_BYTES } from './tosho';
 import type { Tosho, ToshoTrack } from './tosho';
 
-/** A fetched track bigger than this once unpacked is skipped (spec §7). */
+/** A fetched track bigger than this once unpacked is skipped. */
 export const MAX_TRACK_BYTES = 50 * 1024 * 1024;
 
 /** A track's text, through the download cache; throws `TooLargeArchive` past the cap, and the client's errors. */

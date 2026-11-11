@@ -3,19 +3,29 @@ import { RateLimited } from '@seikou/titles/pacer';
 import type { PacedOptions, Pacer } from '@seikou/titles/pacer';
 import { retryAfterMs, SourceUnavailable } from '@seikou/titles/sources';
 
+/** One release of a SeaDex entry. */
 export interface SeaDexRelease {
+  /** The tracker it is on, as SeaDex names it. */
   readonly tracker: string;
   /** Null when SeaDex redacts it (private trackers). */
   readonly infoHash: string | null;
+  /** True when the curators mark it as the entry's best release. */
   readonly isBest: boolean;
+  /** True when the release carries both the original and a dubbed audio track. */
   readonly dualAudio: boolean;
+  /** The release group's name. */
   readonly group: string;
+  /** SeaDex's free-form tags (such as `Web`). */
   readonly tags: readonly string[];
+  /** The release's files: name and length in bytes. */
   readonly files: readonly { readonly name: string; readonly length: number }[];
 }
 
+/** SeaDex's entry for one AniList title. */
 export interface SeaDexEntry {
+  /** The AniList id. */
   readonly alId: number;
+  /** True when the curators note that no release covers the whole title. */
   readonly incomplete: boolean;
   /** The curators' free-text notes on the entry (which group is best for what); empty when SeaDex has none. */
   readonly notes: string;
@@ -24,6 +34,7 @@ export interface SeaDexEntry {
   readonly releases: readonly SeaDexRelease[];
 }
 
+/** The part of SeaDex this package uses. */
 export interface SeaDex {
   /** The entry for an AniList id, or null when SeaDex has none. */
   entry(alId: number, opts?: PacedOptions): Promise<SeaDexEntry | null>;
@@ -60,6 +71,11 @@ function toRelease(t: RawTorrent): SeaDexRelease {
   };
 }
 
+/**
+ * A SeaDex client. `fetch` is injected, `pacer` spaces the calls, `userAgent` is sent with each, and `base` is the
+ * site's URL without a trailing slash. A network error, a bad status or an unreadable answer throws `SourceUnavailable`; a 429 is
+ * retried once by the pacer after its `Retry-After`, and a second one throws `SourceUnavailable` too.
+ */
 export function createSeaDex(fetch: typeof globalThis.fetch, pacer: Pacer, userAgent: string, base: string): SeaDex {
   return {
     entry: (alId, opts) =>

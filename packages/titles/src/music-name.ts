@@ -11,6 +11,7 @@ export interface ParsedMusicName {
   readonly date: string | null; // YYYY, YYYY-MM or YYYY-MM-DD
   readonly artist: string | null; // null when the name has no ` - ` separator
   readonly title: string;
+  /** True when the name carries `(Single)`. */
   readonly single: boolean;
 }
 

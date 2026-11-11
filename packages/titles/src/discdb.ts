@@ -4,12 +4,17 @@
  */
 import { readFileSync } from 'node:fs';
 
+/** What TheDiscDB knows about one disc. */
 export interface DiscDbHit {
+  /** The title's name. */
   readonly title: string;
   readonly year: number | null;
   readonly kind: 'series' | 'movie';
+  /** The TMDB id TheDiscDB gives the title, else null. */
   readonly tmdbId: string | null;
+  /** The season the disc belongs to, else null. */
   readonly season: number | null;
+  /** The episodes the disc's playlists hold: the playlist id, the season and episode numbers (TMDB's numbering) and the episode's name. */
   readonly episodes: readonly { readonly playlist: string; readonly season: number; readonly episode: number; readonly name: string | null }[];
 }
 
@@ -21,7 +26,7 @@ export interface DiscDbIndex {
 
 /**
  * Reads the index file. Throws (synchronously) when the file is missing, isn't JSON or isn't an index;
- * the caller decides what that means (Task 8: no TheDiscDB, logged once).
+ * the caller decides what that means (the server runs without TheDiscDB and logs that once).
  */
 export function loadDiscDb(file: string): { lookup(fingerprint: string): DiscDbHit | null } {
   const index = JSON.parse(readFileSync(file, 'utf8')) as Partial<DiscDbIndex>;

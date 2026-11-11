@@ -2,6 +2,7 @@ import { contentHash } from './content-hash';
 
 const STREAM = /^BDMV\/STREAM\/([^/]+\.M2TS)$/;
 
+/** What a disc key names: a content fingerprint (any copy of the disc) or one disc's id on one NAS. */
 export type ParsedDiscKey = { kind: 'fingerprint'; fingerprint: string } | { kind: 'disc'; discId: string };
 
 /** The `BDMV/STREAM/*.M2TS` files among `files` (paths as the manifest gives them, upper-case), named by file name. */
@@ -18,6 +19,7 @@ export function discKeyOf(discId: string, files: readonly { path: string; size: 
   return hash === null ? `d.${discId}` : `f.${hash}`;
 }
 
+/** The parts of a disc key (`f.` and 32 upper-case hex digits, or `d.` and 16 lower-case hex digits); null for anything else. */
 export function parseDiscKey(key: string): ParsedDiscKey | null {
   const f = /^f\.([0-9A-F]{32})$/.exec(key);
   if (f) return { kind: 'fingerprint', fingerprint: f[1]! };

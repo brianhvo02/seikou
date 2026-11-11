@@ -1,5 +1,5 @@
 /**
- * The catalogue (spec §8): disc matches, metadata entries and the owner's choices made into titles (series, movies,
+ * The catalogue: disc matches, metadata entries and the owner's choices made into titles (series, movies,
  * music), each with its seasons, disc slots with copies, episodes and extras, plus the Unsorted and Hidden lists.
  * Built afresh after every matching run or owner change, with no network access. Original code.
  */
@@ -19,24 +19,35 @@ import type { OwnerSnapshot } from './owner-store';
 import { parseName } from './parse-name';
 import type { Entry } from './sources';
 
+/** The library as the app shows it, built by `buildCatalogue` from matches, metadata and the owner's choices. */
 export interface Catalogue {
+  /** Every title, in natural order of id. */
   readonly titles: readonly TitleSummary[];
+  /** One title with its seasons, discs and episodes; null for an unknown id. */
   detail(id: string): TitleDetail | null;
+  /** Discs no title could be found for, each with why. */
   readonly unsorted: readonly UnsortedItem[];
+  /** Discs the owner hid. */
   readonly hidden: readonly DiscRef[];
   /** A source's URLs, or a folder cover's file (only covers this catalogue found itself); null for an unknown id. */
   art(id: string): { small: string; large: string } | { file: string } | null;
-  /** AniList series whose chain isn't loaded back to its root: their id may change once it is (ruling T7h). */
+  /** AniList series whose chain isn't loaded back to its root: their id may change once it is. */
   readonly provisional: readonly string[];
 }
 
+/** Everything `buildCatalogue` reads. It is all in memory: the catalogue is built without network or disk access. */
 export interface CatalogueInput {
+  /** The matcher's result for each disc. */
   readonly matches: readonly DiscMatch[];
+  /** The metadata entries the matches and the AniList chains name, by entry id. */
   readonly entries: ReadonlyMap<string, Entry>;
+  /** What each disc's files and path say. */
   readonly evidence: readonly DiscEvidence[];
+  /** The owner's choices, own titles, display names and gate. */
   readonly owner: OwnerSnapshot;
+  /** TheDiscDB's index. */
   readonly discdb: { lookup(fp: string): DiscDbHit | null };
-  /** Each disc id's first-seen time. */
+  /** Each disc id's first-seen time, in epoch ms. */
   readonly addedAt: ReadonlyMap<string, number>;
   /** Roots in the Downloads group: their copies come after the others. */
   readonly downloadRoots: ReadonlySet<string>;
@@ -98,9 +109,11 @@ export const isAnilistTv = (en: Entry): boolean => en.source === 'anilist' && TV
 
 /** An AniList series: a chain of TV entries in start-date order, and each one's season number. */
 export interface Series {
+  /** The series' id: its root entry's id. */
   readonly id: string;
   /** The root isn't loaded, so the id is the root reached so far. */
   readonly provisional: boolean;
+  /** The TV entries of the series, in start-date order. */
   readonly members: readonly Entry[];
   /** A member's place in its chain, for members whose whole PREQUEL chain back to a loaded root is loaded. */
   readonly number: ReadonlyMap<string, number>;
@@ -147,7 +160,7 @@ interface TitleBuild {
 type Target = { readonly title: TitleBuild; readonly season: SeasonBuild | null };
 
 /**
- * AniList series (rulings T7a, T7f). TV/TV_SHORT entries and the TV ids their SEQUEL/PREQUEL relations name, loaded or
+ * AniList series. TV/TV_SHORT entries and the TV ids their SEQUEL/PREQUEL relations name, loaded or
  * not, form a graph; a connected part of it is one series. Its root is the node with no prequel (the earliest by start
  * date if several), so the series id is the first season's even when that entry isn't loaded; while the root isn't
  * loaded the series is provisional. Seasons that aren't loaded are absent, never invented.
@@ -223,7 +236,7 @@ export function anilistSeries(entries: ReadonlyMap<string, Entry>): Map<string, 
 }
 
 /**
- * The series a film or OVA row hangs under (T7e): the first of the row's story relations that names a member of a
+ * The series a film or OVA row hangs under: the first of the row's story relations that names a member of a
  * series with a build in `builds` (by series id), else a build whose series has a member with a story relation to the
  * row. `seriesBuilds` are the builds that have a series.
  */
@@ -235,7 +248,7 @@ export function storyParent<T extends { readonly series: Series | null }>(
 }
 
 /**
- * Each loaded AniList TV entry's TV prequels, worked out once per build (M9): those its own PREQUEL relations name, and
+ * Each loaded AniList TV entry's TV prequels, worked out once per build: those its own PREQUEL relations name, and
  * the loaded TV entries whose SEQUEL relation names it.
  */
 function tvPrequels(entries: ReadonlyMap<string, Entry>): Map<string, Set<string>> {
@@ -272,6 +285,11 @@ function chainPlace(en: Entry, entries: ReadonlyMap<string, Entry>, prequels: Re
   return null; // a cycle
 }
 
+/**
+ * Makes titles, seasons, disc slots, episodes, extras, Music, Unsorted and Hidden from the matches, the metadata and
+ * the owner's choices. An owner's choice for a disc wins over its match. It is deterministic for one input and does
+ * no I/O.
+ */
 export function buildCatalogue(input: CatalogueInput): Catalogue {
   const { entries, owner } = input;
   const evidenceById = new Map(input.evidence.map((e) => [e.discId, e]));
@@ -279,7 +297,7 @@ export function buildCatalogue(input: CatalogueInput): Catalogue {
   const groupSizes = new Map<string, number>();
   for (const e of input.evidence) groupSizes.set(groupKey(e), (groupSizes.get(groupKey(e)) ?? 0) + 1);
   const seriesOf = anilistSeries(entries);
-  // AniList season numbers (ruling T7h): the chain's count when the whole chain is loaded, else the matcher's (which
+  // AniList season numbers: the chain's count when the whole chain is loaded, else the matcher's (which
   // walked the real chain)
   const matcherSeason = new Map<string, number>();
   for (const m of input.matches) if (m.status === 'filed' && m.season !== null && !matcherSeason.has(m.entryId)) matcherSeason.set(m.entryId, m.season);
@@ -313,7 +331,7 @@ export function buildCatalogue(input: CatalogueInput): Catalogue {
     const head = series.members[0]!;
     const known = builds.get(series.id);
     if (known) return known;
-    // the other seasons' names are synonyms, so the series is found by any of them (M7)
+    // the other seasons' names are synonyms, so the series is found by any of them
     const headNames = new Set([head.names.english, head.names.romaji, head.names.native, ...head.names.synonyms].filter((n): n is string => n !== null));
     const synonyms = [...new Set([...head.names.synonyms, ...series.members.slice(1).flatMap((m) =>
       [m.names.english, m.names.romaji, m.names.native, ...m.names.synonyms].filter((n): n is string => n !== null && n.trim() !== '' && !headNames.has(n)))])];
@@ -374,7 +392,7 @@ export function buildCatalogue(input: CatalogueInput): Catalogue {
         }),
       });
       if (byOwner) {
-        // any chain id names the whole series, and only the choice's season picks a season (ruling T7i): the loaded
+        // any chain id names the whole series, and only the choice's season picks a season: the loaded
         // entry with that number, else a plain season of that number; with no season, the series' extras or Unsorted
         if (seasonNo === null) return extras ? { title: b, season: null } : 'no-season';
         const m = series.members.find((x) => seasonOf(series, x.id) === seasonNo);
@@ -387,7 +405,7 @@ export function buildCatalogue(input: CatalogueInput): Catalogue {
       if (n === null) return extras ? { title: b, season: null } : 'no-season';
       return memberSeason(en, n);
     }
-    // filed under an entry that isn't loaded yet (ruling T7c)
+    // filed under an entry that isn't loaded yet
     if (!en) return 'no-title';
     const b = entryTitle(en);
     if (b.single) return { title: b, season: null };
@@ -482,7 +500,7 @@ export function buildCatalogue(input: CatalogueInput): Catalogue {
     put(target, { e, disc }, extras);
   }
 
-  // AniList rows (films, OVAs) tied to a series in the catalogue by a story relation are also listed under it (T7e)
+  // AniList rows (films, OVAs) tied to a series in the catalogue by a story relation are also listed under it
   const relatedOf = new Map<string, TitleBuild[]>();
   const seriesBuilds = [...builds.values()].filter((s) => s.series !== null);
   for (const b of builds.values()) {
@@ -513,7 +531,7 @@ export function buildCatalogue(input: CatalogueInput): Catalogue {
   };
 
   /**
-   * TheDiscDB's episodes when every disc's first copy has a hit (spec §8, 1), else the guess. Episodes play from the
+   * TheDiscDB's episodes when every disc's first copy has a hit, else the guess. Episodes play from the
    * first copy; a TheDiscDB episode whose playlist that copy lacks plays from a copy that has it, or is left out.
    */
   const episodes = (s: SeasonBuild, discs: readonly DiscSlot[]): EpisodeRef[] | null => {
@@ -523,7 +541,7 @@ export function buildCatalogue(input: CatalogueInput): Catalogue {
     const hits = firsts.map((e) => (e.fingerprint !== null ? input.discdb.lookup(e.fingerprint) : null));
     if (hits.every((h) => h !== null && h.episodes.length > 0)) {
       const kept = hits.map((h) => h!.episodes.filter((ep) => s.discDbSeason === null || ep.season === s.discDbSeason));
-      // TheDiscDB numbers by TMDB's seasons: numbers past this season's episode count belong to another numbering (M11)
+      // TheDiscDB numbers by TMDB's seasons: numbers past this season's episode count belong to another numbering
       const count = s.info.episodes;
       const fits = count === null || kept.every((eps) => eps.every((ep) => ep.episode >= 1 && ep.episode <= count));
       const out = !fits ? [] : copies.flatMap((cs, i) => kept[i]!
@@ -561,7 +579,7 @@ export function buildCatalogue(input: CatalogueInput): Catalogue {
     const release = releases.get(b.id);
     const summary: TitleSummary = {
       id: b.id, kind: b.kind, poster: release ? release.poster : b.poster, year: b.year,
-      // a name in a disc's music choice follows the disc when its folder moves (M8), so it comes first
+      // a name in a disc's music choice follows the disc when its folder moves, so it comes first
       names: b.kind === 'music' && !b.own ? { ...b.names, display: musicChoiceNames.get(b.id) ?? owner.displayNames.get(b.id) ?? null } : b.names,
       seasons: b.single ? 0 : seasons.length,
       discs: seasons.reduce((n, s) => n + s.discs.length + s.extras.length, extras.length),
@@ -585,7 +603,7 @@ export function buildCatalogue(input: CatalogueInput): Catalogue {
     const en = entries.get(t.id);
     return en ? (en.source === 'tmdb' ? en.kind === 'series' : isAnilistTv(en)) : t.kind === 'series';
   };
-  /** The season the owner's Season field starts at for a suggestion (ruling F2), see `UnsortedSuggestion`. */
+  /** The season the owner's Season field starts at for a suggestion, see `UnsortedSuggestion`. */
   const seasonHint = (t: TitleSummary, e: DiscEvidence, seasons: Readonly<Record<string, number>>): number | null => {
     if (!hasSeasons(t)) return null;
     const series = seriesOf.get(t.id);
@@ -625,9 +643,9 @@ export function buildCatalogue(input: CatalogueInput): Catalogue {
 }
 
 /**
- * Each music title's music info and poster (spec §3): the lookup that speaks for the release unless the owner rejected
+ * Each music title's music info and poster: the lookup that speaks for the release unless the owner rejected
  * it, the owner's artist, and the folder cover before the lookup's. Then a name-only artist whose name normalizes the
- * same as a looked-up artist's name or alias anywhere in the catalogue takes that artist (ruling R4), so it is one tile.
+ * same as a looked-up artist's name or alias anywhere in the catalogue takes that artist, so it is one tile.
  */
 function musicReleaseInfo(
   groups: ReadonlyMap<string, string>, builds: ReadonlyMap<string, TitleBuild>, input: CatalogueInput,

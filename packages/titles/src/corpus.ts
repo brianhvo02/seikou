@@ -1,7 +1,7 @@
 import type { ParsedName } from './parse-name';
 
 /**
- * Synthetic folder names and disc titles, one or more per naming style in the library (spec §3), with what the parser
+ * Synthetic folder names and disc titles, one or more per naming style in the library, with what the parser
  * must read from them. Every title here is made up: the repo is public, and the real listing stays in
  * fixtures/local/library-paths.txt.
  */
@@ -67,7 +67,7 @@ export const NAME_CORPUS: readonly { readonly text: string; readonly expected: P
   { text: '夜明けの約束（よあけのやくそく）　第８巻', expected: { candidates: ['夜明けの約束', 'よあけのやくそく'], volume: 8 } },
 
   // Review round 1: when unsure, an empty candidate or a null number, never a wrong one
-  // bonus words only in brackets, as `Live Event`, or next to Bonus/特典 (ruling T3b)
+  // bonus words only in brackets, as `Live Event`, or next to Bonus/特典
   { text: 'Starlight Live!', expected: { candidates: ['Starlight Live!'], bonus: false } },
   { text: 'Event Horizon', expected: { candidates: ['Event Horizon'], bonus: false } },
   { text: 'Foo Live', expected: { candidates: ['Foo Live'], bonus: false } },
@@ -113,7 +113,7 @@ export const NAME_CORPUS: readonly { readonly text: string; readonly expected: P
   { text: 'ABC_TITLE_3_1', expected: { candidates: ['ABC TITLE'], season: null, volume: null, disc: null, episodes: null } },
   { text: 'Silent Archive 上巻 下巻', expected: { candidates: ['Silent Archive'], volume: null } },
 
-  // Re-review: a tag group next to a tag-word, years after a dash, bonus-only brackets, episode ranges
+  // A tag group next to a tag-word, years after a dash, bonus-only brackets, episode ranges
   { text: 'BOX [BDMV] Foo', expected: { candidates: ['Foo'] } },
   { text: 'Fin [BDMV] Foo', expected: { candidates: ['Foo'] } },
   { text: 'BD [BDMV] Foo', expected: { candidates: ['Foo'] } },
@@ -134,8 +134,8 @@ export const NAME_CORPUS: readonly { readonly text: string; readonly expected: P
   { text: 'Foo S01E05-E08', expected: { candidates: ['Foo'], season: 1, episodes: [5, 8] } },
   { text: 'Foo S2E05-E06', expected: { candidates: ['Foo'], season: 2, episodes: [5, 6] } },
 
-  // Re-review 2: a leading format word is a tag only when the name has another tag (T3e); disc names have no ` - NN`
-  // episode, and a single digit is never one (T3f); a reversed range is null
+  // A leading format word is a tag only when the name has another tag; disc names have no ` - NN`
+  // episode, and a single digit is never one; a reversed range is null
   { text: 'ISO Station 7', expected: { candidates: ['ISO Station 7'] } },
   { text: 'DVD Club', expected: { candidates: ['DVD Club'] } },
   { text: 'BD Wars', expected: { candidates: ['BD Wars'] } },
@@ -152,7 +152,7 @@ export const NAME_CORPUS: readonly { readonly text: string; readonly expected: P
   { text: 'Foo 第8話-第5話', expected: { candidates: ['Foo'], episodes: null } },
   { text: 'Foo (316-266)', expected: { candidates: ['Foo'], episodes: null } },
 
-  // Tuning round 2 (ruling M6): Japanese years, region and language tags, scene years in brackets
+  // Japanese years, region and language tags, scene years in brackets
   { text: '[2013年製作][BDISO]『星降りの旅人』', expected: { candidates: ['『星降りの旅人』'], year: 2013 } },
   { text: '[2013年] 星降りの旅人', expected: { candidates: ['星降りの旅人'], year: 2013 } },
   { text: '星降りの旅人 (2013年)', expected: { candidates: ['星降りの旅人'], year: 2013 } },
@@ -163,7 +163,7 @@ export const NAME_CORPUS: readonly { readonly text: string; readonly expected: P
   { text: '[BDMV][Brasswick.2006][JP]', expected: { candidates: ['Brasswick', 'Brasswick 2006'], year: 2006 } },
   { text: 'Brasswick_2006', expected: { candidates: ['Brasswick', 'Brasswick 2006'], year: 2006 } },
   { text: 'Brasswick.2006', expected: { candidates: ['Brasswick', 'Brasswick 2006'], year: 2006 } },
-  // round 2 review (W5): a year run into a title is part of it, and a year out of range is never cut
+  // A year run into a title is part of it, and a year out of range is never cut
   { text: '星の海2020年', expected: { candidates: ['星の海2020年'], year: null } },
   { text: '未来都市2050年', expected: { candidates: ['未来都市2050年'], year: null } },
   { text: '未来都市 2050年', expected: { candidates: ['未来都市 2050年'], year: null } },

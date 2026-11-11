@@ -1,5 +1,5 @@
 /**
- * Cautious matching (spec §7): discs are grouped by parent folder, their names are looked up on AniList and TMDB, and a
+ * Cautious matching: discs are grouped by parent folder, their names are looked up on AniList and TMDB, and a
  * disc is filed only when the four acceptance rules hold. Everything else goes to Unsorted with a reason, because a
  * confident wrong match is worse than Unsorted. Original code.
  */
@@ -18,7 +18,7 @@ type Via = 'disc-title' | 'folder' | 'discdb';
  * One disc's result. For a filed disc, `season` is:
  * - TMDB TV: the season number from the evidence;
  * - AniList TV/TV_SHORT: the entry's place in its chain of TV prequels (1 for an entry with none);
- * - AniList MOVIE/OVA/ONA/SPECIAL and any movie: null, since these are their own rows under the title (Task 7);
+ * - AniList MOVIE/OVA/ONA/SPECIAL and any movie: null, since these are their own rows under the title;
  * - a bonus disc whose season isn't resolved: null, meaning the title's extras. `bonus` tells this apart from the above.
  */
 export type DiscMatch =
@@ -27,26 +27,32 @@ export type DiscMatch =
   | {
     readonly discId: string; readonly status: 'unsorted'; readonly reason: UnsortedReason;
     readonly suggestions: readonly string[]; // entry ids, up to 3
-    /** The season the matcher worked out for a suggestion (see `season` above), by entry id, when it did (ruling F2). */
+    /** The season the matcher worked out for a suggestion (see `season` above), by entry id, when it did. */
     readonly seasons?: Readonly<Record<string, number>>;
   };
 
+/** What `matchDiscs` needs from its host: the sources, the lookup cache and a progress hook. */
 export interface MatchContext {
+  /** AniList. */
   readonly anilist: MetadataSource;
+  /** TMDB; null without an API key, when only AniList is used. */
   readonly tmdb: MetadataSource | null;
+  /** TheDiscDB's index, looked up by a disc's content fingerprint. */
   readonly discdb: { lookup(fp: string): DiscDbHit | null };
   /** Search results by source and normalised query (and AniList entries by id), so lookups happen once per run. */
   readonly cache: Map<string, Entry[]>;
   /**
    * Called as each group (a parent folder) is done, for progress, with that group's discs' matches so far (rule 4 is
-   * applied to the groups done) and the entries they name, so a long run can save its progress (ruling F4).
+   * applied to the groups done) and the entries they name, so a long run can save its progress.
    */
   readonly onGroupDone?: (progress: () => { matches: DiscMatch[]; entries: Map<string, Entry> }) => void | Promise<void>;
 }
 
-/** The result of a run. `aborted`: the sources failed for CIRCUIT_BREAKER groups in a row, so the run stopped (M3). */
+/** The result of a run. `aborted`: the sources failed for CIRCUIT_BREAKER groups in a row, so the run stopped. */
 export interface MatchResult {
+  /** One match per disc handled. */
   readonly matches: DiscMatch[];
+  /** The metadata entries the matches and their suggestions name, by id. */
   readonly entries: Map<string, Entry>;
   readonly aborted: boolean;
 }
@@ -67,22 +73,22 @@ const LATER_CANDIDATE_MAX = BASE;
  * (half of EXACT) still comes close, and an equal score, a tie, always does.
  */
 const COMES_CLOSE_RATIO = 0.5;
-/** Years further apart than this mean a different entry (ruling T5j), and two sources' entries aren't twins. */
+/** Years further apart than this mean a different entry, and two sources' entries aren't twins. */
 const YEAR_SLACK = 1;
-/** A TMDB series may be dated by an early special: its first-air year may be this far before an AniList chain root's (M12). */
+/** A TMDB series may be dated by an early special: its first-air year may be this far before an AniList chain root's. */
 const TMDB_TV_EARLY = 3;
 /** Suggestions offered with an Unsorted disc. */
 const MAX_SUGGESTIONS = 3;
-/** Folder evidence goes at most this many folders above the disc folder (ruling T5f). */
+/** Folder evidence goes at most this many folders above the disc folder. */
 const MAX_ANCESTORS = 2;
 /**
  * Folders this many levels above the disc folder or more (above its parent) may support a match but are never its only
- * evidence (ruling T5n).
+ * evidence.
  */
 const FAR_ANCESTOR = 2;
 /**
  * The root's top-level folders: evidence like any folder, but like any folder the only evidence just when the disc
- * folder sits right under it; two or more levels up it only supports other evidence (ruling F6, correcting F5).
+ * folder sits right under it; two or more levels up it only supports other evidence.
  */
 const TOP_LEVEL_DEPTH = 0;
 /**
@@ -90,12 +96,12 @@ const TOP_LEVEL_DEPTH = 0;
  * service then re-matches every disc on its next run, from its lookup cache, so the library follows the new rules.
  */
 export const MATCH_RULES_VERSION = 4;
-/** Groups failing in a row (SourceUnavailable) before a run stops, leaving the rest for the next run (M3). */
+/** Groups failing in a row (SourceUnavailable) before a run stops, leaving the rest for the next run. */
 export const CIRCUIT_BREAKER = 5;
 /** Prequel links followed to find an AniList entry's place in its chain. */
 const MAX_CHAIN = 20;
 
-/** Category names that are never candidates, in folder names or disc titles (rulings T5f, T5n). */
+/** Category names that are never candidates, in folder names or disc titles. */
 const CATEGORIES = new Set([
   'Film', 'Films', 'Movie', 'Movies', 'TV', 'TV Shows', 'Show', 'Shows', 'Series', 'Drama', 'Dramas', 'Anime', 'Animation', 'Animated',
   'Documentaries', 'Docs', 'Music', 'Concerts', 'Live', 'Video', 'Videos', 'Media', 'Collection', 'Collections', 'Library', 'Misc',
@@ -111,7 +117,7 @@ const ASCII = /^[\x00-\x7f]*$/;
 const JAPANESE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
 /**
  * Sequel markers in an AniList name, besides the seasons parseName reads (`2nd Season`, `Season 2`, `第2期`): `Part N`,
- * `Final Season`, `Second Season`, `Cour N`, `Nth Cour`, `第Nクール` (N > 1), `Zoku`, `続`, `完結編` (rulings T5i, N8).
+ * `Final Season`, `Second Season`, `Cour N`, `Nth Cour`, `第Nクール` (N > 1), `Zoku`, `続`, `完結編`.
  */
 const SEQUEL_MARK = new RegExp([
   '\\bpart\\s*0*(?:[2-9]|\\d{2,})\\b',
@@ -127,21 +133,21 @@ const SEQUEL_MARK = new RegExp([
 /** Roman sequel numerals, upper case only so that words aren't taken for them. */
 const SEQUEL_ROMAN = /\b(?:II|III|IV)\b/;
 const TV_FORMATS = new Set(['TV', 'TV_SHORT']);
-/** AniList entries that a related TV entry beats when the evidence is series-shaped (ruling M3). */
+/** AniList entries that a related TV entry beats when the evidence is series-shaped. */
 const SIDE_FORMATS = new Set(['OVA', 'ONA', 'SPECIAL', 'TV_SHORT']);
 /** Relations that tie an AniList entry to a series' story; CHARACTER, ALTERNATIVE, OTHER and the like don't (as in the catalogue). */
 const STORY_LINKS = new Set(['SEQUEL', 'PREQUEL', 'PARENT', 'SIDE_STORY', 'SUMMARY']);
-/** AniList formats whose entry can be the twin of a TMDB movie (ruling M4). */
+/** AniList formats whose entry can be the twin of a TMDB movie. */
 const FILM_FORMATS = new Set(['MOVIE', 'SPECIAL', 'OVA']);
 /** A disc folder's label that names only a disc (`BD`, `BDROM`, `BD_VIDEO`, `DISC_2`); `Blu-ray`, `DVD` and such are categories. */
 const STRUCTURE_LABEL = /^(?:BD(?:[ _-]?(?:ROM|VIDEO))?|DIS[CK])(?:[ _.-]?\d{1,3})?$/i;
-/** A disc folder's label: capitals, digits and underscores (`100M_FEATURE`, `TO_BE_HERO_X_V4_D2`), with a letter (M13). */
+/** A disc folder's label: capitals, digits and underscores (`100M_FEATURE`, `TO_BE_HERO_X_V4_D2`), with a letter. */
 const DISC_LABEL = /^(?=.*[A-Z])(?=.*_)[A-Z0-9_]+$/;
-/** A disc folder's generic label with no number, which takes its release folder's volume (ruling M10). */
+/** A disc folder's generic label with no number, which takes its release folder's volume. */
 const GENERIC_DISC = /^(?:BD(?:[ _-]?(?:ROM|VIDEO))?|BDMV|DIS[CK]|VIDEO)$/i;
-/** Genres besides anime that can share a bracket with the anime tag (W4). */
+/** Genres besides anime that can share a bracket with the anime tag. */
 const OTHER_GENRES = /^(?:ドラマ|drama|実写|live|特撮|action)$/i;
-/** Common kanji variants (itaiji) folded to one form, as disc titles and metadata spell names either way (ruling M7f). */
+/** Common kanji variants (itaiji) folded to one form, as disc titles and metadata spell names either way. */
 const KANJI_VARIANTS: Readonly<Record<string, string>> = {
   弍: '弐', 髙: '高', 﨑: '崎', 嵜: '崎', 邊: '辺', 邉: '辺', 齊: '斉', 齋: '斎', 濱: '浜', 澤: '沢', 國: '国', 實: '実',
   圓: '円', 櫻: '桜', 學: '学', 聲: '声', 廣: '広', 嶋: '島', 嶌: '島', 惠: '恵', 眞: '真', 萬: '万', 會: '会', 體: '体', 鐵: '鉄',
@@ -150,12 +156,12 @@ const KANJI_VARIANTS: Readonly<Record<string, string>> = {
 };
 const KANJI_VARIANT = new RegExp(`[${Object.keys(KANJI_VARIANTS).join('')}]`, 'gu');
 
-/** No Blu-ray disc came out before this (YYYYMMDD): an earlier "date" is some other number (ruling M11b). */
+/** No Blu-ray disc came out before this (YYYYMMDD): an earlier "date" is some other number. */
 const BLU_RAY_FIRST = 20060601;
 
 /**
  * The disc's release date as YYYYMMDD, from a bracketed `[YYMMDD]` (20YY) or `[YYYYMMDD]` on the disc folder or the
- * two folders above it, nearest first; only a valid date from 2006-06-01 on that isn't in the future (rulings M11, M11b).
+ * two folders above it, nearest first; only a valid date from 2006-06-01 on that isn't in the future.
  */
 function releaseDate(segments: readonly string[]): number | null {
   const today = new Date();
@@ -188,7 +194,7 @@ function startedAfter(en: Entry, released: number): boolean {
   return start > released;
 }
 
-/** The discs under a folder, in its subfolders too, leaving out those in or named as a bonus folder (R2). */
+/** The discs under a folder, in its subfolders too, leaving out those in or named as a bonus folder. */
 function discsUnder(folder: string, evidence: readonly DiscEvidence[]): number {
   const depth = folder === '' ? 0 : folder.split('/').length;
   return evidence.filter((e) => e.path.startsWith(`${folder}/`) && !e.path.split('/').slice(depth).some((seg) => parseName(seg).bonus)).length;
@@ -205,7 +211,7 @@ interface Piece {
   readonly kind: Via;
   readonly own: boolean; // the disc's own title or folder, not an ancestor's
   readonly far: boolean; // a folder FAR_ANCESTOR or more levels above the disc folder
-  readonly label?: boolean; // the disc folder's label (`GLASS_ORCHARD_D1`): a weak candidate (M13)
+  readonly label?: boolean; // the disc folder's label (`GLASS_ORCHARD_D1`): a weak candidate
   readonly parse: ParsedName;
   readonly found: Entry[];
   readonly hit?: DiscDbHit;
@@ -232,27 +238,33 @@ interface Pending {
   readonly bonus: boolean;
   readonly via: readonly Via[];
   /**
-   * `box` is a volume, numbered across the volumes like boxes: of a `Volume M/Disc K` folder pair (ruling M1), or of a
-   * name carrying both (`Title Vol.1 Disc 2`, `第8巻 DISC2`, P1).
+   * `box` is a volume, numbered across the volumes like boxes: of a `Volume M/Disc K` folder pair, or of a
+   * name carrying both (`Title Vol.1 Disc 2`, `第8巻 DISC2`).
    */
   readonly volumeBox: boolean;
   /** The folder the disc's box family shares (see `boxFamily`); a volume in the disc's own name: its group folder. */
   readonly family: string;
-  /** Placed like a movie: an AniList entry whose twin is a TMDB movie (ruling M4). */
+  /** Placed like a movie: an AniList entry whose twin is a TMDB movie. */
   readonly filmLike: boolean;
   /** Where the disc's own number (`disc`) came from: its own volume number or its own disc number. */
   readonly numberFrom: 'volume' | 'disc' | null;
-  /** The disc's numbers can't be read into a place (a volume-and-disc name inside a box, F2): it has none. */
+  /** The disc's numbers can't be read into a place (a volume-and-disc name inside a box): it has none. */
   readonly unplaceable: boolean;
-  /** Numbered by its release folder's volume, as a generic disc folder (ruling M10). */
+  /** Numbered by its release folder's volume, as a generic disc folder. */
   readonly fromParent: boolean;
-  /** For such a disc: the discs under its release folder, subfolders included, whatever their match, bonus ones left out (R2). */
+  /** For such a disc: the discs under its release folder, subfolders included, whatever their match, bonus ones left out. */
   readonly folderDiscs: number;
 }
 
 const naturalOrder = (a: string, b: string): number => a.localeCompare(b, undefined, { numeric: true });
 const lastSegment = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
 
+/**
+ * Matches every disc in `evidence` to a metadata entry, a music grouping or Unsorted, group by group (a
+ * group is a parent folder). Source lookups go through `ctx.cache`, so each query is made once per run. When the sources
+ * fail for `CIRCUIT_BREAKER` groups in a row, the run stops early with `aborted` set and the remaining groups are left
+ * for the next run. It does not touch the disk; `ctx.onGroupDone` is how a caller saves progress.
+ */
 export async function matchDiscs(evidence: readonly DiscEvidence[], ctx: MatchContext): Promise<MatchResult> {
   const groups = new Map<string, DiscEvidence[]>();
   for (const e of evidence) {
@@ -265,7 +277,7 @@ export async function matchDiscs(evidence: readonly DiscEvidence[], ctx: MatchCo
   /** Groups matched in this run; one that failed or wasn't reached isn't. */
   const matched = new Set<string>();
   // a disc of box 2 and up is numbered only once every group of its box family is matched, so a checkpoint (or a run
-  // that lost a group to an unreachable source) never files one that the whole family would leave Unsorted (ruling F7)
+  // that lost a group to an unreachable source) never files one that the whole family would leave Unsorted
   const familyMatched = (p: Pending): boolean => {
     const prefix = p.family;
     for (const g of groups.keys()) if ((prefix === '' || g === prefix || g.startsWith(`${prefix}/`)) && !matched.has(g)) return false;
@@ -328,7 +340,7 @@ function boxFamily(path: string, volumeBox: boolean): string {
 
 /**
  * A folder that names only structure, a season, volume, disc or box (`Season 1`, `Volume 2`, `Vol.4`, `Box 1`,
- * `DISC_2`, `BD`), and no title: it isn't a level when deciding how far up a folder is (ruling M1).
+ * `DISC_2`, `BD`), and no title: it isn't a level when deciding how far up a folder is.
  */
 function structureOnly(text: string): boolean {
   const p = parseName(text);
@@ -361,7 +373,7 @@ function nameParse(text: string): ParsedName {
 async function matchGroup(group: string, discs: readonly DiscEvidence[], ctx: MatchContext, entries: Map<string, Entry>, evidence: readonly DiscEvidence[]):
   Promise<{ done: DiscMatch[]; pending: Pending[] }> {
   const search = async (source: string, src: MetadataSource, query: string, year: number | null): Promise<Entry[]> => {
-    // keyed strictly, so `God X` doesn't reuse what `Good X` found (M2)
+    // keyed strictly, so `God X` doesn't reuse what `Good X` found
     const key = `${source}:${normalizeStrict(query)}${year === null ? '' : `:${year}`}`;
     let hit = ctx.cache.get(key);
     if (!hit) {
@@ -370,7 +382,7 @@ async function matchGroup(group: string, discs: readonly DiscEvidence[], ctx: Ma
     }
     return hit;
   };
-  /** Every candidate on AniList, and on TMDB too when there is a key, so a same-titled live-action entry is seen (T5m). */
+  /** Every candidate on AniList, and on TMDB too when there is a key, so a same-titled live-action entry is seen. */
   const lookUp = async (parse: ParsedName): Promise<Entry[]> => {
     const found: Entry[] = [];
     for (const cand of parse.candidates) {
@@ -383,7 +395,7 @@ async function matchGroup(group: string, discs: readonly DiscEvidence[], ctx: Ma
 
   // folders above the discs, from the group folder up to the first one that names something, at most MAX_ANCESTORS
   // levels up; a root's top-level folder counts (category names are dropped by nameParse), and is far like any other
-  // (F6); a folder naming only structure (`Season 1`, `Volume 2`) isn't a level for the folders above it (M1)
+  //; a folder naming only structure (`Season 1`, `Volume 2`) isn't a level for the folders above it
   const segs = discs[0]!.segments;
   const ancestors: Piece[] = [];
   const ancestorText: string[] = [];
@@ -437,7 +449,7 @@ async function decide(e: DiscEvidence, given: readonly Piece[], hit: DiscDbHit |
   // a disc folder's label is set aside, when other evidence fits an entry, if its own exact fits are ambiguous (two or
   // more entries) or include an entry the other evidence fits: it adds nothing then. A label naming exactly one entry
   // that nothing else fits is kept, so a misplaced disc shows as a disagreement. Its disc number always counts
-  // (rulings M13, M13b)
+  //
   const otherFits = new Set(given.flatMap((p) => (p.label ? [] : p.found.filter((en) => fit(p, en, null) > 0).map((en) => en.id))));
   const setAside = (p: Piece): boolean => {
     const exact = new Set(p.found.filter((en) => fit(p, en, null) === EXACT).map((en) => en.id));
@@ -466,8 +478,8 @@ async function decide(e: DiscEvidence, given: readonly Piece[], hit: DiscDbHit |
   if (hit?.year != null) years.push(hit.year);
 
   // everything the lookups found, before the year, season and format filters; an entry that started after the disc's
-  // release date (`[170426]` on its release folder) can't be on it, and is no fit at all (ruling M11), when an entry
-  // of its story that started in time is there too (a later season against the first; ruling M11b): an unrelated
+  // release date (`[170426]` on its release folder) can't be on it, and is no fit at all, when an entry
+  // of its story that started in time is there too (a later season against the first): an unrelated
   // same-named entry, an original or a remake, still competes
   const released = releaseDate(e.segments);
   const all = new Map<string, Entry>();
@@ -493,7 +505,7 @@ async function decide(e: DiscEvidence, given: readonly Piece[], hit: DiscDbHit |
     if (score > 0) scored.push({ entry: en, score, exact, kinds });
   }
   // TMDB's search answers have no seasons: each fitting TMDB series is fetched by id, and the full entry is used from
-  // here on, so the season checks and the catalogue see its seasons (I1)
+  // here on, so the season checks and the catalogue see its seasons
   for (const [i, s] of scored.entries()) {
     if (s.entry.source !== 'tmdb' || s.entry.kind !== 'series') continue;
     const full = await tmdbEntry(s.entry, ctx);
@@ -502,9 +514,9 @@ async function decide(e: DiscEvidence, given: readonly Piece[], hit: DiscDbHit |
   }
   // series-shaped evidence (a season number, an episode range, or a volume number among two or more sibling discs) is
   // no film's: TMDB and AniList movies aren't competitors there once a series fits, and an exactly fitting AniList TV
-  // entry beats the OVA, ONA, SPECIAL and TV_SHORT entries tied to it by a story link (ruling M3); disc numbers alone
-  // never make it so, since a film comes on two discs too (ruling M3b); a film whose own name carries a volume
-  // (`Blade Night: Vol. 1`) may be what the volumes are, so it still competes (W1)
+  // entry beats the OVA, ONA, SPECIAL and TV_SHORT entries tied to it by a story link; disc numbers alone
+  // never make it so, since a film comes on two discs too; a film whose own name carries a volume
+  // (`Blade Night: Vol. 1`) may be what the volumes are, so it still competes
   const filmOut = (en: Entry): boolean => en.kind === 'movie' && !names(en).some((n) => parseName(n).volume !== null);
   const seriesShaped = evSeason !== null || named.some((p) => p.parse.episodes !== null) ||
     (siblings >= 2 && named.some((p) => p.parse.volume !== null));
@@ -519,29 +531,29 @@ async function decide(e: DiscEvidence, given: readonly Piece[], hit: DiscDbHit |
     }
     scored = scored.filter((s) => !dropped.has(s.entry.id));
   }
-  // the anime tag (`[アニメ]`, `[Anime]` on any folder): a live-action entry is no fit (ruling M8)
+  // the anime tag (`[アニメ]`, `[Anime]` on any folder): a live-action entry is no fit
   if (e.segments.some(animeTagged)) for (const en of all.values()) if (en.animation === false) dropped.add(en.id);
-  // Japanese evidence decides (ruling M7): an entry whose Japanese names are all other titles than the evidence's
+  // Japanese evidence decides: an entry whose Japanese names are all other titles than the evidence's
   // Japanese ones (not even with a season stripped, or under kana folding) is no competitor to a fitting entry whose
   // Japanese name the evidence names strictly, provided that entry fits every candidate the dropped one fits, so a
-  // folder's mismatched `English (日本語)` halves stay several-fit (M2b). Entries with no Japanese name are left alone,
+  // folder's mismatched `English (日本語)` halves stay several-fit. Entries with no Japanese name are left alone,
   // and with no entry named so, nothing is dropped.
   const candidates = [...new Set(named.flatMap((p) => p.parse.candidates))];
   const japaneseTitles = candidates.filter((c) => JAPANESE.test(c));
   const japaneseNames = (en: Entry): string[] => [en.names.native, ...en.names.synonyms].filter((n): n is string => n !== null && JAPANESE.test(n));
   const namedStrictly = (en: Entry): boolean => japaneseNames(en).some((n) => japaneseTitles.some((c) => sameTitle(c, n)));
   // for keeping competitors in, a name holding the other at all (`劇場版 X`, `X2`, `新X`, `X冬の章`) is the same title
-  // too (W1, ruling M7c): leniency here only leaves the disc several-fit
+  // too: leniency here only leaves the disc several-fit
   const namedLoosely = (en: Entry): boolean => japaneseNames(en).some((n) => japaneseTitles.some((c) => {
     const base = parseName(n).candidates[0] ?? n;
     const sc = folded(c);
     const sn = folded(n);
-    const holds = sc !== '' && sn !== '' && (sc.includes(sn) || sn.includes(sc)); // kanji variants folded too (R3-3)
+    const holds = sc !== '' && sn !== '' && (sc.includes(sn) || sn.includes(sc)); // kanji variants folded too
     return holds || sameTitle(c, n) || sameTitle(c, base) || foldedTitle(c, n) || foldedTitle(c, base);
   }));
   // for a lone fit, a Japanese name agrees with a Japanese title it holds or is held in, after kana and kanji-variant
   // folds, since disc titles are noisy (extra words such as `本編` or `BOX`, truncation, itaiji); only no containment
-  // at all contradicts it (ruling M7f, replacing M7d and M7e)
+  // at all contradicts it
   const agreesInJapanese = (en: Entry): boolean => japaneseNames(en).some((n) => japaneseTitles.some((c) => {
     const fc = folded(c);
     const fn = folded(n);
@@ -556,7 +568,7 @@ async function decide(e: DiscEvidence, given: readonly Piece[], hit: DiscDbHit |
       if (named.some((fits) => own.every((c) => fits.has(c)))) dropped.add(en.id);
     }
   }
-  // an AniList series with no start year (not aired yet) is no competitor to a dated entry of its franchise (ruling M9)
+  // an AniList series with no start year (not aired yet) is no competitor to a dated entry of its franchise
   for (const s of scored) {
     const en = s.entry;
     if (en.source !== 'anilist' || en.kind !== 'series' || en.year !== null) continue;
@@ -565,8 +577,8 @@ async function decide(e: DiscEvidence, given: readonly Piece[], hit: DiscDbHit |
   scored = scored.filter((s) => !dropped.has(s.entry.id));
   // an exactly fitting AniList entry wins over TMDB only when every TMDB entry titled like the evidence, of any year
   // the evidence's year allows (any when it has none), is its animated twin; any other same-titled TMDB entry (live action, unknown genre, another kind or year) means the
-  // evidence may be that one (rulings T5g, T5m); and a twin is exactly one TMDB entry, so two twins of one AniList
-  // entry mean one of them is another show (ruling T5s)
+  // evidence may be that one; and a twin is exactly one TMDB entry, so two twins of one AniList
+  // entry mean one of them is another show
   const anilistExact = scored.filter((s) => s.entry.source === 'anilist' && s.exact).map((s) => s.entry);
   let twinIds = new Set<string>();
   let notTwins: Entry[] = [];
@@ -582,10 +594,10 @@ async function decide(e: DiscEvidence, given: readonly Piece[], hit: DiscDbHit |
     }
     const tmdb = [...all.values()].filter((en) => en.source === 'tmdb' && !dropped.has(en.id) && !(filmsOut && filmOut(en)));
     const titles = named.flatMap((p) => p.parse.candidates);
-    // of any year when the evidence has none; with a year, one more than YEAR_SLACK off isn't a fit (T5j), so it no
+    // of any year when the evidence has none; with a year, one more than YEAR_SLACK off isn't a fit, so it no
     // longer blocks the AniList entry and its twin
     const evidenceTitled = tmdb.filter((t) => yearFits(t, years) && names(t).some((n) => titles.some((c) => sameTitle(c, n))));
-    // TMDB entries named like an AniList entry in any of its languages, even when not like the evidence (ruling T5r):
+    // TMDB entries named like an AniList entry in any of its languages, even when not like the evidence:
     // a live-action one in the year window may be what the disc holds
     const anilistTitled = tmdb.filter((t) => anilistExact.some((a) => seriesNames(a).some((x) => names(t).some((y) => sameTitle(x, y)))));
     const liveAction = anilistTitled.filter((t) => t.animation !== true && anilistExact.some((a) => inYearWindow(a, info.get(a.id)!.rootYear, t, true)));
@@ -612,7 +624,7 @@ async function decide(e: DiscEvidence, given: readonly Piece[], hit: DiscDbHit |
   const best = fitting[0]!;
   const ranked = fitting.map((s) => s.entry);
 
-  // two pieces of evidence naming different entries is a disagreement, never a pick (rulings T5b, T5d, T5l): counted
+  // two pieces of evidence naming different entries is a disagreement, never a pick: counted
   // over everything the lookups found, before the year, season and format filters, so no filter can hide it (twins
   // dropped above are the best entry's own title); a TheDiscDB hit that names none of the entries found counts too
   const universe = [...all.values()].filter((en) => !twinIds.has(en.id));
@@ -621,7 +633,7 @@ async function decide(e: DiscEvidence, given: readonly Piece[], hit: DiscDbHit |
     return fits.length > 0 ? !fits.includes(best.entry) : p.kind === 'discdb';
   });
   if (disagree) return unsorted('sources-disagree', [...ranked, ...universe.filter((en) => pieces.some((p) => fit(p, en, fitSeason) > 0))]);
-  // a folder above the disc folder's parent may support a match but is never its only evidence (ruling T5n)
+  // a folder above the disc folder's parent may support a match but is never its only evidence
   if (!pieces.some((p) => !p.far && fit(p, best.entry, fitSeason) > 0)) return unsorted('no-title', [best.entry]);
   if (severalTwins.length > 0) return unsorted('several-fit', severalTwins);
   if (notTwins.length > 0) return unsorted('several-fit', [...ranked, ...notTwins]);
@@ -634,7 +646,7 @@ async function decide(e: DiscEvidence, given: readonly Piece[], hit: DiscDbHit |
   if (competitor && (!best.exact || best.kinds.size < 2)) return unsorted('several-fit', ranked);
   if (!best.exact) return unsorted(names(best.entry).some((n) => parseName(n).season !== null) ? 'no-season' : 'no-title', ranked);
   // the evidence's Japanese titles name something else than the entry's Japanese names: the disc may be another work
-  // of the same name, so it isn't filed (ruling M7b)
+  // of the same name, so it isn't filed
   if (japaneseTitles.length > 0 && japaneseNames(best.entry).length > 0 && !agreesInJapanese(best.entry)) return unsorted('sources-disagree', [best.entry]);
 
   const bonus = named.some((p) => p.parse.bonus);
@@ -647,10 +659,10 @@ async function decide(e: DiscEvidence, given: readonly Piece[], hit: DiscDbHit |
   if (!bonus && episodes !== null && count !== null && episodes[1] > count) return unsorted('episode-past-season', [best.entry]);
 
   // a generic disc folder (`BDROM`) in a single disc's release folder (`[BDMV][Title][Vol.2][JPN]`) takes that folder's
-  // volume as its own (ruling M10); a range (`Vol.1-6`) parses as no volume
+  // volume as its own; a range (`Vol.1-6`) parses as no volume
   const parent = named.find((p) => !p.own && p.kind === 'folder');
   const generic = GENERIC_DISC.test(lastSegment(e.path).normalize('NFKC').trim()) && parent !== undefined && parent.parse.volume !== null &&
-    parent.parse.disc === null && parent.parse.box === null; // a parent naming a disc or box too is no single-disc release (W2)
+    parent.parse.disc === null && parent.parse.box === null; // a parent naming a disc or box too is no single-disc release
   const own = generic
     ? [...named.filter((p) => p.own), { ...parent, own: true, parse: { ...parent.parse, disc: null } }]
     : named.filter((p) => p.own);
@@ -659,18 +671,18 @@ async function decide(e: DiscEvidence, given: readonly Piece[], hit: DiscDbHit |
   const ownVolumes = new Set(own.map((p) => p.parse.volume).filter((n): n is number => n !== null));
   const ownDiscs = new Set(own.map((p) => p.parse.disc).filter((n): n is number => n !== null));
   const base = { e, entry: best.entry, season, bonus, via, filmLike: filmTwinned.has(best.entry.id), unplaceable: false, fromParent: false };
-  // inside a box, a name with a volume and a disc number has three numbers and no rule to place it by (F2)
+  // inside a box, a name with a volume and a disc number has three numbers and no rule to place it by
   if (box !== null && own.some((p) => p.parse.volume !== null && p.parse.disc !== null)) {
     return { ...base, disc: null, box, volumeBox: false, family: boxFamily(e.path, false), numberFrom: null, unplaceable: true };
   }
   // a name carrying a volume and a disc number (`Title Vol.1 Disc 2`): the volume is a box, numbered across the
-  // volumes like `Volume M/Disc K` folders, within the group folder (P1)
+  // volumes like `Volume M/Disc K` folders, within the group folder
   if (box === null && own.some((p) => p.parse.volume !== null && p.parse.disc !== null)) {
     const one = ownVolumes.size === 1 && ownDiscs.size === 1;
     return { ...base, disc: one ? [...ownDiscs][0]! : null, box: one ? [...ownVolumes][0]! : null, volumeBox: one, family: groupKey(e), numberFrom: null };
   }
   const numbers = new Set(own.map((p) => p.parse.volume ?? p.parse.disc).filter((n): n is number => n !== null));
-  // a `Volume M/Disc K` pair: the volume numbers the discs across the volumes, like a box (ruling M1), so Disc 1 of
+  // a `Volume M/Disc K` pair: the volume numbers the discs across the volumes, like a box, so Disc 1 of
   // Volume 2 never shares a slot with Disc 1 of Volume 1
   const volume = box === null && ownVolumes.size === 0 && ownDiscs.size > 0
     ? named.find((p) => !p.own && p.kind === 'folder' && p.parse.volume !== null)?.parse.volume ?? null
@@ -684,8 +696,8 @@ async function decide(e: DiscEvidence, given: readonly Piece[], hit: DiscDbHit |
 
 /**
  * Rule 4: each disc's place. Its own number counts. In a box set, discs are numbered across the boxes in (box, disc)
- * order, only when every box from 1 up is present and each box's disc numbers run from 1 with no gap (ruling T5h);
- * otherwise discs of box 2 and up have no place. Volumes holding numbered discs count as boxes (ruling M1). Unnumbered
+ * order, only when every box from 1 up is present and each box's disc numbers run from 1 with no gap;
+ * otherwise discs of box 2 and up have no place. Volumes holding numbered discs count as boxes. Unnumbered
  * discs are numbered in folder order when their group folder gives the release's disc count and they are exactly that
  * many. A bonus disc needs no number, nor does a movie (or an AniList entry whose twin is a TMDB movie) that is the
  * only disc of its entry in its group. A disc of box 2 and up waits for `familyMatched`.
@@ -698,9 +710,9 @@ function placeDiscs(pending: readonly Pending[], entries: Map<string, Entry>, fa
     let disc: number | null = p.disc;
     let placed = p.bonus;
     if (!placed && p.unplaceable) {
-      // no place (F2)
+      // no place
     } else if (!placed && p.box !== null && p.box > 1) {
-      // boxes run within one family and one kind (volumes or boxes), so another edition or a box set never shifts them (R1)
+      // boxes run within one family and one kind (volumes or boxes), so another edition or a box set never shifts them
       const boxed = pending.filter((q) => same(p, q) && q.box !== null && q.volumeBox === p.volumeBox && q.family === p.family);
       const running = familyMatched(p) ? boxRunning(boxed) : null;
       disc = running?.get(p) ?? null;
@@ -721,9 +733,9 @@ function placeDiscs(pending: readonly Pending[], entries: Map<string, Entry>, fa
   }
   // two discs in one slot whose numbers come from different schemes (`Volume 1/Disc 2` numbered across volumes, a
   // `Volume 2` disc folder by its own volume, `BD/Disc 2` by its own disc number, `Box 1/Disc 2` within its box), in
-  // one group folder or two, can't both be right, and the catalogue would merge them as copies (W3, R2, P2). Once two
+  // one group folder or two, can't both be right, and the catalogue would merge them as copies. Once two
   // origins clash, no disc of the entry and season numbered by either keeps its number, so a title never mixes
-  // numbering schemes (ruling M5). Discs numbered the same way in one slot are copies or editions of one disc, as
+  // numbering schemes. Discs numbered the same way in one slot are copies or editions of one disc, as
   // before, and so are discs with the same content.
   const byId = new Map(pending.map((p) => [p.e.discId, p]));
   /** How a disc's number was read: across volumes, within a box, its own volume or disc number, or folder order. */
@@ -743,11 +755,11 @@ function placeDiscs(pending: readonly Pending[], entries: Map<string, Entry>, fa
     }
   }
   // and one numbering kind per entry and season, whatever the slots: `Volume 1/Disc 1` and a bare `Volume 2` can't both
-  // be right, since `Disc 1` says Volume 1 has more discs (ruling M5b)
+  // be right, since `Disc 1` says Volume 1 has more discs
   const kinds = new Map<string, Set<string>>();
   for (const { p } of numbered) kinds.set(slotKey(p), (kinds.get(slotKey(p)) ?? new Set()).add(kind(p)));
   // a generic disc folder takes its release folder's volume only as that release's single disc: once any of those
-  // folders holds another disc, whatever it matched, no disc numbered so keeps its number (W3, R2)
+  // folders holds another disc, whatever it matched, no disc numbered so keeps its number
   const shared = new Set<string>();
   for (const p of pending) if (p.fromParent && p.folderDiscs > 1) shared.add(slotKey(p));
   return out.map((m) => {
@@ -781,7 +793,7 @@ function boxRunning(boxed: readonly Pending[]): Map<Pending, number> | null {
 
 /**
  * The best fit of any of a piece's candidates; a TheDiscDB hit also fits the TMDB entry it names. The Japanese half of
- * a folder's `English (日本語)` name is the same title as the first, so it fits as fully (ruling M2).
+ * a folder's `English (日本語)` name is the same title as the first, so it fits as fully.
  */
 function fit(p: Piece, en: Entry, season: number | null): number {
   if (p.hit?.tmdbId && en.id === `tmdb-${p.hit.kind === 'series' ? 'tv' : 'movie'}:${p.hit.tmdbId}`) return EXACT;
@@ -798,7 +810,7 @@ function names(en: Entry): string[] {
   return [en.names.english, en.names.romaji, en.names.native, ...en.names.synonyms].filter((n): n is string => n !== null && n.trim() !== '');
 }
 
-/** Equal under `normalizeStrict`, or romaji (ASCII) equal to a name with macrons once they are dropped (ruling T5e). */
+/** Equal under `normalizeStrict`, or romaji (ASCII) equal to a name with macrons once they are dropped. */
 function sameTitle(a: string, b: string): boolean {
   const sa = normalizeStrict(a);
   const sb = normalizeStrict(b);
@@ -830,16 +842,16 @@ function quality(en: Entry, candidate: string, season: number | null): number {
   return q;
 }
 
-/** False when the evidence has years and the entry's year is more than YEAR_SLACK from all of them (ruling T5j). */
+/** False when the evidence has years and the entry's year is more than YEAR_SLACK from all of them. */
 function yearFits(en: Entry, years: readonly number[]): boolean {
   return en.year === null || years.length === 0 || years.some((y) => Math.abs(y - en.year!) <= YEAR_SLACK);
 }
 
 /**
- * Whether a TMDB entry's year fits an AniList entry's (ruling T5q). A TMDB series is dated by its first season, so for a
+ * Whether a TMDB entry's year fits an AniList entry's. A TMDB series is dated by its first season, so for a
  * series the window runs from the AniList chain root's year (the first TV season; this entry's own year when the chain
  * is unknown) to this entry's year, each widened by YEAR_SLACK (the start by `early` when given, TMDB_TV_EARLY for a
- * twin series, M12); a movie keeps YEAR_SLACK on both sides. A missing year
+ * twin series); a movie keeps YEAR_SLACK on both sides. A missing year
  * fits when `unknownFits`.
  */
 function inYearWindow(a: Entry, rootYear: number | null, t: Entry, unknownFits: boolean, early = YEAR_SLACK): boolean {
@@ -857,25 +869,25 @@ interface TwinInfo {
 
 /**
  * How an AniList entry and a TMDB entry name the same title, or null when they aren't twins: TMDB marks it animated, the
- * same kind, a year in the window (ruling T5q), and a name strictly equal to one of the AniList names (`name`), or only
+ * same kind, a year in the window, and a name strictly equal to one of the AniList names (`name`), or only
  * to one with its season stripped (`base`: TMDB names the series, AniList the season, `Harbor Line Season 3`), or the
- * two fit the two halves of one folder's `English (日本語)` name (`segment`, ruling M2). An AniList MOVIE, SPECIAL or
- * OVA and a TMDB movie are twins too, by a strictly equal name only (ruling M4).
+ * two fit the two halves of one folder's `English (日本語)` name (`segment`). An AniList MOVIE, SPECIAL or
+ * OVA and a TMDB movie are twins too, by a strictly equal name only.
  */
 function twinMatch(a: Entry, rootYear: number | null, t: Entry, named: readonly Piece[], season: number | null): 'name' | 'base' | 'segment' | null {
   const film = a.kind !== t.kind && t.kind === 'movie' && FILM_FORMATS.has(a.format ?? '');
-  // a TMDB series' first-air year may be up to TMDB_TV_EARLY years before the AniList chain root's (ruling M12)
+  // a TMDB series' first-air year may be up to TMDB_TV_EARLY years before the AniList chain root's
   const early = a.kind === 'series' && t.kind === 'series' ? TMDB_TV_EARLY : YEAR_SLACK;
   if (t.animation !== true || (a.kind !== t.kind && !film) || !inYearWindow(a, rootYear, t, false, early)) return null;
   // in the widened years only, TMDB must carry a Japanese name the AniList entry shares, so a same-named Western
-  // cartoon doesn't pass for the twin (ruling M12b)
+  // cartoon doesn't pass for the twin
   const widened = early > YEAR_SLACK && t.year !== null && a.year !== null && t.year < (rootYear ?? a.year) - YEAR_SLACK;
   if (widened && !names(t).some((n) => JAPANESE.test(n) && names(a).some((m) => folded(m) === folded(n)))) return null;
   if (names(a).some((x) => names(t).some((y) => sameTitle(x, y)))) return 'name';
   if (film) return null;
   if (seriesNames(a).some((x) => names(t).some((y) => sameTitle(x, y)))) return 'base';
   // TMDB must also carry a Japanese name that is the folder's Japanese half or an AniList name: without one nothing
-  // ties the two halves to one work, and with another one TMDB's entry is another work (ruling M2b)
+  // ties the two halves to one work, and with another one TMDB's entry is another work
   const japanese = names(t).filter((n) => JAPANESE.test(n));
   return named.some((p) => {
     const cands = p.parse.candidates;
@@ -898,16 +910,16 @@ function halves(candidates: readonly string[]): [string, string][] {
   return candidates.flatMap((c, i): [string, string][] => (japaneseHalf(candidates, i) ? [[candidates[0]!, c], [c, candidates[0]!]] : []));
 }
 
-/** Whether a folder name carries the anime tag, `[アニメ]` or `[Anime]`, alone or among other tags in its brackets (M8, W4). */
+/** Whether a folder name carries the anime tag, `[アニメ]` or `[Anime]`, alone or among other tags in its brackets. */
 function animeTagged(segment: string): boolean {
   // a bracket of tags only (`[Not Anime]` doesn't count), with no other genre beside it in any of the folder's
-  // brackets (`[Anime+Drama]`, `[アニメ][特撮]` don't count, W4)
+  // brackets (`[Anime+Drama]`, `[アニメ][特撮]` don't count)
   const brackets = [...segment.normalize('NFKC').matchAll(/[[【]([^\]】]*)[\]】]/g)].map((m) => (m[1] ?? '').split(/[+\s,/&]+/).filter((t) => t !== ''));
   if (brackets.some((tokens) => tokens.some((t) => OTHER_GENRES.test(t)))) return false;
   return brackets.some((tokens) => tokens.some((t) => t === 'アニメ' || t.toLowerCase() === 'anime') && tokens.every(isTagWord));
 }
 
-/** A name under `normalizeStrict`, with katakana folded to hiragana (no long-vowel folding) and kanji variants to one form (M7e, M7f). */
+/** A name under `normalizeStrict`, with katakana folded to hiragana (no long-vowel folding) and kanji variants to one form. */
 function folded(text: string): string {
   return normalizeStrict(text)
     .replace(/[ァ-ヶ]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0x60))
@@ -922,7 +934,7 @@ function storyLinked(a: Entry, b: Entry): boolean {
 /**
  * Whether a TMDB entry is an AniList entry's twin. A TMDB TV series must also have at least as many seasons as the
  * AniList TV entry's place in its chain; when that can't be told (the season count or the place is unknown), only a
- * full-name match counts (ruling T5t), never a `base` or `segment` one.
+ * full-name match counts, never a `base` or `segment` one.
  */
 async function isTwin(a: Entry, info: TwinInfo, t: Entry, named: readonly Piece[], season: number | null, ctx: MatchContext): Promise<boolean> {
   const how = twinMatch(a, info.rootYear, t, named, season);

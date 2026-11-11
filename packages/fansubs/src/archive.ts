@@ -5,6 +5,7 @@ import { createRequire } from 'node:module';
 import SevenZip from '7z-wasm/7zz.es6.js';
 import type { SevenZipModule } from '7z-wasm';
 
+/** Thrown when an archive or a download is larger than its limit; the message says which limit. */
 export class TooLargeArchive extends Error {
   constructor(what: string) {
     super(`archive too large: ${what}`);

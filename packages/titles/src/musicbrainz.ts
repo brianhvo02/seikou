@@ -25,6 +25,10 @@ interface MbRelease {
   readonly 'cover-art-archive'?: { readonly front?: boolean | null } | null;
 }
 
+/**
+ * A MusicBrainz client for release lookups by catalogue number, sending a User-Agent that carries `contact` when
+ * given. A network error, a bad status or rate limiting throws `SourceUnavailable`; no match is null.
+ */
 export function createMusicBrainz(fetch: typeof globalThis.fetch, pacer: Pacer, contact: string | null = null): MusicSource {
   const userAgent = lookupUserAgent(contact);
   /** One paced GET; null on 404. */

@@ -4,8 +4,11 @@ import { episodeOfFile, fileVersion, mainFile, seasonEpisode } from './episode-f
 import type { SeaDexEntry, SeaDexRelease } from './seadex';
 import type { ToshoFile, ToshoRelease, ToshoTrack } from './tosho';
 
+/** A SeaDex release found on Anime Tosho. */
 export interface Candidate {
+  /** The release as Anime Tosho lists it, with its files. */
   readonly release: ToshoRelease;
+  /** The same release as SeaDex lists it. */
   readonly seadex: SeaDexRelease;
   readonly rank: SeaDexRank;
 }
@@ -21,6 +24,7 @@ const LANGUAGES: Readonly<Record<string, string>> = {
   bg: 'bul', hr: 'hrv', sk: 'slo', sl: 'slv', sr: 'srp', ca: 'cat', fil: 'fil', tl: 'tgl', my: 'bur', ta: 'tam',
 };
 
+/** A language code (ISO 639-1, 639-2/T or 639-2/B, with any region after `-` or `_`) as 639-2/B, lower case; a code not in the table is returned lower-cased as it is. */
 export function normalizeLanguage(code: string): string {
   const c = (code.trim().toLowerCase().split(/[-_]/)[0]) ?? '';
   return LANGUAGES[c] ?? c;
@@ -52,13 +56,19 @@ export function rankReleases(entry: SeaDexEntry): { release: SeaDexRelease; rank
   return out;
 }
 
+/** The release, file and tracks chosen for one episode. */
 export interface EpisodeChoice {
   readonly candidate: Candidate;
+  /** The release's file for the episode. */
   readonly file: ToshoFile;
+  /** The file's ASS/SSA tracks in the wanted languages. */
   readonly tracks: readonly ToshoTrack[];
 }
 
-/** `season: null` means a movie (`episodes` is `[1]`). */
+/**
+ * Picks for each episode the first candidate (in the order given) whose file for it has ASS/SSA tracks in one of
+ * `languages`. `season: null` means a movie (`episodes` is `[1]`).
+ */
 export function choosePerEpisode(
   candidates: readonly Candidate[],
   episodes: readonly number[],

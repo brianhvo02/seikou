@@ -8,8 +8,9 @@ export class RateLimited extends Error {
   }
 }
 
+/** Options of one paced call. */
 export interface PacedOptions {
-  /** An interactive call: it starts ahead of the calls already waiting that aren't urgent (ruling T9h). */
+  /** An interactive call: it starts ahead of the calls already waiting that aren't urgent. */
   readonly urgent?: boolean;
   /** Aborting it drops the call while it waits for its turn, rejecting with the signal's reason. */
   readonly signal?: AbortSignal;
@@ -38,7 +39,7 @@ function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
 /**
  * Starts at most `perWindow` calls in any `windowMs` (a sliding window), in the order they were made, urgent ones first
  * while they have started fewer than 2/3 of `perWindow` in the window; past that share they take their turn in arrival
- * order, so background calls keep progressing (ruling T9j).
+ * order, so background calls keep progressing.
  * A call that throws `RateLimited` holds every call back for its Retry-After (one window without one),
  * is retried once, and a second `RateLimited` becomes `SourceUnavailable`.
  */

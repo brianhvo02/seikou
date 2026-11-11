@@ -1,4 +1,4 @@
-/** Rules about saved places shared by the NAS server and the app (resume spec 2026-10-20 §6.5). Original code. */
+/** Rules about saved places shared by the NAS server and the app (see `docs/superpowers/specs/2026-10-20-permalinks-resume-design.md`). Original code. */
 
 /** A place this near the start asks nothing (and stays off Continue watching): at most 30 s... */
 export const SHORT_PLACE_MAX_US = 30_000_000;

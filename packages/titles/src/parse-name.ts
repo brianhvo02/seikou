@@ -1,5 +1,5 @@
 /**
- * Name parsing (spec §7): turns a folder name or a disc title into candidate titles plus the season, volume, disc, box,
+ * Name parsing: turns a folder name or a disc title into candidate titles plus the season, volume, disc, box,
  * year, episodes, bonus and music markers it carries. Original code; the corpus in corpus.ts pins its behaviour.
  *
  * When a name is unclear the parser gives an empty candidate or a null number, never a guess: candidates and numbers
@@ -25,9 +25,9 @@ class Found {
   readonly numbers = new Map<NumberField, number | 'conflict'>();
   episodes: readonly [number, number] | null = null;
   bonus = false;
-  /** The name carries a BDMV, BD, disc or volume tag, so ` - NN` is not a fansub episode number (ruling T3f). */
+  /** The name carries a BDMV, BD, disc or volume tag, so ` - NN` is not a fansub episode number. */
   discName = false;
-  /** A scene name's year at its very end (`Night_2012`), cut by markYear but maybe part of the title (Y4). */
+  /** A scene name's year at its very end (`Night_2012`), cut by markYear but maybe part of the title. */
   sceneEndYear: number | null = null;
   /** Titles with that year kept (`Night 2012`): later candidates, so an entry named so still competes. */
   readonly alternates: string[] = [];
@@ -100,7 +100,7 @@ const STRUCTURE: readonly { readonly re: RegExp; readonly read: (f: Found, m: st
   { re: /\bBOX[ ._]*(\d{1,2})\b/gi, read: (f, m) => f.set('box', toNumber(m[1])) },
   // a fansub-style episode number: `Foo - 05` before tags or at the end
   // (a year here was taken by markYear first, so a four-digit number left is not a year); never a single digit, and
-  // never in a disc name, where it is more likely a volume (ruling T3f)
+  // never in a disc name, where it is more likely a volume
   {
     re: new RegExp(`\\s-\\s(\\d{2,4})(?:v\\d)?(?=\\s*(?:${MARK}|$))`, 'g'),
     read: (f, m) => { if (!f.discName) f.setEpisodes(Number(m[1]), Number(m[1])); },
@@ -140,9 +140,9 @@ const GENERIC_LABEL = /^(?:(?:BDROM|BD[ _-]?ROM|BD[ _-]?VIDEO|BD|BLU-?RAY|VIDEO_
 /** `Part 2`, `2nd Cour`, `Cour 2`: kept on the title, since AniList titles carry them. */
 const PART = /^\s*(?:Part[ ._]*\d{1,2}|\d{1,2}(?:st|nd|rd|th)[ ._]*Cour|Cour[ ._]*\d{1,2})\b/i;
 const YEAR = /\b((?:19|20)\d{2})\b/g;
-/** A Japanese year, `2013年` or `2013年製作` (made in 2013), not run into a title (`1999年の夏` keeps its title, M6). */
+/** A Japanese year, `2013年` or `2013年製作` (made in 2013), not run into a title (`1999年の夏` keeps its title). */
 const KANJI_YEAR = /(?<![\p{L}\p{N}])((?:19|20)\d{2})年(?:製作|制作)?(?![\p{L}\p{N}])/gu;
-/** Region and language tags, upper case only so that words aren't taken for them: tags inside brackets or parens (M6). */
+/** Region and language tags, upper case only so that words aren't taken for them: tags inside brackets or parens. */
 const REGION_TAG = /^(?:US|USA|JP|JPN|UK|EU|ITA|ENG|FRA|GER|KOR|CHN|HK|TW)$/;
 const TRIM = /^[\s\-–—:~_.,・/|+&]+|[\s\-–—:~_.,・/|+&]+$/g;
 const CJK_END = /^(.*[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}])\s+(\d{1,2})$/u;
@@ -151,7 +151,7 @@ const clean = (piece: string): string => piece.replace(/\s+/g, ' ').replace(TRIM
 const WHOLE_WEAK = new RegExp(`^(?:${WEAK_TAG.source})$`, 'i');
 /**
  * An upper-case format word leading a title (`BD Foo Vol.2`) may be a tag, but only when the name carries another tag
- * (ruling T3e); `Iso Tribe` and `DVD Club` keep their titles.
+ *; `Iso Tribe` and `DVD Club` keep their titles.
  */
 const LEADING_FORMAT = /^(?:BD|DVD|ISO|4K)\s+(?=\S)/;
 const ANY_STRONG_TAG = new RegExp(STRONG_TAG.source, 'i');
@@ -197,7 +197,7 @@ function markYear(t: string, f: Found, scene: boolean): string {
 /** Strips structure and tags from free text, recording what it finds, and returns the title piece left (or ''). */
 function scan(text: string, f: Found, opts: { readonly scene: boolean; readonly bracket: boolean }): string {
   let t = markTags(text.replace(DATE, CUT).replace(CATALOGUE, CUT), opts.bracket);
-  // a year run into a title (`星の海2020年`) is part of it, and one out of range is left alone (W5)
+  // a year run into a title (`星の海2020年`) is part of it, and one out of range is left alone
   t = t.replace(KANJI_YEAR, (whole: string, y: string) => {
     const year = Number(y);
     if (year < 1900 || year > new Date().getFullYear() + 1) return whole;
@@ -238,7 +238,7 @@ export function isTagWord(word: string): boolean {
   return BRACKET_TAG.test(w) || WHOLE_TAG.test(w) || REGION_TAG.test(w);
 }
 
-/** A group of region and language tags only (`(HK)`, `[US]`), in brackets or parens (M6). */
+/** A group of region and language tags only (`(HK)`, `[US]`), in brackets or parens. */
 const regionGroup = (content: string): boolean => {
   const tags = content.trim().split(/[+\s,/&]+/).filter((t) => t !== '');
   return tags.length > 0 && tags.every((t) => REGION_TAG.test(t));
@@ -292,11 +292,15 @@ function scanGroup(group: Group, f: Found): string {
     f.setEpisodes(Number(range[1]), Number(range[2]));
     return '';
   }
-  // a scene-style name in a group (`[Brasswick_2006]`) separates words with dots or underscores, as outside (M6)
+  // a scene-style name in a group (`[Brasswick_2006]`) separates words with dots or underscores, as outside
   const scene = !/\s/.test(c) && /[._]/.test(c);
   return scan(scene ? c.replace(/[._]/g, ' ') : c, f, { scene, bracket: group.bracket });
 }
 
+/**
+ * Reads a folder name or a disc title. It never throws: a field the name doesn't give, or gives twice with different
+ * values, is null (or false), and `candidates` may be empty.
+ */
 export function parseName(text: string): ParsedName {
   const f = new Found();
   const nfkc = text.normalize('NFKC').trim();
@@ -323,7 +327,7 @@ export function parseName(text: string): ParsedName {
     const bracketTitles = title !== '' ? [] : brackets.filter(({ g, title: t }, i) =>
       t !== '' && !(g.start === 0 && !/\s/.test(t) && brackets.slice(i + 1).some((b) => b.title !== '')));
     const loneTag = groups.length === 1 && groups[0]?.bracket === true && clean(raw.replace(new RegExp(MARK, 'g'), '')) === '' && !/\s/.test(groups[0].content.trim());
-    // a leading format word is dropped only when another tag backs it, and the full title stays first (ruling T3e)
+    // a leading format word is dropped only when another tag backs it, and the full title stays first
     const tagged = groups.some((g) => isTagGroup(g.bracket, g.content)) || ANY_STRONG_TAG.test(nfkc) ||
       (['season', 'volume', 'disc'] as const).some((k) => f.numbers.has(k));
     const stripped = tagged && LEADING_FORMAT.test(title) ? title.replace(LEADING_FORMAT, '') : '';

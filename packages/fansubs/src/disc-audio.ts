@@ -18,10 +18,13 @@ const MARGIN_45 = 22_500;
 
 /** 16 kHz mono PCM of one stretch of a playlist; `startMs` is the playlist time of `pcm[0]`. */
 export interface AudioWindow {
+  /** Where the stretch starts in the episode, in milliseconds. */
   readonly startMs: number;
+  /** 16 kHz mono signed 16-bit samples. */
   readonly pcm: Int16Array;
 }
 
+/** A span of an episode's time, in milliseconds from its start. */
 export interface TimeWindow {
   readonly fromMs: number;
   readonly toMs: number;

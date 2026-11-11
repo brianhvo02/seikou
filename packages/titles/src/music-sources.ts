@@ -4,25 +4,37 @@
  */
 import type { SourceUnavailable } from './sources';
 
+/** An artist of a music release. */
 export interface MusicArtist {
+  /** The source's id for the artist (a MusicBrainz id, or `discogs-artist:` and Discogs's number). */
   readonly id: string;
   readonly name: string;
+  /** The name as sorted in a list, else null. */
   readonly sortName: string | null;
+  /** Other names of the artist; `locale` is the language a name belongs to and `primary` marks the one the source prefers for it. */
   readonly aliases: readonly { readonly name: string; readonly locale: string | null; readonly primary: boolean }[];
 }
 
+/** A release a music source found for a catalogue number. */
 export interface MusicRelease {
   readonly source: 'musicbrainz' | 'discogs';
+  /** The source's id for the release (a MusicBrainz id, or `discogs:` and Discogs's number). */
   readonly id: string;
   readonly title: string;
+  /** `YYYY`, `YYYY-MM` or `YYYY-MM-DD`, as precise as the source is; else null. */
   readonly date: string | null;
   readonly artists: readonly MusicArtist[];
+  /** MusicBrainz's release-group type (`Album`, `Single`, `EP`, …), else null. */
   readonly primaryType: string | null;
+  /** MusicBrainz's secondary types (`Live`, `Compilation`, …). */
   readonly secondaryTypes: readonly string[];
+  /** True when the source marks the release as a live recording. */
   readonly live: boolean;
+  /** Cover image URLs at two sizes, else null. */
   readonly cover: { readonly small: string; readonly large: string } | null;
 }
 
+/** A source of music releases, found by catalogue number. */
 export interface MusicSource {
   /** Throws `SourceUnavailable` (a network error, 5xx or rate limiting); null is a miss. */
   byCatalogue(catalogueNumber: string): Promise<MusicRelease | null>;

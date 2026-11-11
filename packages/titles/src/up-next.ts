@@ -1,6 +1,6 @@
 /**
- * Continue watching and per-title progress, worked out from a person's places and the live catalogue (resume spec
- * §6.4 and §6.6). Pure: the catalogue, the places and the disc lookups come in as arguments. Original code.
+ * Continue watching and per-title progress, worked out from a person's places and the live catalogue (the resume
+ * design in `docs/superpowers/specs/2026-10-20-permalinks-resume-design.md`). Pure: the catalogue, the places and the disc lookups come in as arguments. Original code.
  */
 import type { ContinueItem, EpisodeRef, PlaybackPlace, PlaylistProgress, TitleDetail, TitleSummary } from '@seikou/nas/nas-api';
 import { encodeId, parseEncodePlaceKey } from '@seikou/nas/encode-id';
@@ -88,7 +88,7 @@ function catalogueFields(slot: EpisodeSlot): Pick<ContinueItem, 'titleId' | 'tit
 export function continueWatching(
   places: readonly PlaybackPlace[], catalogue: Catalogue, discsOf: DiscsOf, discKeyOf: (discId: string) => string = (id) => `d.${id}`,
 ): ContinueItem[] {
-  // an unfinished place near its start is none to resume (spec §6.5): it makes no card and holds back no Up next card;
+  // an unfinished place near its start is none to resume: it makes no card and holds back no Up next card;
   // an encode's place belongs to the encodes list alone
   places = places.filter((p) => parseEncodePlaceKey(p.discKey) === null && (p.finished || !isShortPlace(p.timeUs, p.durationUs)));
   if (places.length === 0) return [];

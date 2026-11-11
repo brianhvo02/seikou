@@ -66,6 +66,10 @@ function toEntry(s: Show, kind: 'series' | 'movie'): Entry {
   };
 }
 
+/**
+ * A TMDB client (search and entry for TV series and movies), authenticated with `apiKey`. A network error, a bad
+ * status or rate limiting throws `SourceUnavailable`; an unknown id is null. The key never appears in an error message.
+ */
 export function createTmdb(fetch: typeof globalThis.fetch, pacer: Pacer, apiKey: string): MetadataSource {
   /** GETs one path (logged as the path only); null on 404. */
   const get = (path: string, params: Record<string, string> = {}, paced: PacedOptions = {}): Promise<unknown> =>

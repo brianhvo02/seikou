@@ -4,14 +4,18 @@ import { join } from 'node:path';
 import type { OwnerChoice, OwnTitle, TitleKind } from '@seikou/nas/nas-api';
 import { isCode, lockFile, replaceAtomically } from './atomic-json';
 
+/** The owner's decisions at one moment, as `OwnerStore.snapshot` reads them. */
 export interface OwnerSnapshot {
+  /** The choice for each disc, by disc id. */
   readonly choices: ReadonlyMap<string, OwnerChoice>;
   readonly ownTitles: readonly OwnTitle[];
+  /** Names the owner gave a disc or a music title, by id. */
   readonly displayNames: ReadonlyMap<string, string>;
+  /** Who may use the title routes: `owners`, `everyone`, or null when the owner never set it (the server's default applies). */
   readonly gate: 'owners' | 'everyone' | null;
 }
 
-/** `direct`: the owner chose for this disc; `group`: filed with "apply to the group" from another disc (ruling T9f). */
+/** `direct`: the owner chose for this disc; `group`: filed with "apply to the group" from another disc. */
 export type ChoiceOrigin = 'direct' | 'group';
 
 interface OwnerData {
@@ -32,7 +36,7 @@ function fail(file: string, what: string): never {
  */
 export class OwnerStore {
   private readonly file: string;
-  /** The gate as last read, and the owner.json it was read from (inode, mtime, size), or 'missing' (M10). */
+  /** The gate as last read, and the owner.json it was read from (inode, mtime, size), or 'missing'. */
   private gateRead: { readonly stamp: string; readonly gate: 'owners' | 'everyone' | null } | null = null;
 
   constructor(dir: string) {
@@ -51,7 +55,7 @@ export class OwnerStore {
   }
 
   /**
-   * The library gate, read again only when owner.json changes (M10): it is asked on every title and art request.
+   * The library gate, read again only when owner.json changes: it is asked on every title and art request.
    */
   gate(): 'owners' | 'everyone' | null {
     let stamp = 'missing';

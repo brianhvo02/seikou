@@ -32,6 +32,7 @@ export function isExtraFile(name: string): boolean {
   return dirsOf(name).some((d) => EXTRA_DIRS.has(d.trim().toLowerCase())) || EXTRA_WORD.test(baseOf(name));
 }
 
+/** The episode number a file name gives (`Show - 05`, `S01E05`, `Ep05` and the like, ignoring a trailing CRC), or null for an extra or a name with none. */
 export function episodeOfFile(name: string): number | null {
   if (isExtraFile(name)) return null;
   const base = baseOf(name).replace(/\.[A-Za-z0-9]{2,4}$/, '').replace(CRC, '');
