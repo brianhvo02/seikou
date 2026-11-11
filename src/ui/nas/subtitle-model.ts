@@ -4,8 +4,15 @@ import { mainPlaylistId, playlistOf } from './library-model';
 import { NasHttpError, type NasClient } from './nas-client';
 import { discHeading } from './title-model';
 
+/**
+ * Stored subtitles, pure: the checks an upload must pass before it is sent, which stored subtitles belong to a
+ * playlist, a season or an encoded episode, where in the playlist each starts, offsets and languages as typed, and
+ * the places an owner can attach an upload to.
+ */
+
 /** The server's limits (`server/src/subtitle-store.ts`), shown here so a pick is refused before it uploads. */
 export const SUBTITLE_LIMIT_BYTES = 5 * 1024 * 1024;
+/** The most the fonts of one upload may total. */
 export const FONTS_LIMIT_BYTES = 50 * 1024 * 1024;
 
 /** The languages the upload form offers; any other BCP 47 tag may be typed. */
@@ -153,6 +160,7 @@ export function formatOffset(ms: number): string | null {
 /** The shortest playlist the upload form offers for a disc and chapter. */
 export const MIN_PLAYLIST_US = 60_000_000;
 
+/** A playlist the upload form offers: its id, its length in microseconds and its chapters. */
 export interface PlaylistChoice {
   readonly id: string;
   readonly durationUs: number;

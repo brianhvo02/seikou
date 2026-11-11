@@ -46,7 +46,7 @@ const watchInRange = watcher(SCROLL_RANGE);
 /**
  * A poster or banner from the NAS, or the title's initials when it has none. Posters load through one queue that takes
  * those on screen first, then those within two screens of scrolling, then, on a fast connection, the rest, and
- * follows the scrolling. Its URL is made with the session token current when its turn comes (ruling T10h), not when
+ * follows the scrolling. Its URL is made with the session token current when its turn comes, not when
  * it mounted; a failed load (a token that lapsed meanwhile, say) is tried once more with a fresh token before the
  * initials show.
  */

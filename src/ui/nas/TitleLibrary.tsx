@@ -84,10 +84,6 @@ const SHELVES: readonly { readonly id: Shelf; readonly label: string }[] = [
   { id: 'unsorted', label: 'Unsorted' },
 ];
 
-/**
- * What the library fetched this session (spec §10: the title list once per session), per NAS client, so leaving and
- * coming back, or going back from a title, doesn't fetch again.
- */
 /** A title's seasons' ids, the same array for the same detail (a season screen's memo depends on it). */
 const seasonIdCache = new WeakMap<TitleDetail, readonly string[]>();
 function seasonIdsOf(detail: TitleDetail): readonly string[] {
@@ -96,6 +92,10 @@ function seasonIdsOf(detail: TitleDetail): readonly string[] {
   return ids;
 }
 
+/**
+ * What the library fetched this session (the title list and each title's detail), per NAS client, so leaving and
+ * coming back, or going back from a title, doesn't fetch again.
+ */
 const sessionCache = new WeakMap<NasClient, { titles?: Promise<TitleSummary[]>; details: Map<string, Promise<TitleDetail>> }>();
 function cacheOf(nas: NasClient): { titles?: Promise<TitleSummary[]>; details: Map<string, Promise<TitleDetail>> } {
   let cache = sessionCache.get(nas);
@@ -128,10 +128,10 @@ const forgetTitles = (nas: NasClient): void => {
   c.details.clear();
 };
 
-/** While the first matching run fills an empty library, owners see its progress refreshed this often (ruling F4). */
+/** While the first matching run fills an empty library, owners see its progress refreshed this often. */
 const PROGRESS_POLL_MS = 10_000;
 
-/** Title routes answer 404 to a guest once the gate is closed (ruling T9c). */
+/** Title routes answer 404 to a guest once the gate is closed. */
 const isGateClosed = (err: unknown): boolean => err instanceof NasHttpError && err.status === 404;
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
@@ -189,7 +189,7 @@ function TitleRow({ nas, title, onOpen, jump }: TitleCardProps): ReactElement {
   );
 }
 
-/** The NAS by title (spec §14, mockups 1–3): search, shelves, recently added and A–Z, then a title's seasons and discs. */
+/** The NAS by title: search, shelves, recently added and A–Z, then a title's seasons and discs. */
 export function TitleLibrary({ nas, controller, history, playingRoute, places, onLaunch, owner, onOwnerLost, onGateClosed, onTitleMissing, onClose }: TitleLibraryProps): ReactElement {
   const routed = useNasRoute(history);
   // The play route a pre-flight here pushed keeps the screen it was opened on (and the pre-flight on it).
@@ -230,7 +230,7 @@ export function TitleLibrary({ nas, controller, history, playingRoute, places, o
   const [unsorted, setUnsorted] = useState<number | null>(null);
   /** Whether the NAS has a TMDB key (owners' searches skip TMDB without one). */
   const [tmdb, setTmdb] = useState(false);
-  /** The matching run's progress, for an owner's empty library (ruling F4). */
+  /** The matching run's progress, for an owner's empty library. */
   const [progress, setProgress] = useState<{ running: boolean; groupsDone: number; groupsTotal: number; filed: number; music: number } | null>(null);
   /** Bumped after an owner change, so the titles and the Unsorted count are fetched again. */
   const [version, setVersion] = useState(0);
@@ -347,7 +347,7 @@ export function TitleLibrary({ nas, controller, history, playingRoute, places, o
     return () => clearInterval(timer);
   }, [nas, owner, empty, progress?.running, changed]);
   const loadDetail = useCallback((id: string) => loadTitle(nas, id), [nas]);
-  /** The Music shelf as artist tiles (spec §3). */
+  /** The Music shelf as artist tiles. */
   const musicGroups = useMemo(() => (titles === null ? [] : groupArtists(shelf(titles, 'music'))), [titles]);
   const artistId = route.kind === 'artist' ? route.artistId : null;
 
@@ -369,7 +369,7 @@ export function TitleLibrary({ nas, controller, history, playingRoute, places, o
         if (!live) return;
         if (isGateClosed(err) && history.depth() === 0) onTitleMissing(requestPath);
         else if (isGateClosed(err)) {
-          // An owner's title is gone, its last disc filed differently (ruling F3): back to where it was opened from.
+          // An owner's title is gone, its last disc filed differently: back to where it was opened from.
           if (owner) setGone(openId);
           // As for the list: the gate closed meanwhile, so the folder browser, with no raw error.
           else onGateClosed();
@@ -440,7 +440,7 @@ export function TitleLibrary({ nas, controller, history, playingRoute, places, o
   const artistGone = useCallback(() => history.back(MUSIC_SHELF), [history]);
   /**
    * A release with one disc opens that disc's pre-flight; one with more, or with several copies of its disc, opens its
-   * title page, which lists them (spec call C5).
+   * title page, which lists them.
    */
   const openRelease = (t: TitleSummary): void => {
     if (t.discs !== 1) return openTitle(t.id);

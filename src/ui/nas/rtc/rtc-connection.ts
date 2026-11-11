@@ -15,6 +15,7 @@ const RELAY_TIMEOUT_MS = 15_000;
 /** How long the NAS may take to answer an offer or a TURN request. */
 const REPLY_TIMEOUT_MS = 10_000;
 
+/** What the person is told when neither the direct nor the relayed WebRTC attempt connects. */
 export const RTC_UNREACHABLE = "Can't connect to the NAS from this network. Try another Wi-Fi or mobile data.";
 
 export { relayLimitMessage };
@@ -51,6 +52,7 @@ export interface DeviceProof {
   readonly signature: string;
 }
 
+/** What `RtcConnection.open` needs: the NAS's id, the rendezvous service, how this device proves itself (a paired device signs, an invite holder sends its code's hash) and, for tests, replacements for the peer and the socket. */
 export interface RtcOpenOptions {
   readonly nasId: string;
   /** The rendezvous service. */

@@ -1,7 +1,7 @@
 import type { OwnerChoice, TitleSummary, UnsortedReason, UnsortedSuggestion } from '@seikou/nas/nas-api';
 import { NasHttpError, type SkippedDisc } from './nas-client';
 
-/** The owner screens' words and choices (spec §9): Unsorted, its search, and filing a disc. Original code. */
+/** The owner screens' words and choices: Unsorted, its search, and filing a disc. Original code. */
 
 export const REASON_TEXT: Readonly<Record<UnsortedReason, string>> = {
   'no-title': 'No title found',
@@ -61,7 +61,7 @@ export function titleChoice(title: TitleSummary, season: number | null, disc: nu
   return { kind: 'title', titleId: title.id, season: title.kind === 'series' ? season : null, disc };
 }
 
-/** Filing a bonus disc with `title`'s extras: a series' season's when one is given, else the title's own (spec §9). */
+/** Filing a bonus disc with `title`'s extras: a series' season's when one is given, else the title's own. */
 export function extrasChoice(title: TitleSummary, season: number | null): OwnerChoice {
   return { kind: 'extras', titleId: title.id, season: title.kind === 'series' ? season : null };
 }
@@ -80,7 +80,7 @@ export function mergeResults(lists: readonly (readonly TitleSummary[])[]): Title
   return out;
 }
 
-/** What a failed search shows (ruling T11a): refusals and unreachable sources gently, inline. */
+/** What a failed search shows: refusals and unreachable sources gently, inline. */
 export function lookupFailure(err: unknown): string {
   if (err instanceof NasHttpError) {
     if (err.status === 429) return `Searching too fast, try again in ${err.detail.retryAfter ?? 1} s`;
@@ -89,7 +89,7 @@ export function lookupFailure(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** Why "Apply to the other discs" left a disc as it was (ruling T11c, I3). */
+/** Why "Apply to the other discs" left a disc as it was. */
 export function skippedText(reason: SkippedDisc['reason']): string {
   switch (reason) {
     case 'direct': return 'filed separately';
@@ -99,13 +99,13 @@ export function skippedText(reason: SkippedDisc['reason']): string {
   }
 }
 
-/** The apply offer's disc number: a positive number, else null (Apply waits for one, ruling T11h). */
+/** The apply offer's disc number: a positive number, else null (Apply waits for one). */
 export function applyNumber(text: string): number | null {
   return parseNumber(text) ?? null;
 }
 
 /**
- * The Season field for a picked title (ruling F2): a series suggestion's season hint, else blank, so the owner must
+ * The Season field for a picked title: a series suggestion's season hint, else blank, so the owner must
  * give one. Search results carry no hint.
  */
 export function seasonPrefill(t: TitleSummary | UnsortedSuggestion): string {
@@ -120,7 +120,7 @@ export interface SeasonField {
 }
 
 /**
- * The Season field once a title is picked (ruling F2, N2): a season the owner typed stays; otherwise it takes the
+ * The Season field once a title is picked: a season the owner typed stays; otherwise it takes the
  * pick's hint, and a pick without one clears an earlier hint.
  */
 export function seasonOnPick(t: TitleSummary | UnsortedSuggestion, field: SeasonField): SeasonField {

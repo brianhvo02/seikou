@@ -51,7 +51,7 @@ const KINDS: readonly { readonly id: TitleKind; readonly label: string }[] = [
   { id: 'music', label: 'Music' },
 ];
 
-/** "New title…" (ruling T11e): a kind, a name of at most 200 characters and, for a series, its number of seasons. */
+/** "New title…": a kind, a name of at most 200 characters and, for a series, its number of seasons. */
 function NewTitleForm({ nas, onCreated, onCancel }: { nas: NasClient; onCreated: (t: TitleSummary) => void; onCancel: () => void }): ReactElement {
   const id = useId();
   const [kind, setKind] = useState<TitleKind>('series');
@@ -143,7 +143,7 @@ function TitleOption({ nas, title, selected, onPick }: { nas: NasClient; title: 
   );
 }
 
-/** One disc to file (spec §9, mockup 4): why it's unsure, suggestions, search, season and disc, and the other choices. */
+/** One disc to file: why it's unsure, suggestions, search, season and disc, and the other choices. */
 export function DiscCard({ nas, disc, tmdb, onFiled, onCreated, onSkip }: DiscCardProps): ReactElement {
   const id = useId();
   const [picked, setPicked] = useState<TitleSummary | null>(null);
@@ -166,8 +166,8 @@ export function DiscCard({ nas, disc, tmdb, onFiled, onCreated, onSkip }: DiscCa
 
   const pick = (t: TitleSummary | UnsortedSuggestion): void => {
     setPicked(t);
-    // Season starts at the suggestion's hint; without one it is blank and must be given (ruling F2), but what the
-    // owner typed stays (N2)
+    // Season starts at the suggestion's hint; without one it is blank and must be given, but what the
+    // owner typed stays
     const next = seasonOnPick(t, { season, hinted });
     setSeason(next.season);
     setHinted(next.hinted);
@@ -213,7 +213,7 @@ export function DiscCard({ nas, disc, tmdb, onFiled, onCreated, onSkip }: DiscCa
     choose(titleChoice(title, s ?? null, d), `Filed under ${displayName(title)}.`);
   };
 
-  /** Search runs on submit (ruling T11a): own titles, then AniList, then TMDB, one source at a time as the NAS allows. */
+  /** Search runs on submit: own titles, then AniList, then TMDB, one source at a time as the NAS allows. */
   const search = (e: FormEvent): void => {
     e.preventDefault();
     const q = query.trim();
@@ -376,7 +376,7 @@ interface Notice {
   readonly text: string;
   /** "Apply to the other N discs in this folder", offered after filing one disc of a group under a title. */
   readonly apply?: { readonly disc: FilingDisc; readonly choice: OwnerChoice; readonly others: number };
-  /** Discs "apply" left as they were (ruling T11c), with their folder. */
+  /** Discs "apply" left as they were, with their folder. */
   readonly skipped?: readonly { readonly discId: string; readonly folder: string; readonly reason: SkippedDisc['reason'] }[];
 }
 
@@ -389,7 +389,7 @@ interface UnsortedScreenProps {
   readonly onChanged: () => void;
 }
 
-/** Unsorted (spec §9, mockup 4), for owners: each disc the NAS couldn't file, with what to do about it. */
+/** Unsorted, for owners: each disc the NAS couldn't file, with what to do about it. */
 export function UnsortedScreen({ nas, tmdb, onBack, onHidden, onChanged }: UnsortedScreenProps): ReactElement {
   const [items, setItems] = useState<UnsortedItem[] | null>(null);
   const [total, setTotal] = useState(0);
@@ -397,7 +397,7 @@ export function UnsortedScreen({ nas, tmdb, onBack, onHidden, onChanged }: Unsor
   const [skipped, setSkipped] = useState<ReadonlySet<string>>(new Set());
   const [notice, setNotice] = useState<Notice | null>(null);
   const [applying, setApplying] = useState(false);
-  /** The Disc / volume field of the apply offer: the server numbers the other discs from it (ruling T11h). */
+  /** The Disc / volume field of the apply offer: the server numbers the other discs from it. */
   const [applyDisc, setApplyDisc] = useState('');
   const noticeRef = useRef<HTMLDivElement>(null);
   // a decision unmounts its card and the focused control with it: focus goes to the notice saying what happened

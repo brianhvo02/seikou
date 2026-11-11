@@ -15,7 +15,7 @@ interface HiddenScreenProps {
 const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 const lastSegment = (folder: string): string => folder.slice(folder.lastIndexOf('/') + 1);
 
-/** A hidden copy whose choice follows its source's (ruling T11b): what to do instead of unhiding it. */
+/** A hidden copy whose choice follows its source's: what to do instead of unhiding it. */
 interface FollowsCopy {
   readonly discId: string;
   /** The source's folder, when it is known here. */
@@ -23,7 +23,7 @@ interface FollowsCopy {
   readonly filing: boolean;
 }
 
-/** Hidden (spec §9), for owners: discs left out of the title library with "Don't list", each with Unhide. */
+/** Hidden, for owners: discs left out of the title library with "Don't list", each with Unhide. */
 export function HiddenScreen({ nas, tmdb, onBack, onChanged }: HiddenScreenProps): ReactElement {
   const [discs, setDiscs] = useState<DiscRef[] | null>(null);
   const [error, setError] = useState<string | null>(null);

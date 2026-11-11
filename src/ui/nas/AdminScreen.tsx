@@ -59,7 +59,7 @@ const MAX_NAME = 200;
 type OwnEdit = { readonly id: string; readonly what: 'rename' | 'seasons' | 'delete' } | null;
 
 /**
- * Own titles (spec §9, ruling T11g): each with its kind, Rename, Seasons (a series only) and Delete behind a confirm
+ * Own titles: each with its kind, Rename, Seasons (a series only) and Delete behind a confirm
  * step, through the admin titles routes; the list is fetched again after each change.
  */
 function OwnTitlesSettings({ nas, onChanged }: { nas: NasClient; onChanged: () => void }): ReactElement {
@@ -324,7 +324,7 @@ function TitleLibrarySettings({ nas, now, onTitlesChanged }: { nas: NasClient; n
 
 /**
  * NAS settings, for owners: a new pairing code for a person (or a new one, optionally as a 3-day invite) with its QR and
- * countdown, the People list (spec §4.3), and Rescan.
+ * countdown, the People list, and Rescan.
  */
 export function AdminScreen({ nas, thisDeviceId, onClose, onAccessLost, now = Date.now, onTitlesChanged }: AdminScreenProps): ReactElement {
   const [people, setPeople] = useState<NasPerson[] | null>(null);

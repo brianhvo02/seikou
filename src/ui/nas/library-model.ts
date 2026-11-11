@@ -5,6 +5,13 @@ import type { DiscEntry, DiscManifest, FolderEntry } from '@seikou/nas/nas-api';
 import { chooseMainTitle, type MainTitleCandidate } from '@seikou/engine/disc/main-title';
 import { clipInfoPath, streamPath } from '@seikou/engine/disc/open-disc';
 
+/**
+ * The folder browser and the pre-flight's disc facts, pure: breadcrumbs and row order from a folder listing, and from
+ * a disc's manifest (its inlined playlist and clip info files) the main playlist, its peak rate and whether it is
+ * UHD, with the pre-flight's lines about them.
+ */
+
+/** One step of the folder breadcrumbs. */
 export interface Crumb {
   readonly label: string;
   /** Root-relative folder path; '' is the top of the NAS. */
@@ -19,6 +26,7 @@ export function breadcrumbs(path: string): Crumb[] {
   return crumbs;
 }
 
+/** A row of a folder listing: a folder or a disc. */
 export type LibraryRow = { readonly kind: 'folder'; readonly folder: FolderEntry } | { readonly kind: 'disc'; readonly disc: DiscEntry };
 
 const byName = (a: { name: string }, b: { name: string }): number => a.name.localeCompare(b.name, 'ja');
@@ -51,6 +59,7 @@ export function formatSize(bytes: number): string {
   return unit === 0 ? `${value} B` : `${value.toFixed(1)} ${units[unit]}`;
 }
 
+/** What a disc's manifest says about its main title. */
 export interface DiscFacts {
   /** The main title's peak rate (the highest TS_recording_rate of its clips) in megabits per second; null when unknown. */
   readonly peakMbps: number | null;

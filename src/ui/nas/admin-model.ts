@@ -4,6 +4,13 @@ import { displayName } from './title-model';
 import { NasHttpError, type NasClient, type NasCode, type NasTitleStatus } from './nas-client';
 import { codeTarget, lastSeen } from './people-model';
 
+/**
+ * The NAS settings screen's decisions, pure: how long a pairing code has left, how often that countdown redraws and
+ * when to stop polling for it to be redeemed, whether the gate switch shows on, what "Encoding now", the matching
+ * status, the own titles and the drives say, and each upload's row, all from the NAS's status objects and a clock
+ * passed in.
+ */
+
 export { lastSeen };
 
 /** The admin calls the NAS settings screen makes. */
@@ -66,7 +73,6 @@ export function withGate(status: NasTitleStatus | null, gate: NasTitleStatus['ga
   return status === null ? null : { ...status, gate };
 }
 
-/** TMDB's required notice (global constraints), shown with its logo in NAS settings. */
 /** One line of "Encoding now": who watches what, at which level, and the share of the GPU it takes. */
 export function encodingLine(e: EncodingNow): string {
   return `${e.personName} · ${e.deviceName} — ${e.discName}, ${e.label} (${e.gpuPercent}% of the GPU)`;
@@ -81,6 +87,7 @@ export function encodingStatus(s: { readonly list: readonly EncodingNow[] | null
   return s.list.length === 0 ? 'Nothing is being re-encoded.' : null;
 }
 
+/** The notice TMDB's terms require wherever its data is used, shown with its logo in NAS settings. */
 export const TMDB_ATTRIBUTION = 'This product uses the TMDB API but is not endorsed or certified by TMDB';
 
 const discs = (n: number): string => `${n} ${n === 1 ? 'disc' : 'discs'}`;
@@ -99,7 +106,7 @@ export function matchingStatus(s: NasTitleStatus, now: number): { progress: stri
   };
 }
 
-/** The owner's own titles (spec §9), A–Z, for NAS settings' "Own titles" list. */
+/** The owner's own titles, A–Z, for NAS settings' "Own titles" list. */
 export function ownTitles(titles: readonly TitleSummary[]): TitleSummary[] {
   return titles.filter((t) => t.own).sort((a, b) => displayName(a).localeCompare(displayName(b), undefined, { numeric: true, sensitivity: 'base' }));
 }
@@ -124,6 +131,7 @@ export function driveLine(d: NasDrive): { name: string; status: string; canForge
   return { name: d.name, status: d.discs > 0 ? `Not found at the last scan · ${discCount(d.discs)} kept` : 'Not found at the last scan', canForget: d.discs > 0 };
 }
 
+/** The confirm step before forgetting a missing drive's kept discs: how many leave the library, and that a later scan lists them again if the drive returns. */
 export function forgetDriveQuestion(d: NasDrive): string {
   return `Forget the ${discCount(d.discs)} kept from ${d.name}? They leave the library now. If the drive comes back, the next scan lists them again.`;
 }

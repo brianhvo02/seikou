@@ -7,12 +7,15 @@ import { MusicRefile, MusicReleaseMenu, RenameForm, SetArtistForm, type ReleaseA
 import { Poster } from './Poster';
 import { nameLang } from '../name-lang';
 
+/** What an owner of the NAS adds to an artist page: the release corrections (rename, set artist, not this release), which need the lookups the NAS has. */
 export interface MusicOwner {
+  /** Whether the NAS has a TMDB key, which the "file differently" form uses to search TMDB. */
   readonly tmdb: boolean;
   /** The names the Set artist picker suggests. */
   readonly artists: readonly string[];
   /** A correction changed the catalogue: the library fetches its titles again. */
   readonly onChanged: () => void;
+  /** Fetches a release's detail (through the library's session cache) to list its discs for "File differently". */
   readonly loadDetail: (id: string) => Promise<TitleDetail>;
 }
 
@@ -20,7 +23,7 @@ interface ArtistPageProps {
   readonly nas: NasClient;
   readonly group: ArtistGroup;
   readonly onBack: () => void;
-  /** Opens a release: the pre-flight of its one disc, or its title page when it has more (spec call C5). */
+  /** Opens a release: the pre-flight of its one disc, or its title page when it has more. */
   readonly onOpen: (title: TitleSummary) => void;
   /** Owners get the "⋯" menu on every release. */
   readonly owner?: MusicOwner;
@@ -32,7 +35,7 @@ const SECTIONS = [
   { id: 'other', label: 'Other' },
 ] as const;
 
-/** An artist's page (spec §3): the name, the other-script name, the count, then the releases in sections. */
+/** An artist's page: the name, the other-script name, the count, then the releases in sections. */
 export function ArtistPage({ nas, group, onBack, onOpen, owner }: ArtistPageProps): ReactElement {
   const sections = artistSections(group);
   const [editing, setEditing] = useState<{ id: string; action: ReleaseAction } | null>(null);

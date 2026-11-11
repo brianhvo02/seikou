@@ -64,7 +64,7 @@ function ContinueCard({ nas, item, onOpen }: { readonly nas: NasClient; readonly
 }
 
 /**
- * Continue watching (spec 2026-10-20 §6.4–6.6, mockup 1): this person's unfinished places, newest first, and the
+ * Continue watching: this person's unfinished places, newest first, and the
  * episode after a finished one. A place resumes without asking; an Up next episode starts from its beginning.
  */
 export function ContinueRow({ nas, history, library }: ContinueRowProps): ReactElement | null {

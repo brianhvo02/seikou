@@ -8,7 +8,9 @@ import { displayName } from './title-model';
  */
 
 export const ENGLISH_KEYS = ['#', ...'ABCDEFGHIJKLMNOPQRSTUVWXYZ'] as const;
+/** The Japanese bar's keys: the ten gojūon rows by their first kana, and 他 for the rest. */
 export const KANA_ROWS = ['あ', 'か', 'さ', 'た', 'な', 'は', 'ま', 'や', 'ら', 'わ', '他'] as const;
+/** A key of the Japanese bar. */
 export type KanaRow = (typeof KANA_ROWS)[number];
 
 /** The English bar's key of a title: the first letter of its displayed name, or # for anything else. */

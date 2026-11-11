@@ -1,5 +1,11 @@
 import type { FansubEpisodeMark, FansubTitleState, SeaDexRank, StoredSubtitle } from '@seikou/nas/nas-api';
 
+/**
+ * What the fansub marks say, pure: a season's line from its title state and the clock, an episode's mark and its tone
+ * from the stored subtitles and the NAS's mark for it, a track's chip, and the run button's label.
+ */
+
+/** How a fansub mark is drawn: lined up (`ok`), to check (`warn`) or failed to line up or not found (`bad`). */
 export type MarkTone = 'ok' | 'warn' | 'bad';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -65,6 +71,7 @@ export function episodeMark(subs: readonly StoredSubtitle[], mark: FansubEpisode
 /** A track's chip: its name in the release (Full, Signs, ...), the stored name for an owner upload. */
 export const trackChip = (s: StoredSubtitle): string => s.source?.trackName ?? s.name;
 
+/** The run button's label: `Find fansubs` before the title's first run, `Find fansubs again` after it. */
 export const runButtonLabel = (state: FansubTitleState): 'Find fansubs' | 'Find fansubs again' => (state.lastRunAt === null ? 'Find fansubs' : 'Find fansubs again');
 
 /** The languages an owner can add to fansub runs; English is always kept. */
@@ -76,6 +83,9 @@ export const FANSUB_LANGUAGES: readonly { readonly code: string; readonly label:
 
 /** Titles whose fansubs the owner deleted in this browser session: only for those does "Find fansubs again" ask to bring them back. */
 const deletedHere = new Set<string>();
+/** Notes that the owner deleted this title's fansubs in this session. */
 export const rememberFansubDeletion = (titleId: string): void => void deletedHere.add(titleId);
+/** Drops that note, once the owner has brought the fansubs back. */
 export const forgetFansubDeletion = (titleId: string): void => void deletedHere.delete(titleId);
+/** Whether the owner deleted this title's fansubs in this session. */
 export const fansubsDeletedHere = (titleId: string): boolean => deletedHere.has(titleId);

@@ -22,6 +22,7 @@ export const NO_ENCODES_YET = 'No encodes yet';
 /** The line above the owner's list of files that couldn't be filed. */
 export const UNFILED_COPY = 'These MKVs carry no title tags (an AniList, TMDB or own title), so the library can’t place them under a show.';
 
+/** What the Encodes tab says when it has no shows: `unconfigured` (an owner on a NAS with no encodes folder, with a help link), `owner-none` (an owner, folder empty) or `guest` (everyone else). */
 export type EncodesEmpty =
   /** An owner, and the NAS has no encodes folder. */
   | { readonly kind: 'unconfigured'; readonly title: string; readonly text: string; readonly help: string }
@@ -93,6 +94,7 @@ export function untilIndexed<T>(ask: () => Promise<T>, onIndexing?: () => void):
   };
 }
 
+/** `1 episode` or `N episodes`. */
 export function episodeCountLabel(n: number): string {
   return n === 1 ? '1 episode' : `${n} episodes`;
 }

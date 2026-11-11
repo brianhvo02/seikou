@@ -7,7 +7,7 @@ import type { NasClient } from './nas-client';
 export const ENCODING_POLL_MS = 10_000;
 
 /**
- * "Encoding now" (spec §6.4): what the NAS GPU is re-encoding and for whom, refreshed when the screen opens and every
+ * "Encoding now": what the NAS GPU is re-encoding and for whom, refreshed when the screen opens and every
  * 10 s. Hidden when the NAS has no quality levels (its route answers 404); a failed refresh keeps the last list, and a
  * failed first load says so while the polling goes on.
  */

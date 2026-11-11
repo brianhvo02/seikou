@@ -1,5 +1,10 @@
 import type { NasRelayUsage, NasRoute } from './nas-client';
 
+/**
+ * The relay's wording, pure: the usage line from the NAS's usage counts, the message once the free allowance is used
+ * up, the badge, and the labels of the settings and routes.
+ */
+
 const GB = 1e9;
 
 /** "Relay this month: 412 of 1,000 GB free": whole GB (rounded down), with a thousands separator. */
@@ -17,6 +22,7 @@ export function relayLimitMessage(resetsOn: string, locale?: string): string {
   return `The relay's free allowance for this month is used up. It resets on ${date}.`;
 }
 
+/** `relayLimitMessage` under its older name. */
 export const limitMessage = relayLimitMessage;
 
 /** The badge shown while a NAS disc plays over a relayed connection. */

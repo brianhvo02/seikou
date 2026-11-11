@@ -10,7 +10,7 @@ interface PairScreenProps {
   readonly onPaired: () => void;
   /** Cancel on the confirmation: the link isn't offered again. */
   readonly onLinkDropped?: () => void;
-  /** Whether `http:` loopback addresses are accepted (the app served from a loopback origin, ruling R1). */
+  /** Whether `http:` loopback addresses are accepted (the app served from a loopback origin). */
   readonly dev?: boolean;
   /** This device is already paired, so pairing again replaces that pairing (said on the confirmation). */
   readonly paired?: boolean;

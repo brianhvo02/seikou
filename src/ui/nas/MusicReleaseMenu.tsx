@@ -22,7 +22,7 @@ interface MusicReleaseMenuProps {
 }
 
 /**
- * An owner's "⋯" menu on a release card (spec §3, owner corrections): Rename…, Set artist…, Not this release (only when
+ * An owner's "⋯" menu on a release card, the owner's corrections: Rename…, Set artist…, Not this release (only when
  * a lookup matched) or Use this release again (only when the match was dropped), and File differently…. An own title
  * has no lookup and no artist, so only Rename… and File differently….
  */
@@ -276,7 +276,7 @@ export function SetArtistForm({ nas, title, artists, onDone, onCancel }: FormPro
 }
 
 /**
- * File differently… on a release (ruling F3): a filing card for each of its discs, to file it under a title (out of
+ * File differently… on a release: a filing card for each of its discs, to file it under a title (out of
  * Music) or leave it out with "Don't list".
  */
 export function MusicRefile({ nas, tmdb, title, loadDetail, onChanged }: { nas: NasClient; tmdb: boolean; title: TitleSummary; loadDetail: (id: string) => Promise<TitleDetail>; onChanged: () => void }): ReactElement {

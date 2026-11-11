@@ -3,7 +3,7 @@ import { NasHttpError, type NasClient, type NasRelaySettings } from './nas-clien
 import { relaySettingsCopy, usageLine } from './relay-model';
 
 /**
- * The Cloudflare relay's part of NAS settings (spec §6.4): an on/off switch, the switch for paid use beyond the free
+ * The Cloudflare relay's part of NAS settings: an on/off switch, the switch for paid use beyond the free
  * allowance, and the month's usage. Absent when the NAS has no relay (its route answers 404).
  */
 export function RelaySettings({ nas }: { nas: NasClient }): ReactElement | null {

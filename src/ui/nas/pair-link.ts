@@ -1,5 +1,5 @@
 /**
- * Pairing links (self-hosting spec §3): `?pair=<code>`, with `nas=<the server's HTTPS API base>` (redeemed there, no
+ * Pairing links: `?pair=<code>`, with `nas=<the server's HTTPS API base>` (redeemed there, no
  * lookup) or `rv=<a rendezvous Worker's base URL>` (looked up and signalled through it). Pure.
  */
 
@@ -21,7 +21,7 @@ export function isLoopbackHost(hostname: string): boolean {
 
 /**
  * `raw` as an address the app may talk to for pairing, or null: an `https:` URL with no user name or password, or, when
- * `dev` (the app itself served from a loopback origin, ruling R1), an `http:` URL of a loopback host. Its query and
+ * `dev` (the app itself served from a loopback origin), an `http:` URL of a loopback host. Its query and
  * fragment are dropped.
  */
 export function allowedPairUrl(raw: string | null | undefined, o: { readonly dev: boolean }): string | null {

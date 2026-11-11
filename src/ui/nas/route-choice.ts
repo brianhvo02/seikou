@@ -12,6 +12,7 @@ export interface RouteTarget {
   readonly nasId?: string;
 }
 
+/** What the route choice works through: `fetch` for the health check, `connect` to open a WebRTC connection, and an optional per-NAS cache. */
 export interface RouteDeps {
   readonly fetch: typeof fetch;
   /** Opens a WebRTC connection to the NAS `nasId`. */

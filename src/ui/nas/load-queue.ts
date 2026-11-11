@@ -6,6 +6,7 @@
 /** 0: on screen; 1: within scroll range; 2: elsewhere. */
 export type LoadPriority = 0 | 1 | 2;
 
+/** The handle `LoadQueue.add` gives back for one load. */
 export interface LoadTicket {
   setPriority(priority: LoadPriority): void;
   /** Drops a waiting load; a started one keeps running, but its slot goes to the next. */
@@ -19,6 +20,7 @@ interface Job {
   state: 'waiting' | 'running' | 'done';
 }
 
+/** A queue that runs at most `limit` loads at once. Loads start in priority order (lower first), oldest first within a priority, and those above the ceiling wait. */
 export class LoadQueue {
   private readonly waiting = new Set<Job>();
   private running = 0;

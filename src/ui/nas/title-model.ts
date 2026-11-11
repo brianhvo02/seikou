@@ -124,7 +124,7 @@ export function copiesLabel(d: DiscSlot): string | null {
 }
 
 /**
- * What an empty library says (ruling F4): to an owner, how far the matching run is, from `admin/metadata/status`; to a
+ * What an empty library says: to an owner, how far the matching run is, from `admin/metadata/status`; to a
  * guest, who sees the library only once the gate is open, that it is being prepared.
  */
 export function emptyLibraryText(owner: boolean, status: { readonly running: boolean; readonly groupsDone: number; readonly groupsTotal: number } | null): string {

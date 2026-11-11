@@ -22,7 +22,7 @@ type Edit =
   | null;
 
 /**
- * The People list of NAS settings (spec §4.3): each person with an owner badge, their devices and their saved data;
+ * The People list of NAS settings: each person with an owner badge, their devices and their saved data;
  * Rename, Make owner/Remove owner, Clear saved data and Remove (both after a confirm step), and per device Move to…
  * and Revoke (this device's own row asks first). Removing owner from this device's person, or moving this device to
  * someone who isn't an owner, asks first too: this device would lose NAS settings.

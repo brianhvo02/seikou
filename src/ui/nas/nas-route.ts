@@ -1,5 +1,6 @@
 import type { TitleKind } from '@seikou/nas/nas-api';
 
+/** Where the NAS screens are, as the address bar says it (`nasRoutePath` builds the path, `parseNasRoute` reads it). */
 export type NasRoute =
   | { kind: 'library'; shelf: TitleKind | null; q: string }
   | { kind: 'title'; titleId: string }
@@ -26,6 +27,7 @@ export type NasRoute =
 /** The Encodes tab's routes. */
 export type EncodesRoute = Extract<NasRoute, { kind: 'encodes' | 'encodeShow' | 'encodePlay' }>;
 
+/** Whether `route` is one of the Encodes tab's routes. */
 export function isEncodesRoute(route: NasRoute | null): route is EncodesRoute {
   return route !== null && (route.kind === 'encodes' || route.kind === 'encodeShow' || route.kind === 'encodePlay');
 }
@@ -138,6 +140,7 @@ export function seasonKeyOf(titleId: string, seasonId: string): string {
   return seasonId.startsWith(own) ? seasonId.slice(own.length) : seasonId;
 }
 
+/** The inverse of `seasonKeyOf`: a key with a `#` is already a whole season id, any other is the text after `<titleId>#`. */
 export function seasonIdOf(titleId: string, seasonKey: string): string {
   return seasonKey.includes('#') ? seasonKey : `${titleId}#${seasonKey}`;
 }

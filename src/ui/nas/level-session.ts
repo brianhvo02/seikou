@@ -7,6 +7,7 @@ import { levelQuery } from './disc-spec';
 import { NasBusyError } from './nas-client';
 import type { NasClient } from './nas-client';
 
+/** The open NAS disc's quality state: the disc, the levels its NAS offers, the version playing (`at`) and the last switch's message. */
 export interface LevelState {
   readonly discId: string;
   readonly levels: readonly LevelInfo[];
@@ -15,12 +16,14 @@ export interface LevelState {
   readonly notice: string | null;
 }
 
+/** An audio stream of the original version: its 1-based number, language code and label. */
 export interface OriginalAudioTrack {
   readonly number: number;
   readonly language: string;
   readonly label: string;
 }
 
+/** What a level switch needs to reopen the disc: the player's controller, and the NAS's API base and session token the engine reads with. */
 export interface SwitchDeps {
   readonly controller: PlayerController;
   readonly base: string;
@@ -183,6 +186,7 @@ export async function launchManifest(
 
 const sessions = new WeakMap<NasClient, LevelSession>();
 
+/** The `LevelSession` of a NAS client, made on first use. */
 export function levelSessionOf(nas: NasClient): LevelSession {
   let s = sessions.get(nas);
   if (!s) {

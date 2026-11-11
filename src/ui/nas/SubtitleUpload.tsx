@@ -53,7 +53,7 @@ interface SubtitleUploadProps {
 }
 
 /**
- * The owner's upload sheet (spec §7.2, mockup 3): a subtitle file and its fonts, what it is for (an episode of the
+ * The owner's upload sheet: a subtitle file and its fonts, what it is for (an episode of the
  * season, or a disc, playlist and chapter), a language, a name and a default offset. With `editing`, the same form
  * changes an upload's name, language, offset and attachment.
  */

@@ -2,6 +2,11 @@ import { NasHttpError, type NasCodeTarget, type NasPerson } from './nas-client';
 import type { NasPairing } from './nas-store';
 import { routeLabel } from './relay-model';
 
+/**
+ * The People list and the pairing codes of NAS settings, pure: the rows from the NAS's people and a clock, whether an
+ * action would take this device's owner rights, the code's target, and the confirm questions and error messages.
+ */
+
 /** What the admin screen says when the NAS refuses an action with 409 `last-owner`. */
 export const lastOwnerMessage = 'At least one owner device has to stay. Make someone else an owner first.';
 
@@ -38,6 +43,7 @@ export interface PersonDeviceRow {
   readonly thisDevice: boolean;
 }
 
+/** One person of the People list as shown: name, owner badge, devices, and the saved-data line with whether it can be cleared. */
 export interface PersonRow {
   readonly id: string;
   readonly name: string;

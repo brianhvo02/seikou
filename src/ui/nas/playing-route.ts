@@ -1,6 +1,6 @@
 import type { NasHistory } from './nas-history';
 
-/** The address bar is brought up to date at most this often while a disc plays (spec §5.1)... */
+/** The address bar is brought up to date at most this often while a disc plays... */
 const REPLACE_EVERY_MS = 5000;
 /** ...and at once when the time moved this much further than playing on would have taken it (a seek). */
 const JUMP_US = 2_000_000;
@@ -16,6 +16,7 @@ export interface PlayingAbout {
   readonly title: { readonly id: string; readonly name: string } | null;
 }
 
+/** What `PlayingRoute` reads of the player on each update: the playlist playing, the time in microseconds and the engine state. */
 export interface PlayingState {
   readonly currentPlaylistId: string | null;
   readonly timeUs: number;

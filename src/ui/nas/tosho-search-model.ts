@@ -1,7 +1,12 @@
 import type { ToshoReleaseFiles, ToshoSearchResult } from '@seikou/nas/nas-api';
 import { languageName } from '@seikou/engine/controller/language';
 
-/** Spec §9's notice when a pick can't be fetched, lined up or loaded; the text set stays as it was. */
+/**
+ * The Anime Tosho search of the Subtitles menu, pure: the box's first words, and how releases, files and tracks are
+ * labelled and noted for the place.
+ */
+
+/** The notice when a pick can't be fetched, lined up or loaded; the text set stays as it was. */
 export const PICK_FAILED = "Couldn't load the subtitles from Anime Tosho.";
 /** The tracks step says this while the NAS fetches and lines up a pick. */
 export const LINING_UP = 'Lining up…';
@@ -14,7 +19,9 @@ export const MAX_TRACK_NAME = 256;
 /** The release a pick was listed from and its track's name as `toshoRelease` lists it, kept in the place. */
 export interface FansubOrigin { readonly releaseId: number; readonly trackName: string }
 
+/** One file of a release as the NAS lists it. */
 export type ToshoFile = ToshoReleaseFiles['files'][number];
+/** One subtitle track of a release's file. */
 export type ToshoTrack = ToshoFile['tracks'][number];
 
 /** The search box's first words: the title's display name, else the disc's name without its bracketed tags. */

@@ -27,7 +27,7 @@ interface DiscListProps {
   readonly season: SeasonDetail;
   readonly discs: readonly DiscSlot[];
   readonly onOpen: OpenDisc;
-  /** For owners: "File differently…" on each copy (ruling F3). */
+  /** For owners: "File differently…" on each copy. */
   readonly owner?: OwnerFiling;
 }
 
@@ -120,7 +120,7 @@ interface SeasonScreenProps {
   readonly seasonIds: readonly string[];
   readonly onBack: () => void;
   readonly onOpen: OpenDisc;
-  /** For owners: "File differently…" on the discs (ruling F3), and uploading and managing subtitles. */
+  /** For owners: "File differently…" on the discs, and uploading and managing subtitles. */
   readonly owner?: OwnerFiling;
 }
 

@@ -25,7 +25,7 @@ interface MusicScreenProps {
   readonly emptyText?: string;
 }
 
-/** The Music shelf (spec §3): the artist grid, or one artist's page. */
+/** The Music shelf: the artist grid, or one artist's page. */
 export function MusicScreen({ nas, groups, artistId, onOpenArtist, onBack, onArtistGone, onOpenRelease, jumpOf, owner, emptyText }: MusicScreenProps): ReactElement {
   const group = artistId === null ? null : (groups.find((g) => g.id === artistId) ?? null);
   const gone = artistId !== null && group === null;

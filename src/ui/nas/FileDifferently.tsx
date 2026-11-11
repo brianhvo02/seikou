@@ -3,7 +3,7 @@ import type { DiscRef } from '@seikou/nas/nas-api';
 import type { NasClient } from './nas-client';
 import { DiscCard, type FilingDisc } from './UnsortedScreen';
 
-/** What the owner's "File differently…" needs (ruling F3): the client, whether TMDB is searchable, and the refresh. */
+/** What the owner's "File differently…" needs: the client, whether TMDB is searchable, and the refresh. */
 export interface OwnerFiling {
   readonly nas: NasClient;
   readonly tmdb: boolean;
@@ -17,7 +17,7 @@ export function filingDisc(ref: DiscRef): FilingDisc {
 }
 
 /**
- * The owner's "File differently…" on a filed or music disc (ruling F3): it opens the filing card Unsorted uses, to file
+ * The owner's "File differently…" on a filed or music disc: it opens the filing card Unsorted uses, to file
  * the disc under another title or season, move it into or out of Music, or leave it out with "Don't list".
  */
 export function FileDifferently({ owner, disc, label }: { owner: OwnerFiling; disc: DiscRef; label: string }): ReactElement {

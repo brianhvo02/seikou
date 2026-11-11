@@ -22,7 +22,7 @@ interface SeriesScreenProps {
   /** A related title: a movie or side story of the series. */
   readonly onTitle: (titleId: string) => void;
   readonly onOpen: OpenDisc;
-  /** For owners: "File differently…" on a movie's or music title's discs (ruling F3), and a movie's subtitles. */
+  /** For owners: "File differently…" on a movie's or music title's discs, and a movie's subtitles. */
   readonly owner?: OwnerFiling;
 }
 

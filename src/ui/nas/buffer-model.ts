@@ -1,5 +1,5 @@
 /**
- * Buffer first (spec 2026-10-18-webrtc-people-design §7): whether a NAS disc can play straight through over this
+ * Buffer first (spec 2026-10-18-webrtc-people-design): whether a NAS disc can play straight through over this
  * connection, and if not, how long to wait and how many bytes to hold ahead first.
  */
 
@@ -19,12 +19,14 @@ export const CACHE_SLACK_BYTES = 2 * SEGMENT_BYTES;
 /** When the fill failed, or this device has no cache. */
 export const BUFFER_FAILED_COPY = "Couldn't buffer on this device, so it will play with pauses.";
 
+/** What the pre-flight does about waiting for a NAS disc: `play` (the connection keeps up), `silent` (buffer `bytes` over `waitS` seconds, then play), `ask` (the same, but the wait is long enough to ask first), or `too-big` (this device can hold only `canHoldBytes` of the `bytes` the wait would need, so the disc plays with pauses). */
 export type BufferPlan =
   | { readonly kind: 'play' }
   | { readonly kind: 'silent'; readonly waitS: number; readonly bytes: number }
   | { readonly kind: 'ask'; readonly waitS: number; readonly bytes: number }
   | { readonly kind: 'too-big'; readonly canHoldBytes: number; readonly bytes: number };
 
+/** What `bufferPlan` decides from: the playlist, the connection and the device's storage. */
 export interface BufferPlanInput {
   /** The main playlist's length and the bytes of its clips. */
   readonly durationS: number;
@@ -57,7 +59,7 @@ export function waitCopy(waitS: number): string {
   return `About ${minutes} ${minutes === 1 ? 'minute' : 'minutes'} before it can play straight through`;
 }
 
-/** What the pre-flight says on a device that can't hold the wait (Review Focus 5). */
+/** What the pre-flight says on a device that can't hold the wait: what it would need to hold, and what it has room for. */
 export function tooBigCopy(canHoldBytes: number, bytes: number): string {
   return `To play straight through, this device would need to hold ${formatGb(bytes)} ahead, and it has room for ${formatGb(canHoldBytes)}. It can play now, with pauses.`;
 }

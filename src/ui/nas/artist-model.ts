@@ -3,12 +3,13 @@ import { normalizeTitle, titleMatches } from '@seikou/nas/title-text';
 import { japaneseOrder } from './title-index';
 
 /**
- * The Music shelf as artists (spec §3, "artists first"): the shelf's release titles grouped by artist, each artist's
+ * The Music shelf as artists, artists first: the shelf's release titles grouped by artist, each artist's
  * releases in sections, and the labels the tiles and cards show. Original code.
  */
 
 /** The grouping id of Various artists, as the NAS sends it. */
 export const VARIOUS_ID = 'various';
+/** The name shown for the Various artists tile. */
 export const VARIOUS_NAME = 'Various artists';
 
 /** One artist tile: its releases, and a synthetic title the alphabet bars index it by. */
@@ -26,7 +27,7 @@ const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'bas
 /** A release's artist; a title without music info (an own title) is under Various artists. */
 const artistOf = (t: TitleSummary): TitleMusic['artist'] => t.music?.artist ?? { id: VARIOUS_ID, name: VARIOUS_NAME, otherName: null };
 
-/** The name a release card shows: the owner's rename, else the concert name of a concert (ruling R5), else the release title. */
+/** The name a release card shows: the owner's rename, else the concert name of a concert, else the release title. */
 export function releaseName(t: TitleSummary): string {
   const m = t.music;
   if (t.names.display !== null) return t.names.display;
@@ -83,7 +84,7 @@ export function groupArtists(titles: readonly TitleSummary[]): ArtistGroup[] {
 
 /**
  * The artist tiles' index titles in the shown order, which the alphabet bars index: A–Z as `groupArtists` sorts them,
- * or 五十音 order, with Various artists last in both (spec §3).
+ * or 五十音 order, with Various artists last in both.
  */
 export function artistIndex(groups: readonly ArtistGroup[], order: 'en' | 'ja'): TitleSummary[] {
   const index = groups.map((g) => g.index);

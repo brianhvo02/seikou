@@ -3,6 +3,7 @@ import type { ReactElement } from 'react';
 import type { NasHistory } from './nas-history';
 import { isEncodesRoute, type NasRoute } from './nas-route';
 
+/** The two libraries the NAS screens switch between: the disc library and the Encodes library. */
 export type LibraryTab = 'discs' | 'encodes';
 
 /** Which library a NAS route belongs to: the encodes routes are the Encodes tab, every other one Discs. */

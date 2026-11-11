@@ -4,7 +4,13 @@ import type { StartPoint } from '@seikou/engine/protocol';
 import { resumeStart } from '../place-model';
 import { playlistOf } from './library-model';
 
-/** The copy shown for a place `resumeStart` can't use (spec 2026-10-20 §6.3 Mismatch). */
+/**
+ * Whether and how a NAS disc resumes, pure: `resumeOffer` decides from the disc's places and its playlists what the
+ * pre-flight offers, `startOver` and `carriedSettings` give the start point and settings a launch uses, and the
+ * Continue watching cards and progress marks are worded from the NAS's lists.
+ */
+
+/** The copy shown for a place `resumeStart` can't use: its playlist is gone or its time is past the playlist's end. */
 export const DISC_CHANGED_COPY = 'This disc has changed since you stopped.';
 /** A Continue watching card whose title the NAS doesn't name, and whose disc has no name either. */
 export const UNTITLED_DISC = 'Untitled disc';
@@ -51,6 +57,7 @@ export type ResumeOffer =
   | { readonly kind: 'ask'; readonly place: PlaybackPlace; readonly start: StartPoint }
   | { readonly kind: 'changed'; readonly place: PlaybackPlace };
 
+/** What the pre-flight offers (see `ResumeOffer`) for `places`: the place of `playlistId` when one is requested, else the disc's newest unfinished place that is not short. `playlists` (null when not known yet, which skips the check) gives each playlist's current length; a place whose playlist the disc no longer has, or whose time is at or past that length, is `changed`. A finished place, or none found, is `none`. */
 export function resumeOffer(
   places: DiscPlaces | null,
   playlistId: string | null,
@@ -75,7 +82,7 @@ export function startOver(place: PlaybackPlace): StartPoint {
 }
 
 /**
- * The settings a launch with no place of its own starts with (spec §6.1, §6.6): an Up next card's (the finished
+ * The settings a launch with no place of its own starts with: an Up next card's (the finished
  * episode's, from the NAS's Continue watching list), else the disc's own defaults (its latest place's); null for none.
  */
 export function carriedSettings(
@@ -91,7 +98,7 @@ function timeLeft(item: Pick<ContinueItem, 'timeUs' | 'durationUs'>): string {
   return min >= 60 ? `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')} min left` : `${min} min left`;
 }
 
-/** What a Continue watching card shows (spec §6.6, mockup 1): its title, its line, and its progress (null: no bar). */
+/** What a Continue watching card shows: its title, its line, and its progress (null: no bar). */
 export function continueCard(item: ContinueItem, discName: string | null): { readonly title: string; readonly line: string; readonly percent: number | null } {
   const title = item.titleName ?? (discName || UNTITLED_DISC);
   const episode = item.episode !== null ? [...(item.seasonNumber !== null ? [`S${item.seasonNumber}`] : []), `Episode ${item.episode}`].join(' · ') : null;

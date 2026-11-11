@@ -30,6 +30,7 @@ export function pairingKey(pairing: Pick<NasPairing, 'deviceId' | 'base' | 'nasI
   return `${pairing.deviceId}@${pairing.base || pairing.nasId || ''}`;
 }
 
+/** Where this device keeps its pairing, one at a time: `get` reads it (null when not paired), `put` replaces it and `clear` forgets it. */
 export interface NasStore {
   get(): Promise<NasPairing | null>;
   put(pairing: NasPairing): Promise<void>;

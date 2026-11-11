@@ -31,7 +31,7 @@ interface ArtistGridProps {
   readonly jumpOf?: ReadonlyMap<string, string>;
 }
 
-/** The Music shelf (spec §3, "artists first"): a tile per artist, with its collage, name and release count. */
+/** The Music shelf, artists first: a tile per artist, with its collage, name and release count. */
 export function ArtistGrid({ nas, groups, onOpen, jumpOf }: ArtistGridProps): ReactElement {
   return (
     <ul className="artist-grid" data-testid="artist-grid">

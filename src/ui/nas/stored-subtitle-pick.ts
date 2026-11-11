@@ -7,10 +7,12 @@ import type { NasClient } from './nas-client';
 import { startFor } from './subtitle-model';
 import { EPISODE_CHANGED, PICK_FAILED, placeTrackName, type FansubOrigin } from './tosho-search-model';
 
+/** The notice shown when a subtitle from the NAS can't be fetched or loaded. */
 export const STORED_PICK_FAILED = "Couldn't load the subtitles from the NAS.";
 const NOTICE_CODE = 'stored-subtitle';
 const FANSUB_NOTICE_CODE = 'fansub-pick';
 
+/** What `StoredSubtitlePicker` works through: the NAS client's file calls, the player controller, the place saver, a snapshot reader and how long to wait for the text set. */
 export interface StoredPickDeps {
   readonly nas: Pick<NasClient, 'subtitleFiles' | 'pickFansub'>;
   readonly controller: Pick<PlayerController, 'discOpens' | 'encodingCancels' | 'loadSubtitleFiles' | 'setSubtitleStart' | 'shiftSubtitleFile' | 'selectSubtitle' | 'showNotice' | 'subscribe'>;

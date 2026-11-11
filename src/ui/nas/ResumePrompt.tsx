@@ -15,7 +15,7 @@ interface ResumePromptProps {
   readonly onStartOver: () => void;
 }
 
-/** Spec 2026-10-20 mockup 2: where the place stopped, on which device and when, with what, then Resume or Start from beginning. */
+/** The Resume prompt: where the place stopped, on which device and when, with what, then Resume or Start from beginning. */
 export function ResumePrompt({ place, changed, resumeOnly, disabled, nowMs, onResume, onStartOver }: ResumePromptProps): ReactElement {
   const lines = promptLines(place, nowMs);
   return (

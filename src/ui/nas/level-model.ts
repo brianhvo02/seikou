@@ -1,12 +1,15 @@
 import type { LevelAt, LevelId, LevelInfo, LevelReason, PlaceSettings } from '@seikou/nas/nas-api';
 import { RATE_MARGIN, bufferPlan } from './buffer-model';
 
+/** What the pre-flight says when the NAS's GPU is busy but Original can play. */
 export const BUSY_COPY = 'The NAS is busy re-encoding for others. This will play at original quality.';
+/** What the pre-flight says when the GPU is busy and no level, Original included, can play. */
 export const BUSY_TRY_LATER_COPY = 'The NAS is busy. Try again in a few minutes.';
 
 /** What a NAS without levels means. */
 export const ORIGINAL_ONLY: readonly LevelInfo[] = [{ level: 'original', label: 'Original', budgetMbps: 0, available: true }];
 
+/** A level's rate in megabits per second for choosing and pricing: its budget, or `originalMbps` (the disc's own rate) for Original, which has none. */
 export function levelRateMbps(l: LevelInfo, originalMbps: number): number {
   return l.level === 'original' ? originalMbps : l.budgetMbps;
 }
@@ -24,6 +27,7 @@ export function autoLevel(levels: readonly LevelInfo[], o: { connectionMbps: num
   return fits?.level ?? lowest();
 }
 
+/** One row of the pre-flight's level list: the level, its label, whether it can be picked and the note beside it (`plays now`, `about N minutes`, `plays with pauses`, or why it is unavailable). */
 export interface LevelRow {
   level: LevelId;
   label: string;
@@ -31,6 +35,7 @@ export interface LevelRow {
   note: string;
 }
 
+/** The note beside a level the NAS or this device can't offer, by the NAS's reason. */
 export const REASON_COPY: Record<LevelReason, string> = {
   unplayable: "can't play in this browser",
   'no-encoder': 'not on this NAS',
@@ -40,6 +45,7 @@ export const REASON_COPY: Record<LevelReason, string> = {
   busy: 'the NAS is busy',
 };
 
+/** The pre-flight's level list: each level with the note `bufferPlan` gives for its size (its budget rate over the main title's length; Original's own bytes) on this connection and storage, or its unavailability reason. */
 export function levelRows(
   levels: readonly LevelInfo[],
   o: { durationS: number; originalBytes: number; connectionMbps: number; quotaBytes: number },
@@ -61,6 +67,7 @@ export function levelRows(
   });
 }
 
+/** The notice for a level list where re-encoded levels are busy: `BUSY_COPY` when Original can play, `BUSY_TRY_LATER_COPY` when no level can, null when nothing is busy or some level can still be picked. */
 export function busyMessage(levels: readonly LevelInfo[]): string | null {
   const reencoded = levels.filter((l) => l.level !== 'original');
   const original = levels.find((l) => l.level === 'original');
@@ -122,6 +129,7 @@ export function pickAt(at: LevelAt, level: LevelId, playingAudio: number | null)
   return { level, audio: at.level === 'original' ? (playingAudio ?? at.audio) : at.audio };
 }
 
+/** The player's badge for the level playing, `<label> · re-encoded on the NAS`; null at Original. */
 export function badgeText(l: LevelInfo): string | null {
   return l.level === 'original' ? null : `${l.label} · re-encoded on the NAS`;
 }

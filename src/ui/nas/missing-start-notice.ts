@@ -1,6 +1,6 @@
 import { openFailed } from './library-model';
 
-/** Shown when an episode's playlist isn't on the disc it was filed on (ruling T10f). */
+/** Shown when an episode's playlist isn't on the disc it was filed on. */
 export const EPISODE_MISSING_NOTICE = "This episode isn't on this disc; it opened normally.";
 
 /** What `noticeMissingStart` needs of the `PlayerController`. */

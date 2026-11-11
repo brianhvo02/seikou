@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { nasRoutePath, parseNasRoute, type NasRoute } from './nas-route';
 
+/** The parts of `window` that `NasHistory` uses, so tests can substitute them. */
 export interface HistoryLike {
   readonly location: { readonly href: string };
   readonly history: {
@@ -115,6 +116,7 @@ export class NasHistory {
   }
 }
 
+/** The current NAS route, read with React's external store hook so the component renders again when the route changes; null when the address is not under `/nas`. */
 export function useNasRoute(h: NasHistory): NasRoute | null {
   useSyncExternalStore(h.subscribe, h.getSnapshot);
   return h.route();

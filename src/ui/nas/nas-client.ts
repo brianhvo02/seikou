@@ -10,6 +10,7 @@ import { countingBody, type SendWithProgress, xhrSend } from './upload-progress'
 import { workerBase } from './pair-link';
 import type { Route, RouteDeps } from './route-choice';
 
+/** The words shown for each way pairing with, or reaching, the NAS can fail or wait. */
 export const NAS_MESSAGES = {
   invalidCode: "That code didn't work. Codes last 10 minutes; ask for a new one.",
   tooMany: 'Too many tries. Wait a minute and try again.',
@@ -49,6 +50,7 @@ export class NasBusyError extends Error {
   override readonly name = 'NasBusyError';
 }
 
+/** A device session with the NAS: the bearer `token` and `expiresAt`, in milliseconds on this device's clock (`deps.now`). */
 export interface NasSession {
   readonly token: string;
   readonly expiresAt: number;
@@ -132,6 +134,7 @@ export interface NasTitleStatus {
   readonly gate: 'owners' | 'everyone';
 }
 
+/** A pairing code the owner minted, as `GET admin/codes` lists it: its id, the person it pairs as, whether it is a 3-day invite, and `expiresAt`. */
 export interface NasCode {
   readonly id: string;
   readonly personId: string;
@@ -140,6 +143,7 @@ export interface NasCode {
   readonly expiresAt: number;
 }
 
+/** The browser APIs and settings `NasClient` works through, so tests can substitute them. */
 export interface NasClientDeps {
   readonly fetch: typeof fetch;
   readonly subtle: SubtleCrypto;
@@ -221,12 +225,12 @@ async function httpError(res: Response): Promise<NasHttpError> {
 /** A disc's owner-choice route. */
 const choicePath = (discId: string): string => `admin/discs/${encodeURIComponent(discId)}/choice`;
 
-/** Why "apply to the group" left a disc as it was: its own choice, or a copy following its source (rulings T9f, T9i). */
+/** Why "apply to the group" left a disc as it was: it has a choice of its own (`direct`) or is a copy following its source (`copy`), or a disc number could not be given (`no-number`, `conflict`, below). */
 export interface SkippedDisc {
   readonly discId: string;
   /**
-   * `no-number`: other discs of the folder have a number in their names and this one hasn't (I3). `conflict`: the disc
-   * filed has no number in its name, and this one's own number is the one given to it (N3).
+   * `no-number`: other discs of the folder have a number in their names and this one hasn't. `conflict`: the disc
+   * filed has no number in its name, and this one's own number is the one given to it.
    */
   readonly reason: 'direct' | 'copy' | 'no-number' | 'conflict';
 }
@@ -332,7 +336,7 @@ export class NasClient {
       const res = await this.ok(choicePath(discId), jsonBody('PUT', applyToGroup ? { choice, applyToGroup } : { choice }));
       return applyToGroup ? ((await res.json()) as { skipped: SkippedDisc[] }).skipped : [];
     },
-    /** Clears a disc's choice; a copy following its source is refused with 409 `copy-follows-source` (ruling T9b). */
+    /** Clears a disc's choice; a copy following its source is refused with 409 `copy-follows-source`. */
     clearChoice: async (discId: string): Promise<void> => {
       await this.ok(choicePath(discId), { method: 'DELETE' });
     },
