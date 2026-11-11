@@ -22,7 +22,12 @@ function reverseBits32(x: number): number {
   return r >>> 0;
 }
 
-/** ISO/IEC 14496-15 Annex E codec string from the SPS profile_tier_level. */
+/**
+ * The `hev1.` codec string (ISO/IEC 14496-15 Annex E) from an SPS NAL unit with its header, read from the SPS's
+ * profile_tier_level (H.265 §7.3.2.2 and §7.3.3): profile space, profile, the compatibility flags bit-reversed, tier,
+ * level and the constraint bytes with trailing zero bytes left out. Throws a ParseError when the SPS ends before
+ * general_level_idc.
+ */
 export function hevcCodecString(sps: Uint8Array): string {
   const r = unescapeRbsp(sps);
   if (r.length < 15) throw new ParseError(`HEVC SPS is truncated (${r.length} bytes before profile_tier_level ends)`);
@@ -45,6 +50,7 @@ export function hevcCodecStrings(sps: Uint8Array): readonly [string, string] {
   return [hev1.replace(/^hev1/, 'hvc1'), hev1];
 }
 
+/** Scans one H.265 access unit in Annex B form for IRAP and IDR pictures and its first SPS NAL unit (H.265 Table 7-1). */
 export function analyzeHevc(data: Uint8Array): AccessUnitInfo {
   let key = false;
   let idr = false;

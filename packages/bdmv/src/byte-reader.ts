@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
+/** Bytes that do not parse: a bad signature or version, a truncated section or parameter set, or a read outside the buffer. */
 export class ParseError extends Error {
   constructor(message: string) {
     super(message);
@@ -12,7 +13,11 @@ export class ParseError extends Error {
   }
 }
 
-/** Big-endian reader with MSB-first bit access, modelled on libbluray's BITSTREAM. */
+/**
+ * Big-endian reader with MSB-first bit access over a byte array, modelled on libbluray's BITSTREAM. Byte reads
+ * (`u8`, `u16`, `u32`, `skip`, `take`, `ascii`) need the bit position to be on a byte boundary; every read past the
+ * end, unaligned byte read or out-of-range seek throws a ParseError instead of returning garbage.
+ */
 export class ByteReader {
   private pos: number;
   private bitPos = 0;
@@ -25,6 +30,7 @@ export class ByteReader {
     this.seek(start);
   }
 
+  /** The byte position of the next read. */
   get position(): number {
     return this.pos;
   }
@@ -33,10 +39,12 @@ export class ByteReader {
     return this.bytes.length;
   }
 
+  /** Bytes from `position` to the end. */
   get remaining(): number {
     return this.bytes.length - this.pos;
   }
 
+  /** Moves to byte `pos` (0 to `length`), dropping any bit offset. */
   seek(pos: number): void {
     if (!Number.isInteger(pos) || pos < 0 || pos > this.bytes.length) {
       throw new ParseError(`seek to ${pos} outside 0..${this.bytes.length}`);
@@ -67,6 +75,7 @@ export class ByteReader {
     return hi * 0x10000 + this.u16();
   }
 
+  /** The next `n` bytes as a view of the underlying array (not a copy). */
   take(n: number): Uint8Array {
     this.requireAligned();
     this.requireCount(n);
@@ -76,10 +85,12 @@ export class ByteReader {
     return view;
   }
 
+  /** The next `n` bytes, one character per byte (Latin-1). */
   ascii(n: number): string {
     return String.fromCharCode(...this.take(n));
   }
 
+  /** The next `n` bits (1 to 32), most significant first, as an unsigned number; nothing is consumed on failure. */
   bits(n: number): number {
     if (n < 1 || n > 32) throw new ParseError(`bits(${n}) out of range`);
     if ((this.bytes.length - this.pos) * 8 - this.bitPos < n) throw new ParseError('bit read past end'); // check first: no partial advance
@@ -95,6 +106,7 @@ export class ByteReader {
     return value;
   }
 
+  /** The next bit, as true for 1. */
   flag(): boolean {
     return this.bits(1) === 1;
   }

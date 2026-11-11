@@ -21,9 +21,11 @@ export interface UdfExtent {
   readonly length: number;
 }
 
+/** One regular file of the image: its path and where its bytes lie in the image. */
 export interface UdfFile {
   /** Upper-case and '/'-separated: 'BDMV/STREAM/00001.M2TS'. */
   readonly path: string;
+  /** The file's length in bytes, the File Entry's information length (ECMA-167 4/14.9). */
   readonly size: number;
   /** Cover the file in order; their lengths add up to `size`. */
   readonly extents: readonly UdfExtent[];
@@ -72,7 +74,7 @@ const FT_BYTESTREAM = 5;
 const FT_METADATA = 250;
 const FT_METADATA_MIRROR = 251;
 
-/** Descriptor Tag (ECMA 167, 3/7.2): its identifier, or TAG_INVALID when the checksum fails. */
+/** Descriptor Tag (ECMA 167, 3/7.2; libudfread `decode_descriptor_tag`): its identifier, or TAG_INVALID when the checksum fails. */
 function decodeDescriptorTag(buf: Uint8Array, at = 0): number {
   if (buf.length < at + 16) return TAG_INVALID;
   let checksum = 0;
@@ -85,7 +87,7 @@ interface ExtentAd {
   length: number;
 }
 
-/** Extent Descriptor (ECMA 167, 3/7.1). */
+/** Extent Descriptor (ECMA 167, 3/7.1; libudfread `_decode_extent_ad`). */
 const decodeExtentAd = (p: Uint8Array, o: number): ExtentAd => ({ length: u32(p, o), lba: u32(p, o + 4) });
 
 interface LongAd {
@@ -99,19 +101,19 @@ interface LongAd {
 const adLength = (v: number): number => v % 0x40000000;
 const adType = (v: number): number => Math.floor(v / 0x40000000);
 
-/** Short Allocation Descriptor (ECMA 167, 4/14.14.1). */
+/** Short Allocation Descriptor (ECMA 167, 4/14.14.1; libudfread `_decode_short_ad`). */
 function decodeShortAd(p: Uint8Array, o: number, partition: number): LongAd {
   const v = u32(p, o);
   return { extentType: adType(v), length: adLength(v), lba: u32(p, o + 4), partition };
 }
 
-/** Long Allocation Descriptor (ECMA 167, 4/14.14.2). */
+/** Long Allocation Descriptor (ECMA 167, 4/14.14.2; libudfread `decode_long_ad`). */
 function decodeLongAd(p: Uint8Array, o: number): LongAd {
   const v = u32(p, o);
   return { extentType: adType(v), length: adLength(v), lba: u32(p, o + 4), partition: u16(p, o + 8) };
 }
 
-/** Extended Allocation Descriptor (ECMA 167, 4/14.14.3). */
+/** Extended Allocation Descriptor (ECMA 167, 4/14.14.3; libudfread `_decode_extended_ad`). */
 function decodeExtendedAd(p: Uint8Array, o: number): LongAd {
   const v = u32(p, o);
   return { extentType: adType(v), length: adLength(v), lba: u32(p, o + 12), partition: u16(p, o + 16) };
@@ -119,6 +121,7 @@ function decodeExtendedAd(p: Uint8Array, o: number): LongAd {
 
 const AD_SIZES = [8, 16, 20] as const;
 
+/** `count` allocation descriptors of kind `adKind` (0 short, 1 long, 2 extended) from `o` (libudfread `_decode_file_ads`). */
 function decodeAds(p: Uint8Array, o: number, adKind: number, partition: number, count: number): LongAd[] {
   const out: LongAd[] = [];
   for (let i = 0; i < count; i++) {
@@ -134,7 +137,7 @@ interface PartitionDescriptor {
   numBlocks: number;
 }
 
-/** Partition Descriptor (ECMA 167, 3/10.5). */
+/** Partition Descriptor (ECMA 167, 3/10.5; libudfread `decode_partition`). */
 const decodePartition = (p: Uint8Array): PartitionDescriptor => ({ number: u16(p, 22), startBlock: u32(p, 188), numBlocks: u32(p, 192) });
 
 interface LogicalVolumeDescriptor {
@@ -146,7 +149,7 @@ interface LogicalVolumeDescriptor {
   partitionMapTable: Uint8Array;
 }
 
-/** Logical Volume Descriptor (ECMA 167, 3/10.6); the map table is cut at the end of the block. */
+/** Logical Volume Descriptor (ECMA 167, 3/10.6; libudfread `decode_logical_volume`); the map table is cut at the end of the block. */
 function decodeLogicalVolume(p: Uint8Array): LogicalVolumeDescriptor {
   const mapLength = Math.min(u32(p, 264), BLOCK - 440);
   return {
@@ -165,7 +168,10 @@ interface FileIdentifier {
   filename: Uint8Array;
 }
 
-/** File Identifier Descriptor (ECMA 167, 4/14.4): the identifier and the bytes it uses (padded to 4), or null. */
+/**
+ * File Identifier Descriptor (ECMA 167, 4/14.4; libudfread `decode_file_identifier`): the identifier and the bytes it
+ * uses (padded to 4), or null.
+ */
 function decodeFileIdentifier(p: Uint8Array, o: number, size: number): { fid: FileIdentifier; used: number } | null {
   if (size < 38) return null;
   const filenameLen = u8(p, o + 19);
@@ -186,7 +192,10 @@ interface FileEntry {
   ads: LongAd[];
 }
 
-/** File Entry (ECMA 167, 4/14.9) and Extended File Entry (4/14.17): `pAd` is where the descriptors start. */
+/**
+ * File Entry (ECMA 167, 4/14.9) and Extended File Entry (4/14.17), as libudfread `_decode_file_entry`: `pAd` is where
+ * the descriptors start.
+ */
 function decodeFileEntryAt(p: Uint8Array, partition: number, lAd: number, pAd: number, absOffset: number): FileEntry | null {
   if (pAd + lAd > BLOCK) return null;
   // ICB Tag (ECMA 167, 4/14.6). UDF records strategy 4 only.
@@ -199,13 +208,14 @@ function decodeFileEntryAt(p: Uint8Array, partition: number, lAd: number, pAd: n
   return fe;
 }
 
+/** A File Entry or Extended File Entry by its tag (libudfread `decode_file_entry`, `decode_ext_file_entry`); null for any other tag. */
 function decodeFileEntry(p: Uint8Array, tag: number, partition: number, absOffset: number): FileEntry | null {
   if (tag === TAG_FE) return decodeFileEntryAt(p, partition, u32(p, 172), 176 + u32(p, 168), absOffset);
   if (tag === TAG_EFE) return decodeFileEntryAt(p, partition, u32(p, 212), 216 + u32(p, 208), absOffset);
   return null;
 }
 
-/** Allocation Extent Descriptor (ECMA 167, 4/14.5): appends its descriptors to `fe`. */
+/** Allocation Extent Descriptor (ECMA 167, 4/14.5; libudfread `decode_allocation_extent`): appends its descriptors to `fe`. */
 function decodeAllocationExtent(fe: FileEntry, p: Uint8Array, size: number, partition: number): boolean {
   const lAd = u32(p, 20);
   if (size < 24 || size - 24 < lAd || fe.adKind > 2) return false;
@@ -501,6 +511,10 @@ export class UdfImage {
     private readonly root: DirEntry[],
   ) {}
 
+  /**
+   * Opens the image `read` reads: checks the volume recognition sequence, finds the partitions and reads the root
+   * directory. Rejects with a UdfError (`not a UDF image` when it isn't one) or with the error `read` threw.
+   */
   static async open(read: UdfRead): Promise<UdfImage> {
     const { volume, root } = await openVolume(read);
     return new UdfImage(volume, root);

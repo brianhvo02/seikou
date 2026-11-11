@@ -9,9 +9,13 @@
 
 import { ParseError } from './byte-reader';
 
-/** File versions libbluray accepts for index.bdmv, MPLS and CLPI files. */
+/** The file versions libbluray's `bdmv_parse_header` accepts (`BDMV_VERSION_0100` to `BDMV_VERSION_0300`). */
 const SUPPORTED_VERSIONS: ReadonlySet<string> = new Set(['0100', '0200', '0240', '0300']);
 
+/**
+ * Checks the four version characters that follow a BDMV file's signature, as `bdmv_parse_header` does for every file
+ * this package parses. Throws a ParseError naming `file` for any version other than 0100, 0200, 0240 or 0300.
+ */
 export function checkVersion(file: string, version: string): void {
   if (!SUPPORTED_VERSIONS.has(version)) throw new ParseError(`${file}: unsupported file version "${version}"`);
 }

@@ -11,14 +11,19 @@
 
 import type { TsPacket } from './ts-packet';
 
+/** One complete PES packet (ISO/IEC 13818-1 §2.4.3.6 and §2.4.3.7), reassembled from the transport packets of one PID. */
 export interface PesPacket {
+  /** The PID it arrived on. */
   readonly pid: number;
+  /** `stream_id`, such as 0xE0 for video or 0xBD (private stream 1) for most Blu-ray audio and graphics. */
   readonly streamId: number;
-  /** 90 kHz. */
+  /** The 33-bit PTS in 90 kHz ticks; absent when the header carries none. */
   readonly pts?: number;
+  /** The 33-bit DTS in 90 kHz ticks; present only when the header carries both PTS and DTS. */
   readonly dts?: number;
   /** stream_id_extension of a 0xFD packet (Blu-ray: 0x76 AC-3 core, 0x72 TrueHD/MLP). */
   readonly streamIdExtension?: number;
+  /** The PES packet data after the header. */
   readonly payload: Uint8Array;
 }
 
@@ -33,9 +38,13 @@ interface PidState {
   done: boolean;
 }
 
-/** Stream ids whose PES packets carry no optional header (ISO 13818-1 Table 2-21). */
+/** Stream ids whose PES packets carry no optional header (ISO/IEC 13818-1 §2.4.3.6, the PES packet syntax). */
 const NO_HEADER_STREAM_IDS = new Set([0xbc, 0xbe, 0xbf, 0xf0, 0xf1, 0xf2, 0xf8, 0xff]);
 
+/**
+ * The 33-bit PTS or DTS in the 5 bytes at `o`, with its marker bits dropped (ISO/IEC 13818-1 §2.4.3.6), in 90 kHz
+ * ticks. Values above 2^32 stay exact because the top 3 bits are added by multiplication.
+ */
 export function readTimestamp(d: Uint8Array, o: number): number {
   return ((d[o] >> 1) & 0x07) * 0x40000000 + ((d[o + 1] << 22) | ((d[o + 2] >> 1) << 15) | (d[o + 3] << 7) | (d[o + 4] >> 1));
 }
@@ -50,6 +59,7 @@ export class PesAssembler {
 
   constructor(private readonly onPes: (pes: PesPacket) => void) {}
 
+  /** Adds one transport packet of any PID; a PES it completes is handed to `onPes` before this returns. */
   push(packet: TsPacket): void {
     if (!packet.hasPayload) return; // CC does not advance on adaptation-only packets
     const state = this.states.get(packet.pid);
@@ -87,11 +97,16 @@ export class PesAssembler {
     state.chunks = [];
   }
 
+  /**
+   * Ends every PES still open, then forgets all PIDs: an unbounded PES is handed over, and a broken one or one shorter
+   * than its declared length is dropped.
+   */
   flush(): void {
     for (const [pid, state] of this.states) if (!state.done) this.emit(pid, state);
     this.states.clear();
   }
 
+  /** Drops every PES still open without handing it over, as after a seek. */
   reset(): void {
     this.states.clear();
   }
@@ -131,7 +146,7 @@ function parsePes(pid: number, d: Uint8Array): PesPacket | null {
   };
 }
 
-/** Walks the optional PES header fields (ISO 13818-1 §2.4.3.7) to PES_extension_2. */
+/** Walks the optional PES header fields (ISO/IEC 13818-1 §2.4.3.7) to PES_extension_2. */
 function readStreamIdExtension(d: Uint8Array, flags: number, headerEnd: number): number | undefined {
   if (!(flags & 0x01)) return undefined;
   let o = 9;

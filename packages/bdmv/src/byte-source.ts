@@ -1,10 +1,19 @@
-/** The only way engine modules touch disc bytes. Later phases add ISO (UDF) and AACS implementations. */
+/**
+ * Read access to the files of one disc, by path relative to the disc root (such as `BDMV/index.bdmv`). It is the only
+ * way the engine touches disc bytes: the engine's `FileSource` serves a picked folder and its `RemoteSource` serves a
+ * NAS or disc-server disc. `exists`, `size` and `list` answer synchronously from what the source loaded when it opened.
+ */
 export interface ByteSource {
+  /** True when the disc has a file at `path`. */
   exists(path: string): boolean;
+  /** The size of the file at `path` in bytes. */
   size(path: string): number;
   /** File names directly inside `dir`, sorted. */
   list(dir: string): string[];
-  /** Aborting `signal` stops the read early and rejects with the signal's reason. */
+  /**
+   * `length` bytes of the file at `path` from byte `offset`. Aborting `signal` stops the read early and rejects with the
+   * signal's reason.
+   */
   read(path: string, offset: number, length: number, signal?: AbortSignal): Promise<Uint8Array>;
   /**
    * A one-off read that starts no read-ahead and leaves where read-ahead goes as it was (a check of a few bytes of a
@@ -13,6 +22,13 @@ export interface ByteSource {
   peek?(path: string, offset: number, length: number, signal?: AbortSignal): Promise<Uint8Array>;
 }
 
+/**
+ * Why a disc failed to open or read: `not-bdmv` (no BDMV folder, or index.bdmv missing or damaged),
+ * `multiple-discs` (the picked folder holds more than one), `case-collision` (file names that differ only in case),
+ * `missing-file` (a playlist or clip it needs is absent), `source-changed` (the files changed on disk or on the server),
+ * `encrypted` (AACS), `unreadable-stream` (a stream that cannot be read or is too large to preload), `read-failed`
+ * (a read the source could not complete).
+ */
 export type DiscErrorCode =
   | 'not-bdmv'
   | 'multiple-discs'
@@ -23,6 +39,7 @@ export type DiscErrorCode =
   | 'unreadable-stream'
   | 'read-failed';
 
+/** A disc failure the player shows the user: `code` says which, `message` is the text shown, `paths` the files concerned. */
 export class DiscError extends Error {
   constructor(
     readonly code: DiscErrorCode,
@@ -34,6 +51,7 @@ export class DiscError extends Error {
   }
 }
 
+/** The whole file at `path`, read in one `read` call. */
 export function readWhole(source: ByteSource, path: string): Promise<Uint8Array> {
   return source.read(path, 0, source.size(path));
 }

@@ -12,16 +12,25 @@ import { ByteReader, ParseError } from './byte-reader';
 import { CodingType, isAudioCoding, isVideoCoding } from './stream-types';
 import { checkVersion } from './version';
 
-/** Ported from libbluray bdnav/mpls_parse.c (playlist, play items, STN, marks). */
+/**
+ * One stream of a play item's STN table: where the stream is and what it holds. It mirrors libbluray `MPLS_STREAM`
+ * (`mpls_data.h`), read by `_parse_stream` in `mpls_parse.c`; the Dolby Vision and HDR fields libbluray also reads for
+ * HEVC are not kept.
+ */
 export interface StreamEntry {
+  /** `pid`: the transport stream PID of the stream in its clip. */
   readonly pid: number;
+  /** `coding_type`: the stream's codec, one of `CodingType`. */
   readonly codingType: number;
+  /** `format`: for video the video format code (such as 1080p), for audio the channel layout code; 0 otherwise. */
   readonly format: number;
+  /** `rate`: for video the frame rate code, for audio the sample rate code; 0 otherwise. */
   readonly rate: number;
+  /** `lang`: the ISO 639-2 language code of audio, PG, IG and text subtitle streams; empty for video. */
   readonly lang: string;
-  /** Text subtitle character code (coding type 0x92); 0 otherwise. */
+  /** `char_code`: the character code of a text subtitle stream (coding type 0x92); 0 otherwise. */
   readonly charCode: number;
-  /** True for streams carried in a sub-path clip (stream_type 2–4); M1 plays main-path streams only. */
+  /** True when the entry names a sub-path (stream_type 2, 3 or 4) instead of the play item's own clip (stream_type 1). */
   readonly subPath: boolean;
   /** STN stream_type: 1 main clip, 2 sub-path clip, 3 and 4 other sub-path streams. libbluray's IG lookup treats only 2 as a sub-path IG. */
   readonly streamType: number;
@@ -31,76 +40,149 @@ export interface StreamEntry {
   readonly subClipId: number;
 }
 
+/**
+ * A play item's STN table (stream number table): the streams a player may select while the item plays, in stream
+ * number order, so `audio[0]` is audio stream number 1. It mirrors libbluray `MPLS_STN` (`mpls_data.h`), read by
+ * `_parse_stn`. libbluray keeps PG and PiP PG entries in one `pg` array (the `num_pg` entries, then the `num_pip_pg`
+ * ones); here they are split. The secondary streams' reference lists and the Dolby Vision entries are skipped.
+ */
 export interface StnTable {
+  /** Primary video streams (`num_video`). */
   readonly video: readonly StreamEntry[];
+  /** Primary audio streams (`num_audio`). */
   readonly audio: readonly StreamEntry[];
+  /** Presentation graphics (subtitle) and text subtitle streams (`num_pg`). */
   readonly pg: readonly StreamEntry[];
+  /** Interactive graphics (menu) streams (`num_ig`). */
   readonly ig: readonly StreamEntry[];
+  /** Picture-in-picture presentation graphics streams (`num_pip_pg`). */
   readonly pipPg: readonly StreamEntry[];
+  /** Secondary audio streams (`num_secondary_audio`). */
   readonly secondaryAudio: readonly StreamEntry[];
+  /** Secondary (picture-in-picture) video streams (`num_secondary_video`). */
   readonly secondaryVideo: readonly StreamEntry[];
 }
 
+/**
+ * One play item: a stretch of one clip that the playlist plays. It mirrors libbluray `MPLS_PI` (`mpls_data.h`), read
+ * by `_parse_playitem` in `mpls_parse.c`.
+ */
 export interface PlayItem {
+  /** `clip[0].clip_id`: the 5-digit name of the clip, `BDMV/CLIPINF/<clipId>.clpi` and `BDMV/STREAM/<clipId>.m2ts`. */
   readonly clipId: string;
+  /** `clip[0].codec_id`: `M2TS` (libbluray also accepts `FMTS`). */
   readonly codecId: string;
+  /**
+   * `connection_condition`: how this item joins the previous one, 1 for a non-seamless join, 5 and 6 for seamless
+   * joins (libbluray `navigation.c` `_fill_clip` then starts reading the clip at packet 0).
+   */
   readonly connectionCondition: number;
+  /** `clip[0].stc_id`: the STC sequence of the clip that `inTime` and `outTime` refer to (see `stcSpnRange`). */
   readonly stcId: number;
-  /** 45 kHz clip time. */
+  /** `in_time`: where the item starts, in 45 kHz clip time. */
   readonly inTime: number;
-  /** 45 kHz clip time (exclusive). */
+  /** `out_time`: where the item ends, in 45 kHz clip time (exclusive). */
   readonly outTime: number;
+  /** `uo_mask`: the 8 bytes of the item's user-operation mask table as stored (libbluray decodes them in `uo_mask_parse`). */
   readonly uoMask: Uint8Array;
+  /** `still_mode`: 0 for no still, 1 for a still of `stillTime` seconds, 2 for an infinite still (`bd_still_mode_e`). */
   readonly stillMode: number;
+  /** `still_time`: the still's length in seconds when `stillMode` is 1; 0 otherwise. */
   readonly stillTime: number;
+  /** `is_multi_angle`: the item has more than one camera angle. */
   readonly isMultiAngle: boolean;
-  /** pi->angle_count: 1 for single-angle items. */
+  /** `angle_count`: 1 for single-angle items (and for a stored 0, as libbluray). */
   readonly angleCount: number;
+  /** `clip[1..].clip_id`: the clips of angles 2 and up, in order; empty for single-angle items. */
   readonly angleClipIds: readonly string[];
+  /** `stn`: the streams selectable while this item plays. */
   readonly stn: StnTable;
 }
 
-/** Ported from libbluray mpls_parse.c _parse_subplayitem (MPLS_SUB_PI); only the first clip of a multi-clip item is kept. */
+/**
+ * One sub play item: a stretch of a clip that a sub-path plays beside the main path, such as an out-of-mux IG menu or
+ * text subtitle. It mirrors libbluray `MPLS_SUB_PI` (`mpls_data.h`), read by `_parse_subplayitem` in `mpls_parse.c`;
+ * only the first clip of a multi-clip item is kept.
+ */
 export interface SubPlayItem {
+  /** `clip[0].clip_id`: the 5-digit name of the clip. */
   readonly clipId: string;
+  /** `clip[0].codec_id`: `M2TS` (libbluray also accepts `FMTS`). */
   readonly codecId: string;
+  /** `connection_condition`: how this item joins the previous one, 1 non-seamless, 5 and 6 seamless. */
   readonly connectionCondition: number;
+  /** `is_multi_clip`: the item names more than one clip; the others are not kept. */
   readonly isMultiClip: boolean;
+  /** `clip[0].stc_id`: the STC sequence of the clip that `inTime` and `outTime` refer to. */
   readonly stcId: number;
-  /** 45 kHz clip time. */
+  /** `in_time`: where the item starts, in 45 kHz clip time. */
   readonly inTime: number;
+  /** `out_time`: where the item ends, in 45 kHz clip time. */
   readonly outTime: number;
+  /** `sync_play_item_id`: the main-path play item this item starts in. */
   readonly syncPlayItemId: number;
+  /** `sync_pts`: the 45 kHz time within that play item's clip where this item starts. */
   readonly syncPts: number;
 }
 
-/** Ported from libbluray mpls_parse.c _parse_subpath (MPLS_SUB). */
+/**
+ * One sub-path of a playlist: a second timeline of clips played beside the main path. It mirrors libbluray `MPLS_SUB`
+ * (`mpls_data.h`), read by `_parse_subpath` in `mpls_parse.c`.
+ */
 export interface SubPath {
+  /**
+   * `type` (`mpls_sub_path_type`): 2 the audio of a browsable slideshow, 3 an interactive graphics menu, 4 a text
+   * subtitle, 5 out-of-mux synchronous streams, 6 asynchronous and 7 synchronous picture-in-picture, 8 stereoscopic
+   * video, 10 a Dolby Vision enhancement layer.
+   */
   readonly type: number;
+  /** `is_repeat`: the sub-path's items repeat. */
   readonly isRepeat: boolean;
+  /** `sub_play_item`: the sub-path's items in order. */
   readonly items: readonly SubPlayItem[];
 }
 
+/**
+ * One playlist mark, libbluray `MPLS_PLM` (`mpls_data.h`), read by `_parse_playlistmark` in `mpls_parse.c`. Entry marks
+ * are the chapters.
+ */
 export interface PlayListMark {
+  /** `mark_type`: one of `MarkType`, 1 for an entry mark (a chapter) and 2 for a link point. */
   readonly type: number;
+  /** `play_item_ref`: the index of the play item the mark lies in. */
   readonly playItemRef: number;
-  /** 45 kHz clip time within the referenced play item. */
+  /** `time`: the mark's 45 kHz clip time within the referenced play item. */
   readonly time: number;
+  /** `entry_es_pid`: the elementary stream PID the mark is bound to. */
   readonly entryEsPid: number;
+  /** `duration`: the mark's duration in 45 kHz ticks, as stored. */
   readonly duration: number;
 }
 
+/** A parsed `BDMV/PLAYLIST/*.mpls` playlist, libbluray `MPLS_PL` (`mpls_data.h`). Its extension data is not read. */
 export interface Mpls {
+  /** The four version characters after the `MPLS` signature, such as `0200`. */
   readonly version: string;
+  /** `MPLS_AI.playback_type`; libbluray reads a `playback_count` after it when the value is 2 or 3. */
   readonly playbackType: number;
+  /** `MPLS_AI.uo_mask`: the 8 bytes of the playlist's user-operation mask table as stored. */
   readonly uoMask: Uint8Array;
+  /** `play_item`: the main path, in play order. */
   readonly playItems: readonly PlayItem[];
+  /** `sub_path`: the sub-paths, in file order (a stream's `subPathId` indexes this). */
   readonly subPaths: readonly SubPath[];
+  /** `play_mark`: the marks in file order; empty when the file has no mark section. */
   readonly marks: readonly PlayListMark[];
 }
 
+/** `PlayListMark.type` values, libbluray `BD_MARK_ENTRY` and `BD_MARK_LINK`. */
 export const MarkType = { ENTRY: 1, LINK: 2 } as const;
 
+/**
+ * Parses the bytes of a `.mpls` playlist (libbluray `_parse_playlist` and `_parse_playlistmark`). Throws a ParseError
+ * for a bad signature, an unsupported version, a play item shorter than 18 bytes, a sub play item shorter than 24
+ * bytes, or a read past the end of the file.
+ */
 export function parseMpls(bytes: Uint8Array): Mpls {
   const r = new ByteReader(bytes);
   const signature = r.ascii(4);

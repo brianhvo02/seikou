@@ -1,4 +1,7 @@
-/** Splits an Annex-B byte stream into NAL units (start codes removed, trailing zero bytes trimmed). */
+/**
+ * Splits an Annex B byte stream (ITU-T H.264 and H.265 Annex B) into NAL units, each starting with its NAL unit
+ * header: start codes removed, trailing zero bytes trimmed, empty units dropped. The units are views into `data`.
+ */
 export function splitAnnexB(data: Uint8Array): Uint8Array[] {
   const nals: Uint8Array[] = [];
   let start = -1;
@@ -22,7 +25,11 @@ function trimTrailingZeros(nal: Uint8Array): Uint8Array {
   return nal.subarray(0, end);
 }
 
-/** Removes emulation-prevention bytes (0x03 following two zero bytes). */
+/**
+ * Removes emulation prevention bytes (a 0x03 after two zero bytes; `emulation_prevention_three_byte`, H.264 §7.4.1
+ * and H.265 §7.4.2), turning a NAL unit's bytes into its raw byte sequence payload (callers that want the RBSP alone
+ * pass the bytes after the NAL unit header). Returns a new array.
+ */
 export function unescapeRbsp(nal: Uint8Array): Uint8Array {
   const out = new Uint8Array(nal.length);
   let n = 0;
@@ -38,6 +45,7 @@ export function unescapeRbsp(nal: Uint8Array): Uint8Array {
   return out.subarray(0, n);
 }
 
+/** Joins NAL units into one Annex B byte stream, each behind a 4-byte start code (00 00 00 01). Returns a new array. */
 export function joinAnnexB(nals: readonly Uint8Array[]): Uint8Array {
   const out = new Uint8Array(nals.reduce((sum, n) => sum + 4 + n.length, 0));
   let at = 0;

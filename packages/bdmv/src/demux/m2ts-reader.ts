@@ -3,13 +3,17 @@ import { PACKETS_PER_ALIGNED_UNIT, SOURCE_PACKET_SIZE } from './constants';
 import { PesAssembler, type PesPacket } from './pes-assembler';
 import { parseSourcePacket } from './ts-packet';
 
+/** What an M2tsReader reads: a range of one clip, the PIDs to keep, and how much to read at a time. */
 export interface M2tsReaderOptions {
+  /** The disc the clip is on. */
   readonly source: ByteSource;
+  /** The clip's path on the disc, such as `BDMV/STREAM/00001.m2ts`. */
   readonly path: string;
-  /** Rounded down to an aligned unit. */
+  /** The source packet number to start at, rounded down to an aligned unit. */
   readonly startSpn: number;
-  /** Exclusive; defaults to end of file. */
+  /** The source packet number to stop before (exclusive); defaults to the end of the file. */
   readonly endSpn?: number;
+  /** The PIDs whose PES packets are reassembled and returned; packets of other PIDs are dropped. */
   readonly pids: ReadonlySet<number>;
   /**
    * A lead-in read before `startSpn`: reading starts at `fromSpn` (rounded down to an aligned unit), but until the aligned
@@ -20,14 +24,23 @@ export interface M2tsReaderOptions {
   readonly chunkPackets?: number;
 }
 
+/** Damage the reader met and skipped so far. */
 export interface DemuxStats {
+  /** Source packets `parseSourcePacket` rejected (lost sync byte, transport error, bad adaptation field length). */
   readonly corruptPackets: number;
+  /** Continuity counter gaps on the selected PIDs; the PES each one broke was dropped. */
   readonly continuityErrors: number;
 }
 
+/** The default `chunkPackets`: 341 aligned units, about 2 MB per read. */
 export const DEFAULT_CHUNK_PACKETS = PACKETS_PER_ALIGNED_UNIT * 341;
 
-/** Reads a clip in aligned chunks, prefetching the next chunk while the current one is demuxed. */
+/**
+ * Reads a clip in aligned chunks, prefetching the next chunk while the current one is demuxed, and hands out the PES
+ * packets of the selected PIDs. A PES that started before the first packet read is skipped, and one with a declared
+ * length that `endSpn` cuts off is dropped. Read errors from the source reject `next()`; damaged packets are counted
+ * in `stats` and skipped.
+ */
 export class M2tsReader {
   private readonly assembler: PesAssembler;
   private readonly out: PesPacket[] = [];
@@ -57,6 +70,7 @@ export class M2tsReader {
     return this.cursor;
   }
 
+  /** Counts of the damage met so far. */
   get stats(): DemuxStats {
     return { corruptPackets: this.corruptPackets, continuityErrors: this.assembler.continuityErrors };
   }

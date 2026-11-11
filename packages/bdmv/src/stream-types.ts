@@ -1,4 +1,9 @@
-/** Stream coding types used in MPLS STN tables and CLPI program info (libbluray bdnav/mpls_data.h). */
+/**
+ * The `coding_type` byte of MPLS STN entries and CLPI program streams: which codec a stream uses. The values are
+ * libbluray's `bd_stream_type_e` (`bluray.h`, `BLURAY_STREAM_TYPE_*`) and `BD_STREAM_TYPE_*` (`bdnav/bdparse.h`); MVC
+ * (0x20), the dependent view of a 3D H.264 stream, has no named constant there; libbluray's `clpi_parse.c`
+ * `_parse_stream_attr` reads it as video.
+ */
 export const CodingType = {
   MPEG1_VIDEO: 0x01,
   MPEG2_VIDEO: 0x02,
@@ -48,14 +53,17 @@ const NAMES: Readonly<Record<number, string>> = {
   0x92: 'Text subtitles',
 };
 
+/** True for the video coding types (MPEG-1, MPEG-2, H.264, MVC, HEVC, VC-1), whose attributes carry format and rate. */
 export function isVideoCoding(codingType: number): boolean {
   return VIDEO_TYPES.has(codingType);
 }
 
+/** True for the audio coding types (primary and secondary), whose attributes carry format, rate and language. */
 export function isAudioCoding(codingType: number): boolean {
   return AUDIO_TYPES.has(codingType);
 }
 
+/** A short English name of the coding type for the user interface, or `unknown codec 0x..` for any other value. */
 export function codingName(codingType: number): string {
   return NAMES[codingType] ?? `unknown codec 0x${codingType.toString(16)}`;
 }

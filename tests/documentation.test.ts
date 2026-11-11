@@ -8,7 +8,7 @@ import { oldNameComments, privateHistoryComments, undocumentedExports } from '..
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Glob patterns, relative to the repository root, of the source areas that meet the documentation standard. Each documentation task adds its own. */
-export const ENROLLED: readonly string[] = ['encoder/src/**', 'encoder/web/src/**'];
+export const ENROLLED: readonly string[] = ['encoder/src/**', 'encoder/web/src/**', 'packages/bdmv/src/**'];
 
 /**
  * The tracked `.ts` and `.tsx` files that match the globs, without tests, declaration files and

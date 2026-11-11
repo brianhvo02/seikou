@@ -1,13 +1,20 @@
 import { ParseError } from '../byte-reader';
 import { joinAnnexB, splitAnnexB, unescapeRbsp } from './nal';
 
+/** What `analyzeAvc` and `analyzeHevc` found in one access unit (the payload of one video PES). */
 export interface AccessUnitInfo {
+  /**
+   * Decoding can start here: for H.264 an IDR slice or a recovery point SEI (payloadType 6, Annex D), for H.265 an
+   * IRAP picture (NAL unit types 16 to 21, H.265 Table 7-1).
+   */
   readonly key: boolean;
+  /** The access unit holds an IDR picture (H.264 NAL unit type 5; H.265 types 19 and 20). */
   readonly idr: boolean;
+  /** The first SPS NAL unit of the access unit, with its NAL unit header, as a view into the input; null when it has none. */
   readonly sps: Uint8Array | null;
-  /** The PPS NAL units the access unit carries. */
+  /** The PPS NAL units the access unit carries (H.264 only; always empty for H.265). */
   readonly pps: readonly Uint8Array[];
-  /** The access unit to decode (MVC NAL units removed for AVC). */
+  /** The access unit to decode, Annex B: the input itself, or for H.264 with MVC NAL units a copy without them. */
   readonly data: Uint8Array;
 }
 
@@ -15,12 +22,20 @@ const NAL_IDR = 5;
 const NAL_SEI = 6;
 const NAL_SPS = 7;
 const NAL_PPS = 8;
-/** Prefix NAL, subset SPS, coded slice extension: MVC dependent-view data that a 2D decoder must not see. */
+/**
+ * NAL unit types 14 (prefix NAL unit), 15 (subset SPS) and 20 (coded slice extension), H.264 Table 7-1: the MVC
+ * dependent view of a 3D disc, which a 2D decoder must not see.
+ */
 const MVC_TYPES = new Set([14, 15, 20]);
 const SEI_RECOVERY_POINT = 6;
 /** profile_idc values whose SPS carries chroma_format_idc, bit depths and scaling matrices (H.264 7.3.2.1.1). */
 const HIGH_PROFILES = new Set([100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135]);
 
+/**
+ * The WebCodecs codec string `avc1.PPCCLL` (RFC 6381 §3.3) from an SPS NAL unit with its header: profile_idc, the
+ * constraint flags byte and level_idc (H.264 §7.3.2.1.1) in hex. Throws a ParseError when the SPS is shorter than
+ * 4 bytes.
+ */
 export function avcCodecString(sps: Uint8Array): string {
   if (sps.length < 4) throw new ParseError(`H.264 SPS is truncated (${sps.length} bytes)`);
   const hex = (b: number): string => b.toString(16).padStart(2, '0');
@@ -28,8 +43,9 @@ export function avcCodecString(sps: Uint8Array): string {
 }
 
 /**
- * frame_mbs_only_flag == 0: the stream may hold field pictures or MBAFF frames (1080i on Blu-ray). An SPS too short
- * to reach the flag counts as progressive.
+ * True when the SPS NAL unit (with its header) has frame_mbs_only_flag 0: the stream may hold field pictures or MBAFF
+ * frames (1080i on Blu-ray). Reads the SPS syntax of H.264 §7.3.2.1.1 up to that flag; an SPS too short to reach it
+ * counts as progressive.
  */
 export function avcIsInterlaced(sps: Uint8Array): boolean {
   const r = new ExpGolomb(unescapeRbsp(sps.subarray(1)));
@@ -70,7 +86,7 @@ export function avcIsInterlaced(sps: Uint8Array): boolean {
   }
 }
 
-/** pic_parameter_set_id of a PPS NAL unit, or null when it is too short to hold one. */
+/** pic_parameter_set_id (H.264 §7.3.2.2) of a PPS NAL unit with its header, or null when it is too short to hold one. */
 export function avcPpsId(pps: Uint8Array): number | null {
   try {
     return new ExpGolomb(unescapeRbsp(pps.subarray(1))).ue();
@@ -118,6 +134,7 @@ class ExpGolomb {
   }
 }
 
+/** Scans one H.264 access unit in Annex B form for its key frame, IDR, SPS and PPS NAL units, and strips MVC units. */
 export function analyzeAvc(data: Uint8Array): AccessUnitInfo {
   const nals = splitAnnexB(data);
   let idr = false;

@@ -10,11 +10,15 @@
 import { ByteReader, ParseError } from './byte-reader';
 import { checkVersion } from './version';
 
-/** CERTIFICATE/id.bdmv: the BD-J organisation and disc IDs as lower-case hex (str_print_hex). */
+/**
+ * `CERTIFICATE/id.bdmv`: the disc's organisation and disc IDs as lower-case hex, as libbluray prints them with
+ * `str_print_hex` into `BDID_DATA` (`bdid_parse.h`). BD-J uses them to name the disc's persistent storage and binding
+ * unit data area.
+ */
 export interface BdidData {
-  /** 8 hex digits. */
+  /** `org_id`: the organisation ID, 4 bytes as 8 hex digits. */
   readonly orgId: string;
-  /** 32 hex digits. */
+  /** `disc_id`: the disc ID, 16 bytes as 32 hex digits. */
   readonly discId: string;
 }
 
@@ -22,7 +26,10 @@ const ID_START = 40;
 
 const hex = (bytes: Uint8Array): string => [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
 
-/** _bdid_parse; the extension data libbluray ignores is ignored. */
+/**
+ * Parses the bytes of `CERTIFICATE/id.bdmv` (libbluray `_bdid_parse`); the extension data libbluray ignores is ignored.
+ * Throws a ParseError for a bad `BDID` signature, an unsupported version, or a file too short to hold both IDs.
+ */
 export function parseBdid(bytes: Uint8Array): BdidData {
   const r = new ByteReader(bytes);
   const signature = r.ascii(4);

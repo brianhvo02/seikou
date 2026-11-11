@@ -10,14 +10,22 @@
 import { ByteReader, ParseError } from './byte-reader';
 import { checkVersion } from './version';
 
+/**
+ * One menu sound effect of `sound.bdmv` (the button sounds IG menus play), libbluray `SOUND_OBJECT`
+ * (`sound_parse.h`).
+ */
 export interface SoundClip {
+  /** `num_channels`: 1 or 2. */
   readonly channels: 1 | 2;
+  /** `sample_rate`: always 48 kHz, the only rate libbluray knows. */
   readonly sampleRate: 48000;
-  /** Interleaved signed 16-bit samples. */
+  /** `samples`: interleaved signed 16-bit LPCM, `channels` samples per frame. */
   readonly samples: Int16Array;
 }
 
+/** The parsed `BDMV/AUXDATA/sound.bdmv`, libbluray `SOUND_DATA` (`sound_parse.h`). */
 export interface SoundData {
+  /** The sounds in file order; an IG button's sound id indexes this. */
   readonly clips: readonly SoundClip[];
 }
 
@@ -29,7 +37,11 @@ interface SoundIndex {
 
 const SOUND_OBJECTS_START = 40;
 
-/** _sound_parse_attributes + _sound_parse_index: unknown codes fall back to mono, 48 kHz, 16 bit like libbluray. */
+/**
+ * One sound's index entry (libbluray `_sound_parse_attributes` and `_sound_parse_index`): channel configuration code
+ * 3 is stereo and any other is mono; the sample rate and sample size codes are read and taken as 48 kHz and 16 bit
+ * whatever they hold, as libbluray does. `numFrames` is the stored byte length divided by 2 bytes per channel.
+ */
 function parseSoundIndex(r: ByteReader): SoundIndex {
   const channels = r.bits(4) === 3 ? 2 : 1;
   r.bits(4); // sample rate code; only 48 kHz exists
@@ -40,7 +52,11 @@ function parseSoundIndex(r: ByteReader): SoundIndex {
   return { channels, dataOffset, numFrames };
 }
 
-/** sound_parse (_sound_parse) */
+/**
+ * Parses the bytes of `BDMV/AUXDATA/sound.bdmv` (libbluray `_sound_parse`, reached through `sound_get`). Throws a
+ * ParseError for a bad `BCLK` signature, an unsupported version, a file with no sounds, or sample data cut off by the
+ * end of the file.
+ */
 export function parseSoundBdmv(bytes: Uint8Array): SoundData {
   const r = new ByteReader(bytes);
   const signature = r.ascii(4);
