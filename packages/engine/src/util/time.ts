@@ -1,14 +1,17 @@
 /** PTS values are 33-bit, 90 kHz. Navigation times (MPLS/CLPI) are 45 kHz. */
 export const PTS_WRAP = 2 ** 33;
 
+/** 45 kHz ticks to microseconds, rounded. */
 export function ticks45ToUs(ticks: number): number {
   return Math.round((ticks * 200) / 9);
 }
 
+/** Microseconds to 45 kHz ticks, rounded. */
 export function usToTicks45(us: number): number {
   return Math.round((us * 9) / 200);
 }
 
+/** A 90 kHz PES/TS time stamp to microseconds, rounded. */
 export function pts90ToUs(pts: number): number {
   return Math.round((pts * 100) / 9);
 }

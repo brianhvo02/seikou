@@ -4,8 +4,11 @@ import { analyzeAvc, avcCodecString, avcIsInterlaced, avcPpsId, type AccessUnitI
 import { analyzeHevc, hevcCodecStrings } from '@seikou/bdmv/codecs/hevc';
 import { CODING_AV1, av1CodecString } from './av1';
 
+/** One video access unit for the decoder. */
 export interface VideoUnit {
+  /** Annex B bytes for H.264 and HEVC; an AV1 temporal unit as it lies in the Matroska block. */
   readonly data: Uint8Array;
+  /** Playlist time in microseconds; it identifies the unit when its frame comes out. */
   readonly ptsUs: number;
   /** Decode for reference but never present (e.g. before a seek target or outside the play item). */
   readonly discard: boolean;
@@ -13,8 +16,10 @@ export interface VideoUnit {
   readonly key?: boolean;
 }
 
+/** The part of WebCodecs' VideoDecoder the engine uses, so tests can inject a fake. */
 export interface VideoDecoderLike {
   readonly state: CodecState;
+  /** Chunks queued and not yet decoded. */
   readonly decodeQueueSize: number;
   configure(config: VideoDecoderConfig): void;
   decode(chunk: EncodedVideoChunk): void;
@@ -23,12 +28,14 @@ export interface VideoDecoderLike {
   close(): void;
 }
 
+/** The WebCodecs entry points the video decoder calls (injected, like the rest of the player's browser APIs). */
 export interface VideoCodecApi {
   create(init: VideoDecoderInit): VideoDecoderLike;
   isConfigSupported(config: VideoDecoderConfig): Promise<VideoDecoderSupport>;
   makeChunk(init: EncodedVideoChunkInit): EncodedVideoChunk;
 }
 
+/** The real WebCodecs: VideoDecoder, VideoDecoder.isConfigSupported and EncodedVideoChunk. */
 export const browserVideoCodecApi: VideoCodecApi = {
   create: (init) => new VideoDecoder(init),
   isConfigSupported: (config) => VideoDecoder.isConfigSupported(config),
@@ -78,10 +85,12 @@ const MAX_CONSECUTIVE_ERRORS = 3;
 const PENDING_PRUNE_SIZE = 64;
 const PENDING_PRUNE_WINDOW_US = 2_000_000;
 
+/** Whether the engine has a decoder for this coding type (H.264, HEVC, AV1); MPEG-2 and VC-1 have none and play without a picture. */
 export function isSupportedVideoCoding(codingType: number): boolean {
   return CODECS.has(codingType);
 }
 
+/** Whether the unit holds a sequence parameter set of this codec, which a decoder can be configured from; false for a codec the engine does not decode. */
 export function hasSps(codingType: number, data: Uint8Array): boolean {
   return (CODECS.get(codingType)?.analyze(data).sps ?? null) !== null;
 }
@@ -100,6 +109,12 @@ function toDomException(err: unknown): DOMException {
   return err instanceof DOMException ? err : new DOMException(String(err), 'EncodingError');
 }
 
+/**
+ * Decodes H.264, HEVC and AV1 with WebCodecs. It configures itself from the first unit (the SPS, or AV1's CodecPrivate),
+ * starts only at a key unit, skips the leading pictures of an open GOP, and drops frames of units marked `discard`.
+ * A decoder error reopens the decoder and resumes at the next key unit; after more than three in a row the error is
+ * fatal. Runs in the engine worker.
+ */
 export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
   onOutput: (frame: VideoFrame) => void = (frame) => frame.close(); // nobody listening: don't leak GPU memory
   onError: (err: DecoderError) => void = () => undefined;
@@ -131,6 +146,7 @@ export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
 
   constructor(private readonly api: VideoCodecApi = browserVideoCodecApi) {}
 
+  /** Chunks waiting in the underlying decoder; 0 before configure(). */
   get queueSize(): number {
     return this.decoder?.decodeQueueSize ?? 0;
   }
@@ -140,10 +156,12 @@ export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
     return { starts: this.openGopStarts, leadingSkipped: this.leadingSkipped };
   }
 
+  /** The WebCodecs codec string in use, or null before configure(). */
   get codec(): string | null {
     return this.config?.codec ?? null;
   }
 
+  /** Picks the first codec string the browser supports (software decoding for an interlaced stream) and opens the decoder. Rejects with UnsupportedCodecError when none is supported. */
   async configure(config: StreamConfig): Promise<void> {
     const ops = CODECS.get(config.codingType);
     if (!ops) throw new UnsupportedCodecError(config.codingType, `${codingName(config.codingType)} video is not supported.`);

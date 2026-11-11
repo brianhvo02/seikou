@@ -34,6 +34,7 @@ import type { UoOp } from './hdmv/uo-mask';
 
 /** The BD-J graphics plane's fixed size: the largest BD-J graphics configuration (bdj/graphics-plane.ts). */
 export const PLANE_WIDTH = 1920;
+/** The BD-J graphics plane's height in pixels (see PLANE_WIDTH). */
 export const PLANE_HEIGHT = 1080;
 
 /** The requirement a player without a BD-J provider lacks (PlayerDeps.bdj). */
@@ -64,6 +65,10 @@ export interface BdjInputProvider {
   createInputLatency(): InputLatencyLike;
 }
 
+/**
+ * Everything BD-J the engine takes from its host, as factories so the engine never imports BD-J code. The app assembles
+ * one in `src/bdj/provider.ts` and passes it to `startEngineWorker`; the engine calls these from the engine worker.
+ */
 export interface BdjProvider {
   /**
    * What this browser lacks to run BD-J (bdj/requirements.ts bdjMissing on the engine worker's global): when any is

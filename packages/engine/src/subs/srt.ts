@@ -6,7 +6,9 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
+/** A piece of a cue line drawn in one style. */
 export interface StyledRun {
+  /** The text, with `&lt;`, `&gt;` and `&amp;` already decoded. */
   readonly text: string;
   readonly italic: boolean;
   readonly bold: boolean;
@@ -15,16 +17,22 @@ export interface StyledRun {
   readonly color: string | null;
 }
 
+/** A numpad position as in ASS `{\anN}`: 1 to 3 along the bottom, 4 to 6 the middle, 7 to 9 the top, each left, centre, right. */
 export type Alignment = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 
+/** One SRT cue. */
 export interface TextCue {
+  /** When it appears, in microseconds on the file's own timeline. */
   readonly startUs: number;
+  /** When it goes, in microseconds; always after `startUs`. */
   readonly endUs: number;
+  /** The cue's lines, each a list of styled runs. */
   readonly lines: readonly (readonly StyledRun[])[];
   /** Numpad position ({\anN}); 2 is bottom centre. */
   readonly align: Alignment;
 }
 
+/** The outcome of decodeText: the file's text, or a request for the user to name its encoding. */
 export type DecodeResult = { readonly text: string } | { readonly needsEncoding: true };
 
 /** BOM (UTF-8, UTF-16 LE/BE), then strict UTF-8, then `fallback` (a TextDecoder label); needsEncoding if all fail or none given. */
@@ -46,6 +54,7 @@ export function decodeText(bytes: Uint8Array, fallback?: string): DecodeResult {
   }
 }
 
+/** The result of parseSrt. */
 export interface SrtParse {
   /** Sorted by start time. */
   readonly cues: readonly TextCue[];
@@ -61,6 +70,11 @@ function toUs(h: string, m: string, s: string, ms: string): number {
   return ((Number(h) * 60 + Number(m)) * 60 + Number(s)) * 1_000_000 + Number(ms.padEnd(3, '0')) * 1000;
 }
 
+/**
+ * Parses SubRip text: blocks separated by blank lines, each with an optional number, a `h:mm:ss,mmm --> h:mm:ss,mmm` line
+ * (a period also works as the separator) and text lines with `<i>`, `<b>`, `<u>`, `<font color>` and `{\anN}`. A block
+ * without a valid time line, or whose end is not after its start, is skipped and counted. Never throws.
+ */
 export function parseSrt(text: string): SrtParse {
   const blocks = text.replace(/^﻿/, '').replace(/\r\n?/g, '\n').split(/\n[ \t]*\n/);
   const cues: TextCue[] = [];

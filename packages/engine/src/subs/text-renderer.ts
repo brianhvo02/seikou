@@ -76,7 +76,6 @@ function merge(segments: readonly Segment[]): Segment[] {
   return out;
 }
 
-/** TextSubtitleRenderer (the parent spec's SubtitleRenderer) for SRT cues. */
 /** Where each piece of text goes: the layout of one set of cues at one size in one rectangle. */
 interface Layout {
   readonly cues: readonly TextCue[];
@@ -89,6 +88,11 @@ interface Layout {
 const sameRect = (a: Rect, b: Rect): boolean => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
 const sameCues = (a: readonly TextCue[], b: readonly TextCue[]): boolean => a.length === b.length && a.every((c, i) => c === b[i]);
 
+/**
+ * Draws SRT cues as outlined white text with a shadow, wrapped at spaces to 90% of the video width, at 5.5% of the video
+ * height times the user's scale. It is a TextRendererLike for one parsed cue list; the layout of the cues on screen is
+ * kept from frame to frame.
+ */
 export class TextSubtitleRenderer {
   private lastCues: readonly TextCue[] = [];
   private lastScale = 1;

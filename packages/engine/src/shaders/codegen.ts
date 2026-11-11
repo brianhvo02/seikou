@@ -1,8 +1,8 @@
 /*
  * Original code for Seikou, 2026. Builds the GLSL ES 3.00 source of an
  * mpv user shader pass. The texture macros follow the definitions libplacebo
- * emits in bind_pass_tex and hook_hook (src/shaders/custom_mpv.c), spec
- * section 3.4.
+ * emits in bind_pass_tex and hook_hook (src/shaders/custom_mpv.c): per
+ * bound texture NAME the sampler `NAME_raw`, `NAME_pos`, `NAME_size`, `NAME_pt` and `NAME_tex()`.
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

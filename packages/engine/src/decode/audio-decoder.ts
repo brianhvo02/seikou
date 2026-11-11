@@ -6,26 +6,37 @@ import { decodeLpcm, type PcmChunk } from './lpcm';
 import { TrueHdCoreFilter } from './truehd-core';
 import { AudioFrameError, WasmCodec, WasmFrameDecoder, type AudioWasm } from './wasm-audio';
 
+/** One PES payload of an audio stream, as the pipeline hands it to a decoder. */
 export interface AudioUnit {
+  /** The PES payload (for a disc stream, without the PES header). */
   readonly data: Uint8Array;
   /** Playlist time. */
   readonly ptsUs: number;
+  /** The PES header's stream_id_extension, when it has one (ISO/IEC 13818-1 §2.4.3.7); TrueHdCoreFilter uses it to tell the AC-3 core from the MLP part. */
   readonly streamIdExtension?: number;
   /** A Matroska block's DiscardPadding in microseconds: samples at the end of its output to drop. */
   readonly discardPaddingUs?: number;
 }
 
+/** What one decode() call produced. */
 export interface AudioDecodeResult {
+  /** The PCM that came out, in presentation order (empty while a frame is still incomplete). */
   readonly chunks: readonly PcmChunk[];
   /** Frames (or units) that could not be decoded and were skipped. */
   readonly failedFrames: number;
 }
 
-/** Synchronous PES-in, PCM-out decoder. Throws UnsupportedCodecError for stream-level problems. */
+/**
+ * PES-in, PCM-out decoder (synchronous, except that an asynchronous one such as Opus returns late PCM through
+ * takeOutput). Throws UnsupportedCodecError for stream-level problems; a frame that fails to decode is counted in
+ * `failedFrames` instead.
+ */
 export interface AudioDecoder {
+  /** Feeds one unit and returns the PCM that completed. */
   decode(unit: AudioUnit): AudioDecodeResult;
   /** After a seek: drop buffered bytes and decoder state. */
   reset(): void;
+  /** Releases the decoder; it is not used afterwards. */
   close(): void;
   /**
    * An asynchronous decoder (WebCodecs): the PCM that came out since the last decode() or takeOutput(). Its decode()
@@ -41,6 +52,7 @@ export interface AudioDecoder {
   pendingFromUs?(): number | null;
 }
 
+/** Makes a decoder for a Blu-ray coding type (`CodingType`); rejects with UnsupportedCodecError for one with no decoder, or when the audio WASM cannot be loaded. */
 export type AudioDecoderFactory = (codingType: number) => Promise<AudioDecoder>;
 
 const lpcmDecoder: AudioDecoder = {
@@ -56,6 +68,11 @@ const lpcmDecoder: AudioDecoder = {
   close: () => undefined,
 };
 
+/**
+ * Decodes AC-3, E-AC-3, DTS and the cores of TrueHD and DTS-HD: an AudioFramer cuts the payloads into frames, the
+ * WASM decoder (FFmpeg's) turns each into stereo PCM at 48 kHz. A frame the decoder rejects is skipped and counted;
+ * another sample rate throws UnsupportedCodecError unless a 48 kHz frame has already come out of this stream.
+ */
 export class FramedWasmDecoder implements AudioDecoder {
   /** Set once a frame came out at 48 kHz; survives reset() because the stream is then known to be good. */
   private produced48k = false;

@@ -1,24 +1,28 @@
+/** The two device classes: `desktop` (computers) and `constrained` (phones and tablets, chosen by the page from the device). */
 export type MemoryProfileName = 'desktop' | 'constrained';
 
 const MB = 1024 * 1024;
 
 /** Memory limits that differ between desktop browsers and phones or tablets. */
 export interface MemoryProfile {
-  /** An IG sub-path clip larger than this is not preloaded. */
+  /** An IG sub-path clip (menu graphics in a separate clip) larger than this many bytes is not preloaded and its menu fails to open; desktop's 512 MB is libbluray's `PRELOAD_SIZE_LIMIT`, and the constrained profile shows the `menu-memory` notice. */
   readonly igPreloadLimitBytes: number;
+  /** Byte budget of the ASS renderer's cache of laid-out events. */
   readonly assEventCacheBytes: number;
+  /** Byte budget of its cache of drawn layers. */
   readonly assLayerCacheBytes: number;
+  /** Byte budget of its cache of glyph masks. */
   readonly assMaskCacheBytes: number;
   /** Upper bound of the per-side supersampling of ASS text masks. */
   readonly maxTextSupersampling: number;
   /** Decoded frames held for the presenter, for a stream of this coded width. */
   readonly maxQueuedFrames: (codedWidth: number) => number;
-  /** How long a tap on a BD-J menu waits for the disc to react before it counts as ignored (the responsiveness target, 5d spec §3). */
+  /** How long a tap on a BD-J menu waits for the disc to react before it counts as ignored, in milliseconds (the menu responsiveness target: 0.2 s on a computer, 0.5 s on a phone). */
   readonly bdjTapWindowMs: number;
   /*
-   * BD-J (5d spec §4.5). The constrained values are first estimates from the desktop measurement of BDJ_DISC_A and
-   * BDJ_DISC_B in the Node replay (classes keep 1.3 MB, the memory mounts hold 4.4 MB, one 1080p still decodes to
-   * 7.9 MB); the device measurement sets them (5d plan, Task 14).
+   * BD-J budgets. The constrained values were first estimated from a desktop measurement of two BD-J discs in the Node
+   * replay (the classes keep 1.3 MB, the memory mounts hold 4.4 MB, one 1080p still decodes to 7.9 MB). Memory measured
+   * on a phone and a tablet stayed well under them, so they were kept.
    */
   /**
    * Class-file bytes the JVM's classes keep (code and annotations; the rest of each class file is dropped once it is
@@ -38,12 +42,13 @@ export interface MemoryProfile {
   /** A NAS disc's read-ahead: bytes fetched ahead of playback and kept. */
   readonly remoteReadAheadBytes: number;
   /**
-   * The BD-J worker's own read-ahead of a NAS disc (ruling R20): it reads JARs and metadata files, not streams, so it
-   * holds far less than the engine's playback read-ahead.
+   * The BD-J worker's own read-ahead of a NAS disc: it reads JARs and metadata files, not streams, so it holds far less
+   * than the engine's playback read-ahead.
    */
   readonly bdjRemoteReadAheadBytes: number;
 }
 
+/** The limits of each profile. Desktop's BD-J file system has no cap, which is what libbluray allows. */
 export const MEMORY_PROFILES: Readonly<Record<MemoryProfileName, MemoryProfile>> = {
   desktop: {
     igPreloadLimitBytes: 512 * MB,

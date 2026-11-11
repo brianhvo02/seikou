@@ -10,9 +10,12 @@
 import type { Rect, TextRendererLike } from '../render/compositor';
 import type { TextRenderOptions } from './text-renderer';
 
+/** One file of a TextSet: its name, format, cue count (SRT cues or ASS Dialogue events) and the renderer that draws it. */
 export interface SetFile<R> { readonly name: string; readonly format: 'srt' | 'ass'; readonly cues: number; readonly renderer: R }
+/** Where a file of the set sits on a playlist's timeline. */
 export interface Placement { readonly startUs: number | null; readonly offsetMs: number }
 
+/** A play item at least this long (5 minutes, in microseconds) counts as an episode when the set is placed. */
 export const MIN_EPISODE_US = 5 * 60 * 1_000_000;
 const MAX_OFFSET_MS = 10 * 60 * 1000;
 
@@ -36,6 +39,10 @@ export function autoPlace(fileCount: number, starts: readonly number[]): { reado
   return { placements, placed: fileCount <= 1 };
 }
 
+/**
+ * Several subtitle files for one disc, each placed at a playlist time (usually an episode's start) with its own offset.
+ * Placements are remembered per playlist id. Files keep the order given; at(t) says which one shows at playlist time t.
+ */
 export class TextSet<R> {
   private readonly byPlaylist = new Map<string, Placement[]>();
   private current: Placement[];
@@ -57,6 +64,7 @@ export class TextSet<R> {
     return { placed: auto.placed };
   }
 
+  /** The placements of the playlist last given to usePlaylist(), one per file in file order. */
   placements(): readonly Placement[] {
     return this.current;
   }
@@ -69,6 +77,7 @@ export class TextSet<R> {
     });
   }
 
+  /** Sets a file's timing shift in milliseconds (rounded, clamped to ±10 minutes). A positive offset shows the cues later. Ignores an unknown file index. */
   setOffset(file: number, ms: number): void {
     const p = this.current[file];
     if (p) this.current[file] = { ...p, offsetMs: Math.max(-MAX_OFFSET_MS, Math.min(MAX_OFFSET_MS, Math.round(ms))) };
@@ -99,6 +108,7 @@ export class TextSet<R> {
 }
 
 /** The set as one text renderer: draws the showing file at its local time (its offset already applied). */
+/** The set's `render` and `changed` and `visible` calls go to the file showing at that time, so the compositor treats the set as one renderer. */
 export class TextSetRenderer<R extends TextRendererLike> implements TextRendererLike {
   private lastFile: number | null = null;
 

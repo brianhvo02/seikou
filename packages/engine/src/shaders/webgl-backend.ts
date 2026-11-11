@@ -1,7 +1,9 @@
 /*
  * Original code for Seikou, 2026. Runs mpv user shader passes on WebGL2.
  * Pass execution follows libplacebo's semantics (src/renderer.c,
- * src/shaders/custom_mpv.c), spec sections 3 and 5.
+ * src/shaders/custom_mpv.c): the frame is uploaded at its visible size, each planned pass draws into a 16-bit float
+ * texture, and one bilinear pass scales the result to the output. The rules are in
+ * docs/superpowers/specs/2026-10-15-video-shaders-design.md.
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -11,17 +13,23 @@ import type { ShaderPass } from './parse';
 import { planFrame, type PlanStage, type Size, type TexRef } from './plan';
 import { floatTargetExtension, floatTargetSupport } from './webgl-support';
 
+/** A shader set compiled on one WebGL context. Dispose it when it is no longer chosen. */
 export interface CompiledSet {
   readonly passes: readonly ShaderPass[];
   dispose(): void;
 }
 
+/** One shaded frame. */
 export interface RenderResult {
+  /** The backend's canvas, drawn at the output size; the same canvas every call, so it is valid until the next render. */
   readonly image: OffscreenCanvas;
+  /** Passes that ran. */
   readonly passesRun: number;
+  /** GPU time in ms of the latest timer query that has finished (a frame or more behind), or null without timer queries or before one finished. */
   readonly gpuMs: number | null;
 }
 
+/** A pass failed to compile or link: the shader's file, the pass's description and the driver's log. */
 export class ShaderCompileError extends Error {
   constructor(
     readonly file: string,
@@ -49,6 +57,7 @@ export class ShaderSetStaleError extends Error {
   }
 }
 
+/** What ShaderStage needs of a GPU backend (the WebGL2 one, or a fake in tests). */
 export interface ShaderBackend {
   /**
    * Compiles one program per (pass, firing stage). Rejects with ShaderCompileError when a pass fails to compile or
@@ -63,6 +72,7 @@ export interface ShaderBackend {
   render(set: CompiledSet, frame: VideoFrame, output: Size): RenderResult;
 }
 
+/** The reason shown when WebGL2, or a float colour target, is missing. */
 export const UNAVAILABLE = 'Not available on this device';
 
 const STAGES: readonly PlanStage[] = ['NATIVE', 'MAIN', 'PREKERNEL'];
@@ -319,7 +329,7 @@ class WebGlBackend implements ShaderBackend {
       gl.bindTexture(gl.TEXTURE_2D, frameTexture);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, frame);
 
-      // texImage2D uploads the visible rectangle, so MAIN is the visible size (spec section 3.3).
+      // texImage2D uploads the visible rectangle, so MAIN is the visible size (an anamorphic 1440×1080 frame stays 1440×1080 and the final scale stretches it).
       const source: Size = {
         width: frame.visibleRect?.width ?? frame.codedWidth,
         height: frame.visibleRect?.height ?? frame.codedHeight,
@@ -351,7 +361,7 @@ class WebGlBackend implements ShaderBackend {
         gl.drawArrays(gl.TRIANGLES, 0, 3);
       }
 
-      // Final scale: one bilinear pass from the current MAIN to the output (spec section 3.3).
+      // Final scale: one bilinear pass from the current MAIN to the output.
       if (this.canvas.width !== output.width) this.canvas.width = output.width;
       if (this.canvas.height !== output.height) this.canvas.height = output.height;
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);

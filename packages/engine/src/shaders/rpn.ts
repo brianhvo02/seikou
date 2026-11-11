@@ -1,7 +1,7 @@
 /*
  * Original code for Seikou, 2026. Evaluates the RPN expressions of mpv
- * user shaders (WIDTH, HEIGHT, WHEN). Semantics follow libplacebo's
- * eval_shexpr in src/shaders/custom_mpv.c.
+ * user shaders (`//!WIDTH`, `//!HEIGHT`, `//!WHEN`: numbers, `NAME.w` and `NAME.h` sizes, and the operators
+ * `+ - * / % > < = !`). Semantics follow libplacebo's eval_shexpr in src/shaders/custom_mpv.c.
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -11,6 +11,7 @@ export type SizeLookup = (
   name: string,
 ) => { readonly width: number; readonly height: number } | undefined;
 
+/** An RPN expression is malformed (stack underflow, leftover values, an unknown token). */
 export class RpnError extends Error {}
 
 const NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i;

@@ -6,6 +6,10 @@ import type { Rect, TextRenderOptions, TextRendererLike } from '@seikou/ass/host
 
 export type { Rect, TextRendererLike };
 
+/**
+ * The largest rectangle of the source's aspect ratio that fits inside the destination, centred and rounded to whole
+ * pixels. Any non-positive size gives an empty rectangle at the origin.
+ */
 export function fitRect(srcW: number, srcH: number, dstW: number, dstH: number): Rect {
   if (!(srcW > 0 && srcH > 0 && dstW > 0 && dstH > 0)) return { x: 0, y: 0, width: 0, height: 0 };
   const scale = Math.min(dstW / srcW, dstH / srcH);
@@ -14,7 +18,13 @@ export function fitRect(srcW: number, srcH: number, dstW: number, dstH: number):
   return { x: Math.floor((dstW - width) / 2), y: Math.floor((dstH - height) / 2), width, height };
 }
 
+/**
+ * What the player draws with: it owns the transferred canvas and paints the layers in order (background still, video,
+ * PG, text, IG, BD-J plane). Methods marked optional are absent from the minimal fakes tests use. Runs in the engine
+ * worker.
+ */
 export interface CompositorLike {
+  /** Sets the canvas size in device pixels (at least 1×1). */
   resize(width: number, height: number): void;
   /** Clears to black, draws the background still (if any), then the frame. */
   drawVideo(frame: VideoFrame | null): void;

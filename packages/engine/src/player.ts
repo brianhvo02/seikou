@@ -109,12 +109,22 @@ const MENU_KEY_VK: Readonly<Record<Exclude<MenuKey, 'topMenu'>, number>> = {
   '0': BdVk.D0, '1': BdVk.D1, '2': BdVk.D2, '3': BdVk.D3, '4': BdVk.D4, '5': BdVk.D5, '6': BdVk.D6, '7': BdVk.D7, '8': BdVk.D8, '9': BdVk.D9,
 };
 
+/**
+ * Everything the Player takes from its host, so it runs the same in the engine worker and in tests with fakes. Only the
+ * first six members are required; the rest default as each says.
+ */
 export interface PlayerDeps {
+  /** Sends an event to the page (postMessage in the worker). */
   emit(event: EngineEvent): void;
+  /** WebCodecs for video (the browser's, or a fake). */
   readonly videoCodecApi: VideoCodecApi;
+  /** A monotonic clock in milliseconds (performance.now); it drives the master clock when no audio plays. */
   nowMs(): number;
+  /** Calls `callback` once at the next frame (requestAnimationFrame, or a 16 ms timer in a worker without it); the render loop started by attachCanvas asks again after every tick. */
   requestFrame(callback: () => void): void;
+  /** Makes the compositor for the canvas the page transferred. */
   createCompositor(canvas: OffscreenCanvas): CompositorLike;
+  /** Makes an audio decoder for a coding type (the WASM decoders, loaded on first use). */
   readonly createAudioDecoder: AudioDecoderFactory;
   /** WebCodecs audio decoding, for an encoded episode's Opus; the browser's (if it has one) by default, null for none. */
   readonly audioDecoderApi?: AudioDecoderApi | null;
@@ -129,11 +139,11 @@ export interface PlayerDeps {
   readonly bdj?: BdjProvider;
   /** One-shot timer, cancelled by the returned function (the BD-J first-playlist timeout); setTimeout by default. */
   readonly setTimer?: (ms: number, fn: () => void) => () => void;
-  /** The wall clock the BD-J start-up timeout counts on, through a host sleep (ruling R22); Date.now by default. */
+  /** The wall clock the BD-J start-up timeout counts on (Date.now by default); the timeout notices a host sleep by this clock jumping ahead of the timer ticks, and then starts over. */
   readonly wallMs?: () => number;
-  /** The BD-J runtime's log lines (Java's System.out and uncaught exceptions). */
+  /** The BD-J runtime's log lines: Java's System.out, and with `error` true its System.err and uncaught exceptions. */
   readonly bdjLog?: (line: string, error: boolean) => void;
-  /** The engine's own log lines (a resume that falls back); dropped by default. */
+  /** The engine's own log lines (a resume that falls back, an audio stream a level lacks); dropped by default. */
   readonly log?: (line: string) => void;
   /** bd_set_player_setting_str's languages and country, written to the program's registers when a BD-J title is entered. */
   readonly playerSettings?: PlayerSettings;
@@ -204,16 +214,23 @@ const defaultSetTimer = (ms: number, fn: () => void): (() => void) => {
   return () => clearTimeout(id);
 };
 
+/** What the ASS renderer needs from the browser, built by `PlayerDeps.createAssDeps`. */
 export interface AssDeps {
+  /** Registers font files with the worker's FontFaceSet. */
   readonly loader: FontLoader;
+  /** The font used when nothing supplied the family a script names (DejaVu Sans, the same fallback libass's comparison harness uses). */
   readonly defaultFont: FontFile;
   /** Installed fonts for a family nothing supplied (the browser's local()); absent, the default font draws it. */
   readonly deviceFonts?: DeviceFontSource | null;
+  /** Measures glyph advances with the browser (canvas `measureText`). */
   readonly measurer: GlyphMeasurer;
+  /** Makes a scratch canvas of a size. */
   readonly createCanvas: (w: number, h: number) => OffscreenCanvas;
+  /** The Path2D constructor, passed in so tests can stand in for it. */
   readonly Path2D: typeof Path2D;
   /** Whether canvases honour `ctx.filter`. */
   readonly canvasFilter: boolean;
+  /** Draws a source canvas into the target through a 3×3 matrix (perspective text transforms); without it such transforms draw flat. */
   readonly warp?: (target: OffscreenCanvasRenderingContext2D, source: OffscreenCanvas, m: Mat3, originX: number, originY: number) => void;
 }
 
@@ -233,7 +250,7 @@ const MAX_DECODE_QUEUE = 8;
 const BDJ_MEMORY_STATS_MS = 5000;
 const MENU_MEMORY_MESSAGE = "This disc's menus need more memory than this device allows.";
 const NAS_WAITING_MESSAGE = 'Waiting for the NAS drive…';
-/** A NAS disc starts once this much stream is read ahead (Global Constraints). */
+/** A NAS disc starts once this many seconds of stream are read ahead, so playback does not begin on a read that is still in flight. */
 const REMOTE_START_SECONDS = 3;
 /**
  * Read-ahead budget for compressed video waiting to enter the decoder. Discs may multiplex video
@@ -477,7 +494,7 @@ export class Player {
   private fillArgs: { readonly req: BufferRequest; readonly follow: boolean } | null = null;
   /** The open disc's source showed the nas-waiting notice and has not cleared it. */
   private nasWaiting = false;
-  /** The open disc's bdj-storage notice has been sent (ruling R32: once per disc open, whatever BD-J sessions it runs). */
+  /** The open disc's bdj-storage notice has been sent: once per disc open, whatever BD-J sessions the disc runs. */
   private bdjStorageNotice = false;
   /** telemetry bdjPlane.hash: the plane and its version at the last telemetry, and the hash of a settled version. */
   private planeSeen: { plane: GraphicsPlaneReaderLike; version: number; hash: string | null } | null = null;
@@ -554,7 +571,11 @@ export class Player {
     this.deps.emit({ type: 'readAheadCache', available });
   }
 
-  /** Commands run strictly one at a time, in arrival order. */
+  /**
+   * Takes one command from the page. Commands run strictly one at a time, in arrival order, except the ones EngineCommand
+   * marks as handled at once (they run now). The returned promise settles when the command has run; a failure is
+   * reported as an `error` event, never as a rejection.
+   */
   handle(cmd: EngineCommand): Promise<void> {
     // a read waiting for a fresh token holds up the queue, so the token cannot wait in it
     if (cmd.type === 'remoteToken') {
@@ -566,7 +587,7 @@ export class Player {
       this.bdj?.session.flush();
       return Promise.resolve();
     }
-    // a hidden page pauses the BD-J start-up timeout at once, whatever the queue holds (ruling R22)
+    // a hidden page pauses the BD-J start-up timeout at once, whatever the queue holds: the timeout counts only the time the page is visible
     if (cmd.type === 'visibility') {
       this.pageHidden = cmd.hidden;
       this.bdj?.session.setHidden(cmd.hidden);
@@ -730,7 +751,11 @@ export class Player {
     }
   }
 
-  /** One render tick (requestAnimationFrame in the worker; called directly by tests). */
+  /**
+   * One render tick (requestAnimationFrame in the worker; called directly by tests): updates playback state, advances
+   * the navigator, picks and paints the frame for the clock, feeds the decoder, and sends `time` and `telemetry` events
+   * when due.
+   */
   tick(): void {
     this.kickFill(false);
     this.navigator?.tick(this.clock.nowUs());
@@ -919,7 +944,7 @@ export class Player {
     this.dropEncode();
     this.setState('loading');
     const source = this.createSource(spec);
-    // spec §4.7: the class library loads, and a BD-J First Play's worker boots, while the disc opens
+    // the class library loads, and a BD-J First Play's worker boots, while the disc opens, so BD-J's start-up overlaps reading the disc
     // (not while it buffers first: the disc's First Play waits for that; nor when it opens at a place, with BD-J off)
     const early = this.bdjSupported && !bufferFirst && !start ? await this.startEarlyBdj(source) : null;
     let disc: DiscModel;
@@ -1621,7 +1646,7 @@ export class Player {
   /**
    * The player settings an application sets with bd_set_player_setting_str, written when the registers of a disc that
    * uses BD-J are made, as libbluray has them from bd_open: its HDMV First Play reads them too. Discs without BD-J keep
-   * the registers' defaults (ruling R9, narrowed in 5e).
+   * the registers' defaults.
    */
   private applyBdjSettings(regs: RegisterFile): void {
     if (this.deps.playerSettings) applyPlayerSettings(regs, this.deps.playerSettings);
@@ -1863,7 +1888,7 @@ export class Player {
     return false;
   }
 
-  /** Spec §5: BD-J stops; what is playing keeps playing, and the user chooses from the picker. */
+  /** BD-J failed (or hung): it stops, what is playing keeps playing, and the user chooses a playlist from the picker. */
   private bdjFailed(code: BdjFailureCode, message: string): void {
     this.stopBdj(); // also cancels a playlist Java asked for that is still loading: it does not open behind the picker
     if (!this.session) this.setState('idle');
@@ -2071,7 +2096,7 @@ export class Player {
       return;
     }
     nav.userInput(BdVk.MOUSE_ACTIVATE);
-    if (hit === null && this.menuActive) this.deps.emit({ type: 'menuTapMissed' }); // the UI shows its controls for a touch that missed (ruling R13)
+    if (hit === null && this.menuActive) this.deps.emit({ type: 'menuTapMissed' }); // the UI shows its controls for a touch that hit no button, so a tap on empty menu space is not silent
   }
 
   private onNavigatorEvent(e: NavigatorEvent): void {
@@ -2465,7 +2490,7 @@ export class Player {
     }
     // libbluray opens a playlist whatever its video: one the browser can't decode plays without a picture (audio,
     // subtitles, menus and the clock run), with a notice once per disc. With nothing else playable either it still plays,
-    // silent black, as libbluray does (R12); UnsupportedCodecError stays for a decoder whose configuration fails.
+    // silent black, as libbluray does (some HDMV programs expect the playlist to run to its end); UnsupportedCodecError stays for a decoder whose configuration fails.
     const picture = isSupportedVideoCoding(choice.video.codingType);
     // With a disc program (HDMV or BD-J) the audio stream register (PSR1) decides, when it names a playable stream
     let audioIndex = choice.audioIndex;
@@ -3408,7 +3433,7 @@ export class Player {
     const ring = s.audioActive ? this.ring : null;
     if (this.state === 'buffering' && this.wantPlaying) {
       // a blocked reader counts as ready only once an asynchronous decoder (an encode's Opus) owes no PCM: its output
-      // comes in a later task, and starting before it would play silence where it belongs
+      // comes in a later event-loop task, and starting before it would play silence where it belongs
       const audioReady =
         !ring ||
         s.eof ||

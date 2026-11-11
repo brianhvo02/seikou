@@ -23,19 +23,24 @@ import type { EngineCommand, EngineEvent } from './protocol';
 import { Compositor } from './render/compositor';
 import { createWebGlBackend } from './shaders/webgl-backend';
 
+/** The part of a worker's global scope the engine's messaging and frame pacing use; tests pass a stand-in. */
 export interface WorkerScope {
+  /** Sends an event to the page. */
   postMessage(message: EngineEvent): void;
+  /** Receives the page's commands. */
   onmessage: ((event: MessageEvent<EngineCommand>) => void) | null;
+  /** Paces frames when the worker has one (a worker spawned by a visible page does). */
   requestAnimationFrame?: (callback: FrameRequestCallback) => number;
 }
 
 /**
  * Test-only (E2E) flags the page puts in the worker's name, 'bluray-engine:<flag>,<flag>' (the app's createController
  * call, from the page's query, like ?telemetry=1):
- * - bdjfail (?bdjfail=1): the libbluray jar is unreadable, so every BD-J boot fails and the fallback (spec §5) can be
- *   seen in the browser (read by the app's worker entry);
- * - nonestedworkers (?nonestedworkers=1): the worker behaves as if it could not start workers, so the capability
- *   fallback (spec m5d §4.5) can be seen in a browser that has them (read by the app's worker entry);
+ * - bdjfail (?bdjfail=1): the libbluray jar is unreadable, so every BD-J boot fails and the fallback to the playlist
+ *   picker can be seen in the browser (read by the app's worker entry);
+ * - nonestedworkers (?nonestedworkers=1): the worker behaves as if it could not start workers, so the message and the
+ *   picker a browser without nested workers gets can be seen in a browser that has them (read by the app's worker
+ *   entry);
  * - nodecoder (?nodecoder=1): the browser supports no video decoder configuration, so a decoder that fails to configure
  *   (UnsupportedCodecError) can be seen in any browser;
  * - telemetry (?telemetry=1): telemetry carries the BD-J plane's settled hash (PlayerDeps.planeHashTelemetry) and BD-J's
@@ -48,6 +53,7 @@ export function engineWorkerTestFlags(): ReadonlySet<string> {
 /** The wait for an asset the worker fetches: the audio wasm, the default font (and a provider's class library jars). */
 export const ASSET_FETCH_TIMEOUT_MS = 20_000;
 
+/** What a host passes to startEngineWorker. */
 export interface EngineWorkerOptions {
   /** BD-J; without it, BD-J discs and titles open to the playlist picker (bdj-provider.ts). */
   readonly bdj?: BdjProvider;

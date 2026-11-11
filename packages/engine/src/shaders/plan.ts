@@ -1,7 +1,9 @@
 /*
  * Original code for Seikou, 2026. Plans one frame of mpv user shader
  * passes. Hook semantics follow libplacebo's hook_hook and lookup_tex in
- * src/shaders/custom_mpv.c (spec section 3.2-3.3).
+ * src/shaders/custom_mpv.c: a table of named textures that each pass reads and `SAVE` replaces, sizes and `WHEN`
+ * evaluated per pass against that table, and the stages NATIVE, MAIN and PREKERNEL run in that order. The rules this
+ * player applies are in docs/superpowers/specs/2026-10-15-video-shaders-design.md.
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -9,12 +11,13 @@
 import type { ShaderPass } from './parse';
 import { evalRpn, RpnError, type SizeLookup } from './rpn';
 
+/** A size in pixels. */
 export interface Size {
   readonly width: number;
   readonly height: number;
 }
 
-/** id 0 is the uploaded frame (RGBA8); every pass output gets a new id. */
+/** A texture in a frame's plan: id 0 is the uploaded frame (RGBA8); every pass output gets a new id. */
 export interface TexRef {
   readonly id: number;
   readonly width: number;
@@ -22,21 +25,29 @@ export interface TexRef {
   readonly components: 1 | 2 | 4;
 }
 
+/** The points a frame passes through: the frame as it arrives, the main picture (after any upscaling pass), and the step before the final scale. */
 export type PlanStage = 'NATIVE' | 'MAIN' | 'PREKERNEL';
 
+/** A pass that will run this frame, with the textures it reads and the one it writes. */
 export interface PlannedPass {
   readonly pass: ShaderPass;
+  /** The stage it runs in. */
   readonly stage: PlanStage;
+  /** The texture `HOOKED` names for it: the stage's current image. */
   readonly hooked: TexRef;
   /** In BIND order; `name` is the BIND text (HOOKED stays HOOKED). */
   readonly inputs: readonly { readonly name: string; readonly tex: TexRef }[];
   readonly out: TexRef;
+  /** The table name the output is stored under: its `//!SAVE`, or the stage name when it saves to the hooked texture. */
   readonly saveAs: string;
 }
 
+/** What one frame's shading comes to: the passes in run order and the texture the final scale reads. */
 export interface FramePlan {
   readonly passes: readonly PlannedPass[];
+  /** The image after the last pass (the uploaded frame when no pass runs). */
   readonly final: TexRef;
+  /** The displayed video rectangle the final scale fills (`OUTPUT` in expressions). */
   readonly output: Size;
 }
 
@@ -61,7 +72,11 @@ function evaluate(expr: string, lookup: SizeLookup): number | null {
   }
 }
 
-/** A pass whose output would be non-finite, empty or larger than `maxTextureSize` on either side is skipped. */
+/**
+ * Works out which passes run for a frame of `source` size drawn at `output` size, and the size of each pass's output.
+ * Pure. A pass is skipped when its `WHEN` is zero or cannot be evaluated, when it binds a texture nothing has saved,
+ * or when its output would be non-finite, empty or larger than `maxTextureSize` on either side; the rest still run.
+ */
 export function planFrame(passes: readonly ShaderPass[], source: Size, output: Size, maxTextureSize = Infinity): FramePlan {
   const frame: TexRef = { id: 0, width: source.width, height: source.height, components: 4 };
   const table = new Map<string, TexRef>([

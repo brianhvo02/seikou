@@ -1,7 +1,11 @@
+/** The frame syntax a framer cuts: AC-3 (also a TrueHD core), E-AC-3 (access units made of substreams) or DTS (core frames; extension substreams are dropped). */
 export type FramerKind = 'ac3' | 'eac3' | 'dts';
 
+/** One frame (E-AC-3: one access unit) ready for the decoder. */
 export interface AudioFrame {
+  /** The frame's bytes, from its sync word. */
   readonly data: Uint8Array;
+  /** Presentation time in microseconds: the PES PTS where a frame starts in a payload, else the previous frame's end. */
   readonly ptsUs: number;
   /** Duration in 48 kHz sample frames. */
   readonly samples: number;
@@ -44,6 +48,10 @@ export class AudioFramer {
 
   constructor(private readonly kind: FramerKind) {}
 
+  /**
+   * Adds a PES payload and returns the frames that are now complete. A frame cut off at the end is kept for the next
+   * push; bytes that are no frame are skipped one at a time until a sync word is found.
+   */
   push(data: Uint8Array, ptsUs: number): AudioFrame[] {
     const buf = this.carry.length === 0 ? data : concat(this.carry, data);
     const newFrom = this.carry.length;
@@ -100,6 +108,7 @@ export class AudioFramer {
     return out;
   }
 
+  /** Forgets the carried bytes and the running time (after a seek). */
   reset(): void {
     this.carry = new Uint8Array(0);
     this.nextPtsUs = null;

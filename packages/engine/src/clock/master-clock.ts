@@ -1,12 +1,21 @@
+/** What the master clock reads from the audio output: how much it has played and how late it sounds. */
 export interface AudioClockSource {
+  /** Frames the output has played since it was created (the AudioWorklet's published count); only ever grows. */
   readFrames(): number;
+  /** The output's sample rate in Hz, which converts frames to time. */
   readonly sampleRate: number;
+  /** Output latency in microseconds: the time between a frame being counted as played and being heard. */
   latencyUs(): number;
 }
 
+/** Which source the clock follows: the audio output's played frames, or the wall clock when no audio is playable. */
 export type ClockMode = 'audio' | 'wall';
 
-/** Playlist-time clock driven by audio frames played, or by wall time when there is no audio. */
+/**
+ * Playlist-time clock, in microseconds, driven by the audio frames played (minus the output latency), or by wall time
+ * when there is no audio. Video frames are presented against it. It lives in the engine worker and does no scheduling
+ * of its own; callers read nowUs() when they need the time.
+ */
 export class MasterClock {
   private clockMode: ClockMode = 'wall';
   private audio: AudioClockSource | null = null;
@@ -19,12 +28,15 @@ export class MasterClock {
   private lastFrames = -1;
   private lastUs = 0;
 
+  /** `nowMs` is the wall clock in milliseconds (performance.now in the worker); it is injected so tests can drive it. */
   constructor(private readonly nowMs: () => number) {}
 
+  /** The source the clock follows now. */
   get mode(): ClockMode {
     return this.clockMode;
   }
 
+  /** Follows `source` from now on: the clock reads `baseUs` when the output has played no more frames than it has now. */
   useAudio(source: AudioClockSource, baseUs: number): void {
     this.clockMode = 'audio';
     this.audio = source;
@@ -34,6 +46,7 @@ export class MasterClock {
     this.lastFrames = -1;
   }
 
+  /** Follows the wall clock from `baseUs`; it advances only while `running` (see setRunning). */
   useWall(baseUs: number, running: boolean): void {
     this.clockMode = 'wall';
     this.audio = null;
@@ -41,6 +54,7 @@ export class MasterClock {
     this.wallStartMs = running ? this.nowMs() : null;
   }
 
+  /** Starts or stops the wall clock, keeping the time reached. Does nothing in audio mode, where the output's frames pace the time. */
   setRunning(running: boolean): void {
     if (this.clockMode !== 'wall') return;
     if (running && this.wallStartMs === null) {
@@ -51,6 +65,7 @@ export class MasterClock {
     }
   }
 
+  /** The playlist time now, in microseconds. In audio mode it never goes below `baseUs` and holds while no frames play. */
   nowUs(): number {
     if (this.clockMode === 'audio' && this.audio) {
       const frames = this.audio.readFrames();

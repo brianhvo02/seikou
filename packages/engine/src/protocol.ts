@@ -1,3 +1,10 @@
+/*
+ * The contract between the page (PlayerController, on the main thread) and the engine worker (Player): every message in
+ * either direction is a variant of EngineCommand or EngineEvent, all structured-cloneable. Commands run one at a time in
+ * the order they arrive, except the ones marked "handled at once". Change this file first when a feature crosses the
+ * boundary.
+ */
+
 import type { MemoryProfileName } from './memory-profile';
 import type { JvmMemoryStats } from './bdj-types';
 import type { ClockMode } from './clock/master-clock';
@@ -9,28 +16,63 @@ import type { PlaylistSummary } from './disc/open-disc';
 import type { UoOp } from './hdmv/uo-mask';
 import type { Chapter } from './nav/timeline';
 
+/**
+ * What the player is doing: nothing open or between playlists (`idle`), opening a disc (`loading`), `paused`, waiting for
+ * data with the picture frozen (`buffering`), `playing`, past the playlist's end (`ended`), or stopped by a failure
+ * (`error`).
+ */
 export type PlaybackState = 'idle' | 'loading' | 'paused' | 'buffering' | 'playing' | 'ended' | 'error';
+/**
+ * What a `notice` event is about; the page decides how to show each.
+ * - `no-picture`: the disc's video can't be decoded here and plays without a picture (carried by `unsupported`).
+ * - `bdj`: the disc or title uses BD-J, which this player or browser can't run.
+ * - `bdj-tap-ignored`: a tap on a BD-J menu got no reaction.
+ * - `bdj-failed`: BD-J started and failed or hung; the playlist picker takes over.
+ * - `bdj-storage`: what a BD-J disc saves won't last (BDJ_STORAGE_MESSAGE).
+ * - `audio-disabled`: audio can't be played (no output, or the stream failed), so playback goes on without sound.
+ * - `decoder-recovered`: the video decoder hit an error and resumed at the next key frame.
+ * - `uo-masked`: the disc forbids the operation the user asked for here.
+ * - `subtitle-file`: a subtitle file the user added could not be read, wholly or in part.
+ * - `subtitle-fonts`: fonts for ASS subtitles could not be read or are missing.
+ * - `menu-memory`: the disc's menus need more memory than this device allows.
+ * - `nas-waiting`: a NAS disc's read is waiting for the NAS drive (cleared by `noticeCleared`).
+ */
 export type NoticeCode = 'no-picture' | 'bdj' | 'bdj-tap-ignored' | 'bdj-failed' | 'bdj-storage' | 'audio-disabled' | 'decoder-recovered' | 'uo-masked' | 'subtitle-file' | 'subtitle-fonts' | 'menu-memory' | 'nas-waiting';
 /** RemoteFailure: a NAS disc changed, the NAS cannot be reached, or this device is no longer paired. */
 export type ErrorCode = DiscErrorCode | RemoteFailure | 'corrupt-disc' | 'decoder-failed' | 'no-video' | 'internal';
 
+/**
+ * Counters and measurements the engine reports about itself, sent every 500 ms in a `telemetry` event. The page shows
+ * some and the end-to-end tests read the rest (`?telemetry=1`). Counters count since the disc opened unless said otherwise.
+ */
 export interface Telemetry {
+  /** The master clock's playlist time, in microseconds. */
   readonly clockUs: number;
+  /** Whether the clock follows the audio output or the wall clock. */
   readonly clockMode: ClockMode;
   /** Mean of (clock − frame timestamp) for frames first drawn in this window while playing. */
   readonly avOffsetMeanUs: number | null;
+  /** The largest absolute value of the same offsets, in microseconds; null with no frames in the window. */
   readonly avOffsetMaxAbsUs: number | null;
+  /** Frames the two offsets above cover: those first drawn since the last telemetry event while playing. */
   readonly framesInWindow: number;
   /** Decoded frames presented; stays 0 for a playlist without a picture (whose bdj.firstFrameMs is its first black frame). */
   readonly framesPresented: number;
+  /** Decoded frames closed without being shown because they were already late or stale. */
   readonly framesDropped: number;
+  /** Audio waiting in the output ring, in milliseconds. */
   readonly audioBufferedMs: number;
+  /** Times the audio output ran out of data while playing. */
   readonly audioUnderruns: number;
+  /** Transport packets the demuxer found damaged, plus audio frames that failed to decode. */
   readonly corruptPackets: number;
   /** Coding name of the stream whose decoder last produced PCM, or null before any. */
   readonly audioCodec: string | null;
+  /** Audio frames the decoder rejected. */
   readonly audioDecodeErrors: number;
+  /** Transport stream continuity counter breaks (lost packets). */
   readonly continuityErrors: number;
+  /** Errors reported by the video decoder, recovered or not. */
   readonly decoderErrors: number;
   /** Decoding restarts on an open-GOP (non-IDR) keyframe in this session, and leading pictures skipped after them. */
   readonly openGopStarts: number;
@@ -54,9 +96,9 @@ export interface Telemetry {
   /** The shader set that shaded the last frame drawn: passes run and GPU time (null without a timer query); null when unshaded. */
   readonly shader: { readonly set: string; readonly passesRun: number; readonly gpuMs: number | null } | null;
   /**
-   * BD-J start-up (spec §4.7), in ms since the disc's open command: the worker booted, Java selected its first playlist,
-   * the first frame of that playlist was presented. Each is null until it happens; the whole is null when no BD-J title
-   * has run since the disc opened.
+   * BD-J start-up in ms since the disc's open command: the worker booted, Java selected its first playlist, the first
+   * frame of that playlist was presented (the measure of how long a BD-J disc takes to reach its menu or feature). Each
+   * is null until it happens; the whole is null when no BD-J title has run since the disc opened.
    */
   readonly bdj: BdjTelemetry | null;
   /**
@@ -69,7 +111,7 @@ export interface Telemetry {
   readonly bdjMemory?: BdjMemoryTelemetry | null;
 }
 
-/** BD-J's memory (5d spec §4.5), for the device measurements; sizes in bytes. */
+/** What BD-J holds in memory, so the budgets of the constrained memory profile can be checked on a device; sizes in bytes. */
 export interface BdjMemoryTelemetry {
   /** The JVM's own accounting, as the BD-J worker last reported it (every BDJ_MEMORY_STATS_MS); null before. */
   readonly jvm: JvmMemoryStats | null;
@@ -83,16 +125,20 @@ export interface BdjMemoryTelemetry {
   readonly compositorBytes: number;
 }
 
+/** BD-J start-up times in milliseconds since the disc's open command; each is null until it happens. */
 export interface BdjStartup {
+  /** The BD-J worker finished booting the JVM. */
   readonly bootMs: number | null;
+  /** Java selected its first playlist. */
   readonly firstPlaylistMs: number | null;
   /** For a playlist without a picture: its first black frame with the planes (framesPresented stays 0). */
   readonly firstFrameMs: number | null;
 }
 
+/** BD-J's start-up times with its menu responsiveness. */
 export interface BdjTelemetry extends BdjStartup {
   /**
-   * Menu responsiveness (5d spec §4.2) since the disc opened: from a key press or a click/tap reaching the engine to
+   * Menu responsiveness since the disc opened (the target is 0.2 s on a computer, 0.5 s on a phone): from a key press or a click/tap reaching the engine to
    * the next presented frame containing a BD-J plane change published after it, in ms (last, largest, and how many
    * inputs were answered); null before any. Pointer moves are not counted.
    */
@@ -102,6 +148,11 @@ export interface BdjTelemetry extends BdjStartup {
 /** A set of mpv user shaders, in the order they run. */
 export interface ShaderSetData { readonly name: string; readonly files: readonly { readonly name: string; readonly source: string }[] }
 
+/**
+ * Where the chosen video shader set stands: `off` (none chosen), `compiling` (frames go on with the previous set or
+ * unshaded), `active`, `error` (the set can't run; `error` says why and frames go unshaded) or `unavailable` (WebGL2 or
+ * float render targets are missing here).
+ */
 export type ShaderState = 'off' | 'compiling' | 'active' | 'error' | 'unavailable';
 
 /** A file's name and bytes, transferred with the command. */
@@ -118,6 +169,7 @@ export interface TextFileInfo {
   readonly offsetMs: number;
 }
 
+/** A subtitle track the user can pick: a disc's PG stream, or one of an encoded episode's ASS or PGS tracks. */
 export interface PgTrack {
   /** PG stream number (PSR2), 1-based; for an encoded episode, the 1-based position among its subtitle tracks (ASS and PGS). */
   readonly index: number;
@@ -127,17 +179,22 @@ export interface PgTrack {
   readonly name?: string;
 }
 
+/** What the viewer picked: a subtitle track by its PgTrack index, the added text files, or no subtitles. */
 export type SubtitleChoice = { readonly kind: 'pg'; readonly stream: number } | { readonly kind: 'text' } | { readonly kind: 'off' };
 
+/** A coarse description of an audio track's channel count: one, two, more than two, or unknown (''). */
 export type ChannelsLabel = 'mono' | 'stereo' | 'multichannel' | '';
 
+/** An audio track the user can pick. */
 export interface AudioTrack {
   /** 1-based position in the STN audio list; for an encoded episode, the 1-based position among its audio tracks. */
   readonly index: number;
+  /** The coding's name as `codingName` gives it (`Opus` for an encode's tracks). */
   readonly codec: string;
   /** ISO 639-2 code from the STN (an encode's: the track's Language), or '' if absent. */
   readonly language: string;
   readonly channels: ChannelsLabel;
+  /** Whether this player can decode the track (a coding it has a decoder for, on the main path); selectAudio ignores an unplayable one. */
   readonly playable: boolean;
   /** An encoded episode's track Name, when it has one; discs have none. */
   readonly name?: string;
@@ -148,7 +205,9 @@ export type MenuKey = 'up' | 'down' | 'left' | 'right' | 'ok' | '0' | '1' | '2' 
 
 /** What to hold in a NAS disc's read-ahead cache: a playlist from `fromSeconds` on, `targetBytes` of it. */
 export interface BufferRequest {
+  /** Playlist time to start from, in seconds. */
   readonly fromSeconds: number;
+  /** How many bytes of the stream to hold. */
   readonly targetBytes: number;
   /** The playlist to buffer (an episode's); the disc's main title when absent or not on the disc. */
   readonly playlistId?: string;
@@ -159,7 +218,9 @@ export interface BufferRequest {
  * opens there directly too, with BD-J off (Menu boots it fresh).
  */
 export interface StartPoint {
+  /** The playlist's id: its MPLS file name without extension, such as `00001` (PlaylistSummary.id). */
   readonly playlistId: string;
+  /** Where in the playlist to start, in microseconds. */
   readonly timeUs: number;
   /** Resume an HDMV title with its registers; null plays the playlist directly. */
   readonly hdmv: { readonly title: number; readonly psrs: readonly number[]; readonly gprs: Readonly<Record<number, number>> } | null;
@@ -167,8 +228,12 @@ export interface StartPoint {
   readonly playback: { readonly psr1: number; readonly psr2: number; readonly psr3: number } | null;
 }
 
-/** The registers a saved place needs: the program's (HDMV or BD-J), or the private PG registers with no program. */
+/**
+ * The registers a saved place needs: the program's (HDMV or BD-J), or the private PG registers with no program. Sent in
+ * `placeState`; its `psrs` and `gprs` are what `StartPoint.hdmv` hands back to resume a title.
+ */
 export interface PlaceState {
+  /** Whose registers these are: the HDMV navigator's, the BD-J title's, or the private PG ones of a disc with no program. */
   readonly mode: 'hdmv' | 'bdj' | 'none';
   /** PSR4 under an HDMV title, else null. */
   readonly title: number | null;
@@ -185,6 +250,7 @@ export interface PlaceState {
 export interface EncodeSpec {
   /** The encode's API base, ending with '/': `https://…/bluray/api/encodes/<id>/`, or `rtc://<nasId>/api/encodes/<id>/`. */
   readonly base: string;
+  /** The session token, sent as the `t` query parameter of every files request; replaced by a `remoteToken` command. */
   readonly token: string;
   /** The encode's manifest: one file, `EPISODE.MKV`, with its size. */
   readonly manifest: DiscManifest;
@@ -202,8 +268,16 @@ export const ENCODE_FILE = 'EPISODE.MKV';
 /** The playlist id an encode's chapters and time are reported under (it has no playlists). */
 export const ENCODE_PLAYLIST_ID = 'mkv';
 
+/**
+ * Everything the page can ask of the engine. Commands are handled in arrival order, one at a time; `remoteToken`,
+ * `readPlace`, `cancelBuffer`, `flushSaves` and `visibility` are handled at once and never wait behind a slow open.
+ * A command that cannot apply (no disc, no playlist, a refused user operation) is ignored.
+ */
 export type EngineCommand =
   /**
+   * Opens a disc (picked files, or a NAS or dev-server disc read by range requests) and answers with `titles`, then runs
+   * its First Play or BD-J, or opens at `start`. A disc already open is closed first.
+   *
    * `bufferFirst` (a NAS disc, buffer first): the disc's playlists are read, then the playlist is fetched into the
    * read-ahead cache until it holds `targetBytes`, and only then is the disc opened ('titles', First Play). The fill
    * then goes on ahead of the play position to the playlist's end while the disc is open (a seek moves it), freeing
@@ -242,12 +316,19 @@ export type EngineCommand =
   | { readonly type: 'setLevel'; readonly disc: RemoteDiscSpec; readonly audio?: number }
   /** A fresh session token for the open NAS disc (a scheduled refresh, or the answer to remoteTokenNeeded). Handled at once, not queued. */
   | { readonly type: 'remoteToken'; readonly token: string }
+  /** The page's transferred canvas, which the engine draws video, subtitles and menus on. */
   | { readonly type: 'attachCanvas'; readonly canvas: OffscreenCanvas }
+  /** The audio output's shared ring (packages/engine/src/audio/ring.ts) the engine writes PCM into and the AudioWorklet plays from; the clock follows it. */
   | { readonly type: 'attachAudio'; readonly ring: SharedArrayBuffer }
+  /** The canvas size in device pixels. */
   | { readonly type: 'resize'; readonly width: number; readonly height: number }
+  /** The user's pick from the playlist list: leaves any menu program (HDMV or BD-J) and plays that playlist from its start. `playlistId` is a PlaylistSummary id; one not on the disc fails with a `missing-file` error. */
   | { readonly type: 'playPlaylist'; readonly playlistId: string }
+  /** Plays; from `ended` it restarts the playlist. */
   | { readonly type: 'play' }
+  /** Pauses; refused (with the `uo-masked` notice) where the disc masks pause. */
   | { readonly type: 'pause' }
+  /** Moves to a time in the playing playlist, in microseconds, and keeps playing or staying paused; refused where the disc masks time search. */
   | { readonly type: 'seek'; readonly timeUs: number }
   /** An AudioTrack's index: a disc's STN stream, or an encoded episode's audio track; playback goes on at the same time. */
   | { readonly type: 'selectAudio'; readonly index: number }
@@ -256,11 +337,15 @@ export type EngineCommand =
    * index of the PgTrack the subtitles event lists, ASS or PGS alike), and `text` the added files.
    */
   | { readonly type: 'selectSubtitle'; readonly choice: SubtitleChoice }
-  /** An .srt file; `encoding` (a TextDecoder label) is used when the bytes are neither BOM-marked nor UTF-8. */
-  /** A subtitle set (SRT and/or ASS files, placed at episode starts) with fonts for its ASS files; replaces the old set. */
+  /**
+   * A subtitle set (SRT and/or ASS files, placed at episode starts) with fonts for its ASS files; replaces the old set.
+   * `encoding` (a TextDecoder label) decodes files whose bytes are neither BOM-marked nor UTF-8; when such a file is
+   * sent without one, the engine answers `subtitleEncodingNeeded` and loads nothing.
+   */
   | { readonly type: 'addTextSubtitles'; readonly files: readonly FileData[]; readonly encoding?: string; readonly fonts?: readonly FileData[] }
   /** More fonts for the set's ASS files. */
   | { readonly type: 'addSubtitleFonts'; readonly fonts: readonly FileData[] }
+  /** Drops the subtitle set and its fonts. */
   | { readonly type: 'removeTextSubtitle' }
   /** Places a file of the set (index in name order) at a playlist time, or unplaces it. */
   | { readonly type: 'setSubtitleStart'; readonly file: number; readonly startUs: number | null }
@@ -268,19 +353,23 @@ export type EngineCommand =
   | { readonly type: 'setSubtitleOffset'; readonly file: number; readonly ms: number }
   /** Text subtitle size factor, clamped to 0.5–2. */
   | { readonly type: 'setSubtitleScale'; readonly scale: number }
+  /** Skips to the next chapter that starts more than half a second ahead; does nothing after the last. Refused where the disc masks it. */
   | { readonly type: 'nextChapter' }
+  /** Goes to the latest chapter that started more than 3 seconds ago, or to the start of the playlist when there is none. Refused where the disc masks it. */
   | { readonly type: 'prevChapter' }
-  /** 0 = top menu. */
+  /** Starts a title of the disc's index (an `indexTitles` number); 0 = top menu. Refused where the disc masks title search or menu call. */
   | { readonly type: 'playTitle'; readonly title: number }
+  /** The remote's Menu key: calls the top menu (same as `playTitle` 0). */
   | { readonly type: 'menuCall' }
   /** `repeat`: a held key's auto-repeat (KeyboardEvent.repeat), which a BD-J title's full input queue may merge. */
   | { readonly type: 'menuKey'; readonly key: MenuKey; readonly repeat?: boolean }
   /** In the 1920×1080 menu space. Under a BD-J title a move is BDJ_EVENT_MOUSE, a click also the activate key. */
   | { readonly type: 'pointer'; readonly kind: 'move' | 'click'; readonly x: number; readonly y: number }
-  /** Forget the open disc ("Open another disc"). */
+  /** Forgets the open disc or episode ("Open another disc"): stops playback, the menu program and BD-J, drops the subtitle set, ends the NAS reads (fill and cache), and returns to `idle`. */
   | { readonly type: 'close' }
   /** Shade the video with this set (compiled in the background), or draw it unshaded (null). Kept across discs. */
   | { readonly type: 'setVideoShaders'; readonly set: ShaderSetData | null }
+  /** The device's memory profile (chosen by the page from its capabilities), which sets the engine's cache and queue limits from then on. */
   | { readonly type: 'setMemoryProfile'; readonly profile: MemoryProfileName }
   /**
    * The page is going away (pagehide, or hidden): a BD-J title saves what its disc wrote under /persistent/ and /buda/
@@ -289,12 +378,21 @@ export type EngineCommand =
   | { readonly type: 'flushSaves' }
   /**
    * The page was hidden or shown again (document.hidden; sent at start and on every visibilitychange). A BD-J title's
-   * start-up timeout counts only visible time (ruling R22). Handled at once, not queued.
+   * start-up timeout counts only the time the page is visible, since a hidden page's timers are throttled and the wait
+   * would otherwise run out while nobody can see the disc start. Handled at once, not queued.
    */
   | { readonly type: 'visibility'; readonly hidden: boolean };
 
+/**
+ * Everything the engine tells the page. Events go out in the order the engine produced them. The page folds them into
+ * its snapshot with `reduceEvent` (controller/player-controller.ts); an event the page does not need is ignored.
+ */
 export type EngineEvent =
-  /** `bdjSupported`: this engine runs BD-J titles. */
+  /**
+   * The disc is open: its playlists (with which can play), the problems found while reading it (`warnings`, text for the
+   * user) and whether it uses BD-J. `bdjSupported`: this engine runs BD-J titles; when the disc uses BD-J and it does
+   * not, `bdjMissing` names what is lacking (the BD-J provider or a browser feature) and a `bdj` notice follows.
+   */
   | { readonly type: 'titles'; readonly playlists: readonly PlaylistSummary[]; readonly usesBdj: boolean; readonly bdjSupported: boolean; readonly bdjMissing?: readonly string[]; readonly warnings: readonly string[] }
   /** A BD-J title started (the disc's Java code drives playback and draws its menus) or BD-J stopped. */
   | { readonly type: 'bdjActive'; readonly active: boolean }
@@ -307,7 +405,12 @@ export type EngineEvent =
   | { readonly type: 'bdjTapIgnored' }
   /** After 'titles', for discs whose First Play is an HDMV object. */
   | { readonly type: 'indexTitles'; readonly titles: ReadonlyArray<{ readonly number: number; readonly kind: 'hdmv' | 'bdj' }>; readonly hasTopMenu: boolean }
+  /**
+   * The user operations the disc forbids right now, sent when the set changes (empty when none, and on entering and
+   * leaving BD-J). Under a BD-J title only menu call and title search are listed. The page greys the matching controls.
+   */
   | { readonly type: 'uoMask'; readonly masked: readonly UoOp[] }
+  /** An HDMV interactive menu is on screen (`active`) and whether a pop-up menu can be called (`popupAvailable`); on changes only. */
   | { readonly type: 'menuActive'; readonly active: boolean; readonly popupAvailable: boolean }
   /** Once after 'titles', for a disc with BDMV/AUXDATA/sound.bdmv: the menu sound clips (48 kHz, interleaved 16-bit). */
   | { readonly type: 'soundEffects'; readonly clips: ReadonlyArray<{ readonly channels: 1 | 2; readonly samples: Int16Array }> }
@@ -317,11 +420,20 @@ export type EngineEvent =
   | { readonly type: 'pointerTarget'; readonly button: number | null }
   /** A pointer click on an HDMV menu hit no button of the shown page (the graphics controller's hit test): the disc took no action. */
   | { readonly type: 'menuTapMissed' }
+  /** A playlist (or an encode, under the id 'mkv') started: its length in microseconds and its chapters. */
   | { readonly type: 'chapters'; readonly playlistId: string; readonly durationUs: number; readonly chapters: readonly Chapter[] }
+  /** The playing playlist's audio tracks, and the `AudioTrack.index` playing now (null when none plays); sent when a playlist starts and when the choice changes. */
   | { readonly type: 'tracks'; readonly audio: readonly AudioTrack[]; readonly selectedAudio: number | null }
   /** Files of a load are not UTF-8 and no encoding was given: ask the user, then send addTextSubtitles again with one. */
   | { readonly type: 'subtitleEncodingNeeded'; readonly names: readonly string[] }
-  /** On disc open and close, playlist start, a play item whose PG tracks differ, every PSR2 change and every subtitle command. */
+  /**
+   * The subtitle picture: sent on disc open and close, playlist start, a play item whose PG tracks differ, every PSR2
+   * change and every subtitle command. `pg` lists the tracks to pick (a disc's PG streams, or an encode's ASS and PGS
+   * tracks); `text` describes the added subtitle files (null with none): the files in name order, the font families
+   * their ASS needs and nothing supplied (`missingFonts`), and the playlist times where episodes start
+   * (`episodeStarts`, microseconds, which the page offers as places to put a file); `selected` is what shows now (`pg`
+   * is a PgTrack index); `scale` is the text size factor (0.5 to 2).
+   */
   | {
     readonly type: 'subtitles';
     readonly pg: readonly PgTrack[];
@@ -329,8 +441,11 @@ export type EngineEvent =
     readonly selected: 'off' | 'text' | { readonly pg: number };
     readonly scale: number;
   }
+  /** The playback state; sent on changes only. */
   | { readonly type: 'state'; readonly state: PlaybackState }
+  /** The playlist time in microseconds: every 250 ms of playlist time while playing, and at once on a pause, seek or start. */
   | { readonly type: 'time'; readonly timeUs: number }
+  /** Something the viewer should be told (`message` is for display; `code` says what it is). Whether it persists is the page's call; `noticeCleared` says when its cause is gone. */
   | { readonly type: 'notice'; readonly code: NoticeCode; readonly message: string }
   /**
    * The condition behind a notice of that code is over: 'nas-waiting' once the read landed, 'no-picture' once a
@@ -351,6 +466,7 @@ export type EngineEvent =
    * before it (another disc is open) changes nothing.
    */
   | { readonly type: 'levelChanged'; readonly ok: true }
+  /** The switch was refused or failed; `message` is for display. */
   | { readonly type: 'levelChanged'; readonly ok: false; readonly message: string }
   /** The NAS answered 401: send remoteToken with a fresh token within 10 s, or the disc fails as unpaired. */
   | { readonly type: 'remoteTokenNeeded' }
@@ -366,7 +482,12 @@ export type EngineEvent =
    * here, so nothing plays.
    */
   | { readonly type: 'unsupported'; readonly kind: 'video' | 'audio'; readonly codec: string; readonly message: string; readonly noPicture?: true; readonly reason?: 'av1' }
+  /**
+   * Opening or playing failed: `code` says what kind, `message` is for display and `paths` lists the disc files that
+   * were missing or unreadable (empty when none apply). The open failed or playback has stopped (state `error` or `idle`).
+   */
   | { readonly type: 'error'; readonly code: ErrorCode; readonly message: string; readonly paths: readonly string[] }
+  /** Counters and measurements, every 500 ms. */
   | { readonly type: 'telemetry'; readonly telemetry: Telemetry }
   /** The current playlist was torn down (a new pick, a failed pick, or close). */
   | { readonly type: 'playlistCleared' }
@@ -388,8 +509,9 @@ export type EngineEvent =
 export const NO_PICTURE_MESSAGE = "This disc's video can't be played here yet, so it will play without a picture.";
 
 /**
- * The notice 'bdj-storage' (ruling R32): what a BD-J disc saves won't last. A scope kept in memory only with no copy
+ * The message of the notice 'bdj-storage': what a BD-J disc saves won't last. A scope kept in memory only with no copy
  * anywhere, a write refused for room (16 MB per scope, the NAS's quota, the VFS's memory cap), or a NAS put that failed
- * for good. Sent at most once per disc open; it stays until dismissed or another disc opens.
+ * for good. Sent at most once per disc open, whatever BD-J sessions the disc runs; it stays until dismissed or another
+ * disc opens.
  */
 export const BDJ_STORAGE_MESSAGE = "This disc's saved data can't be kept right now, so progress you make may be lost.";

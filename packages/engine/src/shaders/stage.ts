@@ -1,6 +1,7 @@
 /*
  * Original code for Seikou, 2026. Chooses, compiles and runs the selected mpv user shader set for the
- * compositor (spec section 5).
+ * compositor. A new set compiles in the background while frames keep being drawn with the previous one, and the status
+ * callback reports each change (docs/superpowers/specs/2026-10-15-video-shaders-design.md says why).
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
@@ -10,15 +11,21 @@ import { parseShaderFile, ShaderFileError, type ShaderPass } from './parse';
 import type { Size } from './plan';
 import { ShaderContextLostError, ShaderSetStaleError, type CompiledSet, type ShaderBackend } from './webgl-backend';
 
+/** What the stage reports each time its state changes (the `shaderStatus` event's fields). */
 export interface ShaderStatus {
   readonly state: ShaderState;
+  /** The chosen set's name, or null when none is chosen. */
   readonly set: string | null;
+  /** Why the state is 'error' or 'unavailable'; null otherwise. */
   readonly error: string | null;
 }
 
+/** What the last shaded frame cost. */
 export interface ShaderStats {
   readonly set: string;
+  /** Passes that ran for the frame (skipped ones are not counted). */
   readonly passesRun: number;
+  /** GPU time in ms of the latest finished timer query (a frame or more behind), or null when the device has none. */
   readonly gpuMs: number | null;
 }
 
@@ -88,10 +95,16 @@ export class ShaderStage {
     this.unavailable = typeof backend === 'string' ? backend : null;
   }
 
+  /** The last shaded frame's cost; null while no set shades frames (off, compiling with none active, context lost). */
   get stats(): ShaderStats | null {
     return this.active && !this.lost ? this.lastStats : null;
   }
 
+  /**
+   * Chooses the set (null: off). A set already compiled on this context becomes active at once; another is parsed and
+   * compiled in the background, and `onStatus` reports 'compiling' and then 'active' or 'error'. With an unavailable
+   * backend it only reports 'unavailable'. `onReady` is called whenever frames should be repainted with the new result.
+   */
   setSet(set: ShaderSetData | null): void {
     if (this.unavailable !== null) {
       this.onStatus({ state: 'unavailable', set: set?.name ?? null, error: this.unavailable });
@@ -162,10 +175,12 @@ export class ShaderStage {
     }
   }
 
+  /** The WebGL context was lost: compiled sets are dropped, frames go unshaded and the status is 'error' until contextRestored(). */
   contextLost(): void {
     this.markLost();
   }
 
+  /** The context is back: the chosen set is compiled again. */
   contextRestored(): void {
     if (!this.lost) return;
     this.lost = false;
