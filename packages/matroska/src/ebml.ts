@@ -9,7 +9,10 @@ import { Id } from './ids';
 
 const encoder = new TextEncoder();
 
-/** Joins byte arrays into one new array. */
+/**
+ * Joins byte arrays into one new array.
+ * @example ../examples/concat.ts
+ */
 export function concat(parts: readonly Uint8Array[]): Uint8Array {
   let total = 0;
   for (const p of parts) total += p.length;
@@ -74,7 +77,10 @@ function element(id: number, payload: Uint8Array): Uint8Array {
   return concat([idBytes(id), vint(payload.length), payload]);
 }
 
-/** Unsigned Integer element (RFC 8794 §7.2): big-endian in the fewest bytes (1 to 8) that hold `v`. Throws RangeError when negative. */
+/**
+ * Unsigned Integer element (RFC 8794 §7.2): big-endian in the fewest bytes (1 to 8) that hold `v`. Throws RangeError when negative.
+ * @example ../examples/uint.ts
+ */
 export function uint(id: number, v: number | bigint): Uint8Array {
   const big = BigInt(v);
   if (big < 0n) throw new RangeError(`uint of negative value ${big}`);
@@ -83,7 +89,10 @@ export function uint(id: number, v: number | bigint): Uint8Array {
   return element(id, beBytes(big, len));
 }
 
-/** Signed Integer element (RFC 8794 §7.1): two's complement, big-endian, in the fewest bytes that hold `v`. */
+/**
+ * Signed Integer element (RFC 8794 §7.1): two's complement, big-endian, in the fewest bytes that hold `v`.
+ * @example ../examples/sint.ts
+ */
 export function sint(id: number, v: number | bigint): Uint8Array {
   const big = BigInt(v);
   let len = 1;
@@ -91,29 +100,44 @@ export function sint(id: number, v: number | bigint): Uint8Array {
   return element(id, beBytes(BigInt.asUintN(8 * len, big), len));
 }
 
-/** Float element (RFC 8794 §7.3) as an 8-byte big-endian IEEE 754 double (a float element may be 0, 4 or 8 bytes). */
+/**
+ * Float element (RFC 8794 §7.3) as an 8-byte big-endian IEEE 754 double (a float element may be 0, 4 or 8 bytes).
+ * @example ../examples/float64.ts
+ */
 export function float64(id: number, v: number): Uint8Array {
   const payload = new Uint8Array(8);
   new DataView(payload.buffer).setFloat64(0, v, false);
   return element(id, payload);
 }
 
-/** String element (RFC 8794 §7.4): printable ASCII (0x20 to 0x7E) only. Not checked: the caller must pass such text. */
+/**
+ * String element (RFC 8794 §7.4): printable ASCII (0x20 to 0x7E) only. Not checked: the caller must pass such text.
+ * @example ../examples/ascii.ts
+ */
 export function ascii(id: number, s: string): Uint8Array {
   return element(id, encoder.encode(s));
 }
 
-/** UTF-8 element (RFC 8794 §7.5): the string's UTF-8 bytes, no terminator. */
+/**
+ * UTF-8 element (RFC 8794 §7.5): the string's UTF-8 bytes, no terminator.
+ * @example ../examples/utf8.ts
+ */
 export function utf8(id: number, s: string): Uint8Array {
   return element(id, encoder.encode(s));
 }
 
-/** Binary element (RFC 8794 §7.8): `b` copied as the element's data. */
+/**
+ * Binary element (RFC 8794 §7.8): `b` copied as the element's data.
+ * @example ../examples/binary.ts
+ */
 export function binary(id: number, b: Uint8Array): Uint8Array {
   return element(id, b);
 }
 
-/** Master element (RFC 8794 §7.7): a container whose data is its already-encoded `children`, in order. */
+/**
+ * Master element (RFC 8794 §7.7): a container whose data is its already-encoded `children`, in order.
+ * @example ../examples/master.ts
+ */
 export function master(id: number, children: readonly Uint8Array[]): Uint8Array {
   return element(id, concat(children));
 }
@@ -122,6 +146,7 @@ export function master(id: number, children: readonly Uint8Array[]): Uint8Array 
  * A Void element (RFC 8794 §11.3.2) of exactly `size` bytes in total, including its id and size
  * field. Readers skip a Void's data, so it reserves room that is overwritten later. Throws
  * RangeError when `size` is under 2 or above what a 2-byte size field can describe.
+  * @example ../examples/void-element.ts
  */
 export function voidElement(size: number): Uint8Array {
   if (size < 2) throw new RangeError(`void element needs at least 2 bytes, got ${size}`);

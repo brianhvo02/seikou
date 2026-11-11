@@ -7,7 +7,10 @@ import { Id } from './ids';
 // drops it. A size whose data bits are all ones means "unknown size" (§6.2). Master elements
 // (§7.7) hold other elements as their data; every other type is read from its raw bytes.
 
-/** Thrown for bytes that are not well-formed EBML: a bad length marker, or an element that runs past its parent or the data. */
+/**
+ * Thrown for bytes that are not well-formed EBML: a bad length marker, or an element that runs past its parent or the data.
+ * @example ../examples/ebml-error.ts
+ */
 export class EbmlError extends Error {}
 
 /**
@@ -120,12 +123,18 @@ export function parseElements(buf: Uint8Array, start: number, end: number): Ebml
   return nodes;
 }
 
-/** Parses a whole file held in memory into a synthetic root whose children are the top-level elements. Meant for small files and tests; `readMatroska` streams large ones. */
+/**
+ * Parses a whole file held in memory into a synthetic root whose children are the top-level elements. Meant for small files and tests; `readMatroska` streams large ones.
+ * @example ../examples/parse-mkv.ts
+ */
 export function parseMkv(buf: Uint8Array): EbmlNode {
   return { id: -1, size: buf.length, offset: 0, headerLength: 0, children: parseElements(buf, 0, buf.length) };
 }
 
-/** Every descendant of `tree` with element id `id`, in document order. */
+/**
+ * Every descendant of `tree` with element id `id`, in document order.
+ * @example ../examples/find-all.ts
+ */
 export function findAll(tree: EbmlNode, id: number): EbmlNode[] {
   const out: EbmlNode[] = [];
   const walk = (n: EbmlNode): void => {
@@ -138,33 +147,48 @@ export function findAll(tree: EbmlNode, id: number): EbmlNode[] {
   return out;
 }
 
-/** The first descendant of `tree` with element id `id`; throws when there is none. */
+/**
+ * The first descendant of `tree` with element id `id`; throws when there is none.
+ * @example ../examples/find.ts
+ */
 export function find(tree: EbmlNode, id: number): EbmlNode {
   const hit = findAll(tree, id)[0];
   if (hit === undefined) throw new Error(`element ${id.toString(16)} not found`);
   return hit;
 }
 
-/** The direct child of `n` with element id `id`, if any (unlike `find`, it does not search deeper). */
+/**
+ * The direct child of `n` with element id `id`, if any (unlike `find`, it does not search deeper).
+ * @example ../examples/child-of.ts
+ */
 export function childOf(n: EbmlNode, id: number): EbmlNode | undefined {
   return n.children?.find((c) => c.id === id);
 }
 
-/** An Unsigned Integer element's value (RFC 8794 §7.2): big-endian, 0 to 8 bytes. */
+/**
+ * An Unsigned Integer element's value (RFC 8794 §7.2): big-endian, 0 to 8 bytes.
+ * @example ../examples/uint-of.ts
+ */
 export function uintOf(n: EbmlNode): bigint {
   let v = 0n;
   for (const b of n.bytes!) v = (v << 8n) | BigInt(b);
   return v;
 }
 
-/** A Float element's value (RFC 8794 §7.3): 4 or 8 bytes big-endian, 0 for an empty element. */
+/**
+ * A Float element's value (RFC 8794 §7.3): 4 or 8 bytes big-endian, 0 for an empty element.
+ * @example ../examples/float-of.ts
+ */
 export function floatOf(n: EbmlNode): number {
   if (n.bytes!.length === 0) return 0;
   const view = new DataView(n.bytes!.buffer, n.bytes!.byteOffset, n.bytes!.length);
   return n.bytes!.length === 4 ? view.getFloat32(0, false) : view.getFloat64(0, false);
 }
 
-/** A String or UTF-8 element's value (RFC 8794 §7.4, §7.5), with any trailing NUL padding removed. */
+/**
+ * A String or UTF-8 element's value (RFC 8794 §7.4, §7.5), with any trailing NUL padding removed.
+ * @example ../examples/string-of.ts
+ */
 export function stringOf(n: EbmlNode): string {
   return new TextDecoder().decode(n.bytes!).replace(/\0+$/, '');
 }

@@ -270,6 +270,7 @@ function chaptersOf(node: EbmlNode | undefined): MkvChapterInfo[] {
  * or has an element of unknown size at the Segment's top level. Error messages end with
  * `reader.name` in parentheses when the reader has one. Rejects with the signal's reason when it
  * aborts between reads.
+  * @example ../examples/open-matroska.ts
  */
 export async function openMatroska(reader: RangeReader, signal?: AbortSignal): Promise<MatroskaFile> {
   try {
