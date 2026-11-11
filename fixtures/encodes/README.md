@@ -4,7 +4,10 @@ Two short episodes in the shape the Seikou encoder writes, for the NAS server's 
 
 The video and audio are cut from `encoder/fixtures/disc-speech` (episodes `1-2,3-4` of playlist `00000`, so each starts at a chapter and lasts 60 s) with a fast, small encode (preset 10, CRF 40, film grain 0, capped at 10 kb/s, Opus at 24 kb/s, so the files stay small). The files are then rewritten through `@seikou/matroska` with no re-encode, to set what the encoder does not write yet: chapter names, tags, the ASS track with its font and the PGS track. Everything named here is made up. `packages/matroska/src/fixtures-encodes.test.ts` checks the facts below.
 
-Files: `990001/1.mkv` and `990001/2.mkv`, about 1.15 MB each (the font attachment is 340,712 bytes of that).
+## What's inside
+
+- `990001/1.mkv` and `990001/2.mkv`: the two episodes, about 1.15 MB each (the font attachment is 340,712 bytes of that).
+- This README: the facts the tests check.
 
 ## Both files
 
@@ -31,3 +34,10 @@ The AniList entries `990001` (Lantern Road) and its sequel `990002` are in `test
 ## Font licence
 
 `DejaVuSansMono.ttf` is copied from `fixtures/ass/fonts/` and is DejaVu Fonts, (c) Bitstream, Inc. (Bitstream Vera) with DejaVu's changes in the public domain, under the permissive Bitstream Vera licence: the fonts may be used, copied and distributed, including with software, provided the copyright and permission notice travels with them and the fonts are not sold alone. The full text is `fixtures/ass/fonts/LICENSE-DejaVu.txt`.
+
+## Documentation
+
+- Design: `docs/superpowers/specs/2026-11-08-encodes-library-design.md`.
+- The consumers: the NAS server's encodes index (`server/src/encodes/`), the engine's Matroska playback (`packages/engine/src/encode/`), `tests/e2e/encodes.spec.ts` and `packages/matroska/src/fixtures-encodes.test.ts`.
+- The encoder that makes this kind of file: `encoder/README.md`. The Matroska reader and writer: `packages/matroska/README.md`.
+- Matroska format: https://www.matroska.org/

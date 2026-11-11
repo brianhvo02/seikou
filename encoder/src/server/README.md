@@ -2,24 +2,28 @@
 
 The encoder app (`seikou-encode app`) and its subtitle helper are one web page that runs on the user's own machine. This backend serves that page and its API from one origin on `127.0.0.1`: the disc library, the discs the page plays (in `@seikou/engine`, read over HTTP exactly as Seikou reads a NAS disc), playlists and chapters, settings profiles, the encode queue and its runner, and the helper's routes (the episode plan, titles, fansubs, alignment, the saved record). It holds helper sessions: each is the helper working on one disc, one playlist and one episode list, fixed when the session is made, under an id of its own; the page of session `<id>` is `/helper/<id>`, and its routes are under `/api/sessions/<id>`. `seikou-encode serve` starts the backend, makes one session and opens its page.
 
+## Uses
+
+`audio/`, `disc/`, `mux/`, `nas/`, `package/`, `pipeline/`, `plan/` and `subs/` of the encoder, and `@seikou/bdmv`, `@seikou/fansubs`, `@seikou/nas` and `@seikou/titles` (AniList, SeaDex, Anime Tosho and the NAS contract). The page it serves is `encoder/web/`.
+
 ## Concepts
 
-- **App context.** `AppContext` holds what the backend keeps for its whole life: the data directory, the run's token, the page's folder, the external tools (or null when they are missing), the outside sources (SeaDex, Anime Tosho, AniList and its cover images) and the library folders (`roots`; `serve` gives none), and the NAS holder (`nas.client`, the `NasClient` of `src/nas/` while the encoder is paired, else null; loaded at start and replaced when the page pairs or unpairs). Tests pass recorded sources. Caches every session shares (the release cache, the cover URLs AniList gave, the discs read) are kept per app context.
-- **Helper sessions.** `HelperSession` is `{ id, discDir, discKey, playlistId, episodeSpec }`; `SessionStore` (`sessions.ts`, one per app, `sessionsOf(app)`, also `server.sessions`) makes them on demand and keeps them, in memory, for the server's life. Making a session for the same disc folder, playlist and episodes again gives the same session; episode lists that cut the playlist alike (`1-3,4-` and `1-3,4-5` on five chapters, `1-3, 4-5`) count as the same (`sameEpisodeList` in `plan/episodes.ts`, which the record routes and the encode's record check use too), so a saved record loads for any spelling of its list. A session's episode plan is kept per session; the decoded episode audio is one cache per app keyed by session and episode, so its budget does not grow with sessions. Two pages on two sessions work side by side.
-- **Disc key.** The disc is named by `discKeyOf(id16, manifest.files)` from `@seikou/nas/disc-key`, where `id16` is the first 16 hex digits of the SHA-256 of the disc folder's real path. A disc with streams gets its content fingerprint (`f.<hex>`), so the same disc keeps its key in another folder; the key names the saved record.
-- **The NAS disc API.** The manifest (every file under BDMV and CERTIFICATE, upper-case, with the small metadata files inlined) and range reads are answered by Seikou's own NAS modules (`server/src/manifest.ts` and `server/src/ranges.ts`), so the engine's `RemoteSource` and `HttpTransport` open the disc unchanged. File paths are matched in any case.
-- **Playlist time.** Episode times are microseconds from the playlist's start. An episode starts at its first frame (its first chapter's mark rounded to the nearest frame, `firstFramePlaylistUs`), the zero of the encode, the alignment and the retimed track; its length is its whole frames at the video's rate, as the encoder will cut it (the planner, `planEpisodes`, reads the start of each clip the session's episodes play once per session for its first timestamps and its PMT, and cuts the playlist's first STN audio stream).
+- App context. `AppContext` holds what the backend keeps for its whole life: the data directory, the run's token, the page's folder, the external tools (or null when they are missing), the outside sources (SeaDex, Anime Tosho, AniList and its cover images) and the library folders (`roots`; `serve` gives none), and the NAS holder (`nas.client`, the `NasClient` of `src/nas/` while the encoder is paired, else null; loaded at start and replaced when the page pairs or unpairs). Tests pass recorded sources. Caches every session shares (the release cache, the cover URLs AniList gave, the discs read) are kept per app context.
+- Helper sessions. `HelperSession` is `{ id, discDir, discKey, playlistId, episodeSpec }`; `SessionStore` (`sessions.ts`, one per app, `sessionsOf(app)`, also `server.sessions`) makes them on demand and keeps them, in memory, for the server's life. Making a session for the same disc folder, playlist and episodes again gives the same session; episode lists that cut the playlist alike (`1-3,4-` and `1-3,4-5` on five chapters, `1-3, 4-5`) count as the same (`sameEpisodeList` in `plan/episodes.ts`, which the record routes and the encode's record check use too), so a saved record loads for any spelling of its list. A session's episode plan is kept per session; the decoded episode audio is one cache per app keyed by session and episode, so its budget does not grow with sessions. Two pages on two sessions work side by side.
+- Disc key. The disc is named by `discKeyOf(id16, manifest.files)` from `@seikou/nas/disc-key`, where `id16` is the first 16 hex digits of the SHA-256 of the disc folder's real path. A disc with streams gets its content fingerprint (`f.<hex>`), so the same disc keeps its key in another folder; the key names the saved record.
+- The NAS disc API. The manifest (every file under BDMV and CERTIFICATE, upper-case, with the small metadata files inlined) and range reads are answered by Seikou's own NAS modules (`server/src/manifest.ts` and `server/src/ranges.ts`), so the engine's `RemoteSource` and `HttpTransport` open the disc unchanged. File paths are matched in any case.
+- Playlist time. Episode times are microseconds from the playlist's start. An episode starts at its first frame (its first chapter's mark rounded to the nearest frame, `firstFramePlaylistUs`), the zero of the encode, the alignment and the retimed track; its length is its whole frames at the video's rate, as the encoder will cut it (the planner, `planEpisodes`, reads the start of each clip the session's episodes play once per session for its first timestamps and its PMT, and cuts the playlist's first STN audio stream).
 
 ## Security model
 
 The server listens on `127.0.0.1` only, so nothing else on the network can reach it. Any web page the user has open can still send requests to it, so:
 
-- **A token per run.** Each run gets a fresh random token (`app.token`, made by whoever starts the server); every `/api/` request must carry it as `Authorization: Bearer <token>` or `?t=<token>` (the engine's file reads use the query, so they need no preflight). Without it: 401 `unauthorized`. Tokens are compared in constant time.
-- **The Host header.** Every request, page or API, must name `127.0.0.1:<port>` or `localhost:<port>`; anything else answers 403 `bad-host`. This stops DNS rebinding, where a page re-points its own host name at 127.0.0.1 to read the answers as same-origin.
-- **Paths.** A path with an empty, `.` or `..` segment (also percent-encoded), or one that decodes to a slash, backslash or NUL, answers 400 `bad-path`. Disc files are found by listing each directory under BDMV or CERTIFICATE, never by joining the request's path, and page files must resolve inside the page's folder. The page's own routes (`/helper/<id>` and the like) are answered with its index.html, after the same Host and path checks.
-- **Covers.** The page is cross-origin isolated, and AniList's image host sends no `Cross-Origin-Resource-Policy`, so the page cannot show its images; the backend passes each cover on from its own origin (`covers.ts`), fetching only URLs AniList gave it in this run's lookups (searches in any session, and the app's searches and entries), kept per run by AniList id.
-- **No CORS.** No answer carries `Access-Control-Allow-Origin`, so another origin cannot read the API even with the token.
-- **Isolation.** Every answer carries `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp` and `Cross-Origin-Resource-Policy: same-origin` (the engine needs `SharedArrayBuffer`); API answers carry `Cache-Control: no-store`.
+- A token per run. Each run gets a fresh random token (`app.token`, made by whoever starts the server); every `/api/` request must carry it as `Authorization: Bearer <token>` or `?t=<token>` (the engine's file reads use the query, so they need no preflight). Without it: 401 `unauthorized`. Tokens are compared in constant time.
+- The Host header. Every request, page or API, must name `127.0.0.1:<port>` or `localhost:<port>`; anything else answers 403 `bad-host`. This stops DNS rebinding, where a page re-points its own host name at 127.0.0.1 to read the answers as same-origin.
+- Paths. A path with an empty, `.` or `..` segment (also percent-encoded), or one that decodes to a slash, backslash or NUL, answers 400 `bad-path`. Disc files are found by listing each directory under BDMV or CERTIFICATE, never by joining the request's path, and page files must resolve inside the page's folder. The page's own routes (`/helper/<id>` and the like) are answered with its index.html, after the same Host and path checks.
+- Covers. The page is cross-origin isolated, and AniList's image host sends no `Cross-Origin-Resource-Policy`, so the page cannot show its images; the backend passes each cover on from its own origin (`covers.ts`), fetching only URLs AniList gave it in this run's lookups (searches in any session, and the app's searches and entries), kept per run by AniList id.
+- No CORS. No answer carries `Access-Control-Allow-Origin`, so another origin cannot read the API even with the token.
+- Isolation. Every answer carries `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp` and `Cross-Origin-Resource-Policy: same-origin` (the engine needs `SharedArrayBuffer`); API answers carry `Cache-Control: no-store`.
 
 ## API
 
@@ -94,8 +98,9 @@ There is no automatic lookup of the show from the disc: the AniList id is whatev
 
 A `<discKey>` of no disc a session is on or the library holds answers 404 `disc-changed`, which the engine reports as a changed disc. An `<id>` no session has answers 404 `no-session`.
 
-## Where to look
+## Files
 
+- `sources.ts`: the outside services (SeaDex, Anime Tosho, AniList), live or read from recorded files.
 - `server.ts`: the listener, the Host, path and token checks, routing (app and session tables) and the page's files.
 - `http.ts`: the app context, session and route types and the answer helpers.
 - `sessions.ts`: the helper sessions, the discs they are on, and `POST /api/sessions`.
@@ -115,3 +120,13 @@ A `<discKey>` of no disc a session is on or the library holds answers 404 `disc-
 - `record-routes.ts`: reading and saving the subtitle record (`RecordStore` in `subs/record.ts` does the files), and moving an older record's chapter names into the episode info.
 - `episode-info-routes.ts`: a playlist's chapter names and AniList choices (`EpisodeInfoStore` in `plan/episode-info.ts` does the file), for the Episodes page and the helper's Details sheet alike.
 - Tests: `encoder/tests/server/`.
+
+## Documentation
+
+- [Subtitle helper design (spec)](../../docs/superpowers/specs/2026-11-07-subtitle-helper-design.md)
+- [Jobs UI design (spec)](../../docs/superpowers/specs/2026-11-08-jobs-ui-design.md)
+- [Encoder and NAS design (spec)](../../docs/superpowers/specs/2026-11-08-encoder-nas-design.md)
+- [Library by show design (spec)](../../docs/superpowers/specs/2026-11-10-library-by-show-design.md)
+- [M4 jobs UI (plan)](../../docs/superpowers/plans/2026-11-08-m4-jobs-ui.md)
+- [AniList API](https://docs.anilist.co)
+- [VapourSynth documentation](https://www.vapoursynth.com/doc/)

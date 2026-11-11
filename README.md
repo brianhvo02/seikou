@@ -13,6 +13,8 @@
 
 Seikou (青光, "blue light": a pun on Blu-ray) is a Blu-ray player that runs in your browser. It plays decrypted disc folders with their menus (HDMV and BD-J), subtitles and audio tracks, on desktop and on phones. Nothing is uploaded: the disc is read on your device, and an optional server on your own NAS can stream a whole library to it.
 
+The repository also holds an encoder, `seikou-encode`, which cuts a disc's playlist into episodes and encodes each one to AV1 and Opus in an MKV, with chapters, the disc's subtitles and lined-up fansub subtitles. It can send the episodes to the NAS, where the player's Encodes library plays them.
+
 ## Get started
 
 1. Open [bluray.pages.dev](https://bluray.pages.dev).
@@ -21,21 +23,41 @@ Seikou (青光, "blue light": a pun on Blu-ray) is a Blu-ray player that runs in
 
 Supported browsers: Safari 26 (macOS, iOS, iPadOS), Chrome and Firefox on desktop (stable and stable−2), and Chrome on Android. Firefox on Android is not supported. The player works by touch, installs as an app and runs offline.
 
+## What's in the repository
+
+| Module | What it does | Read more |
+| --- | --- | --- |
+| Player app ([`src/`](src)) | The web app at bluray.pages.dev: screens, the NAS client, help pages, the service worker, and the BD-J runtime (a JVM in TypeScript that runs a disc's Java menus). | [src/README.md](src/README.md) |
+| [`@seikou/bdmv`](packages/bdmv) | Reads the Blu-ray format: index, playlists, clip info, movie and BD-J objects, ISO images (UDF), and the M2TS demuxer. | [README](packages/bdmv/README.md) |
+| [`@seikou/engine`](packages/engine) | The player engine: navigation, HDMV menus, decoding with WebCodecs, audio, subtitles and shaders, in a worker. | [README](packages/engine/README.md) |
+| [`@seikou/pg`](packages/pg) | Blu-ray PG (bitmap) subtitles: decoding and drawing. | [README](packages/pg/README.md) |
+| [`@seikou/ass`](packages/ass) | An ASS/SSA subtitle renderer ported from libass. | [README](packages/ass/README.md) |
+| [`@seikou/matroska`](packages/matroska) | Writes and reads Matroska and WebM files. | [README](packages/matroska/README.md) |
+| [`@seikou/titles`](packages/titles) | Names a disc library: folder-name parsing, AniList, TMDB, TheDiscDB and music lookups, and the catalogue of shows. | [README](packages/titles/README.md) |
+| [`@seikou/fansubs`](packages/fansubs) | Finds fansub subtitles (SeaDex, Anime Tosho) and lines them up with a disc's audio. | [README](packages/fansubs/README.md) |
+| [`@seikou/nas`](packages/nas) | The wire contract the server, the app and the Worker share: API types, disc keys, pairing codes, WebRTC framing. | [README](packages/nas/README.md) |
+| NAS server ([`server/`](server)) | Serves your discs and encodes over HTTPS or WebRTC, sorts them into titles, re-encodes at lower quality on the GPU, and keeps each person's places and saved data. | [server/README.md](server/README.md) |
+| Rendezvous Worker ([`rendezvous/`](rendezvous)) | A Cloudflare Worker that turns a pairing code into the NAS's address and relays WebRTC signalling. | [rendezvous/README.md](rendezvous/README.md) |
+| Encoder ([`encoder/`](encoder)) | `seikou-encode`: episodes from a disc to AV1 and Opus MKVs, with a local web app for grouping chapters, subtitles and the encode queue. | [encoder/README.md](encoder/README.md) |
+| Tools ([`tools/`](tools)) | Comparison harnesses against libbluray and libass, the BD-J library check, the development disc server and device automation. | Each folder's README |
+
 ## Documentation
 
-- [Getting started](docs/getting-started.md): browsers, opening a disc, installing, offline use.
-- [Playing discs](docs/playing-discs.md): menus, audio and subtitles, shaders, controls, resume.
-- [NAS](docs/nas.md): pairing, the title library, quality levels, playing from away.
-- [Troubleshooting](docs/troubleshooting.md): the notices you may see and what to do.
-- [Run your own server](docs/self-hosting.md)
-- [Contributing](docs/contributing.md)
-- [Roadmap](docs/roadmap.md): what comes next.
+The [documentation index](docs/README.md) lists every page by module. In short:
 
-The player pages (all but Contributing) are also on the site under [/help](https://bluray.pages.dev/help); Contributing stays on GitHub.
+- Player: [Getting started](docs/getting-started.md), [Playing discs](docs/playing-discs.md) and [Troubleshooting](docs/troubleshooting.md). These pages are also on the site under [/help](https://bluray.pages.dev/help).
+- NAS server: [NAS](docs/nas.md) for pairing, the title library, quality levels and playing from away; [Run your own server](docs/self-hosting.md); and [server/README.md](server/README.md) for the code.
+- Encoder: [encoder/README.md](encoder/README.md) covers its use, and each folder under [`encoder/src/`](encoder/src) has a README of its own.
+- Packages: each package's README, linked in the table above.
+- The project: [Contributing](docs/contributing.md), the [roadmap](docs/roadmap.md), [known issues](docs/known-issues.md), the design specs in [`docs/superpowers/specs/`](docs/superpowers/specs) and [`encoder/docs/superpowers/specs/`](encoder/docs/superpowers/specs), and [CLAUDE.md](CLAUDE.md), which describes the layout and conventions in depth.
 
 ## Run your own server
 
 The NAS server runs in Docker next to your discs, behind your own HTTPS address. It serves discs, lists them by title and keeps each person's resume points and saved data. See [docs/self-hosting.md](docs/self-hosting.md).
+
+## Encode episodes
+
+The encoder runs on your computer with VapourSynth (with BestSource), SvtAv1EncApp and opusenc installed. `npm run seikou-encode -- app` opens its web app: pick a disc (from a folder or from a paired NAS), group its chapters into episodes while the playlist plays, choose subtitles, and queue the encode. See [encoder/README.md](encoder/README.md).
 
 ## Contributing
 
@@ -78,6 +100,15 @@ Shipped inside the app, the server image or the Worker.
 - [FFmpeg](https://ffmpeg.org) 7.1, Debian's GPL-2.0-or-later build, in the server image for quality levels. It runs as a separate process. [server/deploy/IMAGE-NOTICE](server/deploy/IMAGE-NOTICE) says where its source is.
 - [Intel media driver](https://github.com/intel/media-driver) and [oneVPL](https://github.com/intel/libvpl), MIT: hardware encoding for that ffmpeg.
 - [Node.js](https://nodejs.org), MIT: the server image's base.
+- [7z-wasm](https://github.com/use-strict/7z-wasm), 7-Zip compiled to WebAssembly under 7-Zip's licence (GNU LGPL with the unRAR restriction): unpacks fansub tracks and font archives on the server and in the encoder.
+
+### Run by the encoder
+
+The encoder starts these as separate processes and links none of them. They are installed by the user, not shipped.
+
+- [VapourSynth](https://www.vapoursynth.com) ([docs](https://www.vapoursynth.com/doc/)), LGPL-2.1-or-later, with [BestSource](https://github.com/vapoursynth/bestsource), MIT: frame-exact decoding of the disc's video and audio.
+- [SVT-AV1](https://gitlab.com/AOMediaCodec/SVT-AV1), BSD-3-Clause-Clear with the AOMedia patent licence: the AV1 encoder (`SvtAv1EncApp`).
+- [opus-tools](https://opus-codec.org/docs/opus-tools/opusenc.html), BSD-2-Clause: the Opus encoder (`opusenc`).
 
 ### Used in tests
 
@@ -95,7 +126,20 @@ In the repository, not shipped.
 - [TMDB](https://www.themoviedb.org): film and series titles and art. This product uses the TMDB API but is not endorsed or certified by TMDB.
 - [TheDiscDB](https://github.com/TheDiscDb/data): disc fingerprints to titles, MIT.
 - [MusicBrainz](https://musicbrainz.org), the [Cover Art Archive](https://coverartarchive.org) and [Discogs](https://www.discogs.com): music lookups and covers.
+- [SeaDex](https://releases.moe) (its API at seadex.moe) and [Anime Tosho](https://animetosho.org): the best fansub releases of a title, and their subtitle tracks and fonts.
 - [Cloudflare](https://www.cloudflare.com): Pages (the site), Workers and Durable Objects (the pairing rendezvous) and TURN (the optional relay).
+
+### Guides and specifications
+
+Documentation the design follows, beyond the upstream code above.
+
+- [JET Encoding Guide](https://jaded-encoding-thaumaturgy.github.io/JET-guide/master/): the encoder's SVT-AV1 settings (presets, variance boost, film grain, tiles, `--sharpness 1 --luminance-qp-bias 25`) and the filter order planned for later.
+- [Codec Wiki](https://wiki.x266.mov/): its SVT-AV1 deep dives on an anime corpus ([part 1](https://wiki.x266.mov/blog/svt-av1-fourth-deep-dive-p1), [part 2](https://wiki.x266.mov/blog/svt-av1-fourth-deep-dive-p2)), the [Opus](https://wiki.x266.mov/docs/audio/Opus) page and the [colorimetry](https://wiki.x266.mov/docs/colorimetry/intro) pages.
+- [SilentAperture's Advanced Encoding Guide](https://silentaperture.gitlab.io/mdbook-guide/): the method behind the encoder's [test encodes](https://silentaperture.gitlab.io/mdbook-guide/encoding/testing.html).
+- [guide.encode.moe](https://guide.encode.moe/) (Irrational Encoding Wizardry): the Opus rates for stereo and 5.1, and never re-encoding lossy audio.
+- [Matroska element specification](https://www.matroska.org/technical/elements.html) (RFC 9559) and [WebM](https://www.webmproject.org/docs/container/): what `@seikou/matroska` writes and reads.
+- [WebCodecs](https://www.w3.org/TR/webcodecs/): the decoders the engine uses.
+- [AniList API](https://docs.anilist.co) and [TMDB API](https://developer.themoviedb.org): title lookups.
 
 ### Tools
 

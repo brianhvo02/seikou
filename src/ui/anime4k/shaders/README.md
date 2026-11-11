@@ -25,3 +25,9 @@ The app loads a file only when a mode that uses it is picked, and the service wo
 | `Anime4K_Upscale_CNN_x2_VL.glsl` | `glsl/Upscale/Anime4K_Upscale_CNN_x2_VL.glsl` |
 | `Anime4K_Upscale_Denoise_CNN_x2_M.glsl` | `glsl/Upscale+Denoise/Anime4K_Upscale_Denoise_CNN_x2_M.glsl` |
 | `Anime4K_Upscale_Denoise_CNN_x2_VL.glsl` | `glsl/Upscale+Denoise/Anime4K_Upscale_Denoise_CNN_x2_VL.glsl` |
+
+## Documentation
+
+- The shader feature as a whole (parsing mpv user shaders, planning passes, running them on WebGL2): `docs/superpowers/specs/2026-10-15-video-shaders-design.md` and `packages/engine/src/shaders/`.
+- The templates that name these files, and the licence: `../README.md`, `../input-hq.conf`, `../input-fast.conf`, `../LICENSE`.
+- Anime4K upstream: https://github.com/bloc97/Anime4K

@@ -1,6 +1,8 @@
 # vm-trace: libbluray trace harness
 
-Runs a disc through real libbluray and prints what its HDMV VM and navigation do, so the TypeScript port can be compared against it entry by entry.
+This harness runs a disc through real libbluray and prints what its HDMV virtual machine and navigation do (register writes, events, seeks, and a hash of the interactive-graphics and PG planes after each step). Seikou's HDMV VM, Navigator and graphics controller are ported from libbluray, so the port is checked by replaying the same key script and comparing the two traces entry by entry. A difference is a porting bug to fix in the port, never in a golden file.
+
+## What's inside
 
 - `Dockerfile`: ubuntu 24.04 (pinned by digest, linux/amd64) with libbluray cloned at `448f896`, `trace.patch` applied, built with meson as a static library, and `vm_trace.c` linked statically against it.
 - `trace.patch`: four small changes to libbluray, nothing else.
@@ -8,11 +10,14 @@ Runs a disc through real libbluray and prints what its HDMV VM and navigation do
   - `bluray.c`: `bd_trace_event_cb` is called for every event put in the event queue, `bd_trace_seek_cb` for every accepted `bd_seek_playitem` / `bd_seek_mark` / `_clip_seek_time` (the `seek` entries), and `bd_trace_finished()` reports that the HDMV program has ended and no playlist is playing.
   - `hdmv_vm.c`: the random state always starts at 1.
   - `util/time.c`: `bd_get_scr()` is a counter that the harness advances by 1800 per read (`bd_trace_tick()`).
-- `vm_trace.c`: the harness. `vm_trace <disc-dir> <script>` prints the trace (`tests/vm-trace/format.ts`) to stdout. libbluray's own log goes to stderr. It registers an overlay callback (which also turns libbluray's graphics controller on) and applies the IG overlay operations to a Y, Cr, Cb, T plane with exactly the semantics of `packages/pg/src/overlay-plane.ts`; every `step` entry carries that plane's FNV-1a hash as `plane`. It also sets `BLURAY_PLAYER_SETTING_DECODE_PG` (without it libbluray decodes no PG; it also sets PSR2's display flag, which the replay repeats untraced) and applies the PG overlay operations to a second, buffered plane (a back buffer that `BD_OVERLAY_FLUSH` copies to the visible plane, as `OverlayPlane`'s buffered mode); `step` entries carry the visible PG plane's hash as `pg`. The script step `subs off` is `bd_select_stream(bd, BLURAY_PG_TEXTST_STREAM, 1, 0)` here and `PgStreamControl.select('off')` in the replay; `subs N` is `bd_select_stream(bd, BLURAY_PG_TEXTST_STREAM, N, 1)` and `select({ pg: N })` (a disc's own program usually leaves PG off).
+- `vm_trace.c`: the harness. `vm_trace <disc-dir> <script>` prints the trace (`tests/vm-trace/format.ts`) to stdout. libbluray's own log goes to stderr.
+  - It registers an overlay callback (which also turns libbluray's graphics controller on) and applies the IG overlay operations to a Y, Cr, Cb, T plane with exactly the semantics of `packages/pg/src/overlay-plane.ts`. Every `step` entry carries that plane's FNV-1a hash as `plane`.
+  - It sets `BLURAY_PLAYER_SETTING_DECODE_PG` (without it libbluray decodes no PG; it also sets PSR2's display flag, which the replay repeats untraced) and applies the PG overlay operations to a second, buffered plane (a back buffer that `BD_OVERLAY_FLUSH` copies to the visible plane, as `OverlayPlane`'s buffered mode does). `step` entries carry the visible PG plane's hash as `pg`.
+  - The script step `subs off` is `bd_select_stream(bd, BLURAY_PG_TEXTST_STREAM, 1, 0)` here and `PgStreamControl.select('off')` in the replay. `subs N` is `bd_select_stream(bd, BLURAY_PG_TEXTST_STREAM, N, 1)` and `select({ pg: N })`. A disc's own program usually leaves PG off.
 - `build.sh`: `npm run vm-trace:build` builds the image and copies the binary to `out/vm_trace` (gitignored).
 - `golden.sh`: `npm run vm-trace:golden` regenerates `tests/vm-trace/golden/*.jsonl` for every script in `tests/vm-trace/scripts/` whose disc is in `fixtures/synthetic`. Golden files are only ever produced this way, never edited. CI regenerates them and fails on any diff.
 - `run.sh <disc> <script>`: libbluray's trace for `fixtures/synthetic/<disc>` and `tests/vm-trace/scripts/<disc>.<script>.keys`, run in the pinned image with the disc mounted read-only. `<disc>` may also be a path to a disc folder and `<script>` a path to a `.keys` file.
-- `npm run vm-trace -- <disc> <script> [--dump-pages]` runs both sides live and prints the first divergence. With `--dump-pages` the replay prints every IG menu it reads (pages, buttons with rectangles and centres, neighbours, decoded commands), which is how scripts for real discs are written. Scripts for local discs (`tests/vm-trace/scripts/tsurune.*.keys`) have no golden file; run them as `npm run vm-trace -- fixtures/local/TSURUNE_TSUNAGARI_1 tests/vm-trace/scripts/tsurune.popup.keys`.
+- `npm run vm-trace -- <disc> <script> [--dump-pages]` runs both sides live and prints the first divergence. With `--dump-pages` the replay prints every IG menu it reads (pages, buttons with rectangles and centres, neighbours, decoded commands), which is how scripts for real discs are written. Scripts for local discs (the ones in `tests/vm-trace/scripts/` named after a disc in `fixtures/local/` rather than a synthetic disc) have no golden file; run them with the disc's folder as `<disc>`, for example `npm run vm-trace -- fixtures/local/<disc folder> tests/vm-trace/scripts/<script>.keys`.
 
 ## How a run is sequenced
 
@@ -33,3 +38,11 @@ Events (`title`, `playlist`, `playitem`, `chapter`, `menu`, `popup`, `uo`, `soun
 - Item stills (`BD_EVENT_STILL_TIME`) have no trace entry; `still` is the HDMV STILL event only, but the replay logs it from the port's `hold()`, so a disc with item stills would diverge until that is separated.
 - The replay port assumes play items start at packet 0 (first item, seamless connections) and tracks marks by packet like libbluray; other start packets are not modelled there. The Navigator itself derives start packets from the CLPI like `_fill_clip`.
 - libbluray exposes no IG composition through its API, so `--dump-pages` comes from our decoder, not from the harness.
+
+## Documentation
+
+- The commands are listed in the Commands section of `CLAUDE.md`.
+- The HDMV VM, menus and the comparison were designed in `docs/superpowers/specs/2026-10-14-m3-hdmv-menus-design.md`.
+- The comparison side is `tests/vm-trace/` (trace format, replay, key scripts and goldens). CI regenerates the goldens in `.github/workflows/vm-trace.yml`.
+- libbluray (the upstream, ported here at commit `448f896`): https://www.videolan.org/developers/libbluray.html
+- The BD-J counterpart is `tools/bdj-trace/README.md`.

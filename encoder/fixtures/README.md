@@ -1,5 +1,7 @@
 # Encoder test fixtures
 
+Small Blu-ray discs and stream files the encoder's tests and end-to-end checks run on. All content is synthetic. The encoder is described in [`../README.md`](../README.md), The Seikou-wide fixtures are in `fixtures/` at the repository root, built by the scripts in `scripts/`.
+
 - `disc1/`: a copy of `fixtures/synthetic/disc1` (two 4 s H.264 clips, LPCM stereo, chapters every 2 s).
 - `disc1-late/`: `disc1` with every audio timestamp 20 ms later, so the audio starts after the video (`encoder/scripts/make-late-audio-disc.ts`).
 - `disc-speech/`: the speech disc of `scripts/make-speech-disc.ts` (150 s over two clips split at 90 s, AC-3 stereo 48 kHz with noise bursts at the times in `tests/helpers/speech-bursts.ts`, chapters every 30 s), for the alignment audio and the helper page's preview. Unlike `fixtures/synthetic/disc-speech` (64x36 video, which Chrome refuses to decode) its picture is 640x360, about 8 MB in all. The script only writes inside the repo's `fixtures/`, so make it with a scratch folder there (gitignored) and move it in:

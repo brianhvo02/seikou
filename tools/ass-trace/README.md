@@ -1,8 +1,20 @@
 # libass trace harness
 
-Reference output for the native ASS renderer (`packages/ass/src/`, milestone 4b): libass 0.17.5
-(`4a05d81`), patched by `trace.patch` to print its layout, built in Docker with FreeType, HarfBuzz and
-FriBidi from Ubuntu 24.04 (pinned by digest), without fontconfig or libunibreak.
+This harness runs real libass on an ASS script and records what it lays out and draws, so Seikou's native ASS renderer (`packages/ass/src/`, milestone 4b) can be compared with libass frame by frame. The renderer is a port of libass, and a difference between the two is a porting bug. The reference is libass 0.17.5 (`4a05d81`), patched by `trace.patch` to print its layout, built in Docker with FreeType, HarfBuzz and FriBidi from Ubuntu 24.04 (pinned by digest), without fontconfig or libunibreak.
+
+## What's inside
+
+- `Dockerfile`: the image that builds the patched libass and `ass_trace.c`.
+- `trace.patch`: the changes to libass that make it print its layout trace.
+- `ass_trace.c`: the harness program. It renders a script at each listed time and writes the trace and the frames.
+- `build.sh`: `npm run ass-trace:build`, builds the image.
+- `golden.sh`: `npm run ass-trace:golden`, regenerates the committed goldens.
+- `run.sh`: runs libass on one script (`npm run ass-trace` wraps it).
+- `out/`: output of local runs (gitignored).
+
+The comparison side lives in `tests/ass-trace/` (the trace format, the runner and the goldens) and is run by `npm run test:ass`.
+
+## Commands
 
 - `npm run ass-trace:build` builds the image.
 - `npm run ass-trace:golden` regenerates `tests/ass-trace/golden/` from every `fixtures/ass/<name>/<name>.ass`
@@ -24,3 +36,10 @@ default font, no colour-matrix conversion. Frames are libass's images blended on
 
 The trace format (one JSON line per event shown, after collision handling) is documented in
 `tests/ass-trace/format.ts`.
+
+## Documentation
+
+- The commands are listed in the Commands section of `CLAUDE.md`.
+- The renderer and this harness were designed in `docs/superpowers/specs/2026-10-15-m4b-ass-renderer-design.md`.
+- Known differences from libass are recorded in `docs/known-issues.md`.
+- libass: https://github.com/libass/libass

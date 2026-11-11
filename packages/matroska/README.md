@@ -1,12 +1,38 @@
 # @seikou/matroska
 
-Matroska and WebM reading and writing for any JavaScript host: Node, browsers and workers (no `node:` imports, no `Buffer`).
+Matroska and WebM reading and writing for any JavaScript host: Node, browsers and workers (no `node:` imports, no `Buffer`). It is what the encoder uses to write its MKV files and what the player's engine uses to read them.
+
+## What it does
 
 - `writeMatroska` muxes AV1 video, Opus audio, subtitle tracks (`S_TEXT/ASS`, `S_HDMV/PGS`), attached files, chapters and Segment tags through an `MkvSink`. It writes Cues for video key frames and for every subtitle block, so a player can seek. `checkMatroskaInput` runs the checks that need no packets, so a caller can refuse a bad input before it opens a file.
 - `openMatroska` opens a file for playback over byte-range reads. It reads the SeekHead and, through it, tracks, attachments (their bytes only when you call `data()`), chapters, tags and Cues, and no Cluster. `blocksFrom(timeMs)` then yields blocks from the right cluster onward, splitting laced blocks.
 - `readMatroska` reads a whole file front to back, one cluster at a time, in bounded memory. It refuses laced blocks and elements of unknown size.
 
 Both readers take a `RangeReader`: `{ size, name?, read(offset, length, signal?) }`. A reader's `name` (a path or URL) ends every error message.
+
+## Modules
+
+All sources are in `src/`.
+
+| Module | What it does |
+| --- | --- |
+| `writer` | `writeMatroska` and `checkMatroskaInput`: the muxer. |
+| `playback` | `openMatroska`: the seekable reader, with `blocksFrom(timeMs)`. |
+| `reader` | `readMatroska`: the front-to-back reader. |
+| `parse` | Pieces both readers share: reading ranges, the EBML header and Segment, TrackEntry, chapters and splitting a cluster into blocks. |
+| `ebml`, `ebml-reader`, `ids` | EBML element writers, the tree reader, and the Matroska element ids, each noted with the section of RFC 8794 or RFC 9559 that defines it. |
+| `io` | The `RangeReader` and `MkvSink` interfaces. |
+| `blob-reader` | `blobRangeReader`: a `RangeReader` over a `Blob` or `File`. |
+| `timing` | `videoMs`, `framesToNs` and `frameDurationNs`, which put frames on the Matroska time grid. |
+| `errors` | The errors the readers throw for a file that is truncated, malformed or not Matroska. |
+| `test-io` | An in-memory `MkvSink` for tests. It is not shipped in the npm package. |
+
+## What a consumer provides
+
+- A `RangeReader` for reading: `{ size, name?, read(offset, length, signal?) }`. `blobRangeReader` covers a `Blob` or `File`, and the usage example below shows HTTP and Node files.
+- An `MkvSink` for writing: `write` appends, `writeAt` overwrites bytes already written, and `close` finishes.
+
+## Usage
 
 ```ts
 import { blobRangeReader, openMatroska, writeMatroska, type MkvSink } from '@seikou/matroska';
@@ -49,3 +75,14 @@ A laced block comes out one frame per `MkvBlock`, with `frameIndex` and `frameCo
 The `timing.ts` helpers (`videoMs`, `framesToNs`, `frameDurationNs`) are exported because packet times and chapter times must fall on the same frame grid: a video packet's timestamp is `videoMs(index, video)` in whole milliseconds, and a chapter that starts at a frame is `framesToNs(frame, video)`, which the reader rounds back to that same millisecond. Computing both through these functions keeps a chapter's start equal to its frame's block time.
 
 The EBML element writers and the tree reader the tests use are exported too.
+
+## Documentation and references
+
+Links to repository files are relative to the Seikou repository.
+
+- Where the package is used: the encoder, [`encoder/docs/superpowers/specs/2026-11-06-encoding-tools-design.md`](../../encoder/docs/superpowers/specs/2026-11-06-encoding-tools-design.md), and the player's engine, [`docs/superpowers/specs/2026-11-08-encodes-library-design.md`](../../docs/superpowers/specs/2026-11-08-encodes-library-design.md).
+- The packages' design: [`docs/superpowers/specs/2026-11-07-packages-design.md`](../../docs/superpowers/specs/2026-11-07-packages-design.md).
+- Matroska element list: https://www.matroska.org/technical/elements.html
+- Matroska format, RFC 9559: https://www.rfc-editor.org/rfc/rfc9559
+- EBML, RFC 8794: https://www.rfc-editor.org/rfc/rfc8794
+- WebM container: https://www.webmproject.org/docs/container/

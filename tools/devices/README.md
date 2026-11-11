@@ -1,8 +1,20 @@
 # devices: Safari automation on iPhone, iPad and the iOS Simulator
 
-Scripts that open the player or the device probe in Safari on a real iPhone or iPad (over USB) or on an iOS Simulator, wait for a condition, read telemetry, tap, take screenshots and collect console logs. Spec: `docs/superpowers/specs/2026-10-17-m5d-bdj-menus-design.md` §4.5.
+These are scripts that drive real browsers and devices, so Seikou can be checked where it matters: Safari on a real iPhone or iPad (over USB), an iOS Simulator, Safari on this Mac, and installed Chrome and Firefox. They open the player or the device probe, wait for a condition, read telemetry, tap, take screenshots and collect console logs. They exist because the player's hardest requirements (audio start on a tap, memory limits, BD-J menus on touch) cannot be tested in a desktop browser alone.
 
-They speak W3C WebDriver to [Appium](https://appium.io) with the XCUITest driver. Appium uses Safari's remote inspector for the page (scripts, console) and WebDriverAgent, a helper app it builds with Xcode, for touches and screenshots. Taps are real touches, so they count as the user gesture the player needs to start audio.
+## What's inside
+
+- `run.ts`: opens a URL on a device, runs steps in order (wait, tap, swipe, screenshot, telemetry, eval) and collects the console log.
+- `probe.ts`: opens the device probe page (`probe.html`) against a disc on the disc server.
+- `gate.ts`: the 5d device gate for BD-J menus (see [The BD-J gate](#the-bd-j-gate-gatets)).
+- `live-check.ts`: the 5e live check against the live NAS (see [The 5e live check](#the-5e-live-check-live-checkts)).
+- `session.ts`: one WebDriver session on a device through Appium, with timeouts and lost-device and page-reload errors.
+- `tap.ts`: touches that wait for the page to hold still before they land.
+- `*.test.ts`: unit tests for the pure parts (`npx vitest run tools/devices`).
+
+## How it talks to devices
+
+The scripts speak W3C WebDriver to [Appium](https://appium.io) with the XCUITest driver. Appium uses Safari's remote inspector for the page (scripts, console) and WebDriverAgent, a helper app it builds with Xcode, for touches and screenshots. Taps are real touches, so they count as the user gesture the player needs to start audio.
 
 The Simulator needs no setup beyond Xcode. A real device needs the one-time setup below.
 
@@ -15,7 +27,7 @@ npm install --prefix .cache/appium appium@3.8.0
 APPIUM_HOME="$PWD/.cache/appium" .cache/appium/node_modules/.bin/appium driver install xcuitest@12.18.1
 ```
 
-npm skips Appium's `postinstall`. That is fine: the script only auto-installs extensions named in an environment variable. The scripts start this Appium themselves when nothing answers at `$APPIUM_URL` (default `http://127.0.0.1:4723`), and stop it afterwards. The first session on a device builds WebDriverAgent, which takes a few minutes; later sessions start in about 15–30 s.
+npm skips Appium's `postinstall`. That is fine: the script only auto-installs extensions named in an environment variable. The scripts start this Appium themselves when nothing answers at `$APPIUM_URL` (default `http://127.0.0.1:4723`), and stop it afterwards. The first session on a device builds WebDriverAgent, which takes a few minutes; later sessions start in about 15 to 30 s.
 
 ## Run
 
@@ -60,14 +72,14 @@ For a real device, use the server's HTTPS LAN origin (`--server https://<lan-ip>
 
 ## One-time setup for a real iPhone or iPad
 
-Xcode must be installed with its licence accepted (`sudo xcodebuild -license accept`). The menu labels below are as of iOS 18. **On iOS 26 the exact labels still have to be confirmed on the device**; those steps are marked *to confirm*. If a label differs, use the nearest match and note the right one here. Do the steps in this order for each device:
+Xcode must be installed with its licence accepted (`sudo xcodebuild -license accept`). The menu labels below are as of iOS 18. On iOS 26 the exact labels still have to be confirmed on the device; those steps are marked *to confirm*. If a label differs, use the nearest match and note the right one here. Do the steps in this order for each device:
 
-1. **Trust this Mac.** Connect the device by USB-C, unlock it, tap Trust and enter the passcode. `xcrun xctrace list devices` then lists it with its UDID.
-2. **Let Xcode prepare the device.** With the device connected and unlocked, open Xcode → Window → Devices and Simulators and select the device. Xcode copies its debugging support onto the device, which can take several minutes the first time. Wait until the device shows no progress or warning there.
-3. **Developer Mode.** The switch only appears once the device has been used with Xcode (step 2). Settings → Privacy & Security → Developer Mode (*to confirm*; near the bottom) → on. The device restarts; after unlocking, confirm Turn On.
-4. **Web Inspector and Remote Automation.** Settings → Apps → Safari → Advanced (*to confirm*). Turn on Web Inspector (Safari's remote inspector, used for scripts and console logs; it also lets you inspect the page from Safari on the Mac through the Develop menu) and Remote Automation.
-5. **Apple ID in Xcode.** Xcode → Settings → Accounts → + → Apple ID. A free Apple ID gives a "Personal Team". Its Team ID is a 10-character code, shown in signing errors and in the provisioning profile Xcode makes in step 6.
-6. **Sign WebDriverAgent with the personal team.** Open the driver's project:
+1. Trust this Mac. Connect the device by USB-C, unlock it, tap Trust and enter the passcode. `xcrun xctrace list devices` then lists it with its UDID.
+2. Let Xcode prepare the device. With the device connected and unlocked, open Xcode → Window → Devices and Simulators and select the device. Xcode copies its debugging support onto the device, which can take several minutes the first time. Wait until the device shows no progress or warning there.
+3. Developer Mode. The switch only appears once the device has been used with Xcode (step 2). Settings → Privacy & Security → Developer Mode (*to confirm*; near the bottom) → on. The device restarts; after unlocking, confirm Turn On.
+4. Web Inspector and Remote Automation. Settings → Apps → Safari → Advanced (*to confirm*). Turn on Web Inspector (Safari's remote inspector, used for scripts and console logs; it also lets you inspect the page from Safari on the Mac through the Develop menu) and Remote Automation.
+5. Apple ID in Xcode. Xcode → Settings → Accounts → + → Apple ID. A free Apple ID gives a "Personal Team". Its Team ID is a 10-character code, shown in signing errors and in the provisioning profile Xcode makes in step 6.
+6. Sign WebDriverAgent with the personal team. Open the driver's project:
    ```sh
    APPIUM_HOME="$PWD/.cache/appium" .cache/appium/node_modules/.bin/appium driver run xcuitest open-wda
    ```
@@ -77,15 +89,15 @@ Xcode must be installed with its licence accepted (`sudo xcodebuild -license acc
 
    Select your device as the run destination and press ⌘U (Product → Test).
 
-   **The first ⌘U is expected to fail** with an error saying the developer or app is not trusted ("Untrusted Developer", "invalid code signature" or "profile has not been explicitly trusted by the user"). That is normal for a free team; step 7 fixes it.
-7. **Trust your developer app on the device.** Settings → General → VPN & Device Management (*to confirm*) → your Apple ID under Developer App → Trust. Press ⌘U again: WebDriverAgent starts on the device, which shows "Automation Running". Stop it in Xcode (⌘.).
-8. **Tell the scripts** your team and bundle identifier through the environment, never in the repository:
+   The first ⌘U is expected to fail with an error saying the developer or app is not trusted ("Untrusted Developer", "invalid code signature" or "profile has not been explicitly trusted by the user"). That is normal for a free team; step 7 fixes it.
+7. Trust your developer app on the device. Settings → General → VPN & Device Management (*to confirm*) → your Apple ID under Developer App → Trust. Press ⌘U again: WebDriverAgent starts on the device, which shows "Automation Running". Stop it in Xcode (⌘.).
+8. Tell the scripts your team and bundle identifier through the environment, never in the repository:
    ```sh
    export DEVICE_TEAM_ID=<your team ID>
    export WDA_BUNDLE_ID=com.<yourname>.WebDriverAgentRunner      # exactly the Runner's identifier from step 6
    ```
-9. **Trust the disc server's certificate authority.** Make the mkcert certificate as in `tools/disc-server/README.md`.
-   - Send the device **only** `"$(mkcert -CAROOT)/rootCA.pem"`, by AirDrop or by mailing it to yourself. **Never copy `rootCA-key.pem`** from the same folder: it is the CA's private key, and whoever has it can make certificates your devices would trust for any site.
+9. Trust the disc server's certificate authority. Make the mkcert certificate as in `tools/disc-server/README.md`.
+   - Send the device only `"$(mkcert -CAROOT)/rootCA.pem"`, by AirDrop or by mailing it to yourself. Never copy `rootCA-key.pem` from the same folder: it is the CA's private key, and whoever has it can make certificates your devices would trust for any site.
    - On the device, open the file; Settings shows "Profile Downloaded". Install it under Settings → General → VPN & Device Management (*to confirm*).
    - Turn on full trust under Settings → General → About → Certificate Trust Settings → the mkcert root.
 
@@ -93,7 +105,7 @@ Xcode must be installed with its licence accepted (`sudo xcodebuild -license acc
 
    *To remove it later:* on the device, Settings → General → VPN & Device Management → the mkcert profile → Remove Profile (this also removes the full-trust switch). On the Mac, `mkcert -uninstall` removes the CA from the Mac's trust stores, and deleting the `mkcert -CAROOT` folder deletes the CA itself.
 
-**Every 7 days:** a free team's provisioning profile lasts 7 days. After that, WebDriverAgent stops launching: you get "profile has expired", or the app closes at once. To re-sign, connect the device, open the project as in step 6 and press ⌘U again; Xcode renews the profile. If Xcode complains, delete WebDriverAgentRunner from the device first. Apple currently limits free teams (at the time of writing, about 3 devices and 10 app IDs per 7 days). That is enough here, but the limits may change.
+Every 7 days: a free team's provisioning profile lasts 7 days. After that, WebDriverAgent stops launching: you get "profile has expired", or the app closes at once. To re-sign, connect the device, open the project as in step 6 and press ⌘U again; Xcode renews the profile. If Xcode complains, delete WebDriverAgentRunner from the device first. Apple currently limits free teams (at the time of writing, about 3 devices and 10 app IDs per 7 days). That is enough here, but the limits may change.
 
 If Appium cannot find a connected device running iOS 17 or later, start the driver's device tunnel in another terminal (it needs root) and retry:
 
@@ -117,7 +129,7 @@ Nothing to set up. WebDriverAgent needs no signing there, and the Simulator shar
 
 ## The BD-J gate (`gate.ts`)
 
-The 5d device gate (spec §4.5, §7) on one device or browser, for each BD-J disc under `fixtures/local` (A_NEW_ERA, RENTAL_FAMILY):
+The 5d device gate (spec §4.5, §7) on one device or browser, for each BD-J disc under `fixtures/local` (the ones that have a key script in `tests/bdj/scripts/`):
 
 1. Opens the disc by its disc-server URL and taps or clicks its button.
 2. Records `bdj.firstFrameMs` (the first frame of Java's first playlist).
@@ -130,12 +142,12 @@ The 5d device gate (spec §4.5, §7) on one device or browser, for each BD-J dis
 npm run build
 npx tsx tools/devices/gate.ts --target "sim:iPhone 17" --stay-ms 600000     # Simulator (Appium)
 npx tsx tools/devices/gate.ts --target chrome --startup-runs 5              # installed Chrome (Playwright); --touch: Pixel 7 emulation
-npx tsx tools/devices/gate.ts --target firefox --disc RENTAL_FAMILY         # installed Firefox (Playwright over WebDriver BiDi)
+npx tsx tools/devices/gate.ts --target firefox --disc <disc folder name>    # installed Firefox (Playwright over WebDriver BiDi)
 npx tsx tools/devices/gate.ts --target safari                               # Safari on this Mac (safaridriver)
 npx tsx tools/devices/gate.ts --target ios:<udid> --server https://<lan-ip>:8443 --token <token>   # real iPhone/iPad (safaridriver)
 ```
 
-Without `--server`, the gate serves `dist/` and `fixtures/local` itself on `http://127.0.0.1:4183` (`--port`), which is enough for this Mac and the Simulator. A real device needs the HTTPS disc server (`tools/disc-server`) and its token. Results go to `.superpowers/sdd/2026-10-17-m5d-bdj-menus/gate/` (`--out`), one JSON file per disc plus screenshots; tokens are never written. An A_NEW_ERA run skips with a reason where `VideoDecoder` has no HEVC. `--startup-runs n` opens the disc n more times first and records each first frame: the first open in a fresh browser is cold, and the rest are warm. The exit code is 1 when a disc fails.
+Without `--server`, the gate serves `dist/` and `fixtures/local` itself on `http://127.0.0.1:4183` (`--port`), which is enough for this Mac and the Simulator. A real device needs the HTTPS disc server (`tools/disc-server`) and its token. Results go to `.superpowers/sdd/2026-10-17-m5d-bdj-menus/gate/` (`--out`), one JSON file per disc plus screenshots; tokens are never written. A disc whose video is HEVC skips with a reason where `VideoDecoder` has no HEVC. `--startup-runs n` opens the disc n more times first and records each first frame: the first open in a fresh browser is cold, and the rest are warm. The exit code is 1 when a disc fails.
 
 Two notes on the drivers:
 
@@ -144,14 +156,14 @@ Two notes on the drivers:
 
 ## The 5e live check (`live-check.ts`)
 
-This check runs on real devices against the live NAS, on a **preview** origin of the player only. The script refuses the production origin. It makes two made-up test people and pairs their devices, checks that BD-J saved data follows a person and never crosses to another, and opens the library discs the library check left unconfirmed. It deletes both people at the end, even when the run fails or is stopped with Ctrl-C.
+This check runs on real devices against the live NAS, on a preview origin of the player only. The script refuses the production origin. It makes two made-up test people and pairs their devices, checks that BD-J saved data follows a person and never crosses to another, and opens the library discs the library check left unconfirmed. It deletes both people at the end, even when the run fails or is stopped with Ctrl-C.
 
-1. **People.**
+1. People.
    - "Mika (test)" is made by the NAS's owner tooling over ssh (`server/deploy/deploy.sh --owner-code --person`), with a headless controller device paired the way `scripts/verify-level.ts` pairs.
    - "Sora (test)" is made by that controller's owner session (`POST admin/codes {newPerson}`), and gets a controller of its own.
    - Each browser pairs through the app's own pairing screen with a fresh code (`POST admin/codes {personId}`).
    - A browser already paired on that origin as anyone but a test person stops the run. It is never re-paired.
-2. **Store** (`fixtures/synthetic/disc-bdj-store`, opened from the NAS library). Each device's count is read from the plane hash, which is libbluray's hash for that opening. Each person's NAS count is read back by that person's controller.
+2. Store (`fixtures/synthetic/disc-bdj-store`, opened from the NAS library). Each device's count is read from the plane hash, which is libbluray's hash for that opening. Each person's NAS count is read back by that person's controller.
    - Mika's phone shows 0, and the NAS then holds 1.
    - Mika's tablet shows 1 (2 on the NAS).
    - Sora's first browser shows 0 (Sora's NAS holds 1; Mika's stays 2).
@@ -163,13 +175,13 @@ This check runs on real devices against the live NAS, on a **preview** origin of
    - The clean-up deletes only that folder. It checks the path against the run id and the roots, and that the folder holds nothing but the disc. It then confirms the folder is gone and rescans. It waits until the disc is unlisted and the title matcher's filed and unsorted counts are back to where they were.
 
    `--store-disc auto` looks for a disc already in the library instead. `--rehearse-store <library path or library-check id>` runs the same steps on another disc without expecting counts, as a dry run.
-3. **Library** (`--library`, Mika's phone). Each id (by default the 14 unconfirmed ones; or `--disc <id>`):
+3. Library (`--library`, Mika's phone). Each id (by default the 14 unconfirmed ones; or `--disc <id>`):
    - goes through `$BDJ_LIBRARY_DIR/map.tsv` and the roots read from the NAS (the `LIBRARY_ROOTS` line of `~/bluray-server/.env` and the bind mounts of its `compose.override.yaml`, over ssh, read-only) to its NAS library disc;
    - is opened from the NAS;
    - is driven with `tools/bdj-library/generic.keys` through the on-screen remote. The remote is opened with a tap off the picture, so the disc never sees the tap.
 
    A screenshot is saved after every step, to `<out>/<id>/`.
-4. **Clean-up.**
+4. Clean-up.
    - Each browser forgets its test pairing and the test people's write-ahead records before it closes.
    - Sora, then Mika, is deleted with `DELETE admin/people/<id>`, which also clears their saved data on the NAS.
    - The NAS's people file is then read over ssh to confirm that no test person, device or saved data is left and that the other people are as before.
@@ -188,3 +200,12 @@ Sora's browsers default to `chrome-profile` (installed Chrome with a fresh tempo
 ## Not here
 
 Device UDIDs, Apple IDs, team IDs, certificates and tokens stay out of the repository: pass them on the command line or in the environment.
+
+## Documentation
+
+- The commands are listed in the Commands section of `CLAUDE.md`.
+- Design: `docs/superpowers/specs/2026-10-17-m5d-bdj-menus-design.md` §4.5 and §7 (device gate), `docs/superpowers/specs/2026-10-18-m5e-bdj-library-coverage-design.md` (live check) and `docs/superpowers/specs/2026-10-16-cross-browser-and-remote-design.md` (the probe page and supported browsers).
+- The server these scripts open discs from: `tools/disc-server/README.md`. The library check whose unconfirmed discs the live check opens: `tools/bdj-library/README.md`.
+- W3C WebDriver: https://www.w3.org/TR/webdriver2/
+- Appium: https://appium.io/docs/en/latest/
+- Playwright (Chrome and Firefox targets): https://playwright.dev/docs/intro

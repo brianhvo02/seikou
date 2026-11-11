@@ -1,8 +1,15 @@
 # disc-server: development disc server
 
-Serves disc folders on this Mac to devices on the home network (iPhone, iPad, the iOS Simulator, other browsers), so a disc opens by URL instead of a folder pick. It also serves the built player from the same origin, so a device loads the app and the disc from one LAN URL in a secure, cross-origin-isolated context (SharedArrayBuffer needs both). Spec: `docs/superpowers/specs/2026-10-17-m5d-bdj-menus-design.md` §4.5. It speaks the NAS server's disc API (`docs/superpowers/specs/2026-10-17-nas-server-design.md`; ruling R19 of the 5d plan): the same library listing, manifest (with the metadata files inlined) and files route, so the player opens its discs through the same `RemoteSource` and `HttpTransport` as a NAS disc. Manifests, file resolution and range parsing are the NAS server's own code (`server/src/manifest.ts`, `server/src/ranges.ts`). Pairing, sessions, folders and ISO images are NAS-only: the dev server has one token per run and lists folder discs flat.
+The disc server is a development server that serves disc folders on this Mac to devices on the home network (iPhone, iPad, the iOS Simulator, other browsers), so a disc opens by URL instead of a folder pick. It also serves the built player from the same origin, so a device loads the app and the disc from one LAN URL in a secure, cross-origin-isolated context (SharedArrayBuffer needs both).
 
-Node built-ins and the NAS server's own modules (`server/src/manifest.ts`, `server/src/ranges.ts`), run through `tsx` (already a devDependency).
+It speaks the NAS server's disc API: the same library listing, manifest (with the metadata files inlined) and files route. The player therefore opens its discs through the same `RemoteSource` and `HttpTransport` as a NAS disc. Manifests, file resolution and range parsing are the NAS server's own code (`server/src/manifest.ts`, `server/src/ranges.ts`). Pairing, sessions, folders and ISO images exist only on the NAS: the dev server has one token per run and lists folder discs flat.
+
+It uses Node built-ins and those two NAS modules, run through `tsx` (already a devDependency).
+
+## What's inside
+
+- `server.ts`: the server (routes, token check, address filter, static files for `dist/`).
+- `server.test.ts`: its tests (see [Tests](#tests)).
 
 ## Run it
 
@@ -64,3 +71,11 @@ The player and the probe page follow `?disc=` links only to their own origin: op
 ## Tests
 
 `npx vitest run tools/disc-server` (plain HTTP on loopback; the 4 GiB case uses a sparse file). It also reads discs through the player's client path (`RemoteSource` over `HttpTransport`) against the server.
+
+## Documentation
+
+- The command is listed in the Commands section of `CLAUDE.md`.
+- Design: `docs/superpowers/specs/2026-10-17-m5d-bdj-menus-design.md` §4.5 (the dev server) and `docs/superpowers/specs/2026-10-17-nas-server-design.md` (the disc API it copies).
+- Device setup that uses it: `tools/devices/README.md`.
+- The NAS server it imitates: `server/` and `docs/nas.md`.
+- mkcert (local certificates): https://github.com/FiloSottile/mkcert
