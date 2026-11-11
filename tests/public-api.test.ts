@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { PACKAGES, UNKNOWN_NAMES, barrelNames, exportedNames, guideNames, importedRootNames, publicApi, rootImports } from '../scripts/public-api';
+import { PACKAGES, UNKNOWN_NAMES, barrelNames, exportedNames, guideNames, importedRootNames, approvedApi, requiredApi, rootImports } from '../scripts/public-api';
 
 describe('the public API helpers', () => {
   it('follows export * and export { } from, and counts the imported name of an alias', () => {
@@ -28,11 +28,16 @@ describe('the public API helpers', () => {
   });
 });
 
-// Task 2 narrows the barrels to the rule; each case flips from it.fails to it then.
-describe('a barrel exports what integrators and the repository import from its root', () => {
+// A package with no public-api.txt yet is expected to fail; writing its list flips the case to a plain pass.
+describe('a package exports exactly its approved public API', () => {
   for (const pkg of PACKAGES) {
-    it.fails(pkg, () => {
-      expect([...barrelNames(pkg)].sort()).toEqual([...publicApi(pkg)].sort());
+    const run = approvedApi(pkg) === null ? it.fails : it;
+    run(pkg, () => {
+      const approved = approvedApi(pkg);
+      expect(approved, `packages/${pkg}/public-api.txt`).not.toBeNull();
+      const list = approved ?? new Set<string>();
+      expect([...requiredApi(pkg)].filter((n) => !list.has(n)).sort(), 'required names missing from the list').toEqual([]);
+      expect([...barrelNames(pkg)].sort()).toEqual([...list].sort());
     });
   }
 });

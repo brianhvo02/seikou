@@ -6,8 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { parseSource } from './doc-check';
 
 /*
- * The public API rule: a name stays in a package's `index.ts` when `docs/integrating.md` uses it or code
- * outside the package imports it from the package root. Everything else is reachable through `./*` only.
+ * The public API rule: a package's `public-api.txt` lists its public names, it holds every name
+ * `docs/integrating.md` uses and every name code outside the package imports from the root, and the
+ * package's `index.ts` exports exactly that list. Everything else is reachable through `./*` only.
  */
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -164,7 +165,18 @@ export function barrelNames(pkg: string): Set<string> {
   return exportedNames(join(ROOT, 'packages', pkg, 'src/index.ts'));
 }
 
-/** The names a package's barrel should export: the guide's and the repository's root imports. */
-export function publicApi(pkg: string): Set<string> {
+/** The names a package's `public-api.txt` approves (one per line, `#` comments), or null when the package has no list yet. */
+export function approvedApi(pkg: string): Set<string> | null {
+  const file = join(ROOT, 'packages', pkg, 'public-api.txt');
+  if (!existsSync(file)) return null;
+  const names = readFileSync(file, 'utf8')
+    .split('\n')
+    .map((line) => line.replace(/#.*$/, '').trim())
+    .filter((line) => line !== '');
+  return new Set(names);
+}
+
+/** The floor of a package's public API: the guide's names and the repository's root imports. */
+export function requiredApi(pkg: string): Set<string> {
   return new Set([...(rootImports().get(pkg) ?? []), ...(guideNames().get(pkg) ?? [])]);
 }
