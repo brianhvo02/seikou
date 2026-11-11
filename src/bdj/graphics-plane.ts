@@ -233,8 +233,9 @@ export function updateGraphic(
 }
 
 /**
- * The engine worker's side: the compositor copies what was published into its own image at the next presented frame,
- * and the player reads the flush count, version and visibility to tell a menu from an empty plane.
+ * The reading side. In the engine worker the compositor copies what was published into its own image at the next
+ * presented frame, and the player reads the flush count, version and visibility to tell a menu from an empty plane.
+ * The BD-J worker keeps one too, only to read visible() for its start-up watch (bdj-worker.ts).
  */
 export class GraphicsPlaneReader extends PlaneViews implements GraphicsPlaneReaderLike {
   private copied = -1;

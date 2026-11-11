@@ -75,9 +75,9 @@ export interface BdjFontSources {
 }
 
 /**
- * Why BdjRuntime.run returned: no thread can make progress and no timer is due (`idle`), the wanted trace entry or
- * end was reached (`until`), the signal aborted it (`aborted`), or every live thread is blocked with nothing to wake
- * it but an event (`deadlock`, which is how a menu waiting for keys looks).
+ * Why BdjRuntime.run returned: no thread can make progress and no timer is pending, or the runtime has halted
+ * (`idle`); the wanted trace entry or end was reached (`until`); the signal aborted it (`aborted`); or every live
+ * thread is blocked with nothing to wake it but an event (`deadlock`, which is how a menu waiting for keys looks).
  */
 export type RunOutcome = 'idle' | 'until' | 'aborted' | 'deadlock';
 
