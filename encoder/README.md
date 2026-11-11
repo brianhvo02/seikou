@@ -251,7 +251,7 @@ Each area of `encoder/src/` has a README with its concepts, its API and where to
 
 `src/cli.ts` is the command line, `src/encode.ts` the encode itself (`encodeEpisodes`, `encodePlan`), and `src/tools.ts` finds the external tools. The test discs are described in [`fixtures/README.md`](fixtures/README.md).
 
-Every export has a doc comment, and code that implements a format cites the specification section it follows. `npx vitest run --project encoder encoder/tests/docs.test.ts` checks the first rule and that no comment points at planning notes.
+Every export has a doc comment, and code that implements a format cites the specification section it follows. `npx vitest run tests/documentation.test.ts` checks the first rule, that no comment points at planning notes and that none uses the old name; `npx tsx scripts/doc-check.ts check` lists the findings across the repository.
 
 ## Documentation
 

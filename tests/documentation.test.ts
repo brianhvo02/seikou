@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: LGPL-3.0-or-later
+import { execFileSync } from 'node:child_process';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
+import { oldNameComments, privateHistoryComments, undocumentedExports } from '../scripts/doc-check';
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+/** Glob patterns, relative to the repository root, of the source areas that meet the documentation standard. Each documentation task adds its own. */
+export const ENROLLED: readonly string[] = ['encoder/src/**', 'encoder/web/src/**'];
+
+/**
+ * The tracked `.ts` and `.tsx` files that match the globs, without tests, declaration files and
+ * `src/bdj-classlib/`, sorted, as absolute paths.
+ */
+export function scopeFiles(globs: readonly string[]): string[] {
+  const out = execFileSync('git', ['ls-files', '--', ...globs.map((g) => `:(glob)${g}`)], { cwd: root, encoding: 'utf8' });
+  return out
+    .split('\n')
+    .filter((f) => /\.tsx?$/.test(f) && !/\.(test\.tsx?|d\.ts)$/.test(f) && !f.startsWith('src/bdj-classlib/'))
+    .sort()
+    .map((f) => resolve(root, f));
+}
+
+function strip(file: string): string {
+  return file.slice(root.length + 1);
+}
+
+describe('documentation standard', () => {
+  const files = scopeFiles(ENROLLED);
+  it('finds the enrolled files', () => expect(files.length).toBeGreaterThan(10));
+  it('every export has a doc comment', () =>
+    expect(undocumentedExports(files).map((u) => `${strip(u.file)}:${u.line} ${u.name}`)).toEqual([]));
+  it('no comment points at private planning history', () =>
+    expect(privateHistoryComments(files).map((c) => `${strip(c.file)}:${c.line} ${c.text}`)).toEqual([]));
+  it('no comment uses the old name', () =>
+    expect(oldNameComments(files).map((c) => `${strip(c.file)}:${c.line} ${c.text}`)).toEqual([]));
+});
