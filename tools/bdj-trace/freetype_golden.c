@@ -8,6 +8,7 @@
  * Usage: freetype_golden <font file>
  *
  * Copyright (C) 2026  Seikou contributors
+ * Original code, kept LGPL-2.1-or-later because it repeats src/wasm/freetype/shim.c's calls for comparison.
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 

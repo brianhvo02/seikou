@@ -2,7 +2,9 @@
 # Seikou's own code is LGPL-3.0-or-later. A source file keeps LGPL-2.1-or-later only when it ports or derives from an
 # upstream released under that licence, and its header says so. src/bdj-classlib/ (GPLv2 with the Classpath Exception)
 # is not checked. This fails when:
-# - a file carries LGPL-2.1 with no upstream named in its leading comment block (within its first 15 lines);
+# - a file carries LGPL-2.1 but its leading comment block (within its first 15 lines) has no porting line ("Ported
+#   from", "Derived from", "Port of", "Based on", "Adapted from"), no upstream's copyright line, and no stated reason
+#   ("LGPL-2.1-or-later because"); naming an upstream in running text is not enough;
 # - a file a NOTICE lists as derived from libbluray, libudfread, FFmpeg or libass is missing or does not carry
 #   LGPL-2.1-or-later in its header (the NOTICE lists are the one record of derived files; the check reads them);
 # - a package holding LGPL-2.1 files does not ship the LGPL-2.1 text (LICENSES/LGPL-2.1.txt, listed in "files");
@@ -10,9 +12,9 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-# An upstream project or its authors, a porting line at the start of a comment line, or a copyright line for anyone but
-# the project itself. Word boundaries keep "transport of" or "based on the spec" in running text from counting.
-upstream='\b(libbluray|libudfread|ffmpeg|libass|vlc|freetype|anime4k)\b|^[[:space:]]*(\*|//)?[[:space:]]*(ported from|derived from|port of|based on|adapted from)\b'
+# A porting line: one that says so at the start of a comment line. A file that only mentions libbluray or libass in its
+# explanation is not ported from it. Original code that stays LGPL-2.1 says why ("LGPL-2.1-or-later because").
+upstream='^[[:space:]]*(\*|//)?[[:space:]]*(ported( to typescript)? from|derived from|port of|based on|adapted from)\b|lgpl-2\.1-or-later because'
 own_holder='seikou (authors|contributors)'
 lgpl21='SPDX-License-Identifier: LGPL-2\.1'
 
@@ -36,7 +38,7 @@ while IFS= read -r file; do
   grep -q "$lgpl21" <<<"$header" || continue
   grep -qiE "$upstream" <<<"$header" && continue
   grep -i 'copyright' <<<"$header" | grep -qviE "$own_holder" && continue
-  problem "$file is LGPL-2.1 but names no upstream; Seikou's own code is LGPL-3.0-or-later"
+  problem "$file is LGPL-2.1 but has no porting line, upstream copyright or stated reason; Seikou's own code is LGPL-3.0-or-later"
 done < <(git ls-files -- '*.ts' '*.tsx' '*.c' ':!src/bdj-classlib/**')
 
 # Derived files, as each NOTICE lists them: under a libbluray, libudfread, FFmpeg or libass heading, the lines after

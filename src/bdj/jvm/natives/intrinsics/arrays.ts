@@ -4,7 +4,7 @@
  *
  * Copyright (C) 2026 Seikou contributors
  *
- * SPDX-License-Identifier: LGPL-2.1-or-later
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 import type { JArray } from '../../values';

@@ -4,7 +4,7 @@
  *
  * Original implementation for Seikou, 2026; contains no libass, libbluray or FFmpeg code.
  *
- * SPDX-License-Identifier: LGPL-2.1-or-later
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 import type { AssRendererLimits, Rect, TextRendererLike, TextRenderOptions } from './host-types';

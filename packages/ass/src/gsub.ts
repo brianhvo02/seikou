@@ -5,7 +5,7 @@
  * Original implementation for Seikou, 2026, from the OpenType specification; contains no libass, HarfBuzz,
  * libbluray or FFmpeg code.
  *
- * SPDX-License-Identifier: LGPL-2.1-or-later
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 interface Ligature { readonly glyph: number; readonly components: readonly number[] }

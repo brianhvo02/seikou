@@ -2,6 +2,8 @@
  * Seikou audio decoder shim over FFmpeg libavcodec (eac3, dca).
  * Copyright (c) 2026 Seikou contributors
  *
+ * Original code, kept LGPL-2.1-or-later because it is compiled into audio.wasm with FFmpeg, which is LGPL-2.1-or-later,
+ * so the module carries one licence.
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 

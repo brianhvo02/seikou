@@ -10,6 +10,7 @@
  *   getFontFamilyAndStyleN  family_name, style_name
  *
  * Copyright (C) 2026  Seikou contributors
+ * Original code, kept LGPL-2.1-or-later because it is compiled into freetype.wasm and makes libbluray's (LGPL-2.1) calls.
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 

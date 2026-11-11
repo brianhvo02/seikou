@@ -2,7 +2,7 @@
  * Original implementation, modelled on the bitstream reader in libbluray (src/util/bits.c).
  * No libbluray code is copied.
  *
- * SPDX-License-Identifier: LGPL-2.1-or-later
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 /** Bytes that do not parse: a bad signature or version, a truncated section or parameter set, or a read outside the buffer. */

@@ -3,7 +3,7 @@
  * reads it (src/libbluray/bdnav/clpi_parse.c `_clpi_parse` and its `_parse_*` functions, extdata_parse.c) and how
  * packages/bdmv/src/clpi-parser.ts ports that; sections this rewrite doesn't touch are copied byte for byte.
  *
- * SPDX-License-Identifier: LGPL-2.1-or-later
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 import { parseClpi } from '@seikou/bdmv/clpi-parser';

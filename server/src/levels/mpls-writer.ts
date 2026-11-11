@@ -4,7 +4,7 @@
  * and how packages/bdmv/src/mpls-parser.ts ports that; everything but the STN tables is copied
  * byte for byte.
  *
- * SPDX-License-Identifier: LGPL-2.1-or-later
+ * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
 import { parseMpls, type PlayItem } from '@seikou/bdmv/mpls-parser';
