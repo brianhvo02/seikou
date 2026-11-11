@@ -13,10 +13,12 @@ export class SubtitleIndex {
   private fansubFiles = 0;
   private poolBytes = 0;
 
+  /** The entry with this id, or null. */
   get(id: string): StoredSubtitle | null {
     return this.byId.get(id)?.s ?? null;
   }
 
+  /** Every entry, in insertion order. */
   values(): StoredSubtitle[] {
     return [...this.byId.values()].map((e) => e.s);
   }
@@ -30,6 +32,7 @@ export class SubtitleIndex {
     this.account(s, size, 1);
   }
 
+  /** Takes the entry out and returns it, or null when there is none. */
   remove(id: string): StoredSubtitle | null {
     const prev = this.byId.get(id);
     if (!prev) return null;

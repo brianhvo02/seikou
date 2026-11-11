@@ -1,15 +1,22 @@
 import { advertisable, neverDockerOrTailscale } from './rtc/public-address';
 
+/** One folder of discs the server scans (`LIBRARY_ROOTS`). */
 export interface LibraryRoot {
+  /** The root's name as devices see it. */
   name: string;
+  /** The folder on the server's filesystem, mounted read-only. */
   dir: string;
   /** Roots sharing a group appear as one top-level folder named after it. */
   group?: string;
 }
 
+/** The server's settings, read from the environment by `loadConfig`. */
 export interface Config {
+  /** The disc roots (`LIBRARY_ROOTS`). */
   roots: LibraryRoot[];
+  /** `DATA_DIR`: where the server keeps its own files (people, saved data, places, subtitles, caches). */
   dataDir: string;
+  /** `PORT`: the TCP port the HTTP server listens on. */
   port: number;
   /** Local time of the nightly rescan. */
   nightlyScanAt: { hour: number; minute: number };
@@ -35,12 +42,13 @@ export interface Config {
   encodesDir: string | null;
   /** The WebRTC route, served while `rendezvousUrl` is set. */
   rtc: RtcConfig;
-  /** The quality levels' encoder (spec §6 of the lower-quality spec). */
+  /** The quality levels' encoder. */
   levels: LevelsConfig;
   /** Fansubs from SeaDex and Anime Tosho (spec 2026-10-23-fansubs-design). */
   fansubs: FansubsConfig;
 }
 
+/** Where the fansub finder reads and how much it may keep (spec 2026-10-23-fansubs-design). */
 export interface FansubsConfig {
   /** `SEADEX_URL`: the SeaDex site, `https://seadex.moe` by default. */
   seadexUrl: string;
@@ -58,6 +66,7 @@ export interface FansubsConfig {
   picksBytes: number;
 }
 
+/** The quality levels' encoder settings. */
 export interface LevelsConfig {
   /** `LEVELS_BACKEND`: `qsv` (Intel Quick Sync, the default), `x264` (software, for dev and CI) or `off` (Original only). */
   backend: 'qsv' | 'x264' | 'off';
@@ -69,6 +78,7 @@ export interface LevelsConfig {
   ffprobePath: string;
 }
 
+/** The WebRTC route's settings. */
 export interface RtcConfig {
   /** `RTC_PORT`: the one UDP port ICE uses, 47998 by default. */
   port: number;

@@ -50,10 +50,16 @@ const blank = (titleId: string): FansubTitleState => ({ titleId, lastRunAt: null
 const interactive = { urgent: true } as const;
 
 /**
- * `/api/fansubs/…`, behind `requireToken`. The owner's routes (a title's run and state, undelete, realign, original
- * timing, the languages setting) answer 403 to anyone else; the viewer search (`search`, `releases/<id>`, `picks`) is
- * open to every paired person whatever `TITLE_LIBRARY` says, since a pick is their own viewing (spec §9); behind a closed
- * gate a guest's search just gets no SeaDex ranks and no file matched to the playing episode.
+ * `/api/fansubs/…`, behind `requireToken` (401 `unauthorized` without a device). The owner's routes answer 403 `forbidden`
+ * to anyone else: `GET` and `PUT languages {languages}` (400 `bad-request`), `GET titles/<id>` (the title's state),
+ * `POST titles/<id>/run` (202, the title runs next) and `POST titles/<id>/undelete` (204), `POST subtitles/<id>/realign`
+ * (200 the subtitle, or 503 `busy` with `Retry-After: 60` when the line-up outlasts the wait and carries on) and
+ * `POST subtitles/<id>/original`. The viewer routes are open to every paired person whatever `TITLE_LIBRARY` says, since a
+ * pick is their own viewing (spec 2026-10-23-fansubs-design): `GET search?q&titleId`, `GET releases/<id>?discKey&playlistId`,
+ * `POST picks {fileId, track, discKey, playlistId}` and `GET picks/<id>/file` and `picks/<id>/fonts/<name>`. Behind a closed
+ * gate a guest's search just gets no SeaDex ranks and no file matched to the playing episode. Another method on a known
+ * route is 405, an unknown title, release, pick or file 404 (`gone` when Anime Tosho no longer has it), a pick past the hourly
+ * limit 429 `too-many`, an archive too large 413 `too-large`, and a source that cannot be reached 503 `unavailable`.
  */
 export function fansubRoutes(auth: Auth, opts: FansubRouteOptions, titles?: TitleLibrary): Handler {
   const { service, state, seadex, tosho, picks, lookup } = opts;

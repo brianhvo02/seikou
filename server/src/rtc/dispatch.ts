@@ -9,13 +9,16 @@ import type { Handler, Response } from '../http';
 /** A channel that has not started a session by then is closed. */
 export const SESSION_DEADLINE_MS = 30_000;
 
-/** The only requests a channel without a session may make (the plan's anti-goal). */
+/** The only requests a channel without a session may make (pairing, the session handshake and health). */
 const OPEN_ROUTES: ReadonlySet<string> = new Set(['POST /api/pair/redeem', 'POST /api/session/challenge', 'POST /api/session', 'GET /api/health']);
 
+/** What `serveChannel` needs besides the channel and the handlers. */
 export interface ChannelOptions {
+  /** Authenticates sessions and tells when a device is revoked. */
   auth: Auth;
   /** The peer's address, as `req.socket.remoteAddress` (the pairing routes count failures by it). */
   remoteAddress: string;
+  /** The clock in milliseconds since the epoch. */
   now: () => number;
   /** Called with the device each time a session starts on this channel. */
   onSession?: (deviceId: string) => void;

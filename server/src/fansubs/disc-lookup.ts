@@ -3,11 +3,13 @@ import { parseDiscKey } from '@seikou/nas/disc-key';
 import type { Library } from '../library';
 import type { DiscEvidence } from '../titles/evidence';
 
+/** What the fansub code asks of the library: a disc's key, the discs a key names and a playlist's length. */
 export interface FansubDiscs {
   /** The key a disc's links carry (`f.<fingerprint>`, else `d.<disc id>`); null for a disc the library doesn't list. */
   discKey(discId: string): string | null;
   /** The listed discs a key stands for: every copy with that fingerprint. */
   discIds(discKey: string): string[];
+  /** The length of a playlist of the disc in milliseconds, or null when the disc or playlist is unknown. */
   durationMs(discId: string, playlistId: string): number | null;
 }
 

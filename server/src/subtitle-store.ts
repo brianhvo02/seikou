@@ -6,9 +6,13 @@ import type { FansubSource, StoredSubtitle } from '@seikou/nas/nas-api';
 import { isCode, lockFile, replaceAtomically, syncDir, writeSynced } from '@seikou/titles/atomic-json';
 import { SubtitleIndex } from './subtitle-index';
 
+/** The largest subtitle file an upload may hold: 5 MB. */
 export const SUBTITLE_LIMIT_BYTES = 5 * 1024 * 1024;
+/** The most one upload's fonts may add up to: 50 MB. */
 export const FONTS_LIMIT_BYTES = 50 * 1024 * 1024;
+/** The store's budget for owner uploads (files and fonts): 2 GB. */
 export const TOTAL_LIMIT_BYTES = 2 * 1024 * 1024 * 1024;
+/** The fansub subtitles' default budget, 20 GB, counted apart from the owner uploads. */
 export const FANSUB_LIMIT_BYTES = 20 * 1024 ** 3;
 const STALE_UPLOAD_MS = 60 * 60_000;
 const ID_RE = /^[0-9a-f]{16}$/;
@@ -48,6 +52,7 @@ export class BadNameError extends Error {
   }
 }
 
+/** What a client sets on a subtitle (name, language, default offset, attachment, source): a stored subtitle without the fields the store fills in. */
 export type SubtitleMeta = Omit<StoredSubtitle, 'id' | 'fileName' | 'fileSize' | 'fonts' | 'uploadedAt' | 'attached'>;
 
 function checkName(name: string, ext: RegExp): void {
@@ -158,6 +163,7 @@ export class SubtitleStore {
     }
   }
 
+  /** Makes an upload with no file yet, under a new random id; `list` leaves it out until a file arrives. */
   create(meta: SubtitleMeta): StoredSubtitle {
     const id = randomBytes(8).toString('hex');
     const stored: StoredSubtitle = { ...meta, id, fileName: '', fileSize: 0, fonts: [], uploadedAt: this.now() };
@@ -168,6 +174,7 @@ export class SubtitleStore {
     return stored;
   }
 
+  /** The upload with this id, or null (also for a malformed id). */
   get(id: string): StoredSubtitle | null {
     return ID_RE.test(id) ? this.index.get(id) : null;
   }
@@ -182,6 +189,7 @@ export class SubtitleStore {
     return out;
   }
 
+  /** Changes the named fields and saves; null when the upload does not exist. */
   update(id: string, patch: Partial<Pick<StoredSubtitle, 'name' | 'language' | 'offsetMs' | 'attachment'>>): StoredSubtitle | null {
     return this.edit(id, (cur) => {
       const next = { ...cur, ...patch };
@@ -189,6 +197,7 @@ export class SubtitleStore {
     });
   }
 
+  /** Removes the upload with its file and fonts; false when it did not exist. */
   delete(id: string): boolean {
     const dir = this.dir(id);
     if (dir === null || !existsSync(dir)) {
@@ -303,16 +312,19 @@ export class SubtitleStore {
     });
   }
 
+  /** The path of a fansub's unaligned original file, or null when there is none. */
   originalPath(id: string): string | null {
     const s = this.get(id);
     return s?.source && s.fileSize > 0 ? join(this.root(), id, 'original', s.fileName) : null;
   }
 
+  /** The path of the upload's subtitle file, or null while it has none. */
   filePath(id: string): string | null {
     const s = this.get(id);
     return s && s.fileSize > 0 ? join(this.root(), id, 'sub', s.fileName) : null;
   }
 
+  /** The path of the font `name` of the upload (in the shared pool for a fansub's), or null when it has no such font. */
   fontPath(id: string, name: string): string | null {
     const s = this.get(id);
     const font = s?.fonts.find((f) => f.name === name);

@@ -13,6 +13,7 @@ const MAX_DEPTH = 6;
 export const SETTLE_MS = 3_600_000;
 const SKIPPED = new Set(['bk', 'lost+found']);
 
+/** Test hooks and the scan's pace. */
 export interface LibraryOptions {
   /** Injected for tests. */
   opendir?: (path: string) => Promise<Dir>;
@@ -43,6 +44,11 @@ export function nextNightly(now: Date, at: { hour: number; minute: number } = { 
   return next;
 }
 
+/**
+ * The disc library: scans the configured roots (folders with BDMV, and `.iso` files read through the UDF reader), keeps the
+ * discs and their evidence in a cache file, and answers listings from the last completed scan while the next one runs.
+ * A disc still changing (see `SETTLE_MS`) is left out, and a root that is missing or empty keeps its earlier discs.
+ */
 export class Library {
   private tree = buildTree([]);
   private byId = new Map<string, DiscEntry>();
@@ -91,10 +97,12 @@ export class Library {
     }
   }
 
+  /** Whether a scan is running now. */
   get scanning(): boolean {
     return this.running !== null;
   }
 
+  /** The folders and discs directly under `path` (empty for the top level; else a root's or group's name, then subfolders); null when there is no such folder. */
   list(path: string): { folders: FolderEntry[]; discs: DiscEntry[] } | null {
     const key = path.replace(/\/+$/, '');
     // A group's folders are listed under the group's name, and merge those of its roots, plus a real top-level folder
@@ -146,6 +154,7 @@ export class Library {
     this.scannedListeners.push(listener);
   }
 
+  /** The listed disc with this id, or null. */
   disc(id: string): DiscEntry | null {
     return this.byId.get(id) ?? null;
   }

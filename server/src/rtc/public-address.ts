@@ -48,7 +48,10 @@ function parseStunUrl(url: string): [string, number] | null {
   return port > 0 && port <= 65535 ? [m[1]!, port] : null;
 }
 
-/** The IPv4 address of a Binding success response to `txid`, or null. */
+/**
+ * The IPv4 address of a Binding success response to `txid`, or null: the XOR-MAPPED-ADDRESS (RFC 8489 §14.2, the address
+ * XORed with the magic cookie), else the plain MAPPED-ADDRESS (§14.1).
+ */
 function mappedAddress(msg: Buffer, txid: Buffer): string | null {
   if (msg.length < 20 || msg.readUInt16BE(0) !== BINDING_SUCCESS || msg.readUInt32BE(4) !== MAGIC || !msg.subarray(8, 20).equals(txid)) return null;
   const end = Math.min(msg.length, 20 + msg.readUInt16BE(2));
@@ -72,7 +75,8 @@ function mappedAddress(msg: Buffer, txid: Buffer): string | null {
 
 /**
  * This host's public IPv4 address as the STUN server `stun` (`stun:host:port`) sees it, or null when the server
- * doesn't answer within `timeoutMs` or the URL is not a STUN URL.
+ * doesn't answer within `timeoutMs` or the URL is not a STUN URL. Sends a Binding request (RFC 8489 §6.1 and §2) over a
+ * fresh UDP socket, resending on a schedule; this is the server-reflexive address of RFC 8445 §5.1.1.2.
  */
 export function discoverPublicIpv4(stun: string, timeoutMs: number): Promise<string | null> {
   const server = parseStunUrl(stun);
@@ -116,6 +120,7 @@ export function discoverPublicIpv4(stun: string, timeoutMs: number): Promise<str
   });
 }
 
+/** What `AddressAdvertiser` needs: the STUN server to ask and the addresses to add or use instead. */
 export interface AdvertiserOptions {
   /** `stun:host:port`. */
   stun: string;
@@ -123,6 +128,7 @@ export interface AdvertiserOptions {
   lan?: string;
   /** `RTC_ADVERTISE`: advertised as is, and nothing is discovered. */
   fixed?: readonly string[];
+  /** How long one STUN lookup waits for an answer, in milliseconds; 5000 by default. */
   timeoutMs?: number;
   /** Between refreshes; an hour by default. */
   intervalMs?: number;
@@ -150,12 +156,14 @@ export class AddressAdvertiser {
     (this.opts.log ?? console.warn)(message);
   }
 
+  /** The addresses to advertise now: the fixed list, or the public address then the LAN one, each only if `advertisable`. */
   advertise(): string[] {
     if (this.opts.fixed) return this.opts.fixed.filter(neverDockerOrTailscale);
     const list = [this.publicIp, this.opts.lan].filter((ip): ip is string => ip != null && advertisable(ip));
     return [...new Set(list)];
   }
 
+  /** Asks the STUN server for the public address once; a missing or unusable answer keeps the last one. */
   async refresh(): Promise<void> {
     if (this.opts.fixed) return;
     const ip = await discoverPublicIpv4(this.opts.stun, this.opts.timeoutMs ?? 5000);
@@ -179,6 +187,7 @@ export class AddressAdvertiser {
     this.schedule();
   }
 
+  /** Stops refreshing. */
   stop(): void {
     this.running = false;
     clearTimeout(this.timer);

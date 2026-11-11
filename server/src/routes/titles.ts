@@ -14,7 +14,7 @@ export interface TitleLibrary {
   readonly owner: OwnerStore;
 }
 
-/** The catalogue's art ids (`artIdOf`); anything else is unknown (ruling T9d). */
+/** The catalogue's art ids (`artIdOf`); anything else is unknown. */
 const ART_ID = /^[0-9a-f]{32}$/;
 const ART_CACHE = 'private, max-age=2592000, immutable';
 
@@ -26,6 +26,7 @@ export function requestDevice(auth: Auth, authorization: string | undefined, url
   return token === null ? null : auth.verify(token);
 }
 
+/** `decodeURIComponent` of one path segment; throws `HttpError(400, 'bad request')` on a malformed escape. */
 export function decodeSegment(segment: string): string {
   try {
     return decodeURIComponent(segment);
@@ -36,8 +37,8 @@ export function decodeSegment(segment: string): string {
 
 /**
  * `GET /api/me`, `GET /api/titles`, `GET /api/titles/<id>` and `GET /api/art/<artId>?size=small|large`, behind the
- * token guard. While the gate is `owners`, a guest gets 404 from every title route, so the library's existence isn't
- * revealed (ruling T9c); `me` answers every paired device, with the relay's usage while the relay is on (else null)
+ * token guard (401 `unauthorized` otherwise; 404 `not found` for an unknown title, art id, or a bad `size`). While the gate is `owners`, a guest gets 404 from every title route, so the library's existence isn't
+ * revealed; `me` answers every paired device, with the relay's usage while the relay is on (else null)
  * and the NAS's rendezvous id (`nasId`, null without a rendezvous), so a pairing made before the WebRTC route learns it,
  * and whether the NAS offers quality levels (`levels`: false when `LEVELS_BACKEND` is off or the GPU self-test failed).
  */
@@ -71,7 +72,7 @@ export function titleRoutes(auth: Auth, library: TitleLibrary, relay?: RelayStat
     const artId = segments[0]!;
     const size = url.searchParams.get('size') ?? 'small';
     if (!ART_ID.test(artId) || (size !== 'small' && size !== 'large')) return notFound();
-    // lookup results' posters only for owners, who alone can look up (ruling T9e)
+    // lookup results' posters only for owners, who alone can look up
     const source = catalogue.art(artId) ?? service.encodeArtUrls(artId) ?? (device.owner ? service.lookupArtUrls(artId) : null);
     if (!source) return notFound();
     // a folder cover's file comes only from the catalogue, which found it itself; never from the request

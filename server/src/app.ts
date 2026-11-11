@@ -27,10 +27,13 @@ import type { RelayState } from './rtc/relay';
 import { titleRoutes } from './routes/titles';
 import type { TitleLibrary } from './routes/titles';
 
+/** What `appHandlers` needs to build the server's routes; each optional piece left out makes its routes answer 404 (or, for the encodes, say so). */
 export interface AppOptions {
+  /** People, devices and pairing codes; every route but health and pairing needs one of its tokens. */
   auth: Auth;
+  /** The scanned disc roots, served by the library and disc routes. */
   library: Library;
-  /** Each person's BD-J saved data (spec §5). */
+  /** Each person's BD-J saved data. */
   bdjStore: BdjStore;
   /** Absent in tests that never touch places. */
   playbackStore?: PlaybackStore;
@@ -38,12 +41,17 @@ export interface AppOptions {
   playerSettingsStore?: PlayerSettingsStore;
   /** Owner-uploaded subtitles; without it, their routes answer 404. */
   subtitleStore?: SubtitleStore;
+  /** This server's API as devices reach it (`PUBLIC_BASE`), registered with each pairing code. */
   publicBase: string;
   /** See `AdminOptions`. */
   appUrl?: string;
+  /** The rendezvous Worker's base URL; pairing links name it when set. */
   rendezvousUrl?: string;
+  /** Registers and unregisters pairing codes with the rendezvous Worker; absent when there is none. */
   registrar?: CodeRegistrar;
+  /** How long a request waits for a code's registration before answering without it (see `AdminOptions`). */
   registrarDeadlineMs?: number;
+  /** The clock in milliseconds since the epoch; tests inject one. Default `Date.now`. */
   now?: () => number;
   /** Whether a peer is the reverse proxy, whose `X-Forwarded-For` names the client (see `trustedProxy`). Default: no peer. */
   trustProxy?: (address: string) => boolean;

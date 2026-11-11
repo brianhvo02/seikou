@@ -3,7 +3,7 @@ import { PAIRING_ALPHABET, PAIRING_CODE_LENGTH, formatCode, normalizeCode } from
 
 export { PAIRING_ALPHABET, formatCode, normalizeCode };
 
-/** Where a code is registered so a device can find this NAS from the code alone (Task 5's rendezvous client). */
+/** Where a code is registered so a device can find this NAS from the code alone (the rendezvous client). */
 export interface CodeRegistrar {
   registerCode(codeHash: string, routes: { https: string }, expiresAt: number): Promise<void>;
   /** Takes a code the NAS no longer needs (spent or withdrawn) off the service, freeing its place under the per-NAS cap. */

@@ -17,7 +17,9 @@ import { parseName } from '@seikou/titles/parse-name';
 import { SourceUnavailable } from '@seikou/titles/sources';
 import type { TitleLibrary } from './titles';
 
+/** What `adminRoutes` needs; each optional piece left out makes its routes answer 404. */
 export interface AdminOptions {
+  /** The disc library: rescans, drives, and the evidence discs are filed from. */
   library: Library;
   /** Each person's BD-J saved data: its size is listed, and it is cleared with the person. */
   bdjStore: BdjStore;
@@ -37,6 +39,7 @@ export interface AdminOptions {
   relay?: RelayState;
   /** The quality levels; `admin/encoding` answers 404 without them. */
   levels?: Pick<LevelService, 'encodingNow'>;
+  /** The clock in milliseconds since the epoch (the lookup limiter's); default `Date.now`. */
   now?: () => number;
   /** How long an owner's lookup may take before it answers 503. Default 10 s. */
   lookupTimeoutMs?: number;
@@ -155,7 +158,21 @@ function encodingRoute(auth: Auth, levels: Pick<LevelService, 'encodingNow'>, li
   return json(200, { encoding }, { 'Cache-Control': 'no-store' });
 }
 
-/** `/api/admin/*`, for owner devices only; the token must come as `Authorization: Bearer`. */
+/**
+ * `/api/admin/*`, for owner devices only; the token must come as `Authorization: Bearer` (a `t=` query is not accepted
+ * here). 401 `unauthorized` without a valid token, 403 `forbidden` for a device that is not an owner's. Routes, with
+ * their errors:
+ * - `GET people`, `POST people {name, owner?}` (201), `PATCH people/<id> {name?, owner?}`, `DELETE people/<id>` (204,
+ *   clears the person's saved data and unregisters their codes), `DELETE people/<id>/saved-data` (204): 400 for a bad
+ *   body or name, 404 for an unknown person, 409 `last-owner` when the change would leave no owner device.
+ * - `GET devices`, `PATCH devices/<id> {personId}` (move), `DELETE devices/<id>` (revoke): the same errors.
+ * - `GET codes`, `POST codes {personId | newPerson: {name, owner}, invite?}` (answers the code, link and whether the
+ *   rendezvous registered it), `DELETE codes/<id>`.
+ * - `GET drives`, `POST drives/<name>/forget` (404 `unknown-drive`, 409 `drive-present` or `scanning`), `POST rescan` (202).
+ * - With the title library: `GET lookup`, `GET anilist-place/<id>`, the disc choices, own titles, names, music, the
+ *   Unsorted and Hidden lists, `PUT settings/title-library` and `GET metadata/status` (`titleAdminRoute`, `choiceRoute`).
+ * - `GET` and `PUT relay` with the relay, `GET encoding` with the quality levels.
+ */
 export function adminRoutes(auth: Auth, opts: AdminOptions): Handler {
   const lookups = new LookupLimiter(opts.now ?? Date.now);
   return async (req, url) => {
@@ -310,7 +327,7 @@ const LOOKUP_TIMEOUT_MS = 10_000;
 const LOOKUPS_PER_MINUTE = 20;
 const MINUTE_MS = 60_000;
 
-/** Per device: one lookup in flight and 20 started in any minute (ruling T9h). */
+/** Per device: one lookup in flight and 20 started in any minute. */
 class LookupLimiter {
   private readonly busy = new Set<string>();
   private readonly starts = new Map<string, number[]>();
@@ -336,12 +353,13 @@ class LookupLimiter {
     return null;
   }
 
+  /** Marks the device's lookup as finished, so it may start another. */
   done(device: string): void {
     this.busy.delete(device);
   }
 }
 
-/** `GET admin/lookup?q&source`: paced ahead of matching, limited per device, given up after `timeoutMs` (ruling T9h). */
+/** `GET admin/lookup?q&source`: paced ahead of matching, limited per device, given up after `timeoutMs`. 400 `bad query` unless `q` is 1 to 200 characters and `source` is `anilist`, `tmdb` or `own`; 429 `lookup-busy` or `too-many-lookups` (with `Retry-After`), 503 `source-unreachable`. */
 async function lookupRoute(url: URL, device: string, titles: TitleLibrary, limiter: LookupLimiter, timeoutMs: number): Promise<Response> {
   const q = url.searchParams.get('q')?.trim() ?? '';
   const source = url.searchParams.get('source');
@@ -401,6 +419,7 @@ function name(v: unknown): string | undefined {
   return t.length >= 1 && t.length <= MAX_NAME ? t : undefined;
 }
 
+/** An owner choice from a request body, or null unless it has exactly the fields of one of the four kinds. */
 function parseChoice(v: unknown): OwnerChoice | null {
   if (!isObject(v)) return null;
   switch (v.kind) {
@@ -425,7 +444,7 @@ function parseChoice(v: unknown): OwnerChoice | null {
   }
 }
 
-/** The disc or volume number a disc's own folder or titles carry, for "parsed order" (spec §8). */
+/** The disc or volume number a disc's own folder or titles carry, for "parsed order". */
 function parsedNumber(e: DiscEvidence): number | null {
   for (const text of [e.path.slice(e.path.lastIndexOf('/') + 1), ...e.discTitles.map((t) => t.name)]) {
     const p = parseName(text);
@@ -438,12 +457,12 @@ function parsedNumber(e: DiscEvidence): number | null {
 const naturalOrder = (a: string, b: string): number => a.localeCompare(b, undefined, { numeric: true });
 
 /**
- * After an owner change: the catalogue is built again at once (ruling T9a); a choice naming an entry that isn't loaded
+ * After an owner change: the catalogue is built again at once; a choice naming an entry that isn't loaded
  * (its disc stays Unsorted as `no-title`) also starts a run in the background to load it, and so does filing a disc as
  * Music, so its release is looked up and its folder cover found.
  */
 function rebuildAfter(titles: TitleLibrary, library: Library, discId?: string, choice?: OwnerChoice): void {
-  // copies follow at once (ruling T9g)
+  // copies of a disc follow its choice at once
   titles.owner.reattach(library.evidence().map((e) => ({ id: e.discId, fingerprint: e.fingerprint })));
   titles.service.rebuild();
   if (choice?.kind === 'music') {
@@ -456,12 +475,16 @@ function rebuildAfter(titles: TitleLibrary, library: Library, discId?: string, c
   }
 }
 
-/** `PUT` and `DELETE admin/discs/<id>/choice`. */
+/**
+ * `PUT admin/discs/<id>/choice {choice, applyToGroup?}` files a disc (204, or 200 `{skipped}` with `applyToGroup`; 400
+ * `bad choice`, `disc-required` or `unknown title`, 404 `unknown disc`) and `DELETE` clears its choice (204; 409
+ * `copy-follows-source` for a copy whose source disc has one). Null for another method.
+ */
 async function choiceRoute(method: string | undefined, discId: string, req: Parameters<Handler>[0], library: Library, titles: TitleLibrary): Promise<Response | null> {
   const { owner } = titles;
   if (method === 'DELETE') {
     const origin = owner.choiceOrigin(discId);
-    // a copy's choice follows its source, so clearing it would not last (ruling T9b); with no source left, it can go
+    // a copy's choice follows its source, so clearing it would not last; with no source left, it can go
     if (origin?.kind === 'copy' && origin.source !== null) return json(409, { error: 'copy-follows-source', source: origin.source });
     owner.clearChoice(discId);
     rebuildAfter(titles, library);
@@ -472,7 +495,7 @@ async function choiceRoute(method: string | undefined, discId: string, req: Para
   const choice = isObject(body) && hasKeys(body, ['choice'], ['applyToGroup']) ? parseChoice(body.choice) : null;
   const applyToGroup = isObject(body) ? (body.applyToGroup ?? false) : false;
   if (choice === null || typeof applyToGroup !== 'boolean') throw new HttpError(400, 'bad choice');
-  // the other discs are numbered from this one's number (ruling T11h, M12)
+  // the other discs are numbered from this one's number, so it needs one
   if (applyToGroup && choice.kind === 'title' && choice.disc === null) throw new HttpError(400, 'disc-required');
   const evidence = library.evidence();
   const disc = evidence.find((e) => e.discId === discId);
@@ -484,11 +507,11 @@ async function choiceRoute(method: string | undefined, discId: string, req: Para
   const skipped: { discId: string; reason: 'direct' | 'copy' | 'no-number' | 'conflict' }[] = [];
   if (applyToGroup) {
     // the group's discs in parsed order (number, then folder). A disc the owner chose for itself keeps its choice,
-    // while one filed with a group takes the new one (ruling T9f); a copy keeps following its source while there is
-    // one (ruling T9i). Under a title, the others are numbered by their own numbers, keeping their distance from this
-    // one's (I3): a missing volume leaves a gap. Only when no disc in the group has a number are they numbered by
+    // while one filed with a group takes the new one; a copy keeps following its source while there is one. Under a
+    // title, the others are numbered by their own numbers, keeping their distance from this one's: a missing volume
+    // leaves a gap. Only when no disc in the group has a number are they numbered by
     // place; when some have one, those without are left as they are ('no-number'). When this disc has no number of its
-    // own, the others keep theirs, and one that would take the number given here is left as it is ('conflict', N3).
+    // own, the others keep theirs, and one that would take the number given here is left as it is ('conflict').
     const group = groupKey(disc);
     const order = evidence
       .filter((e) => groupKey(e) === group)
@@ -538,7 +561,7 @@ function musicReleaseDiscs(titles: TitleLibrary, library: Library, id: string): 
   return out;
 }
 
-/** The owner's title routes (spec §9, §11), or null for another route. `id` is decoded. */
+/** The owner's title routes, or null for another route. `id` is decoded. `route` is `<METHOD> <collection>[/:id]`. */
 async function titleAdminRoute(route: string, id: string | undefined, req: Parameters<Handler>[0], url: URL, library: Library, titles: TitleLibrary): Promise<Response | null> {
   const { service, owner } = titles;
   switch (route) {
@@ -566,7 +589,7 @@ async function titleAdminRoute(route: string, id: string | undefined, req: Param
       if (!known) return json(404, { error: 'unknown id' });
       owner.setDisplayName(id!, value);
       // a music title's id comes from its folder; the name is also kept in each disc's music choice, which follows the
-      // disc when the folder moves (M8). A copy keeps following its source.
+      // disc when the folder moves. A copy keeps following its source.
       if (music) {
         for (const d of musicReleaseDiscs(titles, library, id!)) {
           const had = owner.snapshot().choices.get(d.discId);

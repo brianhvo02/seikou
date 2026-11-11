@@ -8,8 +8,10 @@ import { StunProtocol, UdpTransport } from 'werift';
  * Every peer connection's ICE on one UDP port. werift binds a socket per connection and refuses a port already
  * bound, so with ICE confined to one port (47998) only one connection could exist at a time. The mux owns the one
  * socket and hands each connection's ICE a virtual transport on it, routing datagrams as libdatachannel and pion do:
- * - a STUN request by its USERNAME (`<our ufrag>:<the device's ufrag>`), and only when its MESSAGE-INTEGRITY
- *   verifies with that connection's password; such a request is also what (re)assigns the sender's address;
+ * - a STUN request by its USERNAME (`<our ufrag>:<the device's ufrag>`, the form of an ICE connectivity check, RFC 8445
+ *   §7.2.2), and only when its MESSAGE-INTEGRITY verifies with that connection's password; such a request is also what
+ *   (re)assigns the sender's address, as a check from a new source address makes a peer-reflexive candidate (RFC 8445
+ *   §7.3.1.3);
  * - a STUN response by the transaction id the request went out with;
  * - anything else (DTLS, SCTP) by the remote address assigned to a transport. A datagram from an address no live
  *   transport holds is dropped.
@@ -44,17 +46,18 @@ function installMux(): void {
 
 const key = (ip: string, port: number): string => `${ip}:${port}`;
 
+/** Whether a datagram is a STUN message: the first two bits are zero and the magic cookie follows the type and length (RFC 8489 §5). */
 function isStun(data: Buffer): boolean {
   return data.length >= 20 && (data[0]! & 0xc0) === 0 && data.readUInt32BE(4) === STUN_MAGIC;
 }
 
-/** 0 request, 1 indication, 2 success response, 3 error response. */
+/** A STUN message's class, from the two class bits interleaved in its type (RFC 8489 §5): 0 request, 1 indication, 2 success response, 3 error response. */
 function stunClass(data: Buffer): number {
   const type = data.readUInt16BE(0);
   return ((type >> 7) & 0x2) | ((type >> 4) & 0x1);
 }
 
-/** The offset of the first attribute of `type`, or -1. */
+/** The offset of the first attribute of `type` (RFC 8489 §14: a 4-byte type and length, the value padded to a multiple of 4), or -1 when there is none or the attributes overrun the message. */
 function findAttribute(data: Buffer, type: number): number {
   const end = 20 + data.readUInt16BE(2);
   if (end > data.length) return -1;
@@ -67,7 +70,7 @@ function findAttribute(data: Buffer, type: number): number {
   return -1;
 }
 
-/** A STUN message's USERNAME, or null. */
+/** A STUN message's USERNAME attribute (RFC 8489 §14.3), or null. */
 function stunUsername(data: Buffer): string | null {
   const at = findAttribute(data, STUN_USERNAME);
   return at < 0 ? null : data.toString('utf8', at + 4, at + 4 + data.readUInt16BE(at + 2));
@@ -75,7 +78,8 @@ function stunUsername(data: Buffer): string | null {
 
 /**
  * Whether the message's MESSAGE-INTEGRITY is the HMAC-SHA1 under `password` (ICE's short-term credential) of the
- * message up to that attribute, with the header's length counting through it (RFC 5389 §15.4).
+ * message up to that attribute, with the header's length counting through it (RFC 8489 §14.5; the short-term
+ * credential's key is the password, §9.1.1).
  */
 export function stunIntegrityVerifies(data: Buffer, password: string): boolean {
   const at = findAttribute(data, STUN_MESSAGE_INTEGRITY);
@@ -86,7 +90,7 @@ export function stunIntegrityVerifies(data: Buffer, password: string): boolean {
   return timingSafeEqual(mac, data.subarray(at + 4, at + 24));
 }
 
-/** A werift transport whose datagrams go through the mux's socket. */
+/** A werift transport whose datagrams go through the mux's socket. Mimics the parts of werift's `UdpTransport` that ICE uses. */
 export class MuxTransport {
   readonly type = 'udp';
   closed = false;
@@ -105,6 +109,7 @@ export class MuxTransport {
     await this.mux.send(this, data, addr);
   };
 
+  /** The socket's address, as werift reads it from a transport: any IPv4 address and the mux's port. */
   get address(): { address: string; family: string; port: number } {
     return { address: '0.0.0.0', family: 'IPv4', port: this.mux.port };
   }
@@ -180,6 +185,10 @@ export class MuxOwner {
   }
 }
 
+/**
+ * The one UDP socket and its routing tables: owners by ICE USERNAME, transports by remote address, and outgoing STUN
+ * requests by transaction id. `UdpMux.open` binds it; `owner()` makes one peer connection's share.
+ */
 export class UdpMux {
   private readonly byUsername = new Map<string, MuxOwner>();
   private readonly byRemote = new Map<string, MuxTransport>();
@@ -217,10 +226,12 @@ export class UdpMux {
     return mux;
   }
 
+  /** A new owner for one peer connection. */
   owner(): MuxOwner {
     return new MuxOwner(this);
   }
 
+  /** Closes the socket; resolves even when it is already closed. */
   close(): Promise<void> {
     return new Promise((resolve) => {
       try {

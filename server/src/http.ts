@@ -3,15 +3,20 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Readable } from 'node:stream';
 import { PREFLIGHT_HEADERS, corsHeaders } from './cors';
 
+/** What a handler answers: a status, optional headers and an optional body (a stream is piped, a string or buffer is sent whole). */
 export interface Response {
+  /** The HTTP status code. */
   status: number;
+  /** Headers added to the answer (CORS headers are added by `responseHeaders`). */
   headers?: Record<string, string>;
+  /** The body; absent for an answer with none. */
   body?: Buffer | string | Readable;
 }
 
 /** Answers a request, or returns null to let the next handler try. */
 export type Handler = (req: IncomingMessage, url: URL) => Promise<Response | null>;
 
+/** A JSON answer: `value` serialised, with `Content-Type: application/json; charset=utf-8` and any extra `headers`. */
 export function json(status: number, value: unknown, headers: Record<string, string> = {}): Response {
   return { status, headers: { 'Content-Type': 'application/json; charset=utf-8', ...headers }, body: JSON.stringify(value) };
 }

@@ -16,6 +16,7 @@ export interface RTCIceServerLike {
   credential?: string;
 }
 
+/** The caps on offers and peers. */
 export interface PeerLimits {
   /** Offers one device socket (`sid`) may make; more are refused. */
   offersPerSid: number;
@@ -38,16 +39,21 @@ export class RtcRefused extends Error {
   }
 }
 
+/** What `RtcPeers` needs: the API handlers, authentication, the UDP port and the ICE addresses to advertise. */
 export interface RtcPeersOptions {
+  /** The API handlers each data channel is served with. */
   handlers: readonly Handler[];
+  /** Authenticates sessions on the channels. */
   auth: Auth;
   /** The one UDP port ICE uses (47998); 0 binds one the system picks, which the answers advertise (tests). */
   port: number;
-  /** The addresses the answer advertises as host candidates on `port`. */
+  /** The addresses the answer advertises as host candidates on `port` (RFC 8445 §5.1.1.1). */
   advertise: () => string[];
   /** The NAS's own ICE servers; only their STUN urls are used (`stunOnly`). */
   iceServers: () => Promise<RTCIceServerLike[]>;
+  /** The clock in milliseconds since the epoch. */
   now: () => number;
+  /** Overrides of the default caps (4 offers a socket, 16 peers, 30 s to open). */
   limits?: Partial<PeerLimits>;
   /** Bytes both ways on connections classed as relayed, since the last call (sampled every `sampleMs`). */
   onRelayedBytes?: (bytes: number) => void;
@@ -152,6 +158,7 @@ export class RelayTracker {
     for (const ip of ips) this.servers.add(ip.toLowerCase());
   }
 
+  /** `relay` when the selected pair's remote is a relay candidate or a known TURN server address, else `webrtc` (also when there is no pair yet). */
   route(pair: PairLike | undefined): RtcRoute {
     if (pair === undefined) return 'webrtc';
     const ip = pair.remoteAddr[0].toLowerCase();
@@ -190,7 +197,7 @@ export function answerWithCandidates(sdp: string, addresses: readonly string[], 
   return `${out.join('\r\n')}\r\n`;
 }
 
-/** An SDP's first `a=ice-<name>` value. */
+/** An SDP's first `a=ice-ufrag` or `a=ice-pwd` value (RFC 8839 §5.4), the ICE username fragment and password. */
 function iceAttribute(sdp: string, name: 'ufrag' | 'pwd'): string | undefined {
   return new RegExp(`^a=ice-${name}:(\\S+)`, 'm').exec(sdp)?.[1];
 }
@@ -285,6 +292,11 @@ export class RtcPeers {
     return this.bound?.port ?? null;
   }
 
+  /**
+   * Answers a device's SDP offer on its signalling socket `sid`: makes the peer connection on the shared UDP port, claims
+   * its ICE USERNAME on the mux and returns the answer SDP. Throws `RtcRefused` past the offer or peer limits, and
+   * `MuxConflict` when another connection holds the same ICE username.
+   */
   async answer(sid: string, offer: string): Promise<{ answer: string }> {
     this.countOffer(sid);
     this.admit(sid);

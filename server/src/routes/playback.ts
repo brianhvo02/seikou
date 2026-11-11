@@ -61,7 +61,10 @@ async function readPlace(req: IncomingMessage): Promise<unknown> {
  * person's places, of a disc (`f.`/`d.` key) or an encoded episode (`e.` key, whose one playlist is `mkv`).
  * `GET /api/me/playback` is the discs' Continue watching row and `GET /api/me/playback/title/<id>` a title's progress;
  * with `?library=encodes` they are the encodes' row and an encodes show's progress (by show id, keyed by encode id).
- * Behind `requireToken`.
+ * Behind `requireToken`; any paired device may call it, for its own person only. Errors: 404 `bad-key` for a malformed
+ * key or playlist id, 404 `not found` for no place or an unknown title or show, 400 `bad library`, `bad-place` or
+ * `key-mismatch` (a place whose key differs from the path's), 409 `stale` when the NAS holds a newer place, 413 past
+ * `PLACE_LIMIT_BYTES`, 503 `indexing` while the encodes' first scan runs, 503 `busy` while the person's file is locked.
  */
 export function playbackRoutes(auth: Auth, store: PlaybackStore, catalogue: PlaybackCatalogue = {}): Handler {
   const discsOf = discsOfFor(catalogue.library);

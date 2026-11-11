@@ -36,21 +36,35 @@ const IDLE_STEP_MS = 30_000;
 const NIGHT_STARTS_MIN = 18 * 60;
 const UNSURE: FansubAlignment = { kind: 'none', reason: 'low-confidence' };
 
+/** What `FansubService` needs: where fansubs are stored, the sources they come from and the discs they are lined up on. */
 export interface FansubServiceOptions {
+  /** The subtitle store fansubs are attached in. */
   readonly store: SubtitleStore;
+  /** Per-title run state, languages, owner edits and deleted tracks. */
   readonly state: FansubState;
+  /** SeaDex's ranked releases by AniList id. */
   readonly seadex: SeaDex;
+  /** Anime Tosho's feed and storage. */
   readonly tosho: Tosho;
+  /** The download cache for track files and font packs. */
   readonly cache: FetchCache;
+  /** The current catalogue, to find a title's seasons, episodes and discs. */
   readonly titles: { catalogue(): Catalogue };
+  /** Opens a disc's files by id for its audio; null when the disc is not listed. */
   readonly discs: (discId: string) => Promise<LevelDiscSource | null>;
+  /** The key a disc's links carry; null when the disc is not listed. */
   readonly discKey: (discId: string) => string | null;
+  /** The length of a playlist in milliseconds; null when unknown. */
   readonly durationMs: (discId: string, playlistId: string) => number | null;
+  /** Decodes disc audio for the line-up. */
   readonly decoder: AudioDecoder;
+  /** Tells whether a disc is being read, so the nightly pass can wait. */
   readonly activity: DiscActivity;
   /** A quality level is encoding. */
   readonly encoding: () => boolean;
+  /** The clock in milliseconds since the epoch; default `Date.now`. */
   readonly now?: () => number;
+  /** Receives warnings; default `console.warn`. */
   readonly log?: (message: string) => void;
   /** Local time the nightly pass stops at; 08:00 by default. */
   readonly windowEnd?: { readonly hour: number; readonly minute: number };
@@ -107,6 +121,11 @@ function abortableSleep(ms: number, signal: AbortSignal): Promise<void> {
 const blank = (titleId: string): FansubTitleState => ({ titleId, lastRunAt: null, running: false, nothingFound: false, seasons: {}, episodes: {} });
 const trackKey = (fileId: number, track: number): string => `${fileId}:${track}`;
 
+/**
+ * Finds, fetches, lines up and attaches fansub subtitles one title at a time, from the owner's button or the nightly pass
+ * (which starts at 18:00 local time or later and stops at the window's end). Jobs are queued, urgent ones first, and the
+ * nightly pass waits while a disc is read or a level encodes.
+ */
 export class FansubService {
   private readonly now: () => number;
   private readonly log: (message: string) => void;

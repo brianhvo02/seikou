@@ -16,12 +16,13 @@ import { withFileReader } from './node-reader';
 export const MAX_CHUNK_BYTES = 16 * 1024 * 1024;
 /** Free space that must remain after an upload's size. */
 export const ROOM_MARGIN_BYTES = 1024 * 1024 * 1024;
-/** An upload untouched for this long is removed. */
 /** Open uploads one device may hold. */
 export const MAX_OPEN_PER_DEVICE = 8;
+/** An upload untouched for this long is removed. */
 export const STALE_UPLOAD_MS = 24 * 60 * 60_000;
 const MAX_UPLOAD_BYTES = 2 ** 44;
 
+/** An upload id as the routes accept it: 16 lowercase hex digits. */
 export const UPLOAD_ID = /^[0-9a-f]{16}$/;
 
 /** An inclusive byte range `[first, last]`. */
@@ -38,11 +39,15 @@ interface UploadMeta {
   touchedAt: number;
 }
 
+/** What `UploadStore` needs: the encodes folder, the index it lists new files in, and test hooks. */
 export interface UploadStoreOptions {
   /** The encodes folder. */
   dir: string;
+  /** The index a finished upload is listed in. */
   index: EncodeIndex;
+  /** Receives one line for each event worth keeping (a stale upload removed). */
   log: (message: string) => void;
+  /** The clock in milliseconds since the epoch; default `Date.now`. */
   now?: () => number;
   /** Free bytes on the folder's disk; default `statfs`. */
   freeBytes?: (dir: string) => Promise<number>;
@@ -232,6 +237,7 @@ export class UploadStore {
     return id;
   }
 
+  /** The upload's size and the byte ranges stored so far. Throws `UploadError` 404 for an unknown upload. */
   async status(id: string): Promise<{ size: number; ranges: ByteRange[] }> {
     const meta = await this.readMeta(id);
     if (!meta) throw new UploadError(404, 'not found');
@@ -315,6 +321,7 @@ export class UploadStore {
     });
   }
 
+  /** Discards an open upload and its bytes. Throws `UploadError` 404 for an unknown upload. */
   async abort(id: string): Promise<void> {
     return this.locked(id, async () => {
       if (!(await this.readMeta(id))) throw new UploadError(404, 'not found');

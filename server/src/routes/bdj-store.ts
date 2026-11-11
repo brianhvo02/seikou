@@ -33,7 +33,7 @@ function ifMatch(req: IncomingMessage): string | null | undefined {
   return m ? m[1]! : undefined;
 }
 
-/** A StoreError as its answer (spec §5); anything else is rethrown. */
+/** A `StoreError` as its answer (412, 507 or 400), a held lock as 503 `busy`; anything else is rethrown. */
 function storeFailure(err: unknown): Response {
   if (err instanceof StoreError) {
     switch (err.code) {
@@ -53,8 +53,17 @@ function storeFailure(err: unknown): Response {
 }
 
 /**
- * `GET`, `PUT` and `DELETE /api/bdj-store/<scope>` (spec §5): the token's own person's BD-J saved data, one ustar
- * snapshot per scope, under quoted ETags. Behind `requireToken`; the token may come as `Authorization: Bearer` or `t=`.
+ * `GET`, `PUT` and `DELETE /api/bdj-store/<scope>` (spec 2026-10-18-webrtc-people-design): the token's own person's BD-J
+ * saved data, one ustar snapshot per scope, under quoted ETags. Behind `requireToken`; the token may come as
+ * `Authorization: Bearer` or `t=`. Any paired device may call it, for its own person only.
+ * - `GET` answers the snapshot (an empty archive with no `ETag` when there is none).
+ * - `PUT` needs `If-Match: "<etag>"` (or `*`) or `If-None-Match: *`, else 428 `precondition-required`; a failed
+ *   condition is 412 `precondition-failed`; a body over the scope limit or a person over theirs is 507 `quota` with
+ *   `limit` `scope` or `person`; a body that is not a ustar archive is 400 `bad-archive`. It answers the new `ETag`.
+ * - `DELETE` needs `If-Match` (428, 412 as above) and answers 204.
+ * - All: 400 `bad-scope` or `bad-if-match`, 405 for another method, 409 `person-changed` when `X-Bdj-Person` names
+ *   someone other than the token's person, 503 `busy` with `Retry-After: 1` while another writer holds the scope's lock.
+ *   A refused `PUT` closes the connection, since its body was not read to the end.
  */
 export function bdjStoreRoutes(auth: Auth, store: BdjStore): Handler {
   return async (req, url) => {

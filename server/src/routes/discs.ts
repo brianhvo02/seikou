@@ -22,7 +22,7 @@ export const MAX_LEVEL_READ_BYTES = 4_194_304;
 const ROUTE = /^\/api\/discs\/([^/]+)\/(manifest|probe|levels|viewing|files\/(.+))$/;
 const ENCODED_LEVELS: ReadonlySet<string> = new Set<EncodedLevel>(['h264-1080', 'phone-720', 'hevc-1080', 'hevc-1080-hdr', 'h264-1080-sdr']);
 
-/** A refused lease, for a disc whose original plays (spec §6.4). */
+/** A refused lease, for a disc whose original plays. */
 export const BUSY_COPY = 'The NAS is busy re-encoding for others. This will play at original quality.';
 /** A refused lease, for an MPEG-2 or VC-1 disc, whose original doesn't. */
 export const BUSY_TRY_LATER_COPY = 'The NAS is busy. Try again in a few minutes.';
@@ -86,10 +86,12 @@ export async function serveFile(req: IncomingMessage, file: string): Promise<Res
 export const ISO_TREES = 32;
 
 /**
- * `GET /api/discs/<id>/manifest`, `GET|HEAD /api/discs/<id>/files/<path>` (a `Range` or the whole file) and
+ * `GET /api/discs/resolve/<discKey>` (200 `{disc}`, 404 `not-found`), `GET /api/discs/<id>/manifest`, `GET|HEAD /api/discs/<id>/files/<path>` (a `Range` or the whole file) and
  * `GET|HEAD /api/discs/<id>/probe` (the first 4 MiB of the largest clip); `appHandlers` puts the token guard in front.
  * With `levels`, also the quality levels (`levelRoute`) and `DELETE /api/discs/<id>/viewing`; without, those are 404.
  * `level=original`, or no level, is the original disc. `isoTrees` is shared with the quality levels' disc sources.
+ * Any paired device may call them; an unknown disc, or one whose files changed since the scan, is 404 `disc-changed`, an
+ * unknown file 404 `not found`, and an unsatisfiable range 416.
  * `activity` is told of every file read (original or level, folder or ISO), for work that waits while someone watches.
  */
 export function discRoutes(library: Library, levels?: DiscLevels, isoTrees: IsoTrees = new IsoTrees(ISO_TREES), activity?: DiscActivity): Handler {
@@ -223,7 +225,8 @@ async function release(levels: DiscLevels, req: IncomingMessage, url: URL, discI
 }
 
 /**
- * `GET /api/discs/<id>/levels?hevc=&hevc10=&hdr=&audio=` (priced with that audio stream, 1 by default), and the manifest and files at `?level=<level>&audio=<n>` (spec §5):
+ * `GET /api/discs/<id>/levels?hevc=&hevc10=&hdr=&audio=` (priced with that audio stream, 1 by default), and the manifest and files at `?level=<level>&audio=<n>` (404 for an unknown level
+ * or an `audio` outside 1 to 32, 401 without a device):
  * a level's manifest leases the GPU for the token's device's viewing; a read answers 503 with `Retry-After: 1` while the
  * encoder hasn't reached its bytes (or was restarted or closed), and 503 `busy` when the GPU has no room for the viewing.
  * A read is clamped to 4 MiB.

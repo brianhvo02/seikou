@@ -34,11 +34,13 @@ export interface EncodeEntry {
   tracks: { kind: 'video' | 'audio' | 'subtitle'; codec: string; language: string; name: string; isDefault: boolean; isForced: boolean }[];
 }
 
+/** What `EncodeIndex` needs: the folder to scan, where to keep the index and test hooks. */
 export interface EncodeIndexOptions {
   /** The encodes folder (`ENCODES_DIR`). */
   dir: string;
   /** The server's data volume; the index is `<dataDir>/encodes.json`. */
   dataDir: string;
+  /** Receives one line for each scan problem worth keeping. */
   log: (message: string) => void;
   /** Called with a file's path (relative to `dir`) each time the file is read; tests count these. */
   onRead?: (relativePath: string) => void | Promise<void>;
@@ -46,6 +48,7 @@ export interface EncodeIndexOptions {
   writeIndex?: (file: string, json: string) => void;
   /** A file modified more recently than this is left for the next scan (a copy in progress). Default 10 s. */
   settleMs?: number;
+  /** The clock in milliseconds since the epoch; default `Date.now`. */
   now?: () => number;
 }
 
@@ -340,6 +343,7 @@ export class EncodeIndex {
     this.closed = true;
   }
 
+  /** What a client may be told of the index: whether the first scan runs, and any folder or scan problem. */
   state(): EncodeIndexState {
     return { scanning: !this.firstSettled, rootMissing: this.rootProblem !== null, rootEmpty: this.rootEmpty, scanError: this.scanError };
   }
@@ -358,14 +362,17 @@ export class EncodeIndex {
     }
   }
 
+  /** Every listed encode. */
   list(): readonly EncodeEntry[] {
     return this.entries;
   }
 
+  /** The encode with this id, or null. */
   get(id: string): EncodeEntry | null {
     return this.entries.find((e) => e.id === id) ?? null;
   }
 
+  /** The MKV files whose tags name no title and episode, with their sizes. */
   unfiled(): readonly { path: string; size: number }[] {
     return this.unfiledFiles;
   }

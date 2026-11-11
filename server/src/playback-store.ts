@@ -6,6 +6,7 @@ import type { DiscPlaces, PlaceSettings, PlaybackPlace } from '@seikou/nas/nas-a
 import { isCode, lockFile, replaceAtomically } from '@seikou/titles/atomic-json';
 import { PERSON_RE } from './bdj-store';
 
+/** The most places one person keeps; saving past it removes the oldest finished places first, then the oldest. */
 export const MAX_PLACES = 500;
 /** The largest body a place is accepted in. */
 export const PLACE_LIMIT_BYTES = 256 * 1024;
@@ -14,6 +15,7 @@ export const PLACE_LIMIT_BYTES = 256 * 1024;
 const MAX_AHEAD_MS = 5 * 60_000;
 const PLAYLIST_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
+/** Whether `id` is a playlist id as a place's route accepts it: 1 to 64 letters, digits, `_` and `-`. */
 export const isPlaylistId = (id: string): boolean => PLAYLIST_RE.test(id);
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -124,10 +126,15 @@ export class PlaybackStore {
     }
   }
 
+  /** The person's places of one disc or encode, or null when they have none. */
   get(personId: string, discKey: string): DiscPlaces | null {
     return this.read(this.file(personId, discKey));
   }
 
+  /**
+   * Stores a place, its `updatedAt` held to at most five minutes ahead of the clock. Answers `'stale'` and stores nothing
+   * when the person already has a newer place for the playlist. A stored place's settings become the disc's defaults.
+   */
   put(personId: string, sent: PlaybackPlace): 'stored' | 'stale' {
     const place = { ...sent, updatedAt: Math.min(sent.updatedAt, this.now() + MAX_AHEAD_MS) };
     const result = this.edit(personId, place.discKey, (cur) => {
@@ -138,6 +145,7 @@ export class PlaybackStore {
     return result;
   }
 
+  /** Removes one playlist's place, or every place of the disc when `playlistId` is omitted. */
   delete(personId: string, discKey: string, playlistId?: string): void {
     this.edit(personId, discKey, (cur) => {
       if (!cur) return { next: null, result: undefined };

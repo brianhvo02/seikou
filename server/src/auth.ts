@@ -6,10 +6,15 @@ import type { AuthData, Store } from './store';
 
 type JsonWebKey = webcrypto.JsonWebKey;
 
+/** A person the NAS knows; every device and pairing code belongs to one, and owner status is the person's. */
 export interface Person {
+  /** Random id, never reused. */
   readonly id: string;
+  /** Shown to the owner; 1 to 100 characters. */
   name: string;
+  /** Whether this person's devices may use the owner routes. */
   owner: boolean;
+  /** Creation time, in milliseconds since the epoch. */
   readonly createdAt: number;
   /** Made with a pairing code and not yet paired: pruned once no device and no live code is left (`pruneOrphans`). */
   pending?: true;
@@ -36,15 +41,20 @@ export interface Device extends StoredDevice {
   readonly personName: string;
 }
 
+/** A pairing code as stored: its hash, the person it will pair a device for and its expiry. */
 export interface PairingCode {
   readonly id: string;
   /** codeHash() of the code; the code itself is never stored. */
   readonly hash: string;
+  /** The person the device that redeems the code joins. */
   readonly personId: string;
+  /** An invite lives 3 days where a plain code lives 10 minutes. */
   readonly invite: boolean;
+  /** Expiry, in milliseconds since the epoch. */
   readonly expiresAt: number;
 }
 
+/** Whom a new pairing code is for: an existing person, or a person made together with the code. */
 export type PersonRef = { personId: string } | { newPerson: { name: string; owner: boolean } };
 
 /** An admin action would leave no device belonging to an owner. */
@@ -55,6 +65,7 @@ export class AuthConflict extends Error {
   }
 }
 
+/** A person, device or code the admin action names does not exist (routes answer 404). */
 export class AuthNotFound extends Error {
   constructor(what = 'not found') {
     super(what);
@@ -63,6 +74,7 @@ export class AuthNotFound extends Error {
 }
 
 const CODE_TTL_MS = 10 * 60_000;
+/** How long an invite code stays valid: 3 days. */
 export const INVITE_TTL_MS = 3 * 24 * 60 * 60_000;
 const MAX_PERSON_NAME = 100;
 const CHALLENGE_TTL_MS = 60_000;
@@ -259,10 +271,12 @@ export class Auth {
     if (found) this.devicesGone([id]);
   }
 
+  /** Every person, as copies. */
   people(): Person[] {
     return this.store.read().people.map((p) => ({ ...p }));
   }
 
+  /** Makes a person with no devices. Throws `RangeError` unless the name is 1 to 100 characters. */
   createPerson(name: string, owner: boolean): Person {
     const person: Person = { id: randomId(), name: personName(name), owner, createdAt: this.now() };
     this.store.update((data) => {
@@ -271,6 +285,10 @@ export class Auth {
     return { ...person };
   }
 
+  /**
+   * Renames a person and/or changes their owner status. Throws `AuthNotFound` for an unknown person, `RangeError` for a
+   * bad name, and `AuthConflict('last-owner')` when it would leave no owner device.
+   */
   updatePerson(id: string, change: { name?: string; owner?: boolean }): Person {
     const name = change.name === undefined ? undefined : personName(change.name);
     return this.store.update((data) => {
@@ -300,6 +318,7 @@ export class Auth {
     this.devicesGone(gone);
   }
 
+  /** Gives a device to another person (who is then no longer pending). Throws `AuthNotFound`, or `AuthConflict('last-owner')` when the move would leave no owner device. */
   moveDevice(deviceId: string, personId: string): void {
     this.store.update((data) => {
       const device = data.devices.find((d) => d.id === deviceId);
@@ -345,12 +364,14 @@ export class Auth {
     });
   }
 
+  /** Withdraws a pairing code by its record id; unknown ids are ignored. */
   deleteCode(id: string): void {
     this.store.update((data) => {
       data.codes = this.live(data.codes).filter((c) => c.id !== id);
     });
   }
 
+  /** Every device with its person's name and owner status. */
   devices(): Device[] {
     const data = this.store.read();
     return data.devices.flatMap((d) => this.derive(data, d) ?? []);

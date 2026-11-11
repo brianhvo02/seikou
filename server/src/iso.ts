@@ -85,6 +85,7 @@ export class IsoTrees {
 
   constructor(private readonly max = 32) {}
 
+  /** The tree of disc `id` at `abs`, parsed on first use and kept; the least recently used tree goes past `max`. Rejects when the file is not a readable UDF image. */
   get(id: string, abs: string): Promise<ReadonlyMap<string, UdfFile>> {
     let tree = this.trees.get(id);
     if (tree) {

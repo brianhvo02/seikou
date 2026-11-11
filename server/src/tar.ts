@@ -3,8 +3,10 @@
 const BLOCK = 512;
 const MAX_PATH_BYTES = 255;
 
+/** An archive with no files: the two zero blocks that end every ustar archive. */
 export const EMPTY_TAR: Buffer = Buffer.alloc(2 * BLOCK);
 
+/** The archive is malformed or holds something this reader refuses (a non-regular entry, a duplicate or unsafe path). */
 export class TarError extends Error {
   constructor(message: string) {
     super(message);
@@ -12,9 +14,13 @@ export class TarError extends Error {
   }
 }
 
+/** One regular file of an archive. */
 export interface TarEntry {
+  /** The path inside the archive, prefix and name joined with `/`. */
   path: string;
+  /** The content length in bytes. */
   size: number;
+  /** Modification time in seconds since the epoch, as ustar stores it. */
   mtime: number;
 }
 

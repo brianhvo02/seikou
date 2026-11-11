@@ -7,15 +7,20 @@ import { basename, dirname, join } from 'node:path';
 import { isCode, lockFile, syncDir, writeSynced } from '@seikou/titles/atomic-json';
 import { EMPTY_TAR, listTar, TarError } from './tar';
 
+/** Bytes one scope's ustar archive may hold, headers and padding included. */
 export const SCOPE_LIMIT_BYTES = 16 * 1024 * 1024;
+/** Bytes of scope archives one person may hold in all. */
 export const PERSON_LIMIT_BYTES = 256 * 1024 * 1024;
 
 const SCOPE_RE = /^(?:persistent\/[0-9a-f]{8}|buda\/[0-9a-f]{8}(?:\/[0-9a-f]{32})?)$/;
 const STALE_TEMP_MS = 60 * 60_000;
+/** A person id as it may name a folder: 1 to 64 characters of letters, digits, `_` and `-`. */
 export const PERSON_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
+/** Why a write or delete was refused: a failed ETag condition, a scope or person over its limit, or a body that is not a ustar archive. */
 export type StoreErrorCode = 'precondition' | 'quota-scope' | 'quota-person' | 'bad-archive';
 
+/** A refused `BdjStore` write or delete; the route turns `code` into its HTTP answer (412, 413, 507 or 400). */
 export class StoreError extends Error {
   constructor(readonly code: StoreErrorCode) {
     super(code);
@@ -32,6 +37,11 @@ function etagOf(stat: { ino: number | bigint; mtimeMs: number; size: number }): 
   return createHash('sha256').update(`${stat.ino}:${stat.mtimeMs}:${stat.size}`).digest().subarray(0, 12).toString('base64url');
 }
 
+/**
+ * Each person's BD-J saved data under `<dataDir>/users/<personId>/bdj/`: one ustar archive per scope, replaced atomically
+ * under a lock, with an ETag built from the file's inode, mtime and size. Synchronous file access; throws on I/O errors
+ * other than a missing file.
+ */
 export class BdjStore {
   /** Bytes one scope's archive may hold; the route refuses a body past it while it streams. */
   readonly scopeLimit: number;
@@ -80,10 +90,16 @@ export class BdjStore {
     }
   }
 
+  /** The scope's archive and its ETag, or an empty archive with a null ETag when the person has none. Throws on a malformed person id or scope. */
   get(personId: string, scope: string): { etag: string | null; body: Buffer } {
     return this.read(this.fileFor(personId, scope)) ?? { etag: null, body: EMPTY_TAR };
   }
 
+  /**
+   * Replaces the scope's archive. `ifNoneMatch` requires that none exists, otherwise `ifMatch` must equal the current ETag;
+   * a failed condition is `StoreError('precondition')`. Also refuses a body over the scope limit (`quota-scope`), one that
+   * would take the person over theirs (`quota-person`) and one that is not a ustar archive (`bad-archive`). Returns the new ETag.
+   */
   put(
     personId: string,
     scope: string,
@@ -147,6 +163,7 @@ export class BdjStore {
     }
   }
 
+  /** Removes the scope's archive if its ETag is `ifMatch`; a missing archive or another ETag is `StoreError('precondition')`. */
   delete(personId: string, scope: string, ifMatch: string): void {
     const file = this.fileFor(personId, scope);
     try {
@@ -194,6 +211,7 @@ export class BdjStore {
     return walk(join(this.personDir(personId), 'bdj'));
   }
 
+  /** Removes everything the person has saved, for when the person is removed. */
   clear(personId: string): void {
     rmSync(this.personDir(personId), { recursive: true, force: true });
   }

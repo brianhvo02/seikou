@@ -34,7 +34,16 @@ const notFound = (): Response => json(404, { error: 'not found' });
  * `GET /api/encodes/status` (`{ configured, count }`), `GET /api/encodes/<id>` (the entry without its server path),
  * `GET /api/encodes/<id>/manifest` (a `DiscManifest` with the one file `EPISODE.MKV`) and
  * `GET|HEAD /api/encodes/<id>/files/EPISODE.MKV` (the file or a `Range` of it). With that base the engine reads an
- * encode as it reads a NAS disc. Without `encodes` only `status` answers, with `configured: false`.
+ * encode as it reads a NAS disc. Without `encodes` only `status` answers, with `configured: false`. While the first scan
+ * runs, a request waits for it up to `waitMs`; then `status` answers `{ configured: true, scanning: true }` and the others
+ * 503 `indexing` with `Retry-After: 5`. An unknown id is 404 `not found`.
+ * The owner's writes, for owner devices over HTTPS only (403 `forbidden` to others, 403 `https-only` on a data channel, 404
+ * `not-configured` without an encodes folder or upload store): `POST /api/encodes/uploads {size, sha256, name}` answers
+ * `{ id }`; `PUT uploads/<id>` takes one range (`Content-Range: bytes a-b/size`, `Content-Length` equal to the range, at most
+ * `MAX_CHUNK_BYTES`; 400 or 413 closes the connection); `GET uploads/<id>` the stored ranges; `POST uploads/<id>/complete`
+ * checks and files the episode (the entry, or `{ entry: null, filed }` when it was filed but not yet listed); `DELETE
+ * uploads/<id>` aborts; `DELETE /api/encodes/<id>` removes an episode's file. The store's refusals (409, 422, 429, 503, 507)
+ * come from `UploadStore`.
  * The library: `GET /api/encodes/shows` (`{ shows: { id, name, poster, episodeCount, anilistIds, titles }[], unfiled? }`, `anilistIds` the AniList entries of a show's seasons,
  * `titles` the title parts of its rows, `unfiled`, the files the index could not file, as paths under `ENCODES_DIR`, for owners only) and
  * `GET /api/encodes/shows/<id>` (an `EncodeShow`; `<id>` an AniList number, `tv<n>`, `mv<n>` or `own<hex>`), AniList titles grouped as the disc

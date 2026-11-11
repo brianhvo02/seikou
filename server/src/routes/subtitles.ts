@@ -60,7 +60,15 @@ const validOffset = (v: unknown): v is number => typeof v === 'number' && Number
 /**
  * `/api/subtitles`: subtitles owners upload to the NAS, with their fonts. Everyone paired lists and downloads them
  * (404 to a guest while the title gate is `owners`, as the title routes answer; a guest never sees one that isn't
- * attached); only owners create, upload, edit and delete. Behind `requireToken`.
+ * attached); only owners create, upload, edit and delete. Behind `requireToken` (401 `unauthorized`).
+ * - `GET /api/subtitles?discKey=` or `?titleId=` lists (owners only: `?all=1`, 403 otherwise; anything else 400).
+ * - `POST /api/subtitles {name, language, offsetMs?, for}` (owner, 201) where `for` is an episode (title, season, number)
+ *   or a chapter of a disc's playlist; 400 `bad-request`, or `not-found` when the attachment does not resolve.
+ * - `PATCH /api/subtitles/<id>` (owner) changes name, language, offset or attachment; 404 for an unknown id.
+ * - `PUT /api/subtitles/<id>/file/<name>` and `PUT <id>/fonts/<name>` (owner) take the bytes: 400 `empty` or `bad-name`,
+ *   413 `too-large`, 503 `busy` with `Retry-After: 1`. A refused `PUT` closes the connection.
+ * - `GET /api/subtitles/<id>/file` and `GET <id>/fonts/<name>` download; `DELETE /api/subtitles/<id>` (owner, 204).
+ * Another method on a known route is 405; a write by a device that is not an owner's is 403 `forbidden`.
  */
 export function subtitleRoutes(auth: Auth, store: SubtitleStore, catalogue: SubtitleCatalogue = {}): Handler {
   const { titles, library, fansubs } = catalogue;

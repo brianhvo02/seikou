@@ -64,6 +64,7 @@ export class RendezvousClient implements CodeRegistrar {
     return base64url(new Uint8Array(await crypto.subtle.sign(ECDSA_SIGN, privateKey, message)));
   }
 
+  /** Registers a code's hash and the route to this NAS with the Worker (as `CodeRegistrar`); registers the NAS first when the Worker does not know it. Throws on any answer but 204. */
   async registerCode(codeHash: string, routes: { https: string }, expiresAt: number): Promise<void> {
     // The key's own id first, not a `POST /nas`: the running server has registered the key, and every registration
     // spends one of the Worker's 5 an hour per address, which the server needs when it reconnects.

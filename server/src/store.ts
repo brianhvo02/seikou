@@ -4,9 +4,13 @@ import { dirname, join } from 'node:path';
 import { isCode, lockFile, replaceAtomically, syncDir, writeSynced } from '@seikou/titles/atomic-json';
 import type { DeviceRoute, PairingCode, Person, StoredDevice } from './auth';
 
+/** The contents of `auth.json`. */
 export interface AuthData {
+  /** Every person; owner status is a person's. */
   people: Person[];
+  /** Every paired device, each belonging to a person. */
   devices: StoredDevice[];
+  /** Unspent pairing codes (hashes only). */
   codes: PairingCode[];
 }
 
@@ -36,18 +40,19 @@ function fail(file: string, what: string): never {
   throw new CorruptAuthFile(`${file} is corrupt: ${what}`);
 }
 
+/** A random id: 16 random bytes in base64url (22 characters). */
 export const randomId = (): string => randomBytes(16).toString('base64url');
 
 /** A migrated person's id: the same on every migration of the same file, so concurrent or repeated ones agree with the persisted one. */
 const migrationId = (secret: Buffer, label: string): string => createHmac('sha256', secret).update(label).digest('base64url').slice(0, randomId().length);
 
-/** Whether `parsed` is a step-2 file: devices and codes, no people. */
+/** Whether `parsed` is a file from before people existed: devices and codes, no people. */
 function isStep2(parsed: unknown): boolean {
   return typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed) && !('people' in parsed) && 'devices' in parsed;
 }
 
 /**
- * Step 2 kept `owner` on devices and codes. All owner devices go to one person named Owner, each other device to a
+ * A file from before people existed kept `owner` on devices and codes. All owner devices go to one person named Owner, each other device to a
  * person named after it, live owner codes to Owner, and live non-owner codes are dropped. The input is validated first.
  */
 function migrate(file: string, parsed: unknown, now: number, secret: Buffer): unknown {
@@ -123,7 +128,7 @@ function validate(file: string, parsed: unknown): AuthData {
  * Devices and pairing codes in `<dir>/auth.json`, and the token secret in `<dir>/secret`, both mode 600.
  * The running server and the `owner-code` command share the files, so every change re-reads the file
  * under a lock file and replaces it atomically (synced temp file, rename), and reads notice a newer file.
- * A step-2 file (no people) is migrated on load, and rewritten by the constructor.
+ * A file with no people is migrated on load, and rewritten by the constructor.
  */
 export class Store {
   private readonly file: string;
@@ -177,7 +182,7 @@ export class Store {
     }
   }
 
-  /** True for a readable step-2 file; anything else (absent, corrupt) is left for the first read to report. */
+  /** True for a readable file with no people; anything else (absent, corrupt) is left for the first read to report. */
   private isStep2File(): boolean {
     try {
       return isStep2(JSON.parse(readFileSync(this.file, 'utf8')));

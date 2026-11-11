@@ -40,6 +40,7 @@ export class FansubState {
     this.file = join(dir, 'state.json');
   }
 
+  /** The saved state of a title's last run, or null when it never ran (or the saved entry is damaged). */
   title(id: string): FansubTitleState | null {
     const t = this.read().titles[id];
     return complete(t) ? t : null;
@@ -52,12 +53,14 @@ export class FansubState {
     });
   }
 
+  /** Saves a title's state, replacing the earlier one. */
   put(state: FansubTitleState): void {
     this.change((s) => {
       s.titles[state.titleId] = state;
     });
   }
 
+  /** Whether the owner deleted this track of this Anime Tosho file, under any title. */
   isDeleted(toshoFileId: number, track: number): boolean {
     const key = trackKey(toshoFileId, track);
     return Object.values(this.read().deleted).some((keys) => keys.includes(key));
@@ -72,6 +75,7 @@ export class FansubState {
     });
   }
 
+  /** Forgets the title's deleted tracks, so the next run may attach them again. */
   undelete(titleId: string): void {
     this.change((s) => {
       delete s.deleted[titleId];
@@ -83,6 +87,7 @@ export class FansubState {
     return this.read().languages;
   }
 
+  /** Saves the languages to fetch (lower-cased and without repeats, `eng` always first). */
   setLanguages(codes: readonly string[]): void {
     this.change((s) => {
       s.languages = normalizeLanguages(codes);

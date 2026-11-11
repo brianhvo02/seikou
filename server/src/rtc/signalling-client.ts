@@ -24,25 +24,36 @@ export interface SignalPeers {
   candidate(sid: string, candidate: unknown): void;
 }
 
+/** The reconnect wait: it starts at `initialMs` and doubles to `maxMs`. */
 export interface Backoff {
+  /** The first wait, in milliseconds. */
   initialMs: number;
+  /** The longest wait, in milliseconds. */
   maxMs: number;
 }
 
+/** What `SignallingClient` needs: the Worker's address, the NAS's signing key and where offers go. */
 export interface SignallingOptions {
   /** `RENDEZVOUS_URL`. */
   url: string;
+  /** Registers the NAS and signs the socket's authentication. */
   signer: NasSigner;
+  /** Receives each device's offers and candidates. */
   peers: SignalPeers;
   /** Answers a device's `turn-request` (the relay); until there is one, no servers with reason `off`. */
   onTurnRequest?: (sid: string, request: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  /** Opens the socket; Node's global `WebSocket` by default (tests inject one). */
   openSocket?: (url: string) => WebSocketLike;
+  /** Reconnect waits; 1 s doubling to 60 s by default. */
   backoff?: Backoff;
   /** The heartbeat: a ping this often once authenticated, and a reconnect when its pong is this late. */
   pingIntervalMs?: number;
   pongTimeoutMs?: number;
+  /** A number in [0, 1) for the backoff's jitter; `Math.random` by default. */
   random?: () => number;
+  /** The clock in milliseconds since the epoch. */
   now?: () => number;
+  /** Receives a line (and the error, if any) for each connection problem. */
   log?: (message: string, err?: unknown) => void;
 }
 
@@ -93,12 +104,14 @@ export class SignallingClient {
     this.now = opts.now ?? Date.now;
   }
 
+  /** Connects to the Worker and keeps the socket up until `stop`; does nothing when already started. */
   start(): void {
     if (!this.stopped) return;
     this.stopped = false;
     void this.connect();
   }
 
+  /** Closes the socket and stops reconnecting. */
   stop(): void {
     this.stopped = true;
     clearTimeout(this.timer);

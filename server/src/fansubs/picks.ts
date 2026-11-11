@@ -1,5 +1,5 @@
 /**
- * A viewer's own Anime Tosho pick (spec §9): one track of a file, fetched with its file's font pack, lined up with the
+ * A viewer's own Anime Tosho pick (spec 2026-10-23-fansubs-design): one track of a file, fetched with its file's font pack, lined up with the
  * episode the viewer plays and kept by `PickStore` (never in the subtitle store) for 30 days after its last use, within
  * the picks' byte budget. Original code.
  */
@@ -43,19 +43,29 @@ export class PickNotFound extends Error {
   }
 }
 
+/** What `FansubPicks` needs: the data volume, the Anime Tosho client and download cache, and the discs to line a track up on. */
 export interface FansubPicksOptions {
+  /** The server's data volume; picks live under `<dataDir>/fansubs/`. */
   readonly dataDir: string;
+  /** Anime Tosho's feed and storage. */
   readonly tosho: Tosho;
+  /** The download cache for track files and font packs. */
   readonly cache: FetchCache;
+  /** Opens a disc's files by id for its audio; null when the disc is not listed. */
   readonly discs: (discId: string) => Promise<LevelDiscSource | null>;
+  /** Disc keys and playlist lengths. */
   readonly lookup: FansubDiscs;
+  /** Decodes disc audio for the line-up. */
   readonly decoder: AudioDecoder;
   /** `FANSUB_PICKS_BYTES`: what the picks may hold in all, 2 GB by default. */
   readonly maxBytes?: number;
+  /** The clock in milliseconds since the epoch; default `Date.now`. */
   readonly now?: () => number;
+  /** Receives warnings; default `console.warn`. */
   readonly log?: (message: string) => void;
 }
 
+/** The default byte budget of the picks, 2 GB. */
 export const PICKS_LIMIT_BYTES = 2_000_000_000;
 
 /** `p.<fileId>.<track>.<discKey>.<playlistId>`, hashed to 16 hex. */
@@ -67,6 +77,10 @@ const isAss = (t: ToshoTrack): boolean => /^(ASS|SSA)$/i.test(t.format);
 /** `GroupA` from `[GroupA] Starfall Wanderer …`. */
 const groupOf = (title: string): string | null => /^\s*\[([^\]]{1,100})\]/.exec(title)?.[1]?.trim() || null;
 
+/**
+ * A viewer's own Anime Tosho picks: fetches a track and its fonts, lines the track up with the playing episode, keeps the
+ * result in a `PickStore`, and limits each person to `PICKS_PER_HOUR` new picks. Rejects with `TooManyPicks` or `PickNotFound`.
+ */
 export class FansubPicks {
   private readonly store: PickStore;
   private readonly filesFile: string;
@@ -133,6 +147,7 @@ export class FansubPicks {
     return this.store.filePath(id);
   }
 
+  /** The path of one of the pick's fonts, or null when it has no such font. */
   fontPath(id: string, name: string): string | null {
     return this.store.fontPath(id, name);
   }

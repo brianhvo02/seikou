@@ -9,13 +9,19 @@ import type { Auth } from '../auth';
 /** Cloudflare's free relay allowance a month (1,000 GB, shared by TURN and its SFU; checked 2026-10-19). */
 export const FREE_BYTES = 1e12;
 
+/** The owner's two relay switches. */
 export interface RelaySettings {
+  /** Whether devices may be handed TURN credentials at all. */
   enabled: boolean;
+  /** Whether relaying may go on past the free allowance (and so cost money). */
   allowPaid: boolean;
 }
 
+/** This month's relayed bytes against the free allowance. */
 export interface RelayUsage {
+  /** Bytes relayed this UTC month, an estimate. */
   usedBytes: number;
+  /** The free allowance in bytes (`FREE_BYTES`). */
   freeBytes: number;
   /** The UTC date usage next resets: the 1st of next month, `YYYY-MM-DD`. */
   resetsOn: string;
@@ -40,7 +46,7 @@ function nextFirstOf(ms: number): string {
 
 /**
  * The relay's owner settings and this month's relayed bytes, kept in `<dataDir>/relay.json` (replaced atomically).
- * Off by default. Usage is the NAS's own estimate (ruling P2-R1): bytes both ways on connections it classed as
+ * Off by default. Usage is the NAS's own estimate: bytes both ways on connections it classed as
  * relayed, sampled from werift's counters; Cloudflare's analytics would need another token.
  */
 export class RelayState {
@@ -55,11 +61,13 @@ export class RelayState {
     this.state = this.load();
   }
 
+  /** The owner's current switches. */
   settings(): RelaySettings {
     const { enabled, allowPaid } = this.state;
     return { enabled, allowPaid };
   }
 
+  /** Changes the named switches and saves the file. */
   set(change: Partial<RelaySettings>): void {
     this.state = {
       ...this.current(),
@@ -77,6 +85,7 @@ export class RelayState {
     this.save();
   }
 
+  /** This month's bytes (zero once a new UTC month starts) with the allowance and the reset date. */
   usage(): RelayUsage {
     return { usedBytes: this.current().usedBytes, freeBytes: FREE_BYTES, resetsOn: nextFirstOf(this.now()) };
   }
@@ -123,11 +132,15 @@ export class RelayState {
 /** What a device's `turn-request` gets: servers, or none and why. */
 export type TurnAnswer = { iceServers: IceServerInfo[] } | { iceServers: []; reason: TurnRefusal; resetsOn?: string };
 
+/** What `turnResponder` needs. */
 export interface TurnResponderOptions {
+  /** The relay's switches and allowance. */
   relay: RelayState;
+  /** Checks a paired device's signature and the live invite codes. */
   auth: Auth;
   /** Fresh TURN credentials from the rendezvous Worker (`RendezvousClient.turnServers`). */
   credentials: () => Promise<IceServerInfo[]>;
+  /** The clock in milliseconds since the epoch. */
   now: () => number;
   /**
    * Called with the addresses the handed-out TURN urls' hosts resolve to, for the socket `sid` (`RtcPeers.noteTurnServers`),
@@ -159,7 +172,7 @@ async function lookupAll(host: string): Promise<string[]> {
 }
 
 /**
- * Answers a device's `turn-request` on the signalling socket `sid` (spec §6.4). The device must check out first, so
+ * Answers a device's `turn-request` on the signalling socket `sid` (spec 2026-10-18-webrtc-people-design). The device must check out first, so
  * a stranger learns nothing about the relay: a paired device by its signature over `turnProofMessage({ sid, ts })`
  * with `ts` within 60 s, or an unpaired one by the hash of a live invite code. Each device and each invite gets at
  * most 10 checked requests an hour; past that it is answered `unauthorized` too (no new reason). Then the relay must

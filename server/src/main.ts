@@ -61,7 +61,7 @@ const SHUTDOWN_GRACE_MS = 3_000;
 const STUN_URL = 'stun:stun.cloudflare.com:3478';
 const DEFAULT_DISCDB_INDEX = '/app/data/discdb-index.json';
 
-/** AniList and TMDB, or the recorded entries of `METADATA_FIXTURE` in E2E tests (ruling R3). */
+/** AniList and TMDB, or the recorded entries of `METADATA_FIXTURE` in E2E tests. */
 function metadataSources(config: Config): { anilist: MetadataSource; tmdb: MetadataSource | null } {
   const fixture = process.env.METADATA_FIXTURE;
   if (fixture) return fixtureSources(JSON.parse(readFileSync(fixture, 'utf8')) as Record<string, Entry[]>);
@@ -168,10 +168,6 @@ function startRtc(config: Config, rendezvousUrl: string, rendezvous: RendezvousC
 }
 
 /**
- * The quality levels (spec §5–§6): after the encoder's self-test at start, or none (Original only) when
- * `LEVELS_BACKEND=off`, there is no GPU for `qsv`, or the self-test fails. Segments are cached under `/data/transcode`.
- */
-/**
  * The GPU budgets, times `LEVELS_GPU_SCALE` when it is a positive number. Only the E2E stand-in sets it: its browsers open
  * discs side by side (phone-sized screens lease a re-encoded level), a lease lapses 2 minutes after its last read, and the
  * real budgets (about six 1080p viewings) ran out between tests.
@@ -182,6 +178,10 @@ function gpuBudgets(): { h264: number; hevc: number } {
   return { h264: GPU_BUDGETS.h264 * k, hevc: GPU_BUDGETS.hevc * k };
 }
 
+/**
+ * The quality levels: after the encoder's self-test at start, or none (Original only) when `LEVELS_BACKEND=off`, there is
+ * no GPU for `qsv`, or the self-test fails. Segments are cached under `/data/transcode`.
+ */
 async function levelService(config: Config, library: Library, isoTrees: IsoTrees): Promise<LevelService | undefined> {
   const encoder = await levelsBackend(config.levels);
   if (!encoder) return undefined;
