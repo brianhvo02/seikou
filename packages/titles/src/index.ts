@@ -1,40 +1,58 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-export type { DiscEvidence } from './disc-evidence';
+// @seikou/titles: library naming and metadata. Everything else is internal, reached through ./*.
 
-export { createAniList, createAniListEpisodes } from './anilist';
-export type { AniListEpisodes } from './anilist';
+// Reading titles, seasons and discs from a folder name or disc title.
+export { parseName, type ParsedName } from './parse-name';
+// Reading a music release folder's name.
+export { parseMusicFolder, type ParsedMusicName } from './music-name';
+// The AniList client.
+export { createAniList } from './anilist';
+// The TMDB client.
 export { createTmdb } from './tmdb';
+// The Discogs client.
 export { createDiscogs } from './discogs';
+// The MusicBrainz client.
 export { createMusicBrainz } from './musicbrainz';
-
-export { SourceUnavailable, retryAfterMs, sharperPoster, withSharperPoster, lookupUserAgent } from './sources';
-export type { SourceName, EntryNames, Entry, MetadataSource } from './sources';
-export { Pacer, RateLimited } from './pacer';
-export type { PacedOptions } from './pacer';
-
-export { loadDiscDb, discDbKind, indexDisc, mergeIndex } from './discdb';
-export type { DiscDbHit, DiscDbIndex } from './discdb';
-
-export { buildCatalogue, artIdOf, byDiscPath, musicGroupOf, releaseLookup, folderCoverArtId } from './catalogue';
-export type { Catalogue, CatalogueInput, FolderCover } from './catalogue';
-
-export { MATCH_RULES_VERSION, CIRCUIT_BREAKER, groupKey, matchDiscs, musicRelease } from './match';
-export type { DiscMatch, MatchContext, MatchResult } from './match';
+// What the metadata clients share: entries, the source interface, errors and the User-Agent.
+export {
+  type Entry,
+  type EntryNames,
+  type SourceName,
+  type MetadataSource,
+  SourceUnavailable,
+  lookupUserAgent,
+} from './sources';
+// Choosing one release among candidates.
+export {
+  chooseRelease,
+  type ReleaseCandidate,
+  type MusicRelease,
+  type MusicArtist,
+  type MusicSource,
+} from './music-sources';
+// Rate limiting.
+export { Pacer, type PacedOptions, RateLimited } from './pacer';
+// TheDiscDB's bundled index.
+export { loadDiscDb, indexDisc, type DiscDbHit } from './discdb';
+// What a disc's files and path say about it.
+export type { DiscEvidence } from './disc-evidence';
+// Filing discs under titles.
+export { matchDiscs, type MatchContext, type MatchResult, type DiscMatch } from './match';
+// Guessing an episode list from playlist lengths.
 export { guessEpisodes } from './episodes';
-export { continueWatching, titleProgress, CONTINUE_LIMIT } from './up-next';
-export type { ContinueItem, PlaylistProgress, DiscsOf } from './up-next';
-export { parseName, isTagWord } from './parse-name';
-export type { ParsedName } from './parse-name';
-export { parseMusicFolder, hasConcertWord } from './music-name';
-export type { ParsedMusicName } from './music-name';
-export { VARIOUS_ARTISTS_MBID, normalizeCatalogue, chooseRelease, fixtureMusicSource } from './music-sources';
-export type { MusicArtist, MusicRelease, MusicSource, ReleaseCandidate } from './music-sources';
-export { VARIOUS_ID, artistKey, musicInfo } from './music-info';
-export { NAME_CORPUS } from './corpus';
-
-export { ArtCache } from './art';
-export type { ArtCacheOptions } from './art';
-export { OwnerStore } from './owner-store';
-export type { OwnerSnapshot, ChoiceOrigin } from './owner-store';
-
-export { lockFile, replaceAtomically, syncDir, writeSynced, isCode, LockHeldError } from './atomic-json';
+// Building the catalogue from matches, metadata and the owner's choices.
+export { buildCatalogue, type Catalogue, type CatalogueInput, type FolderCover } from './catalogue';
+// A release's artist, kind and names.
+export { musicInfo } from './music-info';
+// The owner's choices, own titles and gate.
+export { OwnerStore, type OwnerSnapshot, type ChoiceOrigin } from './owner-store';
+// Grouping encoded episodes into shows.
+export { buildEncodeCatalogue, type EncodeCatalogue, type EncodeEntryLike, type EncodeNames } from './encode-catalogue';
+// The episode after another.
+export { nextInShow } from './encode-next';
+// Continue watching and per-title progress.
+export { continueWatching, titleProgress, type DiscsOf } from './up-next';
+// The poster and banner cache.
+export { ArtCache, type ArtCacheOptions } from './art';
+// Replacing a file atomically.
+export { replaceAtomically } from './atomic-json';

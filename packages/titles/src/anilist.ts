@@ -148,6 +148,7 @@ const EPISODE_TITLE = /^Episode (\d+)\s*[-–:]\s*(.+)$/;
 /**
  * Episode titles of one AniList show. AniList's ordinary Media data has none,
  * so this reads the streaming service's episode list instead.
+ * @internal
  */
 export interface AniListEpisodes {
   /**
@@ -160,7 +161,10 @@ export interface AniListEpisodes {
   titles(alId: number, opts?: PacedOptions): Promise<ReadonlyMap<number, string>>;
 }
 
-/** Builds the episode-title client; share `pacer` with other AniList clients so one rate limit holds. */
+/**
+ * Builds the episode-title client; share `pacer` with other AniList clients so one rate limit holds.
+ * @internal
+ */
 export function createAniListEpisodes(fetch: typeof globalThis.fetch, pacer: Pacer): AniListEpisodes {
   const query = anilistQuery(fetch, pacer);
   return {

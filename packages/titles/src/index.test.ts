@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { expect, it } from 'vitest';
-import { createAniList, NAME_CORPUS, parseName, Pacer } from '@seikou/titles';
+import { createAniList, parseName, Pacer } from '@seikou/titles';
+import { NAME_CORPUS } from '@seikou/titles/corpus';
 
 it('builds a source from a fetch and a pacer through the barrel', () => {
   const fetchStub = (async () => new Response('{}')) as typeof globalThis.fetch;

@@ -1,0 +1,73 @@
+# @seikou/nas public API: the README's helpers per module (disc and place keys, content hash, place rules,
+# encode titles and ids, title text, pairing codes, CORS, the WebRTC framing), the disc manifest the
+# integration guide uses, and the wire types that @seikou/titles and @seikou/fansubs signatures reach.
+# nas-api: the disc manifest
+DiscManifest
+# nas-api: titles, seasons and discs (buildCatalogue, guessEpisodes, titleProgress)
+TitleSummary
+TitleNames
+TitleKind
+TitleDetail
+TitleMusic
+MusicKind
+SeasonDetail
+DiscSlot
+DiscRef
+EpisodeRef
+UnsortedItem
+UnsortedReason
+UnsortedSuggestion
+OwnerChoice
+OwnTitle
+# nas-api: places and progress (continueWatching, titleProgress)
+PlaybackPlace
+PlaceSettings
+PlaceTextFile
+PlaceFansub
+PlaceSubtitleSource
+ContinueItem
+PlaylistProgress
+# nas-api: encodes (buildEncodeCatalogue, nextInShow)
+EncodeShow
+EncodeSeason
+EncodeEpisode
+# nas-api: subtitles and fansubs (@seikou/fansubs)
+StoredSubtitle
+SubtitleAttachment
+FansubPick
+FansubSource
+FansubAlignment
+SeaDexRank
+# disc-key
+discKeyOf
+parseDiscKey
+ParsedDiscKey
+# content-hash
+contentHash
+# place-rules
+isShortPlace
+# place-key
+parsePlaceKey
+ParsedPlaceKey
+# encode-title
+EncodeTitle
+titleFromTags
+titleTags
+# encode-id
+encodeId
+parseEncodeId
+encodePlaceKey
+# title-text
+normalizeTitle
+titleMatches
+# pairing-code
+normalizeCode
+formatCode
+# cors-policy
+corsHeaders
+# rtc-wire
+WireClient
+WireServer
+WireChannel
+WireRequest
+WireResponse

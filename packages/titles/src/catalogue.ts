@@ -69,6 +69,7 @@ type MusicChoice = Extract<OwnerChoice, { kind: 'music' }>;
 /**
  * The music release group of a disc, or null when it isn't music: its music match's release folder, else, for a disc
  * the owner marked as Music, the release folder the matcher would find, else the disc folder itself.
+ * @internal
  */
 export function musicGroupOf(e: DiscEvidence, match: DiscMatch | undefined, choice: OwnerChoice | undefined): string | null {
   if (choice && choice.kind !== 'music') return null;
@@ -77,10 +78,16 @@ export function musicGroupOf(e: DiscEvidence, match: DiscMatch | undefined, choi
   return null;
 }
 
-/** A release's discs in path order (`Disc 2` before `Disc 10`): the first whose lookup hit speaks for the release. */
+/**
+ * A release's discs in path order (`Disc 2` before `Disc 10`): the first whose lookup hit speaks for the release.
+ * @internal
+ */
 export const byDiscPath = (a: DiscEvidence, b: DiscEvidence): number => naturalOrder(a.path, b.path);
 
-/** The lookup that speaks for a release: the first hit of its discs' catalogue numbers, discs in path order. */
+/**
+ * The lookup that speaks for a release: the first hit of its discs' catalogue numbers, discs in path order.
+ * @internal
+ */
 export function releaseLookup(discs: readonly DiscEvidence[], music: ReadonlyMap<string, MusicRelease | null>): MusicRelease | null {
   for (const e of [...discs].sort(byDiscPath)) {
     for (const c of e.catalogueNumbers) {
@@ -91,7 +98,10 @@ export function releaseLookup(discs: readonly DiscEvidence[], music: ReadonlyMap
   return null;
 }
 
-/** The art id of a folder cover: from its path, size and modification time, so a replaced file gets a new id. */
+/**
+ * The art id of a folder cover: from its path, size and modification time, so a replaced file gets a new id.
+ * @internal
+ */
 export function folderCoverArtId(cover: FolderCover): string {
   const source = `file:${cover.path}#${cover.size}:${cover.mtimeMs}`;
   return artIdOf({ small: source, large: source });
@@ -696,7 +706,10 @@ function evidenceSeason(e: DiscEvidence): number | null {
   return seen.size === 1 ? [...seen][0]! : null;
 }
 
-/** The art id of a poster or banner's source URLs: 32 lower-case hex digits. */
+/**
+ * The art id of a poster or banner's source URLs: 32 lower-case hex digits.
+ * @internal
+ */
 export function artIdOf(art: { readonly small: string; readonly large: string }): string {
   return hash(`${art.small}\n${art.large}`, 32);
 }

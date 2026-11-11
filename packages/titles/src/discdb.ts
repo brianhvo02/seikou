@@ -18,7 +18,10 @@ export interface DiscDbHit {
   readonly episodes: readonly { readonly playlist: string; readonly season: number; readonly episode: number; readonly name: string | null }[];
 }
 
-/** The index file's shape. `source` records where and from which commit it was built. */
+/**
+ * The index file's shape. `source` records where and from which commit it was built.
+ * @internal
+ */
 export interface DiscDbIndex {
   readonly source: { readonly repo: string; readonly commit: string; readonly license: string };
   readonly discs: Readonly<Record<string, DiscDbHit>>;
@@ -45,7 +48,10 @@ const int = (v: unknown): number | null => {
 };
 const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
 
-/** A title's kind from its `metadata.json` `Type`, or null for anything but `Series` and `Movie`. */
+/**
+ * A title's kind from its `metadata.json` `Type`, or null for anything but `Series` and `Movie`.
+ * @internal
+ */
 export function discDbKind(metadata: unknown): DiscDbHit['kind'] | null {
   const type = obj(metadata).Type;
   return type === 'Series' ? 'series' : type === 'Movie' ? 'movie' : null;
@@ -92,6 +98,7 @@ export function indexDisc(disc: unknown, metadata: unknown): { hash: string; hit
 /**
  * One entry per hash. Records that share a hash and name the same title (kind, TMDB id and title) keep the
  * first; a hash whose records name different titles is left out, since it can't say which one a disc is.
+ * @internal
  */
 export function mergeIndex(records: readonly { hash: string; hit: DiscDbHit }[]): { discs: Record<string, DiscDbHit>; conflicts: number } {
   const discs = new Map<string, DiscDbHit | null>();

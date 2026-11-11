@@ -31,6 +31,7 @@ export function normalizeTitle(text: string): string {
  * (`Good`/`God`, `Soul`/`Sol`). Marks that tell titles apart (`' ° ! ? ☆ ★ ♪ +`) are kept, so `Glimmer'` is not
  * `Glimmer`; only typographic variants of one mark are folded to one form: `’ ‘ ′ \`` to `'`, `“ ”` to `"`, and `&`
  * (`＆` too, through NFKC) to the word `and`.
+ * @internal
  */
 export function normalizeStrict(text: string): string {
   return text

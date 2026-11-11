@@ -1,3 +1,5 @@
+// Internal to @seikou/titles: not part of its public API; importable through the package's subpath for Seikou's own use.
+
 import type { ParsedName } from './parse-name';
 
 /**

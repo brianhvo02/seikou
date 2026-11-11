@@ -48,17 +48,35 @@ export interface WireChannel {
   close(): void;
 }
 
-/** The largest binary message: a 4-byte request id and its payload together. */
+/**
+ * The largest binary message: a 4-byte request id and its payload together.
+ * @internal
+ */
 export const MAX_CHUNK = 65536;
-/** bufferedAmountLowThreshold: a paused sender resumes when the channel's buffer drains to this. */
+/**
+ * bufferedAmountLowThreshold: a paused sender resumes when the channel's buffer drains to this.
+ * @internal
+ */
 export const LOW_WATER = 1 << 20;
-/** A sender pauses while the channel buffers more than this. */
+/**
+ * A sender pauses while the channel buffers more than this.
+ * @internal
+ */
 export const HIGH_WATER = 4 << 20;
-/** The largest text frame (a head), in UTF-8 bytes. */
+/**
+ * The largest text frame (a head), in UTF-8 bytes.
+ * @internal
+ */
 export const MAX_HEAD_BYTES = 16384;
-/** Requests a server handles at once on one channel; one more is answered `error` "too many requests". */
+/**
+ * Requests a server handles at once on one channel; one more is answered `error` "too many requests".
+ * @internal
+ */
 export const MAX_REQUESTS = 64;
-/** Request body bytes a server holds unread for one request; more closes the channel. */
+/**
+ * Request body bytes a server holds unread for one request; more closes the channel.
+ * @internal
+ */
 export const MAX_QUEUED_BODY_BYTES = 16 << 20;
 
 const ID_BYTES = 4;
@@ -99,7 +117,10 @@ type Frame =
   | { t: 'cancel'; id: number }
   | { t: 'error'; id: number; message: string };
 
-/** Statuses whose Response must have a null body. */
+/**
+ * Statuses whose Response must have a null body.
+ * @internal
+ */
 export const isNullBodyStatus = (status: number): boolean => status === 101 || status === 103 || status === 204 || status === 205 || status === 304;
 
 const encoder = new TextEncoder();

@@ -1,9 +1,15 @@
 /** NAS pairing codes, shared by the server and the app: 12 characters of Crockford base32, shown `XXXX-XXXX-XXXX`. */
 
-/** The characters a code is made of: digits and upper-case letters without I, L, O and U. */
+/**
+ * The characters a code is made of: digits and upper-case letters without I, L, O and U.
+ * @internal
+ */
 export const PAIRING_ALPHABET = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
 
-/** The number of characters in a code, without dashes. */
+/**
+ * The number of characters in a code, without dashes.
+ * @internal
+ */
 export const PAIRING_CODE_LENGTH = 12;
 
 const VALID = new RegExp(`^[${PAIRING_ALPHABET}]{${PAIRING_CODE_LENGTH}}$`);

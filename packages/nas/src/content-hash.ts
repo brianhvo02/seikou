@@ -9,7 +9,10 @@ const SHIFTS = [7, 12, 17, 22, 5, 9, 14, 20, 4, 11, 16, 23, 6, 10, 15, 21];
 /** K[i] = floor(abs(sin(i + 1)) * 2^32). */
 const K = Array.from({ length: 64 }, (_, i) => Math.floor(Math.abs(Math.sin(i + 1)) * 2 ** 32) >>> 0);
 
-/** The MD5 digest of `bytes` as uppercase hex. */
+/**
+ * The MD5 digest of `bytes` as uppercase hex.
+ * @internal
+ */
 export function md5Hex(bytes: Uint8Array): string {
   const bitLength = bytes.length * 8;
   const padded = new Uint8Array((((bytes.length + 8) >> 6) + 1) * 64);

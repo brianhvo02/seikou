@@ -13,7 +13,10 @@ import type { EncodeCatalogue, EncodeEpisode, EncodeSeason, EncodeShow } from '.
 
 export type { ContinueItem, PlaylistProgress };
 
-/** At most this many cards. */
+/**
+ * At most this many cards.
+ * @internal
+ */
 export const CONTINUE_LIMIT = 50;
 
 /** The disc ids a place's key stands for: every copy sharing the fingerprint of an `f.` key, the one id of a `d.` key. */

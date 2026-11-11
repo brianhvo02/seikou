@@ -1,0 +1,73 @@
+# @seikou/titles public API: the README's name parsers, metadata clients, matching, catalogue, encodes,
+# resume and storage entry points, with every type their signatures reach (the wire types are @seikou/nas's).
+# parse-name
+parseName
+ParsedName
+# music-name
+parseMusicFolder
+ParsedMusicName
+# anilist
+createAniList
+# tmdb
+createTmdb
+# discogs
+createDiscogs
+# musicbrainz
+createMusicBrainz
+# sources
+Entry
+EntryNames
+SourceName
+MetadataSource
+SourceUnavailable
+lookupUserAgent
+# music-sources
+chooseRelease
+ReleaseCandidate
+MusicRelease
+MusicArtist
+MusicSource
+# pacer
+Pacer
+PacedOptions
+RateLimited
+# discdb
+loadDiscDb
+indexDisc
+DiscDbHit
+# disc-evidence
+DiscEvidence
+# match
+matchDiscs
+MatchContext
+MatchResult
+DiscMatch
+# episodes
+guessEpisodes
+# catalogue
+buildCatalogue
+Catalogue
+CatalogueInput
+FolderCover
+# music-info
+musicInfo
+# owner-store
+OwnerStore
+OwnerSnapshot
+ChoiceOrigin
+# encode-catalogue
+buildEncodeCatalogue
+EncodeCatalogue
+EncodeEntryLike
+EncodeNames
+# encode-next
+nextInShow
+# up-next
+continueWatching
+titleProgress
+DiscsOf
+# art
+ArtCache
+ArtCacheOptions
+# atomic-json
+replaceAtomically

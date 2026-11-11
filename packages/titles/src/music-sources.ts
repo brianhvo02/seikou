@@ -42,10 +42,16 @@ export interface MusicSource {
 
 export type { SourceUnavailable };
 
-/** MusicBrainz's "Various Artists" id. */
+/**
+ * MusicBrainz's "Various Artists" id.
+ * @internal
+ */
 export const VARIOUS_ARTISTS_MBID = '89ad4ac3-39f7-470e-963a-56509c546377';
 
-/** A catalogue number with case, spaces and punctuation ignored, for comparing. */
+/**
+ * A catalogue number with case, spaces and punctuation ignored, for comparing.
+ * @internal
+ */
 export const normalizeCatalogue = (s: string): string => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, '');
 
 /** A neutral description of one exact catalogue hit, for `chooseRelease`. */
@@ -77,7 +83,10 @@ export function chooseRelease<T>(candidates: readonly ReleaseCandidate<T>[]): T 
   return best.item;
 }
 
-/** A source answering from a table keyed by catalogue number (compared ignoring case and spaces), for tests. */
+/**
+ * A source answering from a table keyed by catalogue number (compared ignoring case and spaces), for tests.
+ * @internal
+ */
 export function fixtureMusicSource(recorded: Readonly<Record<string, MusicRelease>>): MusicSource {
   const table = new Map(Object.entries(recorded).map(([k, v]) => [normalizeCatalogue(k), v]));
   return { byCatalogue: (catalogueNumber) => Promise.resolve(table.get(normalizeCatalogue(catalogueNumber)) ?? null) };

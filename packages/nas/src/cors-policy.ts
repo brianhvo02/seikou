@@ -14,5 +14,8 @@ export function corsHeaders(origin: string | null | undefined): Record<string, s
   return headers;
 }
 
-/** How long a browser may cache a preflight answer, in seconds. */
+/**
+ * How long a browser may cache a preflight answer, in seconds.
+ * @internal
+ */
 export const PREFLIGHT_MAX_AGE = '600';

@@ -1,7 +1,10 @@
 /** Types shared by the NAS server and the app. No runtime code. */
 import type { EncodeTitle } from './encode-title';
 
-/** One disc of the NAS library, as `GET discs` lists it (server to app). */
+/**
+ * One disc of the NAS library, as `GET discs` lists it (server to app).
+ * @internal
+ */
 export interface DiscEntry {
   /** The disc's id on this NAS, derived from its path, size and modification time, so a changed disc gets a new id. */
   readonly id: string;
@@ -15,7 +18,10 @@ export interface DiscEntry {
   readonly sizeBytes: number;
 }
 
-/** A folder of the library listing, which holds discs or other folders (server to app). */
+/**
+ * A folder of the library listing, which holds discs or other folders (server to app).
+ * @internal
+ */
 export interface FolderEntry {
   /** The folder's own name. */
   readonly name: string;
@@ -25,7 +31,10 @@ export interface FolderEntry {
   readonly discs: number;
 }
 
-/** A library root, as `GET admin/drives` lists it: its discs now, and whether the last scan found it missing or empty. */
+/**
+ * A library root, as `GET admin/drives` lists it: its discs now, and whether the last scan found it missing or empty.
+ * @internal
+ */
 export interface NasDrive {
   /** The root's name, the first segment of its discs' paths. */
   readonly name: string;
@@ -35,7 +44,10 @@ export interface NasDrive {
   readonly missing: boolean;
 }
 
-/** The answer to `GET library`: one folder's subfolders and discs (server to app). */
+/**
+ * The answer to `GET library`: one folder's subfolders and discs (server to app).
+ * @internal
+ */
 export interface LibraryListing {
   /** The subfolders. */
   readonly folders: FolderEntry[];
@@ -45,7 +57,10 @@ export interface LibraryListing {
   readonly scanning: boolean;
 }
 
-/** The routes a pairing code leads to: the NAS's HTTPS API base and its WebRTC signalling id. */
+/**
+ * The routes a pairing code leads to: the NAS's HTTPS API base and its WebRTC signalling id.
+ * @internal
+ */
 export interface CodeRoutes {
   /** The NAS's HTTPS API base URL; absent when the NAS has no public HTTPS address. */
   readonly https?: string;
@@ -53,7 +68,10 @@ export interface CodeRoutes {
   readonly webrtc?: { readonly nasId: string };
 }
 
-/** The rendezvous service's answer to `POST /codes/lookup { code }`. */
+/**
+ * The rendezvous service's answer to `POST /codes/lookup { code }`.
+ * @internal
+ */
 export interface CodeLookup {
   /** The NAS's id: the thumbprint of its registered key. */
   readonly nasId: string;
@@ -61,13 +79,19 @@ export interface CodeLookup {
   readonly routes: CodeRoutes;
 }
 
-/** `POST /nas`: a NAS registers its P-256 ECDSA public key once and gets its id. */
+/**
+ * `POST /nas`: a NAS registers its P-256 ECDSA public key once and gets its id.
+ * @internal
+ */
 export interface NasRegistration {
   /** The key the NAS signs its code registrations with. */
   readonly publicKeyJwk: EcPublicJwk;
 }
 
-/** A P-256 public key as a JWK. */
+/**
+ * A P-256 public key as a JWK.
+ * @internal
+ */
 export interface EcPublicJwk {
   readonly kty: 'EC';
   readonly crv: 'P-256';
@@ -80,6 +104,7 @@ export interface EcPublicJwk {
 /**
  * `POST /codes`: a NAS registers a code by its hash. `signature` is the NAS key's ECDSA P-256 / SHA-256
  * signature (IEEE P1363, base64url) over the canonical JSON of the other fields.
+ * @internal
  */
 export interface CodeRegistration {
   /** The registering NAS's id. */
@@ -94,7 +119,10 @@ export interface CodeRegistration {
   readonly signature: string;
 }
 
-/** One viewing the NAS GPU is encoding, from `GET admin/encoding` (owners only). */
+/**
+ * One viewing the NAS GPU is encoding, from `GET admin/encoding` (owners only).
+ * @internal
+ */
 export interface EncodingNow {
   /** The person watching. */
   readonly personName: string;
@@ -247,6 +275,7 @@ export type OwnerChoice =
  * the NAS holds a disc of it. A TV entry in a chain is its series (`titleId`, as the catalogue keys it) and its season
  * number in the chain; a film, OVA or other non-TV entry is a title of its own (`anilist:<id>`) with no season. `name`
  * is what that season or title shows.
+ * @internal
  */
 export interface AnilistPlace { readonly titleId: string; readonly season: number | null; readonly name: string }
 /** A title the owner added by hand, for discs the sources don't know. */
@@ -351,7 +380,10 @@ export interface PlaybackPlace {
   /** The name of the device that saved it. */
   readonly deviceName: string;
 }
-/** One person's places in one disc: by playlist id, with the settings of the latest put as `defaults`. */
+/**
+ * One person's places in one disc: by playlist id, with the settings of the latest put as `defaults`.
+ * @internal
+ */
 export interface DiscPlaces {
   /** The settings of the latest put on this disc, for a playlist that has no place of its own; null when none. */
   readonly defaults: PlaceSettings | null;
@@ -398,11 +430,15 @@ export type SubtitleAttachment =
 /**
  * What a subtitle is for when it is registered or moved: an episode of a title's season, or a chapter of a disc's
  * playlist (with the title it is uploaded from, which the app always sends).
+ * @internal
  */
 export type SubtitleFor =
   | { readonly kind: 'episode'; readonly titleId: string; readonly seasonId: string; readonly episode: number }
   | { readonly kind: 'chapter'; readonly discId: string; readonly playlistId: string; readonly chapter: number; readonly titleId?: string };
-/** The body of `POST /api/subtitles`. */
+/**
+ * The body of `POST /api/subtitles`.
+ * @internal
+ */
 export interface SubtitleCreate {
   /** The file's name, as the viewer sees it. */
   readonly name: string;
@@ -412,7 +448,10 @@ export interface SubtitleCreate {
   /** What the subtitle is for. */
   readonly for: SubtitleFor;
 }
-/** The body of `PATCH /api/subtitles/<id>`: any of these. */
+/**
+ * The body of `PATCH /api/subtitles/<id>`: any of these.
+ * @internal
+ */
 export type SubtitlePatch = Partial<SubtitleCreate>;
 /** A subtitle file (SRT or ASS) an owner uploaded to the NAS, with its fonts. */
 export interface StoredSubtitle {
@@ -445,7 +484,10 @@ export interface StoredSubtitle {
 /** How SeaDex rates a release: its best pick, a web release, or any other. */
 export type SeaDexRank = 'best' | 'web' | 'other';
 
-/** One line of a season's summary: the group that fits best and the groups whose tracks were used. */
+/**
+ * One line of a season's summary: the group that fits best and the groups whose tracks were used.
+ * @internal
+ */
 export interface FansubSeasonLine {
   /** The release group SeaDex ranks best for the season, else null. */
   readonly bestGroup: string | null;
@@ -453,14 +495,20 @@ export interface FansubSeasonLine {
   readonly usedGroups: readonly { readonly group: string; readonly rank: SeaDexRank }[];
 }
 
-/** What the fansub run found for one episode. */
+/**
+ * What the fansub run found for one episode.
+ * @internal
+ */
 export interface FansubEpisodeMark {
   readonly status: 'attached' | 'not-found';
   /** Why nothing was attached, when `status` is `not-found`. */
   readonly reason?: 'no-release' | 'no-tracks' | 'service-unavailable' | 'too-large';
 }
 
-/** The fansub run's state for one title; `seasons` is keyed by season id, `episodes` by `"<seasonId>#<episode>"`. */
+/**
+ * The fansub run's state for one title; `seasons` is keyed by season id, `episodes` by `"<seasonId>#<episode>"`.
+ * @internal
+ */
 export interface FansubTitleState {
   readonly titleId: string;
   /** Epoch ms when the last run finished; null when none has. */
@@ -473,7 +521,10 @@ export interface FansubTitleState {
   readonly episodes: Readonly<Record<string, FansubEpisodeMark>>;
 }
 
-/** A release in `GET fansubs/search`; `seadex` is its rank in the SeaDex entry of the title the search named, else null. */
+/**
+ * A release in `GET fansubs/search`; `seadex` is its rank in the SeaDex entry of the title the search named, else null.
+ * @internal
+ */
 export interface ToshoSearchResult {
   /** Anime Tosho's release id. */
   readonly id: number;
@@ -483,7 +534,10 @@ export interface ToshoSearchResult {
   readonly seadex: SeaDexRank | null;
 }
 
-/** `GET fansubs/releases/<id>`: its files with their ASS/SSA tracks, and the file of the episode the disc and playlist are. */
+/**
+ * `GET fansubs/releases/<id>`: its files with their ASS/SSA tracks, and the file of the episode the disc and playlist are.
+ * @internal
+ */
 export interface ToshoReleaseFiles {
   readonly release: ToshoSearchResult;
   readonly files: readonly {
@@ -496,7 +550,10 @@ export interface ToshoReleaseFiles {
   readonly matchedFileId: number | null;
 }
 
-/** The body of `POST fansubs/picks`: a track of an Anime Tosho file, lined up on this disc's playlist. */
+/**
+ * The body of `POST fansubs/picks`: a track of an Anime Tosho file, lined up on this disc's playlist.
+ * @internal
+ */
 export interface FansubPickRequest {
   /** Anime Tosho's file id and the track's number in it. */
   readonly fileId: number; readonly track: number;
@@ -535,13 +592,22 @@ export interface FansubSource {
   readonly linedUpOn: { readonly discKey: string; readonly playlistId: string };
 }
 
-/** The quality levels a disc can be served at; `original` is the disc's own bytes. */
+/**
+ * The quality levels a disc can be served at; `original` is the disc's own bytes.
+ * @internal
+ */
 export type LevelId = 'original' | 'h264-1080' | 'phone-720' | 'hevc-1080' | 'hevc-1080-hdr' | 'h264-1080-sdr';
 
-/** Why a level isn't available: `no-encoder` when the NAS's encoder for its codec failed its self-test (or has none). */
+/**
+ * Why a level isn't available: `no-encoder` when the NAS's encoder for its codec failed its self-test (or has none).
+ * @internal
+ */
 export type LevelReason = 'unplayable' | 'no-encoder' | 'no-hevc' | 'no-hevc10' | 'no-hdr-display' | 'busy';
 
-/** One entry of `GET discs/<id>/levels`. */
+/**
+ * One entry of `GET discs/<id>/levels`.
+ * @internal
+ */
 export interface LevelInfo {
   readonly level: LevelId;
   readonly label: string;
@@ -551,7 +617,10 @@ export interface LevelInfo {
   readonly reason?: LevelReason;
 }
 
-/** A version of a disc: a level with the audio stream it keeps (`audio` is 1-based, as PSR1). */
+/**
+ * A version of a disc: a level with the audio stream it keeps (`audio` is 1-based, as PSR1).
+ * @internal
+ */
 export interface LevelAt {
   /** The level; `original` is the disc's own bytes. */
   readonly level: LevelId;
@@ -602,7 +671,10 @@ export interface EncodeShow {
   readonly seasons: readonly EncodeSeason[];
 }
 
-/** `GET encodes/status`. `scanning` while the first scan runs; `rootMissing`, `rootEmpty` and `scanError` are the index's state. */
+/**
+ * `GET encodes/status`. `scanning` while the first scan runs; `rootMissing`, `rootEmpty` and `scanError` are the index's state.
+ * @internal
+ */
 export interface EncodesStatus {
   /** False when the NAS has no encodes folder (`ENCODES_DIR`); `count` is then 0 and the other fields are absent. */
   readonly configured: boolean;
@@ -614,7 +686,10 @@ export interface EncodesStatus {
   readonly scanError?: string;
 }
 
-/** A show of `GET encodes/shows`. */
+/**
+ * A show of `GET encodes/shows`.
+ * @internal
+ */
 export interface EncodeShowSummary {
   readonly id: string;
   readonly name: string;
@@ -627,13 +702,19 @@ export interface EncodeShowSummary {
   readonly titles: readonly string[];
 }
 
-/** `GET encodes/shows`: the shows by name, and for owners the files the index could not file (paths under the encodes folder). */
+/**
+ * `GET encodes/shows`: the shows by name, and for owners the files the index could not file (paths under the encodes folder).
+ * @internal
+ */
 export interface EncodeShowList {
   readonly shows: readonly EncodeShowSummary[];
   readonly unfiled?: readonly { readonly path: string; readonly size: number }[];
 }
 
-/** An encoded episode's track, as `GET encodes/<id>` lists it (`codec` is the Matroska codec id, such as `V_AV1`). */
+/**
+ * An encoded episode's track, as `GET encodes/<id>` lists it (`codec` is the Matroska codec id, such as `V_AV1`).
+ * @internal
+ */
 export interface EncodeTrackInfo {
   readonly kind: 'video' | 'audio' | 'subtitle';
   readonly codec: string;
@@ -645,7 +726,10 @@ export interface EncodeTrackInfo {
   readonly isForced: boolean;
 }
 
-/** `GET encodes/<id>`: an encoded episode as the NAS indexed it. Times are in milliseconds. */
+/**
+ * `GET encodes/<id>`: an encoded episode as the NAS indexed it. Times are in milliseconds.
+ * @internal
+ */
 export interface EncodeDetail {
   /** `<titlePart>-<episode>` (`encode-id.ts`): `990001-3` for an AniList entry, `tv990101s1-2`, `mv990102-1`, `own<hex>-4`. */
   readonly id: string;
@@ -671,7 +755,10 @@ export interface EncodeDetail {
   readonly tracks: readonly EncodeTrackInfo[];
 }
 
-/** `GET`/`PUT me/player-settings`: one person's player settings, the same on each of their devices. */
+/**
+ * `GET`/`PUT me/player-settings`: one person's player settings, the same on each of their devices.
+ * @internal
+ */
 export interface PlayerSettings {
   /** The next episode starts by itself after a 10 s countdown. */
   readonly nextEpisodeCountdown: boolean;

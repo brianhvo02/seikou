@@ -94,9 +94,13 @@ const TOP_LEVEL_DEPTH = 0;
 /**
  * The matching rules' version. Bump it whenever the matching rules change (what files, where, or as what): the title
  * service then re-matches every disc on its next run, from its lookup cache, so the library follows the new rules.
+ * @internal
  */
 export const MATCH_RULES_VERSION = 4;
-/** Groups failing in a row (SourceUnavailable) before a run stops, leaving the rest for the next run. */
+/**
+ * Groups failing in a row (SourceUnavailable) before a run stops, leaving the rest for the next run.
+ * @internal
+ */
 export const CIRCUIT_BREAKER = 5;
 /** Prequel links followed to find an AniList entry's place in its chain. */
 const MAX_CHAIN = 20;
@@ -200,7 +204,10 @@ function discsUnder(folder: string, evidence: readonly DiscEvidence[]): number {
   return evidence.filter((e) => e.path.startsWith(`${folder}/`) && !e.path.split('/').slice(depth).some((seg) => parseName(seg).bonus)).length;
 }
 
-/** The parent folder path of the disc folder or ISO. */
+/**
+ * The parent folder path of the disc folder or ISO.
+ * @internal
+ */
 export function groupKey(e: DiscEvidence): string {
   const cut = e.path.lastIndexOf('/');
   return cut < 0 ? '' : e.path.slice(0, cut);
@@ -351,6 +358,7 @@ function structureOnly(text: string): boolean {
 /**
  * The release folder of a music disc, or null when the disc isn't music: the deepest segment whose name shows a CD-plus-BD
  * release, else, under a `Music` folder, the disc's parent folder (or the disc folder itself when its parent is `Music`).
+ * @internal
  */
 export function musicRelease(e: DiscEvidence): string | null {
   const segs = e.segments;

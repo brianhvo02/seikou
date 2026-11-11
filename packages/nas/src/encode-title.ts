@@ -25,6 +25,7 @@ const withDashes = (hex: string): string =>
 /**
  * The title's part of encode ids, place keys and folders: `<anilistId>`, `tv<tmdbId>s<season>`, `mv<tmdbId>`, or
  * `own<32 hex>` (the uuid without dashes) with `s<season>` when it has a season.
+ * @internal
  */
 export function titlePart(t: EncodeTitle): string {
   switch (t.source) {
@@ -43,6 +44,7 @@ export function titlePart(t: EncodeTitle): string {
  * The id of the encodes show a title belongs to: `tv<tmdbId>` (a TMDB series' seasons share it), `mv<tmdbId>`, or
  * `own<32 hex>` (an own title's seasons share it). Null for an AniList entry, whose show id is the root of its
  * relation chain, which only the catalogue knows.
+ * @internal
  */
 export function showIdOfTitle(t: EncodeTitle): string | null {
   switch (t.source) {
@@ -57,7 +59,10 @@ export function showIdOfTitle(t: EncodeTitle): string | null {
   }
 }
 
-/** The title a title part names; null for anything that `titlePart` would not write. */
+/**
+ * The title a title part names; null for anything that `titlePart` would not write.
+ * @internal
+ */
 export function parseTitlePart(s: string): EncodeTitle | null {
   if (ANILIST_PART.test(s)) return { source: 'anilist', anilistId: Number(s) };
   const tv = TV_PART.exec(s);
@@ -69,12 +74,18 @@ export function parseTitlePart(s: string): EncodeTitle | null {
   return null;
 }
 
-/** Whether two titles are the same (same source and every field equal). */
+/**
+ * Whether two titles are the same (same source and every field equal).
+ * @internal
+ */
 export function sameTitle(a: EncodeTitle, b: EncodeTitle): boolean {
   return titlePart(a) === titlePart(b);
 }
 
-/** The NAS title id the show is filed under: 'anilist:<n>', 'tmdb-tv:<n>', 'tmdb-movie:<n>', 'own:<uuid>'. */
+/**
+ * The NAS title id the show is filed under: 'anilist:<n>', 'tmdb-tv:<n>', 'tmdb-movie:<n>', 'own:<uuid>'.
+ * @internal
+ */
 export function nasTitleId(t: EncodeTitle): string {
   switch (t.source) {
     case 'anilist':

@@ -49,7 +49,10 @@ export class SourceUnavailable extends Error {
   override name = 'SourceUnavailable';
 }
 
-/** Seconds from a Retry-After header as ms, or null when it is missing or a date. */
+/**
+ * Seconds from a Retry-After header as ms, or null when it is missing or a date.
+ * @internal
+ */
 export function retryAfterMs(header: string | null): number | null {
   if (header === null || !/^\s*\d+(\.\d+)?\s*$/.test(header)) return null;
   return Math.round(Number(header) * 1000);
@@ -62,6 +65,7 @@ type Poster = NonNullable<Entry['poster']>;
  * files (its `medium` and `large`) become medium and large (`large` and `extraLarge`), TMDB's w185 and w500 become
  * w342 and w780. Each source names the size in the URL's path, so no lookup is needed; a poster already at the new
  * sizes, or from anywhere else, comes back as it is.
+ * @internal
  */
 export function sharperPoster(poster: Poster): Poster {
   const small = poster.small
@@ -73,7 +77,10 @@ export function sharperPoster(poster: Poster): Poster {
   return small === poster.small && large === poster.large ? poster : { small, large };
 }
 
-/** `entry` with its poster at the sizes asked for now (`sharperPoster`); the same object when nothing changes. */
+/**
+ * `entry` with its poster at the sizes asked for now (`sharperPoster`); the same object when nothing changes.
+ * @internal
+ */
 export function withSharperPoster(entry: Entry): Entry {
   if (entry.poster === null) return entry;
   const poster = sharperPoster(entry.poster);

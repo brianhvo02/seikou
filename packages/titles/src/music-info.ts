@@ -8,11 +8,17 @@ import type { DiscEvidence } from './disc-evidence';
 import { hasConcertWord, parseMusicFolder } from './music-name';
 import { VARIOUS_ARTISTS_MBID, type MusicArtist, type MusicRelease } from './music-sources';
 
-/** The grouping id of Various artists. */
+/**
+ * The grouping id of Various artists.
+ * @internal
+ */
 export const VARIOUS_ID = 'various';
 const VARIOUS_NAME = 'Various artists';
 
-/** Grouping key of an artist name: NFKC, case-folded, `・`, `·` and runs of spaces collapsed to one space, trimmed. */
+/**
+ * Grouping key of an artist name: NFKC, case-folded, `・`, `·` and runs of spaces collapsed to one space, trimmed.
+ * @internal
+ */
 export function artistKey(name: string): string {
   return name.normalize('NFKC').toLowerCase().replace(/[・·\s]+/g, ' ').trim();
 }

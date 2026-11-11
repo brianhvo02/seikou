@@ -55,7 +55,10 @@ export function parseMusicFolder(name: string): ParsedMusicName {
 const LATIN_CONCERT = /\b(?:live|tour|concert)\b/i;
 const JAPANESE_CONCERT = ['ライブ', 'ツアー', '公演', 'コンサート'];
 
-/** True when the text names a concert: Latin words as whole words, Japanese ones anywhere. */
+/**
+ * True when the text names a concert: Latin words as whole words, Japanese ones anywhere.
+ * @internal
+ */
 export function hasConcertWord(text: string): boolean {
   return LATIN_CONCERT.test(text) || JAPANESE_CONCERT.some((w) => text.includes(w));
 }

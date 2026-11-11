@@ -29,7 +29,10 @@ export function encodePlaceKey(title: EncodeTitle, episode: number): string {
   return `e.${titlePart(title)}.${episode}`;
 }
 
-/** The title and episode of an encode place key; null for anything else. */
+/**
+ * The title and episode of an encode place key; null for anything else.
+ * @internal
+ */
 export function parseEncodePlaceKey(key: string): { title: EncodeTitle; episode: number } | null {
   return key.startsWith('e.') ? pair(key.slice(2), '.') : null;
 }

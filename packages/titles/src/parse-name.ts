@@ -232,7 +232,10 @@ function isTagGroup(bracket: boolean, content: string): boolean {
   return c.split(/[+\s,/&]+/).every((tag) => tag === '' || BRACKET_TAG.test(tag) || WHOLE_TAG.test(tag) || REGION_TAG.test(tag));
 }
 
-/** Whether a word is a release, format, region or bracket-only tag (`BDMV`, `アニメ`, `US`), as `isTagGroup` reads one. */
+/**
+ * Whether a word is a release, format, region or bracket-only tag (`BDMV`, `アニメ`, `US`), as `isTagGroup` reads one.
+ * @internal
+ */
 export function isTagWord(word: string): boolean {
   const w = word.normalize('NFKC').trim();
   return BRACKET_TAG.test(w) || WHOLE_TAG.test(w) || REGION_TAG.test(w);

@@ -5,7 +5,10 @@ const STREAM = /^BDMV\/STREAM\/([^/]+\.M2TS)$/;
 /** What a disc key names: a content fingerprint (any copy of the disc) or one disc's id on one NAS. */
 export type ParsedDiscKey = { kind: 'fingerprint'; fingerprint: string } | { kind: 'disc'; discId: string };
 
-/** The `BDMV/STREAM/*.M2TS` files among `files` (paths as the manifest gives them, upper-case), named by file name. */
+/**
+ * The `BDMV/STREAM/*.M2TS` files among `files` (paths as the manifest gives them, upper-case), named by file name.
+ * @internal
+ */
 export function streamsOf(files: readonly { path: string; size: number }[]): { name: string; size: number }[] {
   return files.flatMap((f) => {
     const m = STREAM.exec(f.path);

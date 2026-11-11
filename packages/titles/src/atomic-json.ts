@@ -8,7 +8,10 @@ function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-/** `lockFile` waited its 5 s and another holder still has the lock. */
+/**
+ * `lockFile` waited its 5 s and another holder still has the lock.
+ * @internal
+ */
 export class LockHeldError extends Error {
   constructor(path: string) {
     super(`${path} is held`);
@@ -16,12 +19,18 @@ export class LockHeldError extends Error {
   }
 }
 
-/** Whether `err` is a Node error with this `code`, such as `ENOENT`. */
+/**
+ * Whether `err` is a Node error with this `code`, such as `ENOENT`.
+ * @internal
+ */
 export function isCode(err: unknown, code: string): boolean {
   return (err as NodeJS.ErrnoException | null)?.code === code;
 }
 
-/** Writes `data` to a new mode-600 file at `path` and flushes it to disk. */
+/**
+ * Writes `data` to a new mode-600 file at `path` and flushes it to disk.
+ * @internal
+ */
 export function writeSynced(path: string, data: string | Buffer): void {
   const fd = openSync(path, 'w', 0o600);
   try {
@@ -33,7 +42,10 @@ export function writeSynced(path: string, data: string | Buffer): void {
   }
 }
 
-/** Flushes a directory entry change; not every platform allows it, hence best effort. */
+/**
+ * Flushes a directory entry change; not every platform allows it, hence best effort.
+ * @internal
+ */
 export function syncDir(dir: string): void {
   try {
     const fd = openSync(dir, 'r');
@@ -58,6 +70,7 @@ export function replaceAtomically(file: string, text: string): void {
 /**
  * Takes the lock file `<file>.lock`. The wait blocks the event loop, which is acceptable here: holders
  * keep the lock for a single small file write (well under a millisecond) and changes are rare.
+ * @internal
  */
 export function lockFile(file: string): () => void {
   const path = `${file}.lock`;

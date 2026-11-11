@@ -20,5 +20,8 @@ export function parsePlaceKey(key: string): ParsedPlaceKey | null {
   return encode ? { kind: 'encode', ...encode } : null;
 }
 
-/** The playlist id an encode's one place is kept under (an encode has one file and no playlists). */
+/**
+ * The playlist id an encode's one place is kept under (an encode has one file and no playlists).
+ * @internal
+ */
 export const ENCODE_PLAYLIST = 'mkv';
