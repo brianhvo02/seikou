@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Eight packages: `bdmv`, `nas`, `pg`, `ass`, `engine`, `titles`, `fansubs`, `matroska`. The encoder, app, server and Worker are not documented.
-- Public API rule (owner's decision): a name stays in a package's `index.ts` when `docs/integrating.md` uses it or code outside the package (`src/`, `server/`, `rendezvous/`, `encoder/`, `tools/`) imports it from the package root. Everything else leaves the barrel, stays importable through `./*`, is not on the site and needs no example. Tests do not count as consumers.
+- Public API rule (owner's decision, revised): a package's public API is the entry points its README presents (Modules and Usage sections), the types those take and return, and every name `docs/integrating.md` uses; nothing code outside the package (`src/`, `server/`, `rendezvous/`, `encoder/`, `tools/`) imports from the package root may be dropped. The list lives in `packages/<pkg>/public-api.txt`, one name per line. Everything else leaves the barrel, stays importable through `./*`, is not on the site and needs no example. Tests do not count as consumers.
 - Every function, class constructor and public method in a barrel gets an example; interfaces, types and constants are documented and link to the examples that use them.
 - URLs: `/developers`, `/developers/<package>`, `/developers/<package>/<export>` (class members are anchors), `/developers/integrating`.
 - Pages are pre-rendered static HTML readable without JavaScript; only search needs JavaScript. The developer entry never imports the player app, never starts the engine, and imports nothing from `src/ui` except the shared tokens stylesheet.
