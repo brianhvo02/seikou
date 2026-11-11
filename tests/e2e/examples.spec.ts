@@ -22,8 +22,8 @@ test('browser examples run', async ({ page }, info) => {
   test.skip(info.project.name !== 'chromium', 'the browser examples run in desktop Chrome only');
   const response = await page.goto('/developers/_examples/');
   const body = response?.ok() ? await response.text() : '';
-  // The developer site's build emits the page; a build without it (the preview server then answers with the player) has nothing to run.
-  test.skip(!body.includes('data-examples-page'), 'the build does not emit /developers/_examples/ yet');
+  // The developer site's build emits the page; a build without it (the preview server then answers with the player) fails here.
+  expect(body, 'the build must emit /developers/_examples/').toContain('data-examples-page');
   await page.waitForFunction(() => (window as unknown as { __examplesDone?: boolean }).__examplesDone === true, undefined, { timeout: 30_000 });
   const results = await page.evaluate(() => (window as unknown as { __examples: Result[] }).__examples);
   // The page must have run every browser example on disk, so one dropped from it fails here.
