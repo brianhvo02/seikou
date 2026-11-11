@@ -4,6 +4,8 @@
  *
  * Ported to TypeScript and modified for Seikou, 2026.
  *
+ * Internal to @seikou/pg: not part of its public API; importable through the package's subpath for Seikou's own use.
+ *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 

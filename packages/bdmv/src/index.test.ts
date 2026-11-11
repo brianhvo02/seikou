@@ -7,7 +7,7 @@ import { CodingType, parseMpls } from '@seikou/bdmv';
 
 it('resolves the package by name and through the barrel', () => {
   expect(new ByteReader(new Uint8Array([1, 2])).u8()).toBe(1);
-  expect(typeof bdmv.ByteReader).toBe('function');
+  expect(typeof bdmv.ParseError).toBe('function');
 });
 
 it('parses the synthetic playlist through the barrel', () => {

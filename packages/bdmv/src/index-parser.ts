@@ -129,7 +129,10 @@ function readObject(r: ByteReader, objectType: number): IndexObject {
   return { kind: 'unknown', objectType };
 }
 
-/** True when First Play, Top Menu or any title starts a BD-J object, so the disc needs the BD-J runtime. */
+/**
+ * True when First Play, Top Menu or any title starts a BD-J object, so the disc needs the BD-J runtime.
+ * @internal
+ */
 export function indexUsesBdj(index: IndexBdmv): boolean {
   return [index.firstPlay, index.topMenu, ...index.titles.map((t) => t.object)].some((o) => o.kind === 'bdj');
 }

@@ -573,7 +573,10 @@ export async function readUdf(read: UdfRead): Promise<UdfFile[]> {
   return (await UdfImage.open(read)).files();
 }
 
-/** The pieces of the image (or zero runs, offset -1) holding bytes `[start, end)` of `file`. */
+/**
+ * The pieces of the image (or zero runs, offset -1) holding bytes `[start, end)` of `file`.
+ * @internal
+ */
 export function udfPieces(file: UdfFile, start: number, end: number): UdfExtent[] {
   const out: UdfExtent[] = [];
   let pos = 0;

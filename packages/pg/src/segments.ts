@@ -17,6 +17,7 @@ import { ByteReader, ParseError } from '@seikou/bdmv/byte-reader';
  * composition segment (PCS), WINDOW the window definition segment (WDS) and END_OF_DISPLAY the END segment that
  * closes a display set. IG_COMPOSITION is the interactive composition segment (ICS). The two dialog values
  * are text subtitle (TextST) segments, which this package does not decode.
+ * @internal
  */
 export const SegmentType = {
   PALETTE: 0x14,
@@ -92,13 +93,20 @@ export interface PgCompositionDescriptor { readonly number: number; readonly sta
  * Whether a segment is the first and the last piece of its data, libbluray `pg.h` `BD_PG_SEQUENCE_DESCRIPTOR`. An
  * object that is too large for one segment is split over several, the first with `firstInSeq` and the last with
  * `lastInSeq`.
+ * @internal
  */
 export interface PgSequenceDescriptor { readonly firstInSeq: boolean; readonly lastInSeq: boolean }
 
-/** The all-zero (fully transparent) palette entry that a palette starts from. */
+/**
+ * The all-zero (fully transparent) palette entry that a palette starts from.
+ * @internal
+ */
 export const EMPTY_PALETTE_ENTRY: PgPaletteEntry = { y: 0, cr: 0, cb: 0, t: 0 };
 
-/** `pg_decode_video_descriptor`: reads the video size and frame rate code (5 bytes). */
+/**
+ * `pg_decode_video_descriptor`: reads the video size and frame rate code (5 bytes).
+ * @internal
+ */
 export function decodeVideoDescriptor(r: ByteReader): PgVideoDescriptor {
   const width = r.u16();
   const height = r.u16();
@@ -107,7 +115,10 @@ export function decodeVideoDescriptor(r: ByteReader): PgVideoDescriptor {
   return { width, height, frameRate };
 }
 
-/** `pg_decode_composition_descriptor`: reads the composition number and state (3 bytes). */
+/**
+ * `pg_decode_composition_descriptor`: reads the composition number and state (3 bytes).
+ * @internal
+ */
 export function decodeCompositionDescriptor(r: ByteReader): PgCompositionDescriptor {
   const number = r.u16();
   const state = r.bits(2);
@@ -115,7 +126,10 @@ export function decodeCompositionDescriptor(r: ByteReader): PgCompositionDescrip
   return { number, state };
 }
 
-/** `pg_decode_sequence_descriptor`: reads the first and last in sequence flags (1 byte). */
+/**
+ * `pg_decode_sequence_descriptor`: reads the first and last in sequence flags (1 byte).
+ * @internal
+ */
 export function decodeSequenceDescriptor(r: ByteReader): PgSequenceDescriptor {
   const firstInSeq = r.flag();
   const lastInSeq = r.flag();
@@ -123,12 +137,18 @@ export function decodeSequenceDescriptor(r: ByteReader): PgSequenceDescriptor {
   return { firstInSeq, lastInSeq };
 }
 
-/** `pg_decode_window`: reads one window, its id and rectangle (9 bytes). */
+/**
+ * `pg_decode_window`: reads one window, its id and rectangle (9 bytes).
+ * @internal
+ */
 export function decodeWindow(r: ByteReader): PgWindow {
   return { id: r.u8(), x: r.u16(), y: r.u16(), width: r.u16(), height: r.u16() };
 }
 
-/** `pg_decode_composition_object`: reads one object placement, with the crop rectangle only when its flag is set. */
+/**
+ * `pg_decode_composition_object`: reads one object placement, with the crop rectangle only when its flag is set.
+ * @internal
+ */
 export function decodeCompositionObject(r: ByteReader): PgCompositionObject {
   const objectId = r.u16();
   const windowId = r.u8();
@@ -152,6 +172,7 @@ export function decodeCompositionObject(r: ByteReader): PgCompositionObject {
  * after the 3-byte segment header. With `previous` the entries of that palette are kept and the segment's entries
  * replace only the ones it names (an update), otherwise all entries start zeroed. A truncated segment throws
  * `ParseError` from the reader.
+ * @internal
  */
 export function decodePalette(r: ByteReader, previous?: PgPalette): PgPalette {
   const id = r.u8();
@@ -191,6 +212,7 @@ function decodeRle(r: ByteReader, width: number, height: number): RleElem[] {
  * `pg_decode_object`: reads an object definition segment, with `r` positioned after the 3-byte segment header and
  * fragments already joined (see `SegmentJoiner`). Throws `ParseError` for a segment that is not whole or whose pixels
  * do not add up. `written`, when given, receives the id, version, width and height read before a failure.
+ * @internal
  */
 export function decodeObject(r: ByteReader, written?: { id: number; version: number; width: number; height: number }): PgObject {
   // `written` receives the fields pg_decode_object has stored in the C struct when it fails part-way
@@ -248,6 +270,7 @@ function concat(parts: readonly Uint8Array[]): Uint8Array {
  * same id bytes). Feed each segment to `push`; it returns the segments that are now ready to decode, in order.
  * Deviation from the C code: fragments are joined in arrival order only (no queue search); a too-short continuation is
  * treated as a non-matching segment (C drops it). Readers are strict about overreads where C zero-fills.
+ * @internal
  */
 export class SegmentJoiner {
   private chunks: Uint8Array[] = [];

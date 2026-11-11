@@ -1,7 +1,10 @@
 import { ParseError } from '../byte-reader';
 import { joinAnnexB, splitAnnexB, unescapeRbsp } from './nal';
 
-/** What `analyzeAvc` and `analyzeHevc` found in one access unit (the payload of one video PES). */
+/**
+ * What `analyzeAvc` and `analyzeHevc` found in one access unit (the payload of one video PES).
+ * @internal
+ */
 export interface AccessUnitInfo {
   /**
    * Decoding can start here: for H.264 an IDR slice or a recovery point SEI (payloadType 6, Annex D), for H.265 an
@@ -46,6 +49,7 @@ export function avcCodecString(sps: Uint8Array): string {
  * True when the SPS NAL unit (with its header) has frame_mbs_only_flag 0: the stream may hold field pictures or MBAFF
  * frames (1080i on Blu-ray). Reads the SPS syntax of H.264 §7.3.2.1.1 up to that flag; an SPS too short to reach it
  * counts as progressive.
+ * @internal
  */
 export function avcIsInterlaced(sps: Uint8Array): boolean {
   const r = new ExpGolomb(unescapeRbsp(sps.subarray(1)));
@@ -86,7 +90,10 @@ export function avcIsInterlaced(sps: Uint8Array): boolean {
   }
 }
 
-/** pic_parameter_set_id (H.264 §7.3.2.2) of a PPS NAL unit with its header, or null when it is too short to hold one. */
+/**
+ * pic_parameter_set_id (H.264 §7.3.2.2) of a PPS NAL unit with its header, or null when it is too short to hold one.
+ * @internal
+ */
 export function avcPpsId(pps: Uint8Array): number | null {
   try {
     return new ExpGolomb(unescapeRbsp(pps.subarray(1))).ue();
@@ -134,7 +141,10 @@ class ExpGolomb {
   }
 }
 
-/** Scans one H.264 access unit in Annex B form for its key frame, IDR, SPS and PPS NAL units, and strips MVC units. */
+/**
+ * Scans one H.264 access unit in Annex B form for its key frame, IDR, SPS and PPS NAL units, and strips MVC units.
+ * @internal
+ */
 export function analyzeAvc(data: Uint8Array): AccessUnitInfo {
   const nals = splitAnnexB(data);
   let idr = false;

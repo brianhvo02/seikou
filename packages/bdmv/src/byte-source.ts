@@ -51,7 +51,10 @@ export class DiscError extends Error {
   }
 }
 
-/** The whole file at `path`, read in one `read` call. */
+/**
+ * The whole file at `path`, read in one `read` call.
+ * @internal
+ */
 export function readWhole(source: ByteSource, path: string): Promise<Uint8Array> {
   return source.read(path, 0, source.size(path));
 }

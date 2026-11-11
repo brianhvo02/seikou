@@ -1,0 +1,78 @@
+# @seikou/bdmv public API: the README's parsers, the UDF reader, the demuxer and the codec-string readers,
+# with every type their signatures reach.
+# byte-source
+ByteSource
+DiscError
+DiscErrorCode
+# byte-reader
+ParseError
+# stream-types
+CodingType
+# index-parser
+parseIndex
+IndexBdmv
+IndexTitle
+IndexAppInfo
+IndexObject
+# mpls-parser
+parseMpls
+Mpls
+PlayItem
+SubPlayItem
+SubPath
+PlayListMark
+MarkType
+StnTable
+StreamEntry
+# clpi-parser
+parseClpi
+Clpi
+AtcSequence
+StcSequence
+ProgramInfo
+ProgramStream
+EpMap
+EpEntry
+# mobj-parser
+parseMovieObjects
+MovieObjects
+MovieObject
+MobjCmd
+HdmvInsn
+# bdjo-parser
+parseBdjo
+Bdjo
+BdjoApp
+BdjoAppCacheItem
+BdjoAccessiblePlaylists
+BdjoAppName
+BdjoAppProfile
+BdjoTerminalInfo
+# bdid-parser
+parseBdid
+BdidData
+# sound-parser
+parseSoundBdmv
+SoundData
+SoundClip
+# udf
+readUdf
+UdfImage
+UdfFile
+UdfExtent
+UdfRead
+UdfError
+# demux/ts-packet
+parseSourcePacket
+TsPacket
+# demux/pes-assembler
+PesAssembler
+PesPacket
+# demux/m2ts-reader
+M2tsReader
+M2tsReaderOptions
+DemuxStats
+# codecs/h264
+avcCodecString
+# codecs/hevc
+hevcCodecString

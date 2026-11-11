@@ -11,19 +11,34 @@
 import { ByteReader, ParseError } from './byte-reader';
 import { checkVersion } from './version';
 
-/** `HdmvInsn.grp` values: the command group (libbluray `hdmv_insn_grp`, `hdmv_insn.h`). */
+/**
+ * `HdmvInsn.grp` values: the command group (libbluray `hdmv_insn_grp`, `hdmv_insn.h`).
+ * @internal
+ */
 export const InsnGroup = { BRANCH: 0, CMP: 1, SET: 2 } as const;
 
-/** `HdmvInsn.subGrp` values in the branch group (libbluray `hdmv_insn_grp_branch`). */
+/**
+ * `HdmvInsn.subGrp` values in the branch group (libbluray `hdmv_insn_grp_branch`).
+ * @internal
+ */
 export const BranchSub = { GOTO: 0x00, JUMP: 0x01, PLAY: 0x02 } as const;
 
-/** `HdmvInsn.branchOpt` values in the GOTO sub-group: jumps within the object's commands (libbluray `hdmv_insn_goto`). */
+/**
+ * `HdmvInsn.branchOpt` values in the GOTO sub-group: jumps within the object's commands (libbluray `hdmv_insn_goto`).
+ * @internal
+ */
 export const GotoOpt = { NOP: 0x00, GOTO: 0x01, BREAK: 0x02 } as const;
 
-/** `HdmvInsn.branchOpt` values in the JUMP sub-group: jumps and calls to objects and titles (libbluray `hdmv_insn_jump`). */
+/**
+ * `HdmvInsn.branchOpt` values in the JUMP sub-group: jumps and calls to objects and titles (libbluray `hdmv_insn_jump`).
+ * @internal
+ */
 export const JumpOpt = { JUMP_OBJECT: 0x00, JUMP_TITLE: 0x01, CALL_OBJECT: 0x02, CALL_TITLE: 0x03, RESUME: 0x04 } as const;
 
-/** `HdmvInsn.branchOpt` values in the PLAY sub-group: playlist playback and links within it (libbluray `hdmv_insn_play`). */
+/**
+ * `HdmvInsn.branchOpt` values in the PLAY sub-group: playlist playback and links within it (libbluray `hdmv_insn_play`).
+ * @internal
+ */
 export const PlayOpt = {
   PLAY_PL: 0x00,
   PLAY_PL_PI: 0x01,
@@ -36,13 +51,20 @@ export const PlayOpt = {
 /**
  * `HdmvInsn.cmpOpt` values of the compare group (libbluray `hdmv_insn_cmp`, `INSN_BC` to `INSN_LT`): bit test, equal,
  * not equal, greater or equal, greater, less or equal, less.
+ * @internal
  */
 export const CmpOpt = { BC: 0x01, EQ: 0x02, NE: 0x03, GE: 0x04, GT: 0x05, LE: 0x06, LT: 0x07 } as const;
 
-/** `HdmvInsn.subGrp` values in the set group (libbluray `hdmv_insn_grp_set`). */
+/**
+ * `HdmvInsn.subGrp` values in the set group (libbluray `hdmv_insn_grp_set`).
+ * @internal
+ */
 export const SetSub = { SET: 0x00, SETSYSTEM: 0x01 } as const;
 
-/** `HdmvInsn.setOpt` values in the SET sub-group: register arithmetic and moves (libbluray `hdmv_insn_set`). */
+/**
+ * `HdmvInsn.setOpt` values in the SET sub-group: register arithmetic and moves (libbluray `hdmv_insn_set`).
+ * @internal
+ */
 export const SetOpt = {
   MOVE: 0x01,
   SWAP: 0x02,
@@ -64,6 +86,7 @@ export const SetOpt = {
 /**
  * `HdmvInsn.setOpt` values in the SETSYSTEM sub-group: stream, button, still and output mode control (libbluray
  * `hdmv_insn_setsystem`). 0x10 has no name in libbluray, whose `_setsystem_0x10` writes `dst` to PSR103.
+ * @internal
  */
 export const SetSystemOpt = {
   SET_STREAM: 0x01,
@@ -145,6 +168,7 @@ const OBJECTS_START = 40;
 /**
  * Decodes the 12-byte HDMV command at `offset` of `bytes` (libbluray `mobj_parse_cmd`). Throws a ParseError when fewer
  * than 12 bytes remain.
+ * @internal
  */
 export function parseMobjCmd(bytes: Uint8Array, offset = 0): MobjCmd {
   const r = new ByteReader(bytes.subarray(offset, offset + CMD_SIZE));

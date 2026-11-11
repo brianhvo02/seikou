@@ -11,7 +11,8 @@
 import type { MobjCmd } from '@seikou/bdmv/mobj-parser';
 import { EMPTY_UO_MASK, type UoMask } from '../hdmv/uo-mask';
 import { PSR, type PsrEvent, type RegisterFile } from '../hdmv/registers';
-import { compositionObjectOp, type OverlayCmd, type OverlayOp, type PgCompositionObject, type PgObject, type PgPalette } from '@seikou/pg';
+import { compositionObjectOp } from '@seikou/pg/composition';
+import type { OverlayCmd, OverlayOp, PgCompositionObject, PgObject, PgPalette } from '@seikou/pg';
 import type { IgButton, IgComposition, IgDisplaySet, IgEffect, IgEffectSequence, IgPage } from './ig-decoder';
 
 /**

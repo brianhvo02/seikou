@@ -275,7 +275,10 @@ function readCpi(r: ByteReader, start: number): EpMap[] {
   });
 }
 
-/** Source packets [startSpn, endSpn) belonging to one STC sequence (one continuous PTS timeline). */
+/**
+ * Source packets [startSpn, endSpn) belonging to one STC sequence (one continuous PTS timeline).
+ * @internal
+ */
 export interface SpnRange {
   readonly startSpn: number;
   readonly endSpn: number;
@@ -287,6 +290,7 @@ const WHOLE_CLIP: SpnRange = { startSpn: 0, endSpn: Infinity };
  * The SPN range of a play item's STC sequence (after libbluray `clpi_find_stc_spn`, which returns only the start):
  * from the sequence's first packet up to the next sequence's first packet. The whole clip when `stcId` names no
  * sequence.
+ * @internal
  */
 export function stcSpnRange(clip: Clpi, stcId: number): SpnRange {
   for (const atc of clip.atcSequences) {
@@ -306,6 +310,7 @@ function entriesIn(map: EpMap, range: SpnRange): readonly EpEntry[] {
 /**
  * The last entry with pts ≤ `pts45` (45 kHz clip time) among the entries inside `range`; the first entry if the target
  * precedes all of them; undefined if there are none. Entries must ascend by PTS within the range.
+ * @internal
  */
 export function findEpBefore(map: EpMap, pts45: number, range: SpnRange = WHOLE_CLIP): EpEntry | undefined {
   const entries = entriesIn(map, range);
@@ -324,7 +329,10 @@ export function findEpBefore(map: EpMap, pts45: number, range: SpnRange = WHOLE_
   return entries[Math.max(found, 0)];
 }
 
-/** The first entry with pts > `pts45` (45 kHz clip time) among the entries inside `range`, or undefined. */
+/**
+ * The first entry with pts > `pts45` (45 kHz clip time) among the entries inside `range`, or undefined.
+ * @internal
+ */
 export function findEpAfter(map: EpMap, pts45: number, range: SpnRange = WHOLE_CLIP): EpEntry | undefined {
   const entries = entriesIn(map, range);
   let lo = 0;

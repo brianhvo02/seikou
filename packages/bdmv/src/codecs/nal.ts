@@ -1,3 +1,5 @@
+// Internal to @seikou/bdmv: not part of its public API; importable through the package's subpath for Seikou's own use.
+
 /**
  * Splits an Annex B byte stream (ITU-T H.264 and H.265 Annex B) into NAL units, each starting with its NAL unit
  * header: start codes removed, trailing zero bytes trimmed, empty units dropped. The units are views into `data`.

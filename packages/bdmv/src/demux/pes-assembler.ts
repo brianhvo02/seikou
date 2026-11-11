@@ -44,6 +44,7 @@ const NO_HEADER_STREAM_IDS = new Set([0xbc, 0xbe, 0xbf, 0xf0, 0xf1, 0xf2, 0xf8, 
 /**
  * The 33-bit PTS or DTS in the 5 bytes at `o`, with its marker bits dropped (ISO/IEC 13818-1 §2.4.3.6), in 90 kHz
  * ticks. Values above 2^32 stay exact because the top 3 bits are added by multiplication.
+ * @internal
  */
 export function readTimestamp(d: Uint8Array, o: number): number {
   return ((d[o] >> 1) & 0x07) * 0x40000000 + ((d[o + 1] << 22) | ((d[o + 2] >> 1) << 15) | (d[o + 3] << 7) | (d[o + 4] >> 1));

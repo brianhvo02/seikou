@@ -1,0 +1,22 @@
+# @seikou/pg public API: the decoder, the renderer and the overlay plane, with every type their signatures reach.
+# pg-decoder
+PgSegmentDecoder
+PgDisplaySet
+PgComposition
+# segments
+PgWindow
+PgPalette
+PgPaletteEntry
+PgObject
+RleElem
+PgVideoDescriptor
+PgCompositionDescriptor
+PgCompositionObject
+# pg-renderer
+PgRenderer
+PgRendererDeps
+# overlay-plane
+OverlayPlane
+OverlayOp
+OverlayCmd
+Rect

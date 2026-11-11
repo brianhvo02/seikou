@@ -14,7 +14,7 @@ import {
   SegmentJoiner, SegmentType, decodeCompositionDescriptor, decodeCompositionObject, decodeObject, decodePalette,
   decodeSequenceDescriptor, decodeVideoDescriptor, decodeWindow,
   type PgCompositionObject, type PgObject, type PgPalette, type PgWindow,
-} from '@seikou/pg';
+} from '@seikou/pg/segments';
 
 const NAV_CMD_SIZE = 12;
 

@@ -53,17 +53,26 @@ const NAMES: Readonly<Record<number, string>> = {
   0x92: 'Text subtitles',
 };
 
-/** True for the video coding types (MPEG-1, MPEG-2, H.264, MVC, HEVC, VC-1), whose attributes carry format and rate. */
+/**
+ * True for the video coding types (MPEG-1, MPEG-2, H.264, MVC, HEVC, VC-1), whose attributes carry format and rate.
+ * @internal
+ */
 export function isVideoCoding(codingType: number): boolean {
   return VIDEO_TYPES.has(codingType);
 }
 
-/** True for the audio coding types (primary and secondary), whose attributes carry format, rate and language. */
+/**
+ * True for the audio coding types (primary and secondary), whose attributes carry format, rate and language.
+ * @internal
+ */
 export function isAudioCoding(codingType: number): boolean {
   return AUDIO_TYPES.has(codingType);
 }
 
-/** A short English name of the coding type for the user interface, or `unknown codec 0x..` for any other value. */
+/**
+ * A short English name of the coding type for the user interface, or `unknown codec 0x..` for any other value.
+ * @internal
+ */
 export function codingName(codingType: number): string {
   return NAMES[codingType] ?? `unknown codec 0x${codingType.toString(16)}`;
 }

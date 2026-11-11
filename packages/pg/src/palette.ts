@@ -2,6 +2,8 @@
  * Original implementation for Seikou, 2026; palette entry semantics from
  * libbluray src/libbluray/decoders/overlay.h (BD_PG_PALETTE_ENTRY).
  *
+ * Internal to @seikou/pg: not part of its public API; importable through the package's subpath for Seikou's own use.
+ *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 

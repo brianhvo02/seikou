@@ -17,6 +17,7 @@ export class ParseError extends Error {
  * Big-endian reader with MSB-first bit access over a byte array, modelled on libbluray's BITSTREAM. Byte reads
  * (`u8`, `u16`, `u32`, `skip`, `take`, `ascii`) need the bit position to be on a byte boundary; every read past the
  * end, unaligned byte read or out-of-range seek throws a ParseError instead of returning garbage.
+ * @internal
  */
 export class ByteReader {
   private pos: number;

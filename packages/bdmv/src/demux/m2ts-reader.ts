@@ -32,7 +32,10 @@ export interface DemuxStats {
   readonly continuityErrors: number;
 }
 
-/** The default `chunkPackets`: 341 aligned units, about 2 MB per read. */
+/**
+ * The default `chunkPackets`: 341 aligned units, about 2 MB per read.
+ * @internal
+ */
 export const DEFAULT_CHUNK_PACKETS = PACKETS_PER_ALIGNED_UNIT * 341;
 
 /**

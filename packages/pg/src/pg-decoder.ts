@@ -44,7 +44,10 @@ export interface PgDisplaySet {
   readonly objects: ReadonlyMap<number, PgObject>;
 }
 
-/** `pg_decode_composition`: reads a presentation composition segment, with `r` positioned after the 3-byte segment header. `pts` is stored in the result. */
+/**
+ * `pg_decode_composition`: reads a presentation composition segment, with `r` positioned after the 3-byte segment header. `pts` is stored in the result.
+ * @internal
+ */
 export function decodeComposition(r: ByteReader, pts: number): PgComposition {
   const videoDescriptor = decodeVideoDescriptor(r);
   const compositionDescriptor = decodeCompositionDescriptor(r);
@@ -57,7 +60,10 @@ export function decodeComposition(r: ByteReader, pts: number): PgComposition {
   return { videoDescriptor, compositionDescriptor, paletteUpdateFlag, paletteIdRef, compositionObjects, pts };
 }
 
-/** `pg_decode_windows`: reads a window definition segment (a count, then that many windows). */
+/**
+ * `pg_decode_windows`: reads a window definition segment (a count, then that many windows).
+ * @internal
+ */
 export function decodeWindows(r: ByteReader): PgWindow[] {
   const num = r.u8();
   const windows: PgWindow[] = [];

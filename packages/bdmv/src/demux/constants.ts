@@ -1,3 +1,5 @@
+// Internal to @seikou/bdmv: not part of its public API; importable through the package's subpath for Seikou's own use.
+
 /**
  * Bytes in one source packet of a Blu-ray `.m2ts` clip: a 4-byte TP_extra_header (2 bits of copy permission and a
  * 30-bit arrival time stamp) followed by a 188-byte transport packet. SPNs (source packet numbers) count these.
