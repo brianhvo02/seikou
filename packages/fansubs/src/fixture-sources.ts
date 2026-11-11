@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
+// Internal to @seikou/fansubs: not part of its public API; importable through the package's subpath for Seikou's own use.
 /** Recorded SeaDex and Anime Tosho answers from a folder, for the E2E stand-in and service tests. Original code. */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

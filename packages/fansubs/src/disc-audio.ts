@@ -34,6 +34,7 @@ export interface TimeWindow {
  * Up to six windows of a minute, evenly spread over the middle of an episode (the first and last minute and a half hold
  * openings, endings and previews): fewer and shorter ones (never under 30 s) when it is under nine minutes, the whole of it
  * when under three and a half.
+ * @internal
  */
 export function windowsFor(durationMs: number): TimeWindow[] {
   const margin = 90_000;
@@ -48,7 +49,10 @@ export function windowsFor(durationMs: number): TimeWindow[] {
   });
 }
 
-/** Hands bytes to a decoder: false once the decoder is gone (it exited, or its input closed), so the feeder stops. */
+/**
+ * Hands bytes to a decoder: false once the decoder is gone (it exited, or its input closed), so the feeder stops.
+ * @internal
+ */
 export type Write = (bytes: Uint8Array) => Promise<boolean>;
 
 /**
@@ -57,6 +61,7 @@ export type Write = (bytes: Uint8Array) => Promise<boolean>;
  * ffmpeg would take the PID for TrueHD and wait for a major sync, or map two streams.
  * Every audio PES's PTS is appended to `pesPts` (for `assertNoDecodeGap`); the packets go to `write`, and the first PES's
  * PTS is returned (null when the range holds none).
+ * @internal
  */
 export async function demuxAudioPid(stream: Readable, pid: number, core: boolean, write: Write, pesPts: number[], signal?: AbortSignal): Promise<number | null> {
   let carry: Buffer = Buffer.alloc(0);
@@ -114,6 +119,7 @@ export async function demuxAudioPid(stream: Readable, pid: number, core: boolean
  * Whether the decoded audio is as long as the PES timestamps say: ffmpeg gives decoded frames contiguous times whatever the
  * stream's timestamps are, so a frame it dropped (a damaged PES) would silently shift every later sample. Throws when
  * the decode is short of the span the PES packets cover (plus one PES, the last one's length) by more than two PES.
+ * @internal
  */
 export function assertNoDecodeGap(pesPts: readonly number[], decodedSamples: number, pid: number): void {
   if (pesPts.length < 3) return;

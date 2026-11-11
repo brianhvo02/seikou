@@ -27,7 +27,10 @@ function dirsOf(name: string): string[] {
   return name.split(/[\\/]/).slice(0, -1);
 }
 
-/** True for creditless openings and endings, previews, menus and anything under an extras folder. */
+/**
+ * True for creditless openings and endings, previews, menus and anything under an extras folder.
+ * @internal
+ */
 export function isExtraFile(name: string): boolean {
   return dirsOf(name).some((d) => EXTRA_DIRS.has(d.trim().toLowerCase())) || EXTRA_WORD.test(baseOf(name));
 }
@@ -46,7 +49,10 @@ export function episodeOfFile(name: string): number | null {
   return null;
 }
 
-/** The file's number as this season's number (`before` = episodes in the earlier seasons), or null. */
+/**
+ * The file's number as this season's number (`before` = episodes in the earlier seasons), or null.
+ * @internal
+ */
 export function seasonEpisode(fileEpisode: number, season: { readonly count: number; readonly before: number }): number | null {
   if (fileEpisode >= 1 && fileEpisode <= season.count) return fileEpisode;
   const n = fileEpisode - season.before;
@@ -60,7 +66,10 @@ export function mainFile(files: readonly ToshoFile[]): ToshoFile | null {
   return best;
 }
 
-/** The `vN` of a file name (`05v2` is 2), 1 when it has none. */
+/**
+ * The `vN` of a file name (`05v2` is 2), 1 when it has none.
+ * @internal
+ */
 export function fileVersion(name: string): number {
   const m = /\dv(\d+)(?=[\s.[(_]|$)/.exec(baseOf(name).replace(CRC, ''));
   return m ? Number(m[1]) : 1;

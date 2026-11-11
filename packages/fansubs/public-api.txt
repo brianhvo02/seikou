@@ -1,0 +1,52 @@
+# @seikou/fansubs public API: the README's steps from finding a release to retiming it, and the pick store,
+# with every type their signatures reach.
+# seadex
+createSeaDex
+SeaDex
+SeaDexEntry
+SeaDexRelease
+# tosho
+createTosho
+Tosho
+ToshoRelease
+ToshoFile
+ToshoTrack
+# choose
+choosePerEpisode
+rankReleases
+Candidate
+EpisodeChoice
+# episode-files
+episodeOfFile
+mainFile
+# tracks
+fetchTrack
+# archive
+unxz
+fontsIn7z
+TooLargeArchive
+# fetch-cache
+FetchCache
+# semaphore
+Semaphore
+# disc-source
+FansubDiscSource
+FansubClipSource
+# audio-decoder
+AudioDecoder
+AudioDecodeInput
+# disc-audio
+episodeAudio
+TimeWindow
+AudioWindow
+# dialogue
+dialogueIntervals
+# align
+align
+AlignOptions
+# retime
+retime
+# pick-store
+PickStore
+PickStoreOptions
+PickFile

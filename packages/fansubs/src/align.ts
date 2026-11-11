@@ -12,7 +12,10 @@ import { speechMask } from './speech';
 
 type Span = { readonly fromMs: number; readonly toMs: number };
 
-/** What the aligner compares: the disc's speech and the track's dialogue. */
+/**
+ * What the aligner compares: the disc's speech and the track's dialogue.
+ * @internal
+ */
 export interface AlignInput {
   /** Disc audio windows to find speech in; `alignWhole` takes the whole episode as `windows[0]`. */
   readonly windows: readonly AudioWindow[];
@@ -20,7 +23,10 @@ export interface AlignInput {
   readonly dialogue: readonly Span[];
 }
 
-/** The best offset found in one audio window. */
+/**
+ * The best offset found in one audio window.
+ * @internal
+ */
 export interface WindowOffset {
   /** Where the window starts in the episode, in milliseconds. */
   readonly startMs: number;
@@ -232,6 +238,7 @@ function windowsAligned(windows: readonly Masked[], dialogue: readonly Span[], m
  * Per window, the offset in [-maxShiftMs, maxShiftMs] (10 ms steps) at which the dialogue, moved by it, best covers the
  * window's speech: the score is the speech frames under the moved dialogue over the dialogue frames in the window.
  * `agree` when every window scoring 0.4 or more is within 300 ms of their median.
+ * @internal
  */
 export function alignWindows(input: AlignInput, maxShiftMs = 60_000): { readonly perWindow: readonly WindowOffset[]; readonly agree: boolean } {
   const { perWindow, agree } = windowsAligned(input.windows.map(masked), input.dialogue, maxShiftMs);
@@ -283,6 +290,7 @@ const spanMs = (spans: readonly Span[]): number => spans.reduce((sum, s) => sum 
  * stretch around a pair of neighbouring windows (of `perWindow`) that disagree and searched there at 1 s steps; a split is
  * taken only when it raises the score by 0.08 or more, and each of its parts must be confident on its own.
  * Split points and `parts[].fromMs` are in the track's time.
+ * @internal
  */
 export function alignWhole(input: AlignInput, perWindow: readonly WindowOffset[], maxShiftMs = 60_000): FansubAlignment {
   const w = masked(input.windows[0]!);
@@ -435,6 +443,7 @@ const describeSpan = (spans: readonly TimeWindow[] | 'whole'): string =>
  * Gives the 16 kHz mono PCM of an episode: one window covering the given spans, with `startMs` the first span's start
  * (for `'whole'`, the whole episode with `startMs` 0). It throws for audio it could not read; `alignAudio` skips such a
  * window, except for an abort or a failure to start a tool (an error whose `syscall` begins with `spawn`), which it passes on.
+ * @internal
  */
 export type PlaylistAudioReader = (spans: readonly TimeWindow[] | 'whole', signal?: AbortSignal) => Promise<AudioWindow>;
 
@@ -496,6 +505,7 @@ export async function align(
  * The same line-up as `align`, over PCM the host decodes itself through `read` (for a host that decodes with a tool
  * that reads files, not byte streams). `durationMs` is the episode's length. The result is `none` rather than a guess
  * when unsure; it rejects on an abort or when `read` fails to start a tool.
+ * @internal
  */
 export async function alignAudio(
   readAudio: PlaylistAudioReader,

@@ -24,7 +24,10 @@ const LANGUAGES: Readonly<Record<string, string>> = {
   bg: 'bul', hr: 'hrv', sk: 'slo', sl: 'slv', sr: 'srp', ca: 'cat', fil: 'fil', tl: 'tgl', my: 'bur', ta: 'tam',
 };
 
-/** A language code (ISO 639-1, 639-2/T or 639-2/B, with any region after `-` or `_`) as 639-2/B, lower case; a code not in the table is returned lower-cased as it is. */
+/**
+ * A language code (ISO 639-1, 639-2/T or 639-2/B, with any region after `-` or `_`) as 639-2/B, lower case; a code not in the table is returned lower-cased as it is.
+ * @internal
+ */
 export function normalizeLanguage(code: string): string {
   const c = (code.trim().toLowerCase().split(/[-_]/)[0]) ?? '';
   return LANGUAGES[c] ?? c;
@@ -35,7 +38,10 @@ const TWO_LETTER: Readonly<Record<string, string>> = Object.fromEntries(
   Object.entries(LANGUAGES).filter(([k]) => k.length === 2).map(([k, v]) => [v, k]),
 );
 
-/** The tag a fansub is stored with, as owner uploads are (BCP 47): the two-letter code when there is one, else 639-2/B; `und` when empty. */
+/**
+ * The tag a fansub is stored with, as owner uploads are (BCP 47): the two-letter code when there is one, else 639-2/B; `und` when empty.
+ * @internal
+ */
 export function languageTag(code: string): string {
   const c = normalizeLanguage(code);
   if (c === '') return 'und';
