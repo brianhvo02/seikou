@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -36,4 +37,18 @@ describe('documentation standard', () => {
     expect(privateHistoryComments(files).map((c) => `${strip(c.file)}:${c.line} ${c.text}`)).toEqual([]));
   it('no comment uses the old name', () =>
     expect(oldNameComments(files).map((c) => `${strip(c.file)}:${c.line} ${c.text}`)).toEqual([]));
+});
+
+/** The fenced code block of `docs/integrating.md` between its example markers, or null when there is none. */
+export function guideExample(markdown: string): string | null {
+  const m = /<!-- example:minimal-player -->\n```ts\n([\s\S]*?)```\n<!-- \/example -->/.exec(markdown);
+  return m ? m[1]! : null;
+}
+
+describe('integration guide', () => {
+  it('shows the example player exactly as docs/integrating/minimal-player.ts holds it (without its SPDX line)', () => {
+    const guide = readFileSync(resolve(root, 'docs/integrating.md'), 'utf8');
+    const example = readFileSync(resolve(root, 'docs/integrating/minimal-player.ts'), 'utf8');
+    expect(guideExample(guide)).toBe(example.replace(/^\/\/ SPDX-License-Identifier: [^\n]*\n/, ''));
+  });
 });

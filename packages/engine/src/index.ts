@@ -11,6 +11,7 @@ export function createEngineWorker(name: string): Worker {
 export { createController, type CreateControllerOptions } from './controller/create-controller';
 export { PlayerController, INITIAL_SNAPSHOT, type PlayerSnapshot, type Notice, type IndexTitles, type SubtitlesState } from './controller/player-controller';
 export { PlatformSession } from './controller/platform-session';
+export { walkEntries, type EntryLike, type FileEntryLike, type DirEntryLike } from './controller/entry-walk';
 export {
   BDJ_STORAGE_MESSAGE,
   ENCODE_FILE,
@@ -42,6 +43,7 @@ export {
 export { MEMORY_PROFILES, type MemoryProfile, type MemoryProfileName } from './memory-profile';
 export { createByteSource, type DiscSpec, type RemoteDiscSpec } from './disc/disc-spec';
 export { HttpTransport, type HttpTransportOptions } from './disc/http-transport';
+export { RemoteSource, type RemoteSourceOptions, type RangeTransport } from './disc/remote-source';
 export { openDisc, type DiscModel } from './disc/open-disc';
 export { BDJ_RUNTIME, bdjUnsupportedMessage, type BdjInputProvider, type BdjProvider } from './bdj-provider';
 export type {

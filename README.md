@@ -48,7 +48,7 @@ The [documentation index](docs/README.md) lists every page by module. In short:
 - Player: [Getting started](docs/getting-started.md), [Playing discs](docs/playing-discs.md) and [Troubleshooting](docs/troubleshooting.md). These pages are also on the site under [/help](https://bluray.pages.dev/help).
 - NAS server: [NAS](docs/nas.md) for pairing, the title library, quality levels and playing from away; [Run your own server](docs/self-hosting.md); and [server/README.md](server/README.md) for the code.
 - Encoder: [encoder/README.md](encoder/README.md) covers its use, and each folder under [`encoder/src/`](encoder/src) has a README of its own.
-- Packages: each package's README, linked in the table above.
+- Packages: each package's README, linked in the table above, and the [integration guide](docs/integrating.md) for using them in your own page or tool.
 - The project: [Contributing](docs/contributing.md), the [roadmap](docs/roadmap.md), [known issues](docs/known-issues.md), the design specs in [`docs/superpowers/specs/`](docs/superpowers/specs) and [`encoder/docs/superpowers/specs/`](encoder/docs/superpowers/specs), and [CLAUDE.md](CLAUDE.md), which describes the layout and conventions in depth.
 
 ## Run your own server

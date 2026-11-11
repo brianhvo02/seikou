@@ -25,7 +25,26 @@ All of it lives in `src/` and is exported from the package root.
 
 Nothing beyond the bytes. Pass a `Uint8Array` to a parser, or implement `ByteSource` (`exists`, `size`, `list`, `read`, and an optional `peek`) to read a disc from folders, a server or an ISO.
 
+## Usage
+
+```ts
+import { readFile } from 'node:fs/promises';
+import { parseClpi, parseIndex, parseMpls, readUdf } from '@seikou/bdmv';
+
+const bytes = async (path: string) => new Uint8Array(await readFile(`${disc}/${path}`)); // disc: a folder that holds BDMV/
+const index = parseIndex(await bytes('BDMV/index.bdmv')); // index.firstPlay, index.titles
+const playlist = parseMpls(await bytes('BDMV/PLAYLIST/00000.mpls'));
+for (const item of playlist.playItems) {
+  const clip = parseClpi(await bytes(`BDMV/CLIPINF/${item.clipId}.clpi`)); // clip.programs, clip.epMaps
+  console.log(item.clipId, (item.outTime - item.inTime) / 45_000, 'seconds'); // 45 kHz clip time
+}
+
+// An ISO image: read(offset, length) returns that range of the image.
+const files = await readUdf(read); // [{ path: 'BDMV/INDEX.BDMV', size, extents }, ...]
+```
+
 ## Documentation
 
+- Using the packages in your own page or tool: the integration guide, [`docs/integrating.md`](../../docs/integrating.md).
 - The design spec is `docs/superpowers/specs/2026-10-12-bluray-web-player-design.md`, and the package split is in `docs/superpowers/specs/2026-11-07-packages-design.md` (both in the Seikou repository).
 - `NOTICE` lists each file derived from [libbluray](https://www.videolan.org/developers/libbluray.html) and from [libudfread](https://code.videolan.org/videolan/libudfread). `byte-reader.ts` is original.

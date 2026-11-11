@@ -48,5 +48,6 @@ ctx.putImageData(new ImageData(plane.rgba(rect), rect.w, rect.h), rect.x, rect.y
 
 ## Documentation
 
+- Using the packages in your own page or tool: the integration guide, [`docs/integrating.md`](../../docs/integrating.md).
 - The design is in `docs/superpowers/specs/2026-10-15-m4a-pgs-srt-design.md` (in the Seikou repository).
 - `NOTICE` lists each file derived from [libbluray](https://www.videolan.org/developers/libbluray.html). `overlay-plane.ts` and `palette.ts` are original and follow the overlay command semantics of libbluray's `overlay.h`.

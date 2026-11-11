@@ -34,6 +34,7 @@ import type { DiscManifest } from '@seikou/nas/nas-api';
 
 Links to repository files are relative to the Seikou repository.
 
+- Using the packages in your own page or tool: the integration guide, [`docs/integrating.md`](../../docs/integrating.md).
 - The NAS server and its API: [`docs/superpowers/specs/2026-10-17-nas-server-design.md`](../../docs/superpowers/specs/2026-10-17-nas-server-design.md).
 - People, invites and the WebRTC route (`rtc-wire`): [`docs/superpowers/specs/2026-10-18-webrtc-people-design.md`](../../docs/superpowers/specs/2026-10-18-webrtc-people-design.md).
 - Places (`place-rules`, `place-key`): [`docs/superpowers/specs/2026-10-20-permalinks-resume-design.md`](../../docs/superpowers/specs/2026-10-20-permalinks-resume-design.md).

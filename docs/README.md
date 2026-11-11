@@ -31,6 +31,7 @@ For turning a disc's episodes into AV1 and Opus MKVs, and sending them to the NA
 
 The `@seikou/*` packages, each with what it does, its modules, what a consumer provides and its references.
 
+- [Integrating Seikou](integrating.md): using the packages in your own page or tool, with a minimal player, hosting, subtitles, BD-J and the licences.
 - [@seikou/bdmv](../packages/bdmv/README.md): the Blu-ray format, ISO images and the M2TS demuxer.
 - [@seikou/engine](../packages/engine/README.md): the player engine.
 - [@seikou/pg](../packages/pg/README.md): PG subtitles.

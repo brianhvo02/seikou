@@ -37,6 +37,7 @@ import { createAniList, Pacer, parseName } from '@seikou/titles';
 
 Links to repository files are relative to the Seikou repository.
 
+- Using the packages in your own page or tool: the integration guide, [`docs/integrating.md`](../../docs/integrating.md).
 - Library titles, matching and the catalogue: [`docs/superpowers/specs/2026-10-17-nas-library-titles-design.md`](../../docs/superpowers/specs/2026-10-17-nas-library-titles-design.md).
 - Music: [`docs/superpowers/specs/2026-10-22-music-shelf-design.md`](../../docs/superpowers/specs/2026-10-22-music-shelf-design.md).
 - Continue watching and Up next: [`docs/superpowers/specs/2026-10-20-permalinks-resume-design.md`](../../docs/superpowers/specs/2026-10-20-permalinks-resume-design.md).

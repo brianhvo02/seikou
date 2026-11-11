@@ -42,13 +42,14 @@ import { createController, createEngineWorker } from '@seikou/engine';
 const controller = createController({ worker: () => createEngineWorker('bluray-engine'), profile: 'desktop' });
 controller.attachCanvas(canvas); // an HTMLCanvasElement; the worker draws on its OffscreenCanvas
 controller.subscribe(() => render(controller.getSnapshot()));
-controller.open(entries); // [path, File] pairs of a BDMV folder (walkEntries in @seikou/engine/controller/entry-walk)
+controller.open(entries); // [path, File] pairs of a BDMV folder (walkEntries, also exported, turns dropped entries into them)
 ```
 
 ## Documentation
 
 These are in the Seikou repository.
 
+- Using the packages in your own page or tool: the integration guide, [`docs/integrating.md`](../../docs/integrating.md).
 - Design: `docs/superpowers/specs/2026-10-12-bluray-web-player-design.md`, and the package split in `docs/superpowers/specs/2026-11-07-packages-design.md`.
 - Audio: `2026-10-13-m2-audio-coverage-design.md`. HDMV menus: `2026-10-14-m3-hdmv-menus-design.md`. Subtitles: `2026-10-15-m4a-pgs-srt-design.md` and `2026-10-15-m4b-ass-renderer-design.md`. Shaders: `2026-10-15-video-shaders-design.md`. BD-J: `2026-10-16-m5c-bdj-playback-design.md`. Encodes: `2026-11-08-encodes-library-design.md` (all under `docs/superpowers/specs/`).
 - `NOTICE` lists the files derived from [libbluray](https://www.videolan.org/developers/libbluray.html) and [FFmpeg](https://ffmpeg.org), and the FFmpeg build behind `audio.wasm` (`wasm/audio/NOTICE`). The shader support follows libplacebo's behaviour without containing its code.

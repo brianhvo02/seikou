@@ -80,6 +80,7 @@ The EBML element writers and the tree reader the tests use are exported too.
 
 Links to repository files are relative to the Seikou repository.
 
+- Using the packages in your own page or tool: the integration guide, [`docs/integrating.md`](../../docs/integrating.md).
 - Where the package is used: the encoder, [`encoder/docs/superpowers/specs/2026-11-06-encoding-tools-design.md`](../../encoder/docs/superpowers/specs/2026-11-06-encoding-tools-design.md), and the player's engine, [`docs/superpowers/specs/2026-11-08-encodes-library-design.md`](../../docs/superpowers/specs/2026-11-08-encodes-library-design.md).
 - The packages' design: [`docs/superpowers/specs/2026-11-07-packages-design.md`](../../docs/superpowers/specs/2026-11-07-packages-design.md).
 - Matroska element list: https://www.matroska.org/technical/elements.html

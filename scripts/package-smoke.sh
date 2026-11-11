@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Consumes the packages as an outside project would: a clean temp project installs them as file: dependencies (copied,
-# not linked, so only what each package's "files" lists arrives), typechecks a file importing every barrel with a
-# strict tsc, parses a disc and an ASS script with tsx, and builds a page that starts the engine's worker with Vite,
-# whose output must carry the worker's wasm and font assets.
+# not linked, so only what each package's "files" lists arrives), typechecks a file importing every barrel and the
+# integration guide's example player (docs/integrating/) with a strict tsc, parses a disc and an ASS script with tsx,
+# and builds the example's page with Vite, whose output must carry the engine worker's wasm and font assets.
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 bin="$repo/node_modules/.bin"
@@ -34,7 +34,13 @@ import * as nas from '@seikou/nas';
 import * as pg from '@seikou/pg';
 import * as titles from '@seikou/titles';
 export const barrels = [ass, bdmv, engine, fansubs, matroska, nas, pg, titles];
+// What the integration guide names beyond the barrels: the folder walk, the NAS source and the worker entry for a host's own worker.
+import { RemoteSource, walkEntries } from '@seikou/engine';
+import { startEngineWorker } from '@seikou/engine/worker-main';
+export const guide = [RemoteSource, walkEntries, startEngineWorker];
 TS
+# The integration guide's example player, which the guide shows verbatim (tests/documentation.test.ts).
+cp "$repo/docs/integrating/minimal-player.ts" "$repo/docs/integrating/index.html" .
 cat > tsconfig.json <<'JSON'
 {
   "compilerOptions": {
@@ -48,10 +54,10 @@ cat > tsconfig.json <<'JSON'
     "strict": true,
     "types": ["node", "vite/client"]
   },
-  "files": ["barrels.ts"]
+  "files": ["barrels.ts", "minimal-player.ts"]
 }
 JSON
-"$bin/tsc" --noEmit --strict -p tsconfig.json || fail 'a strict tsc over every package barrel failed'
+"$bin/tsc" --noEmit --strict -p tsconfig.json || fail 'a strict tsc over every package barrel and the guide example failed'
 
 # Parsing through the barrels: disc1's index and first playlist, and a two-line ASS script.
 cat > parse.ts <<'TS'
@@ -68,9 +74,8 @@ parsed="$("$bin/tsx" parse.ts "$repo/fixtures/synthetic/disc1")"
 echo "$parsed"
 [ "$parsed" = 'object true 1 Hello' ] || fail "expected 'object true 1 Hello', got '$parsed'"
 
-# A page that starts the engine's worker, built by Vite.
-echo '<script type="module">import { createEngineWorker } from "@seikou/engine"; createEngineWorker("smoke");</script>' > index.html
-"$bin/vite" build --logLevel warn >/dev/null || fail 'vite build of a page importing @seikou/engine failed'
+# The example's page (index.html loads minimal-player.ts, which starts the engine's worker), built by Vite.
+"$bin/vite" build --logLevel warn >/dev/null || fail 'vite build of the integration guide example failed'
 for asset in audio.wasm default-font.ttf; do
   ls dist/assets | grep -Eq "^${asset%.*}-.*\.${asset##*.}$" || fail "dist/assets has no $asset: $(ls dist/assets | tr '\n' ' ')"
 done

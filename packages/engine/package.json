@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./audio.wasm": "./wasm/audio/audio.wasm",
+    "./worker-main": "./src/worker-main.ts",
     "./*": "./src/*.ts"
   },
   "files": ["src", "!src/**/*.test.ts", "!src/**/__fixtures__", "wasm", "LICENSE", "COPYING", "LICENSES", "NOTICE"],

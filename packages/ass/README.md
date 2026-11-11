@@ -33,8 +33,21 @@ The consumer also registers the fonts it has with `AssFonts`.
 
 A host can pass `AssFonts` a `deviceFonts` source. A family no supplied face matches is then looked up among the fonts installed on the device, with its metrics measured by the browser, before the default font is used. This is an addition to the port (libass would ask its system font provider), so lines in a device font can lay out slightly differently from libass. Without the option the renderer uses only supplied faces, as the libass comparison needs.
 
+## Usage
+
+```ts
+import { parseAss } from '@seikou/ass';
+
+const script = parseAss(await file.text()); // a .ass or .ssa file's text
+console.log(script.playResX, script.playResY, script.styles.map((s) => s.name), script.fonts.map((f) => f.name));
+for (const event of script.events) console.log(event.start, event.duration, event.text); // times in milliseconds
+```
+
+Drawing the events takes an `AssRenderer` with the `AssRendererDeps` above. Seikou's engine builds them in its worker (`startEngineWorker` in `packages/engine/src/worker-main.ts`), which is the place to start from.
+
 ## Documentation
 
+- Using the packages in your own page or tool: the integration guide, [`docs/integrating.md`](../../docs/integrating.md).
 - The design is in `docs/superpowers/specs/2026-10-15-m4b-ass-renderer-design.md` (in the Seikou repository).
 - `NOTICE` lists each derived file. The port is compared with a patched libass in `tests/ass-trace/` and `tools/ass-trace/` in the repository; a difference there is a porting bug.
 - Upstream: [libass](https://github.com/libass/libass) (ISC licence).

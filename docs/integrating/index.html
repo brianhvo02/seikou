@@ -1,0 +1,25 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: LGPL-3.0-or-later -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Minimal player</title>
+    <style>
+      body { margin: 16px; font-family: system-ui, sans-serif; background: #111; color: #eee; }
+      canvas { display: block; width: 100%; max-width: 1280px; aspect-ratio: 16 / 9; background: #000; }
+      p { font-variant-numeric: tabular-nums; }
+    </style>
+  </head>
+  <body>
+    <canvas id="video" width="1280" height="720"></canvas>
+    <p>
+      <button id="pick" type="button">Open a disc folder</button>
+      <input id="folder" type="file" webkitdirectory hidden />
+      <button id="play-pause" type="button">Play</button>
+      <button id="back" type="button">Back 10 s</button>
+    </p>
+    <p id="status">idle</p>
+    <script type="module" src="./minimal-player.ts"></script>
+  </body>
+</html>

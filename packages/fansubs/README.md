@@ -33,6 +33,7 @@ The usual order: `createSeaDex` and `createTosho` find releases, `choosePerEpiso
 
 Links to repository files are relative to the Seikou repository.
 
+- Using the packages in your own page or tool: the integration guide, [`docs/integrating.md`](../../docs/integrating.md).
 - Design: [`docs/superpowers/specs/2026-10-23-fansubs-design.md`](../../docs/superpowers/specs/2026-10-23-fansubs-design.md).
 - The encoder's subtitle helper, which uses the same package: [`encoder/docs/superpowers/specs/2026-11-07-subtitle-helper-design.md`](../../encoder/docs/superpowers/specs/2026-11-07-subtitle-helper-design.md).
 - Fansubs as a user sees them: [`docs/nas.md`](../../docs/nas.md). The services the NAS contacts for them are listed in [`docs/self-hosting.md`](../../docs/self-hosting.md).
