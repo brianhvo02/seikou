@@ -45,7 +45,7 @@ export function playlistsOf(manifest: DiscManifest): { readonly id: string; read
 
 /**
  * What a pre-flight offers for the disc's places: the usual Play (`none`: no place, or a finished one), Resume or
- * Start from beginning (`ask`), or only Start from beginning when the place no longer fits the disc (`changed`). A
+ * Start from beginning (`ask`), or only Start from beginning when the place's playlist is gone from the disc or its time is at or past the playlist's end (`changed`). A
  * place near its start (isShortPlace) asks nothing: for a requested playlist (`short`), Play starts it from the
  * beginning with the place's settings (`start`; null when the disc no longer has the playlist); with none requested it
  * is passed over. With a playlist requested, its own place; else the disc's newest unfinished place that isn't short
