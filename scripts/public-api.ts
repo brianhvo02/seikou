@@ -113,19 +113,24 @@ function tsBlocks(markdown: string): string[] {
   return [...markdown.matchAll(/```ts\n([\s\S]*?)```/g)].map((m) => m[1] ?? '');
 }
 
-/** Names the integration guide uses from package roots: its TypeScript blocks and the minimal player. */
-export function guideNames(): Map<string, Set<string>> {
+/**
+ * Names the integration guide uses from package roots: its TypeScript blocks and the minimal player.
+ * A block that does not parse throws an error naming the block's first line.
+ */
+export function guideNames(
+  guidePath: string = join(ROOT, 'docs/integrating.md'),
+  playerPath: string = join(ROOT, 'docs/integrating/minimal-player.ts'),
+): Map<string, Set<string>> {
   const into = new Map<string, Set<string>>();
-  const guide = readFileSync(join(ROOT, 'docs/integrating.md'), 'utf8');
-  tsBlocks(guide).forEach((block, i) => {
+  for (const block of tsBlocks(readFileSync(guidePath, 'utf8'))) {
+    const first = block.split('\n').find((l) => l.trim() !== '') ?? '';
     try {
-      importedRootNames(`integrating-${i}.ts`, block, into);
-    } catch {
-      // a block that is not a complete program is not an import list
+      importedRootNames('guide-block.ts', block, into);
+    } catch (cause) {
+      throw new Error(`${guidePath}: a ts block does not parse (starts with: ${first.trim()})`, { cause });
     }
-  });
-  const player = join(ROOT, 'docs/integrating/minimal-player.ts');
-  importedRootNames(player, readFileSync(player, 'utf8'), into);
+  }
+  importedRootNames(playerPath, readFileSync(playerPath, 'utf8'), into);
   return into;
 }
 
@@ -137,6 +142,25 @@ function resolveModule(from: string, specifier: string): string {
   throw new Error(`${from}: cannot resolve ${specifier}`);
 }
 
+/** Adds the names a binding pattern declares (never type annotations or the keys of a destructuring). */
+function bindingNames(pattern: unknown, into: Set<string>): void {
+  if (!isNode(pattern)) return;
+  switch (pattern.type) {
+    case 'Identifier':
+      into.add(String(pattern.name));
+      break;
+    case 'ObjectPattern':
+      for (const p of pattern.properties as Node[]) bindingNames(p.type === 'RestElement' ? p.argument : p.value, into);
+      break;
+    case 'ArrayPattern':
+      for (const e of pattern.elements as unknown[]) bindingNames(isNode(e) && e.type === 'RestElement' ? e.argument : e, into);
+      break;
+    case 'AssignmentPattern':
+      bindingNames(pattern.left, into);
+      break;
+  }
+}
+
 /** The names a module file exports, following `export *` and `export { … } from`. */
 export function exportedNames(file: string, seen: Set<string> = new Set()): Set<string> {
   const names = new Set<string>();
@@ -146,12 +170,12 @@ export function exportedNames(file: string, seen: Set<string> = new Set()): Set<
     if (st.type === 'ExportAllDeclaration') {
       const target = resolveModule(file, String((st.source as Node).value));
       if (st.exported) names.add(nameOf(st.exported));
-      else for (const n of exportedNames(target, seen)) names.add(n);
+      else for (const n of exportedNames(target, seen)) if (n !== 'default') names.add(n);
     } else if (st.type === 'ExportNamedDeclaration') {
       const decl = st.declaration;
       if (isNode(decl)) {
         if (decl.type === 'VariableDeclaration') {
-          for (const d of decl.declarations as Node[]) walk(d.id, (n) => n.type === 'Identifier' && names.add(String(n.name)));
+          for (const d of decl.declarations as Node[]) bindingNames(d.id, names);
         } else if (isNode(decl.id)) names.add(nameOf(decl.id));
       }
       for (const spec of (st.specifiers as Node[] | undefined) ?? []) names.add(nameOf(spec.exported));
@@ -176,7 +200,18 @@ export function approvedApi(pkg: string): Set<string> | null {
   return new Set(names);
 }
 
-/** The floor of a package's public API: the guide's names and the repository's root imports. */
+/**
+ * The floor of a package's public API: the guide's names and the repository's root imports. A namespace
+ * import or `export *` of the root requires every name the barrel exports.
+ */
 export function requiredApi(pkg: string): Set<string> {
-  return new Set([...(rootImports().get(pkg) ?? []), ...(guideNames().get(pkg) ?? [])]);
+  const names = new Set([...(rootImports().get(pkg) ?? []), ...(guideNames().get(pkg) ?? [])]);
+  return names.has(UNKNOWN_NAMES) ? expandUnknown(names, barrelNames(pkg)) : names;
+}
+
+/** Replaces the unknown-names marker in `names` with every name of `barrel`. */
+export function expandUnknown(names: ReadonlySet<string>, barrel: ReadonlySet<string>): Set<string> {
+  const out = new Set(names);
+  if (out.delete(UNKNOWN_NAMES)) for (const n of barrel) out.add(n);
+  return out;
 }
