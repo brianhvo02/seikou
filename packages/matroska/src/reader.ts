@@ -117,7 +117,7 @@ async function* clusterBlocks(reader: RangeReader, clusters: readonly ClusterRef
  * element that runs past the end), malformed, has no Info or Tracks, or uses an unknown-size
  * element (RFC 8794 §6.2) at the Segment's top level. Error messages end with `reader.name` in
  * parentheses when the reader has one.
-  * @example ../examples/read-matroska.ts
+ * @example ../examples/read-matroska.ts
  */
 export async function readMatroska(reader: RangeReader): Promise<ParsedMkv> {
   try {

@@ -600,6 +600,11 @@ Fill in from `probe.html` on each device.
 
 ## NAS server and title library (step 2)
 
+- **The read-ahead cache fill fetches inlined files through the transport.** `RemoteSource.fillChunk`
+  (`packages/engine/src/disc/remote-source.ts`) fetches each chunk through the transport even for a file the manifest
+  inlines. Harmless for Seikou's NAS, which inlines only metadata (`server/src/manifest.ts`); a redundant fetch for a
+  third-party manifest that inlines a clip. *Revisit if* a server inlines clips.
+
 - **A drive mounted late is writable inside the container.** `read_only: true` in the compose file covers only the binds present when the container starts; a late `nofail` mount that appears through `rslave` propagation is not read-only. The server only ever writes `/data`, so nothing is written there, but the guarantee is by code, not by the mount.
 - **An iPhone Home Screen web app has its own storage,** so it needs its own pairing (a pairing made in Safari does not carry over). Pairing links open in Safari, not in the installed app: type the code in the app instead.
 - **TheDiscDB covers few releases.** About 7% of the library's folder discs are in it, and almost no Japanese releases, so most episode lists are guessed from playlist lengths (`titles/episodes.ts`). A season whose guess doesn't add up (the total isn't the season's episode count, or a disc can't be ordered) shows its discs only, with no Episodes tab.

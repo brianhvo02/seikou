@@ -4,7 +4,7 @@ import { matchDiscs, type DiscEvidence, type Entry, type MetadataSource } from '
 
 const SHOW: Entry = {
   source: 'anilist', id: 'anilist:990001', kind: 'series', format: 'TV',
-  names: { english: 'Starfall Wanderer', romaji: 'Hoshi no Tabibito', native: null, synonyms: [] },
+  names: { english: 'Starfall Wanderer', romaji: 'Hoshifuri no Tabibito', native: null, synonyms: [] },
   animation: true, year: 2021, episodes: 12, runtimeMin: 24, seasons: [], relations: [], poster: null, banner: null,
 };
 

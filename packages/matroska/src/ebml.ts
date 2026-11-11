@@ -146,7 +146,7 @@ export function master(id: number, children: readonly Uint8Array[]): Uint8Array 
  * A Void element (RFC 8794 §11.3.2) of exactly `size` bytes in total, including its id and size
  * field. Readers skip a Void's data, so it reserves room that is overwritten later. Throws
  * RangeError when `size` is under 2 or above what a 2-byte size field can describe.
-  * @example ../examples/void-element.ts
+ * @example ../examples/void-element.ts
  */
 export function voidElement(size: number): Uint8Array {
   if (size < 2) throw new RangeError(`void element needs at least 2 bytes, got ${size}`);

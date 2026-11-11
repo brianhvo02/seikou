@@ -82,8 +82,9 @@ test('every page has one h1, and a focused link shows a ring', async ({ page }) 
     await expect(page.locator('h1'), path).toHaveCount(1);
   }
   await page.goto('/developers/bdmv');
-  await page.keyboard.press('Tab'); // the skip link
-  await page.keyboard.press('Tab'); // the home link
+  // Tab skips links in WebKit on macOS, so focus the link and then press a key: :focus-visible applies after a keyboard event.
+  await page.locator('header a').first().focus();
+  await page.keyboard.press('Shift');
   const ring = await page.evaluate(() => {
     const el = document.activeElement as HTMLElement | null;
     if (!el || el.tagName !== 'A') return null;

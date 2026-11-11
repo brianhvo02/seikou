@@ -11,7 +11,7 @@ All of it lives in `src/`. The package root exports the names listed in `public-
 | Module | What it does |
 | --- | --- |
 | `pg-decoder.ts` (`PgSegmentDecoder`) | Turns PG PES payloads into display sets. |
-| `segments.ts` | Segment types and parsing, and the internal `SegmentJoiner`, which joins segments split across packets. |
+| `segments.ts` | Internal (importable by subpath, not from the root): segment types and parsing, and the `SegmentJoiner`, which joins segments split across packets. |
 | `rle.ts` | Internal: run-length decoding and cropping of object bitmaps. |
 | `palette.ts` | Internal: converts YCrCb palette entries to RGBA. |
 | `pg-renderer.ts` (`PgRenderer`) | Turns display sets into overlay operations at their presentation time. |

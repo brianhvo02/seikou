@@ -4,7 +4,7 @@ import { createAniList, Pacer } from '@seikou/titles';
 
 const MEDIA = {
   id: 990001,
-  title: { romaji: 'Hoshi no Tabibito', english: 'Starfall Wanderer', native: '星降りの旅人' },
+  title: { romaji: 'Hoshifuri no Tabibito', english: 'Starfall Wanderer', native: '星降りの旅人' },
   synonyms: ['Starfall'],
   format: 'TV',
   episodes: 12,

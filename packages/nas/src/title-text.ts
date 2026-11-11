@@ -12,7 +12,7 @@ const LONG_VOWELS: Readonly<Record<string, string>> = { ā: 'a', ī: 'i', ū: 'u
  *
  * The vowel folding also merges some English pairs (`Good`/`God`, `Moon`/`Mon`, `Soul`/`Sol`), so a short query can
  * find more than it should. The matcher must not treat a normalised match as proof on its own.
-  * @example ../examples/normalize-title.ts
+ * @example ../examples/normalize-title.ts
  */
 export function normalizeTitle(text: string): string {
   return text
@@ -47,7 +47,7 @@ export function normalizeStrict(text: string): string {
 /**
  * True when the normalised query is a substring of a normalised name. A query that normalises to nothing matches no
  * name; the search UI shows the full list for a blank query itself.
-  * @example ../examples/title-matches.ts
+ * @example ../examples/title-matches.ts
  */
 export function titleMatches(query: string, names: readonly string[]): boolean {
   const q = normalizeTitle(query);

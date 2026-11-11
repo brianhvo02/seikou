@@ -418,7 +418,7 @@ function checkSubtitleBlocks(subtitles: readonly MkvSubtitleTrack[]): void {
  * comes in time order. Throws the same errors `writeMatroska` does (RangeError for a bad time or
  * duration). A caller that opens a file for `writeMatroska` runs it first, so a bad input leaves
  * an existing file alone.
-  * @example ../examples/check-matroska-input.ts
+ * @example ../examples/check-matroska-input.ts
  */
 export function checkMatroskaInput(input: Pick<MkvInput, 'docType' | 'subtitles' | 'attachments'>): void {
   if (input.docType === 'webm' && (input.subtitles.length > 0 || input.attachments.length > 0)) {
@@ -527,7 +527,7 @@ interface SubtitleState {
  * a track's blocks are out of time order, and when a `webm` input has subtitle tracks or
  * attachments; throws while writing when there are no video packets or the first video packet is
  * not a key frame.
-  * @example ../examples/write-matroska.ts
+ * @example ../examples/write-matroska.ts
  */
 export async function writeMatroska(sink: MkvSink, input: MkvInput): Promise<MkvResult> {
   const { video } = input;

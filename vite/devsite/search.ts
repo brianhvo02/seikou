@@ -39,7 +39,7 @@ export interface SearchDeps {
 export class SearchBox {
   private entries: readonly SearchEntry[] | null = null;
   private loading: Promise<void> | null = null;
-  /** The last load failed; the next focus (or keystroke) tries again. */
+  /** The last load failed; the next focus tries again. */
   private failed = false;
   private results: SearchEntry[] = [];
   private active = -1;

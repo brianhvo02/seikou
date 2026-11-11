@@ -6,17 +6,18 @@ Seikou's own code is licensed LGPL-3.0-or-later (see the top-level `LICENSE` and
 
 ## Where code lives
 
-The app is in `src/`: the React UI in `src/ui/`, BD-J in `src/bdj/`, and the engine worker's entry in `src/engine-worker.ts`, which hands BD-J to the engine. The code that is not specific to the app lives in seven npm workspace packages under `packages/`, imported as `@seikou/<name>`: `bdmv` (the disc format's parsers and the M2TS demuxer), `pg` (PG subtitles), `ass` (the ASS renderer), `engine` (the player engine and its page-side controller), `nas` (the NAS wire contract), `titles` (naming the library and looking up metadata) and `fansubs` (finding and timing fansub subtitles). Each has a one-paragraph README and its own NOTICE. The NAS server is in `server/` and the pairing Worker in `rendezvous/`. The commands below cover the packages along with the app; `npm run package-smoke` installs the packages into a temporary project, as a project outside this repo would, typechecks every barrel with a strict `tsc`, and builds a page with them.
+The app is in `src/`: the React UI in `src/ui/`, BD-J in `src/bdj/`, and the engine worker's entry in `src/engine-worker.ts`, which hands BD-J to the engine. The code that is not specific to the app lives in eight npm workspace packages under `packages/`, imported as `@seikou/<name>`: `bdmv` (the disc format's parsers and the M2TS demuxer), `pg` (PG subtitles), `ass` (the ASS renderer), `engine` (the player engine and its page-side controller), `nas` (the NAS wire contract), `titles` (naming the library and looking up metadata), `fansubs` (finding and timing fansub subtitles) and `matroska` (Matroska and WebM reading and writing). Each has a one-paragraph README and its own NOTICE. The NAS server is in `server/` and the pairing Worker in `rendezvous/`. The commands below cover the packages along with the app; `npm run package-smoke` installs the packages into a temporary project, as a project outside this repo would, typechecks every barrel with a strict `tsc`, and builds a page with them.
 
 ## Run and build
 
 - `npm run dev`: dev server (cross-origin isolated).
+- `npm run devsite:install`: installs the developer site's own tools (`tools/devsite/`); run it once before the first build.
 - `npm run build`: typecheck, then production build.
 - `npm run typecheck`: `tsc -b`.
 
 ## Tests
 
-- `npm test`: unit tests.
+- `npm test`: unit tests. It fails with `stale model` after changes under `packages/*/src`, `README.md` or `examples` until `npm run devsite:model` runs.
 - `npm run test:e2e`: Playwright. The `chromium` and `mobile-chromium` projects require Google Chrome, and all projects need a working audio output. `--project=firefox|webkit|mobile-chromium` runs the others.
 - The A/V sync checks allow 20 ms mean and 50 ms max offset. `SYNC_TOLERANCE_SCALE=2` doubles both on slower machines.
 - Put your own decrypted discs under `fixtures/local/<name>/BDMV/...` to enable `tests/local`. `LOCAL_DISCS=1 npx playwright test local-discs` also plays each one in Chrome, seeks around it, switches audio tracks and checks every PG subtitle track. It decodes the PG streams in Node first to know where subtitles are due, and caches that in `fixtures/local/.pgscan-<name>.json`.

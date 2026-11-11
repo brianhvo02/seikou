@@ -5,7 +5,7 @@ import type { EncodeTitle } from './encode-title';
 /**
  * An encoded episode's id, `<titlePart>-<episode>` (`990001-3` for an AniList entry, `tv990002s2-5`, `mv990003-1`,
  * `own<hex>-4`): what the NAS routes and the player name an encode by.
-  * @example ../examples/encode-id.ts
+ * @example ../examples/encode-id.ts
  */
 export function encodeId(title: EncodeTitle, episode: number): string {
   return `${titlePart(title)}-${episode}`;
