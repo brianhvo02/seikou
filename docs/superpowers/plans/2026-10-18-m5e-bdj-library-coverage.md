@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- The repo is public: no real disc, series, folder or file names in any committed file, commit message, CI log or test name; made-up names only (A_NEW_ERA, RENTAL_FAMILY, TSURUNE may stay). Library results, the id→path map and copied disc files live only under `$BDJ_LIBRARY_DIR` (default `~/.cache/bluray-web/bdj-library`, outside the repo).
+- The repo is public: no real disc, series, folder or file names in any committed file, commit message, CI log or test name; made-up names only (BDJ_DISC_A, BDJ_DISC_B, HDMV_DISC_A may stay). Library results, the id→path map and copied disc files live only under `$BDJ_LIBRARY_DIR` (default `~/.cache/bluray-web/bdj-library`, outside the repo).
 - The NAS is read-only for 5e: `ssh your-nas`, `ionice -c3 nice -n19` on every find/copy, never read `STREAM/*.m2ts` (stub streams), copies one at a time; never touch the `bluray-server` container or Caddy.
 - `src/engine/disc/nas-api.ts`, `src/ui/nas/nas-client.ts`, `server/`, `rendezvous/`, `src/engine/disc/cors-policy.ts` belong to the NAS session: change only with its agreement.
 - Artifacts only through their scripts (`npm run bdj-classlib:build`, `bdj-trace:golden`, `vm-trace:golden`, `wasm:build`), CI diffs them; goldens never edited by hand; a divergence from libbluray is a porting bug.
@@ -96,7 +96,7 @@
 **Interfaces:**
 - Produces: `interface BdjStore { load(scope: string): Promise<Snapshot>; save(scope: string, snapshot: Snapshot, etag: string | null): Promise<{ etag: string } | { conflict: Snapshot & { etag: string } }> }`; `interface Snapshot { readonly files: ReadonlyArray<{ path: string; mtime: number; bytes: Uint8Array }> }`; `scopesFor(bdjo, bdid): { persistent: string; buda: string }` (`persistent/<orgId>`, `buda/<orgId>/<discId>`, libbluray's fallbacks for a missing/zero id); `class IdbBdjStore implements BdjStore` (database `bdj-store`, keyed by `<source>|<scope>` where source is `nas:<nasDiscId>` or `local`); `SCOPE_QUOTA_BYTES = 16 * 1024 * 1024`.
 
-- [ ] **Step 1: Failing tests:** `scopesFor` with RENTAL_FAMILY-like ids and with a missing/all-zero `id.bdmv` (Review Focus 5, values as libbluray's `bdj.c`/`BDJLoader` derive them); `IdbBdjStore` (fake-indexeddb) round-trips a snapshot and keeps sources apart; the VFS mounts a loaded snapshot so Java's `File.exists`/`FileInputStream` see it; a write marks the scope dirty and a save follows 2 s after the last write (fake timers) and on stop; a write past 16 MB in a scope throws `IOException` in Java, and the stored snapshot stays the previous complete one (Review Focus 2); the JVM boots only after both scopes are loaded.
+- [ ] **Step 1: Failing tests:** `scopesFor` with BDJ_DISC_B-like ids and with a missing/all-zero `id.bdmv` (Review Focus 5, values as libbluray's `bdj.c`/`BDJLoader` derive them); `IdbBdjStore` (fake-indexeddb) round-trips a snapshot and keeps sources apart; the VFS mounts a loaded snapshot so Java's `File.exists`/`FileInputStream` see it; a write marks the scope dirty and a save follows 2 s after the last write (fake timers) and on stop; a write past 16 MB in a scope throws `IOException` in Java, and the stored snapshot stays the previous complete one (Review Focus 2); the JVM boots only after both scopes are loaded.
 - [ ] **Step 2: Run** → FAIL. **Step 3: Implement.** **Step 4: Run** → PASS; goldens no diff (the store is empty on the golden runs); `bdj-library:check` no regression.
 - [ ] **Step 5: Commit** `feat(bdj): what discs save lasts, in the browser`.
 
@@ -115,7 +115,7 @@
 
 - [ ] **Step 1:** `npm run bdj-library:check` on all discs; list every disc not `works`/`libbluray-fails-too` with its detail (ids only).
 - [ ] **Step 2:** For each distinct cause (most discs first): reproduce with `--only`, write a failing test (conformance program, unit test, or a synthetic disc), fix the port, re-run its discs. Causes that need architecture changes come back to the controller.
-- [ ] **Step 3:** Full check again → every disc `works` or `libbluray-fails-too`; goldens no diff; `npm test`, E2E all projects green; `LOCAL_DISCS=1` local specs green; desktop A_NEW_ERA warm ≤ 5,000 ms.
+- [ ] **Step 3:** Full check again → every disc `works` or `libbluray-fails-too`; goldens no diff; `npm test`, E2E all projects green; `LOCAL_DISCS=1` local specs green; desktop BDJ_DISC_A warm ≤ 5,000 ms.
 - [ ] **Step 4: Commit** fixes as `fix(bdj): …` per cause; record the final counts (no names) in the ledger.
 
 ### Task 8: The NAS backend (waits for the NAS session's step-3 API)

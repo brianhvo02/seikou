@@ -24,10 +24,10 @@ describe('buildPlan', () => {
   });
 
   it('loads the committed plans of both local discs', () => {
-    const a = loadPlan('A_NEW_ERA');
+    const a = loadPlan('BDJ_DISC_A');
     expect(a.stayHash).toBe('4bc306b4');
     expect(a.steps[a.stayBefore]!.step.text).toBe('key ok');
-    const r = loadPlan('RENTAL_FAMILY');
+    const r = loadPlan('BDJ_DISC_B');
     expect(r.steps.filter((s) => s.hash).map((s) => s.hash)).toEqual(['4055a182', 'b860e96b', '4521ddc5']);
     expect(r.stayHash).toBe('b860e96b');
   });
@@ -36,15 +36,15 @@ describe('buildPlan', () => {
 describe('parseGateArgs', () => {
   it('defaults to both discs, a 10-minute stay and port 4183', () => {
     const o = parseGateArgs(['--target', 'chrome']);
-    expect(o.discs).toEqual(['A_NEW_ERA', 'RENTAL_FAMILY']);
+    expect(o.discs).toEqual(['BDJ_DISC_A', 'BDJ_DISC_B']);
     expect(o.stayMs).toBe(600_000);
     expect(o.port).toBe(4183);
     expect(o.server).toBeNull();
   });
 
   it('takes a shorter stay, flags and an external server', () => {
-    const o = parseGateArgs(['--target', 'ios:00008', '--disc', 'RENTAL_FAMILY', '--stay-ms', '0', '--touch', '--server', 'https://192.168.1.2:8443/', '--token', 't']);
-    expect(o).toMatchObject({ discs: ['RENTAL_FAMILY'], stayMs: 0, touch: true, server: 'https://192.168.1.2:8443', token: 't' });
+    const o = parseGateArgs(['--target', 'ios:00008', '--disc', 'BDJ_DISC_B', '--stay-ms', '0', '--touch', '--server', 'https://192.168.1.2:8443/', '--token', 't']);
+    expect(o).toMatchObject({ discs: ['BDJ_DISC_B'], stayMs: 0, touch: true, server: 'https://192.168.1.2:8443', token: 't' });
   });
 
   it('rejects unknown discs and options, and a server without its token', () => {

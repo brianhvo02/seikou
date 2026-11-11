@@ -22,7 +22,7 @@
 - Taps go to the disc only while the BD-J plane shows non-transparent pixels; otherwise taps behave as today (`src/ui/touch.ts`).
 - Ignored tap: no plane flush, control call or register write within the responsiveness window → on-screen remote opens and notice "This disc's menu doesn't respond to taps here. Use the remote."; once per menu (until the plane is next cleared).
 - Responsiveness: key/tap → visible menu change ≤ 0.2 s on a computer, ≤ 0.5 s on iPhone (input to next presented frame containing the plane change).
-- Start-up: iPhone A_NEW_ERA open → first logo frame ≤ 10 s target, > 15 s is a blocker; desktop Chrome warm stays ≤ 5,000 ms.
+- Start-up: iPhone BDJ_DISC_A open → first logo frame ≤ 10 s target, > 15 s is a blocker; desktop Chrome warm stays ≤ 5,000 ms.
 - Navigation keys are not filtered by key interest (libbluray doesn't); transport controls unchanged.
 - Development disc server: LAN only, per-run token, HTTP byte ranges; designed as the seed of the cross-browser spec's NAS server (§4 there).
 - HDMV menus, subtitles, shaders, A/V sync, 5c control-call parity and existing tests keep passing unchanged.
@@ -80,9 +80,9 @@
 
 - [ ] **Step 1:** Write the README and scripts; verify on the iOS Simulator (`xcrun simctl`) first: open `probe.html` and `fixtures/synthetic/disc1` via the disc server, read telemetry.
 - [ ] **Step 2 (needs the user's one-time setup; ask through the controller when ready):** on the plugged-in iPhone and iPad, run `probe.html` over the disc server and record: sample rate, worker rAF, HEVC, Blob slicing over 4 GiB (server route).
-- [ ] **Step 3 (USB route; the user picks the folder in Files):** with A_NEW_ERA on a USB-C SSD, run `probe.html` on iPhone and iPad and record Blob slicing over 4 GiB from USB and HEVC decode. Record all results in `docs/known-issues.md` "Browsers and devices" (the empty probe table).
+- [ ] **Step 3 (USB route; the user picks the folder in Files):** with BDJ_DISC_A on a USB-C SSD, run `probe.html` on iPhone and iPad and record Blob slicing over 4 GiB from USB and HEVC decode. Record all results in `docs/known-issues.md` "Browsers and devices" (the empty probe table).
 - [ ] **Step 4: Commit** `test(devices): Safari automation on iPhone, iPad and the Simulator; device probe results`.
-- Decision point: if Blob slicing over 4 GiB fails over USB, or HEVC decode fails on iPhone/iPad, the controller records it and the gate (Task 14) uses the server route / RENTAL_FAMILY there; report it, don't work around it here.
+- Decision point: if Blob slicing over 4 GiB fails over USB, or HEVC decode fails on iPhone/iPad, the controller records it and the gate (Task 14) uses the server route / BDJ_DISC_B there; report it, don't work around it here.
 
 ### Task 3: Harness plane dumps and key scripts
 
@@ -93,7 +93,7 @@
 - `.keys` format as vm-trace's (`tests/vm-trace/scripts/*.keys`: `wait …` / key lines), extended with `wait flush <k>`, `wait playlist <n>`, `key <BD_VK name>`, `mouse <x> <y>`, `click <x> <y>`; the harness sends keys with `bd_user_input` and mouse with `bd_mouse_select` + `BD_VK_MOUSE_ACTIVATE`.
 - Font fallback: the image installs `default-font.ttf` and configures libbluray's font resolution (fontconfig off; JRE font dir with symlinks for `serif`/`sansserif`/`monospaced`/`dialog`/`dialoginput` names → the bundled file) so both sides resolve missing fonts identically.
 
-- [ ] **Step 1:** Implement; **Step 2:** run on `fixtures/local/A_NEW_ERA` with a script reaching the main menu; confirm flush hashes and PNGs look right (compare a PNG with the 5b spike's frame visually). **Step 3:** README; commit `test(bdj): libbluray plane dumps and key scripts`.
+- [ ] **Step 1:** Implement; **Step 2:** run on `fixtures/local/BDJ_DISC_A` with a script reaching the main menu; confirm flush hashes and PNGs look right (compare a PNG with the 5b spike's frame visually). **Step 3:** README; commit `test(bdj): libbluray plane dumps and key scripts`.
 
 ### Task 4: FreeType in WebAssembly
 
@@ -131,7 +131,7 @@
 
 - [ ] **Step 1:** Find in libbluray's Java (`org/havi/ui/HBackgroundImage.java`, `HStillImageBackgroundConfiguration.java`) where the image bytes/URL are available, and hook `displayImage` (an intrinsic or a native replacing the unimplemented body, in `src/engine/` — libbluray code is LGPL) to send the image bytes to the engine; the engine decodes with an injected decoder (`createImageBitmap` in production).
 - [ ] **Step 2: Failing test:** a test xlet (or the Task 9 menu disc) calling `displayImage` makes the compositor draw that still under the video; it clears with the plane rules of Task 6.
-- [ ] **Step 3:** Check whether A_NEW_ERA or RENTAL_FAMILY decode JPEGs into Java-visible images (AWT `Toolkit.createImage` of a JPEG drawn into the graphics plane): instrument a local run. If yes, build libjpeg (the JRE's version, from the harness image) into WASM through the Task 4 pipeline and back `sun/awt/image/JPEGImageDecoder`'s natives with it; if no, record that in the report and skip.
+- [ ] **Step 3:** Check whether BDJ_DISC_A or BDJ_DISC_B decode JPEGs into Java-visible images (AWT `Toolkit.createImage` of a JPEG drawn into the graphics plane): instrument a local run. If yes, build libjpeg (the JRE's version, from the harness image) into WASM through the Task 4 pipeline and back `sun/awt/image/JPEGImageDecoder`'s natives with it; if no, record that in the report and skip.
 - [ ] **Step 4: Run** → PASS. **Step 5: Commit** `feat(bdj): background stills under the video`.
 
 ### Task 8: Keys, pointer, taps and the ignored-tap rule
@@ -151,14 +151,14 @@
 
 ### Task 10: Local discs, menu to feature
 
-**Files:** Create `tests/bdj/scripts/a_new_era.{play,chapters}.keys`, `tests/bdj/scripts/rental_family.play.keys`, `tests/local/bdj-menus.test.ts`; modify `tests/bdj/replay-player.ts` (plane hashes per flush, key scripts), `tests/bdj/run.ts` (`--keys`).
+**Files:** Create `tests/bdj/scripts/bdj_disc_a.{play,chapters}.keys`, `tests/bdj/scripts/bdj_disc_b.play.keys`, `tests/local/bdj-menus.test.ts`; modify `tests/bdj/replay-player.ts` (plane hashes per flush, key scripts), `tests/bdj/run.ts` (`--keys`).
 
-- [ ] **Step 1:** Write the scripts with the harness (Task 3) against the real discs: A_NEW_ERA first menu → PLAY → feature playlist (and → CHAPTERS); RENTAL_FAMILY language picker → English → main menu → PLAY → feature. Save libbluray's traces + plane hashes to the SDD workspace.
+- [ ] **Step 1:** Write the scripts with the harness (Task 3) against the real discs: BDJ_DISC_A first menu → PLAY → feature playlist (and → CHAPTERS); BDJ_DISC_B language picker → English → main menu → PLAY → feature. Save libbluray's traces + plane hashes to the SDD workspace.
 - [ ] **Step 2: Failing test:** our replay reaches the same feature playlists with matching control calls, and plane hashes match at each script's checked flushes. **Step 3:** Fix divergences in the port; where a frame legitimately differs (e.g. timing-dependent animation frames), restrict the check to stable flushes named in the script, and record why. **Step 4: Run** `npx vitest run tests/local/bdj-menus.test.ts` → PASS. **Step 5: Commit** `test(bdj): local BD-J discs from menu to feature`.
 
 ### Task 11: Responsiveness and the desktop start-up bar
 
-- [ ] **Step 1:** Add telemetry `bdj.inputLatencyMs` (input to next presented frame with a plane change) and measure in Chrome on both discs (arrow moves, Enter) and A_NEW_ERA warm start-up (5c's check).
+- [ ] **Step 1:** Add telemetry `bdj.inputLatencyMs` (input to next presented frame with a plane change) and measure in Chrome on both discs (arrow moves, Enter) and BDJ_DISC_A warm start-up (5c's check).
 - [ ] **Step 2:** If latency > 200 ms or start-up > 5,000 ms: profile (DevTools in the BD-J worker; `node --cpu-prof` on the replay) and add intrinsics/fast paths as in 5c (equivalence tests, OpenJDK-derived code only in `src/bdj-classlib/intrinsics/`). A JIT is not started; if it seems needed, report to the controller.
 - [ ] **Step 3:** Tests: a local test asserts latency ≤ 200 ms in Chrome (LOCAL_DISCS). **Step 4: Commit** `perf(bdj): menu responsiveness`.
 
@@ -173,7 +173,7 @@
 
 **Files:** Modify `src/engine/memory-profile.ts` (`bdjClassCacheBytes`, `bdjVfsCacheBytes`, `bdjDecodedImageBytes` budgets), JVM caches (inflated class bytes dropped after define, ZIP entry caches bounded), VFS `/tmp` cache eviction for disc JAR copies, plane buffers reused.
 
-- [ ] **Step 1: Failing tests:** under `constrained`, the JVM's retained class bytes and VFS cache stay under their budgets after booting A_NEW_ERA in the Node replay (measure with the JVM's own accounting; LOCAL_DISCS), behaviour unchanged (control calls + plane hashes as Task 10).
+- [ ] **Step 1: Failing tests:** under `constrained`, the JVM's retained class bytes and VFS cache stay under their budgets after booting BDJ_DISC_A in the Node replay (measure with the JVM's own accounting; LOCAL_DISCS), behaviour unchanged (control calls + plane hashes as Task 10).
 - [ ] **Step 2: Implement** budgets (initial values from a desktop measurement; final values set in Task 14 from the iPhone/iPad measurement). **Step 3: Commit** `feat(bdj): memory budgets for phones and tablets`.
 
 ### Task 14: Device gate
@@ -181,8 +181,8 @@
 **Files:** Create `tools/devices/gate.ts` (scripted gate per device: open disc via server URL, wait for first logo frame, record `bdj.firstFrameMs`, run the menu-to-feature key/tap script, record `inputLatencyMs`, stay 10 minutes in menus, detect page reloads = memory kills); modify the 5d spec's status line and `docs/known-issues.md`.
 
 - [ ] **Step 1:** Simulator dry run of the full gate.
-- [ ] **Step 2 (user setup ready; controller coordinates):** run on iPhone 17 Pro and iPad Pro over the server route, then the USB route (user picks the folder; script continues), for both discs (A_NEW_ERA where HEVC decodes); Safari macOS, Firefox desktop (RENTAL_FAMILY if no HEVC), Chrome.
-- [ ] **Step 3:** Tune the constrained budgets (Task 13) from the measurements; if iPhone A_NEW_ERA first frame > 10 s, profile and speed up (no JIT without the user); > 15 s blocks the milestone — report to the controller.
+- [ ] **Step 2 (user setup ready; controller coordinates):** run on iPhone 17 Pro and iPad Pro over the server route, then the USB route (user picks the folder; script continues), for both discs (BDJ_DISC_A where HEVC decodes); Safari macOS, Firefox desktop (BDJ_DISC_B if no HEVC), Chrome.
+- [ ] **Step 3:** Tune the constrained budgets (Task 13) from the measurements; if iPhone BDJ_DISC_A first frame > 10 s, profile and speed up (no JIT without the user); > 15 s blocks the milestone — report to the controller.
 - [ ] **Step 4:** Record results in the 5d spec's status line and known-issues; commit `test(bdj): device gate`.
 
 ### Task 15: Docs and final verification

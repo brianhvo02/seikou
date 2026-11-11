@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Opening a BD-J disc runs its Java code in a dedicated worker, that code drives real playback (intro, then menu-background loop on both local discs), and A_NEW_ERA's first logo frame appears within about 5 s.
+**Goal:** Opening a BD-J disc runs its Java code in a dedicated worker, that code drives real playback (intro, then menu-background loop on both local discs), and BDJ_DISC_A's first logo frame appears within about 5 s.
 
 **Architecture:** The engine worker keeps owning playback and the `RegisterFile`, now backed by a `SharedArrayBuffer` the BD-J worker reads synchronously. A `BdjSession` on the engine side spawns the BD-J worker, routes Java's playback calls to a `PlayerBdjHost` (ported `bdpriv_*`) and feeds BD-J events (ported from `bluray.c`) back. The Java side's `WorkerBdjHost` answers reads locally and turns state-changing calls into round trips that park the Java thread on a `Suspend`. Start-up speed comes from JS intrinsics for libbluray's hot Java methods and interpreter fast paths; a JIT is a conditional second stage.
 
@@ -18,7 +18,7 @@
 - COOP/COEP stay intact; the three class-library jars are same-origin assets loaded with Vite `?url` + `fetch` (pattern of `audio.wasm` in `src/engine/worker.ts`).
 - Build artifacts (`src/bdj-classlib/`, `tests/bdj/golden/`, `tests/vm-trace/golden/`, conformance outputs) change only through their scripts.
 - UO rules under BD-J titles: libbluray's default `BLURAY_PLAYER_SETTING_UO_RESTRICTION_RELAXED`: only menu call and title search are checked; pause/play, seek, chapter skip never refused.
-- Start-up bar: A_NEW_ERA open → first presented frame of the first Java-selected playlist ≤ 5,000 ms in Chrome, production build, warm HTTP cache; cold open recorded.
+- Start-up bar: BDJ_DISC_A open → first presented frame of the first Java-selected playlist ≤ 5,000 ms in Chrome, production build, warm HTTP cache; cold open recorded.
 - Fallback: boot failure, `BdjError`, JVM halt, or no `selectPlaylist` within 20,000 ms of `start` → BD-J worker terminated, picker shown, notice naming the failure.
 - Register file layout shared with the BD-J worker: `Int32Array` of 128 PSRs then 4096 GPRs (4,224 words).
 - HDMV playback, non-menu playlists, audio and subtitles unchanged, except the two named fixes: UHD/3D profile switch on every disc; scheduler throw-path continuation.
@@ -195,7 +195,7 @@ export type BdjCallName = 'selectTitle' | 'selectPlaylist' | 'seek' | 'selectAng
 - `replayPlayerBdj(discDir, { until: string; occurrence: number; timeoutMs }): Promise<{ trace: TraceEntry[]; firstPlaylistMs: number }>` — runs the real `Player` with fake decoders and a virtual clock that fast-forwards playback, `BdjSession` with the in-process worker, and records Java's control calls (same `TraceEntry` format).
 - [ ] **Step 1:** Extend the harness's `--until` to `<call>#<n>`; regenerate the synthetic golden so it reaches TitleXlet's playlist ending and the next selection (extend `TitleXlet` to select playlist 00000 again on END_OF_PLAYLIST via a `ControllerListener`, rebuild with `npm run bdj-classlib:build`, `npm run fixture:synthetic`, `npm run bdj-trace:golden`).
 - [ ] **Step 2: Failing test:** `tests/bdj/bdj-trace.test.ts` replays disc-bdj through `replayPlayerBdj` to `selectPlaylistN#2` and matches the new golden.
-- [ ] **Step 3: Implement** `replayPlayerBdj`. **Step 4:** Run local discs: `npm run bdj-trace -- fixtures/local/A_NEW_ERA --until selectPlaylistN#2` (expect 833 then 149) and RENTAL_FAMILY (1611 then the second selection libbluray makes; the spike saw 01355); fix divergences in the port with regression tests; `tests/local/bdj-boot.test.ts` asserts both selections.
+- [ ] **Step 3: Implement** `replayPlayerBdj`. **Step 4:** Run local discs: `npm run bdj-trace -- fixtures/local/BDJ_DISC_A --until selectPlaylistN#2` (expect 833 then 149) and BDJ_DISC_B (1611 then the second selection libbluray makes; the spike saw 01355); fix divergences in the port with regression tests; `tests/local/bdj-boot.test.ts` asserts both selections.
 - [ ] **Step 5: Commit** `test(bdj): control calls match libbluray through the menu-background playlist`.
 
 ### Task 10: Synthetic HDMV↔BD-J disc
@@ -213,7 +213,7 @@ export type BdjCallName = 'selectTitle' | 'selectPlaylist' | 'seek' | 'selectAng
 
 **Interfaces:** each intrinsic is registered with `NativeTable.replace('<class>.<method>(<desc>)', fn)` and listed in `src/engine/bdj/jvm/natives/intrinsics/index.ts`.
 
-- [ ] **Step 1: Profile** `npm run bdj-trace -- fixtures/local/A_NEW_ERA` under `node --cpu-prof` and record the top 20 self-time entries (Java methods via a per-method bytecode counter added behind a debug flag) in the report.
+- [ ] **Step 1: Profile** `npm run bdj-trace -- fixtures/local/BDJ_DISC_A` under `node --cpu-prof` and record the top 20 self-time entries (Java methods via a per-method bytecode counter added behind a debug flag) in the report.
 - [ ] **Step 2: For each hot Java method chosen** (expected: `java/awt/BDGraphicsBase.applyComposite`, the `drawImage`/fill loops it sits in, `java/awt/image/DirectColorModel` getters): a failing equivalence test that runs the Java method (intrinsics off) and the intrinsic (on) on the same randomized inputs (seeded) and compares the resulting `int[]` pixel buffers and return values exactly; then the intrinsic.
 - [ ] **Step 3: Interpreter fast paths** the profile justifies (e.g. caching resolved `invokevirtual` targets per call site, trivial getter/setter inlining), each covered by the conformance suite.
 - [ ] **Step 4: Start-up overlap:** class-library fetch starts at disc open when `indexUsesBdj`; JVM boot runs while the disc model loads.
@@ -224,7 +224,7 @@ export type BdjCallName = 'selectTitle' | 'selectPlaylist' | 'seek' | 'selectAng
 **Files:** Create `tests/e2e/bdj.spec.ts` (CI, synthetic disc-bdj: opens, plays playlist 00000 under BD-J, notice shown, picker reachable). Modify `tests/e2e/local-discs.spec.ts` (BD-J discs: first Java-selected playlist frame time ≤ 5,000 ms warm, cold recorded; menu-background playlist reached; forced failure via a test-only `?bdjfail=1` hook that injects a broken class library through deps → picker + `bdj-failed`). Telemetry gains `bdj: { bootMs, firstPlaylistMs } | null`.
 
 - [ ] **Step 1: Failing tests** as above. **Step 2: Implement** telemetry fields and the test hook (guarded like `?telemetry=1`). **Step 3: Run** `npm run build && npx playwright test bdj` and `LOCAL_DISCS=1 npx playwright test local-discs` → record times.
-- [ ] **Step 4: Decision point:** if A_NEW_ERA warm > 5,000 ms, do Task 13; otherwise skip it (record "not needed" in the ledger and the spec's deviations).
+- [ ] **Step 4: Decision point:** if BDJ_DISC_A warm > 5,000 ms, do Task 13; otherwise skip it (record "not needed" in the ledger and the spec's deviations).
 - [ ] **Step 5: Commit** `test(bdj): BD-J discs in the browser`.
 
 ### Task 13 (conditional): JIT, stage 2

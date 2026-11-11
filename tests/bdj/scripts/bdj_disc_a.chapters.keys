@@ -1,4 +1,4 @@
-# A_NEW_ERA (local disc): the main menu, then CHAPTERS, chapter 2. The chapter is a seek in the menu's playlist
+# BDJ_DISC_A (local disc): the main menu, then CHAPTERS, chapter 2. The chapter is a seek in the menu's playlist
 # before BD-J title 1 starts the feature, playlist 00040.
 wait playlist 149
 wait still 1500   # the main menu has faded in, PLAY focused

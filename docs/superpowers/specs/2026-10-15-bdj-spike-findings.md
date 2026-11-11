@@ -10,7 +10,7 @@ pressed Enter at a set time. Two quirks to get the JVM loaded: `jre/lib/arm -> a
 
 ## 1. Does libbluray's BD-J work on these discs? Yes.
 
-| | A_NEW_ERA | RENTAL_FAMILY |
+| | BDJ_DISC_A | BDJ_DISC_B |
 |---|---|---|
 | Framework | `com.uni.radius` | `com.dis.radius` |
 | First Play | title 6, playlist `00833` (logos, 23 s); first ARGB frame at 0.23 s | title 2, playlist `01611` (26 s) |
@@ -38,13 +38,13 @@ the app, `BDRootWindow` `sync(): not visible`.
 
 | Run | CPU over the run | Wall clock |
 |---|---|---|
-| A_NEW_ERA, JIT | 2.5 s user | 45 s |
-| A_NEW_ERA, `-Xint` | 5.2 s user | 45 s |
-| RENTAL_FAMILY, JIT | 2.1 s user | 70 s |
-| RENTAL_FAMILY, `-Xint` | 3.7 s user | 70 s |
+| BDJ_DISC_A, JIT | 2.5 s user | 45 s |
+| BDJ_DISC_A, `-Xint` | 5.2 s user | 45 s |
+| BDJ_DISC_B, JIT | 2.1 s user | 70 s |
+| BDJ_DISC_B, `-Xint` | 3.7 s user | 70 s |
 
 These include JVM startup and libbluray's C stream reading. Pure interpretation costs about 2x the JIT, and
-Enter-to-playlist latency was unchanged (it's the app's animation). The one CPU-bound moment seen: RENTAL_FAMILY's
+Enter-to-playlist latency was unchanged (it's the app's animation). The one CPU-bound moment seen: BDJ_DISC_B's
 title change after Enter took 1.4 s longer under `-Xint`. A TS interpreter 5 to 10 times slower than HotSpot's
 assembly interpreter would average roughly 0.5 to 1 core over these runs, with multi-second bursts at boot and title
 changes. Acceptable in a worker; boot time is the number to watch.
@@ -61,7 +61,7 @@ changes. Acceptable in a worker; boot time is the number to watch.
 3. **Skip JAR signature verification** (the sun.security.* load) behind a flag. Real players need it; we don't.
 4. **Fonts:** the 11 font/text natives need a FreeType replacement (WASM FreeType or canvas text), plus fallback
    system fonts, since the discs ask for Lucida by name.
-5. **First real-disc gate:** reproduce this spike's event sequence (playlists `00833` then `00149` on A_NEW_ERA)
+5. **First real-disc gate:** reproduce this spike's event sequence (playlists `00833` then `00149` on BDJ_DISC_A)
    and its first menu frame, and compare against these traces, as `tests/vm-trace/` does for HDMV.
 6. **Wording only:** `docs/known-issues.md` calls `00149` a maze/decoy playlist; it is the menu background loop.
    Skipping it for main-feature choice is still right. Correct the note after M4b merges.

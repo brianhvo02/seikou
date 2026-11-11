@@ -1,4 +1,4 @@
-# TSURUNE (local disc): the feature with PG stream 1 turned on (its program leaves the display flag off).
+# HDMV_DISC_A (local disc): the feature with PG stream 1 turned on (its program leaves the display flag off).
 # Its first subtitle is at 22.7 s; a step every 1500 reads samples the PG plane over about the first minute.
 wait playlist 0
 subs 1

@@ -999,7 +999,7 @@ describe('Navigator IG button commands reach the graphics controller with their 
   }
   const toUnits = (segs: Uint8Array[]): IgUnit[] => segs.map((data) => ({ data, ptsUs: 0, pid: 0x1400 }));
 
-  it('SET_BUTTON_PAGE from a page-0 routing button changes the page (TSURUNE clip 00021 pattern)', async () => {
+  it('SET_BUTTON_PAGE from a page-0 routing button changes the page (HDMV_DISC_A clip 00021 pattern)', async () => {
     const page = (id: number, cmds: Uint8Array[], autoAction: boolean, objectBase: number) => ({
       id, defaultSelected: 1, paletteId: 0,
       bogs: [{ defaultValid: 1, buttons: [{ id: 1, x: 10, y: 10, normal: [objectBase, objectBase] as [number, number], selected: [objectBase, objectBase] as [number, number], activated: [objectBase, objectBase] as [number, number], autoAction, cmds }] }],

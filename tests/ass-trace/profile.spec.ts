@@ -4,7 +4,7 @@ import { readTimes, syntheticFixtures, type AssFixture } from './fixtures';
 
 function localDir(dir: string): AssFixture {
   const name = dir.split('/').pop()!;
-  const fonts = ['fixtures/ass/fonts/DejaVuSans.ttf', ...readdirSync('fixtures/local/ass/TSURUNE_1/attachments').map((f) => `fixtures/local/ass/TSURUNE_1/attachments/${f}`)];
+  const fonts = ['fixtures/ass/fonts/DejaVuSans.ttf', ...readdirSync('fixtures/local/ass/ASS_SET_A/attachments').map((f) => `fixtures/local/ass/ASS_SET_A/attachments/${f}`)];
   return { name, script: `/${dir}/${name}.ass`, fonts: fonts.map((f) => '/' + f.split('/').map(encodeURIComponent).join('/')), times: readTimes(`${dir}/times.txt`), storage: null, golden: '' };
 }
 import type { AssSessionPage } from './page/types';

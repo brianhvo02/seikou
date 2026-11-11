@@ -9,11 +9,11 @@ Builds on: `2026-10-15-m5b-bdj-jvm-core-design.md` (the JVM, `BdjHost`, `BdjRunt
 
 Today a BD-J disc opens to the playlist picker with a "BD-J isn't supported" notice. After 5c, opening a BD-J disc
 runs the disc's own Java code in the player, and that code decides what plays, exactly as a Blu-ray player would:
-on A_NEW_ERA the studio logos play with sound, then the menu's looping background video starts; on RENTAL_FAMILY its
+on BDJ_DISC_A the studio logos play with sound, then the menu's looping background video starts; on BDJ_DISC_B its
 intro plays, then the language picker's background. The menu itself is still invisible (graphics, keys and fonts are
 5d), but the disc is "running", not being driven by our picker.
 
-It must start quickly. The user's bar: **about 5 seconds from opening A_NEW_ERA to its first logo frame**, faster if
+It must start quickly. The user's bar: **about 5 seconds from opening BDJ_DISC_A to its first logo frame**, faster if
 we can. M5b measured 26 s in Node to the first playlist selection, nearly all of it in libbluray's per-pixel menu
 compositing (`BDGraphicsBase.applyComposite`, `DirectColorModel` getters: about 100M interpreted calls). Speed work
 on that path is therefore part of 5c, not deferred.
@@ -27,7 +27,7 @@ libbluray/Blu-ray players"): the disc's UO mask decides what is allowed, and men
 2. Playback events reach Java as libbluray sends them, so the disc's own logic advances (logos end → menu loop).
 3. Both local discs reach their menu-background playlist, with the control calls matching libbluray's beyond the first
    playlist.
-4. A_NEW_ERA's first logo frame appears within 5 s of opening the disc in Chrome on the developer's machine.
+4. BDJ_DISC_A's first logo frame appears within 5 s of opening the disc in Chrome on the developer's machine.
 5. Player controls follow libbluray's rules for BD-J titles (UO masks, rate, seek, chapter skip, menu call).
 6. If the BD-J runtime fails, the player falls back to today's picker with a clear notice. It never sits on a black
    screen.
@@ -61,7 +61,7 @@ libbluray/Blu-ray players"): the disc's UO mask decides what is allowed, and men
 |---|---|
 | Next milestone | 5c (user) |
 | What "done" looks like | Both discs play intro then menu-background loop, driven by Java; picker fallback on failure (user agreed to the proposal) |
-| Start-up time | About 5 s from open to A_NEW_ERA's first logo frame, faster if possible (user) |
+| Start-up time | About 5 s from open to BDJ_DISC_A's first logo frame, faster if possible (user) |
 | Player controls during BD-J titles | libbluray's defaults (user) |
 | Speed work in 5c | Yes, because of the 5 s bar (follows from the user's answer) |
 | If intrinsics and fast paths miss 5 s | Build a JIT (bytecode → JS) as a second stage; only if stage 1 falls short (user) |
@@ -212,13 +212,13 @@ The work is staged (user's decision):
 - **Trace parity beyond the first playlist (Node):** extend the libbluray harness (`tools/bdj-trace/`) and the replay
   so both run until a later control call (e.g. `--until selectPlaylistN#2`), with the replay host simulating playback
   (playlists end after their duration on a virtual clock, PSR/mark/end events as above). Synthetic disc golden extends
-  to a second playlist; local discs must match libbluray through A_NEW_ERA's `selectPlaylistN(149)` and
-  RENTAL_FAMILY's menu-background selection (whatever libbluray selects second: the spike saw `01355`).
+  to a second playlist; local discs must match libbluray through BDJ_DISC_A's `selectPlaylistN(149)` and
+  BDJ_DISC_B's menu-background selection (whatever libbluray selects second: the spike saw `01355`).
 - **Synthetic HDMV↔BD-J disc:** a small committed disc with a BD-J title that selects an HDMV title and an HDMV title
   that jumps to a BD-J title, with a golden trace (both vm-trace and bdj-trace views where applicable).
-- **Browser (Playwright, local discs, `LOCAL_DISCS=1`):** opening A_NEW_ERA and RENTAL_FAMILY plays the first Java-
+- **Browser (Playwright, local discs, `LOCAL_DISCS=1`):** opening BDJ_DISC_A and BDJ_DISC_B plays the first Java-
   selected playlist and then the menu-background playlist; time to first frame of the first playlist is reported and
-  must be ≤ 5,000 ms for A_NEW_ERA (enforced in this local test; not in CI, which has no discs). A forced BD-J failure
+  must be ≤ 5,000 ms for BDJ_DISC_A (enforced in this local test; not in CI, which has no discs). A forced BD-J failure
   (e.g. a broken class library injected through deps) shows the picker and the notice.
 - **Regression:** all existing unit, vm-trace, ass-trace and E2E tests pass; HDMV discs behave as before apart from
   §4.6.
@@ -229,7 +229,7 @@ The work is staged (user's decision):
    within the existing bounds.
 2. Control calls match libbluray through the menu-background playlist selection on both discs; synthetic goldens
    (BD-J, HDMV↔BD-J) match in CI.
-3. A_NEW_ERA: ≤ 5 s from open to first logo frame in Chrome on the developer's machine (warm cache, production build;
+3. BDJ_DISC_A: ≤ 5 s from open to first logo frame in Chrome on the developer's machine (warm cache, production build;
    record the number and the cold-open number; better is welcome), or, if stage 2 of §4.7 also falls short, the
    measured time and profile recorded in known-issues.
 4. Player controls under BD-J titles follow §4.5; fallback per §5 demonstrably works.
@@ -256,6 +256,6 @@ The work is staged (user's decision):
 8. **Player languages and country come from the browser locale** (ISO 639-2/B, two-letter country) and are written only when a BD-J title is entered; HDMV discs keep the default PSR16-19. New `PlayerDeps.playerSettings` (a port of `bd_set_player_setting_str`). *Changed in 5e (Task 7d):* they are written when a disc that uses BD-J opens, as libbluray does at `bd_open`, so a mixed disc's HDMV First Play reads them; discs without BD-J still keep the defaults.
 9. **Java's `System.currentTimeMillis` is wall-clock** (`performance.timeOrigin + now`).
 10. **Start-up speed.** Intrinsics are registered with `NativeTable.intrinsify` and `hookLoops`, keeping the bytecode fallback. Three OpenJDK-derived intrinsics (`DirectColorModel.getRGB`, `Rectangle.intersection`, the `PNGImageDecoder` row loop) live in `src/bdj-classlib/intrinsics/` under GPLv2+Classpath Exception and are injected through `JvmOptions.extraIntrinsics`. Intrinsics of a specified algorithm stay in `src/engine`.
-11. **Stage 2 (JIT) was not built.** Stage 1 met the bar: A_NEW_ERA warm 4,934-4,988 ms over 5 runs, cold 5,006-5,013 ms; RENTAL_FAMILY warm 843-884 ms, cold 875-916 ms. A speculative pre-boot before disc open gained at most 25 ms and was not built; disc-model and clip reads were parallelised instead.
+11. **Stage 2 (JIT) was not built.** Stage 1 met the bar: BDJ_DISC_A warm 4,934-4,988 ms over 5 runs, cold 5,006-5,013 ms; BDJ_DISC_B warm 843-884 ms, cold 875-916 ms. A speculative pre-boot before disc open gained at most 25 ms and was not built; disc-model and clip reads were parallelised instead.
 12. **No vm-trace golden for the mixed HDMV and BD-J disc,** because the vm-trace harness's libbluray has no JVM. Parity rests on its bdj-trace golden and a player test.
 13. **SEEK and PSR8 report the requested position,** not the EP-map-aligned one. END_OF_PLAYLIST fires once per presentation end (libbluray: once per open).

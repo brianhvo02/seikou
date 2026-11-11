@@ -16,8 +16,8 @@ export interface MemoryProfile {
   /** How long a tap on a BD-J menu waits for the disc to react before it counts as ignored (the responsiveness target, 5d spec §3). */
   readonly bdjTapWindowMs: number;
   /*
-   * BD-J (5d spec §4.5). The constrained values are first estimates from the desktop measurement of A_NEW_ERA and
-   * RENTAL_FAMILY in the Node replay (classes keep 1.3 MB, the memory mounts hold 4.4 MB, one 1080p still decodes to
+   * BD-J (5d spec §4.5). The constrained values are first estimates from the desktop measurement of BDJ_DISC_A and
+   * BDJ_DISC_B in the Node replay (classes keep 1.3 MB, the memory mounts hold 4.4 MB, one 1080p still decodes to
    * 7.9 MB); the device measurement sets them (5d plan, Task 14).
    */
   /**

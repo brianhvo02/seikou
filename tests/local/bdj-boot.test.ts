@@ -10,7 +10,7 @@ const LOCAL = fileURLToPath(new URL('../../fixtures/local', import.meta.url)); /
  * The first two playlists each known disc's BD-J program selects, from libbluray's trace
  * (npm run bdj-trace -- <disc> --until selectPlaylistN#2): the intro, then the menu background once the intro ends.
  */
-const SELECTIONS: Readonly<Record<string, readonly [number, number]>> = { A_NEW_ERA: [833, 149], RENTAL_FAMILY: [1611, 1355] };
+const SELECTIONS: Readonly<Record<string, readonly [number, number]>> = { BDJ_DISC_A: [833, 149], BDJ_DISC_B: [1611, 1355] };
 
 function bdjDiscs(): string[] {
   if (!existsSync(LOCAL)) return [];

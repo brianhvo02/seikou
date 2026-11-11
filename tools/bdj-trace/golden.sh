@@ -74,6 +74,6 @@ golden disc-bdj-mixed 1
 golden_keys disc-bdj-menu arrows
 golden_keys disc-bdj-menu mouse
 golden_openings disc-bdj-store open 3
-golden_local A_NEW_ERA a_new_era.play
-golden_local A_NEW_ERA a_new_era.chapters
-golden_local RENTAL_FAMILY rental_family.play
+golden_local BDJ_DISC_A bdj_disc_a.play
+golden_local BDJ_DISC_A bdj_disc_a.chapters
+golden_local BDJ_DISC_B bdj_disc_b.play

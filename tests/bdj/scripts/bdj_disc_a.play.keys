@@ -1,4 +1,4 @@
-# A_NEW_ERA (local disc): the main menu, then PLAY. Playlist 00149 plays behind the menu; PLAY plays two short
+# BDJ_DISC_A (local disc): the main menu, then PLAY. Playlist 00149 plays behind the menu; PLAY plays two short
 # playlists (01048, 00100), then BD-J title 1 starts the feature, playlist 00040.
 wait playlist 149
 wait still 1500   # the main menu has faded in, PLAY focused

@@ -292,7 +292,7 @@ when no BD-J disc is present.
 
 1. The conformance suite matches HotSpot's output for every program.
 2. The synthetic disc's trace matches `tests/bdj/golden/disc-bdj.jsonl` in CI.
-3. A_NEW_ERA's control calls match libbluray's up to and including `selectPlaylist(833)`, and RENTAL_FAMILY's up to
+3. BDJ_DISC_A's control calls match libbluray's up to and including `selectPlaylist(833)`, and BDJ_DISC_B's up to
    and including `selectPlaylist(1611)`.
 4. The time from `boot()` to that call in Node is recorded for both discs in `docs/known-issues.md`. The target is
    15 s or less on the developer's machine. It is tracked, not enforced in CI.
@@ -314,7 +314,7 @@ All done in Task 17:
 1. **Mounts.** `/tmp/` (java.io.tmpdir, where libbluray's CacheDir lives) and `/buda/` replace `/cache/`; `/app/` (read-only, test jars) is added. `Libbluray.init` takes a BUDA root, not a cache root.
 2. **Disc ID** comes from `CERTIFICATE/id.bdmv` (then `BACKUP/`), as libbluray's `bdid_get` does; 32 zeros when absent.
 3. **`BdjHost` return types** are the JNI types of the `native` declarations (int is a number, long a bigint), not the booleans of the §3.6 sketch. Builder-driven additions: `getTitleInfos` null entries, a `videoStreams` array, `StreamInfo.charCode`, a log error flag, an optional `record()`.
-4. **Title selection.** libbluray's Java calls `selectTitleN` only for HDMV titles (`BDJLoader` to `Libbluray.selectHdmvTitle`); BD-J to BD-J title changes stay in Java. §3.6's sentence that First Play selects title 6 (A_NEW_ERA) or 2 (RENTAL_FAMILY) before the first playlist is wrong: real libbluray makes no `selectTitleN` call before the first playlist on either disc. `RecordingHost.selectTitle` follows `bdpriv_play_title_internal`.
+4. **Title selection.** libbluray's Java calls `selectTitleN` only for HDMV titles (`BDJLoader` to `Libbluray.selectHdmvTitle`); BD-J to BD-J title changes stay in Java. §3.6's sentence that First Play selects title 6 (BDJ_DISC_A) or 2 (BDJ_DISC_B) before the first playlist is wrong: real libbluray makes no `selectTitleN` call before the first playlist on either disc. `RecordingHost.selectTitle` follows `bdpriv_play_title_internal`.
 5. **Constructor and deps.** `RecordingHost(disc, clips, opts)` needs the CLPI data. `BdjRuntimeDeps` has no `model`; `deps.host` is `(startTitle, onTrace) => BdjHost`; `deps.disc` is a `ByteSource` with `paths()` (a `FileSource`).
 6. **Events are serialised**: one Java thread per event, and the next starts when the previous returns, as `bdj_process_event` is synchronous. Event threads share the `main` `java.lang.Thread` (libbluray attaches a fresh one).
 7. **Class library sources.** Three classes come from the JDK's `jsse.jar` and `jce.jar` (the same OpenJDK GPLv2+CPE package). `classes.txt` also lists VM-internal error classes the interpreter throws.

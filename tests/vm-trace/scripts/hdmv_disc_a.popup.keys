@@ -1,4 +1,4 @@
-# TSURUNE (local disc): the feature's pop-up menu (sub-path clip 00022). Its auto-action pages settle on page 3:
+# HDMV_DISC_A (local disc): the feature's pop-up menu (sub-path clip 00022). Its auto-action pages settle on page 3:
 # buttons 0 top menu (CALL_TITLE 0), 1 chapters, 2, 3 and 4 further pages, right to left (button 2 centre 1394, 789).
 wait playlist 0
 wait popup

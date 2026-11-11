@@ -9,7 +9,7 @@ describe('UO masks', () => {
     expect([...parseUoMaskTable(t)].sort()).toEqual(['menuCall', 'skipToNextPoint']);
   });
 
-  it("decodes TSURUNE's menu playlist mask 3cb805ff40000000", () => {
+  it("decodes HDMV_DISC_A's menu playlist mask 3cb805ff40000000", () => {
     const t = Uint8Array.of(0x3c, 0xb8, 0x05, 0xff, 0x40, 0, 0, 0);
     expect([...parseUoMaskTable(t)].sort()).toEqual([
       'angleChange', 'backwardPlay', 'chapterSearch', 'forwardPlay', 'pauseOn', 'pgChange', 'pgEnableDisable', 'pipPgChange',

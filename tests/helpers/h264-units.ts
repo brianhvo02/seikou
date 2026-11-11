@@ -1,6 +1,6 @@
 /** High profile, level 4.0 SPS header bytes (enough for codec-string derivation). */
 export const TEST_SPS = new Uint8Array([0x67, 0x64, 0x00, 0x28, 0xac, 0xd9, 0x40]);
-/** Full SPS of TSURUNE_TSUNAGARI_1 clip 00007: High 4.1, 1920x1080 interlaced (frame_mbs_only_flag 0, MBAFF). */
+/** Full SPS of HDMV_DISC_A clip 00007: High 4.1, 1920x1080 interlaced (frame_mbs_only_flag 0, MBAFF). */
 export const INTERLACED_SPS = hex('67640029ac1b1a501e0113f7808800001f4800075307130000243d50000393874625c6260000487aa00007270e8c4b87c70c2960');
 /** Full SPS of synthetic disc1: High 4.1, progressive (frame_mbs_only_flag 1). */
 export const PROGRESSIVE_SPS = hex('67640029acb201405ff2e022000003000200000300601e306490');

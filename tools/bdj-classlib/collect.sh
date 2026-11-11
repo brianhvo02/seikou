@@ -41,7 +41,7 @@ if [ "${1:-}" = "--one" ]; then
       # HotSpot prints -verbose output on stdout, between the trace lines
       tools/bdj-trace/run.sh "$d" --until selectPlaylistN --jvm-option -verbose:class --jvm-option -verbose:jni \
         > "$out" 2> "$err" || true
-      # scripts for a local disc are named in lower case (a_new_era.play.keys for fixtures/local/A_NEW_ERA)
+      # scripts for a local disc are named in lower case (bdj_disc_a.play.keys for fixtures/local/BDJ_DISC_A)
       for k in tests/bdj/scripts/"$(basename "$d" | tr '[:upper:]' '[:lower:]')".*.keys; do
         [ -f "$k" ] || continue
         echo "collecting from $d with $k" >&2

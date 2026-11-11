@@ -4,7 +4,7 @@ import type { PlayItem, PlayListMark } from '@seikou/bdmv/mpls-parser';
 import { itemPackets, markTitlePkt, nextPlaymark } from './packets';
 
 const IN = 524_280;
-/** A clip whose first EP map entry is packet 4 (at the IN time), as RENTAL_FAMILY's playlists 00800 and 01495 are. */
+/** A clip whose first EP map entry is packet 4 (at the IN time), as BDJ_DISC_B's playlists 00800 and 01495 are. */
 const clip: Clpi = {
   version: '0200',
   numSourcePackets: 1000,

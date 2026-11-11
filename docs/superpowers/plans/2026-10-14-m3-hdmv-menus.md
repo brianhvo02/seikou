@@ -282,7 +282,7 @@ describe('UO masks', () => {
     expect([...parseUoMaskTable(t)].sort()).toEqual(['menuCall', 'skipToNextPoint']);
   });
 
-  it("decodes TSURUNE's menu playlist mask 3cb805ff40000000", () => {
+  it("decodes HDMV_DISC_A's menu playlist mask 3cb805ff40000000", () => {
     const t = Uint8Array.of(0x3c, 0xb8, 0x05, 0xff, 0x40, 0, 0, 0);
     expect([...parseUoMaskTable(t)].sort()).toEqual([
       'angleChange', 'backwardPlay', 'chapterSearch', 'forwardPlay', 'pauseOn', 'pgChange', 'pgEnableDisable', 'pipPgChange',
@@ -953,7 +953,7 @@ export class GraphicsController {
 
 ### Task 12b: IG menus in sub-paths (preloaded IG)
 
-*Added during execution (controller ruling R17).* TSURUNE carries every IG stream in a sub-path, with STN IG entries of `subPath: true` and no IG PID in any main clip. `mpls-parser.ts` does not parse sub-paths, so as planned its menus would never appear and exit criterion 2 would fail.
+*Added during execution (controller ruling R17).* HDMV_DISC_A carries every IG stream in a sub-path, with STN IG entries of `subPath: true` and no IG PID in any main clip. `mpls-parser.ts` does not parse sub-paths, so as planned its menus would never appear and exit criterion 2 would fail.
 
 **Files:**
 - Modify: `src/engine/bdmv/mpls-parser.ts` (sub-paths and STN sub-path references), `src/engine/nav/navigator.ts`, `src/engine/disc/open-disc.ts`
@@ -983,20 +983,20 @@ export interface SubPath { readonly type: number; readonly isRepeat: boolean; re
 The preloaded buffer is dropped when the playlist closes.
 
 - [ ] **Step 1: Write the failing tests.**
-  - The MPLS parser reads sub-paths and sub-play-items, built with an extended `buildMpls` (`subPaths`), and the STN `subPathId`/`subClipId`. Add a cross-check on TSURUNE in `tests/local` that the IG entry's sub-path resolves to an existing clip.
+  - The MPLS parser reads sub-paths and sub-play-items, built with an extended `buildMpls` (`subPaths`), and the STN `subPathId`/`subClipId`. Add a cross-check on HDMV_DISC_A in `tests/local` that the IG entry's sub-path resolves to an existing clip.
   - Navigator: a synthetic disc whose IG lives in a sub-path clip (extend `buildSyntheticDisc` with `subPathIg`) boots into the menu with buttons drawn, and the menu survives a PSR restore.
   - Player: the same disc, with telemetry `menu` non-null and `buttonsDrawn > 0`.
-- [ ] **Step 2: Run them and check that they fail.** **Step 3: Port and implement.** **Step 4: Run them and check that they pass**, plus `npm run typecheck`, `npm run build` and `npm run test:e2e`. Also check `LOCAL_DISCS`-free behaviour: TSURUNE opened with a headless Chrome script should report `menu` telemetry within 30 s.
+- [ ] **Step 2: Run them and check that they fail.** **Step 3: Port and implement.** **Step 4: Run them and check that they pass**, plus `npm run typecheck`, `npm run build` and `npm run test:e2e`. Also check `LOCAL_DISCS`-free behaviour: HDMV_DISC_A opened with a headless Chrome script should report `menu` telemetry within 30 s.
 - [ ] **Step 5:** NOTICE entry (mpls sub-path parsing). Commit: `feat(nav): IG menus carried in sub-paths`.
 
 ---
 
 ## Phase D: menu traces
 
-### Task 13: `disc-menu` fixture, graphics traces and the TSURUNE script
+### Task 13: `disc-menu` fixture, graphics traces and the HDMV_DISC_A script
 
 **Files:**
-- Create: `scripts/make-menu-disc.ts`, `fixtures/synthetic/disc-menu/**`, `tests/vm-trace/scripts/disc-menu.*.keys`, `tests/vm-trace/golden/disc-menu.*.jsonl`, `tests/vm-trace/scripts/tsurune.menu-to-feature.keys`, `tests/vm-trace/scripts/tsurune.popup.keys`
+- Create: `scripts/make-menu-disc.ts`, `fixtures/synthetic/disc-menu/**`, `tests/vm-trace/scripts/disc-menu.*.keys`, `tests/vm-trace/golden/disc-menu.*.jsonl`, `tests/vm-trace/scripts/hdmv_disc_a.menu-to-feature.keys`, `tests/vm-trace/scripts/hdmv_disc_a.popup.keys`
 - Modify: `tools/vm-trace/vm_trace.c` (plane hash), `tests/vm-trace/replay.ts`
 
 **`disc-menu`** (built with `ig-builders`):
@@ -1015,7 +1015,7 @@ Scripts:
 
 - [ ] **Step 1:** Write the disc script, generate the fixture, add it to `fixture:synthetic`. Regenerate goldens with `npm run vm-trace:golden`.
 - [ ] **Step 2:** Run `npx vitest run tests/vm-trace`. Expected: the new `disc-menu.*` cases run. Fix divergences in the ported graphics controller or navigator until they pass (never edit goldens).
-- [ ] **Step 3:** Write the two TSURUNE scripts by reading the disc's menu (use `npm run vm-trace -- fixtures/local/TSURUNE_TSUNAGARI_1 <script>` with `wait menu` and the page dump the harness prints with `--dump-pages`, implemented in this task). Run the live comparison. Expected: both match. Record the outcome in the report. This is local only, as the disc is gitignored.
+- [ ] **Step 3:** Write the two HDMV_DISC_A scripts by reading the disc's menu (use `npm run vm-trace -- fixtures/local/HDMV_DISC_A <script>` with `wait menu` and the page dump the harness prints with `--dump-pages`, implemented in this task). Run the live comparison. Expected: both match. Record the outcome in the report. This is local only, as the disc is gitignored.
 - [ ] **Step 4:** Commit: `test(vm-trace): menu, mouse and pop-up parity with plane hashes`.
 
 ---
@@ -1136,7 +1136,7 @@ Tests on `fixtures/synthetic/disc-menu`, using telemetry `menu` and the shared h
 
 - For HDMV local discs (`indexTitles` non-empty and not BD-J), the test expects the disc to boot into its menu (`menu` telemetry non-null within 30 s). It then presses `Enter` up to five times or until a playlist longer than 30 minutes is playing, and then runs the existing seek and audio checks.
 - For BD-J discs, it expects the picker and the main feature as today.
-- Run `LOCAL_DISCS=1 npx playwright test local-discs` and `npm run vm-trace -- fixtures/local/TSURUNE_TSUNAGARI_1 tests/vm-trace/scripts/tsurune.menu-to-feature.keys` (and `tsurune.popup.keys`). Expected: all pass. Record the per-disc lines.
+- Run `LOCAL_DISCS=1 npx playwright test local-discs` and `npm run vm-trace -- fixtures/local/HDMV_DISC_A tests/vm-trace/scripts/hdmv_disc_a.menu-to-feature.keys` (and `hdmv_disc_a.popup.keys`). Expected: all pass. Record the per-disc lines.
 - [ ] **Step 1:** Implement. **Step 2:** Run. **Step 3:** Commit: `test(local): HDMV discs boot into their menus`.
 
 ---
@@ -1154,5 +1154,5 @@ Tests on `fixtures/synthetic/disc-menu`, using telemetry `menu` and the shared h
 - [ ] **Step 3: README and CLAUDE.md.**
   - README: `npm run vm-trace:build`, `vm-trace:golden` and `vm-trace` (Docker), and `scripts/fetch-libbluray.sh`.
   - CLAUDE.md: Milestones 1–3 done, the navigator and graphics architecture in two sentences, and the libbluray reference workflow.
-- [ ] **Step 4: Final verification.** Run `npm run typecheck && npm test && npm run test:e2e`, then `LOCAL_DISCS=1 npx playwright test local-discs`, then the TSURUNE `vm-trace` scripts. Paste the results.
+- [ ] **Step 4: Final verification.** Run `npm run typecheck && npm test && npm run test:e2e`, then `LOCAL_DISCS=1 npx playwright test local-discs`, then the HDMV_DISC_A `vm-trace` scripts. Paste the results.
 - [ ] **Step 5:** Commit: `docs: record milestone 3 HDMV menus`.

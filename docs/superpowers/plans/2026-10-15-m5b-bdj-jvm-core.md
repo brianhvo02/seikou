@@ -125,7 +125,7 @@ In each of the 20 `Java_org_videolan_Libbluray_*` functions, compute the result 
 
 ```sh
 npm run bdj-trace:build
-tools/bdj-trace/run.sh fixtures/local/A_NEW_ERA --until selectPlaylistN > /tmp/ane.jsonl
+tools/bdj-trace/run.sh fixtures/local/BDJ_DISC_A --until selectPlaylistN > /tmp/ane.jsonl
 grep -E '"call":"(selectTitleN|selectPlaylistN)"' /tmp/ane.jsonl
 ```
 
@@ -332,8 +332,8 @@ describe('parseBdjo', () => {
     expect(() => parseBdjo(bytes.subarray(0, 40))).toThrow(ParseError);
   });
 
-  it.skipIf(!existsSync('fixtures/local/A_NEW_ERA/BDMV/BDJO/00000.bdjo'))('reads A_NEW_ERA as the findings describe', () => {
-    const bdjo = parseBdjo(readFileSync('fixtures/local/A_NEW_ERA/BDMV/BDJO/00000.bdjo'));
+  it.skipIf(!existsSync('fixtures/local/BDJ_DISC_A/BDMV/BDJO/00000.bdjo'))('reads BDJ_DISC_A as the findings describe', () => {
+    const bdjo = parseBdjo(readFileSync('fixtures/local/BDJ_DISC_A/BDMV/BDJO/00000.bdjo'));
     expect(bdjo.version).toBe('0300');
     expect(bdjo.appCache.map((c) => c.refToName)).toEqual(['00000', '55555', '44444']);
     expect(bdjo.accessiblePlaylists).toEqual({ accessToAllFlag: 1, autostartFirstPlaylistFlag: 0, playlists: [] });
@@ -778,8 +778,8 @@ export const BdjEvent = { NONE: 0, START: 1, STOP: 2, PSR102: 3, PLAYLIST: 4, PL
 - Modify: `package.json` (`"bdj-trace": "tsx tests/bdj/run.ts"`)
 
 - [ ] **Step 1: `tests/bdj/run.ts`:** `npm run bdj-trace -- <disc> [--until selectPlaylistN]` runs `tools/bdj-trace/run.sh` and `replayBdj` on the same disc, prints both control-call sequences side by side and the first divergence, then `bootMs` and `untilMs`. Exit code 1 on divergence.
-- [ ] **Step 2: `tests/local/bdj-boot.test.ts`:** for each `fixtures/local/*` with `BDMV/BDJO`, `replayBdj(dir, { until: 'selectPlaylistN', timeoutMs: 120_000 })`; expected first `selectPlaylistN` argument per disc in a small table (`A_NEW_ERA: 833`, `RENTAL_FAMILY: 1611`; unknown discs only require that some `selectPlaylistN` happens); control calls before it include `selectTitleN` with `6` (A_NEW_ERA) or `2` (RENTAL_FAMILY); prints `bootMs`/`untilMs`. Skips when no BD-J disc is present.
-- [ ] **Step 3: Run on both discs.** `npm run bdj-trace -- fixtures/local/A_NEW_ERA --until selectPlaylistN` and the same for RENTAL_FAMILY: no divergence. When there is one, it is a porting bug (or a missing class/native: rerun `npm run bdj-classlib:collect && npm run bdj-classlib:build` and implement any new native), fixed in the port, never by loosening the comparison. Then `npx vitest run tests/local/bdj-boot.test.ts`. Record `untilMs` for both discs; the target is ≤ 15,000 ms. If it is over, profile (`node --cpu-prof`) and fix the top items before finishing, or record the numbers and the top profile entries for Task 17.
+- [ ] **Step 2: `tests/local/bdj-boot.test.ts`:** for each `fixtures/local/*` with `BDMV/BDJO`, `replayBdj(dir, { until: 'selectPlaylistN', timeoutMs: 120_000 })`; expected first `selectPlaylistN` argument per disc in a small table (`BDJ_DISC_A: 833`, `BDJ_DISC_B: 1611`; unknown discs only require that some `selectPlaylistN` happens); control calls before it include `selectTitleN` with `6` (BDJ_DISC_A) or `2` (BDJ_DISC_B); prints `bootMs`/`untilMs`. Skips when no BD-J disc is present.
+- [ ] **Step 3: Run on both discs.** `npm run bdj-trace -- fixtures/local/BDJ_DISC_A --until selectPlaylistN` and the same for BDJ_DISC_B: no divergence. When there is one, it is a porting bug (or a missing class/native: rerun `npm run bdj-classlib:collect && npm run bdj-classlib:build` and implement any new native), fixed in the port, never by loosening the comparison. Then `npx vitest run tests/local/bdj-boot.test.ts`. Record `untilMs` for both discs; the target is ≤ 15,000 ms. If it is over, profile (`node --cpu-prof`) and fix the top items before finishing, or record the numbers and the top profile entries for Task 17.
 - [ ] **Step 4: Commit:** `git commit -m "test(bdj): local BD-J discs boot to their first playlist"`.
 
 ### Task 17: docs and final verification

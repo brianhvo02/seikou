@@ -28,10 +28,10 @@ interface Case {
 }
 
 const CASES: readonly Case[] = [
-  { disc: 'A_NEW_ERA', script: 'a_new_era.play', feature: 40, what: 'main menu, PLAY, the feature', profile: 'desktop' },
-  { disc: 'A_NEW_ERA', script: 'a_new_era.chapters', feature: 40, what: 'main menu, CHAPTERS, chapter 2, the feature', profile: 'desktop' },
-  { disc: 'RENTAL_FAMILY', script: 'rental_family.play', feature: 800, what: 'language picker, English, main menu, PLAY, the feature', profile: 'desktop' },
-  { disc: 'A_NEW_ERA', script: 'a_new_era.play', feature: 40, what: 'main menu, PLAY, the feature', profile: 'constrained' },
+  { disc: 'BDJ_DISC_A', script: 'bdj_disc_a.play', feature: 40, what: 'main menu, PLAY, the feature', profile: 'desktop' },
+  { disc: 'BDJ_DISC_A', script: 'bdj_disc_a.chapters', feature: 40, what: 'main menu, CHAPTERS, chapter 2, the feature', profile: 'desktop' },
+  { disc: 'BDJ_DISC_B', script: 'bdj_disc_b.play', feature: 800, what: 'language picker, English, main menu, PLAY, the feature', profile: 'desktop' },
+  { disc: 'BDJ_DISC_A', script: 'bdj_disc_a.play', feature: 40, what: 'main menu, PLAY, the feature', profile: 'constrained' },
 ];
 
 const budgets = MEMORY_PROFILES.constrained;

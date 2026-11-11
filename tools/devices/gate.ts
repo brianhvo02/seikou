@@ -13,7 +13,7 @@
  * One JSON result per disc and target goes to --out (default the SDD workspace's gate/ folder, which is gitignored).
  * Tokens never go into results.
  *
- *   npx tsx tools/devices/gate.ts --target <target> [--disc A_NEW_ERA] [--disc RENTAL_FAMILY] [--stay-ms 600000] …
+ *   npx tsx tools/devices/gate.ts --target <target> [--disc BDJ_DISC_A] [--disc BDJ_DISC_B] [--stay-ms 600000] …
  *
  * Targets:
  *   sim:<name> | <udid>   Safari on an iOS Simulator (or a real iPhone/iPad), through Appium (session.ts; touch input)
@@ -66,8 +66,8 @@ export interface DiscConfig {
 }
 
 export const DISCS: Readonly<Record<string, DiscConfig>> = {
-  A_NEW_ERA: { script: 'a_new_era.play', hevc: true, tapPoint: [960, 540], cycle: ['right', 'left'] },
-  RENTAL_FAMILY: { script: 'rental_family.play', hevc: false, tapPoint: [960, 540], cycle: ['right', 'left'] },
+  BDJ_DISC_A: { script: 'bdj_disc_a.play', hevc: true, tapPoint: [960, 540], cycle: ['right', 'left'] },
+  BDJ_DISC_B: { script: 'bdj_disc_b.play', hevc: false, tapPoint: [960, 540], cycle: ['right', 'left'] },
 };
 
 export interface PlanStep {

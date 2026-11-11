@@ -41,7 +41,7 @@ async function firstScreen(page: Page): Promise<'picker' | 'menu' | 'playing'> {
 }
 
 /**
- * An HDMV disc runs its own program: it boots into a menu, or (like TSURUNE) into the feature. Either way, reach the
+ * An HDMV disc runs its own program: it boots into a menu, or (like HDMV_DISC_A) into the feature. Either way, reach the
  * menu (Top Menu if needed), then press Enter up to five times until a playlist longer than 30 minutes plays.
  */
 async function hdmvIntoFeature(page: Page, name: string, first: 'menu' | 'playing'): Promise<void> {
@@ -79,8 +79,8 @@ function bdjFirstPlay(name: string): boolean {
  * and #2, tests/local/bdj-boot.test.ts), and spec §4.7's bar for the first frame of Java's first playlist (warm cache).
  */
 const BDJ_EXPECTED: Record<string, { readonly playlists: readonly [string, string]; readonly firstFrameBarMs?: number }> = {
-  A_NEW_ERA: { playlists: ['00833', '00149'], firstFrameBarMs: 5_000 },
-  RENTAL_FAMILY: { playlists: ['01611', '01355'] },
+  BDJ_DISC_A: { playlists: ['00833', '00149'], firstFrameBarMs: 5_000 },
+  BDJ_DISC_B: { playlists: ['01611', '01355'] },
 };
 
 /** Records every playlist the player shows, sampled each animation frame from the player's data-playlist. */

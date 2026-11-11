@@ -1,7 +1,7 @@
 # Video Shaders (mpv user shaders, Anime4K) — Design Spec
 
 Date: 2026-10-15
-Status: Implemented (2026-10-16); plan docs/superpowers/plans/2026-10-15-video-shaders.md. Real-disc gate passed 2026-10-16 on TSURUNE_TSUNAGARI_1 (Chrome on Apple M5 Max, Playwright, 1920×1080 and 3840×2160 viewports): Off, Anime4K Mode A (Fast) and (HQ) all within the A/V sync bounds (worst window 15.8 ms mean / 32.9 ms max) with no dropped frames or underruns; HQ at 4K ran 38 passes at about 22 ms GPU per frame; switching while playing, while paused, across a seek and after a reload all worked.
+Status: Implemented (2026-10-16); plan docs/superpowers/plans/2026-10-15-video-shaders.md. Real-disc gate passed 2026-10-16 on HDMV_DISC_A (Chrome on Apple M5 Max, Playwright, 1920×1080 and 3840×2160 viewports): Off, Anime4K Mode A (Fast) and (HQ) all within the A/V sync bounds (worst window 15.8 ms mean / 32.9 ms max) with no dropped frames or underruns; HQ at 4K ran 38 passes at about 22 ms GPU per frame; switching while playing, while paused, across a seek and after a reload all worked.
 Parent spec: `2026-10-12-bluray-web-player-design.md` (§6 rendering). Independent of M5 (BD-J).
 
 ## 1. Goal and scope

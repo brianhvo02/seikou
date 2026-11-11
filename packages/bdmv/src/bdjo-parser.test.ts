@@ -30,8 +30,8 @@ describe('parseBdjo', () => {
     expect(() => parseBdjo(bytes.subarray(0, 40))).toThrow(ParseError);
   });
 
-  it.skipIf(!existsSync('fixtures/local/A_NEW_ERA/BDMV/BDJO/00000.bdjo'))('reads A_NEW_ERA as the findings describe', () => {
-    const bdjo = parseBdjo(readFileSync('fixtures/local/A_NEW_ERA/BDMV/BDJO/00000.bdjo'));
+  it.skipIf(!existsSync('fixtures/local/BDJ_DISC_A/BDMV/BDJO/00000.bdjo'))('reads BDJ_DISC_A as the findings describe', () => {
+    const bdjo = parseBdjo(readFileSync('fixtures/local/BDJ_DISC_A/BDMV/BDJO/00000.bdjo'));
     expect(bdjo.version).toBe('0300');
     expect(bdjo.appCache.map((c) => c.refToName)).toEqual(['00000', '55555', '44444']);
     expect(bdjo.accessiblePlaylists).toEqual({ accessToAllFlag: 1, autostartFirstPlaylistFlag: 0, playlists: [] });

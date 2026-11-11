@@ -202,5 +202,5 @@ Deviation: `PlayerController.selectAudio` adds the `audio-track` notice.
 
 1. CI is green, including the `wasm` job.
 2. With the user's decrypted disc carrying Dolby and DTS tracks under `fixtures/local/`, `LOCAL_DISCS=1 npx playwright test local-discs` passes on every playable track. That covers AC-3 or E-AC-3, TrueHD through its core, and DTS or DTS-HD through its core. Each must keep sync within 20 ms mean and 50 ms max, with 0 decode errors.
-3. Switching between the three LPCM tracks on `TSURUNE_TSUNAGARI_1` works in Chrome.
+3. Switching between the three LPCM tracks on `HDMV_DISC_A` works in Chrome.
 4. The parent spec's §1, §4, §11 and §12 are updated to put DTS core in M2. `docs/known-issues.md` records the core-only choice for TrueHD and DTS-HD, and the reason for it.

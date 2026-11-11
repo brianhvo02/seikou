@@ -1,4 +1,4 @@
-# TSURUNE (local disc): First Play shows a logo, then starts the feature (title 1, playlist 0) with no menu.
+# HDMV_DISC_A (local disc): First Play shows a logo, then starts the feature (title 1, playlist 0) with no menu.
 # A menu call during the feature opens the top menu (title 0). Its auto-action pages (0, 1 or 2, then 11) run while
 # the menu playlist plays and settle on page 3: buttons 0 play (JUMP_TITLE 1), 1 chapters, 2 page 9, 3 page 10,
 # laid out right to left. Then left to chapters and on to page 9's button, back right to play, and play the feature.

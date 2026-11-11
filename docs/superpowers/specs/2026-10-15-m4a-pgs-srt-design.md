@@ -110,14 +110,14 @@ Events:
 ## 7. Testing
 
 - **Unit tests (Node):** PCS and WDS decoding and display-set assembly with new `pcsSegment` and `wdsSegment` builders; `_render_pg` (forced versus display flag, crop, deferred clear); the PG queue (PTS gating, cap, seek reset, stream switch); PSR2 selection and UO checks; SRT decoding (BOM, UTF-8, fallback, needs-encoding) and parsing edge cases and tag runs; text layout (alignment, wrapping, stacking) against a fake 2D context.
-- **libbluray traces:** the harness also applies `BD_OVERLAY_PG` operations to a second plane with the same semantics, and each `step` entry carries `pg` next to `plane`. A synthetic `disc-subs` (feature with two PG streams, one with forced objects) with scripts for subtitles on, a stream change by VM `SET_STREAM`, and off with forced captions only; goldens committed. A local TSURUNE or RENTAL_FAMILY script compared live.
+- **libbluray traces:** the harness also applies `BD_OVERLAY_PG` operations to a second plane with the same semantics, and each `step` entry carries `pg` next to `plane`. A synthetic `disc-subs` (feature with two PG streams, one with forced objects) with scripts for subtitles on, a stream change by VM `SET_STREAM`, and off with forced captions only; goldens committed. A local HDMV_DISC_A or BDJ_DISC_B script compared live.
 - **Chrome E2E (`tests/e2e/subtitles.spec.ts`):** a PG track drawn at its time (telemetry `pg.objectsShown`); Off still shows forced objects; an SRT loaded through the menu and by drag and drop shows its cue at the right time, and `]` shifts it; a windows-1252 file triggers the prompt and decodes; a masked PG change is refused.
 - **Real-disc gate:** on each local disc, select every PG stream of the main feature, seek, and see objects drawn with 0 PG errors.
 
 ## 8. Exit criteria
 
 1. CI is green, including the PG trace replay and the harness workflow.
-2. The real-disc gate passes on A_NEW_ERA, RENTAL_FAMILY and TSURUNE_TSUNAGARI_1.
+2. The real-disc gate passes on BDJ_DISC_A, BDJ_DISC_B and HDMV_DISC_A.
 3. `npm run vm-trace` matches libbluray for the local PG script.
 4. `docs/known-issues.md` lists what is deferred: ASS (M4b), TextST, sub-path PG, per-disc subtitle memory; SRT is verified on synthetic data only.
 
@@ -140,5 +140,5 @@ Decided while implementing (each is a `Ruling` line in the execution ledger):
 10. **Unknown SRT tags render as text** (§3.4); override blocks `{\…}` other than `{\anN}` are removed.
 11. **The subtitle menu shows whenever a playlist plays**, not only when there are PG tracks or a text track, so "Load subtitle file…" is always reachable. Masked picks are disabled in it with the usual tooltip.
 12. **`subtitles` is also emitted when a disc opens or closes**, so the UI learns that the text track was dropped with the disc.
-13. **The real-disc gate expects a subtitle after a seek only where the disc has one starting within 25 s of the landing point.** `tests/helpers/pg-scan.ts` decodes every PG stream in Node to find them (and asserts no decode errors). Some real tracks are sparse (A_NEW_ERA's second Spanish and French streams hold 16 and 18 subtitles in 124 minutes), so "drawn within 30 s of every seek" would fail on correct playback.
-14. **Trace scripts gained `subs N`** (stream N with the display flag) next to `subs off`: a disc's own program usually leaves PG off (TSURUNE writes PSR2 = `0x0FFF0001`), so the TSURUNE script turns stream 1 on to compare non-empty planes.
+13. **The real-disc gate expects a subtitle after a seek only where the disc has one starting within 25 s of the landing point.** `tests/helpers/pg-scan.ts` decodes every PG stream in Node to find them (and asserts no decode errors). Some real tracks are sparse (BDJ_DISC_A's second Spanish and French streams hold 16 and 18 subtitles in 124 minutes), so "drawn within 30 s of every seek" would fail on correct playback.
+14. **Trace scripts gained `subs N`** (stream N with the display flag) next to `subs off`: a disc's own program usually leaves PG off (HDMV_DISC_A writes PSR2 = `0x0FFF0001`), so the HDMV_DISC_A script turns stream 1 on to compare non-empty planes.

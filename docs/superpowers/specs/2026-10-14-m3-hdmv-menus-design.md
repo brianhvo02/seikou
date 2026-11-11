@@ -50,7 +50,7 @@ Changes to existing code:
 - `Compositor` gains an IG plane above the video.
 - Protocol: events `menuActive`, `uoMask`, `soundEffects` (clips, once per disc), `soundEffect { id }`, `indexTitles` (the `index.bdmv` titles; the existing `titles` event keeps carrying the playlist list); commands `menuKey` (up, down, left, right, ok, 0–9, topMenu, popup), `pointer { kind: move | click, x, y }` in 1920×1080 menu space, `playTitle { title }`.
 - `Telemetry` gains `menu: { page, selectedButton, buttonsDrawn } | null`, `igErrors` and `soundsPlayed`.
-- IG carried in sub-paths (as on TSURUNE) is read whole when its playlist opens, as libbluray's `_preload_ig_subpath`; `mpls-parser.ts` parses sub-paths for it.
+- IG carried in sub-paths (as on HDMV_DISC_A) is read whole when its playlist opens, as libbluray's `_preload_ig_subpath`; `mpls-parser.ts` parses sub-paths for it.
 
 Test tool: `tools/vm-trace/` (C source and Docker build; not shipped).
 
@@ -153,7 +153,7 @@ Traces are compared in order. Kinds and values, including the plane hash at ever
 - Synthetic discs `fixtures/synthetic/disc-vm` (hand-built movie objects: arithmetic, compare, jumps, CALL/RESUME, play at item and mark, stills) and `fixtures/synthetic/disc-menu` (a two-page IG menu with neighbour navigation, a button that plays a playlist, and a pop-up). Their libbluray traces are committed as golden files under `tests/vm-trace/golden/`.
 - CI replays our side against the golden traces on every run (no Docker needed).
 - A path-filtered workflow (`.github/workflows/vm-trace.yml`, triggered by `tools/vm-trace/**` and the two synthetic discs) rebuilds the harness, regenerates the golden traces and fails if they differ.
-- Real discs: `npm run vm-trace -- <disc-path> <script-path> [--dump-pages]` runs both sides live and compares (local only); `--dump-pages` prints the menus as our decoder reads them, for writing scripts. `tests/vm-trace/scripts/tsurune.menu-to-feature.keys` and `tsurune.popup.keys` cover TSURUNE.
+- Real discs: `npm run vm-trace -- <disc-path> <script-path> [--dump-pages]` runs both sides live and compares (local only); `--dump-pages` prints the menus as our decoder reads them, for writing scripts. `tests/vm-trace/scripts/hdmv_disc_a.menu-to-feature.keys` and `hdmv_disc_a.popup.keys` cover HDMV_DISC_A.
 
 ## 6. Errors
 
@@ -176,6 +176,6 @@ Traces are compared in order. Kinds and values, including the plane hash at ever
 ## 8. Exit criteria
 
 1. CI is green, including trace replay; the harness-regeneration workflow passes.
-2. TSURUNE_TSUNAGARI_1 in Chrome: boots through First Play (which on this disc plays a logo, then the feature; Top Menu opens the menu) to its top menu with buttons drawn; keyboard, mouse and remote can each start the feature from the menu; the feature's pop-up menu opens and closes; masked controls are disabled; `npm run vm-trace` matches libbluray for the scripted sessions menu → feature and pop-up open → close.
-3. The BD-J discs (A_NEW_ERA, RENTAL_FAMILY) still open to the picker with the correct main feature.
+2. HDMV_DISC_A in Chrome: boots through First Play (which on this disc plays a logo, then the feature; Top Menu opens the menu) to its top menu with buttons drawn; keyboard, mouse and remote can each start the feature from the menu; the feature's pop-up menu opens and closes; masked controls are disabled; `npm run vm-trace` matches libbluray for the scripted sessions menu → feature and pop-up open → close.
+3. The BD-J discs (BDJ_DISC_A, BDJ_DISC_B) still open to the picker with the correct main feature.
 4. Menu sounds are verified on synthetic data only and recorded as such in `docs/known-issues.md` until a disc with `sound.bdmv` is available.

@@ -118,7 +118,7 @@ One JSON record per disc and playlist, stored under the app's data directory (`~
 
 ```
 {
-  "disc": { "key": "...", "label": "TSURUNE_TSUNAGARI_1" },
+  "disc": { "key": "...", "label": "HDMV_DISC_A" },
   "playlist": "00000",
   "episodeSpec": "1-4,5-8",
   "anilist": { "id": 12345, "title": "...", "episodeOffset": 0 },

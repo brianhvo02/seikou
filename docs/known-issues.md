@@ -75,7 +75,7 @@ what would change that decision.
 ## Video
 
 - **Interlaced H.264 (1080i) is decoded in software and shown without deinterlacing.** Chrome's hardware decoders
-  fail on streams with `frame_mbs_only_flag` 0 ("Decoding error"; TSURUNE's 1080i logo is MBAFF), so those streams
+  fail on streams with `frame_mbs_only_flag` 0 ("Decoding error"; HDMV_DISC_A's 1080i logo is MBAFF), so those streams
   are configured with `prefer-software`. Frames come out as woven fields, so motion shows combing. *Revisit if* a
   disc has long interlaced content (a deinterlacing shader in the compositor would fix it).
 - **H.264 that redefines a PPS id switches to software decoding, dropping up to one GOP once.** Some encoders resend
@@ -151,7 +151,7 @@ what would change that decision.
 - **Fonts without TrueType hinting instructions space their glyphs slightly differently from libass.** libass's
   shaper loads glyphs hinted, so FreeType runs its auto-hinter on such fonts and the advances follow the snapped stem
   edges: about 1 px per glyph at the 256 px shaping size, up to ~1 px across a short title on screen. Porting the
-  auto-hinter is out of scope. In the TSURUNE corpus this is Chalk Board (the episode title card); it is recorded in
+  auto-hinter is out of scope. In the HDMV_DISC_A corpus this is Chalk Board (the episode title card); it is recorded in
   that fixture's `exceptions.json` and is the only difference left (57 layout differences and 3 frames, all in 2
   events). Glyph shapes are unaffected.
 - **Small text keeps up to 1/16 px of Chrome's glyph snapping.** Chrome draws text under about 256 device px from a
@@ -161,7 +161,7 @@ what would change that decision.
 - **Not drawn as libass does:** BorderStyle 4 (libass's background box) is not drawn; vertical `@font` glyphs are
   drawn unrotated; `\be` is folded into the Gaussian (variance 0.5 per pass); a rotated border with `\xbord` ≠
   `\ybord` is dilated axis-aligned in device space. *Revisit if* a real file shows the difference.
-- **Verified against one real script so far** (TSURUNE episode 1, its 18 fonts, 2340 sampled times; local gate
+- **Verified against one real script so far** (HDMV_DISC_A episode 1, its 18 fonts, 2340 sampled times; local gate
   `ASS_LOCAL=1`). The 15 committed synthetic fixtures cover the tag set. *Revisit* by adding scripts to
   `fixtures/local/ass/`.
 
@@ -201,10 +201,10 @@ what would change that decision.
 
   | Disc | Warm | Cold |
   |---|---|---|
-  | A_NEW_ERA | 4,934-4,988 ms (5 runs) | 5,006-5,013 ms |
-  | RENTAL_FAMILY | 843-884 ms | 875-916 ms |
+  | BDJ_DISC_A | 4,934-4,988 ms (5 runs) | 5,006-5,013 ms |
+  | BDJ_DISC_B | 843-884 ms | 875-916 ms |
 
-  The margin to the 5 s target on A_NEW_ERA is 12-66 ms. About 4.0 s of its time is the disc's own animation and a
+  The margin to the 5 s target on BDJ_DISC_A is 12-66 ms. About 4.0 s of its time is the disc's own animation and a
   `Thread.sleep(3000)`; about 0.7 s is interpretation. On a slower machine the local 5 s check may fail. 5e left
   the JIT (spec 5c section 4.7, stage 2) out, by the user's choice (start-up behaves fine); it stays the lever if the
   margin is needed. Stage 1 (intrinsics) replaced the 5b figure of about 26 s in Node.
@@ -214,13 +214,13 @@ what would change that decision.
   answers it (and any earlier one still waiting): BD-J cannot say which flush answers which input, so on a menu that
   animates by itself an input that changes nothing is answered by the next animation frame; one unanswered for 5 s is
   dropped. The main thread to engine worker hop is not included, and the measure ends at the OffscreenCanvas draw,
-  so up to one vsync of display after it is not counted either. Arrows and Enter on A_NEW_ERA's main menu and on
-  RENTAL_FAMILY's picker and main menu show in 3-23 ms (bar 200 ms; `local-bdj-menus.spec.ts`). A_NEW_ERA's menu has no
+  so up to one vsync of display after it is not counted either. Arrows and Enter on BDJ_DISC_A's main menu and on
+  BDJ_DISC_B's picker and main menu show in 3-23 ms (bar 200 ms; `local-bdj-menus.spec.ts`). BDJ_DISC_A's menu has no
   mouse handling: a click is forwarded and the ignored-tap rule opens the remote. Its buttons lie along the bottom edge,
   under the player's control bar while that shows, so a click there hits the bar. Pointer moves stay forwarded for the
   whole BD-J title as spec §4.2 says: about 4.7k bytecodes (well under 0.1 ms) of Java per move, so not gated.
-  Start-up: A_NEW_ERA warm `firstFrameMs` went from median 4,966 ms (max 4,997, 5 runs) to median 4,790-4,828 ms (max
-  4,800-4,916, three sets of 7 runs) through intrinsics and loop hooks for the start-up path. Most of A_NEW_ERA's Java
+  Start-up: BDJ_DISC_A warm `firstFrameMs` went from median 4,966 ms (max 4,997, 5 runs) to median 4,790-4,828 ms (max
+  4,800-4,916, three sets of 7 runs) through intrinsics and loop hooks for the start-up path. Most of BDJ_DISC_A's Java
   time before its animation is the JDK opening its signed jar again and again: each `JarFile` parses the 32 KB
   manifest and verifies the signature file (PKCS7 parse, RSA), about a third of the interpreted time. That count
   matches HotSpot (ruling R10): up to the first `selectPlaylistN`, libbluray on HotSpot constructs a `ZipFile` on
@@ -280,17 +280,17 @@ what would change that decision.
   the disc don't wake it (R9, R11). The long press is tested only through CDP touch in Chrome and in the gate's unit
   tests, not on real iPhone or iPad hardware: the device gate never needed it (its fallback taps a letterbox band
   instead).
-- **Local BD-J discs against libbluray (5d).** `tests/local/bdj-menus.test.ts` drives A_NEW_ERA (main menu to PLAY,
-  and to CHAPTERS, chapter 2) and RENTAL_FAMILY (language picker, English, main menu, PLAY) to the feature and compares
+- **Local BD-J discs against libbluray (5d).** `tests/local/bdj-menus.test.ts` drives BDJ_DISC_A (main menu to PLAY,
+  and to CHAPTERS, chapter 2) and BDJ_DISC_B (language picker, English, main menu, PLAY) to the feature and compares
   the control calls and the plane at every settled point with libbluray's committed runs (`tests/bdj/golden/local/`).
-  One check is restricted: RENTAL_FAMILY saves its playback position in GPR 518/519 about once a second during the
+  One check is restricted: BDJ_DISC_B saves its playback position in GPR 518/519 about once a second during the
   feature, and the values depend on when that timer fires, so its writes after the feature's playlist starts are left
   out on both sides; that both sides made some is still checked, and its start-up writes of 0 are compared
   (`#! vary gpr 518 519 after playlist 800` in its script). Intermediate animation frames are not compared (ruling R3). At rest with no input,
-  neither disc's menus flush: 0 flushes in 15 s in libbluray on A_NEW_ERA's main menu and on RENTAL_FAMILY's picker
+  neither disc's menus flush: 0 flushes in 15 s in libbluray on BDJ_DISC_A's main menu and on BDJ_DISC_B's picker
   (43 s) and main menu, and in ours one repeat of the settled frame in 10 s, so animated menus do not defeat the
   ignored-tap rule on these discs (ruling R6). Found on the way and fixed: `java.awt.event.ContainerEvent` and ten other
-  classes were missing from the class library; a still play item did not hold under BD-J (RENTAL_FAMILY's picker plays
+  classes were missing from the class library; a still play item did not hold under BD-J (BDJ_DISC_B's picker plays
   over an infinite still); a mark at the first play item's IN time never reached Java (`_find_next_playmark` works on
   packets, and the first item starts at packet 0, before that mark's EP map entry).
 - **BD-J file budget on phones and tablets (5d, ruling R16).** Under the constrained memory profile, the BD-J file
@@ -298,8 +298,8 @@ what would change that decision.
   `/persistent/`, `/buda/`) hold at most `bdjVfsCacheBytes` (64 MB; the device gate measured 4.6 MB on the iPhone,
   so it stayed). A write beyond it fails as on a full disk (IOException "No space left on device", logged once with the path and the budget),
   so a disc whose BD-J files exceed it fails to mount its app and falls back to the picker. libbluray has no such limit,
-  and desktop has none. The local discs use 4.4 MB (A_NEW_ERA) and 1.4 MB (RENTAL_FAMILY).
-- **5d start-up and the device gate (2026-10-18).** `bdj.firstFrameMs` for A_NEW_ERA (RENTAL_FAMILY is under
+  and desktop has none. The local discs use 4.4 MB (BDJ_DISC_A) and 1.4 MB (BDJ_DISC_B).
+- **5d start-up and the device gate (2026-10-18).** `bdj.firstFrameMs` for BDJ_DISC_A (BDJ_DISC_B is under
   1 s on desktop and about 4.6-5.3 s on the iPhone and iPad):
 
   | Where | Warm | Cold | Bar |
@@ -311,17 +311,17 @@ what would change that decision.
 
   Desktop passes with a thin margin (tens of ms; a loaded machine goes over, 5,441 ms seen). The iPhone meets the
   10 s target warm and misses it cold by 0.8 s, well under the blocker; the iPad misses it by up to 1.6 s cold. Most
-  of A_NEW_ERA's time is its own animation and `Thread.sleep(3000)`; about a third of the interpreted part is the JDK
+  of BDJ_DISC_A's time is its own animation and `Thread.sleep(3000)`; about a third of the interpreted part is the JDK
   re-verifying the signed `00000.jar`, as HotSpot does (R10). With the iPhone and iPad gate run concurrently on one
   disc server the iPhone took 12.7-20.3 s; that was the shared connection, not the player. A JIT (5c spec
   section 4.7, stage 2) is the lever; 5e left it out by the user's choice. Menu responsiveness: at
   most 68 ms on every device (bars 0.2 s computer, 0.5 s iPhone). Ten minutes in the menus (200 inputs) brought no
   reload on the iPhone, the iPad, the iPad Simulator or Mac Safari; desktop Chrome and Firefox stayed 120 s.
   Measured device memory stayed well under the constrained budgets (class bytes 1.33 of 4 MB, VFS 4.6 of 64 MB,
-  stills 0 of 16 MB), so none was changed. The Java heap (about 38 MB of `int[]` on A_NEW_ERA) and the JVM's
+  stills 0 of 16 MB), so none was changed. The Java heap (about 38 MB of `int[]` on BDJ_DISC_A) and the JVM's
   own JS structures (about 95 MB, mostly parsed constant pools) are not budgeted; a compact constant-pool form is the
-  next lever if a phone needs it. Firefox ran RENTAL_FAMILY only (no HEVC, spec 4.5).
-- **Buffering behind a BD-J menu over the disc server (Task 14c).** On the iPhone the menu playlist (A_NEW_ERA's
+  next lever if a phone needs it. Firefox ran BDJ_DISC_B only (no HEVC, spec 4.5).
+- **Buffering behind a BD-J menu over the disc server (Task 14c).** On the iPhone the menu playlist (BDJ_DISC_A's
   `00149`) sat in `buffering` at 0:00 for several seconds after the menu was drawn, while `RemoteSource`'s read-ahead
   filled, with the spinner over a still menu. Taps now pass through the spinner, so the menu works, but the wait
   itself is a start-up and read-ahead question for the remote route that 5d did not address.
@@ -359,8 +359,8 @@ what would change that decision.
   1,870 to 2,085 entries), precached by the service worker for every visitor. The license check found one third-party
   family the notice did not name: `sun/text/normalizer/**`, behind `java.text.Normalizer`, derives from ICU4J;
   `pack.sh` now writes the JDK's ICU notice as `THIRD_PARTY_ICU`, and `NOTICE` lists it.
-- **Ignored taps on the iPhone gate (Task 14c, 2026-10-18).** On the iPhone, A_NEW_ERA's tap on the menu centre was
-  never counted as ignored. The cause was not the reaction window: idling in A_NEW_ERA's main menu for about 45 s through the
+- **Ignored taps on the iPhone gate (Task 14c, 2026-10-18).** On the iPhone, BDJ_DISC_A's tap on the menu centre was
+  never counted as ignored. The cause was not the reaction window: idling in BDJ_DISC_A's main menu for about 45 s through the
   real Player (local replay, playlist 00149 behind it) brings no control call, no register write and no plane change
   after the menu settles, so the 0.5 s window has nothing to catch and the reaction rule is unchanged. The tap never
   reached the engine: the disc server's read-ahead held the menu playlist in `buffering` on the iPhone, and the
@@ -371,7 +371,7 @@ what would change that decision.
 - **Replays across a host sleep (5e, Task 7e).** Node's clock on macOS counts the time the machine sleeps. A replay
   (`replayPlayerBdj`, the local menu tests, the library check's runs) that the host slept through found every wait
   and timeout expired when it woke, and failed as a step or run timeout after about 1,000 s. That caused the ~1,100 s
-  A_NEW_ERA runs and the four local tests that failed at ~1,000 s during 5e Tasks 7b and 7c: each run's wall time
+  BDJ_DISC_A runs and the four local tests that failed at ~1,000 s during 5e Tasks 7b and 7c: each run's wall time
   matches a lid-closed sleep in `pmset -g log`, and 120 loaded runs (76 of them jittered) never stalled. A turn of the
   replay loop over 20 s (`LOOP_GAP_MS`) now ends the run at once as void, naming the gap and the CPU used in it; a busy
   gap is reported as a blocked event loop instead. Keep the machine awake (`caffeinate -i`, lid open) for long local
@@ -563,7 +563,7 @@ what would change that decision.
 
 ## Browsers and devices
 
-- **BD-J on real discs is verified on every supported device class (5d gate, 2026-10-18).** Both local BD-J discs went from their first menu to the feature, by keys and by touch, matching libbluray's planes, on desktop Chrome, Mac Safari, Firefox (RENTAL_FAMILY only: no HEVC), iPhone 17 Pro and iPad Pro 12.9" 5th gen; the cross-browser spec's §3.9 is covered. Numbers are in the BD-J section. Chrome Android was not part of the gate (only Chrome's mobile emulation). A failed BD-J boot still falls back to the playlist picker.
+- **BD-J on real discs is verified on every supported device class (5d gate, 2026-10-18).** Both local BD-J discs went from their first menu to the feature, by keys and by touch, matching libbluray's planes, on desktop Chrome, Mac Safari, Firefox (BDJ_DISC_B only: no HEVC), iPhone 17 Pro and iPad Pro 12.9" 5th gen; the cross-browser spec's §3.9 is covered. Numbers are in the BD-J section. Chrome Android was not part of the gate (only Chrome's mobile emulation). A failed BD-J boot still falls back to the playlist picker.
 - **No USB route for iOS in the 5d gate (ruling R18).** Folder picks on iOS copy every file first (below), so the iPhone and iPad gate ran over HTTP (the disc server, the NAS route's client path); Blob slicing beyond 4 GiB from a picked folder stays untested on iOS.
 - **iPhone has no element fullscreen.** Use the installed app (Add to Home Screen); WebKit bug 206854.
 - **No background audio on iOS.** Playback pauses when the platform suspends audio.
@@ -678,7 +678,7 @@ Fill in from `probe.html` on each device.
   the same 2×2 box filter as the mask path, so all fixtures pass with and without the GPU on macOS Chrome. The
   `ass` CI job passes on the Linux runners and gates the deploy again; `ASS_BUDGET_SCALE=8` still covers the runners'
   draw time.
-- **M4b porting bugs found by the TSURUNE gate (fixed in the port, 2026-10-15).** Runs were snapped to 1/8 px by
+- **M4b porting bugs found by the HDMV_DISC_A gate (fixed in the port, 2026-10-15).** Runs were snapped to 1/8 px by
   each glyph origin instead of libass's rounding of the first inked glyph's box centre; TrueType fonts that force an
   integer ppem had their ascender and outline size rounded too (only hinted advances are), which put whole lines
   1/32 px high; a fade counted as a shape change, sending the first opaque frame through the 1× direct path. The gate
@@ -688,21 +688,21 @@ Fill in from `probe.html` on each device.
   the static event cache was bounded by count only (64 full-frame drawings could hold ~530 MB) and is now also
   bounded to 128 MiB; the controller imported its file sorting from `src/ui` (moved to `packages/engine/src/controller/drop-files.ts`);
   subtitle rows were keyed by file name, which collides for same-named files from different folders.
-- **ASS rendering differences from Chrome's canvas, found by the TSURUNE gate.** Canvases created with
+- **ASS rendering differences from Chrome's canvas, found by the HDMV_DISC_A gate.** Canvases created with
   `willReadFrequently` (CPU) approximate `blur()` with box passes: deviations under 0.8 px do nothing and larger ones
   step, so mask blurs are a Gaussian in JS. Both CPU and GPU canvases snap the baseline of text under ~256 px to whole
   device pixels (see above). Canvases that are only drawn into are GPU-backed: read-backs of the composited output
   were most of the animated draw time (p95 15 ms → 4 ms).
 - **"Underruns" at the end of a playlist were the stream ending, not dropouts.** The output keeps running until the
   last video frame (plus 100 ms) so the clock can finish the picture, and every silent quantum after the audio ran out
-  counted as an underrun (about 50 per playlist end; TSURUNE showed 57 from its First Play logo ending). Once all of
+  counted as an underrun (about 50 per playlist end; HDMV_DISC_A showed 57 from its First Play logo ending). Once all of
   a stream's audio is written the ring is marked draining and that silence is not counted; starting playback clears
   it. The local-disc gate now requires 0 underruns.
 
-- **Milestone 3 real-disc gate passed (2026-10-15).** TSURUNE_TSUNAGARI_1 (HDMV) boots through First Play (a logo,
+- **Milestone 3 real-disc gate passed (2026-10-15).** HDMV_DISC_A (HDMV) boots through First Play (a logo,
   then the 119 min feature); Top Menu opens its menu, Enter starts the feature, and its three LPCM tracks play in
-  sync with 0 decoder errors. `npm run vm-trace` matches libbluray on TSURUNE for menu → feature (113 entries) and
-  pop-up open → close (65 entries), plane hashes included. A_NEW_ERA and RENTAL_FAMILY (BD-J) still open to the
+  sync with 0 decoder errors. `npm run vm-trace` matches libbluray on HDMV_DISC_A for menu → feature (113 entries) and
+  pop-up open → close (65 entries), plane hashes included. BDJ_DISC_A and BDJ_DISC_B (BD-J) still open to the
   picker (5c: no longer) with their main features, all tracks in sync.
 - **Main-path menus muxed at a clip's start now show.** Playback started the first play item at its first EP map
   entry, skipping an IG display set muxed ahead of the first keyframe, and a PES was only complete at the next unit
@@ -710,7 +710,7 @@ Fill in from `probe.html` on each device.
   packet 0 for first and seamless items; `m2ts_demux` completion by `PES_packet_length`).
 
 - **Looping playlists are no longer picked as the main feature.** BD-J discs can carry playlists that play one
-  segment hundreds of times (A_NEW_ERA and RENTAL_FAMILY: `00149`, about 250 min). That one is the BD-J menu's
+  segment hundreds of times (BDJ_DISC_A and BDJ_DISC_B: `00149`, about 250 min). That one is the BD-J menu's
   background loop (seen in the BD-J spike and the 5b traces), not a decoy maze as first assumed; skipping it for the
   main feature remains right. The main feature is now chosen
   as libbluray's title list does (`disc/main-title.ts`, from `navigation.c`): loops (any segment more than twice)
@@ -719,8 +719,8 @@ Fill in from `probe.html` on each device.
   channel-layout field there, which never matches), BD-J "known playlist" hints are not used, and a full tie goes
   to the lower playlist number. The local-disc tests now play `00040` and `00800`.
 
-- **Milestone 2 real-disc gate passed (2026-10-13).** All 10 playable tracks of A_NEW_ERA `00040` (TrueHD core,
-  3× AC-3; HEVC video) and RENTAL_FAMILY `00800` (DTS-HD MA core, 5× AC-3) played in Chrome at the local bounds
+- **Milestone 2 real-disc gate passed (2026-10-13).** All 10 playable tracks of BDJ_DISC_A `00040` (TrueHD core,
+  3× AC-3; HEVC video) and BDJ_DISC_B `00800` (DTS-HD MA core, 5× AC-3) played in Chrome at the local bounds
   (worst 16.9 ms mean / 34.5 ms max), with 0 decode errors and no underruns; each also decoded cleanly in Node
   at 0% and 30% into the film. Since the main-title fix, `LOCAL_DISCS=1 npx playwright test local-discs` covers
   these tracks directly. Not covered by a real disc yet: E-AC-3 and plain DTS (synthetic only for DTS).
@@ -732,7 +732,7 @@ Fill in from `probe.html` on each device.
   are now refused with a `case-collision` error that names both files.
   Before, one of the two was dropped silently.
 - **Open-GOP leading-picture skip is verified on the real disc.**
-  78 of 123 sampled entry points on `TSURUNE_TSUNAGARI_1` are non-IDR recovery points with leading pictures.
+  78 of 123 sampled entry points on `HDMV_DISC_A` are non-IDR recovery points with leading pictures.
   In Chrome (which reports hardware H.264 support on this machine), 8 seeks all started on open-GOP keyframes
   and skipped 15 leading pictures, with 0 decoder errors and 0 audio underruns.
   The decoder now reports `openGopStarts` and `leadingPicturesSkipped` in telemetry,

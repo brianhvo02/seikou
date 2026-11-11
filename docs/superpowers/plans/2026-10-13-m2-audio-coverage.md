@@ -2819,7 +2819,7 @@ git commit -m "test(e2e): play LPCM, AC-3, TrueHD core and DTS tracks from a syn
 Add the imports for `createAudioDecoderFactory`, `loadNodeAudioWasm` and `audioTracks`. `chunkPackets: 6144 * 4` is about 4.7 MB per read, which is enough for a few seconds of any track.
 
 Run: `npx vitest run tests/local`
-Expected: with only TSURUNE present, its three LPCM tracks each decode and the test passes. With no local discs, the suite is skipped.
+Expected: with only HDMV_DISC_A present, its three LPCM tracks each decode and the test passes. With no local discs, the suite is skipped.
 
 - [ ] **Step 2: Switch through every track of each local disc in Chrome.** In `tests/e2e/local-discs.spec.ts`, import `collectWindows`, `expectInSync` and `telemetry` from `./telemetry`, and remove the local `telemetry` and `TelemetrySample` copies. Then, after the seek loop and before the final `decoderErrors` assertion, add:
 
@@ -2853,7 +2853,7 @@ Expected: with only TSURUNE present, its three LPCM tracks each decode and the t
 Clicking the track that is already selected does nothing (the controller ignores it), so `audioCodec` already matches and the check still runs.
 
 Run: `LOCAL_DISCS=1 npx playwright test local-discs`
-Expected: PASS on TSURUNE, with three lines showing LPCM tracks in sync.
+Expected: PASS on HDMV_DISC_A, with three lines showing LPCM tracks in sync.
 
 - [ ] **Step 3: Commit.**
 
@@ -2922,4 +2922,4 @@ Expected:
 - Every playable track on that disc decodes in Node with 0 failed frames.
 - In Chrome, each track reports its codec in `audioCodec`, stays within 20 ms mean / 50 ms max, and has 0 decode errors.
 
-Report the per-track lines. M2 is done only when this passes. Exit criteria 2 and 3 of the spec depend on it, and criterion 3 is the TSURUNE LPCM switching that Task 11 already covers. If a real disc fails, debug it before declaring the milestone done, using superpowers:systematic-debugging.
+Report the per-track lines. M2 is done only when this passes. Exit criteria 2 and 3 of the spec depend on it, and criterion 3 is the HDMV_DISC_A LPCM switching that Task 11 already covers. If a real disc fails, debug it before declaring the milestone done, using superpowers:systematic-debugging.
