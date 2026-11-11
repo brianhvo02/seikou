@@ -394,8 +394,7 @@ export interface BdjSessionDeps {
   readonly onMemory?: (stats: Extract<FromBdj, { type: 'memory' }>) => void;
 }
 
-/** What the player uses of a BD-J worker's session (bdj/session.ts BdjSession). */
-/** What the player uses of a BD-J session. */
+/** What the player uses of a BD-J worker's session (the app's `BdjSession`, in `src/bdj/session.ts`). */
 export interface BdjSessionLike {
   /** Boots the worker: sends the boot message with the disc, the read-ahead size, the disc id and the class library. */
   boot(disc: DiscSpec, readAheadBytes: number, discId: string | null, classLibrary: ClassLibrarySource): Promise<void>;

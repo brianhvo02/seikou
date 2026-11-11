@@ -107,8 +107,10 @@ export class TextSet<R> {
   }
 }
 
-/** The set as one text renderer: draws the showing file at its local time (its offset already applied). */
-/** The set's `render` and `changed` and `visible` calls go to the file showing at that time, so the compositor treats the set as one renderer. */
+/**
+ * The set as one text renderer: draws the showing file at its local time (its offset already applied). The set's
+ * `render`, `changed` and `visible` calls go to the file showing at that time, so the compositor treats the set as one renderer.
+ */
 export class TextSetRenderer<R extends TextRendererLike> implements TextRendererLike {
   private lastFile: number | null = null;
 

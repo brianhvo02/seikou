@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { oldNameComments, privateHistoryComments, undocumentedExports } from '../scripts/doc-check';
+import { oldNameComments, privateHistoryComments, stackedDocComments, undocumentedExports } from '../scripts/doc-check';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -35,6 +35,8 @@ describe('documentation standard', () => {
     expect(undocumentedExports(files).map((u) => `${strip(u.file)}:${u.line} ${u.name}`)).toEqual([]));
   it('no comment points at private planning history', () =>
     expect(privateHistoryComments(files).map((c) => `${strip(c.file)}:${c.line} ${c.text}`)).toEqual([]));
+  it('no declaration has two doc blocks stacked', () =>
+    expect(stackedDocComments(files).map((c) => `${strip(c.file)}:${c.line} ${c.text}`)).toEqual([]));
   it('no comment uses the old name', () =>
     expect(oldNameComments(files).map((c) => `${strip(c.file)}:${c.line} ${c.text}`)).toEqual([]));
 });

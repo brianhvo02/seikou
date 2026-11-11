@@ -161,6 +161,45 @@ function commentsMatching(files: readonly string[], test: (text: string) => bool
   return out;
 }
 
+function isDoc(source: string, c: CommentNode): boolean {
+  return c.type === 'Block' && source.startsWith('/**', c.start) && !source.startsWith('/**/', c.start);
+}
+
+/**
+ * Finds a doc block (`/**`) followed by another doc block with nothing but whitespace and line
+ * comments between them, anywhere in a file (class members and interface fields included).
+ * TypeScript attaches only the last block to the declaration, so the first is detached. The
+ * reported text is the first block. Licence headers (`/*`) are never doc blocks. A module
+ * overview is not flagged: a doc block before the file's first statement other than an import that is set apart from
+ * the next block by a blank line. Files are read from disk.
+ */
+export function stackedDocComments(files: readonly string[]): HistoryComment[] {
+  const out: HistoryComment[] = [];
+  for (const file of files) {
+    const p = parse(file);
+    const cs = p.comments;
+    for (let i = 0; i < cs.length; i++) {
+      const c = cs[i]!;
+      if (!isDoc(p.source, c)) continue;
+      let prevEnd = c.end;
+      for (let j = i + 1; j < cs.length; j++) {
+        const n = cs[j]!;
+        if (p.source.slice(prevEnd, n.start).trim() !== '') break;
+        if (isDoc(p.source, n)) {
+          const first = p.statements.find((st) => st.type !== 'ImportDeclaration');
+          const overview = first !== undefined && n.start <= first.start && /\n[ \t]*\n/.test(p.source.slice(prevEnd, n.start));
+          if (overview) break;
+          out.push({ file, line: lineOf(p.source, c.start), text: p.source.slice(c.start, c.end) });
+          break;
+        }
+        if (n.type !== 'Line') break;
+        prevEnd = n.end;
+      }
+    }
+  }
+  return out;
+}
+
 /**
  * Finds comments that use the old name `bluray-web` outside a backtick code span (a kept
  * identifier is written in backticks). Strings and code are never read. Files are read from disk.
@@ -241,6 +280,7 @@ function main(argv: string[]): number {
     }
     report('history', privateHistoryComments(files));
     report('old-name', oldNameComments(files));
+    report('stacked-doc', stackedDocComments(files));
     return found > 0 ? 1 : 0;
   }
   if (cmd === 'unchanged') {

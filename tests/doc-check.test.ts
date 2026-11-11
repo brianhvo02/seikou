@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { codeChanges, oldNameComments, privateHistoryComments, undocumentedExports } from '../scripts/doc-check';
+import { codeChanges, oldNameComments, privateHistoryComments, stackedDocComments, undocumentedExports } from '../scripts/doc-check';
 
 function tempDir(): string {
   return mkdtempSync(join(tmpdir(), 'doc-check-'));
@@ -103,5 +103,39 @@ describe('the documentation checker', () => {
     expect(codeChanges('HEAD', [f])).toEqual([]);
     writeFileSync(f, 'export const n = 2n;\n');
     expect(codeChanges('HEAD', [f])).toEqual([f]);
+  });
+
+  it('flags doc blocks stacked above one declaration', () => {
+    const dir = tempDir();
+    const flagged = join(dir, 's.ts');
+    writeFileSync(
+      flagged,
+      [
+        '/** a */',
+        '/** b */',
+        'export const x = 1;',
+        'export class C {',
+        '  /** m1 */',
+        '  /** m2 */',
+        '  m = 1;',
+        '}',
+        'export interface I {',
+        '  /** f1 */',
+        '  /** f2 */',
+        '  f: number;',
+        '}',
+        '/** l1 */',
+        '// note',
+        '/** l2 */',
+        'export const y = 2;',
+      ].join('\n'),
+    );
+    expect(stackedDocComments([flagged]).map((c) => c.text)).toEqual(['/** a */', '/** m1 */', '/** f1 */', '/** l1 */']);
+    const overview = join(dir, 'o.ts');
+    writeFileSync(overview, ['/** module overview */', '', '/** the first declaration */', 'export const x = 1;', '/** p */', '', '/** q */', 'export const y = 2;'].join('\n'));
+    expect(stackedDocComments([overview]).map((c) => c.text)).toEqual(['/** p */']);
+    const fine = join(dir, 'f.ts');
+    writeFileSync(fine, ['/* licence */', '/** doc */', 'export const x = 1;', '/** one */', 'export const y = 2;', '/** two */', 'export const z = 3;'].join('\n'));
+    expect(stackedDocComments([fine])).toEqual([]);
   });
 });

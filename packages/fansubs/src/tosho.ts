@@ -65,7 +65,6 @@ export interface Tosho {
   fontPackUrl(fileId: number): string;
 }
 
-/** A download Anime Tosho answers 404. */
 /** Thrown by a download for which Anime Tosho answers 404, or whose URL leaves the hosts a download may use or redirects too often. */
 export class NotFoundOnTosho extends Error {
   override name = 'NotFoundOnTosho';
