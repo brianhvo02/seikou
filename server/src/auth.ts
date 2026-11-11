@@ -8,7 +8,7 @@ type JsonWebKey = webcrypto.JsonWebKey;
 
 /** A person the NAS knows; every device and pairing code belongs to one, and owner status is the person's. */
 export interface Person {
-  /** Random id, never reused. */
+  /** Random: 22 base64url characters. */
   readonly id: string;
   /** Shown to the owner; 1 to 100 characters. */
   name: string;

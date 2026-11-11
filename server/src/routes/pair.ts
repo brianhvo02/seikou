@@ -125,8 +125,8 @@ const unauthorized = () => json(401, { error: 'unauthorized' });
 /**
  * `POST /api/pair/redeem {code, deviceName, publicKeyJwk}` (a device's P-256 public key; 200 `{deviceId, owner, personId,
  * personName}`), `POST /api/session/challenge {deviceId}` (200 `{challenge}`) and `POST /api/session {deviceId, challenge,
- * signature}` (200 the session): the only routes open to unpaired devices. A wrong code is 401 `invalid code`; more than
- * ten failures from one client address in a minute are 429 `too many tries` with `Retry-After: 60`; a malformed body is
+ * signature}` (200 the session): the only routes open to unpaired devices. A wrong code is 401 `invalid code`; after ten
+ * failures from one client address in a minute (attempts in flight count too) the next is 429 `too many tries` with `Retry-After: 60`; a malformed body is
  * 400 `bad request`; an unknown device, challenge or signature is 401 `unauthorized`.
  */
 export function pairRoutes(auth: Auth, opts: { now: () => number; trustProxy: (address: string) => boolean; registrar?: CodeRegistrar }): Handler {

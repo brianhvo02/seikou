@@ -61,9 +61,11 @@ function storeFailure(err: unknown): Response {
  *   condition is 412 `precondition-failed`; a body over the scope limit or a person over theirs is 507 `quota` with
  *   `limit` `scope` or `person`; a body that is not a ustar archive is 400 `bad-archive`. It answers the new `ETag`.
  * - `DELETE` needs `If-Match` (428, 412 as above) and answers 204.
- * - All: 400 `bad-scope` or `bad-if-match`, 405 for another method, 409 `person-changed` when `X-Bdj-Person` names
- *   someone other than the token's person, 503 `busy` with `Retry-After: 1` while another writer holds the scope's lock.
- *   A refused `PUT` closes the connection, since its body was not read to the end.
+ * - All: 400 `bad-scope`, 405 for another method. `PUT` and `DELETE` also: 400 `bad-if-match`, 409 `person-changed` when
+ *   `X-Bdj-Person` names someone other than the token's person, 503 `busy` with `Retry-After: 1` while another writer
+ *   holds the scope's lock.
+ *   A `PUT` refused before its body is read (`bad-scope`, `bad-if-match`, 428, a body over the limit, `person-changed`)
+ *   closes the connection, since the body was not read to the end; a 412 or 507 from the store after the body is read does not.
  */
 export function bdjStoreRoutes(auth: Auth, store: BdjStore): Handler {
   return async (req, url) => {

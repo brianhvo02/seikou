@@ -163,8 +163,9 @@ function encodingRoute(auth: Auth, levels: Pick<LevelService, 'encodingNow'>, li
  * here). 401 `unauthorized` without a valid token, 403 `forbidden` for a device that is not an owner's. Routes, with
  * their errors:
  * - `GET people`, `POST people {name, owner?}` (201), `PATCH people/<id> {name?, owner?}`, `DELETE people/<id>` (204,
- *   clears the person's saved data and unregisters their codes), `DELETE people/<id>/saved-data` (204): 400 for a bad
- *   body or name, 404 for an unknown person, 409 `last-owner` when the change would leave no owner device.
+ *   clears the person's saved data and unregisters their codes): 400 for a bad body or name, 404 for an unknown person,
+ *   409 `last-owner` when the change would leave no owner device. `DELETE people/<id>/saved-data` (204) clears only the
+ *   saved data; its one error is 404 `unknown person`.
  * - `GET devices`, `PATCH devices/<id> {personId}` (move), `DELETE devices/<id>` (revoke): the same errors.
  * - `GET codes`, `POST codes {personId | newPerson: {name, owner}, invite?}` (answers the code, link and whether the
  *   rendezvous registered it), `DELETE codes/<id>`.
