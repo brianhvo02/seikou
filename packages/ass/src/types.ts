@@ -120,7 +120,7 @@ export interface AssTrack {
   readonly layoutResY: number;
   /** `WrapStyle`: 0 smart wrap, 1 end-of-line wrap only, 2 no wrap, 3 smart wrap with the lower line wider. */
   readonly wrapStyle: number;
-  /** `ScaledBorderAndShadow`: whether outline and shadow scale with the frame like everything else (true) or keep their size relative to the layout grid. */
+  /** `ScaledBorderAndShadow`: when true, outline and shadow scale with the frame like the text (libass `ass_render.c` `init_font_scale` gives them the screen scale); when false they scale by the blur scale, the frame size over the layout resolution, instead. */
   readonly scaledBorderAndShadow: boolean;
   /** `Kerning`: whether the shaper applies kerning pairs. */
   readonly kerning: boolean;

@@ -22,16 +22,12 @@ import { applyMat3, isAffine, normalize, type Mat3 } from './transform';
 
 /** Run filter flag, libass `ass_cache.h` `FILTER_BORDER_STYLE_3`: BorderStyle 3, where the border is an opaque box behind the text. */
 export const FILTER_BORDER_STYLE_3 = 0x01;
-/** The run has an outline width above zero on either axis. */
 /** Run filter flag `FILTER_NONZERO_BORDER`: the run has an outline width above zero on either axis. */
 export const FILTER_NONZERO_BORDER = 0x02;
-/** The run has a shadow offset on either axis, and the shadow is drawn. */
 /** Run filter flag `FILTER_NONZERO_SHADOW`: the run has a shadow offset on either axis and the shadow is drawn. */
 export const FILTER_NONZERO_SHADOW = 0x04;
-/** The shadow shows through the fill, so it is drawn as the whole shape rather than only the part outside the fill. */
 /** Run filter flag `FILTER_FILL_IN_SHADOW`: the shadow shows through the fill, so it is drawn whole rather than only outside the fill. */
 export const FILTER_FILL_IN_SHADOW = 0x08;
-/** The border shows through the fill, so it is drawn whole rather than with the fill cut out of it. */
 /** Run filter flag `FILTER_FILL_IN_BORDER`: the border shows through the fill, so it is drawn whole rather than with the fill cut out. */
 export const FILTER_FILL_IN_BORDER = 0x10;
 
@@ -801,7 +797,6 @@ function renderRun(rc: RasterContext, ev: FrameEvent, idx: readonly number[], ru
   }
 }
 
-/** Everything that shapes a run's masks, positions relative to its canvas origin. */
 /**
  * The key of a run's coloured layers: its masks' key plus what colours and places them (colours after fade, the
  * karaoke state, and the shadow offset, which the cached shadow layer carries).
@@ -810,6 +805,7 @@ export function layerKey(maskKey: string, colors: readonly number[], effectType:
   return `${maskKey}#${colors.join(',')}#${effectType}#${karaoke}#${shadow26X},${shadow26Y}`;
 }
 
+/** Everything that shapes a run's masks, positions relative to its canvas origin. */
 function maskKey(glyphs: readonly GlyphInfo[], mats: readonly Mat3[], ox: number, oy: number, w: number, h: number, flags: number, bx26: number, by26: number, sigma: number, s: RenderState, ss: number): string {
   const r = (v: number): number => Math.round(v * 1e6) / 1e6;
   const parts: (string | number)[] = [ss, w, h, flags, r(bx26), r(by26), r(sigma)];

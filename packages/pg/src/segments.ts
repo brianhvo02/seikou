@@ -38,7 +38,7 @@ export interface PgPaletteEntry { readonly y: number; readonly cr: number; reado
 /**
  * A palette definition segment, libbluray `pg.h` `BD_PG_PALETTE`. `entries` always holds 256 entries indexed by the
  * palette index an object's pixels carry; entries the disc never set are all zero. `id` is the palette id a
- * composition names in `paletteIdRef`, and `version` counts the palette's updates.
+ * composition names in `paletteIdRef`, and `version` is the version byte read from the segment (the decoder does not count versions).
  */
 export interface PgPalette { readonly id: number; readonly version: number; readonly entries: readonly PgPaletteEntry[] }
 /**
@@ -49,7 +49,7 @@ export interface RleElem { readonly len: number; readonly color: number }
 /**
  * A decoded object definition segment, libbluray `pg.h` `BD_PG_OBJECT`: a bitmap `width` by `height` pixels in
  * `img` as run-length elements, drawn through a palette. `id` is what compositions name in `objectId`; `version`
- * counts its updates.
+ * is the version byte read from the segment (the decoder does not count versions).
  */
 export interface PgObject { readonly id: number; readonly version: number; readonly width: number; readonly height: number; readonly img: readonly RleElem[] }
 /**
