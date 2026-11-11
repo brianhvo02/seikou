@@ -1,0 +1,102 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: LGPL-3.0-or-later -->
+<!--
+  A static mock of a developer page, for the look (docs/superpowers/specs/2026-11-10-developer-site-look.md §7 is the
+  markup contract the page templates follow). Content is from the real packages. ?theme=light|dark forces a theme.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0a1330">
+<title>@seikou/bdmv · Seikou developers</title>
+<script>(function () {
+var choice = 'auto';
+try { var v = window.localStorage.getItem('bluray-web:theme'); if (v === 'light' || v === 'dark') choice = v; } catch (e) {}
+var m = /[?&]theme=(light|dark)/.exec(location.search); if (m) choice = m[1];
+var theme = choice === 'auto' ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : choice;
+document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme;
+})();</script>
+<link rel="icon" href="../../../public/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../../node_modules/@fontsource-variable/instrument-sans/wdth.css">
+<link rel="stylesheet" href="../../../src/ui/tokens.css">
+<link rel="stylesheet" href="../site.css">
+</head>
+<body class="dev">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="dev-bar">
+    <a class="dev-home" href="mock-index.html"><img src="../../../public/favicon.svg" alt="" width="28" height="28"><span class="dev-home-name">Seikou</span><span class="dev-home-sub">developers</span></a>
+    <form class="search" role="search" action="#" onsubmit="return false">
+      <label class="visually-hidden" for="search-input">Search exports</label>
+      <input class="search-input" id="search-input" type="search" placeholder="Search exports" autocomplete="off" aria-controls="search-results" aria-expanded="false">
+      <ul class="search-results" id="search-results" role="listbox" hidden>
+        <li class="search-result" role="option" aria-selected="true"><a href="mock-function.html"><span class="search-name">parseMpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">Parses the bytes of a .mpls playlist.</span></a></li>
+        <li class="search-result" role="option" aria-selected="false"><a href="mock-type.html"><span class="search-name">Mpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">A parsed playlist: its play items, sub-paths and marks.</span></a></li>
+      </ul>
+    </form>
+    <a class="dev-bar-packages" href="#packages">Packages</a>
+    <fieldset class="theme-switch">
+      <legend class="visually-hidden">Theme</legend>
+      <label class="theme-option" title="Auto"><input type="radio" name="theme" value="auto" aria-label="Auto" checked><span class="theme-word" aria-hidden="true">Auto</span><svg class="theme-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M8 2a6 6 0 1 0 0 12A6 6 0 0 0 8 2Zm0 1.5v9a4.5 4.5 0 0 1 0-9Z"/></svg></label>
+      <label class="theme-option" title="Light"><input type="radio" name="theme" value="light" aria-label="Light"><span class="theme-word" aria-hidden="true">Light</span><svg class="theme-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 .75v2M8 13.25v2M.75 8h2M13.25 8h2M2.9 2.9l1.4 1.4M11.7 11.7l1.4 1.4M2.9 13.1l1.4-1.4M11.7 4.3l1.4-1.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></label>
+      <label class="theme-option" title="Dark"><input type="radio" name="theme" value="dark" aria-label="Dark"><span class="theme-word" aria-hidden="true">Dark</span><svg class="theme-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M13.5 10.2A6 6 0 0 1 5.8 2.5a6 6 0 1 0 7.7 7.7Z"/></svg></label>
+    </fieldset>
+  </header>
+  <div class="dev-layout">
+    <main class="dev-main" id="main">
+      <nav class="crumbs" aria-label="Breadcrumb"><a href="mock-index.html">Packages</a><span class="crumb-sep" aria-hidden="true">/</span><span aria-current="page">bdmv</span></nav>
+      <h1 class="page-title">@seikou/bdmv</h1>
+      <div class="prose">
+        <p>The Blu-ray disc format, read without a player. This package parses a disc's files and demuxes its video and audio, so a browser player, a server and the tests can all read a disc with the same code. It takes its input as bytes or a <code>ByteSource</code>, so it runs in a page, a worker or Node.</p>
+        <h2 id="modules">Modules</h2>
+        <table><thead><tr><th>Module</th><th>What it does</th></tr></thead><tbody>
+          <tr><td><code>index-parser.ts</code> (<code>parseIndex</code>)</td><td><code>index.bdmv</code>: the disc's titles and its First Play and Top Menu objects.</td></tr>
+          <tr><td><code>mpls-parser.ts</code> (<code>parseMpls</code>)</td><td>Playlists (<code>.mpls</code>): play items, sub paths, marks and the stream tables.</td></tr>
+          <tr><td><code>clpi-parser.ts</code> (<code>parseClpi</code>)</td><td>Clip information (<code>.clpi</code>): stream attributes and the EP map used to seek.</td></tr>
+          <tr><td><code>udf.ts</code> (<code>readUdf</code>, <code>UdfImage</code>)</td><td>A read-only UDF reader for ISO images.</td></tr>
+          <tr><td><code>demux/</code></td><td>The M2TS demuxer: 192-byte source packets, TS packets, and <code>PesAssembler</code>, driven by <code>M2tsReader</code>.</td></tr>
+        </tbody></table>
+        <h2 id="usage">Usage</h2>
+        <pre><code><span class="tok-k">import</span> { readFile } <span class="tok-k">from</span> <span class="tok-s">'node:fs/promises'</span>;
+<span class="tok-k">import</span> { parseClpi, parseIndex, parseMpls } <span class="tok-k">from</span> <span class="tok-s">'@seikou/bdmv'</span>;
+
+<span class="tok-k">const</span> bytes = <span class="tok-k">async</span> (path: string) =&gt; <span class="tok-k">new</span> Uint8Array(<span class="tok-k">await</span> readFile(`${disc}/${path}`)); <span class="tok-c">// disc: a folder that holds BDMV/</span>
+<span class="tok-k">const</span> playlist = parseMpls(<span class="tok-k">await</span> bytes(<span class="tok-s">'BDMV/PLAYLIST/00000.mpls'</span>));
+<span class="tok-k">for</span> (<span class="tok-k">const</span> item <span class="tok-k">of</span> playlist.playItems) console.log(item.clipId, (item.outTime - item.inTime) / <span class="tok-n">45_000</span>, <span class="tok-s">'seconds'</span>); <span class="tok-c">// 45 kHz clip time</span></code></pre>
+      </div>
+      <section class="export-group"><h2 id="functions">Functions</h2><ul class="export-list">
+        <li><a class="export-row" href="#"><code class="export-row-name">parseIndex</code><span class="export-row-summary">Parses the bytes of <code>index.bdmv</code>.</span></a></li>
+        <li><a class="export-row" href="#"><code class="export-row-name">parseMpls</code><span class="export-row-summary">Parses the bytes of a <code>.mpls</code> playlist.</span></a></li>
+        <li><a class="export-row" href="#"><code class="export-row-name">parseClpi</code><span class="export-row-summary">Parses the bytes of a <code>.clpi</code> clip information file.</span></a></li>
+        <li><a class="export-row" href="#"><code class="export-row-name">readUdf</code><span class="export-row-summary">Opens an ISO image’s UDF file system for reading.</span></a></li>
+        <li><a class="export-row" href="#"><code class="export-row-name">avcCodecString</code><span class="export-row-summary">The WebCodecs codec string of an H.264 stream, from its SPS.</span></a></li>
+      </ul></section>
+      <section class="export-group"><h2 id="classes">Classes</h2><ul class="export-list">
+        <li><a class="export-row" href="#"><code class="export-row-name">M2tsReader</code><span class="export-row-summary">Demuxes a clip’s 192-byte source packets into PES packets of the PIDs asked for.</span></a></li>
+        <li><a class="export-row" href="#"><code class="export-row-name">ParseError</code><span class="export-row-summary">Bytes that do not parse: a bad signature or version, a truncated section, or a read outside the buffer.</span></a></li>
+      </ul></section>
+      <section class="export-group"><h2 id="interfaces">Interfaces</h2><ul class="export-list">
+        <li><a class="export-row" href="#"><code class="export-row-name">ByteSource</code><span class="export-row-summary">Where a disc’s bytes come from: folders, a server or an ISO.</span></a></li>
+        <li><a class="export-row" href="#"><code class="export-row-name">Mpls</code><span class="export-row-summary">A parsed playlist: its play items, sub-paths and marks.</span></a></li>
+        <li><a class="export-row" href="#"><code class="export-row-name">PlayItem</code><span class="export-row-summary">One item of a playlist’s main path.</span></a></li>
+      </ul></section>
+    </main>
+  <nav class="dev-nav" id="packages" aria-label="Packages">
+    <h2 class="nav-heading">Packages</h2>
+    <ul class="nav-list">
+      <li><a href="#" aria-current="page">bdmv</a></li>
+      <li><a href="#">pg</a></li>
+      <li><a href="#">ass</a></li>
+      <li><a href="#">engine</a></li>
+      <li><a href="#">matroska</a></li>
+      <li><a href="#">nas</a></li>
+      <li><a href="#">titles</a></li>
+      <li><a href="#">fansubs</a></li>
+    </ul>
+    <h2 class="nav-heading">Guide</h2>
+    <ul class="nav-list"><li><a href="#">Integrating the player</a></li></ul>
+  </nav>
+  </div>
+  <footer class="dev-foot"><a href="https://github.com/brianhvo02/seikou">Source on GitHub</a></footer>
+</body>
+</html>

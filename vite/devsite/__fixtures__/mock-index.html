@@ -1,0 +1,72 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: LGPL-3.0-or-later -->
+<!--
+  A static mock of a developer page, for the look (docs/superpowers/specs/2026-11-10-developer-site-look.md §7 is the
+  markup contract the page templates follow). Content is from the real packages. ?theme=light|dark forces a theme.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0a1330">
+<title>Seikou developers</title>
+<script>(function () {
+var choice = 'auto';
+try { var v = window.localStorage.getItem('bluray-web:theme'); if (v === 'light' || v === 'dark') choice = v; } catch (e) {}
+var m = /[?&]theme=(light|dark)/.exec(location.search); if (m) choice = m[1];
+var theme = choice === 'auto' ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : choice;
+document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme;
+})();</script>
+<link rel="icon" href="../../../public/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../../node_modules/@fontsource-variable/instrument-sans/wdth.css">
+<link rel="stylesheet" href="../../../src/ui/tokens.css">
+<link rel="stylesheet" href="../site.css">
+</head>
+<body class="dev">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="dev-bar">
+    <a class="dev-home" href="mock-index.html"><img src="../../../public/favicon.svg" alt="" width="28" height="28"><span class="dev-home-name">Seikou</span><span class="dev-home-sub">developers</span></a>
+    <form class="search" role="search" action="#" onsubmit="return false">
+      <label class="visually-hidden" for="search-input">Search exports</label>
+      <input class="search-input" id="search-input" type="search" placeholder="Search exports" autocomplete="off" aria-controls="search-results" aria-expanded="false">
+      <ul class="search-results" id="search-results" role="listbox" hidden>
+        <li class="search-result" role="option" aria-selected="true"><a href="mock-function.html"><span class="search-name">parseMpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">Parses the bytes of a .mpls playlist.</span></a></li>
+        <li class="search-result" role="option" aria-selected="false"><a href="mock-type.html"><span class="search-name">Mpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">A parsed playlist: its play items, sub-paths and marks.</span></a></li>
+      </ul>
+    </form>
+    <fieldset class="theme-switch">
+      <legend class="visually-hidden">Theme</legend>
+      <label class="theme-option" title="Auto"><input type="radio" name="theme" value="auto" aria-label="Auto" checked><span class="theme-word" aria-hidden="true">Auto</span><svg class="theme-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M8 2a6 6 0 1 0 0 12A6 6 0 0 0 8 2Zm0 1.5v9a4.5 4.5 0 0 1 0-9Z"/></svg></label>
+      <label class="theme-option" title="Light"><input type="radio" name="theme" value="light" aria-label="Light"><span class="theme-word" aria-hidden="true">Light</span><svg class="theme-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 .75v2M8 13.25v2M.75 8h2M13.25 8h2M2.9 2.9l1.4 1.4M11.7 11.7l1.4 1.4M2.9 13.1l1.4-1.4M11.7 4.3l1.4-1.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></label>
+      <label class="theme-option" title="Dark"><input type="radio" name="theme" value="dark" aria-label="Dark"><span class="theme-word" aria-hidden="true">Dark</span><svg class="theme-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M13.5 10.2A6 6 0 0 1 5.8 2.5a6 6 0 1 0 7.7 7.7Z"/></svg></label>
+    </fieldset>
+  </header>
+  <div class="dev-layout dev-layout-wide">
+    <main class="dev-main" id="main">
+      <h1 class="index-title">Build on Seikou’s Blu-ray code</h1>
+      <p class="lede">Eight TypeScript packages that read a disc’s files, demux its streams, draw its subtitles and play it in a browser. Every function here has an example the tests run.</p>
+      <figure class="example hero-example">
+        <figcaption class="example-file"><a href="https://github.com/brianhvo02/seikou/blob/main/packages/bdmv/examples/parse-mpls.ts"><code>packages/bdmv/examples/parse-mpls.ts</code></a></figcaption>
+        <pre class="code"><code><span class="tok-k">import</span> { <a class="type-link" href="mock-function.html">parseMpls</a> } <span class="tok-k">from</span> <span class="tok-s">'@seikou/bdmv'</span>;
+
+<span class="tok-k">const</span> playlist = <a class="type-link" href="mock-function.html">parseMpls</a>(bytes); <span class="tok-c">// the bytes of BDMV/PLAYLIST/00000.mpls</span>
+<span class="tok-k">for</span> (<span class="tok-k">const</span> item <span class="tok-k">of</span> playlist.playItems) console.log(item.clipId, item.inTime, item.outTime);</code></pre>
+      </figure>
+      <a class="guide-link" href="#"><span class="guide-link-name">Put the player in a page</span><span class="guide-link-text">The integration guide: the engine worker, the controller and a disc from files or a server.</span></a>
+      <section class="pkg-group"><h2 id="playing">Reading and playing discs</h2><ul class="pkg-list">
+        <li><a class="pkg-row" href="mock-package.html"><code class="pkg-name">@seikou/bdmv</code><span class="pkg-summary">The Blu-ray disc format, read without a player: the parsers and the M2TS demuxer.</span></a></li>
+        <li><a class="pkg-row" href="mock-package.html"><code class="pkg-name">@seikou/pg</code><span class="pkg-summary">Presentation Graphics, the Blu-ray bitmap subtitles, ported from libbluray.</span></a></li>
+        <li><a class="pkg-row" href="mock-package.html"><code class="pkg-name">@seikou/ass</code><span class="pkg-summary">An ASS/SSA subtitle renderer ported from libass 0.17.5.</span></a></li>
+        <li><a class="pkg-row" href="mock-package.html"><code class="pkg-name">@seikou/engine</code><span class="pkg-summary">The Blu-ray player engine for browsers, and the page-side controller.</span></a></li>
+        <li><a class="pkg-row" href="mock-package.html"><code class="pkg-name">@seikou/matroska</code><span class="pkg-summary">Matroska and WebM reading and writing for any JavaScript host.</span></a></li>
+      </ul></section>
+      <section class="pkg-group"><h2 id="library">Running a disc library</h2><ul class="pkg-list">
+        <li><a class="pkg-row" href="mock-package.html"><code class="pkg-name">@seikou/nas</code><span class="pkg-summary">The wire contract between Seikou’s NAS server, the player and the pairing Worker.</span></a></li>
+        <li><a class="pkg-row" href="mock-package.html"><code class="pkg-name">@seikou/titles</code><span class="pkg-summary">Naming a disc library: titles, seasons, episodes and music releases.</span></a></li>
+        <li><a class="pkg-row" href="mock-package.html"><code class="pkg-name">@seikou/fansubs</code><span class="pkg-summary">Finding and timing fansub subtitles for a disc.</span></a></li>
+      </ul></section>
+    </main>
+  </div>
+  <footer class="dev-foot"><a href="https://github.com/brianhvo02/seikou">Source on GitHub</a></footer>
+</body>
+</html>

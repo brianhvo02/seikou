@@ -1,0 +1,96 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: LGPL-3.0-or-later -->
+<!--
+  A static mock of a developer page, for the look (docs/superpowers/specs/2026-11-10-developer-site-look.md §7 is the
+  markup contract the page templates follow). Content is from the real packages. ?theme=light|dark forces a theme.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0a1330">
+<title>PlayItem · @seikou/bdmv · Seikou developers</title>
+<script>(function () {
+var choice = 'auto';
+try { var v = window.localStorage.getItem('bluray-web:theme'); if (v === 'light' || v === 'dark') choice = v; } catch (e) {}
+var m = /[?&]theme=(light|dark)/.exec(location.search); if (m) choice = m[1];
+var theme = choice === 'auto' ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : choice;
+document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme;
+})();</script>
+<link rel="icon" href="../../../public/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../../node_modules/@fontsource-variable/instrument-sans/wdth.css">
+<link rel="stylesheet" href="../../../src/ui/tokens.css">
+<link rel="stylesheet" href="../site.css">
+</head>
+<body class="dev">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="dev-bar">
+    <a class="dev-home" href="mock-index.html"><img src="../../../public/favicon.svg" alt="" width="28" height="28"><span class="dev-home-name">Seikou</span><span class="dev-home-sub">developers</span></a>
+    <form class="search" role="search" action="#" onsubmit="return false">
+      <label class="visually-hidden" for="search-input">Search exports</label>
+      <input class="search-input" id="search-input" type="search" placeholder="Search exports" autocomplete="off" aria-controls="search-results" aria-expanded="false">
+      <ul class="search-results" id="search-results" role="listbox" hidden>
+        <li class="search-result" role="option" aria-selected="true"><a href="mock-function.html"><span class="search-name">parseMpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">Parses the bytes of a .mpls playlist.</span></a></li>
+        <li class="search-result" role="option" aria-selected="false"><a href="mock-type.html"><span class="search-name">Mpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">A parsed playlist: its play items, sub-paths and marks.</span></a></li>
+      </ul>
+    </form>
+    <a class="dev-bar-packages" href="#packages">Packages</a>
+    <fieldset class="theme-switch">
+      <legend class="visually-hidden">Theme</legend>
+      <label class="theme-option" title="Auto"><input type="radio" name="theme" value="auto" aria-label="Auto" checked><span class="theme-word" aria-hidden="true">Auto</span><svg class="theme-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M8 2a6 6 0 1 0 0 12A6 6 0 0 0 8 2Zm0 1.5v9a4.5 4.5 0 0 1 0-9Z"/></svg></label>
+      <label class="theme-option" title="Light"><input type="radio" name="theme" value="light" aria-label="Light"><span class="theme-word" aria-hidden="true">Light</span><svg class="theme-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 .75v2M8 13.25v2M.75 8h2M13.25 8h2M2.9 2.9l1.4 1.4M11.7 11.7l1.4 1.4M2.9 13.1l1.4-1.4M11.7 4.3l1.4-1.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></label>
+      <label class="theme-option" title="Dark"><input type="radio" name="theme" value="dark" aria-label="Dark"><span class="theme-word" aria-hidden="true">Dark</span><svg class="theme-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M13.5 10.2A6 6 0 0 1 5.8 2.5a6 6 0 1 0 7.7 7.7Z"/></svg></label>
+    </fieldset>
+  </header>
+  <div class="dev-layout">
+    <main class="dev-main" id="main">
+      <nav class="crumbs" aria-label="Breadcrumb"><a href="mock-package.html">@seikou/bdmv</a><span class="crumb-sep" aria-hidden="true">/</span><span aria-current="page">PlayItem</span></nav>
+      <h1 class="page-title">PlayItem</h1>
+      <p class="export-kind">An interface in <a href="mock-package.html"><code>@seikou/bdmv</code></a>.</p>
+      <pre class="signature"><code><span class="tok-k">interface</span> <span class="sig-name">PlayItem</span> {
+  <span class="tok-k">readonly</span> <a class="sig-param" href="#field-clipId">clipId</a><span class="tok-p">:</span> string;
+  <span class="tok-k">readonly</span> <a class="sig-param" href="#field-connectionCondition">connectionCondition</a><span class="tok-p">:</span> number;
+  <span class="tok-k">readonly</span> <a class="sig-param" href="#field-inTime">inTime</a><span class="tok-p">:</span> number;
+  <span class="tok-k">readonly</span> <a class="sig-param" href="#field-outTime">outTime</a><span class="tok-p">:</span> number;
+  <span class="tok-k">readonly</span> <a class="sig-param" href="#field-stillMode">stillMode</a><span class="tok-p">:</span> number;
+  <span class="tok-k">readonly</span> <a class="sig-param" href="#field-angleClipIds">angleClipIds</a><span class="tok-p">:</span> <span class="tok-k">readonly</span> string[];
+  <span class="tok-k">readonly</span> <a class="sig-param" href="#field-stn">stn</a><span class="tok-p">:</span> <a class="type-link" href="#">StnTable</a>;
+}</code></pre>
+      <div class="prose"><p>One item of a playlist's main path: a clip, the stretch of it that plays, and the streams that can be picked while it does.</p></div>
+      <section class="api-section"><h2 id="fields">Fields</h2>
+        <table class="params"><thead class="visually-hidden"><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead><tbody>
+          <tr id="field-clipId"><th scope="row"><code>clipId</code></th><td class="param-type"><code>string</code></td><td class="param-doc"><code>clip[0].clip_id</code>: the 5-digit name of the clip, <code>BDMV/CLIPINF/&lt;clipId&gt;.clpi</code> and <code>BDMV/STREAM/&lt;clipId&gt;.m2ts</code>.</td></tr>
+          <tr id="field-connectionCondition"><th scope="row"><code>connectionCondition</code></th><td class="param-type"><code>number</code></td><td class="param-doc"><code>connection_condition</code>: how this item joins the previous one, 1 for a non-seamless join, 5 and 6 for seamless joins.</td></tr>
+          <tr id="field-inTime"><th scope="row"><code>inTime</code></th><td class="param-type"><code>number</code></td><td class="param-doc"><code>in_time</code>: where the item starts, in 45 kHz clip time.</td></tr>
+          <tr id="field-outTime"><th scope="row"><code>outTime</code></th><td class="param-type"><code>number</code></td><td class="param-doc"><code>out_time</code>: where the item ends, in 45 kHz clip time (exclusive).</td></tr>
+          <tr id="field-stillMode"><th scope="row"><code>stillMode</code></th><td class="param-type"><code>number</code></td><td class="param-doc"><code>still_mode</code>: 0 for no still, 1 for a still of <code>stillTime</code> seconds, 2 for an infinite still.</td></tr>
+          <tr id="field-angleClipIds"><th scope="row"><code>angleClipIds</code></th><td class="param-type"><code>readonly string[]</code></td><td class="param-doc"><code>clip[1..].clip_id</code>: the clips of angles 2 and up, in order; empty for single-angle items.</td></tr>
+          <tr id="field-stn"><th scope="row"><code>stn</code></th><td class="param-type"><code><a class="type-link" href="#">StnTable</a></code></td><td class="param-doc"><code>stn</code>: the streams selectable while this item plays.</td></tr>
+        </tbody></table>
+      </section>
+      <section class="api-section"><h2 id="used-by">Used by</h2>
+        <ul class="used-by"><li><a href="#"><code>Mpls</code></a></li><li><a href="mock-function.html"><code>parseMpls</code></a></li></ul>
+      </section>
+      <p class="source-link">Source: <a href="https://github.com/brianhvo02/seikou/blob/main/packages/bdmv/src/mpls-parser.ts#L70"><code>packages/bdmv/src/mpls-parser.ts:70</code></a></p>
+    </main>
+  <nav class="dev-nav" id="packages" aria-label="Packages">
+    <h2 class="nav-heading">Packages</h2>
+    <ul class="nav-list">
+      <li><a href="#" aria-current="true">bdmv</a>
+        <div class="nav-exports"><h3 class="nav-kind">Functions</h3><ul><li><a href="#"><code>parseClpi</code></a></li><li><a href="#"><code>parseIndex</code></a></li><li><a href="#"><code>parseMpls</code></a></li><li><a href="#"><code>readUdf</code></a></li></ul><h3 class="nav-kind">Classes</h3><ul><li><a href="#"><code>M2tsReader</code></a></li><li><a href="#"><code>ParseError</code></a></li></ul><h3 class="nav-kind">Interfaces</h3><ul><li><a href="#"><code>Mpls</code></a></li><li><a href="#" aria-current="page"><code>PlayItem</code></a></li></ul></div>
+      </li>
+      <li><a href="#">pg</a></li>
+      <li><a href="#">ass</a></li>
+      <li><a href="#">engine</a></li>
+      <li><a href="#">matroska</a></li>
+      <li><a href="#">nas</a></li>
+      <li><a href="#">titles</a></li>
+      <li><a href="#">fansubs</a></li>
+    </ul>
+    <h2 class="nav-heading">Guide</h2>
+    <ul class="nav-list"><li><a href="#">Integrating the player</a></li></ul>
+  </nav>
+  </div>
+  <footer class="dev-foot"><a href="https://github.com/brianhvo02/seikou">Source on GitHub</a></footer>
+</body>
+</html>

@@ -1,0 +1,141 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: LGPL-3.0-or-later -->
+<!--
+  A static mock of a developer page, for the look (docs/superpowers/specs/2026-11-10-developer-site-look.md §7 is the
+  markup contract the page templates follow). Content is from the real packages. ?theme=light|dark forces a theme.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0a1330">
+<title>HttpTransport · @seikou/engine · Seikou developers</title>
+<script>(function () {
+var choice = 'auto';
+try { var v = window.localStorage.getItem('bluray-web:theme'); if (v === 'light' || v === 'dark') choice = v; } catch (e) {}
+var m = /[?&]theme=(light|dark)/.exec(location.search); if (m) choice = m[1];
+var theme = choice === 'auto' ? (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : choice;
+document.documentElement.dataset.theme = theme; document.documentElement.style.colorScheme = theme;
+})();</script>
+<link rel="icon" href="../../../public/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../../../node_modules/@fontsource-variable/instrument-sans/wdth.css">
+<link rel="stylesheet" href="../../../src/ui/tokens.css">
+<link rel="stylesheet" href="../site.css">
+</head>
+<body class="dev">
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="dev-bar">
+    <a class="dev-home" href="mock-index.html"><img src="../../../public/favicon.svg" alt="" width="28" height="28"><span class="dev-home-name">Seikou</span><span class="dev-home-sub">developers</span></a>
+    <form class="search" role="search" action="#" onsubmit="return false">
+      <label class="visually-hidden" for="search-input">Search exports</label>
+      <input class="search-input" id="search-input" type="search" placeholder="Search exports" autocomplete="off" aria-controls="search-results" aria-expanded="false">
+      <ul class="search-results" id="search-results" role="listbox" hidden>
+        <li class="search-result" role="option" aria-selected="true"><a href="mock-function.html"><span class="search-name">parseMpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">Parses the bytes of a .mpls playlist.</span></a></li>
+        <li class="search-result" role="option" aria-selected="false"><a href="mock-type.html"><span class="search-name">Mpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">A parsed playlist: its play items, sub-paths and marks.</span></a></li>
+      </ul>
+    </form>
+    <a class="dev-bar-packages" href="#packages">Packages</a>
+    <fieldset class="theme-switch">
+      <legend class="visually-hidden">Theme</legend>
+      <label class="theme-option" title="Auto"><input type="radio" name="theme" value="auto" aria-label="Auto" checked><span class="theme-word" aria-hidden="true">Auto</span><svg class="theme-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M8 2a6 6 0 1 0 0 12A6 6 0 0 0 8 2Zm0 1.5v9a4.5 4.5 0 0 1 0-9Z"/></svg></label>
+      <label class="theme-option" title="Light"><input type="radio" name="theme" value="light" aria-label="Light"><span class="theme-word" aria-hidden="true">Light</span><svg class="theme-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 .75v2M8 13.25v2M.75 8h2M13.25 8h2M2.9 2.9l1.4 1.4M11.7 11.7l1.4 1.4M2.9 13.1l1.4-1.4M11.7 4.3l1.4-1.4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></label>
+      <label class="theme-option" title="Dark"><input type="radio" name="theme" value="dark" aria-label="Dark"><span class="theme-word" aria-hidden="true">Dark</span><svg class="theme-icon" viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M13.5 10.2A6 6 0 0 1 5.8 2.5a6 6 0 1 0 7.7 7.7Z"/></svg></label>
+    </fieldset>
+  </header>
+  <div class="dev-layout">
+    <main class="dev-main" id="main">
+      <nav class="crumbs" aria-label="Breadcrumb"><a href="mock-package.html">@seikou/engine</a><span class="crumb-sep" aria-hidden="true">/</span><span aria-current="page">HttpTransport</span></nav>
+      <h1 class="page-title">HttpTransport</h1>
+      <p class="export-kind">A class in <a href="#"><code>@seikou/engine</code></a>.</p>
+      <pre class="signature"><code><span class="tok-k">class</span> <span class="sig-name">HttpTransport</span> <span class="tok-k">implements</span> <a class="type-link" href="#">RangeTransport</a></code></pre>
+      <div class="prose">
+        <p>Reads <code>&lt;base&gt;files/&lt;path&gt;?t=&lt;token&gt;</code> with a single <code>Range: bytes=a-b</code> and no other headers, so the request needs no preflight. <code>base</code> ends with <code>/</code>: <code>https://…/bluray/api/discs/&lt;id&gt;/</code>. A 503 is waited out for its <code>Retry-After</code>, and a 401 is retried once with a fresh token. Runs wherever it is built: the engine worker or the BD-J worker.</p>
+      </div>
+      <nav class="member-index" aria-labelledby="members">
+        <h2 id="members">Members</h2>
+        <ul><li><a href="#constructor"><code>constructor</code></a></li><li><a href="#setToken"><code>setToken</code></a></li><li><a href="#read"><code>read</code></a></li></ul>
+      </nav>
+
+      <section class="member" id="constructor">
+        <h3 class="member-name"><a class="member-anchor" href="#constructor"><code>constructor</code></a></h3>
+        <p class="member-kind">Constructor</p>
+        <pre class="signature"><code><span class="tok-k">new</span> <span class="sig-name">HttpTransport</span>(<a class="sig-param" href="#constructor-param-base">base</a><span class="tok-p">:</span> string, <a class="sig-param" href="#constructor-param-token">token</a><span class="tok-p">:</span> string, <a class="sig-param" href="#constructor-param-opts">opts</a><span class="tok-p">:</span> <a class="type-link" href="#">HttpTransportOptions</a>)</code></pre>
+        <section class="api-section"><h4 id="constructor-parameters">Parameters</h4>
+          <table class="params"><thead class="visually-hidden"><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead><tbody>
+            <tr id="constructor-param-base"><th scope="row"><code>base</code></th><td class="param-type"><code>string</code></td><td class="param-doc">The disc's API base, ending with <code>/</code>.</td></tr>
+            <tr id="constructor-param-token"><th scope="row"><code>token</code></th><td class="param-type"><code>string</code></td><td class="param-doc">The device's session token, sent as <code>t</code> on every request.</td></tr>
+            <tr id="constructor-param-opts"><th scope="row"><code>opts</code></th><td class="param-type"><code><a class="type-link" href="#">HttpTransportOptions</a></code></td><td class="param-doc">The <code>fetch</code> to use, how to refresh the token, and extra query parameters.</td></tr>
+          </tbody></table>
+        </section>
+      </section>
+
+      <section class="member" id="setToken">
+        <h3 class="member-name"><a class="member-anchor" href="#setToken"><code>setToken</code></a></h3>
+        <p class="member-kind">Method</p>
+        <pre class="signature"><code><span class="sig-name">setToken</span>(<a class="sig-param" href="#setToken-param-token">token</a><span class="tok-p">:</span> string)<span class="tok-p">:</span> void</code></pre>
+        <div class="prose"><p>Uses <code>token</code> for later requests (a refresh the main thread pushed).</p></div>
+      </section>
+
+      <section class="member" id="read">
+        <h3 class="member-name"><a class="member-anchor" href="#read"><code>read</code></a></h3>
+        <p class="member-kind">Method</p>
+        <pre class="signature"><code><span class="sig-name">read</span>(
+  <a class="sig-param" href="#read-param-path">path</a><span class="tok-p">:</span> string,
+  <a class="sig-param" href="#read-param-offset">offset</a><span class="tok-p">:</span> number,
+  <a class="sig-param" href="#read-param-length">length</a><span class="tok-p">:</span> number,
+  <a class="sig-param" href="#read-param-signal">signal</a><span class="tok-p">?:</span> AbortSignal,
+)<span class="tok-p">:</span> Promise&lt;Uint8Array&gt;</code></pre>
+        <div class="prose"><p>The bytes of <code>path</code> from <code>offset</code>, at most <code>length</code>; fewer at the end of the file, none past it. An abort rejects with the signal's reason.</p></div>
+        <section class="api-section"><h4 id="read-parameters">Parameters</h4>
+          <table class="params"><thead class="visually-hidden"><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead><tbody>
+            <tr id="read-param-path"><th scope="row"><code>path</code></th><td class="param-type"><code>string</code></td><td class="param-doc">The file's path on the disc, such as <code>BDMV/STREAM/00000.m2ts</code>.</td></tr>
+            <tr id="read-param-offset"><th scope="row"><code>offset</code></th><td class="param-type"><code>number</code></td><td class="param-doc">Bytes from the start of the file.</td></tr>
+            <tr id="read-param-length"><th scope="row"><code>length</code></th><td class="param-type"><code>number</code></td><td class="param-doc">The most bytes to read; 0 or less reads nothing and makes no request.</td></tr>
+            <tr id="read-param-signal" class="optional"><th scope="row"><code>signal</code></th><td class="param-type"><code>AbortSignal</code></td><td class="param-doc">Cancels the read, as a seek does with a read nobody waits for any more.</td></tr>
+          </tbody></table>
+        </section>
+        <section class="api-section"><h4 id="read-returns">Returns</h4>
+          <p class="returns"><code class="returns-type">Promise&lt;Uint8Array&gt;</code> The bytes read, shorter than <code>length</code> only at the end of the file.</p>
+        </section>
+        <section class="api-section"><h4 id="read-throws">Throws</h4>
+          <ul class="throws">
+            <li><code><a class="type-link" href="#">RemoteDiscError</a></code> <code>nas-lost</code> after 30 s without an answer or on a network failure, <code>nas-unpaired</code> after a refused token refresh, <code>disc-changed</code> on the NAS's changed-disc 404.</li>
+            <li><code><a class="type-link" href="#">DiscError</a></code> for any other failure of the request.</li>
+          </ul>
+        </section>
+        <section class="api-section"><h4 id="read-example">Example</h4>
+          <figure class="example">
+            <figcaption class="example-file"><a href="https://github.com/brianhvo02/seikou/blob/main/packages/engine/examples/http-transport.browser.ts"><code>packages/engine/examples/http-transport.browser.ts</code></a></figcaption>
+            <pre class="code"><code><span class="tok-c">// Read the first source packet of a clip from a disc server.</span>
+<span class="tok-k">import</span> { <a class="type-link" href="#">HttpTransport</a> } <span class="tok-k">from</span> <span class="tok-s">'@seikou/engine'</span>;
+
+<span class="tok-k">const</span> transport = <span class="tok-k">new</span> <a class="type-link" href="#">HttpTransport</a>(<span class="tok-s">'https://nas.example/bluray/api/discs/syn-disc1/'</span>, token, { fetch });
+<span class="tok-k">const</span> packet = <span class="tok-k">await</span> transport.read(<span class="tok-s">'BDMV/STREAM/00000.m2ts'</span>, <span class="tok-n">0</span>, <span class="tok-n">192</span>, AbortSignal.timeout(<span class="tok-n">5_000</span>));
+<span class="tok-k">if</span> (packet[<span class="tok-n">4</span>] !== <span class="tok-n">0x47</span>) <span class="tok-k">throw</span> <span class="tok-k">new</span> Error(<span class="tok-s">'not a source packet: no TS sync byte after the 4-byte header'</span>);</code></pre>
+          </figure>
+        </section>
+      </section>
+
+      <p class="source-link">Source: <a href="https://github.com/brianhvo02/seikou/blob/main/packages/engine/src/disc/http-transport.ts#L58"><code>packages/engine/src/disc/http-transport.ts:58</code></a></p>
+    </main>
+  <nav class="dev-nav" id="packages" aria-label="Packages">
+    <h2 class="nav-heading">Packages</h2>
+    <ul class="nav-list">
+      <li><a href="#">bdmv</a></li>
+      <li><a href="#">pg</a></li>
+      <li><a href="#">ass</a></li>
+      <li><a href="#" aria-current="true">engine</a>
+        <div class="nav-exports"><h3 class="nav-kind">Functions</h3><ul><li><a href="#"><code>createController</code></a></li><li><a href="#"><code>createEngineWorker</code></a></li><li><a href="#"><code>openDisc</code></a></li><li><a href="#"><code>walkEntries</code></a></li></ul><h3 class="nav-kind">Classes</h3><ul><li><a href="#" aria-current="page"><code>HttpTransport</code></a></li><li><a href="#"><code>PlatformSession</code></a></li><li><a href="#"><code>PlayerController</code></a></li><li><a href="#"><code>RemoteDiscError</code></a></li><li><a href="#"><code>RemoteSource</code></a></li></ul><h3 class="nav-kind">Interfaces</h3><ul><li><a href="#"><code>DiscModel</code></a></li><li><a href="#"><code>HttpTransportOptions</code></a></li><li><a href="#"><code>PlayerSnapshot</code></a></li><li><a href="#"><code>RemoteDiscSpec</code></a></li></ul><h3 class="nav-kind">Types</h3><ul><li><a href="#"><code>EngineCommand</code></a></li><li><a href="#"><code>EngineEvent</code></a></li><li><a href="#"><code>RemoteFailure</code></a></li></ul></div>
+      </li>
+      <li><a href="#">matroska</a></li>
+      <li><a href="#">nas</a></li>
+      <li><a href="#">titles</a></li>
+      <li><a href="#">fansubs</a></li>
+    </ul>
+    <h2 class="nav-heading">Guide</h2>
+    <ul class="nav-list"><li><a href="#">Integrating the player</a></li></ul>
+  </nav>
+  </div>
+  <footer class="dev-foot"><a href="https://github.com/brianhvo02/seikou">Source on GitHub</a></footer>
+</body>
+</html>
