@@ -168,7 +168,7 @@ Seikou's NAS server and its development disc server (`tools/disc-server/`) serve
 To play such a disc, pass the manifest to the controller:
 
 ```ts
-import type { DiscManifest } from '@seikou/nas/nas-api';
+import type { DiscManifest } from '@seikou/nas';
 
 const base = 'https://nas.example/bluray/api/discs/<id>/'; // ends with '/'
 const manifest = (await (await fetch(`${base}manifest`, { headers: { Authorization: `Bearer ${token}` } })).json()) as DiscManifest;
@@ -208,7 +208,7 @@ Copy these folders from the repository into your project, keeping their places b
 - `src/bdj-classlib/`: the Java class library (`rt-bdj.jar`, `libbluray-j2se.jar`, `libbluray-awt-j2se.jar`) and its TypeScript intrinsics, with its licence files.
 - `src/wasm/freetype/`: `freetype.wasm`, the FreeType build BD-J draws its text with, with its licence files.
 
-These are every path `src/bdj` reaches outside itself. `src/bdj/bdj-worker-entry.ts` imports `../wasm/freetype/freetype.wasm?url` and `../bdj-classlib/intrinsics/index`, and the intrinsics import back into `src/bdj/jvm/`, so the three folders must keep their relative layout. Everything else they import comes from the packages, and part of it is package internals reached through subpaths: `@seikou/engine/bdj-types`, `@seikou/engine/disc/disc-spec`, `@seikou/engine/util/standalone-wasm`, `@seikou/bdmv/bdjo-parser`, `@seikou/bdmv/byte-reader`, `@seikou/bdmv/byte-source` and `@seikou/ass/default-font.ttf`. The packages' `./*` exports resolve those paths, but they are internal modules, so they can change between versions of the packages without notice.
+These are every path `src/bdj` reaches outside itself. `src/bdj/bdj-worker-entry.ts` imports `../wasm/freetype/freetype.wasm?url` and `../bdj-classlib/intrinsics/index`, and the intrinsics import back into `src/bdj/jvm/`, so the three folders must keep their relative layout. Everything else they import comes from the packages, and much of it is package internals reached through subpaths of `@seikou/engine`, `@seikou/bdmv` and `@seikou/ass`, for example `@seikou/engine/bdj-types`, `@seikou/engine/nav/navigator`, `@seikou/bdmv/bdjo-parser` and `@seikou/ass/default-font.ttf`. `git grep -ho "from '@seikou/[^']*'" -- src/bdj | sort -u` lists them all. The packages' `./*` exports resolve those paths, but they are internal modules, so they can change between versions of the packages without notice.
 
 Then write an engine worker entry like Seikou's `src/engine-worker.ts`. It calls `startEngineWorker` from `@seikou/engine/worker-main` with the package's assets and the provider:
 

@@ -125,7 +125,9 @@ what would change that decision.
 
 ## ASS subtitles
 
-- **Not loaded yet: subtitles and fonts inside `.mkv` files** (on the roadmap). Fonts come from files picked or
+- **Not loaded yet: subtitles and fonts inside an `.mkv` file picked or dropped on the player** (on the roadmap; only
+  `.srt`, `.ass` and `.ssa` are taken, `SUBTITLE_EXTENSIONS`). The MKV of a NAS encode is different: its ASS and PGS
+  tracks and attached fonts load (`packages/engine/src/encode/mkv-subtitles.ts`). Fonts come from files picked or
   dropped with the script, from its `[Fonts]` section, from the subtitle store and from Anime Tosho; a family none of
   those supply is taken from the device's installed fonts when it has it (below), and a family that is still missing
   is replaced and named in a notice.
