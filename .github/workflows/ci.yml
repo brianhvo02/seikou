@@ -65,6 +65,9 @@ jobs:
           cache: npm
       - run: npm install -g npm@11.19.0 # allowScripts in package.json needs npm 11.19
       - run: npm ci
+      # the developer site's TypeDoc model (tools/devsite has its own lockfile); `npm run build` and the tests read it
+      - run: npm run devsite:install
+      - run: npm run devsite:model
       # The NAS encoder's tests run ffmpeg with libx264 (server/src/levels/encoder.test.ts).
       - uses: ./.github/actions/setup-ffmpeg
       - run: npm run licence-check
@@ -100,6 +103,8 @@ jobs:
           cache: npm
       - run: npm install -g npm@11.19.0
       - run: npm ci
+      # the developer site's TypeDoc model (tools/devsite has its own lockfile); `npm run build` and the tests read it
+      - run: npm run devsite:install
       # The NAS stand-in encodes quality levels with ffmpeg and libx264 (bdj-store.spec.ts starts it on mobile-chromium too).
       - uses: ./.github/actions/setup-ffmpeg
       - run: npx playwright install --with-deps ${{ matrix.browser }}
@@ -200,6 +205,8 @@ jobs:
           cache: npm
       - run: npm install -g npm@11.19.0
       - run: npm ci
+      # the developer site's TypeDoc model (tools/devsite has its own lockfile); `npm run build` and the tests read it
+      - run: npm run devsite:install
       - run: npm run build
         env:
           # the Worker's workers.dev URL, a repository variable set after its first deploy; unset, pairing by code reports the service unavailable

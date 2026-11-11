@@ -182,6 +182,8 @@ export const MarkType = { ENTRY: 1, LINK: 2 } as const;
  * Parses the bytes of a `.mpls` playlist (libbluray `_parse_playlist` and `_parse_playlistmark`). Throws a ParseError
  * for a bad signature, an unsupported version, a play item shorter than 18 bytes, a sub play item shorter than 24
  * bytes, or a read past the end of the file.
+ *
+ * @example ../examples/parse-mpls.ts#parse
  */
 export function parseMpls(bytes: Uint8Array): Mpls {
   const r = new ByteReader(bytes);

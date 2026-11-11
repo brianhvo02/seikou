@@ -15,6 +15,6 @@
     "noUnusedParameters": true,
     "types": ["node", "vite/client"]
   },
-  "include": ["vite.config.ts", "encoder/web/vite.config.ts", "vite", "playwright.config.ts", "playwright.ass.config.ts", "playwright.encoder.config.ts", "scripts", "tests/e2e", "tests/doc-check.test.ts", "tests/public-api.test.ts", "tests/documentation.test.ts", "tests/devsite-model.test.ts", "tests/local", "tests/vm-trace", "tests/ass-trace", "tools/disc-server", "tools/devices", "tools/bdj-library"],
+  "include": ["vite.config.ts", "encoder/web/vite.config.ts", "vite", "playwright.config.ts", "playwright.ass.config.ts", "playwright.encoder.config.ts", "scripts", "tests/e2e", "tests/examples.test.ts", "packages/*/examples", "tests/doc-check.test.ts", "tests/public-api.test.ts", "tests/documentation.test.ts", "tests/devsite-model.test.ts", "tests/local", "tests/vm-trace", "tests/ass-trace", "tools/disc-server", "tools/devices", "tools/bdj-library"],
   "exclude": ["vite/devsite/__fixtures__"]
 }

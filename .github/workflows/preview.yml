@@ -33,6 +33,8 @@ jobs:
           cache: npm
       - run: npm install -g npm@11.19.0 # allowScripts in package.json needs npm 11.19
       - run: npm ci
+      # the developer site's TypeDoc model (tools/devsite has its own lockfile); `npm run build` and the tests read it
+      - run: npm run devsite:install
       - run: npm run build
         env:
           # the rendezvous Worker, as in ci.yml; without it pairing by code reports the service unavailable

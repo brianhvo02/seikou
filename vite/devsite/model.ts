@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, posix } from 'node:path';
 import { sourceHash } from '../../tools/devsite/source-hash.mjs';
 
@@ -474,3 +474,46 @@ export function missingExamples(e: DevExport): readonly string[] {
   });
 }
 
+
+function* exampleFiles(dir: string, rel: string): Generator<string> {
+  if (!existsSync(dir)) return;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) yield* exampleFiles(join(dir, entry.name), posix.join(rel, entry.name));
+    else if (entry.name.endsWith('.ts')) yield posix.join(rel, entry.name);
+  }
+}
+
+/** The module specifiers an example's source imports (static, dynamic and re-exports). */
+function importsOf(source: string): string[] {
+  const found: string[] = [];
+  const re = /(?:\bfrom\s*|\bimport\s*\(\s*|\bimport\s+)(['"])([^'"]+)\1/g;
+  for (let m = re.exec(source); m; m = re.exec(source)) found.push(m[2]!);
+  return found;
+}
+
+/**
+ * What is wrong with the examples: every name `needsExample` lists that has none, every file under
+ * `packages/<pkg>/examples/` that no export or member names, and every example that imports anything but a
+ * `@seikou/<package>` root (or a Node built-in). An empty list means the examples are complete.
+ */
+export function exampleProblems(site: readonly DevPackage[], repoRoot: string = process.cwd()): string[] {
+  const problems: string[] = [];
+  const used = new Set<string>();
+  for (const p of site) {
+    for (const e of p.exports) {
+      for (const n of missingExamples(e)) problems.push(`${p.name}: ${e.name === n ? n : `${e.name}.${n}`} has no example`);
+      if (e.example) used.add(e.example.file);
+      for (const m of e.members) if (m.example) used.add(m.example.file);
+    }
+  }
+  for (const p of site) {
+    for (const file of exampleFiles(join(repoRoot, 'packages', p.name, 'examples'), `packages/${p.name}/examples`)) {
+      if (!used.has(file)) problems.push(`${file} is named by no export`);
+      for (const spec of importsOf(readFileSync(join(repoRoot, file), 'utf8'))) {
+        if (spec.startsWith('node:') || /^@seikou\/[a-z]+$/.test(spec)) continue;
+        problems.push(`${file} imports ${spec}; an example imports only a @seikou/<package> root`);
+      }
+    }
+  }
+  return problems;
+}
