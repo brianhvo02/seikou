@@ -77,6 +77,7 @@ const cssString = (s: string): string => `'${s.replace(/[\\']/g, (c) => `\\${c}`
 /**
  * The browser's installed fonts, through FontFaces in `fontSet` (the worker's self.fonts), measured on `ctx`. Where
  * `local()` finds nothing (or the browser refuses it) a face is simply missing, and the default font draws.
+ * @example ../examples/create-device-font-source.browser.ts
  */
 export function createDeviceFontSource(fontSet: FontFaceSet, ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D): DeviceFontSource {
   const faces = new Map<string, FontFace>();

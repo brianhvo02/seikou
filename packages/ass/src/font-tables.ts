@@ -300,7 +300,10 @@ function faceInfo(file: string, index: number, tables: Tables): FaceInfo {
   };
 }
 
-/** Throws FontFileError for anything unreadable. */
+/**
+ * Throws FontFileError for anything unreadable.
+ * @example ../examples/read-font-file.ts
+ */
 export async function readFontFile(name: string, bytes: Uint8Array): Promise<FontFile> {
   let d: Decoded;
   let faces: FaceInfo[];

@@ -435,7 +435,10 @@ function lazyTrackInit(t: Parser): void {
   else if (t.playResX <= 0) t.playResX = Math.min(t.playResY + Math.floor(t.playResY / 3), 0x7fffffff);
 }
 
-/** parse_memory: process_text over the whole script, ReadOrder by file order, then the PlayRes defaults. */
+/**
+ * parse_memory: process_text over the whole script, ReadOrder by file order, then the PlayRes defaults.
+ * @example ../examples/parse-ass.ts
+ */
 export function parseAss(text: string): AssTrack {
   const t: Parser = {
     trackType: 'unknown', playResX: 0, playResY: 0, layoutResX: 0, layoutResY: 0, wrapStyle: 0,
@@ -462,6 +465,7 @@ export function parseAss(text: string): AssTrack {
 /**
  * ass_process_codec_private: a Matroska track's CodecPrivate (the script up to its [Events] Format line) parsed as a
  * script, with the default event Format of its type when it has none (libass's event_format_fallback).
+ * @example ../examples/parse-ass-codec-private.ts
  */
 export function parseAssCodecPrivate(text: string): AssTrack {
   const track = parseAss(text);
@@ -473,6 +477,7 @@ export function parseAssCodecPrivate(text: string): AssTrack {
  * ass_process_chunk's parsing of one Matroska block: `ReadOrder, Layer, ` then the track's event Format after its
  * Layer, Start and End fields, read against the track's styles. The start and duration are the block's. Null when the
  * track has no event Format (libass: "Event format header missing") or the line runs out before Text.
+ * @example ../examples/parse-chunk-event.ts
  */
 export function parseChunkEvent(track: AssTrack, data: string, start: number, duration: number): AssEvent | null {
   if (!track.eventFormat) return null;

@@ -114,6 +114,7 @@ const sameSettings = (a: RenderSettings | null, b: RenderSettings): boolean =>
  * Draws an ASS track onto the player canvas. It is the counterpart of libass's `ass_render_frame` plus the bitmap
  * caches, with Canvas2D doing the rasterising. It runs in the engine worker and keeps its caches within the
  * byte limits it is given.
+ * @example ../examples/ass-renderer.browser.ts#construct
  */
 export class AssRenderer implements TextRendererLike {
   private builder: FrameBuilder;
@@ -165,6 +166,10 @@ export class AssRenderer implements TextRendererLike {
     this.lastSeenT = t;
   }
 
+  /**
+   * Whether a render at `timeUs` would differ from the last one.
+   * @example ../examples/ass-renderer.browser.ts#changed
+   */
   changed(timeUs: number, opts: TextRenderOptions): boolean {
     const t = AssRenderer.ms(timeUs, opts);
     this.see(t);
@@ -175,10 +180,18 @@ export class AssRenderer implements TextRendererLike {
     return key !== this.lastActive || (key !== '' && opts.scale !== this.lastScale);
   }
 
+  /**
+   * Whether any event shows at `timeUs`.
+   * @example ../examples/ass-renderer.browser.ts#visible
+   */
   visible(timeUs: number, opts: TextRenderOptions): boolean {
     return this.builder.activeIndices(AssRenderer.ms(timeUs, opts)).length > 0;
   }
 
+  /**
+   * Draws the events active at `timeUs` inside `videoRect`; returns how many were drawn.
+   * @example ../examples/ass-renderer.browser.ts#render
+   */
   render(ctx: OffscreenCanvasRenderingContext2D, timeUs: number, videoRect: Rect, opts: TextRenderOptions): number {
     const start = this.deps.nowMs();
     const t = AssRenderer.ms(timeUs, opts);
@@ -238,7 +251,10 @@ export class AssRenderer implements TextRendererLike {
     return frame.events.length;
   }
 
-  /** A seek or offset change: forget collision memory. */
+  /**
+   * A seek or offset change: forget collision memory.
+   * @example ../examples/ass-renderer.browser.ts#reset
+   */
   reset(): void {
     this.builder.reset();
     this.dirty = true;
@@ -247,13 +263,17 @@ export class AssRenderer implements TextRendererLike {
   /**
    * Events were appended to the track's event list (a Matroska ASS track's blocks as they are read). Existing events
    * keep their indices, so their cached bitmaps stay; the next changed() reports a change.
+   * @example ../examples/ass-renderer.browser.ts#eventsAdded
    */
   eventsAdded(): void {
     this.builder.eventsAdded();
     this.dirty = true;
   }
 
-  /** New fonts: drop layout and bitmap caches. */
+  /**
+   * New fonts: drop layout and bitmap caches.
+   * @example ../examples/ass-renderer.browser.ts#fontsChanged
+   */
   fontsChanged(): void {
     this.deps.measurer.reset?.();
     this.builder = new FrameBuilder(this.track, this.fonts, this.deps.measurer);
@@ -263,10 +283,18 @@ export class AssRenderer implements TextRendererLike {
     this.dirty = true;
   }
 
+  /**
+   * What the last render did and the counts since the renderer was made.
+   * @example ../examples/ass-renderer.browser.ts#stats
+   */
   stats(): AssRenderStats {
     return this.lastStats;
   }
 
+  /**
+   * How many static events are cached, composited.
+   * @example ../examples/ass-renderer.browser.ts#cacheSize
+   */
   cacheSize(): number {
     return this.cache.size;
   }

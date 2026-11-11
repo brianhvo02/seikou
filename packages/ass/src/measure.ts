@@ -35,7 +35,10 @@ export function createFixedMeasurer(ratio: number): GlyphMeasurer {
   };
 }
 
-/** ctx.measureText on prefixes, so kerning and ligatures are the browser's shaping; cached per run. */
+/**
+ * ctx.measureText on prefixes, so kerning and ligatures are the browser's shaping; cached per run.
+ * @example ../examples/create-canvas-measurer.browser.ts
+ */
 export function createCanvasMeasurer(ctx: OffscreenCanvasRenderingContext2D): GlyphMeasurer {
   const cache = new Map<string, readonly GlyphMetrics[]>();
   return {

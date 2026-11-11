@@ -120,6 +120,7 @@ interface FontState { readonly faces: ResolvedFace[] }
  * default font, and the device-font lookup. It is the TypeScript form of libass's font selection (`ass_fontselect.c`)
  * and of the `ASS_Font` face list in `ass_font.c`, with the browser's `FontFace` standing in for FreeType.
  * The device-font part is not from libass (see `device-fonts.ts`). It runs wherever the renderer runs, the engine worker.
+ * @example ../examples/ass-fonts.browser.ts#construct
  */
 export class AssFonts {
   private readonly entries: Entry[] = [];
@@ -146,7 +147,10 @@ export class AssFonts {
     this.device = options.deviceFonts ?? null;
   }
 
-  /** Adds font files in the order libass would see them ([Fonts] of the script first, then the user's files). */
+  /**
+   * Adds font files in the order libass would see them ([Fonts] of the script first, then the user's files).
+   * @example ../examples/ass-fonts.browser.ts#add
+   */
   async add(files: readonly { readonly name: string; readonly bytes: Uint8Array }[]): Promise<{ readonly unreadable: readonly string[] }> {
     const unreadable: string[] = [];
     for (const f of files) {
@@ -301,12 +305,18 @@ export class AssFonts {
     return state;
   }
 
-  /** The request's first face (ass_font_new → add_face with code 0). */
+  /**
+   * The request's first face (ass_font_new → add_face with code 0).
+   * @example ../examples/ass-fonts.browser.ts#resolve
+   */
   resolve(req: FontRequest): ResolvedFace {
     return this.font(req).faces[0]!;
   }
 
-  /** ass_font_get_index: the first face of the font with the glyph, else one more face selected for it. */
+  /**
+   * ass_font_get_index: the first face of the font with the glyph, else one more face selected for it.
+   * @example ../examples/ass-fonts.browser.ts#faceFor
+   */
   faceFor(req: FontRequest, codepoint: number): ResolvedFace {
     const state = this.font(req);
     if (codepoint < 0x20) return state.faces[0]!;
@@ -320,7 +330,10 @@ export class AssFonts {
     return added;
   }
 
-  /** Registers every face resolved so far that is not registered yet. */
+  /**
+   * Registers every face resolved so far that is not registered yet.
+   * @example ../examples/ass-fonts.browser.ts#ready
+   */
   async ready(): Promise<void> {
     // device fonts: wait for the lookups, then select again the requests a found face may now draw
     while (this.probing.size) await Promise.all(this.probing.values());
@@ -343,7 +356,10 @@ export class AssFonts {
     await Promise.all(pending);
   }
 
-  /** Faces resolved but not registered yet: layout measured them with a fallback until ready() completes. */
+  /**
+   * Faces resolved but not registered yet: layout measured them with a fallback until ready() completes.
+   * @example ../examples/ass-fonts.browser.ts#hasPending
+   */
   hasPending(): boolean {
     if (this.probing.size || this.reselect) return true;
     for (const state of this.fonts.values()) for (const f of state.faces) if (!this.loaded.has(this.entryOf.get(f)!.uid)) return true;
@@ -353,12 +369,16 @@ export class AssFonts {
   /**
    * Requested families no supplied face matched by name and no installed face drew (device fonts), in first-request
    * order, case-insensitively unique. A family still being looked up on the device counts as missing.
+   * @example ../examples/ass-fonts.browser.ts#missingFamilies
    */
   missingFamilies(): readonly string[] {
     return [...this.missing.values()].filter((f) => !this.deviceFaces.get(lower(f)));
   }
 
-  /** Unregisters every font this object registered, and stops any device-font lookup from registering one later. */
+  /**
+   * Unregisters every font this object registered, and stops any device-font lookup from registering one later.
+   * @example ../examples/ass-fonts.browser.ts#dispose
+   */
   dispose(): void {
     this.disposed = true;
     for (const uid of this.loaded) {
@@ -370,7 +390,10 @@ export class AssFonts {
   }
 }
 
-/** The production loader: FontFaces in a FontFaceSet (the worker's self.fonts). */
+/**
+ * The production loader: FontFaces in a FontFaceSet (the worker's self.fonts).
+ * @example ../examples/create-font-face-loader.browser.ts
+ */
 export function createFontFaceLoader(fontSet: FontFaceSet): FontLoader {
   const faces = new Map<string, FontFace>();
   return {

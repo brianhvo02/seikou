@@ -63,7 +63,10 @@ export function gridSize(m: Mat3, w: number, h: number): number {
   return MAX_GRID;
 }
 
-/** Draws `source` (px u,v) onto `target` at project(m, u, v) − origin. */
+/**
+ * Draws `source` (px u,v) onto `target` at project(m, u, v) − origin.
+ * @example ../examples/draw-warped.browser.ts
+ */
 export function drawWarped(target: OffscreenCanvasRenderingContext2D, source: OffscreenCanvas, m: Mat3, originX: number, originY: number): void {
   const w = source.width;
   const h = source.height;
