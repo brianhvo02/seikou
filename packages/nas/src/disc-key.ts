@@ -16,13 +16,19 @@ export function streamsOf(files: readonly { path: string; size: number }[]): { n
   });
 }
 
-/** The key a disc's link carries: `f.<content fingerprint>`, or `d.<disc id>` when it has no streams to hash. */
+/**
+ * The key a disc's link carries: `f.<content fingerprint>`, or `d.<disc id>` when it has no streams to hash.
+ * @example ../examples/disc-key-of.ts
+ */
 export function discKeyOf(discId: string, files: readonly { path: string; size: number }[]): string {
   const hash = contentHash(streamsOf(files));
   return hash === null ? `d.${discId}` : `f.${hash}`;
 }
 
-/** The parts of a disc key (`f.` and 32 upper-case hex digits, or `d.` and 16 lower-case hex digits); null for anything else. */
+/**
+ * The parts of a disc key (`f.` and 32 upper-case hex digits, or `d.` and 16 lower-case hex digits); null for anything else.
+ * @example ../examples/parse-disc-key.ts
+ */
 export function parseDiscKey(key: string): ParsedDiscKey | null {
   const f = /^f\.([0-9A-F]{32})$/.exec(key);
   if (f) return { kind: 'fingerprint', fingerprint: f[1]! };

@@ -71,6 +71,7 @@ export function md5Hex(bytes: Uint8Array): string {
  * TheDiscDB's ContentHash of a disc's BDMV/STREAM files: null when there are no `.m2ts` files. Names are ordered by
  * the code units of the upper-cased name (the reference orders by name; clip names are digits). Throws a RangeError for
  * a size that isn't a safe non-negative integer.
+  * @example ../examples/content-hash.ts
  */
 export function contentHash(streams: readonly { name: string; size: number }[]): string | null {
   for (const { name, size } of streams) if (!Number.isSafeInteger(size) || size < 0) throw new RangeError(`bad size ${size} for ${name}`);

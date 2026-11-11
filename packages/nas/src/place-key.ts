@@ -12,6 +12,7 @@ export type ParsedPlaceKey =
 /**
  * A place key of either library: `f.`/`d.` for a disc, `e.<titlePart>.<episode>` for an encode; null for anything
  * else. Only the places store and routes take both; whatever looks a disc up keeps to `parseDiscKey`.
+  * @example ../examples/parse-place-key.ts
  */
 export function parsePlaceKey(key: string): ParsedPlaceKey | null {
   const disc = parseDiscKey(key);

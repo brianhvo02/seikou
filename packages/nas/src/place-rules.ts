@@ -11,7 +11,10 @@ export const SHORT_PLACE_MAX_US = 30_000_000;
  */
 export const SHORT_PLACE_SHARE = 0.05;
 
-/** Whether a place is too near its playlist's start to offer resuming: before min(30 s, 5% of the playlist). */
+/**
+ * Whether a place is too near its playlist's start to offer resuming: before min(30 s, 5% of the playlist).
+ * @example ../examples/is-short-place.ts
+ */
 export function isShortPlace(timeUs: number, durationUs: number): boolean {
   return timeUs < Math.min(SHORT_PLACE_MAX_US, Math.max(0, durationUs) * SHORT_PLACE_SHARE);
 }

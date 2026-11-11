@@ -99,7 +99,10 @@ export function nasTitleId(t: EncodeTitle): string {
   }
 }
 
-/** The tags that name the title (not EPISODE): { ANILIST_ID } or { SEIKOU_TITLE, SEASON? }. */
+/**
+ * The tags that name the title (not EPISODE): { ANILIST_ID } or { SEIKOU_TITLE, SEASON? }.
+ * @example ../examples/title-tags.ts
+ */
 export function titleTags(t: EncodeTitle): Record<string, string> {
   switch (t.source) {
     case 'anilist':
@@ -124,6 +127,7 @@ function wholeTag(text: string | undefined): number | null | undefined {
  * The title the tags name, or null (malformed, or a tmdb-tv without SEASON). ANILIST_ID wins: when it is present it
  * alone decides, so a malformed ANILIST_ID is null whatever SEIKOU_TITLE says. SEASON is required for `tmdb-tv`,
  * optional for `own` and ignored for `tmdb-movie`; a malformed SEASON makes a series or own title null.
+  * @example ../examples/title-from-tags.ts
  */
 export function titleFromTags(tags: Readonly<Record<string, string>>): EncodeTitle | null {
   const anilistId = wholeTag(tags.ANILIST_ID);

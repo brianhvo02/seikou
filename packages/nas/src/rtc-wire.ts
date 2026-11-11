@@ -265,7 +265,10 @@ interface ClientPending {
 
 const closedError = (): TypeError => new TypeError('The connection to the NAS closed.');
 
-/** Requests over a channel, as `fetch`. Only the URL's path and query are sent. */
+/**
+ * Requests over a channel, as `fetch`. Only the URL's path and query are sent.
+ * @example ../examples/wire-client.ts#construct
+ */
 export class WireClient {
   private readonly link: Link;
   private readonly open = new Map<number, ClientPending>();
@@ -285,7 +288,10 @@ export class WireClient {
     );
   }
 
-  /** Bound, so it can be handed on as a `typeof fetch`. */
+  /**
+   * Bound, so it can be handed on as a `typeof fetch`.
+   * @example ../examples/wire-client.ts#fetch
+   */
   readonly fetch = async (input: Request | string | URL, init: RequestInit = {}): Promise<Response> => {
     if (typeof Request !== 'undefined' && input instanceof Request) {
       init = { method: input.method, headers: input.headers, signal: input.signal, body: input.body ? await input.arrayBuffer() : null, ...init };
@@ -329,7 +335,10 @@ export class WireClient {
     });
   };
 
-  /** Rejects every pending fetch and errors every open body with `reason`, and closes the channel. */
+  /**
+   * Rejects every pending fetch and errors every open body with `reason`, and closes the channel.
+   * @example ../examples/wire-client.ts#close
+   */
   close(reason: Error): void {
     this.fail(reason);
     this.link.shut();
@@ -532,7 +541,10 @@ interface ServerActive {
   responded: boolean;
 }
 
-/** Answers a WireClient's requests with `handle`. */
+/**
+ * Answers a WireClient's requests with `handle`.
+ * @example ../examples/wire-server.ts#construct
+ */
 export class WireServer {
   private readonly link: Link;
   private readonly active = new Map<number, ServerActive>();
@@ -551,6 +563,10 @@ export class WireServer {
     );
   }
 
+  /**
+   * Closes the channel: every request in flight is aborted through its `signal`, and the client's pending and later fetches fail.
+   * @example ../examples/wire-server.ts#close
+   */
   close(): void {
     this.link.shut();
   }
