@@ -11,10 +11,13 @@ import type { DiscManifest } from '@seikou/nas/nas-api';
 
 /** Byte ranges of the disc's files (HttpTransport). Paths are the manifest's. */
 export interface RangeTransport {
+  /** The bytes of `path` from `offset`, at most `length` (fewer at the end of the file). */
   read(path: string, offset: number, length: number, signal?: AbortSignal): Promise<Uint8Array>;
+  /** Uses a fresh session token for later requests. */
   setToken(token: string): void;
 }
 
+/** How a `RemoteSource` reads and how much it holds. */
 export interface RemoteSourceOptions {
   /** Upper bound of the bytes held: chunks read ahead, in flight, and those kept from earlier reads. */
   readonly readAheadBytes: number;
@@ -31,8 +34,11 @@ export const WAITING_AFTER_MS = 3_000;
 
 /** Where chunks are looked for before the network: the disc's on-disk read-ahead cache (ReadAheadCache). */
 export interface ChunkCache {
+  /** The bytes, or null unless all of them are held. */
   read(path: string, offset: number, length: number): Promise<Uint8Array | null>;
+  /** Stores bytes at `offset`. */
   write(path: string, offset: number, bytes: Uint8Array): Promise<void>;
+  /** Whether all of the range is held. */
   has(path: string, offset: number, length: number): boolean;
 }
 
@@ -119,10 +125,12 @@ export class RemoteSource implements ByteSource {
     return this.fetching > 0;
   }
 
+  /** Whether the manifest lists `path` (case-insensitive). */
   exists(path: string): boolean {
     return this.sizes.has(path.toUpperCase());
   }
 
+  /** The size the manifest gives; throws `DiscError` `missing-file` for an unlisted path. */
   size(path: string): number {
     return this.get(path);
   }
@@ -132,6 +140,7 @@ export class RemoteSource implements ByteSource {
     return [...this.sizes.keys()];
   }
 
+  /** The names directly inside `dir`, sorted, upper case. */
   list(dir: string): string[] {
     const prefix = `${dir.toUpperCase().replace(/\/$/, '')}/`;
     const names: string[] = [];
@@ -143,6 +152,7 @@ export class RemoteSource implements ByteSource {
     return names.sort();
   }
 
+  /** Passes a fresh session token to the transport. */
   setToken(token: string): void {
     this.transport.setToken(token);
   }
@@ -211,6 +221,12 @@ export class RemoteSource implements ByteSource {
     this.cursor = null;
   }
 
+  /**
+   * The bytes at `offset`, at most `length` (fewer at the end of the file, none past it). Chunks come from memory, the
+   * cache, the fill's in-flight fetch or the network, in that order, and the read starts read-ahead after its last
+   * chunk. Throws `DiscError` `missing-file` for an unlisted path or `read-failed` once the source is closed, and passes on
+   * the transport's errors.
+   */
   read(path: string, offset: number, length: number, signal?: AbortSignal): Promise<Uint8Array> {
     return this.readRange(path, offset, length, signal, false);
   }

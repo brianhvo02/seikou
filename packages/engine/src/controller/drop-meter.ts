@@ -1,4 +1,6 @@
+/** Length of the sliding window, in milliseconds, over which the drop rate is measured. */
 export const DROP_WINDOW_MS = 5_000;
+/** Dropped share of frames (a fraction, 0.05 is 5%) above which the player warns that a shader set is too slow. */
 export const DROP_WARN_RATE = 0.05;
 const MIN_SPAN_MS = 1_000;
 
@@ -12,6 +14,7 @@ interface Sample {
 export class DropMeter {
   private samples: Sample[] = [];
 
+  /** Records the presenter's cumulative counters at `nowMs` (milliseconds on any monotonic clock). */
   push(nowMs: number, presented: number, dropped: number): void {
     const last = this.samples[this.samples.length - 1];
     // a counter going down means a new presenter: the old window no longer applies
@@ -31,6 +34,7 @@ export class DropMeter {
     return total > 0 ? dropped / total : 0;
   }
 
+  /** Forgets all samples; the next window starts empty. */
   reset(): void {
     this.samples = [];
   }

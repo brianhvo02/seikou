@@ -12,7 +12,11 @@
 import type { IndexBdmv } from '@seikou/bdmv/index-parser';
 import type { RegisterFile } from '../hdmv/registers';
 
-/** _fill_disc_info: a UHD (0300) index switches to the Profile 6 settings, a 3D one (02xx with content) to Profile 5. */
+/**
+ * Raises the player profile registers for the disc, as libbluray's `_fill_disc_info` in `bluray.c` does after reading the
+ * index: an index version of 0300 or later (Ultra HD) applies `psr_init_UHD` (forced) and a version 02xx index with its
+ * content-exist flag set (3D) applies `psr_init_3D` with the index's initial output mode preference (not forced).
+ */
 export function applyDiscProfile(regs: RegisterFile, index: IndexBdmv): void {
   if (index.version >= '0300') regs.psrInitUhd(true);
   if (index.version[1] === '2' && index.appInfo.contentExistFlag) regs.psrInit3D(index.appInfo.initialOutputModePreference, false);

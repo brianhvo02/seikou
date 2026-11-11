@@ -8,7 +8,7 @@ import { oldNameComments, privateHistoryComments, undocumentedExports } from '..
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Glob patterns, relative to the repository root, of the source areas that meet the documentation standard. Each documentation task adds its own. */
-export const ENROLLED: readonly string[] = ['encoder/src/**', 'encoder/web/src/**', 'packages/bdmv/src/**', 'packages/pg/src/**', 'packages/ass/src/**', 'packages/nas/src/**', 'packages/titles/src/**', 'packages/fansubs/src/**', 'packages/matroska/src/**'];
+export const ENROLLED: readonly string[] = ['encoder/src/**', 'encoder/web/src/**', 'packages/bdmv/src/**', 'packages/pg/src/**', 'packages/ass/src/**', 'packages/nas/src/**', 'packages/titles/src/**', 'packages/fansubs/src/**', 'packages/matroska/src/**', 'packages/engine/src/controller/**', 'packages/engine/src/disc/**', 'packages/engine/src/nav/**', 'packages/engine/src/hdmv/**', 'packages/engine/src/graphics/**', 'packages/engine/src/playback/**', 'packages/engine/src/audio/**', 'packages/engine/src/encode/**'];
 
 /**
  * The tracked `.ts` and `.tsx` files that match the globs, without tests, declaration files and

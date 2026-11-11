@@ -1,7 +1,10 @@
 import type { PcmChunk } from '../decode/lpcm';
 import type { RingWriter } from './ring';
 
-/** Places decoded PCM into the ring at the frame position implied by its PTS. */
+/**
+ * Places decoded PCM into the ring at the frame position implied by its PTS. It runs on the engine worker; the audio
+ * thread plays what it writes. Chunks that cannot fit yet wait in a queue and are written by `drain`.
+ */
 export class AudioWriter {
   private baseUs = 0;
   private baseFrame = 0;
@@ -22,14 +25,17 @@ export class AudioWriter {
     this.silenceUntilUs = -Infinity;
   }
 
+  /** Chunks accepted but not yet written because the ring has no room. */
   get queuedChunks(): number {
     return this.queue.length;
   }
 
+  /** The absolute ring frame where media time `us` (microseconds) belongs, from the base set by `start`. */
   frameAt(us: number): number {
     return this.baseFrame + Math.round(((us - this.baseUs) * this.ring.sampleRate) / 1e6);
   }
 
+  /** Queues a chunk and writes what fits. Throws when the chunk's sample rate is not the ring's. */
   enqueue(chunk: PcmChunk): void {
     if (chunk.sampleRate !== this.ring.sampleRate) {
       throw new Error(`chunk sample rate ${chunk.sampleRate} does not match output ${this.ring.sampleRate}`);
@@ -48,6 +54,7 @@ export class AudioWriter {
     this.drain();
   }
 
+  /** Writes queued chunks in order until one does not fit; once the queue is empty it pads any requested silence. Call again as the ring frees. */
   drain(): void {
     while (this.queue.length > 0) {
       const chunk = this.queue[0];

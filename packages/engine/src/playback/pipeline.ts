@@ -25,7 +25,9 @@ import { audioEntryFor, igEntryFor } from './stream-selection';
  */
 export const PG_SEEK_LEAD_US = 5_000_000;
 
+/** One access unit or PES payload the pipeline hands to a sink. */
 export interface PipelineUnit {
+  /** The payload bytes. */
   readonly data: Uint8Array;
   /** Playlist time. */
   readonly ptsUs: number;
@@ -37,16 +39,21 @@ export interface PipelineUnit {
   readonly key?: boolean;
 }
 
+/** An audio unit, with what the decoder needs to know about its stream. */
 export interface PipelineAudioUnit extends PipelineUnit {
   /** Coding type of the selected stream in this unit's play item. */
   readonly codingType: number;
+  /** The PES header's extension stream id (`stream_id_extension`); absent when the PES has none. */
   readonly streamIdExtension?: number;
   /** A Matroska block's DiscardPadding in microseconds (an encode's last Opus packet). */
   readonly discardPaddingUs?: number;
 }
 
+/** Where a pipeline delivers what it reads; implemented by the session on the engine worker. */
 export interface PipelineSinks {
+  /** A video unit. */
   video(unit: PipelineUnit): void;
+  /** An audio unit of the selected stream. */
   audio(unit: PipelineAudioUnit): void;
   /** Graphics units of the selected IG stream (main path); without this sink no IG PID is read. */
   ig?(unit: PipelineUnit): void;
@@ -59,7 +66,9 @@ export interface PipelineSinks {
   itemStarted?(index: number, startUs: number): void;
   /** Backpressure: reading pauses while this returns true. */
   isFull(): boolean;
+  /** Every play item has been read to its end. */
   ended(): void;
+  /** Reading stopped on an error (a failed read, a damaged file); the pipeline does not go on. */
   failed(err: unknown): void;
 }
 
@@ -84,13 +93,19 @@ export interface SessionPipeline {
   readonly readUs: number | null;
   /** After ended(): the playlist time the reads delivered up to, or null. */
   readonly doneUs: number | null;
+  /** Corrupt packets and continuity errors counted so far, across all items read. */
   readonly stats: DemuxStats;
 }
 
+/** What a `PlaybackPipeline` reads and how it maps it. */
 export interface PipelineConfig {
+  /** The disc's files. */
   readonly source: ByteSource;
+  /** The playlist's play items on one continuous time line. */
   readonly timeline: Timeline;
+  /** The CLPI of each clip, by clip id; its EP map places reads. */
   readonly clips: ReadonlyMap<string, Clpi>;
+  /** The video stream's PID in the first play item. */
   readonly videoPid: number;
   /** False when nothing decodes the video: its PID is dropped by the demuxer (its EP map still places reads). */
   readonly readVideo?: boolean;
@@ -102,7 +117,11 @@ export interface PipelineConfig {
   readonly igStream?: number | null;
 }
 
-/** Reads a playlist's clips in order from a start time and feeds access units to the sinks. */
+/**
+ * Reads a playlist's clips in order from a start time and feeds access units to the sinks. It runs on the engine worker:
+ * read-ahead through the `ByteSource` and the M2TS demuxer, backpressure from `isFull`, and cancellation of reads that a
+ * seek or stop abandons. `start` begins at a playlist time, found through the EP map.
+ */
 export class PlaybackPipeline implements SessionPipeline {
   private generation = 0;
   private corruptPackets = 0;
@@ -190,6 +209,7 @@ export class PlaybackPipeline implements SessionPipeline {
     return this.doneAtUs;
   }
 
+  /** Corrupt packets and continuity errors counted so far, over every item read since construction. */
   get stats(): DemuxStats {
     const live = this.current?.stats;
     return { corruptPackets: this.corruptPackets + (live?.corruptPackets ?? 0), continuityErrors: this.continuityErrors + (live?.continuityErrors ?? 0) };
@@ -206,6 +226,7 @@ export class PlaybackPipeline implements SessionPipeline {
     }
   }
 
+  /** Starts reading at `fromUs` (playlist microseconds), abandoning any earlier read; failures reach `sinks.failed`. */
   start(fromUs: number): void {
     const gen = ++this.generation;
     this.run(gen, fromUs).catch((err: unknown) => {
@@ -213,6 +234,7 @@ export class PlaybackPipeline implements SessionPipeline {
     });
   }
 
+  /** Stops reading and cancels the read in flight. */
   stop(): void {
     this.generation++;
     this.current?.cancel(); // don't let a read nobody wants keep the disk (or network share) busy

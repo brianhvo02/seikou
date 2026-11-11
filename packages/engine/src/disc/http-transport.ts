@@ -9,8 +9,11 @@
 import { DiscError, type DiscErrorCode } from '@seikou/bdmv/byte-source';
 import type { RangeTransport } from './remote-source';
 
+/** Shown when the NAS says a file it served has changed (the 404 `disc-changed` answer). */
 export const DISC_CHANGED_MESSAGE = 'This disc changed on the NAS. Open its folder again.';
+/** Shown when a request fails at the network level or times out. */
 export const NAS_LOST_MESSAGE = 'Connection to the NAS lost.';
+/** Shown when the NAS refuses the token and a fresh one does not help. */
 export const NAS_UNPAIRED_MESSAGE = 'This device is no longer paired with the NAS.';
 
 /** A request that has not answered (headers and body) after this long has lost the NAS. The first read of a disc may wake its drive. */
@@ -18,6 +21,7 @@ export const REQUEST_TIMEOUT_MS = 30_000;
 /** How long the engine waits for the controller's fresh token before it gives up (as unpaired). */
 export const TOKEN_TIMEOUT_MS = 10_000;
 
+/** Why a remote read failed, for the UI: the disc changed, the NAS cannot be reached, or the device is not paired. */
 export type RemoteFailure = 'disc-changed' | 'nas-lost' | 'nas-unpaired';
 
 /** A DiscError of a remote disc, with what went wrong for the UI. */
@@ -36,7 +40,9 @@ const discChanged = (path: string): RemoteDiscError => new RemoteDiscError('disc
 const nasLost = (path: string): RemoteDiscError => new RemoteDiscError('nas-lost', 'read-failed', NAS_LOST_MESSAGE, [path]);
 const unpaired = (path: string): RemoteDiscError => new RemoteDiscError('nas-unpaired', 'read-failed', NAS_UNPAIRED_MESSAGE, [path]);
 
+/** What `HttpTransport` needs beyond the disc's address. */
 export interface HttpTransportOptions {
+  /** The `fetch` to use: the worker's own, or `portFetch` over the WebRTC port. */
   readonly fetch: typeof fetch;
   /** A fresh session token, asked for once when a request answers 401; none (or a rejection) means unpaired. */
   readonly refreshToken?: () => Promise<string>;
@@ -46,7 +52,8 @@ export interface HttpTransportOptions {
 
 /**
  * Reads `<base>files/<path>?t=<token>` with a single `Range: bytes=a-b` and no other headers, so the request needs no
- * preflight. `base` ends with '/': `https://…/bluray/api/discs/<id>/`.
+ * preflight. `base` ends with '/': `https://…/bluray/api/discs/<id>/`. A 503 is waited out for its `Retry-After`, and a
+ * 401 is retried once with a fresh token. Runs wherever it is built: the engine worker or the BD-J worker.
  */
 export class HttpTransport implements RangeTransport {
   private refreshing: Promise<string> | null = null;
@@ -57,10 +64,16 @@ export class HttpTransport implements RangeTransport {
     private readonly opts: HttpTransportOptions,
   ) {}
 
+  /** Uses `token` for later requests (a refresh the main thread pushed). */
   setToken(token: string): void {
     this.token = token;
   }
 
+  /**
+   * The bytes of `path` from `offset`, at most `length`; fewer at the end of the file, none past it. Throws a
+   * `RemoteDiscError` (`nas-lost` after 30 s without an answer or on a network failure, `nas-unpaired` after a refused
+   * refresh, `disc-changed` on the NAS's changed-disc 404) or a `DiscError` for other failures; an abort rejects with the signal's reason.
+   */
   async read(path: string, offset: number, length: number, signal?: AbortSignal): Promise<Uint8Array> {
     if (length <= 0) return new Uint8Array(0);
     let retried = false;
@@ -188,6 +201,7 @@ export class TokenRelay {
     private readonly setTimer: (ms: number, fn: () => void) => () => void,
   ) {}
 
+  /** Asks the main thread for a token (once however many wait) and resolves with the next one delivered; rejects after 10 s. */
   request(): Promise<string> {
     return new Promise((resolve, reject) => {
       const first = this.waiters.length === 0;
@@ -203,6 +217,7 @@ export class TokenRelay {
     });
   }
 
+  /** The main thread's answer: settles every waiting request with `token`. */
   deliver(token: string): void {
     for (const w of this.waiters.splice(0)) {
       w.cancel();

@@ -25,53 +25,77 @@ import {
   type PlaybackPsrContext, type TitleType,
 } from './playback-psrs';
 
+/**
+ * What the navigator asks of the player: opening, seeking, stopping and freezing the playlist it runs a menu program
+ * for. The `Player` implements it on the engine worker.
+ */
 export interface PlaybackPort {
   /**
-   * false if the playlist is missing. Contract (as libbluray's _open_playlist): once the playlist is open the port
+   * Opens playlist `id` (such as `00001`) at `at`; resolves false if the playlist is missing. Contract (as libbluray's _open_playlist): once the playlist is open the port
    * calls Navigator.playlistStarted() synchronously from inside this call, before returning, so that PSR and UO mask
    * updates happen in libbluray's order relative to the rest of the VM step. `clipTime45` asks for a start at that
    * 45 kHz clip time within `item` (restore after a menu call).
    */
   playPlaylist(id: string, at: PlayAt): Promise<boolean>;
+  /** Jumps to the start of play item `item` (0-based) of the open playlist. */
   seekPlayItem(item: number): void;
+  /** Jumps to playlist mark `mark` (0-based, over all marks, entry and link). */
   seekMark(mark: number): void;
+  /** Stops the open playlist. */
   stopPlaylist(): void;
-  /** still: freeze presentation (clock stops), keep the frame */
+  /** A still: with `on`, freezes presentation (the clock stops) and keeps the frame; with false, lets it run again. */
   hold(on: boolean): void;
   /** 45 kHz clip time of the current presentation position (bd_get_scr-less _update_time_psr_from_stream), if known. */
   currentClipTime45(): number | undefined;
 }
 
+/** Where within a playlist to start: at most one of a play item, a mark, or a time (the latter with its item). */
 export interface PlayAt {
+  /** Play item index, 0-based (PLAY_PL_PI of a movie object). */
   readonly item?: number;
+  /** Playlist mark index, 0-based (PLAY_PL_PM of a movie object). */
   readonly mark?: number;
+  /** A time within `item`, in 45 kHz ticks of the clip's own PTS (the value PSR8 holds); set when a menu call is restored. */
   readonly clipTime45?: number;
 }
 
+/** What the navigator tells the player, in the order it happens. */
 export type NavigatorEvent =
+  /** The combined user operation mask changed. */
   | { readonly type: 'uoMask'; readonly mask: UoMask }
+  /** An IG menu opened or closed. */
   | { readonly type: 'menu'; readonly active: boolean }
+  /** A pop-up menu became available or unavailable. */
   | { readonly type: 'popup'; readonly available: boolean }
+  /** A button asked for sound `id` of `sound.bdmv` to play. */
   | { readonly type: 'sound'; readonly id: number }
+  /** The current title changed (PSR4): its index number, 0xFFFF for First Play, 0 for the Top Menu. */
   | { readonly type: 'title'; readonly title: number }
   /** A seek the program asked for was accepted (bd_seek_playitem, bd_seek_mark, _clip_seek_time); `value` is the item, mark or 45 kHz clip time. */
   | { readonly type: 'seek'; readonly what: 'item' | 'mark' | 'time'; readonly value: number }
+  /** The program jumped to a BD-J title, which the navigator leaves to the BD-J runtime. */
   | { readonly type: 'bdjTitle'; readonly title: number }
+  /** The program cannot go on (a movie object failed to start, the VM errored or did not settle). */
   | { readonly type: 'error'; readonly message: string };
 
+/** What a `Navigator` is built from. */
 export interface NavigatorDeps {
-  /** with movieObjects non-null */
+  /** The opened disc; its `movieObjects` must be non-null (a disc without them has no navigator). */
   readonly disc: DiscModel;
+  /** The register file the program, the VM and the graphics controller share. */
   readonly regs: RegisterFile;
+  /** How the navigator drives playback. */
   readonly port: PlaybackPort;
+  /** Receives every `NavigatorEvent`. */
   emit(event: NavigatorEvent): void;
-  /** 90 kHz monotonic, as bd_get_scr() */
+  /** A monotonic clock in 90 kHz ticks, as libbluray's `bd_get_scr()`; times still frames and the graphics controller's timers. */
   nowScr(): number;
+  /** Seed of the VM's RND instruction; the wall clock in seconds when absent (tests and traces pin it). */
   readonly seed?: number;
   /**
    * _preload_m2ts for an IG sub-path: reads the whole sub-path clip and returns the PES units of all its IG PIDs (each
-   * unit carries its `pid`) in stream order; the navigator filters by the PID PSR0 names at each init. Rejects when the clip cannot be read (no menu, counted as an IG error); the read stops when `signal` aborts.
-   * Without it, IG streams carried in sub-paths show no menu.
+   * unit carries its `pid`) in stream order; the navigator filters by the PID PSR0 names at each init. Rejects when the
+   * clip cannot be read (no menu, counted as an IG error); the read stops when `signal` aborts. Without it, IG streams carried in sub-paths show no menu.
    */
   preloadSubPathIg?(clipId: string, signal: AbortSignal): Promise<IgUnit[]>;
 }
@@ -107,7 +131,9 @@ const IG_INIT_PENDING = -1;
 export interface IgUnit {
   /** PID of a preloaded sub-path unit (main-path units come from one PID and carry none). */
   readonly pid?: number;
+  /** The PES payload: one or more graphics segments (ICS, PDS, ODS, END). */
   readonly data: Uint8Array;
+  /** Presentation time in playlist microseconds. */
   readonly ptsUs: number;
   /** Decode time: segments carry it ahead of the ICS's presentation time, and gating follows it (graphics_processor_decode_pes). */
   readonly dtsUs?: number;
@@ -130,6 +156,15 @@ interface SubIgPreload {
   initPending: boolean;
 }
 
+/**
+ * The HDMV navigator: libbluray's title and playlist logic from `bluray.c` (`bd_play`, `bd_play_title`, `bd_menu_call`,
+ * `_open_playlist`, `_read_ext`'s VM and graphics parts), without its reader. It owns the HDMV VM, runs a title's movie
+ * object, reacts to the VM's playlist and title events by driving the `Player` through `PlaybackPort`, keeps the
+ * playback registers (PSR4 title, PSR5 chapter, PSR6 playlist, PSR7 play item, PSR8 time) current, combines the UO masks,
+ * and decodes the IG stream into the graphics controller and the overlay plane. It runs on the engine worker and
+ * is driven by the player's calls and its `tick`. BD-J titles are only reported (`bdjTitle`); the player starts
+ * BD-J and drops the navigator meanwhile. `tests/vm-trace` compares it with libbluray's traces.
+ */
 export class Navigator {
   private readonly gc: GraphicsController;
   private readonly igDecoder = new IgSegmentDecoder();
@@ -237,16 +272,17 @@ export class Navigator {
     this.igDecoder.discardPartial();
   }
 
+  /** The user operations the disc forbids now: the title's, the playlist's and the menu page's masks combined. */
   get uoMask(): UoMask {
     return this.uoMaskValue;
   }
 
-  /** hdmv_vm_running */
+  /** Whether the HDMV VM has a program to run (`hdmv_vm_running`). */
   get vmRunning(): boolean {
     return this.vm?.running() ?? false;
   }
 
-  /** bd_play: First Play title. */
+  /** Starts the disc as `bd_play` does: runs the First Play title and then the VM until it waits for something. */
   start(): void {
     this.dropVm();
     this.titleType = 'undef';
@@ -254,7 +290,10 @@ export class Navigator {
     this.runVm();
   }
 
-  /** bd_play_title */
+  /**
+   * Runs index title `title` as `bd_play_title` does (0 is the Top Menu, 0xFFFF First Play). False when no program is
+   * running yet (before `start`), the disc's UO mask forbids title search, or the title cannot start.
+   */
   playTitle(title: number): boolean {
     if (title === TITLE_TOP_MENU) return this.menuCall();
     // _try_play_title
@@ -267,7 +306,8 @@ export class Navigator {
 
   /**
    * A title (0: the top menu) on a navigator that never ran First Play: the player rebuilds the navigator this way after a
-   * raw playlist pick stopped the program (spec 4.3). As bd_play followed by bd_play_title, without First Play's program.
+   * raw playlist pick stopped the program, so that an index title picked afterwards runs on a fresh navigator. As `bd_play`
+   * followed by `bd_play_title`, without First Play's program. False when the title cannot start.
    */
   startTitle(title: number): boolean {
     this.dropVm();
@@ -332,7 +372,7 @@ export class Navigator {
     });
   }
 
-  /** bd_menu_call (_try_menu_call) */
+  /** Calls the Top Menu as `bd_menu_call` does (`_try_menu_call`). False before any title runs or while the UO mask forbids menu call. */
   menuCall(): boolean {
     this.updateTimePsr();
     if (this.titleType === 'undef') return false;
@@ -344,8 +384,10 @@ export class Navigator {
   }
 
   /**
-   * bd_user_input for a key press (BdVk). ROOT_MENU is a menu call. At libbluray's default UO restriction level (RELAXED)
-   * no key is checked against the UO mask here; enforcement for the UI is the player's.
+   * `bd_user_input` for a key press (a `BdVk` value). ROOT_MENU is a menu call. At libbluray's default UO restriction level
+   * (RELAXED) no key is checked against the UO mask here; enforcement for the UI is the player's. Returns as libbluray
+   * does: negative when it was ignored (no HDMV title running, or no menu to act on), 0 on success, positive when the
+   * selection or an activation changed.
    */
   userInput(key: number): number {
     if (key === BdVk.ROOT_MENU) return this.menuCall() ? 0 : -1;
@@ -353,20 +395,25 @@ export class Navigator {
     return this.titleType === 'hdmv' ? this.runGc('VK_KEY', key) : -1;
   }
 
-  /** bd_mouse_select: (x, y) in the IG plane. */
+  /**
+   * `bd_mouse_select`: moves the selection to the button at (x, y) in IG plane pixels. Negative with no HDMV title, 0 when
+   * the point is outside every button, 1 when it is inside one.
+   */
   mouseSelect(x: number, y: number): number {
     this.updateTimePsr();
     return this.titleType === 'hdmv' ? this.runGc('MOUSE_MOVE', ((x << 16) | (y & 0xffff)) >>> 0) : -1;
   }
 
-  /** The button of the shown menu page at (x, y) in the IG plane, or null. */
+  /** The number of the button of the shown menu page at (x, y) in IG plane pixels, or null; it changes nothing. */
   hitTest(x: number, y: number): number | null {
     return this.gc.hitTest(x, y);
   }
 
   /**
    * The VM part of _read_ext, plus the play-item still timer of bd_read_skip_still. IG units whose PTS the playlist
-   * clock (`clockUs`) has reached are decoded first (spec 3.3), as _read_ext decodes a block before it runs the VM.
+   * clock (`clockUs`, playlist microseconds) has reached are decoded first, as _read_ext decodes a block before it runs
+   * the VM. The player's reader runs ahead of playback where libbluray's is paced, so units are queued by PTS and handed
+   * to the graphics controller only when the clock gets to them.
    */
   tick(clockUs: number): void {
     this.decodeDueIg(clockUs);
@@ -401,7 +448,7 @@ export class Navigator {
     if (restoredTime !== null) this.deps.regs.psrWrite(PSR.TIME, restoredTime); // after the last clip open can overwrite it
   }
 
-  /** _open_m2ts for the next play item. */
+  /** The reader moved to play item `item` of the open playlist (`_open_m2ts`): releases a still and updates the clip registers. */
   playItemChanged(item: number): void {
     this.itemStill = null;
     this.syncHold();
@@ -425,7 +472,7 @@ export class Navigator {
     if (pkt !== undefined) updateChapterPsrAtPkt(this.psrs, titlePkt(this.psrs, item, pkt));
   }
 
-  /** The last play item ended (see playItemEnded). */
+  /** The playlist ended: as `playItemEnded` for its last item. */
   playlistEnded(): void {
     if (this.playlist) this.playItemEnded(this.playlist.playItems.length - 1);
     else if (this.playing && !this.ended) this.finishPlaylist();
@@ -451,11 +498,12 @@ export class Navigator {
     if (this.isLastItem(item)) this.finishPlaylist();
   }
 
+  /** Whether `op` is forbidden now; always false before a title runs. */
   isMasked(op: UoOp): boolean {
     return this.isUoMasked(op);
   }
 
-  /** The disc closed or a raw playlist was picked: drop VM and program state. */
+  /** The disc closed or a raw playlist was picked: drops the VM and the program state, and closes the open playlist without telling the port to stop it. */
   stop(): void {
     this.generation++;
     this.dropVm();
@@ -569,7 +617,7 @@ export class Navigator {
         return;
       }
       if (loops++ > MAX_VM_LOOPS) {
-        // libbluray only queues an error and keeps looping; here the VM stays stopped (spec 6)
+        // libbluray only queues an error and keeps looping; here the VM is dropped, the title stops and an `error` event reports it
         this.fail('HDMV program does not settle (possible live lock)');
         this.dropVm();
         this.titleType = 'undef';
@@ -676,7 +724,7 @@ export class Navigator {
    * The decode half of _read_ext for the IG stream: gc_decode_ts, and INIT_MENU for every complete display set.
    * libbluray decodes into gc->igs in place, so while a display set is still arriving (ICS seen, END not yet)
    * gc_run answers -1 to everything but reset; here only complete sets are handed over, so input in that window
-   * acts on the previous set (Task 13 may need to align).
+   * acts on the previous set, a difference from libbluray).
    */
   private decodeDueIg(clockUs: number): void {
     if (!this.igReady || !this.playing) return;

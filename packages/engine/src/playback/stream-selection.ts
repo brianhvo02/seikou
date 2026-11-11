@@ -12,8 +12,11 @@ export const PLAYABLE_AUDIO: ReadonlySet<number> = new Set([
   CodingType.DTSHD_MASTER,
 ]);
 
+/** The streams chosen from a play item's STN table when no menu or user has chosen. */
 export interface StreamChoice {
+  /** The first main-path video stream; null when there is none. */
   readonly video: StreamEntry | null;
+  /** The first main-path audio stream this build can decode; null when there is none. */
   readonly audio: StreamEntry | null;
   /** 1-based STN position of `audio` (the Blu-ray audio stream number), or null. */
   readonly audioIndex: number | null;
@@ -21,6 +24,10 @@ export interface StreamChoice {
   readonly unsupportedAudio: readonly StreamEntry[];
 }
 
+/**
+ * Picks the first main-path video stream and the first main-path audio stream whose coding type is in `playableAudio`
+ * (sub-path streams are never chosen). Pure.
+ */
 export function chooseStreams(stn: StnTable, playableAudio: ReadonlySet<number> = PLAYABLE_AUDIO): StreamChoice {
   const video = stn.video.find((s) => !s.subPath) ?? null;
   const at = stn.audio.findIndex((s) => !s.subPath && playableAudio.has(s.codingType));

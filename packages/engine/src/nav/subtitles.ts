@@ -16,10 +16,12 @@ import { PSR, type PsrEvent, type RegisterFile } from '../hdmv/registers';
 import type { UoOp } from '../hdmv/uo-mask';
 import { langToUint32, updateStreamPsrByLang } from './stream-psrs';
 
-/** A PG PES payload (one segment) in playlist time. */
+/** A PG PES payload (one segment) in playlist time: its bytes, presentation time and, when the PES had one, decode time (microseconds). */
 export interface PgUnit { readonly data: Uint8Array; readonly ptsUs: number; readonly dtsUs?: number }
 
+/** What `PgStreamControl` needs from its host. */
 export interface PgStreamControlDeps {
+  /** The register file: PSR2 holds the PG stream number and display flag. */
   readonly regs: RegisterFile;
   /** The UO mask in force (the navigator's), or none. */
   isMasked(op: UoOp): boolean;
@@ -31,7 +33,7 @@ const MAX_QUEUED_SETS = 64;
 const DISPLAY_FLAG = 0x80000000;
 
 /**
- * PG stream selection and presentation. libbluray decodes PG as it reads (stc -1, no DTS gating) and the
+ * PG stream selection and presentation (the engine worker's side of subtitles on a disc). libbluray decodes PG as it reads (stc -1, no DTS gating) and the
  * overlay consumer presents each flush at its PTS; here completed display sets are decoded on arrival,
  * queued, and rendered into the buffered plane when the clock reaches their PCS PTS.
  */
@@ -84,6 +86,7 @@ export class PgStreamControl {
     return this.pidValue;
   }
 
+  /** Decodes one PG segment; a completed display set joins the queue (the oldest is dropped past 64). Ignored while no PG stream is selected. */
   push(unit: PgUnit): void {
     if (this.pidValue === null) return;
     const ds = this.decoder.push(unit.data, unit.ptsUs, unit.dtsUs ?? null);
@@ -152,6 +155,7 @@ export class PgStreamControl {
     return { stream: stream === 0xfff ? 0 : stream, display: (v & DISPLAY_FLAG) !== 0 };
   }
 
+  /** Corrupt PG segments dropped so far. */
   get errors(): number {
     return this.decoder.errors;
   }

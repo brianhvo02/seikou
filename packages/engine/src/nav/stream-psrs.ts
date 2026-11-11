@@ -12,12 +12,16 @@
 import type { StreamEntry } from '@seikou/bdmv/mpls-parser';
 import type { RegisterFile } from '../hdmv/registers';
 
-/** str_to_uint32(s, 3) */
+/** An ISO 639-2 language code as the three bytes a language PSR holds, big-endian (`str_to_uint32(s, 3)`). */
 export function langToUint32(lang: string): number {
   return (((lang.charCodeAt(0) || 0) << 16) | ((lang.charCodeAt(1) || 0) << 8) | (lang.charCodeAt(2) || 0)) >>> 0;
 }
 
-/** _update_stream_psr_by_lang; returns the chosen stream's language. */
+/**
+ * `_update_stream_psr_by_lang`: picks the stream of `streams` whose language matches the preferred language in PSR `psrLang`,
+ * or the first when none does (which also clears `enableFlag`), writes its 1-based number into `psrStream` with
+ * `enableFlag` (the PG display flag, or 0), and clears the flag when the language equals `blacklist` (the audio
+ * language, so subtitles are not shown in it). Returns the chosen stream's language. */
 export function updateStreamPsrByLang(
   regs: RegisterFile, psrLang: number, psrStream: number, enableFlag: number, streams: readonly StreamEntry[], blacklist: number,
 ): number {

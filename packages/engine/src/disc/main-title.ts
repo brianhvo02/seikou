@@ -12,8 +12,11 @@
 import { MarkType, type Mpls, type StnTable, type StreamEntry } from '@seikou/bdmv/mpls-parser';
 import { CodingType } from '@seikou/bdmv/stream-types';
 
+/** A playable playlist offered to `chooseMainTitle`. */
 export interface MainTitleCandidate {
+  /** The playlist's id (MPLS file name without extension); ties go to the lower id. */
   readonly id: string;
+  /** Its parsed playlist. */
   readonly mpls: Mpls;
 }
 

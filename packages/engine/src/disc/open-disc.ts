@@ -16,24 +16,38 @@ const SOUND_PATH = 'BDMV/AUXDATA/SOUND.BDMV';
 /** bdid_get: id.bdmv, then its backup. */
 const BDID_PATHS = ['CERTIFICATE/ID.BDMV', 'CERTIFICATE/BACKUP/ID.BDMV'];
 
+/** The disc path of playlist `id` (its file name without extension, such as `00001`). Paths are upper case, as `FileSource` keys them. */
 export const playlistPath = (id: string): string => `BDMV/PLAYLIST/${id}.MPLS`;
+/** The disc path of clip `clipId`'s CLPI file (clip information: stream attributes and the EP map). */
 export const clipInfoPath = (clipId: string): string => `BDMV/CLIPINF/${clipId}.CLPI`;
+/** The disc path of clip `clipId`'s M2TS file (the transport stream). */
 export const streamPath = (clipId: string): string => `BDMV/STREAM/${clipId}.M2TS`;
 
+/** What the title picker needs to know about one playlist (MPLS file) without parsing it again. */
 export interface PlaylistSummary {
+  /** The MPLS file name without extension, such as `00001`. */
   readonly id: string;
+  /** Sum of the play items' out minus in times, in microseconds. */
   readonly durationUs: number;
+  /** Number of chapter (entry) marks. */
   readonly chapterCount: number;
+  /** The distinct clips its play items use, in first-use order. */
   readonly clipIds: readonly string[];
+  /** Its first play item has a video stream and every clip's CLPI and M2TS file exist. */
   readonly playable: boolean;
+  /** The CLPI and M2TS paths of its clips that are not on the disc. */
   readonly missingPaths: readonly string[];
   /** Plays one segment more than twice (a maze or loop playlist); never chosen as the main feature. */
   readonly looped: boolean;
 }
 
+/** Everything the engine reads from a disc's metadata files when it opens it. */
 export interface DiscModel {
+  /** The parsed `index.bdmv`: the titles and their objects. */
   readonly index: IndexBdmv;
+  /** The index names a BD-J object (`indexUsesBdj`). */
   readonly usesBdj: boolean;
+  /** Every playlist that parsed, by id (MPLS file name without extension). */
   readonly playlists: ReadonlyMap<string, Mpls>;
   /** The main feature first (libbluray's choice among playable playlists), then the rest longest first, loops last. */
   readonly summaries: readonly PlaylistSummary[];
@@ -43,9 +57,18 @@ export interface DiscModel {
   readonly movieObjects: MovieObjects | null;
   /** BDMV/AUXDATA/sound.bdmv (menu sounds); null when absent or damaged. */
   readonly sounds: SoundData | null;
+  /** Problems that did not stop the open, such as a playlist that failed to parse. */
   readonly warnings: readonly string[];
 }
 
+/**
+ * Reads a disc's metadata: `index.bdmv`, every playlist, `MovieObject.bdmv` (with the CLPI files its navigator needs),
+ * the menu sounds and the disc id, then checks that the main playlist's first clip is readable. Reads are issued
+ * together. It throws `DiscError` with code `not-bdmv` (no index or no playlists, or a damaged index), `encrypted` or
+ * `unreadable-stream` (the main clip's packets are not clear MPEG-TS), and passes on a failed read of the source. A
+ * damaged playlist or `MovieObject.bdmv` becomes a warning; damaged menu sounds or clip info are skipped silently.
+ * Runs on the engine worker.
+ */
 export async function openDisc(source: ByteSource): Promise<DiscModel> {
   const playlistFiles = source.list('BDMV/PLAYLIST').filter((name) => name.endsWith('.MPLS'));
   const missing: string[] = [];
@@ -171,6 +194,10 @@ async function readAllInOrder(source: ByteSource, paths: readonly string[]): Pro
   });
 }
 
+/**
+ * Parses the CLPI files of `clipIds`. Throws `DiscError` `missing-file` when one is not on the disc, and the parser's
+ * `ParseError` when one is damaged (unlike `openDisc`, which skips those).
+ */
 export async function loadClips(source: ByteSource, clipIds: readonly string[]): Promise<Map<string, Clpi>> {
   for (const clipId of clipIds) {
     const path = clipInfoPath(clipId);

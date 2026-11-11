@@ -15,7 +15,9 @@ import { OverlayPlane, PgRenderer, PgSegmentDecoder, type OverlayOp, type PgDisp
 
 /** One of an encode's subtitle tracks the engine can show, in file order: its kind and its TrackEntry. */
 export interface EncodeSubtitleTrack {
+  /** `ass` for a text track (`S_TEXT/ASS` or `S_TEXT/SSA`, with a header), `pgs` for `S_HDMV/PGS` bitmap subtitles. */
   readonly kind: 'ass' | 'pgs';
+  /** The Matroska TrackEntry: number, language, name, default and forced flags, codec private data. */
   readonly track: MkvTrack;
 }
 
@@ -79,7 +81,8 @@ const TEXT = new TextDecoder();
 
 /**
  * An MKV ASS track: its script header parsed once, its events added as their blocks are read, and the renderer that
- * draws them once its fonts have loaded (attach). As a TextRendererLike it draws nothing until then.
+ * draws them once its fonts have loaded (attach). As a TextRendererLike it draws nothing until then. Lives on the engine
+ * worker with the compositor that draws it.
  */
 export class MkvAssTrack implements TextRendererLike {
   /** The rebuilt script: the header's styles and settings, with the events read so far. */
@@ -95,7 +98,7 @@ export class MkvAssTrack implements TextRendererLike {
     this.track = { ...parseAssCodecPrivate(TEXT.decode(codecPrivate)), events: this.events };
   }
 
-  /** The renderer, once attached. */
+  /** The renderer, once attached; null before. */
   get renderer(): AssRenderer | null {
     return this.rendererValue;
   }
@@ -135,16 +138,19 @@ export class MkvAssTrack implements TextRendererLike {
     this.rendererValue?.reset();
   }
 
+  /** Draws the events showing at `timeUs` inside `videoRect`; returns how many were drawn (0 before a renderer is attached). */
   render(ctx: OffscreenCanvasRenderingContext2D, timeUs: number, videoRect: Rect, opts: TextRenderOptions): number {
     this.attachedChange = false;
     return this.rendererValue?.render(ctx, timeUs, videoRect, opts) ?? 0;
   }
 
+  /** Whether a render at `timeUs` would differ from the last one; true once after a renderer is attached. */
   changed(timeUs: number, opts: TextRenderOptions): boolean {
     if (this.attachedChange) return true;
     return this.rendererValue?.changed(timeUs, opts) ?? false;
   }
 
+  /** Whether any event shows at `timeUs`. */
   visible(timeUs: number, opts: TextRenderOptions): boolean {
     return this.rendererValue?.visible(timeUs, opts) ?? false;
   }
@@ -155,6 +161,7 @@ const MAX_QUEUED_SETS = 64;
 /**
  * An MKV PGS track shown in the PG plane, with no PSRs: every object shows (the track is shown because it was chosen,
  * or because it is forced). Display sets are decoded as their blocks arrive and rendered when the clock reaches them.
+ * Lives on the engine worker.
  */
 export class PgsControl {
   private planeValue = new OverlayPlane(1920, 1080, { buffered: true });
@@ -167,7 +174,7 @@ export class PgsControl {
     this.renderer = new PgRenderer({ displayFlag: () => true, onOverlay: (op) => this.applyOverlay(op) });
   }
 
-  /** The PG plane the compositor draws (replaced by one of the composition's size when that differs). */
+  /** The PG plane the compositor draws (replaced by one of the composition's size when that differs; buffered, so a flush shows whole). */
   get plane(): OverlayPlane {
     return this.planeValue;
   }

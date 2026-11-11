@@ -7,6 +7,12 @@
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 
+/**
+ * One user operation a disc can forbid with its UO mask table (the fields of libbluray's `BD_UO_MASK`): menu call, title
+ * search, chapter and time search, skip, stop, pause, still off, play speed, resume, the menu cursor moves, select and
+ * activate, audio, angle, pop-up, PG and secondary video and audio changes, PiP PG change. Names follow the field names
+ * of `uo_mask_table.h` in camel case.
+ */
 export type UoOp =
   | 'menuCall' | 'titleSearch' | 'chapterSearch' | 'timeSearch' | 'skipToNextPoint' | 'skipBackToPreviousPoint'
   | 'playFirstPlay' | 'stop' | 'pauseOn' | 'pauseOff' | 'stillOff' | 'forwardPlay' | 'backwardPlay' | 'resume'
@@ -15,8 +21,10 @@ export type UoOp =
   | 'secondaryVideoEnableDisable' | 'secondaryVideoChange' | 'secondaryAudioEnableDisable' | 'secondaryAudioChange'
   | 'pipPgChange';
 
+/** The set of operations currently forbidden. */
 export type UoMask = ReadonlySet<UoOp>;
 
+/** The mask that forbids nothing. */
 export const EMPTY_UO_MASK: UoMask = new Set<UoOp>();
 
 /** BD_UO_MASK fields in bit order (MSB first); null marks the reserved bits that uo_mask_parse skips. */
@@ -29,7 +37,7 @@ const UO_BITS: readonly (UoOp | null)[] = [
   null, 'pipPgChange',
 ];
 
-/** uo_mask_parse: reads the 8-byte UO mask table. */
+/** `uo_mask_parse`: reads the 8-byte UO mask table. */
 export function parseUoMaskTable(bytes: Uint8Array, offset = 0): UoMask {
   if (offset < 0 || offset + 8 > bytes.length) throw new RangeError('UO mask table needs 8 bytes');
   const ops = new Set<UoOp>();
@@ -39,7 +47,7 @@ export function parseUoMaskTable(bytes: Uint8Array, offset = 0): UoMask {
   return ops;
 }
 
-/** uo_mask_combine */
+/** `uo_mask_combine`: the operations forbidden by either mask (the union). */
 export function combineUoMasks(a: UoMask, b: UoMask): UoMask {
   return new Set<UoOp>([...a, ...b]);
 }

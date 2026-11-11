@@ -8,14 +8,25 @@ import type { AudioTrack, BufferRequest, EncodeSpec, EngineCommand, EngineEvent,
 import { trackLabel } from './language';
 import { DROP_WARN_RATE, DropMeter } from './drop-meter';
 
+/** A message for the user. Notices are kept by `code`: a new one replaces the one with the same code. */
 export interface Notice {
+  /** Stable identifier (such as `audio-track` or `uo-masked`), used to replace or dismiss the notice. */
   readonly code: string;
+  /** The text to show. */
   readonly message: string;
 }
 
+/**
+ * Everything the UI shows about the player, held by `PlayerController` and replaced (never mutated) on each change, so
+ * it can back `useSyncExternalStore`. Nearly all of it is built from engine events by `reduceEvent`; the controller's own
+ * methods set the few fields that change at once on the main thread (volume, mute, notices, the level switch).
+ */
 export interface PlayerSnapshot {
+  /** The engine's playback state; `loading` from a disc open until the engine reports a state, `error` once the worker failed. */
   readonly engineState: PlaybackState;
+  /** The disc's playlists for the title picker; empty until the engine has read the disc. */
   readonly playlists: readonly PlaylistSummary[];
+  /** The disc's index names BD-J objects, so its titles run Java programs. */
   readonly usesBdj: boolean;
   /** The engine runs BD-J titles. */
   readonly bdjSupported: boolean;
@@ -42,20 +53,33 @@ export interface PlayerSnapshot {
   readonly encodeId: string | null;
   /** Clicks on an HDMV menu that hit no button, counted since the page loaded (a touch that missed shows the controls). */
   readonly menuTapMisses: number;
+  /** Problems the engine found while opening the disc that did not stop it (for example an unreadable playlist). */
   readonly warnings: readonly string[];
+  /** The playlist playing now (its id is the MPLS file name without extension, such as `00001`); `mkv` for an encoded episode; null for none. */
   readonly currentPlaylistId: string | null;
+  /** Length of the current playlist in microseconds; 0 when none plays. */
   readonly durationUs: number;
+  /** Playback position in the current playlist, microseconds from its start, as the last `time` event said. */
   readonly timeUs: number;
+  /** Chapters of the current playlist, in time order. */
   readonly chapters: readonly Chapter[];
+  /** Messages to show, at most one per code. */
   readonly notices: readonly Notice[];
+  /** The disc could not be opened or played (or the worker failed); `paths` lists the disc files involved. */
   readonly error: { readonly code: ErrorCode; readonly message: string; readonly paths: readonly string[] } | null;
+  /** The engine's latest telemetry sample; null until one arrives. */
   readonly telemetry: Telemetry | null;
+  /** Output volume, 0 to 1. Kept across discs. */
   readonly volume: number;
+  /** The output is muted. Kept across discs. */
   readonly muted: boolean;
+  /** The current playlist's audio tracks, with whether each can be decoded. */
   readonly audioTracks: readonly AudioTrack[];
+  /** The `index` of the audio track playing; null when there is none. */
   readonly selectedAudio: number | null;
   /** A disc menu is shown (arrows, Enter, digits and the pointer go to it). */
   readonly menuActive: boolean;
+  /** The disc has a pop-up menu that the user can open. */
   readonly popupAvailable: boolean;
   /** The menu button under the pointer, after the last pointer move. */
   readonly pointerButton: number | null;
@@ -86,13 +110,19 @@ export type { PlaceState, StartPoint };
 /** The engine's last 'subtitles' event. */
 export type SubtitlesState = Omit<Extract<EngineEvent, { type: 'subtitles' }>, 'type'>;
 
+/** The largest subtitle offset the controller sends, in milliseconds either way (ten minutes). */
 export const MAX_SUBTITLE_OFFSET_MS = 600_000;
 /** Far beyond any subtitle file (a feature's SRT is well under 1 MB); larger picks are refused before reading them. */
 export const MAX_SUBTITLE_FILE_BYTES = 32 * 1024 * 1024;
+/** The most subtitle files one pick loads; the rest are dropped with a notice. */
 export const MAX_SUBTITLE_FILES = 64;
+/** One font file above this size is skipped. */
 const MAX_FONT_BYTES = 64 * 1024 * 1024;
+/** The fonts of one pick are kept only up to this total. */
 const MAX_FONTS_BYTES = 256 * 1024 * 1024;
+/** The smallest text subtitle scale (a multiplier of the default size). */
 export const MIN_SUBTITLE_SCALE = 0.5;
+/** The largest text subtitle scale. */
 export const MAX_SUBTITLE_SCALE = 2;
 
 /** "+0.3 s", "−1.2 s", "0.0 s". */
@@ -101,13 +131,18 @@ export function formatSubtitleOffset(ms: number): string {
   return ms > 0 ? `+${s} s` : ms < 0 ? `\u2212${s} s` : `${s} s`;
 }
 
+/** The titles in an HDMV disc's `index.bdmv`, for the picker. */
 export interface IndexTitles {
+  /** Each title by its number in the index and the kind of object that runs it. */
   readonly titles: ReadonlyArray<{ readonly number: number; readonly kind: 'hdmv' | 'bdj' }>;
+  /** The index defines a Top Menu title, so `menuCall` has somewhere to go. */
   readonly hasTopMenu: boolean;
 }
 
+/** The notice text shown when the disc masks an operation the user tried. */
 export const UO_MASKED_MESSAGE = "The disc doesn't allow this here.";
 
+/** The snapshot before any disc opens; opening or closing a disc restarts from it, keeping volume, mute and the cache flag. */
 export const INITIAL_SNAPSHOT: PlayerSnapshot = {
   engineState: 'idle',
   playlists: [],
@@ -154,6 +189,11 @@ function withNotice(s: PlayerSnapshot, notice: Notice): PlayerSnapshot {
   return { ...s, notices: [...s.notices.filter((n) => n.code !== notice.code), notice] };
 }
 
+/**
+ * The snapshot after one engine event. Pure, so it is tested without a worker. Events the controller answers itself
+ * (token requests, sound effects, port closing, `placeState`) return the snapshot unchanged. A `titles` event resets
+ * everything about the previous playlist. A `levelChanged` counts only while a switch is pending.
+ */
 export function reduceEvent(s: PlayerSnapshot, e: EngineEvent): PlayerSnapshot {
   switch (e.type) {
     case 'titles':
@@ -236,16 +276,25 @@ function releaseServing(entry: { release: (() => void) | null; timer: ReturnType
   release?.();
 }
 
+/** The part of `Worker` the controller uses, so tests can substitute a fake. The controller owns `onmessage` and the error handlers. */
 export interface WorkerLike {
+  /** Sends a command; `transfer` lists the objects moved rather than copied (the canvas, byte buffers, a fetch port). */
   postMessage(message: unknown, transfer: Transferable[]): void;
+  /** Receives each `EngineEvent`. */
   onmessage: ((event: MessageEvent) => void) | null;
+  /** Called when the worker throws or fails to load; the controller then reports an internal error. */
   onerror?: ((event: ErrorEvent) => void) | null;
+  /** Called when the worker sent something that could not be deserialised. */
   onmessageerror?: ((event: MessageEvent) => void) | null;
 }
 
+/** The part of `AudioOutput` the controller uses; the main-thread audio output. */
 export interface AudioOutputLike {
+  /** Starts audio (needs a user gesture) and resolves with the shared PCM ring; rejects when it cannot start. */
   ensureStarted(): Promise<SharedArrayBuffer>;
+  /** Sets the output gain, 0 to 1. */
   setVolume(volume: number): void;
+  /** Mutes or unmutes, keeping the volume. */
   setMuted(muted: boolean): void;
   /** The disc's menu sounds (48 kHz, interleaved 16-bit), replacing earlier ones. */
   loadEffects(clips: ReadonlyArray<{ readonly channels: 1 | 2; readonly samples: Int16Array }>): void;
@@ -257,7 +306,9 @@ export interface AudioOutputLike {
 
 /** Page visibility, injectable so Node tests need no `document`. */
 export interface VisibilityLike {
+  /** Whether the page is hidden now. */
   hidden(): boolean;
+  /** Calls `cb` whenever visibility changes. */
   onChange(cb: () => void): void;
 }
 
@@ -272,7 +323,14 @@ function documentVisibility(): VisibilityLike {
   };
 }
 
-/** Main-thread facade over the engine worker; an external store for React. */
+/**
+ * The main-thread side of the player: it posts `EngineCommand`s to the engine worker and folds the worker's
+ * `EngineEvent`s into a `PlayerSnapshot`. It is an external store (`subscribe` and `getSnapshot`) for
+ * `useSyncExternalStore`. Call it only from the main thread; the engine runs the playback in the worker and the
+ * controller never waits on it, so a method returns at once and its effect shows in a later snapshot. It owns the audio
+ * output (volume, mute, menu sounds), starts audio from user gestures, pauses when the platform suspends audio in the
+ * background, and keeps each NAS disc's fetch port serving until the engine has closed it.
+ */
 export class PlayerController {
   private snapshot: PlayerSnapshot = INITIAL_SNAPSHOT;
   private readonly listeners = new Set<() => void>();
@@ -362,7 +420,10 @@ export class PlayerController {
     return warning === s.shaderDropWarning ? s : { ...s, shaderDropWarning: warning };
   }
 
-  /** Surfaces a failure of the engine worker itself (it can no longer report through events). */
+  /**
+   * Surfaces a failure of the engine worker itself (it can no longer report through events): the snapshot gets an
+   * `internal` error and state `error`, and pending `readPlace` calls reject.
+   */
   reportInternalError(message: string): void {
     this.engineFailed = new Error(message);
     const waiters = this.placeWaiters;
@@ -372,6 +433,7 @@ export class PlayerController {
     this.update({ ...s, engineState: 'error' }); // the engine can't report its own state any more
   }
 
+  /** Registers a listener called after every snapshot change; returns the function that removes it. */
   readonly subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => {
@@ -379,9 +441,14 @@ export class PlayerController {
     };
   };
 
+  /** The current snapshot; the same object until something changes. */
   readonly getSnapshot = (): PlayerSnapshot => this.snapshot;
 
-  /** Each canvas can be transferred only once (React StrictMode runs effects twice); a remounted screen brings a new one. */
+  /**
+   * Hands the video canvas to the engine as an `OffscreenCanvas`, after which the worker draws on it and the page can no
+   * longer. A canvas is transferred once (React StrictMode runs effects twice, so a second call with it is ignored);
+   * a remounted screen brings a new canvas.
+   */
   attachCanvas(canvas: HTMLCanvasElement): void {
     if (this.transferredCanvases.has(canvas)) return;
     this.transferredCanvases.add(canvas);
@@ -389,6 +456,7 @@ export class PlayerController {
     this.post({ type: 'attachCanvas', canvas: offscreen }, [offscreen]);
   }
 
+  /** Sets the canvas's drawing size in pixels (sends `resize`); the engine repaints at that size. */
   resize(width: number, height: number): void {
     this.post({ type: 'resize', width, height });
   }
@@ -443,7 +511,11 @@ export class PlayerController {
     this.update(withNotice(this.snapshot, { code, message }));
   }
 
-  /** `start`: open at that place instead of running the disc's First Play (startFailed when it can't). */
+  /**
+   * Opens a disc from picked files (`[path, file]` pairs, paths like `BDMV/index.bdmv`). Sends `open`; the snapshot
+   * restarts from `INITIAL_SNAPSHOT` (keeping volume and mute) with state `loading`, then `titles` or `error` follows.
+   * `start`: open at that place instead of running the disc's First Play (`startFailed` says when it can't).
+   */
   open(entries: ReadonlyArray<readonly [string, File]>, start?: StartPoint): void {
     this.opens++;
     this.refreshToken = null;
@@ -533,6 +605,7 @@ export class PlayerController {
     );
   }
 
+  /** Plays a playlist by id, from its start. Sends `playPlaylist` and first drops the previous playlist's notices. */
   playPlaylist(playlistId: string): void {
     this.startAudio();
     // Drop the previous playlist's notices now; the engine handles commands in order, so every notice
@@ -545,37 +618,45 @@ export class PlayerController {
     this.post({ type: 'playPlaylist', playlistId });
   }
 
+  /** Starts or resumes playback (sends `play`, and starts audio if it is not running). */
   play(): void {
     this.startAudio();
     this.post({ type: 'play' });
   }
 
+  /** Pauses playback (sends `pause`). */
   pause(): void {
     this.post({ type: 'pause' });
   }
 
+  /** Pauses when the state is `playing` or `buffering`, plays otherwise. */
   togglePlay(): void {
     const state = this.snapshot.engineState;
     if (state === 'playing' || state === 'buffering') this.pause();
     else this.play();
   }
 
+  /** Seeks the current playlist to `timeUs` microseconds, clamped to 0 and its duration. The snapshot's `timeUs` follows from the engine. */
   seek(timeUs: number): void {
     this.post({ type: 'seek', timeUs: Math.min(Math.max(0, timeUs), this.snapshot.durationUs) });
   }
 
+  /** Seeks relative to the last known position, `deltaUs` microseconds (negative goes back). */
   seekBy(deltaUs: number): void {
     this.seek(this.snapshot.timeUs + deltaUs);
   }
 
+  /** Seeks to the next chapter (sends `nextChapter`; the engine refuses it where the disc's UO mask forbids skipping). */
   nextChapter(): void {
     this.post({ type: 'nextChapter' });
   }
 
+  /** Seeks to the previous chapter (sends `prevChapter`; refused like `nextChapter`). */
   prevChapter(): void {
     this.post({ type: 'prevChapter' });
   }
 
+  /** Sets the volume, clamped to 0 to 1. Applied on the main thread's audio output; the engine is not told. */
   setVolume(volume: number): void {
     const v = Math.min(Math.max(0, volume), 1);
     this.audio.setVolume(v);
@@ -588,12 +669,18 @@ export class PlayerController {
     this.setVolume(this.snapshot.volume + delta);
   }
 
+  /** Flips mute on the audio output; the volume is kept. */
   toggleMute(): void {
     const muted = !this.snapshot.muted;
     this.audio.setMuted(muted);
     this.update({ ...this.snapshot, muted });
   }
 
+  /**
+   * Switches to the audio track with that `index`. Ignored for an unknown or undecodable track or the one already
+   * playing. The snapshot's `selectedAudio` changes at once and an `audio-track` notice names the track; the engine's
+   * `tracks` event corrects it if the switch is refused.
+   */
   selectAudio(index: number): void {
     const track = this.snapshot.audioTracks.find((t) => t.index === index);
     if (!track?.playable || index === this.snapshot.selectedAudio) return;
@@ -643,7 +730,7 @@ export class PlayerController {
     this.selectSubtitle(order[(at + 1) % order.length]!);
   }
 
-  /** One subtitle file (the M4a entry point). */
+  /** Loads one subtitle file as the text set; see `loadSubtitleFiles`. */
   async loadSubtitleFile(file: File, encoding?: string): Promise<void> {
     await this.loadSubtitleFiles([file], encoding);
   }
@@ -697,7 +784,7 @@ export class PlayerController {
     return Promise.all(kept.map(async (f) => ({ name: f.name, bytes: await f.arrayBuffer() })));
   }
 
-  /** Places a file of the set at a playlist time (null: not placed). */
+  /** Places a file of the text set at a playlist time in microseconds (null: not placed; it shows from the start). */
   setSubtitleStart(file: number, startUs: number | null): void {
     this.post({ type: 'setSubtitleStart', file, startUs });
   }
@@ -716,6 +803,7 @@ export class PlayerController {
     if (encoding !== null && load) await this.loadSubtitleFiles(load, encoding);
   }
 
+  /** Removes the whole text subtitle set (sends `removeTextSubtitle`). */
   removeSubtitleFile(): void {
     this.post({ type: 'removeTextSubtitle' });
   }
@@ -741,6 +829,7 @@ export class PlayerController {
     this.update(withNotice({ ...this.snapshot, subtitles: { ...subs, text: { ...text, files } } }, { code: 'subtitle-offset', message: `Subtitles ${formatSubtitleOffset(offsetMs)}` }));
   }
 
+  /** Changes the text subtitle scale by `delta`, clamped to the scale limits and rounded to one decimal; ignored without a text set. */
   scaleSubtitles(delta: number): void {
     const subs = this.snapshot.subtitles;
     if (!subs?.text) return;
@@ -781,6 +870,7 @@ export class PlayerController {
     this.post({ type: 'menuCall' });
   }
 
+  /** Whether the disc's current UO mask forbids `op`. */
   isMasked(op: UoOp): boolean {
     return this.snapshot.uoMask.includes(op);
   }
@@ -802,10 +892,12 @@ export class PlayerController {
     this.post({ type: 'pointer', kind, x, y });
   }
 
+  /** Removes the notice with that code. */
   dismissNotice(code: string): void {
     this.update({ ...this.snapshot, notices: this.snapshot.notices.filter((n) => n.code !== code) });
   }
 
+  /** Closes the open disc (sends `close`) and resets the snapshot, keeping volume, mute and the cache flag. */
   closeDisc(): void {
     this.opens++;
     this.refreshToken = null;

@@ -18,6 +18,7 @@ export const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 export const SEGMENT_BYTES = 64 * 1024 * 1024;
 const META = 'meta.json';
 
+/** What a `ReadAheadCache` needs from its host. */
 export interface ReadAheadCacheDeps {
   /** The origin's private file system (navigator.storage.getDirectory()), or a stand-in. */
   readonly root: () => Promise<FileSystemDirectoryHandle>;
@@ -32,9 +33,13 @@ export interface ReadAheadCacheDeps {
   readonly segmentBytes?: number;
 }
 
+/** A half-open range of bytes in one disc file. */
 export interface ByteRange {
+  /** The file's disc path (upper case). */
   readonly path: string;
+  /** First byte, inclusive. */
   readonly start: number;
+  /** One past the last byte. */
   readonly end: number;
 }
 
@@ -95,6 +100,7 @@ export class ReadAheadCache {
     this.segmentBytes = deps.segmentBytes ?? SEGMENT_BYTES;
   }
 
+  /** Opens (creating when needed) the disc's cache folder and loads what it holds, dropping files whose size no longer matches the manifest's. */
   static async open(discId: string, deps: ReadAheadCacheDeps): Promise<ReadAheadCache> {
     const root = (await deps.root()) as unknown as DirHandle;
     const top = await root.getDirectoryHandle(CACHE_DIR, { create: true });

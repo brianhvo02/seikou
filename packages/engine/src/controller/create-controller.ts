@@ -3,6 +3,7 @@ import type { Telemetry } from '../protocol';
 import { AudioOutput } from './audio-output';
 import { PlayerController } from './player-controller';
 
+/** What `createController` needs from the host page. */
 export interface CreateControllerOptions {
   /** Starts the engine worker: createEngineWorker, or a host's own entry that calls startEngineWorker. */
   readonly worker: () => Worker;
@@ -12,7 +13,11 @@ export interface CreateControllerOptions {
   readonly exposeTelemetry?: boolean;
 }
 
-/** A PlayerController for this page: its engine worker, audio output and the page's lifecycle hooks. */
+/**
+ * Builds a `PlayerController` on the main thread: starts the engine worker, creates the audio output, sends the memory
+ * profile, and hooks `pagehide` and `visibilitychange` so the engine flushes a BD-J disc's saved data and learns when
+ * the page is hidden. It touches `window` and `document`, so call it only in a page, once per player.
+ */
 export function createController(options: CreateControllerOptions): PlayerController {
   const controller = new PlayerController(options.worker(), new AudioOutput());
   controller.setMemoryProfile(options.profile);

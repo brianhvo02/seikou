@@ -15,9 +15,13 @@ import { ALIGNED_UNIT_SIZE, SOURCE_PACKET_SIZE } from '@seikou/bdmv/demux/consta
 import { streamPath } from '../disc/open-disc';
 import { Timeline } from '../nav/timeline';
 
+/** A half-open range of bytes in one stream file. */
 export interface ByteRange {
+  /** The stream file's disc path (such as `BDMV/STREAM/00000.M2TS`). */
   readonly path: string;
+  /** First byte, inclusive. */
   readonly start: number;
+  /** One past the last byte. */
   readonly end: number;
 }
 

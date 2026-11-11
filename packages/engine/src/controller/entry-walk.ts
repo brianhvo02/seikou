@@ -1,7 +1,10 @@
 /** Walks `webkitGetAsEntry` trees (the drop API Safari, Firefox and Chrome all share). */
 
+/** What every drop entry has: whether it is a file or a directory, and its name. */
 export interface EntryLike { readonly isFile: boolean; readonly isDirectory: boolean; readonly name: string }
+/** A file entry of the drop API (the `FileSystemFileEntry` shape): `file` hands over the `File`. */
 export interface FileEntryLike extends EntryLike { file(ok: (file: File) => void, fail?: (err: unknown) => void): void }
+/** A directory entry of the drop API (the `FileSystemDirectoryEntry` shape): its reader returns entries in batches. */
 export interface DirEntryLike extends EntryLike { createReader(): { readEntries(ok: (entries: EntryLike[]) => void, fail?: (err: unknown) => void): void } }
 
 const fileOf = (e: FileEntryLike): Promise<File> => new Promise((ok, fail) => e.file(ok, fail));

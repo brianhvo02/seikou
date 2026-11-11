@@ -22,6 +22,7 @@ export const FILL_GIVE_UP_MS = 120_000;
 /** Why a fill ended early: a read or a cache write failed, or there is no cache on this device. */
 export type FillStop = 'failed' | 'no-cache';
 
+/** A fill's state, reported through `CacheFillDeps.progress` whenever it changes. */
 export interface FillProgress {
   /** Bytes held ahead of the play position (the lead). */
   readonly bytes: number;
@@ -29,22 +30,32 @@ export interface FillProgress {
   readonly targetBytes: number;
   /** The network's rate over the fill so far. */
   readonly mbps: number;
+  /** Set when the fill ended early and will not go on; absent while it is running or finished normally. */
   readonly stopped?: FillStop;
 }
 
+/** What a `CacheFill` runs against: the NAS source, the cache, the play position and the clock. All of it lives on the engine worker. */
 export interface CacheFillDeps {
+  /** The disc's `RemoteSource`. */
   readonly remote: {
+    /** Size of one fill request; fills work in chunks aligned to it. */
     readonly chunkBytes: number;
+    /** Fetches the chunk at `offset` into the cache unless held; resolves with the bytes that came over the network. */
     fillChunk(path: string, offset: number, signal: AbortSignal): Promise<number>;
     /** The chunk is being fetched already (by playback's reads or the fill). */
     isFetching(path: string, offset: number): boolean;
     /** A playback read is waiting on the network: the fill then keeps one request in flight, not two. */
     readonly playbackWaiting: boolean;
   };
+  /** The disc's `ReadAheadCache`. */
   readonly cache: {
+    /** End of the held run containing `offset`, or null when `offset` is not held. */
     coveredEnd(path: string, offset: number): number | null;
+    /** Bytes of `path` held between `start` and `end`. */
     heldBytes(path: string, start: number, end: number): number;
+    /** Frees what lies behind the ranges still to play. */
     evictOutside(keep: readonly ByteRange[]): Promise<void>;
+    /** Stores bytes; absent when the cache cannot be written, so `keep` stores nothing. */
     write?(path: string, offset: number, bytes: Uint8Array): Promise<void>;
   };
   /**
@@ -57,6 +68,7 @@ export interface CacheFillDeps {
    * (a bufferFirst open); otherwise stop once the target is held.
    */
   readonly follow: boolean;
+  /** The lead the fill builds before it reports the target reached: bytes ahead of the play position. */
   readonly targetBytes: number;
   /**
    * Following, the most it holds ahead of the play position (the target plus a segment): fetching pauses there and
@@ -65,7 +77,9 @@ export interface CacheFillDeps {
   readonly leadCapBytes?: number;
   /** The cache's segment size: a full disk lowers the lead cap to a segment under the lead it held then. */
   readonly segmentBytes?: number;
+  /** Receives each change of the lead, the target or the outcome. */
   progress(p: FillProgress): void;
+  /** A monotonic clock in milliseconds. */
   nowMs(): number;
   /** One-shot timer for the retries, cancelled by the returned function. */
   setTimer(ms: number, fn: () => void): () => void;
@@ -87,7 +101,7 @@ interface Fetch {
  * it looks again from the position: a seek abandons fetches that are no longer ahead and starts from the new place.
  */
 export class CacheFill {
-  /** The lead reached the target, or the fill ended. */
+  /** Resolves when the lead reaches the target, when all there is ahead is held, on a full disk, or when the fill ends. */
   readonly reached: Promise<void>;
   private resolveReached!: () => void;
   private wake: (() => void) | null = null;
@@ -156,6 +170,10 @@ export class CacheFill {
     this.resolveReached();
   }
 
+  /**
+   * The fill loop: runs until the target is held (not following) or until `stop`, a permanent failure or two minutes of
+   * failures (following). It reports a final progress with `stopped: 'failed'` on a failure and always ends by calling `stop`.
+   */
   async run(): Promise<void> {
     const { remote, cache } = this.deps;
     const cb = remote.chunkBytes;

@@ -4,7 +4,11 @@ import workletUrl from './pcm-worklet.ts?worker&url';
 
 const RING_SECONDS = 2;
 
-/** 48 kHz stereo AudioContext playing from the shared ring through a gain node. */
+/**
+ * A 48 kHz stereo `AudioContext` that plays the shared PCM ring (`../audio/ring`) through an AudioWorklet and a gain node.
+ * It lives on the main thread; the engine worker writes the ring and the worklet thread reads it. It also publishes the
+ * output latency into the ring's control block every 500 ms so the engine can read it.
+ */
 export class AudioOutput implements AudioOutputLike {
   private started: { context: AudioContext; ready: Promise<SharedArrayBuffer> } | null = null;
   private gain: GainNode | null = null;
@@ -23,10 +27,15 @@ export class AudioOutput implements AudioOutputLike {
 
   private stateListener: ((state: AudioContextState | 'interrupted') => void) | null = null;
 
+  /** Sets the one listener of the audio context's state changes, replacing any earlier one. */
   onStateChange(cb: (state: AudioContextState | 'interrupted') => void): void {
     this.stateListener = cb;
   }
 
+  /**
+   * Creates the 48 kHz context on first call (it needs a user gesture) and resumes it. Resolves with the shared PCM ring
+   * once the worklet module is loaded; a failure is not cached, so the next gesture tries again.
+   */
   ensureStarted(): Promise<SharedArrayBuffer> {
     let attempt = this.started;
     if (!attempt) {
@@ -57,21 +66,25 @@ export class AudioOutput implements AudioOutputLike {
     }
   }
 
+  /** Sets the gain, 0 to 1; a muted output stays silent until unmuted. */
   setVolume(volume: number): void {
     this.volume = volume;
     this.applyGain();
   }
 
+  /** Silences the output without losing the volume setting. */
   setMuted(muted: boolean): void {
     this.muted = muted;
     this.applyGain();
   }
 
+  /** Keeps the menu sound clips (16-bit interleaved, 48 kHz); AudioBuffers are built when a clip first plays. */
   loadEffects(clips: ReadonlyArray<{ readonly channels: 1 | 2; readonly samples: Int16Array }>): void {
     this.effectClips = clips;
     this.effectBuffers = new Map();
   }
 
+  /** Plays clip `id` once through the gain node; nothing happens before the context exists or for an unknown id. */
   playEffect(id: number): void {
     const context = this.started?.context;
     const gain = this.gain;

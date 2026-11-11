@@ -10,6 +10,11 @@ declare abstract class AudioWorkletProcessor {
 }
 declare function registerProcessor(name: string, processorCtor: new (options: PcmPlayerOptions) => AudioWorkletProcessor): void;
 
+/**
+ * The `pcm-player` processor, which runs on the audio rendering thread (AudioWorkletGlobalScope), not on the main thread
+ * or the engine worker. Each 128-frame quantum it takes PCM from the shared ring and publishes how many frames have
+ * played; `../audio/ring` holds the ring layout. It never allocates in `process` except to size the mono scratch buffer.
+ */
 class PcmPlayer extends AudioWorkletProcessor {
   private readonly views: RingViews;
   private scratch = new Float32Array(128);

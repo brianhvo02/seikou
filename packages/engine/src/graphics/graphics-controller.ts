@@ -14,43 +14,59 @@ import { PSR, type PsrEvent, type RegisterFile } from '../hdmv/registers';
 import { compositionObjectOp, type OverlayCmd, type OverlayOp, type PgCompositionObject, type PgObject, type PgPalette } from '@seikou/pg';
 import type { IgButton, IgComposition, IgDisplaySet, IgEffect, IgEffectSequence, IgPage } from './ig-decoder';
 
-/** keys.h bd_vk_key_e (the keys the graphics controller handles) */
+/**
+ * The virtual keys the graphics controller handles: libbluray's `bd_vk_key_e` in `keys.h`. D0 to D9 are the number keys,
+ * ROOT_MENU the menu key, POPUP the pop-up menu toggle, ENTER and MOUSE_ACTIVATE activate the selected button, and NONE
+ * is no key.
+ */
 export const BdVk = {
   D0: 0, D1: 1, D2: 2, D3: 3, D4: 4, D5: 5, D6: 6, D7: 7, D8: 8, D9: 9,
   ROOT_MENU: 10, POPUP: 11, UP: 12, DOWN: 13, LEFT: 14, RIGHT: 15, ENTER: 16, MOUSE_ACTIVATE: 17, NONE: 0xffff,
 } as const;
 
-/** gc_ctrl_e (IG controls) */
+/**
+ * What the navigator asks of the graphics controller (the IG members of libbluray's `gc_ctrl_e`): set up the menu
+ * (`initMenu`), advance animations and timers (`nop`), reset, a key, the mouse (position packed as x in the high 16 bits
+ * and y in the low), enable or disable a button, change page, toggle the pop-up, or the end of a button command list.
+ */
 export type GcCtrl =
   | 'initMenu' | 'nop' | 'reset' | 'vkKey' | 'mouseMove' | 'enableButton' | 'disableButton' | 'setButtonPage'
   | 'popup' | 'igEnd';
 
-/** GC_STATUS_* */
+/** Bits of the controller's status (libbluray `GC_STATUS_*`): a pop-up menu exists, a menu is showing, animations or timers run. */
 export const GcStatus = { NONE: 0, POPUP: 1, MENU_OPEN: 2, ANIMATE: 4 } as const;
 
 /**
- * GC_NAV_CMDS. wantMouse has no counterpart in libbluray (GC_NAV_CMDS carries wakeup_time for TextST only);
- * it is always false.
+ * What one `GraphicsController.run` asks of its caller: libbluray's `GC_NAV_CMDS`. `wantMouse` has no counterpart in
+ * libbluray (`GC_NAV_CMDS` carries `wakeup_time` for TextST only); it is always false.
  */
 export interface GcNavCmds {
-  readonly navCmds: readonly MobjCmd[] | null; // num_nav_cmds / nav_cmds
-  readonly soundId: number; // sound_id_ref, -1 none
+  /** The commands of an activated button, for the VM to run as the IG object; null when none (`nav_cmds`). */
+  readonly navCmds: readonly MobjCmd[] | null;
+  /** The `sound.bdmv` sound to play (`sound_id_ref`); -1 for none, and 0xFF also means none. */
+  readonly soundId: number;
+  /** `GcStatus` bits after the run. */
   readonly status: number;
-  readonly pageUoMask: UoMask; // page_uo_mask
+  /** The user operations the shown page forbids (`page_uo_mask`); empty while no menu is open. */
+  readonly pageUoMask: UoMask;
+  /** Always false. */
   readonly wantMouse: boolean;
 }
 
+/** What a `GraphicsController` is built from. */
 export interface GraphicsControllerDeps {
+  /** The register file; PSR10 (selected button) and PSR11 (menu page) are read and written through it. */
   readonly regs: RegisterFile;
+  /** Receives the drawing operations that change the IG overlay plane. */
   onOverlay(op: OverlayOp): void;
-  /** bd_get_scr(), 90 kHz ticks */
+  /** `bd_get_scr()`: a monotonic clock in 90 kHz ticks, for effect, animation and user timeout timing. */
   nowScr(): number;
 }
 
 const MAX_NUM_BOGS = 256;
 const IG_UI_MODEL_POPUP = 1;
 
-/** BOG_DATA */
+/** BOG_DATA: the state of one button overlap group while a page shows (enabled button, its place, the object drawn, animation position). */
 class BogData {
   enabledButton = 0;
   x = 0;
@@ -102,7 +118,12 @@ function areasOverlap(a: BogData, b: BogData): boolean {
   return !(a.x + a.w <= b.x || a.x >= b.x + b.w || a.y + a.h <= b.y || a.y >= b.y + b.h);
 }
 
-/** GRAPHICS_CONTROLLER, IG paths */
+/**
+ * The interactive graphics controller: libbluray's `GRAPHICS_CONTROLLER` in `graphics_controller.c`, IG paths only (PG and
+ * TextST are handled elsewhere). It follows PSR10 and PSR11, draws the shown page's buttons into the overlay through
+ * `onOverlay`, handles keys and the mouse, plays in and out effects and button animations, runs the user timeout, and
+ * hands back the commands of an activated button. Runs on the engine worker, driven by the `Navigator`.
+ */
 export class GraphicsController {
   private readonly regs: RegisterFile;
   private readonly deps: GraphicsControllerDeps;
@@ -141,7 +162,7 @@ export class GraphicsController {
     return Array.from({ length: MAX_NUM_BOGS }, () => new BogData());
   }
 
-  /** gc_free */
+  /** `gc_free`: stops listening to the registers and resets the controller. */
   dispose(): void {
     this.unregister();
     this.gcReset();
@@ -488,8 +509,8 @@ export class GraphicsController {
    */
 
   /**
-   * gc_decode_ts, IG branch: takes the display set decoded by IgSegmentDecoder in place of
-   * graphics_processor_decode_ts. True when a complete display set was taken.
+   * `gc_decode_ts`, IG branch: takes the display set that `IgSegmentDecoder` decoded, in place of
+   * `graphics_processor_decode_ts`. True when the set is complete (the menu then needs an `initMenu` run).
    */
   decodeDisplaySet(ds: IgDisplaySet): boolean {
     this.igs = ds;
@@ -899,7 +920,7 @@ export class GraphicsController {
     return this.validMousePosition ? 1 : 0;
   }
 
-  /** The id of the button under (x, y) on the shown page, or null (the cursor's view of _mouse_move's search). */
+  /** The id of the button under (x, y), in IG plane pixels, on the shown page, or null; the cursor's view of `_mouse_move`'s search, with no side effects. */
   hitTest(x: number, y: number): number | null {
     if (!this.igs || !this.igs.composition || !this.igs.complete || !this.igDrawn) return null;
     const page = this.findPage(this.comp, this.regs.psrRead(PSR.MENU_PAGE_ID));
@@ -978,7 +999,12 @@ export class GraphicsController {
     return result;
   }
 
-  /** gc_run, IG controls. `param` is the numeric parameter of the control (0 when absent). */
+  /**
+   * `gc_run` for the IG controls. `param` is the control's numeric parameter (the key, the button or page number, or
+   * the packed mouse position; 0 when absent). `result` is gc_run's value: negative when nothing could be done (no
+   * complete display set, a key that does not apply, a mouse move outside a drawn menu); for the mouse 1 inside a
+   * button and 0 outside; `cmds` holds what the caller must act on.
+   */
   run(ctrl: GcCtrl, param = 0): { readonly result: number; readonly cmds: GcNavCmds } {
     const cmds: MutableCmds = { navCmds: null, soundId: -1, status: GcStatus.NONE, pageUoMask: EMPTY_UO_MASK };
     const done = (result: number): { readonly result: number; readonly cmds: GcNavCmds } => ({

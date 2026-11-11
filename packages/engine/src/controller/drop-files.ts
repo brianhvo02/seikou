@@ -2,7 +2,9 @@ import { walkEntries, type EntryLike } from './entry-walk';
 
 /** Subtitle and font files from a pick or a drop (folders walked one level of subfolders deep). */
 
+/** Lower-case subtitle file extensions recognised in a pick. */
 export const SUBTITLE_EXTENSIONS: readonly string[] = ['.srt', '.ass', '.ssa'];
+/** Lower-case font file extensions recognised in a pick (not `.woff2`). */
 export const FONT_EXTENSIONS: readonly string[] = ['.ttf', '.otf', '.ttc', '.woff'];
 
 const hasExtension = (file: File, list: readonly string[]): boolean => list.some((ext) => file.name.toLowerCase().endsWith(ext));

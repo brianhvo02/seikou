@@ -6,6 +6,7 @@ import type { PipelineSinks, SessionPipeline } from '../playback/pipeline';
 
 /** One of the encode's audio tracks: its Matroska track number and how much earlier than a seek its decoding starts. */
 export interface EncodeAudioRoute {
+  /** The Matroska track number whose blocks are delivered as audio. */
   readonly track: number;
   /** SeekPreRoll in microseconds (80 ms for Opus). */
   readonly preRollUs: number;
@@ -15,7 +16,9 @@ export interface EncodeAudioRoute {
 export interface EncodeSubtitleUnit {
   /** The 1-based subtitle stream (the position in `subtitleTracks`). */
   readonly stream: number;
+  /** The block's payload: an ASS event line, or a PGS display set's segments. */
   readonly data: Uint8Array;
+  /** The block's time in microseconds from the episode's start. */
   readonly ptsUs: number;
   /** BlockDuration, when the block has one (an ASS event's length). */
   readonly durationUs?: number;
@@ -29,11 +32,13 @@ export interface EncodeSinks extends PipelineSinks {
 
 /** What an encode's reads need: the opened file, the track numbers to deliver, and where its bytes come from. */
 export interface EncodePipelineConfig {
+  /** The opened Matroska file; its cues place a start time. */
   readonly file: MatroskaFile;
   /** The Matroska track number of the video; its blocks go to the video sink. */
   readonly videoTrack: number;
-  /** The file's path in the source (for the NAS start-up read-ahead) and its size in bytes. */
+  /** The file's path in the source (for the NAS start-up read-ahead). */
   readonly path: string;
+  /** The file's size in bytes; with `durationUs` it gives the average rate the NAS start-up read-ahead paces on. */
   readonly size: number;
   /** The episode's duration (its Info Duration). */
   readonly durationUs: number;
@@ -51,7 +56,7 @@ const NO_STATS: DemuxStats = { corruptPackets: 0, continuityErrors: 0 };
  * (routed by track number: the session's play item has no STN), and every subtitle track's blocks. With audio, reading
  * starts the track's SeekPreRoll before the start time and drops the audio before that, so the decoder is primed by
  * the time the start comes (the ring drops what decodes before it). Reading pauses while the sinks are full, and a new
- * start() or a stop() cancels the read in flight (its AbortSignal reaches the byte source).
+ * start() or a stop() cancels the read in flight (its AbortSignal reaches the byte source). Runs on the engine worker.
  */
 export class EncodePipeline implements SessionPipeline {
   private generation = 0;
@@ -100,6 +105,7 @@ export class EncodePipeline implements SessionPipeline {
     return NO_STATS;
   }
 
+  /** Starts reading blocks from `fromUs` (episode microseconds), cancelling any read under way; failures reach `sinks.failed`, the end `sinks.ended`. */
   start(fromUs: number): void {
     this.stop();
     const gen = this.generation;
@@ -116,6 +122,7 @@ export class EncodePipeline implements SessionPipeline {
     });
   }
 
+  /** Stops reading and aborts the byte source's read in flight; a later `start` begins afresh. */
   stop(): void {
     this.generation++;
     this.active = false;

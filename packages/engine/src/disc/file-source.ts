@@ -4,10 +4,12 @@ import { DiscError, type ByteSource } from '@seikou/bdmv/byte-source';
 export class FileSource implements ByteSource {
   constructor(private readonly files: ReadonlyMap<string, Blob>) {}
 
+  /** Whether a file with that path exists (case-insensitive). */
   exists(path: string): boolean {
     return this.files.has(path.toUpperCase());
   }
 
+  /** The file's size in bytes; throws `DiscError` `missing-file` when it is not there. */
   size(path: string): number {
     return this.get(path).size;
   }
@@ -17,6 +19,7 @@ export class FileSource implements ByteSource {
     return [...this.files.keys()];
   }
 
+  /** The names directly inside `dir` (files only, no deeper paths), sorted, upper case. */
   list(dir: string): string[] {
     const prefix = `${dir.toUpperCase().replace(/\/$/, '')}/`;
     const names: string[] = [];
@@ -28,6 +31,11 @@ export class FileSource implements ByteSource {
     return names.sort();
   }
 
+  /**
+   * The bytes at `offset`, at most `length` (fewer at the end of the file, none past it). Throws `RangeError` for a
+   * negative or fractional offset and `DiscError` `missing-file`, `source-changed` (the browser says the file changed on
+   * disk) or `read-failed`; an abort rejects with the signal's reason.
+   */
   async read(path: string, offset: number, length: number, signal?: AbortSignal): Promise<Uint8Array> {
     if (!Number.isInteger(offset) || offset < 0) throw new RangeError(`invalid read offset ${offset} in ${path}`); // Blob.slice would count from the end
     const blob = this.get(path);

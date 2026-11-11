@@ -3,7 +3,7 @@ import { codingName } from '@seikou/bdmv/stream-types';
 import type { AudioTrack, ChannelsLabel } from '../protocol';
 import { PLAYABLE_AUDIO } from './stream-selection';
 
-/** STN audio_format (libbluray mpls_data.h): 1 mono, 3 stereo, 6 multichannel, 12 stereo + multichannel. */
+/** A short channel layout label from an STN `audio_format` value (libbluray `mpls_data.h`): 1 mono, 3 stereo, 6 multichannel, 12 stereo and multichannel; empty for any other. */
 export function channelsLabel(format: number): ChannelsLabel {
   switch (format) {
     case 1:
@@ -18,6 +18,10 @@ export function channelsLabel(format: number): ChannelsLabel {
   }
 }
 
+/**
+ * The audio tracks of an STN table for the UI, numbered from 1 in table order (the number is the PSR1 stream number).
+ * A track is `playable` when it is on the main path and its coding type is in `playable`.
+ */
 export function audioTracks(stn: StnTable, playable: ReadonlySet<number> = PLAYABLE_AUDIO): AudioTrack[] {
   return stn.audio.map((s, i) => ({
     index: i + 1,

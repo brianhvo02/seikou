@@ -4,9 +4,13 @@ import { PSR, type RegisterFile } from '../hdmv/registers';
 
 /** The string player settings of bd_set_player_setting_str: ISO 639-2 languages and an ISO 3166 country code. */
 export interface PlayerSettings {
+  /** Preferred audio language as ISO 639-2 letters (`jpn`); written to PSR16. */
   readonly audioLanguage?: string;
+  /** Preferred subtitle language, ISO 639-2; written to PSR17. */
   readonly pgLanguage?: string;
+  /** Preferred menu language, ISO 639-2; written to PSR18. */
   readonly menuLanguage?: string;
+  /** Country as two lower-case letters (`jp`); written to PSR19. */
   readonly country?: string;
 }
 

@@ -1,14 +1,24 @@
 /** The output (AudioContext) rate: every decoder's PCM is delivered at, or resampled to, this rate. */
 export const OUTPUT_SAMPLE_RATE = 48_000;
 
-/** Control slot indices (Int32). */
+/**
+ * Indices of the ring's Int32 control slots, shared by the engine worker, the main thread and the AudioWorklet. Each is
+ * read and written with `Atomics`.
+ */
 export const Control = {
+  /** The engine sets 1 to let the worklet play the ring and 0 to make it output silence. */
   Playing: 0,
+  /** The engine sets 1 to drop everything buffered; the worklet moves the read head to the write head and clears it. */
   DiscardRequest: 1,
+  /** The main thread's estimate of the output latency (context output plus base latency), in microseconds. */
   LatencyUs: 2,
+  /** The worklet adds 1 every render quantum, so the engine can tell whether it is running. */
   Heartbeat: 3,
+  /** The worklet's count of quanta that found fewer frames than it needed while playing and not draining. */
   Underruns: 4,
+  /** The ring's length in frames, fixed when it is created. */
   Capacity: 5,
+  /** The ring's sample rate in hertz, fixed when it is created. */
   SampleRate: 6,
   /** 1 once the engine has written all of the stream's audio: running dry then is its end, not an underrun. */
   Draining: 7,
@@ -20,16 +30,24 @@ const COUNTER_READ = 1;
 const COUNTERS_BYTES = 16;
 const HEADER_BYTES = COUNTERS_BYTES + CONTROL_SLOTS * 4;
 
+/** Typed views onto one ring's `SharedArrayBuffer`; every thread builds its own with `ringViews`. */
 export interface RingViews {
-  /** [written frames, read frames], monotonically increasing. */
+  /** [written frames, read frames], monotonically increasing. The difference is what is buffered. */
   readonly counters: BigInt64Array;
+  /** The control slots, indexed by `Control`. */
   readonly control: Int32Array;
   /** Interleaved stereo frames, `capacity` long. */
   readonly data: Float32Array;
+  /** The ring's length in frames; frame `n` lives at `n % capacity`. */
   readonly capacity: number;
+  /** Frames per second. */
   readonly sampleRate: number;
 }
 
+/**
+ * Allocates a ring of `seconds` of stereo float audio at `sampleRate`: a 16-byte counter pair, the control slots and the
+ * frames. The buffer is shared between threads, so the page needs cross-origin isolation.
+ */
 export function createRing(sampleRate: number, seconds: number): SharedArrayBuffer {
   const capacity = Math.ceil(sampleRate * seconds);
   const sab = new SharedArrayBuffer(HEADER_BYTES + capacity * 2 * Float32Array.BYTES_PER_ELEMENT);
@@ -39,6 +57,7 @@ export function createRing(sampleRate: number, seconds: number): SharedArrayBuff
   return sab;
 }
 
+/** Reads capacity and sample rate from the buffer's control slots and wraps it in views, with no copy. */
 export function ringViews(sab: SharedArrayBuffer): RingViews {
   const counters = new BigInt64Array(sab, 0, 2);
   const control = new Int32Array(sab, COUNTERS_BYTES, CONTROL_SLOTS);
@@ -74,41 +93,52 @@ export function renderQuantum(views: RingViews, left: Float32Array, right: Float
   Atomics.store(counters, COUNTER_READ, BigInt(read + frames));
 }
 
-/** Engine-side access to the ring. */
+/**
+ * Engine-side (worker) access to the ring: the only writer of frames, and the owner of the Playing, Draining and
+ * DiscardRequest slots. The audio thread reads; the main thread only sets LatencyUs.
+ */
 export class RingWriter {
   constructor(
     readonly views: RingViews,
     private readonly nowMs: () => number = () => performance.now(),
   ) {}
 
+  /** The ring's rate in hertz. */
   get sampleRate(): number {
     return this.views.sampleRate;
   }
 
+  /** Whether the Playing slot is set. */
   get playing(): boolean {
     return Atomics.load(this.views.control, Control.Playing) === 1;
   }
 
+  /** Frames the worklet has consumed since the ring was created (the audio clock reads this). */
   readFrames(): number {
     return Number(Atomics.load(this.views.counters, COUNTER_READ));
   }
 
+  /** Frames written so far, counted from the ring's creation. */
   writtenFrames(): number {
     return Number(Atomics.load(this.views.counters, COUNTER_WRITTEN));
   }
 
+  /** Frames written but not yet played. */
   buffered(): number {
     return Math.max(0, this.writtenFrames() - this.readFrames());
   }
 
+  /** The output latency the main thread last published, in microseconds; never negative. */
   latencyUs(): number {
     return Math.max(0, Atomics.load(this.views.control, Control.LatencyUs));
   }
 
+  /** How many render quanta the worklet has run; unchanged between two reads means it is not running. */
   heartbeat(): number {
     return Atomics.load(this.views.control, Control.Heartbeat);
   }
 
+  /** How many render quanta ran short of frames (see `Control.Underruns`). */
   underruns(): number {
     return Atomics.load(this.views.control, Control.Underruns);
   }

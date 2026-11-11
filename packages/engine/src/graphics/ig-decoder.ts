@@ -18,71 +18,144 @@ import {
 
 const NAV_CMD_SIZE = 12;
 
-/** BD_IG_BUTTON. Neighbour refs (upper/lower/left/right) use 0xffff for "no button", as in libbluray. */
+/**
+ * One button of an interactive graphics (IG) menu page: libbluray's `BD_IG_BUTTON` in `ig.h`. Neighbour ids use 0xFFFF for
+ * "no button", as in libbluray. Object ids refer to the display set's graphics objects; a state shows its start object,
+ * or animates from its start to its end object.
+ */
 export interface IgButton {
+  /** The button's id, unique within the page. */
   readonly id: number;
-  readonly numericSelectValue: number; // numeric_select_value
+  /** The number key value that selects this button (`numeric_select_value`). */
+  readonly numericSelectValue: number;
+  /** The button activates as soon as it is selected (`auto_action_flag`). */
   readonly autoActionFlag: boolean;
-  readonly x: number; // x_pos
-  readonly y: number; // y_pos
-  readonly upper: number; // upper_button_id_ref
-  readonly lower: number; // lower_button_id_ref
-  readonly left: number; // left_button_id_ref
-  readonly right: number; // right_button_id_ref
-  readonly normalStart: number; // normal_start_object_id_ref
+  /** Left edge on the IG plane, in pixels (`x_pos`). */
+  readonly x: number;
+  /** Top edge on the IG plane, in pixels (`y_pos`). */
+  readonly y: number;
+  /** Id of the button the Up key moves to (`upper_button_id_ref`). */
+  readonly upper: number;
+  /** Id of the button the Down key moves to (`lower_button_id_ref`). */
+  readonly lower: number;
+  /** Id of the button the Left key moves to (`left_button_id_ref`). */
+  readonly left: number;
+  /** Id of the button the Right key moves to (`right_button_id_ref`). */
+  readonly right: number;
+  /** First object of the normal state (`normal_start_object_id_ref`); 0xFFFF for none. */
+  readonly normalStart: number;
+  /** Last object of the normal state's animation. */
   readonly normalEnd: number;
+  /** The normal state's animation loops. */
   readonly normalRepeat: boolean;
-  readonly selectedSound: number; // selected_sound_id_ref
+  /** Id of the `sound.bdmv` sound played when the button is selected (`selected_sound_id_ref`); 0xFF for none. */
+  readonly selectedSound: number;
+  /** First object of the selected state. */
   readonly selectedStart: number;
+  /** Last object of the selected state's animation. */
   readonly selectedEnd: number;
+  /** The selected state's animation loops. */
   readonly selectedRepeat: boolean;
+  /** Id of the sound played when the button is activated (`activated_sound_id_ref`); 0xFF for none. */
   readonly activatedSound: number;
+  /** First object of the activated state. */
   readonly activatedStart: number;
+  /** Last object of the activated state's animation. */
   readonly activatedEnd: number;
+  /** The navigation commands that run when the button is activated, run as the IG object by the VM. */
   readonly navCmds: readonly MobjCmd[];
 }
-/** BD_IG_BOG */
-export interface IgBog { readonly defaultValidButton: number; readonly buttons: readonly IgButton[] } // default_valid_button_id_ref
-/** BD_IG_EFFECT (duration in 90 kHz ticks) */
-export interface IgEffect { readonly duration: number; readonly paletteId: number; readonly compositionObjects: readonly PgCompositionObject[] }
-/** BD_IG_EFFECT_SEQUENCE */
-export interface IgEffectSequence { readonly windows: readonly PgWindow[]; readonly effects: readonly IgEffect[] }
-/** BD_IG_PAGE */
+/**
+ * A button overlap group: the buttons that share one place on the page, only one of which is enabled at a time
+ * (libbluray `BD_IG_BOG`).
+ */
+export interface IgBog {
+  /** The button enabled when the page opens (`default_valid_button_id_ref`). */
+  readonly defaultValidButton: number;
+  /** The group's buttons. */
+  readonly buttons: readonly IgButton[];
+}
+/** One step of a page's in or out effect (libbluray `BD_IG_EFFECT`). */
+export interface IgEffect {
+  /** How long the step lasts, in 90 kHz ticks. */
+  readonly duration: number;
+  /** The palette the step draws with. */
+  readonly paletteId: number;
+  /** The objects drawn in the step, with their positions. */
+  readonly compositionObjects: readonly PgCompositionObject[];
+}
+/** The windows and steps of a page's in or out effect (libbluray `BD_IG_EFFECT_SEQUENCE`). */
+export interface IgEffectSequence {
+  /** The screen areas the effect draws into. */
+  readonly windows: readonly PgWindow[];
+  /** The steps, in order. */
+  readonly effects: readonly IgEffect[];
+}
+/** One page of an IG menu (libbluray `BD_IG_PAGE`). */
 export interface IgPage {
+  /** The page id; the menu page register (PSR11) holds it. */
   readonly id: number;
+  /** The page's version number; a new version of the same id replaces it. */
   readonly version: number;
-  readonly uoMask: UoMask; // uo_mask_table
+  /** User operations the page forbids while it shows (`uo_mask_table`). */
+  readonly uoMask: UoMask;
+  /** The effect played when the page opens. */
   readonly inEffects: IgEffectSequence;
+  /** The effect played when the page closes. */
   readonly outEffects: IgEffectSequence;
+  /** The frame rate code that paces button animations; the controller turns it into a tick interval. */
   readonly animationFrameRateCode: number;
-  readonly defaultSelectedButton: number; // default_selected_button_id_ref
+  /** The button selected when the page opens (`default_selected_button_id_ref`). */
+  readonly defaultSelectedButton: number;
+  /** The button activated when the user timeout expires (`default_activated_button_id_ref`). */
   readonly defaultActivatedButton: number;
-  readonly paletteId: number; // palette_id_ref
+  /** The palette the page draws with (`palette_id_ref`). */
+  readonly paletteId: number;
+  /** The page's button overlap groups. */
   readonly bogs: readonly IgBog[];
 }
 /**
- * BD_IG_INTERACTIVE (the segment) merged with BD_IG_INTERACTIVE_COMPOSITION. The video and composition
- * descriptor fields are an addition to the Task 9 interface so the graphics controller can size its planes.
+ * The interactive composition segment: libbluray's `BD_IG_INTERACTIVE` (the segment) merged with
+ * `BD_IG_INTERACTIVE_COMPOSITION`. The video descriptor fields are an addition to libbluray's structure so the graphics
+ * controller can size its planes.
  */
 export interface IgComposition {
+  /** Width of the video the graphics are made for, from the video descriptor. */
   readonly videoWidth: number;
+  /** Height of that video. */
   readonly videoHeight: number;
-  readonly frameRate: number; // video_descriptor.frame_rate code
+  /** The video descriptor's frame rate code. */
+  readonly frameRate: number;
+  /** The composition number, counting up with each display set. */
   readonly compositionNumber: number;
-  readonly compositionState: number; // 0 normal, 1 acquisition point, 2 epoch start
-  readonly streamModel: number; // 0 multiplexed with the timeouts below, 1 out of mux
-  readonly uiModel: 0 | 1; // 0 always on, 1 pop-up
-  readonly compositionTimeoutPts: number; // 0 unless streamModel is 0
+  /** 0 normal, 1 acquisition point (a full set that can start decoding), 2 epoch start (clears earlier objects and palettes). */
+  readonly compositionState: number;
+  /** 0 when the menu is multiplexed in the clip and the timeouts below apply, 1 when it is out of mux. */
+  readonly streamModel: number;
+  /** 0 for an always-on menu, 1 for a pop-up menu. */
+  readonly uiModel: 0 | 1;
+  /** The PTS at which the menu ends; 0 unless `streamModel` is 0. */
+  readonly compositionTimeoutPts: number;
+  /** The PTS after which no button can be selected; 0 unless `streamModel` is 0. */
   readonly selectionTimeoutPts: number;
+  /** Ticks of inactivity (90 kHz) after which the user timeout acts; 0 for none. */
   readonly userTimeoutDuration: number;
+  /** The menu's pages. */
   readonly pages: readonly IgPage[];
 }
+/** One complete IG display set: the composition and every palette and object known at its end. */
 export interface IgDisplaySet {
+  /** The PTS of the composition segment, in 90 kHz ticks. */
   readonly pts: number;
+  /** The composition starts an epoch (state 2), so objects and palettes were cleared before it. */
   readonly epochStart: boolean;
+  /** The interactive composition; null when none has arrived. */
   readonly composition: IgComposition | null;
+  /** The epoch's palettes by id (copies, so later segments do not change a set already handed over). */
   readonly palettes: ReadonlyMap<number, PgPalette>;
+  /** The epoch's graphics objects by id. */
   readonly objects: ReadonlyMap<number, PgObject>;
+  /** The END segment was seen: the set can be used. */
   readonly complete: boolean;
 }
 
@@ -211,12 +284,13 @@ export function decodeInteractive(r: ByteReader): IgComposition {
 }
 
 /**
- * graphics_processor for IG: PG_DISPLAY_SET state plus graphics_processor_decode_pes. Feed one PES
- * payload (one segment) per push(); an END_OF_DISPLAY segment completes the display set.
- * libbluray's stc/dts gating is not ported: segments are decoded as they arrive.
+ * Decodes IG segments into display sets: libbluray's `graphics_processor.c` (the `PG_DISPLAY_SET` state and
+ * `graphics_processor_decode_pes`) for the IG stream. Feed one PES payload (one segment) per `push`; an
+ * END_OF_DISPLAY segment completes the display set. libbluray's stc and dts gating is not ported: segments are decoded
+ * as they arrive, and the navigator decides when to push them.
  */
 export class IgSegmentDecoder {
-  /** corrupt segments dropped */
+  /** Segments dropped because they were corrupt. */
   errors = 0;
 
   private readonly joiner = new SegmentJoiner();
@@ -227,6 +301,10 @@ export class IgSegmentDecoder {
   private palettes = new Map<number, PgPalette>();
   private objects = new Map<number, PgObject>();
 
+  /**
+   * Takes one PES payload at `pts` (90 kHz) and returns the display set it completed, or null. A corrupt segment is
+   * counted in `errors` and skipped. `_dts` is accepted for the shape of the caller's call and ignored.
+   */
   push(payload: Uint8Array, pts: number, _dts: number | null): IgDisplaySet | null {
     let result: IgDisplaySet | null = null;
     for (const seg of this.joiner.push(payload)) {
@@ -256,6 +334,7 @@ export class IgSegmentDecoder {
     this.decoding = false;
   }
 
+  /** Forgets everything: the partial set, the composition, the palettes and objects (a playlist closed). */
   reset(): void {
     this.joiner.reset();
     this.ics = null;
@@ -311,7 +390,7 @@ export class IgSegmentDecoder {
     const start = r.position;
     const existing = this.palettes.get(r.u8());
     r.seek(start);
-    // 8.8.3.1.1: in a normal-state composition a palette update keeps the entries it does not mention
+    // in a normal-state composition a palette update keeps the entries it does not mention (as libbluray's `graphics_processor.c`, which cites 8.8.3.1.1 for it)
     const update = existing !== undefined && this.ics !== null && this.ics.compositionState === 0;
     const palette = decodePalette(r, update ? existing : undefined);
     this.palettes.set(palette.id, palette);

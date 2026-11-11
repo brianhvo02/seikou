@@ -10,6 +10,10 @@ const TWO_LETTER: Readonly<Record<string, string>> = {
 
 let names: Intl.DisplayNames | null = null;
 
+/**
+ * The English name of an ISO 639-2 language code as a disc stores it (`jpn` gives "Japanese"). An empty or `und` code
+ * gives an empty string; a code the browser does not know comes back as given.
+ */
 export function languageName(code: string): string {
   const c = code.trim().toLowerCase();
   if (c === '' || c === 'und') return '';
@@ -21,6 +25,7 @@ export function languageName(code: string): string {
   }
 }
 
+/** "2. Japanese · AC-3 (5.1)": the audio track's index, language name, codec and, when known, channel layout. */
 export function trackLabel(track: AudioTrack): string {
   const language = languageName(track.language) || 'Unknown language';
   return `${track.index}. ${language} · ${track.codec}${track.channels ? ` (${track.channels})` : ''}`;
