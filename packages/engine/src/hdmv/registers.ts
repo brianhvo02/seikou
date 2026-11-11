@@ -9,7 +9,7 @@
 
 /** Player status and setting registers (PSRs): 128 of them, numbered 0 to 127 (libbluray `BD_PSR_COUNT`). */
 export const PSR_COUNT = 128;
-/** General purpose registers (GPRs) a movie object's commands use freely: 4096 of them (libbluray's `bd_gpr` array). */
+/** General purpose registers (GPRs) a movie object's commands use freely: 4096 of them (libbluray's `BD_GPR_COUNT`, the size of `gpr[]` in `bd_registers_s`). */
 export const GPR_COUNT = 4096;
 
 /**

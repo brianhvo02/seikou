@@ -646,7 +646,7 @@ export class PlayerController {
     this.seek(this.snapshot.timeUs + deltaUs);
   }
 
-  /** Seeks to the next chapter (sends `nextChapter`; the engine refuses it where the disc's UO mask forbids skipping). */
+  /** Seeks to the next chapter (sends `nextChapter`; the engine refuses it where an HDMV or plain-playlist disc's UO mask forbids skipping; a running BD-J title is not checked). */
   nextChapter(): void {
     this.post({ type: 'nextChapter' });
   }
@@ -784,7 +784,7 @@ export class PlayerController {
     return Promise.all(kept.map(async (f) => ({ name: f.name, bytes: await f.arrayBuffer() })));
   }
 
-  /** Places a file of the text set at a playlist time in microseconds (null: not placed; it shows from the start). */
+  /** Places a file of the text set at a playlist time in microseconds (null: not placed, so the file shows nowhere). */
   setSubtitleStart(file: number, startUs: number | null): void {
     this.post({ type: 'setSubtitleStart', file, startUs });
   }

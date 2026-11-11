@@ -363,7 +363,7 @@ export class HdmvVm {
     this.regs.psrWrite(PSR.PG_STREAM, psr2);
   }
 
-  /** `_set_sec_stream` (SET_SEC_STREAM): sets the secondary video and audio streams and display flags (PSR14) and the text subtitle stream and flags (PSR2). */
+  /** `_set_sec_stream` (SET_SEC_STREAM): sets the secondary video and audio streams and display flags (PSR14) and the PiP PG or text subtitle stream (PSR2 bits 16 to 27) and its flags (bits 30 and 31). */
   private _setSecStream(dst: number, src: number): void {
     const dispVFlag = (dst >>> 30) & 1;
     const dispAFlag = (src >>> 30) & 1;
