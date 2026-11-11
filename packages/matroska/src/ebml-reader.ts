@@ -10,7 +10,10 @@ import { Id } from './ids';
 /** Thrown for bytes that are not well-formed EBML: a bad length marker, or an element that runs past its parent or the data. */
 export class EbmlError extends Error {}
 
-/** The id and size field of one element, as `readElementHeader` reads them. */
+/**
+ * The id and size field of one element, as `readElementHeader` reads them.
+ * @internal
+ */
 export interface ElementHeader {
   /** The Element ID with its marker bits, as in `Id`. */
   id: number;
@@ -24,6 +27,7 @@ export interface ElementHeader {
  * Reads the element header that starts at `pos` in `buf` (RFC 8794 §5, §6). Returns `null` when
  * `buf` ends before the header does, so a caller reading a file in pieces can read more and retry.
  * Throws `EbmlError` for an id longer than 4 bytes, a size longer than 8, or a size over 2^53.
+ * @internal
  */
 export function readElementHeader(buf: Uint8Array, pos: number): ElementHeader | null {
   if (pos >= buf.length) return null;
@@ -96,6 +100,7 @@ const MASTERS = new Set<number>([
 /**
  * Parses the elements between `start` and `end` of `buf` into a tree, descending into the Matroska
  * master elements. Throws `EbmlError` when an element runs past `end` or has an unknown size.
+ * @internal
  */
 export function parseElements(buf: Uint8Array, start: number, end: number): EbmlNode[] {
   const nodes: EbmlNode[] = [];
@@ -164,24 +169,36 @@ export function stringOf(n: EbmlNode): string {
   return new TextDecoder().decode(n.bytes!).replace(/\0+$/, '');
 }
 
-/** Offset of the first byte after the Segment size field. */
+/**
+ * Offset of the first byte after the Segment size field.
+ * @internal
+ */
 export function segmentDataStart(tree: EbmlNode): number {
   const seg = find(tree, Id.Segment);
   return seg.offset + seg.headerLength;
 }
 
-/** True when the cluster's first SimpleBlock is a video (track 1) key frame. */
+/**
+ * True when the cluster's first SimpleBlock is a video (track 1) key frame.
+ * @internal
+ */
 export function firstBlockIsVideoKeyframe(cluster: EbmlNode): boolean {
   const first = cluster.children?.find((c) => c.id === Id.SimpleBlock);
   return first?.bytes !== undefined && first.bytes[0] === 0x81 && first.bytes[3] === 0x80;
 }
 
-/** Number of blocks (SimpleBlock or Block) of track 1. */
+/**
+ * Number of blocks (SimpleBlock or Block) of track 1.
+ * @internal
+ */
 export function countVideoBlocks(tree: EbmlNode): number {
   return findAll(tree, Id.SimpleBlock).concat(findAll(tree, Id.Block)).filter((b) => b.bytes![0] === 0x81).length;
 }
 
-/** One block as it sits in the file: its track, absolute timestamp in ms and how it was stored. */
+/**
+ * One block as it sits in the file: its track, absolute timestamp in ms and how it was stored.
+ * @internal
+ */
 export interface BlockInfo {
   track: number;
   timeMs: number;
@@ -197,6 +214,7 @@ export interface BlockInfo {
  * Every block of a parsed tree in file order, with the cluster timestamp added to its relative one
  * (RFC 9559 §10.1). Assumes track numbers under 127 (a 1-byte track field) and a TimestampScale of
  * 1,000,000, as `writeMatroska` writes them.
+ * @internal
  */
 export function blocksInOrder(tree: EbmlNode): BlockInfo[] {
   const out: BlockInfo[] = [];

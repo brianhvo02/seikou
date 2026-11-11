@@ -1,0 +1,62 @@
+# @seikou/matroska public API: the writer, the two readers, the range reader and sink, the timing helpers,
+# the errors, and the EBML element writers and tree reader, with every type their signatures reach.
+# writer
+writeMatroska
+checkMatroskaInput
+MkvInput
+MkvResult
+VideoTrackInfo
+AudioTrackInfo
+TrackLabel
+MkvAudioTrack
+MkvSubtitleTrack
+MkvVideoPacket
+VideoPacket
+AudioPacket
+SubtitleBlock
+MkvAttachment
+MkvChapter
+# playback
+openMatroska
+MatroskaFile
+MkvAttachedFile
+MkvChapterInfo
+# reader
+readMatroska
+ParsedMkv
+MkvTrack
+MkvBlock
+# errors
+MkvReadError
+NotMatroskaError
+# io
+RangeReader
+MkvSink
+# blob-reader
+blobRangeReader
+# timing
+videoMs
+framesToNs
+frameDurationNs
+# ids
+Id
+# ebml
+concat
+uint
+sint
+float64
+ascii
+utf8
+binary
+master
+voidElement
+# ebml-reader
+EbmlError
+EbmlNode
+parseMkv
+findAll
+find
+childOf
+uintOf
+floatOf
+stringOf

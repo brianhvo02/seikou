@@ -37,6 +37,7 @@ function beBytes(v: bigint, length: number): Uint8Array {
  * followed by the value in 7 bits per byte. The all-ones value of each width is reserved to mean
  * "unknown size" (§6.2), so the largest value that fits in a width is one less than all ones.
  * Throws RangeError for a negative or too-large value.
+ * @internal
  */
 export function vint(n: number | bigint): Uint8Array {
   const v = BigInt(n);
@@ -51,6 +52,7 @@ export function vint(n: number | bigint): Uint8Array {
  * Element Data Size always written in 8 bytes (RFC 8794 §6.1: a size need not be encoded at
  * its shortest length), so a placeholder can be overwritten in place once the real size is known. Throws
  * RangeError outside 0 to 2^56 - 2.
+ * @internal
  */
 export function vintFixed8(n: number | bigint): Uint8Array {
   const v = BigInt(n);
@@ -61,6 +63,7 @@ export function vintFixed8(n: number | bigint): Uint8Array {
 /**
  * Element ID bytes (RFC 8794 §5): the id as it appears in `Id`, big-endian, 1 to 4 bytes. The id
  * constants already include the length-marker bits, so no further encoding is needed.
+ * @internal
  */
 export function idBytes(id: number): Uint8Array {
   const len = id > 0xffffff ? 4 : id > 0xffff ? 3 : id > 0xff ? 2 : 1;

@@ -14,17 +14,35 @@ export const YCbCr = {
 /** One of `YCbCr`'s values: the colour matrix a script declares for its colours. */
 export type YCbCrMatrix = (typeof YCbCr)[keyof typeof YCbCr];
 
-/** Vertical alignment bit of `AssStyle.alignment`, libass `ass_types.h` `VALIGN_SUB`: text sits at the bottom, as subtitles do. */
+/**
+ * Vertical alignment bit of `AssStyle.alignment`, libass `ass_types.h` `VALIGN_SUB`: text sits at the bottom, as subtitles do.
+ * @internal
+ */
 export const VALIGN_SUB = 0;
-/** Vertical alignment bit `VALIGN_CENTER`: text is centred vertically. */
+/**
+ * Vertical alignment bit `VALIGN_CENTER`: text is centred vertically.
+ * @internal
+ */
 export const VALIGN_CENTER = 8;
-/** Vertical alignment bit `VALIGN_TOP`: text sits at the top of the frame. */
+/**
+ * Vertical alignment bit `VALIGN_TOP`: text sits at the top of the frame.
+ * @internal
+ */
 export const VALIGN_TOP = 4;
-/** Horizontal alignment of `AssStyle.alignment`, libass `ass_types.h` `HALIGN_LEFT`: text is aligned to the left margin. */
+/**
+ * Horizontal alignment of `AssStyle.alignment`, libass `ass_types.h` `HALIGN_LEFT`: text is aligned to the left margin.
+ * @internal
+ */
 export const HALIGN_LEFT = 1;
-/** Horizontal alignment `HALIGN_CENTER`: text is centred between the margins. */
+/**
+ * Horizontal alignment `HALIGN_CENTER`: text is centred between the margins.
+ * @internal
+ */
 export const HALIGN_CENTER = 2;
-/** Horizontal alignment `HALIGN_RIGHT`: text is aligned to the right margin. */
+/**
+ * Horizontal alignment `HALIGN_RIGHT`: text is aligned to the right margin.
+ * @internal
+ */
 export const HALIGN_RIGHT = 3;
 
 /**

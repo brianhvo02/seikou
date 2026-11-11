@@ -1,0 +1,44 @@
+# @seikou/ass public API: parsing, the renderer and what it needs (fonts, device fonts, the measurer, the warp),
+# with every type their signatures reach.
+# parse
+parseAss
+parseAssCodecPrivate
+parseChunkEvent
+# types
+AssTrack
+AssStyle
+AssEvent
+YCbCr
+YCbCrMatrix
+# renderer
+AssRenderer
+AssRendererDeps
+AssRenderStats
+# host-types
+AssRendererLimits
+Rect
+TextRenderOptions
+TextRendererLike
+# fonts
+AssFonts
+AssFontsOptions
+FontLoader
+FontRequest
+ResolvedFace
+createFontFaceLoader
+# font-tables
+readFontFile
+FontFile
+FaceInfo
+# device-fonts
+createDeviceFontSource
+DeviceFontSource
+DeviceFaceMetrics
+# measure
+createCanvasMeasurer
+GlyphMeasurer
+GlyphMetrics
+# warp
+drawWarped
+# transform
+Mat3

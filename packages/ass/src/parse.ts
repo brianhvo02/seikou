@@ -175,7 +175,10 @@ function lookupStyleIn(styles: readonly AssStyle[], defaultIndex: number, raw: s
   return defaultIndex;
 }
 
-/** ass_lookup_style */
+/**
+ * ass_lookup_style
+ * @internal
+ */
 export function lookupStyle(track: AssTrack, name: string): number {
   return lookupStyleIn(track.styles, track.defaultStyle, name);
 }
@@ -484,7 +487,10 @@ export function parseChunkEvent(track: AssTrack, data: string, start: number, du
   return event;
 }
 
-/** A `[Script Info]`, `[V4+ Styles]` or `[V4 Styles]` section header within the first 4 KiB. */
+/**
+ * A `[Script Info]`, `[V4+ Styles]` or `[V4 Styles]` section header within the first 4 KiB.
+ * @internal
+ */
 export function looksLikeAss(text: string): boolean {
   return /^[ \t]*\[(Script Info|V4\+? Styles)\]/im.test(text.slice(0, 4096).replace(/^﻿/, ''));
 }
