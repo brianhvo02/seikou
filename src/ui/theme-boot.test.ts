@@ -2,11 +2,12 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { THEME_BOOT_SCRIPT } from '../../vite/devsite/theme-boot';
 import { THEME_COLORS, THEME_KEY, effectiveTheme, readThemeChoice } from './theme';
 
 const html = readFileSync(join(process.cwd(), 'index.html'), 'utf8');
 const page = new DOMParser().parseFromString(html, 'text/html');
-const script = page.getElementById('theme-boot')?.textContent ?? '';
+const playerScript = page.getElementById('theme-boot')?.textContent ?? '';
 
 const throwing = (): Storage => {
   throw new Error('denied');
@@ -28,9 +29,10 @@ describe('index.html theme-boot', () => {
     expect(el?.parentElement?.tagName).toBe('HEAD');
   });
 
+  for (const [name, script] of [['the player page', playerScript], ['the developer pages', THEME_BOOT_SCRIPT]] as const) {
   for (const stored of [null, 'auto', 'light', 'dark', 'sepia', 'throws'] as const) {
     for (const prefersLight of [true, false]) {
-      it(`agrees with the theme module: stored ${stored}, device ${prefersLight ? 'light' : 'dark'}`, () => {
+      it(`${name} agrees with the theme module: stored ${stored}, device ${prefersLight ? 'light' : 'dark'}`, () => {
         const doc = document.implementation.createHTMLDocument('t');
         doc.head.innerHTML = '<meta name="theme-color" media="(prefers-color-scheme: light)"><meta name="theme-color" media="(prefers-color-scheme: dark)">';
         const storage = { getItem: (k: string) => (k === THEME_KEY ? stored : null) };
@@ -48,5 +50,6 @@ describe('index.html theme-boot', () => {
         expect([...doc.querySelectorAll('meta[name="theme-color"]')].map((m) => m.getAttribute('content'))).toEqual([THEME_COLORS[expected], THEME_COLORS[expected]]);
       });
     }
+  }
   }
 });

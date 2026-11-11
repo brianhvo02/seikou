@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const css = readFileSync(join(process.cwd(), 'src/ui/styles.css'), 'utf8');
+const css = readFileSync(join(process.cwd(), 'src/ui/tokens.css'), 'utf8');
+const rules = readFileSync(join(process.cwd(), 'src/ui/styles.css'), 'utf8');
 
 /** The custom properties declared in the first block whose selector is exactly `selector`. */
 function block(selector: string): Map<string, string> {
@@ -92,11 +93,11 @@ describe('the light palette', () => {
   it('draws buttons, fields and the switch with the control border, which dark keeps as --rim', () => {
     expect(dark.get('--control-rim')).toBe('#24356f');
     for (const rule of [/\nbutton \{[^}]*\}/, /\ninput:is\([^{]*\{[^}]*\}/, /\n\.theme-switch \{[^}]*\}/, /\n\.segmented \{[^}]*\}/, /\n\.title-chip \{[^}]*\}/])
-      expect(rule.exec(css)?.[0], String(rule)).toMatch(/border(-color)?: (1px solid )?var\(--control-rim\)/);
+      expect(rule.exec(rules)?.[0], String(rule)).toMatch(/border(-color)?: (1px solid )?var\(--control-rim\)/);
   });
 
   it('puts the TMDB logo on a plate in light where each of its colours reads at 3:1', () => {
-    const plate = /:root\[data-theme='light'\] \.admin-tmdb img \{[^}]*background: (#[0-9a-f]{6})/i.exec(css)?.[1];
+    const plate = /:root\[data-theme='light'\] \.admin-tmdb img \{[^}]*background: (#[0-9a-f]{6})/i.exec(rules)?.[1];
     expect(plate, 'light .admin-tmdb img background').toBeDefined();
     const svg = readFileSync(join(process.cwd(), 'public/tmdb-logo.svg'), 'utf8');
     const stops = [...svg.matchAll(/stop-color="(#[0-9a-f]{6})"/gi)].map((m) => m[1]!);

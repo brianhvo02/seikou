@@ -29,7 +29,7 @@ The folder has no public API for other packages; `src/main.tsx` mounts `App` and
 - Video shaders: `shader-sets.ts` (the built-in Anime4K sets and `input.conf` imports), `bundled-shaders.ts` (the shader files that ship in [`anime4k/`](anime4k), vendored from Anime4K under its own licence), `shader-library.ts` and `shader-model.ts`.
 - Subtitles: `SubtitleMenu.tsx`, `subtitle-starts.ts`, `EncodingPrompt.tsx` (the encoding asked for a file that is not UTF-8).
 - Encodes in the player: `chapter-actions.ts` (Skip opening, Skip ending, Next episode from chapter names), `ChapterActionButton.tsx`, `NextEpisodeButton.tsx`, `EncodeMenus.tsx`.
-- The look: `styles.css` (colour tokens on `:root`, light values under `:root[data-theme='light']`), `theme.ts` and `ThemeSwitch.tsx`, `name-lang.ts` (tags Japanese names so their kanji keep Japanese forms).
+- The look: `styles.css` and `tokens.css` (the colour tokens on `:root`, light values under `:root[data-theme='light']`, shared with the developer pages), `theme.ts` and `ThemeSwitch.tsx`, `name-lang.ts` (tags Japanese names so their kanji keep Japanese forms).
 - The rest: `fullscreen.ts` (the standard and WebKit fullscreen APIs), `format.ts` (times as `m:ss`), `update-prompt.ts` (when to offer a new version), `media-query.ts`, `TouchLog.tsx` (`?touchlog=1`).
 - The NAS screens: [`nas/`](nas/README.md). The help pages: `help/`, built from `docs/*.md` by `vite/markdown.ts`.
 
