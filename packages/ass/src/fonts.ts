@@ -17,7 +17,16 @@ import { DEVICE_STYLES, deviceFaceInfo, localNames, type DeviceFaceMetrics, type
 import { extractFace, FontFileError, readFontFile, type FaceInfo, type FontFile } from './font-tables';
 
 /** ASS_FontDesc: `bold` is a weight (ass_update_font maps \b1 to 700, \b0 to 400), `italic` 0 or 100 (or the \i value). */
-export interface FontRequest { readonly family: string; readonly bold: number; readonly italic: number; readonly vertical: boolean }
+export interface FontRequest {
+  /** The family name asked for, without a leading `@`. */
+  readonly family: string;
+  /** The weight wanted (400 regular, 700 bold). */
+  readonly bold: number;
+  /** 0 for upright; above 0 for italic (100 for `\i1`). */
+  readonly italic: number;
+  /** The family was named with a leading `@`: vertical text. */
+  readonly vertical: boolean;
+}
 
 /**
  * The face chosen for a request: the result of libass `ass_font_select` for one font. `face` is the table data,

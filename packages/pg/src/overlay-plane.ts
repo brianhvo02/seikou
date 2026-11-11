@@ -68,7 +68,9 @@ export interface Rect { readonly x: number; readonly y: number; readonly w: numb
  * bytes Y, Cr, Cb, T of every pixel in row-major order, printed as 16 lowercase hex digits.
  */
 export class OverlayPlane {
+  /** The plane's width in pixels, fixed at construction (1920 by default). */
   readonly width: number;
+  /** The plane's height in pixels, fixed at construction (1080 by default). */
   readonly height: number;
   private readonly px: Uint8Array;
   /** Where draw and wipe write: the back buffer when buffered, else px. */

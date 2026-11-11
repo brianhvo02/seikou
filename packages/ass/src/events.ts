@@ -18,50 +18,86 @@ import type { AssEvent, AssTrack } from './types';
 
 const VERTICAL_LOWER_BOUND = 0x02f1;
 
-/** GlyphInfo: same fields and units (positions and advances are 26.6 integers). */
+/**
+ * One character of an event with the render state in force at it: libass `GlyphInfo` (`ass_render.h`), with the same
+ * fields and units. Positions, advances and offsets are 26.6 fixed point integers (64 per pixel). Parsing fills the
+ * state fields; layout fills `face`, the metrics and the positions.
+ */
 export interface GlyphInfo {
+  /** The Unicode code point (`symbol`). */
   symbol: number;
+  /** Layout leaves the glyph out (line break characters, ignorable characters). */
   skip: boolean;
+  /** A space trimmed from the end or start of a line, which takes no width. */
   isTrimmedWhitespace: boolean;
+  /** The font requested for the glyph (`font`). */
   font: FontRequest;
-  /** Filled by layout (retrieve_glyphs). */
+  /** Filled by layout (retrieve_glyphs): the face chosen for the glyph. */
   face: ResolvedFace | null;
+  /** The font size in pixels once the screen scale is applied (`font_size`). */
   fontSize: number;
+  /** The drawing commands when the glyph stands for a `\p` drawing, else null (`drawing_text`). */
   drawingText: string | null;
+  /** The `\p` scale of the drawing (`drawing_scale`; 0 for text). */
   drawingScale: number;
+  /** The `\pbo` baseline offset of the drawing (`drawing_pbo`). */
   drawingPbo: number;
+  /** Nonzero for the first glyph of a line (`linebreak`). */
   linebreak: number;
+  /** The glyph begins a new run of glyphs sharing one drawing state (`starts_new_run`). */
   startsNewRun: boolean;
+  /** 0xRRGGBBAA, primary, secondary, outline and back colour (`c`). */
   c: [number, number, number, number];
+  /** The `EF_*` karaoke type (`effect_type`). */
   effectType: number;
+  /** The length of this syllable's karaoke time (`effect_timing`); after `processKaraoke`, the sweep's distance. */
   effectTiming: number;
+  /** The delay after the end of the last syllable (`effect_skip_timing`). */
   effectSkipTiming: number;
+  /** A karaoke tag ended the previous syllable here (`reset_effect`). */
   resetEffect: boolean;
+  /** The face's ascender and descender at this size, in the units of libass's ints (`asc`, `desc`). */
   asc: number;
   desc: number;
+  /** Edge blur passes (`be`) and Gaussian blur radius (`blur`). */
   be: number;
   blur: number;
+  /** Shadow distance along x and y (`shadow_x`, `shadow_y`). */
   shadowX: number;
   shadowY: number;
+  /** Rotation in degrees about each axis (`frx`, `fry`, `frz`). */
   frx: number; fry: number; frz: number;
+  /** Shear along x and y (`fax`, `fay`). */
   fax: number; fay: number;
+  /** Glyph scale as fractions, after `fixGlyphScaling` moved the size into it (`scale_x`, `scale_y`). */
   scaleX: number;
   scaleY: number;
+  /** How much `fixGlyphScaling` changed the scale: before over after (`scale_fix`). */
   scaleFix: number;
+  /** BorderStyle, 1 outline and shadow or 3 box (`border_style`). */
   borderStyle: number;
+  /** Outline width along x and y (`border_x`, `border_y`). */
   borderX: number;
   borderY: number;
+  /** Extra space after the character (`hspacing`), and the same in 26.6 (`hspacing_scaled`). */
   hspacing: number;
   hspacingScaled: number;
+  /** The weight and slant requested, as the style and tags gave them (`bold`, `italic`). */
   italic: number;
   bold: number;
+  /** `DECO_*` bits: underline, strike-out, rotated (`flags`). */
   flags: number;
+  /** The fade alpha applied to the glyph (`fade`). */
   fade: number;
+  /** The shaping run the glyph belongs to (`shape_run_id`). */
   shapeRunId: number;
+  /** Position on the line (`pos`), shaper offset (`offset`) and advance (`advance`), 26.6. */
   posX: number; posY: number;
   offsetX: number; offsetY: number;
   advanceX: number; advanceY: number;
+  /** The advance of the whole ligature cluster (`cluster_advance`), 26.6. */
   clusterAdvanceX: number; clusterAdvanceY: number;
+  /** Shift from the rotation centre used by the transform (`shift`), 26.6. */
   shiftX: number; shiftY: number;
   /** Next glyph of a cluster (filled by layout). */
   next: GlyphInfo | null;
@@ -71,7 +107,9 @@ export interface GlyphInfo {
   trScaleX: number; trScaleY: number; trOffsetX: number; trOffsetY: number;
   /** The em size in px the glyph's outline is at (font_size 256 through ass_face_set_size). */
   emPx: number;
+  /** The browser's measurement of the glyph, filled by layout; null before. */
   metrics: GlyphMetrics | null;
+  /** The parsed outline when the glyph is a drawing, else null. */
   drawing: Drawing | null;
   /** A ligature root: the characters of its cluster, drawn together (null for a single character). */
   clusterText: string | null;

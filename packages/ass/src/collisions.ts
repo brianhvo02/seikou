@@ -12,10 +12,15 @@
 export interface EventBox {
   /** Index of the event in the track. */
   readonly index: number;
+  /** Top edge in frame pixels; collision handling moves it. */
   top: number;
+  /** Height in frame pixels. */
   readonly height: number;
+  /** Left edge in frame pixels. */
   readonly left: number;
+  /** Width in frame pixels. */
   readonly width: number;
+  /** Whether the event may be moved (false after `\pos`, `\move` or `\org`). */
   readonly detectCollisions: boolean;
   /** -1 moves up (bottom-aligned), 1 down. */
   readonly shiftDirection: number;

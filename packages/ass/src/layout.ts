@@ -31,23 +31,33 @@ const NO_INK = { advance: 0, inkLeft: 0, inkRight: 0, inkTop: 0, inkBottom: 0 } 
 const SPACE = 0x20;
 
 /** A laid-out line's ascent and descent in pixels (libass `LineInfo`). */
-export interface LineInfo { asc: number; desc: number }
+export interface LineInfo {
+  /** The line's ascent: the tallest glyph's height above the baseline, in pixels. */
+  asc: number;
+  /** The line's descent below the baseline, in pixels. */
+  desc: number;
+}
 
 /**
  * An event after layout (`ass_render_event`'s result, before bitmaps): its text and glyph positions, the box it
  * occupies and its clip. Positions are in frame pixels unless the field says otherwise.
  */
 export interface LaidOutEvent {
+  /** The parsed event, whose glyphs layout has positioned. */
   readonly text: EventText;
+  /** One entry per line of text. */
   readonly lines: readonly LineInfo[];
   /** Device position of the text box origin (the first line's baseline at bbox x 0). */
   readonly deviceX: number;
   readonly deviceY: number;
   /** compute_string_bbox: x_min, y_min, x_max, y_max relative to the device position, px. */
   readonly bbox: readonly [number, number, number, number];
+  /** The text's height in pixels, all lines. */
   readonly height: number;
+  /** The outline and shadow extent above and below the text, pixels. */
   readonly borderTop: number;
   readonly borderBottom: number;
+  /** The outline and shadow extent to the sides, pixels. */
   readonly borderX: number;
   /** Frame pixels after ass_render_event's clip fix-up; `drawing` is the vector clip's text. */
   readonly clip: { readonly x0: number; readonly y0: number; readonly x1: number; readonly y1: number; readonly mode: number; readonly drawing: string | null; readonly drawingScale: number; readonly drawingMode: number };

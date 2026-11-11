@@ -187,7 +187,8 @@ export class PgSegmentDecoder {
     const start = r.position;
     const existing = this.palettes.get(r.u8());
     r.seek(start);
-    // in a normal-state composition a palette update keeps the entries it does not mention
+    // In a normal-state composition (state 0) a palette segment with the id of an existing palette is an update:
+    // entries it does not mention keep their colours. In any other state the segment replaces the palette whole.
     const update = existing !== undefined && this.pcs !== null && this.pcs.compositionDescriptor.state === 0;
     const palette = decodePalette(r, update ? existing : undefined);
     this.palettes.set(palette.id, palette);
