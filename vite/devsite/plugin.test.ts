@@ -60,6 +60,16 @@ describe('exampleFixtures', () => {
     writeFileSync(join(root, 'b.browser.ts'), "await fetch('/developers/_examples/fixtures/missing.bin');\n");
     expect(() => exampleFixtures(root, ['b.browser.ts'])).toThrow(/does not exist/);
   });
+
+  it('takes encodes/<path> from fixtures/encodes and refuses a path that leaves the roots', () => {
+    const root = mkdtempSync(join(tmpdir(), 'devsite-fixtures-'));
+    mkdirSync(join(root, 'fixtures/encodes/990001'), { recursive: true });
+    writeFileSync(join(root, 'fixtures/encodes/990001/1.mkv'), 'x');
+    writeFileSync(join(root, 'a.browser.ts'), "await fetch('/developers/_examples/fixtures/encodes/990001/1.mkv');\n");
+    expect(exampleFixtures(root, ['a.browser.ts'])).toEqual(['fixtures/encodes/990001/1.mkv']);
+    writeFileSync(join(root, 'b.browser.ts'), "await fetch('/developers/_examples/fixtures/encodes/../../secret.bin');\n");
+    expect(() => exampleFixtures(root, ['b.browser.ts'])).toThrow(/outside/);
+  });
 });
 
 describe('siteStylesheet', () => {

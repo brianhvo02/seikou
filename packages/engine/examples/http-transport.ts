@@ -4,6 +4,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { HttpTransport, RemoteDiscError } from '@seikou/engine';
+// Runs in a Vite or vitest project: the package root imports Vite's `?url` and `?worker&url` modules.
 
 const DISC = new URL('../../../fixtures/synthetic/disc1/', import.meta.url);
 

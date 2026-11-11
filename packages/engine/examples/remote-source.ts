@@ -5,6 +5,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { DiscManifest } from '@seikou/nas';
 import { HttpTransport, RemoteSource, openDisc, type ChunkCache } from '@seikou/engine';
+// Runs in a Vite or vitest project: the package root imports Vite's `?url` and `?worker&url` modules.
 
 const DISC = new URL('../../../fixtures/synthetic/disc1/', import.meta.url);
 
@@ -19,9 +20,11 @@ export default async function example(): Promise<void> {
     if (!path.startsWith('BDMV/STREAM/')) (manifest.inline as Record<string, string>)[path] = bytes.toString('base64');
   }
   let requests = 0;
+  let lastToken: string | null = null;
   const server = createServer(async (req, res) => {
     requests++;
     const url = new URL(req.url ?? '/', 'http://localhost');
+    lastToken = url.searchParams.get('t');
     const onDisk = files.get(decodeURIComponent(url.pathname.replace(/^\/discs\/example\/files\//, '')));
     const [, a, b] = /bytes=(\d+)-(\d+)/.exec(req.headers.range ?? '') ?? [];
     if (!onDisk || a === undefined || url.searchParams.get('t') === null) return void res.writeHead(404).end();
@@ -80,6 +83,8 @@ export default async function example(): Promise<void> {
     // #region setToken
     source.setToken('fresh-token'); // a refreshed session token for the requests that follow
     // #endregion
+    await source.read('BDMV/STREAM/00001.M2TS', 512 * 1024, 192); // a seek: a chunk not held, so a request goes out
+    if (lastToken !== 'fresh-token') throw new Error(`the server saw token ${lastToken}`);
 
     // #region setCache
     // a ChunkCache keeps chunks beyond the memory budget (Seikou's is on disk, in the origin's private file system)

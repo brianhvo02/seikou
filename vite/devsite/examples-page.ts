@@ -15,7 +15,7 @@ export const EXAMPLES_PAGE_MARKER = 'data-examples-page';
  * source of the module it loads. The module imports every example (paths from the repository root), runs each one in
  * turn, records `{ file, ok, error }` on `window.__examples` and sets `window.__examplesDone` when all have run.
  * An example reads a fixture with `fetch('/developers/_examples/fixtures/<path>')`, where `<path>` is under
- * `fixtures/synthetic/`; `fixtures` lists the paths the page's build copies there.
+ * `fixtures/synthetic/`, or is `encodes/<path under fixtures/encodes/>`; `fixtures` lists the paths the page's build copies there.
  *
  * @param files The browser example files, as paths from the repository root.
  * @param fixtures The fixture files the examples read, as paths from the repository root.

@@ -8,6 +8,7 @@ const DISC3 = '/developers/_examples/fixtures/disc3/'; // four audio tracks
 const DISC_SUBS = '/developers/_examples/fixtures/disc-subs/'; // two PG streams
 const DISC_MENU = '/developers/_examples/fixtures/disc-menu/'; // an HDMV menu
 const FONT = '/developers/_examples/fixtures/disc-bdj-menu/BDMV/AUXDATA/00000.otf'; // Source Sans 3
+const EPISODE = '/developers/_examples/fixtures/encodes/990001/1.mkv'; // an encoded episode: AV1, Opus, ASS and PGS
 
 const DISC1_FILES = ['BDMV/index.bdmv', 'BDMV/PLAYLIST/00000.mpls', 'BDMV/PLAYLIST/00001.mpls', 'BDMV/CLIPINF/00001.clpi', 'BDMV/CLIPINF/00002.clpi', 'BDMV/STREAM/00001.m2ts', 'BDMV/STREAM/00002.m2ts'];
 const DISC3_FILES = ['BDMV/index.bdmv', 'BDMV/PLAYLIST/00000.mpls', 'BDMV/CLIPINF/00001.clpi', 'BDMV/STREAM/00001.m2ts'];
@@ -39,6 +40,16 @@ function until(controller: PlayerController, test: (s: PlayerSnapshot) => boolea
   });
 }
 
+/** Notes the type of every command the page posts to `worker`, so the example can show what reached the engine. */
+function recordCommands(worker: Worker, sent: string[]): Worker {
+  const post = worker.postMessage.bind(worker) as (message: unknown, transfer: Transferable[]) => void;
+  worker.postMessage = ((message: { type: string }, transfer: Transferable[] = []) => {
+    sent.push(message.type);
+    post(message, transfer);
+  }) as Worker['postMessage'];
+  return worker;
+}
+
 function check(ok: boolean, what: string): void {
   if (!ok) throw new Error(what);
 }
@@ -47,9 +58,10 @@ export default async function example(): Promise<void> {
   const canvas = document.body.appendChild(document.createElement('canvas'));
   canvas.width = 640;
   canvas.height = 360;
-  const controller = createController({ worker: () => createEngineWorker('engine'), profile: 'desktop' });
+  const sent: string[] = [];
+  const controller = createController({ worker: () => recordCommands(createEngineWorker('engine'), sent), profile: 'desktop' });
   try {
-    await tour(controller, canvas);
+    await tour(controller, canvas, sent);
   } finally {
     controller.closeDisc();
     canvas.remove();
@@ -57,7 +69,7 @@ export default async function example(): Promise<void> {
   await construct();
 }
 
-async function tour(controller: PlayerController, canvas: HTMLCanvasElement): Promise<void> {
+async function tour(controller: PlayerController, canvas: HTMLCanvasElement, sent: string[]): Promise<void> {
   // #region subscribe
   // called after every change; the snapshot is replaced, never mutated, so comparing objects tells what changed
   let last = controller.getSnapshot().engineState;
@@ -187,7 +199,7 @@ async function tour(controller: PlayerController, canvas: HTMLCanvasElement): Pr
   await audioTracks(controller);
   await pgSubtitles(controller);
   await menus(controller);
-  await remote(controller);
+  await remote(controller, sent);
   await encode(controller);
 }
 
@@ -324,7 +336,7 @@ async function menus(controller: PlayerController): Promise<void> {
   await until(controller, (s) => s.menuActive && s.currentPlaylistId === '00001', 'back at the top menu');
 }
 
-async function remote(controller: PlayerController): Promise<void> {
+async function remote(controller: PlayerController, sent: string[]): Promise<void> {
   // A server answers `GET <base>manifest` with the file list and the small files inlined, and serves the clips by range.
   // This page has no server, so it builds the manifest itself and inlines every file, clips too.
   const files = await discFiles(DISC1, DISC1_FILES);
@@ -338,6 +350,8 @@ async function remote(controller: PlayerController): Promise<void> {
   const base = 'https://nas.example/bluray/api/discs/example/';
 
   // #region openRemote
+  // Against a real server the manifest comes from the disc's API, with the device's session token:
+  //   const manifest = (await (await fetch(`${base}manifest`, { headers: { Authorization: `Bearer ${token}` } })).json()) as DiscManifest;
   const refreshToken = async (): Promise<string> => 'fresh-token'; // asked when the server refuses the token
   controller.openRemote({ kind: 'remote', base, token: 'token', manifest }, refreshToken);
   // #endregion
@@ -349,9 +363,13 @@ async function remote(controller: PlayerController): Promise<void> {
   // #region setRemoteToken
   controller.setRemoteToken('next-token'); // the page refreshed the session on its own schedule
   // #endregion
+  // a real server sees `t=next-token` on the requests that follow (here only the fill below makes any, to nas.example,
+  // where nothing answers: playback reads the inlined files)
+  check(sent.includes('remoteToken'), 'the token did not reach the engine');
 
   // #region bufferAhead
-  // fill the disc's on-disk read-ahead cache with 8 MB of the main playlist from 0 s; snapshot.buffer reports the fill
+  // fill the disc's on-disk read-ahead cache with 8 MB of the main playlist from 0 s (clamped to the playlist's size, here
+  // about 2.7 MB); snapshot.buffer reports the fill
   controller.bufferAhead(0, 8_000_000);
   // #endregion
   const buffering = await until(controller, (s) => s.buffer !== null, 'the fill report');
@@ -359,6 +377,8 @@ async function remote(controller: PlayerController): Promise<void> {
   // #region cancelBuffer
   controller.cancelBuffer(); // the viewer chose to play now
   // #endregion
+  // a real server sees the fill's range requests stop
+  check(sent.includes('cancelBuffer'), 'the cancel did not reach the engine');
 
   // #region setLevel
   // switch to another version of the same disc: a quality level's manifest (here the same one) and its query; it
@@ -369,15 +389,23 @@ async function remote(controller: PlayerController): Promise<void> {
 }
 
 async function encode(controller: PlayerController): Promise<void> {
-  // An encoded episode on a NAS: one Matroska file of AV1 and Opus. No server answers at nas.example, so the engine
-  // reports the NAS lost; the synthetic fixtures hold no encode to play.
-  const manifest: DiscManifest = { discId: 'example-1', name: 'Episode 1', files: [{ path: 'EPISODE.MKV', size: 1_000_000 }], inline: {} };
+  // An encoded episode on a NAS: one Matroska file of AV1 and Opus, served like a disc's files. This page has no server,
+  // so its manifest inlines the whole file (a server's manifest lists EPISODE.MKV with its size, inlining nothing).
+  const bytes = new Uint8Array(await (await fetch(EPISODE)).arrayBuffer());
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  const manifest: DiscManifest = { discId: '990001-1', name: 'Episode 1', files: [{ path: 'EPISODE.MKV', size: bytes.length }], inline: { 'EPISODE.MKV': btoa(binary) } };
+
   // #region openEncode
-  controller.openEncode({ base: 'https://nas.example/bluray/api/encodes/example-1/', token: 'token', manifest, encodeId: 'example-1' });
+  // the encode's API base, as the NAS lists it; 10 s in, as a resume would
+  controller.openEncode({ base: 'https://nas.example/bluray/api/encodes/990001-1/', token: 'token', manifest, encodeId: '990001-1' }, undefined, 10_000_000);
   // #endregion
-  check(controller.getSnapshot().encodeId === 'example-1', 'encodeId is not set');
-  const failed = await until(controller, (s) => s.error !== null, 'the encode to fail', 40_000);
-  console.log(failed.error?.message);
+  const playing = await until(controller, (s) => s.engineState === 'playing' && s.timeUs > 10_000_000, 'the episode playing');
+  console.log(playing.currentPlaylistId, playing.chapters.map((c) => c.name), playing.audioTracks.map((t) => `${t.codec} ${t.language}`), playing.subtitles?.pg.map((t) => t.name));
+  // mkv [Avant, Opening, Part A, Ending, Preview] [Opus jpn] [English, English (disc)]
+  check(playing.encodeId === '990001-1' && playing.currentPlaylistId === 'mkv', 'not the encode');
+  check(playing.chapters.map((c) => c.name).join() === 'Avant,Opening,Part A,Ending,Preview', 'unexpected chapters');
+  check(playing.audioTracks.length === 1 && playing.audioTracks[0]!.codec === 'Opus' && playing.subtitles?.pg.length === 2, 'unexpected tracks');
   controller.closeDisc();
 }
 
@@ -396,6 +424,8 @@ async function construct(): Promise<void> {
   const worker = createEngineWorker('preview');
   const preview = new PlayerController(worker, silent);
   // #endregion
+  const sent: string[] = [];
+  recordCommands(worker, sent);
 
   // #region setMemoryProfile
   preview.setMemoryProfile('constrained'); // once, before a disc opens: smaller caches, as on a phone
@@ -407,12 +437,21 @@ async function construct(): Promise<void> {
 
   // #region flushSaves
   // the page is going away: a BD-J disc stores what it saved now rather than after its delay
-  addEventListener('pagehide', () => preview.flushSaves());
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) preview.flushSaves();
-    preview.setVisibility(document.hidden);
-  });
+  const listening = new AbortController(); // aborted when the player goes, which removes both listeners
+  addEventListener('pagehide', () => preview.flushSaves(), { signal: listening.signal });
+  document.addEventListener(
+    'visibilitychange',
+    () => {
+      if (document.hidden) preview.flushSaves();
+      preview.setVisibility(document.hidden);
+    },
+    { signal: listening.signal },
+  );
   // #endregion
+  dispatchEvent(new Event('pagehide')); // as the browser does when the page goes
+  listening.abort();
+  console.log('posted:', sent.join(', ')); // setMemoryProfile, visibility, flushSaves
+  check(sent.join() === 'setMemoryProfile,visibility,flushSaves', `posted ${sent.join()}`);
 
   preview.open(await discFiles(DISC1, DISC1_FILES));
   const opened = await until(preview, (s) => s.engineState === 'idle' && s.playlists.length > 0, 'the preview disc');

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { ByteSource } from '@seikou/bdmv';
 import { openDisc } from '@seikou/engine';
+// Runs in a Vite or vitest project: the package root imports Vite's `?url` and `?worker&url` modules.
 
 /** A ByteSource over a disc folder: paths are matched without regard to case, as a disc's are. */
 async function folderSource(root: string): Promise<ByteSource> {

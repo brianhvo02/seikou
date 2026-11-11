@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Keep the screen awake while a disc plays and give the system's media controls play, pause and seek.
 import { PlatformSession, type NavigatorLike, type PlayerController, type PlayerSnapshot } from '@seikou/engine';
+// Runs in a Vite or vitest project: the package root imports Vite's `?url` and `?worker&url` modules.
 
 type Store = Pick<PlayerController, 'togglePlay' | 'seekBy' | 'getSnapshot' | 'subscribe'>;
 

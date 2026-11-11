@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // Turn a dropped disc folder into the [path, File] pairs PlayerController.open takes.
 import { walkEntries, type DirEntryLike, type EntryLike, type FileEntryLike } from '@seikou/engine';
+// Runs in a Vite or vitest project: the package root imports Vite's `?url` and `?worker&url` modules.
 
 // What a drop's `item.webkitGetAsEntry()` hands a page, made up here for a folder `disc1/BDMV/index.bdmv`.
 const file = (name: string): FileEntryLike => ({ isFile: true, isDirectory: false, name, file: (ok) => ok(new File([new Uint8Array(4)], name)) });

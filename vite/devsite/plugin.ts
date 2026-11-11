@@ -21,8 +21,23 @@ const EXAMPLES_ID = 'virtual:devsite-examples';
 const RESOLVED_EXAMPLES_ID = `\0${EXAMPLES_ID}`;
 const EXAMPLES_ENTRY = 'developers/_examples/examples-entry.js';
 const FIXTURE_ROOT = 'fixtures/synthetic';
-/** How a browser example names a fixture it fetches: `/developers/_examples/fixtures/<path under fixtures/synthetic>`. */
+/** The committed encoded episodes, which examples name as `encodes/<path under fixtures/encodes>`. */
+const ENCODES_ROOT = 'fixtures/encodes';
+/**
+ * How a browser example names a fixture it fetches: `/developers/_examples/fixtures/<path under fixtures/synthetic>`,
+ * or `/developers/_examples/fixtures/encodes/<path under fixtures/encodes>`.
+ */
 const FIXTURE_URL = /\/developers\/_examples\/fixtures\/([\w./-]+)/g;
+
+/** The repository path a fixture URL's path names (`encodes/…` under fixtures/encodes, the rest under fixtures/synthetic). */
+function fixtureSource(path: string): string {
+  return path === 'encodes' || path.startsWith('encodes/') ? posix.join(ENCODES_ROOT, path.slice('encodes'.length)) : posix.join(FIXTURE_ROOT, path);
+}
+
+/** Where the page serves a fixture: the inverse of fixtureSource, under `developers/_examples/fixtures/`. */
+function fixtureUrlPath(source: string): string {
+  return source.startsWith(`${ENCODES_ROOT}/`) ? posix.join('encodes', posix.relative(ENCODES_ROOT, source)) : posix.relative(FIXTURE_ROOT, source);
+}
 
 /** Where the TypeDoc model lives, from the repository root (written by `npm run devsite:model`). */
 export const MODEL_PATH = '.cache/devsite/model.json';
@@ -32,7 +47,7 @@ export function browserExampleFiles(repoRoot: string): string[] {
   return exampleFiles(repoRoot).filter((f) => f.endsWith('.browser.ts'));
 }
 
-/** Every file under `fixtures/synthetic/` the browser examples fetch, as paths from the repository root (a folder brings its files). */
+/** Every file under `fixtures/synthetic/` and `fixtures/encodes/` the browser examples fetch, as paths from the repository root (a folder brings its files). */
 export function exampleFixtures(repoRoot: string, files: readonly string[]): string[] {
   const out = new Set<string>();
   const add = (rel: string): void => {
@@ -44,8 +59,8 @@ export function exampleFixtures(repoRoot: string, files: readonly string[]): str
   for (const file of files) {
     for (const m of readFileSync(join(repoRoot, file), 'utf8').matchAll(FIXTURE_URL)) {
       const path = posix.normalize(m[1]!.replace(/\/$/, ''));
-      if (path.startsWith('..')) throw new Error(`developer site: ${file} fetches a fixture outside ${FIXTURE_ROOT}`);
-      add(posix.join(FIXTURE_ROOT, path));
+      if (path.startsWith('..') || path.startsWith('/')) throw new Error(`developer site: ${file} fetches a fixture outside ${FIXTURE_ROOT} and ${ENCODES_ROOT}`);
+      add(fixtureSource(path));
     }
   }
   return [...out].sort();
@@ -140,7 +155,7 @@ export function developerSite(repoRoot: string): Plugin {
       emit('developers/search.js', script.outputFiles[0]!.text);
       const page = examplesPage(examples.files, examples.fixtures, `/${EXAMPLES_ENTRY}`);
       emit('developers/_examples/index.html', page.html);
-      for (const f of page.fixtures) emit(`developers/_examples/fixtures/${posix.relative(FIXTURE_ROOT, f)}`, readFileSync(join(repoRoot, f)));
+      for (const f of page.fixtures) emit(`developers/_examples/fixtures/${fixtureUrlPath(f)}`, readFileSync(join(repoRoot, f)));
     },
     configurePreviewServer(server) {
       const outDir = resolve(server.config.root, server.config.build.outDir);

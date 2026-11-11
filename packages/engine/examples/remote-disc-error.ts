@@ -2,6 +2,7 @@
 // Report a lost server from a RangeTransport of your own the way HttpTransport does, so the player shows the same message.
 import { DiscError } from '@seikou/bdmv';
 import { RemoteDiscError, type RangeTransport } from '@seikou/engine';
+// Runs in a Vite or vitest project: the package root imports Vite's `?url` and `?worker&url` modules.
 
 export default async function example(): Promise<void> {
   const transport: RangeTransport = {
