@@ -4,16 +4,16 @@ Presentation Graphics (PG), the Blu-ray bitmap subtitles, ported from libbluray.
 
 ## Modules
 
-All of it lives in `src/`.
+All of it lives in `src/`. The package root exports the names listed in `public-api.txt`; every module can also be imported by path (`@seikou/pg/<module>`), and what the root leaves out is internal and can change without notice.
 
 | Module | What it does |
 | --- | --- |
 | `pg-decoder.ts` (`PgSegmentDecoder`) | Turns PG PES payloads into display sets. |
-| `segments.ts` | Segment types and parsing, and `SegmentJoiner`, which joins segments split across packets. |
-| `rle.ts` | Run-length decoding and cropping of object bitmaps. |
-| `palette.ts` | Converts YCrCb palette entries to RGBA. |
+| `segments.ts` | Segment types and parsing, and the internal `SegmentJoiner`, which joins segments split across packets. |
+| `rle.ts` | Internal: run-length decoding and cropping of object bitmaps. |
+| `palette.ts` | Internal: converts YCrCb palette entries to RGBA. |
 | `pg-renderer.ts` (`PgRenderer`) | Turns display sets into overlay operations at their presentation time. |
-| `composition.ts` | Renders one composition object. |
+| `composition.ts` | Internal: renders one composition object. |
 | `overlay-plane.ts` (`OverlayPlane`) | Applies overlay operations to an RGBA surface. |
 
 ## What a consumer must provide

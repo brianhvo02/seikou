@@ -12,20 +12,20 @@ Both readers take a `RangeReader`: `{ size, name?, read(offset, length, signal?)
 
 ## Modules
 
-All sources are in `src/`.
+All sources are in `src/`. The package root exports the names listed in `public-api.txt`; every module can also be imported by path (`@seikou/matroska/<module>`), and what the root leaves out is internal and can change without notice.
 
 | Module | What it does |
 | --- | --- |
 | `writer` | `writeMatroska` and `checkMatroskaInput`: the muxer. |
 | `playback` | `openMatroska`: the seekable reader, with `blocksFrom(timeMs)`. |
 | `reader` | `readMatroska`: the front-to-back reader. |
-| `parse` | Pieces both readers share: reading ranges, the EBML header and Segment, TrackEntry, chapters and splitting a cluster into blocks. |
+| `parse` | Internal: pieces both readers share: reading ranges, the EBML header and Segment, TrackEntry, chapters and splitting a cluster into blocks. |
 | `ebml`, `ebml-reader`, `ids` | EBML element writers, the tree reader, and the Matroska element ids, each noted with the section of RFC 8794 or RFC 9559 that defines it. |
 | `io` | The `RangeReader` and `MkvSink` interfaces. |
 | `blob-reader` | `blobRangeReader`: a `RangeReader` over a `Blob` or `File`. |
 | `timing` | `videoMs`, `framesToNs` and `frameDurationNs`, which put frames on the Matroska time grid. |
 | `errors` | The errors the readers throw for a file that is truncated, malformed or not Matroska. |
-| `test-io` | An in-memory `MkvSink` for tests. It is not shipped in the npm package. |
+| `test-io` | An in-memory `MkvSink` for tests (internal). It is not shipped in the npm package. |
 
 ## What a consumer provides
 
@@ -74,7 +74,7 @@ A laced block comes out one frame per `MkvBlock`, with `frameIndex` and `frameCo
 
 The `timing.ts` helpers (`videoMs`, `framesToNs`, `frameDurationNs`) are exported because packet times and chapter times must fall on the same frame grid: a video packet's timestamp is `videoMs(index, video)` in whole milliseconds, and a chapter that starts at a frame is `framesToNs(frame, video)`, which the reader rounds back to that same millisecond. Computing both through these functions keeps a chapter's start equal to its frame's block time.
 
-The EBML element writers and the tree reader the tests use are exported too.
+The EBML element writers (`concat`, `uint`, `sint`, `float64`, `ascii`, `utf8`, `binary`, `master`, `voidElement`) and the tree reader (`parseMkv`, `find`, `findAll`, `childOf`, `uintOf`, `floatOf`, `stringOf`, `EbmlNode`, `EbmlError`) are exported too. The lower-level `vint`, `vintFixed8`, `idBytes`, `parseElements` and `readElementHeader` are internal, importable from `@seikou/matroska/ebml` and `@seikou/matroska/ebml-reader`.
 
 ## Documentation and references
 

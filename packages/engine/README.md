@@ -6,7 +6,7 @@ On the page, `createController({ worker, profile })` returns a `PlayerController
 
 ## Modules
 
-All of it lives in `src/`.
+All of it lives in `src/`. The package root exports the names listed in `public-api.txt`; every module can also be imported by path (`@seikou/engine/<module>`), and what the root leaves out is internal and can change without notice.
 
 | Module | What it does |
 | --- | --- |
@@ -32,7 +32,7 @@ All of it lives in `src/`.
 - Vite. The package imports its AudioWorklet, `audio.wasm` and the default font with Vite's `?url` and `?worker&url` suffixes. A TypeScript consumer needs Vite's client types (`"types": ["vite/client"]` in its tsconfig), or tsc reports those imports as unknown modules.
 - Cross-origin isolation: the audio ring is a `SharedArrayBuffer`, so the page must be served with COOP and COEP headers.
 - A canvas and a worker: pass `createController` a worker factory and a profile, and attach an `HTMLCanvasElement`; the worker draws on its transferred `OffscreenCanvas`.
-- BD-J, optionally: a host with a BD-J runtime writes its own worker entry that calls `startEngineWorker` from `@seikou/engine/worker-main` with a `BdjProvider`. Seikou's app passes `seikouBdjProvider` from `src/bdj/`. Without a provider, BD-J discs open to the playlist picker.
+- BD-J, optionally: a host with a BD-J runtime writes its own worker entry that calls `startEngineWorker` from `@seikou/engine/worker-main` with a `BdjProvider` (from `@seikou/engine/bdj-provider`); both are internal modules, outside the root's API. Seikou's app passes `seikouBdjProvider` from `src/bdj/`. Without a provider, BD-J discs open to the playlist picker.
 
 ## Usage
 

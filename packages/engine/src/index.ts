@@ -67,4 +67,4 @@ export { openDisc, type DiscModel, type PlaylistSummary } from './disc/open-disc
 // Reading a server's disc with read-ahead.
 export { RemoteSource, type RemoteSourceOptions, type RangeTransport, type ChunkCache } from './disc/remote-source';
 // Range requests to a server.
-export { HttpTransport, type HttpTransportOptions, type RemoteFailure } from './disc/http-transport';
+export { HttpTransport, type HttpTransportOptions, RemoteDiscError, type RemoteFailure } from './disc/http-transport';

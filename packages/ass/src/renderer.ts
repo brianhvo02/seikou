@@ -37,7 +37,10 @@ export interface AssRendererDeps {
   readonly limits: AssRendererLimits;
   /** Whether canvases honour `ctx.filter` (false on Safari): blurred runs then take the mask path. */
   readonly canvasFilter: boolean;
-  /** For tests: replaces the raster. */
+  /**
+   * For tests: replaces the raster.
+   * @internal
+   */
   readonly renderEvent?: (rc: RasterContext, ev: FrameEvent, frame: { readonly width: number; readonly height: number }) => RenderedEvent | null;
 }
 

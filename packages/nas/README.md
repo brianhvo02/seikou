@@ -4,11 +4,11 @@ The wire contract between Seikou's NAS server, the player and the pairing Worker
 
 ## Modules
 
-All sources are in `src/` and re-exported from `src/index.ts`; any one can also be imported by path (`@seikou/nas/nas-api`).
+All sources are in `src/`. The package root exports the names listed in `public-api.txt`; every module can also be imported by path (`@seikou/nas/<module>`), and what the root leaves out is internal and can change without notice.
 
 | Module | What it does |
 | --- | --- |
-| `nas-api` | The NAS API's request and response types, such as disc manifests, titles, people, playback places and subtitles. Types only, no runtime code. |
+| `nas-api` | The NAS API's request and response types, such as disc manifests, titles, people, playback places and subtitles. Types only, no runtime code. The root exports `DiscManifest` and the types the other packages' signatures reach (titles, seasons, places, encodes, stored subtitles and fansub picks); the full set of wire types is importable from `@seikou/nas/nas-api`. |
 | `disc-key`, `content-hash` | Disc keys (`d.` plus a disc id, or `f.` plus a content fingerprint) and TheDiscDB's ContentHash, with its own MD5 so it runs where Node's `crypto` does not. |
 | `place-rules`, `place-key` | Rules for saved playback places that the server and the app share (such as which places are too close to the start to offer resuming), and the keys that name a disc's or an encode's place. |
 | `encode-title`, `encode-id` | The title an encoded episode belongs to (AniList, TMDB series or film, or an own title) read from its tags, and the id the NAS routes and the player name an encode by. |
@@ -23,7 +23,7 @@ Nothing. The package has no dependencies, performs no I/O and reads no environme
 
 ## Usage
 
-Import from the package root, or from a module's path when you want only that module:
+Import the helpers from the package root, and a wire type the root leaves out from `@seikou/nas/nas-api`:
 
 ```ts
 import { discKeyOf, parseDiscKey } from '@seikou/nas';

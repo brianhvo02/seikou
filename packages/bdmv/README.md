@@ -4,7 +4,7 @@ The Blu-ray disc format, read without a player. This package parses a disc's fil
 
 ## Modules
 
-All of it lives in `src/` and is exported from the package root.
+All of it lives in `src/`. The package root exports the names listed in `public-api.txt`; every module can also be imported by path (`@seikou/bdmv/<module>`), and what the root leaves out is internal and can change without notice.
 
 | Module | What it does |
 | --- | --- |
@@ -15,11 +15,11 @@ All of it lives in `src/` and is exported from the package root.
 | `bdjo-parser.ts` (`parseBdjo`) | BD-J object files. |
 | `sound-parser.ts` (`parseSoundBdmv`) | `sound.bdmv`: menu sounds. |
 | `bdid-parser.ts` (`parseBdid`) | `id.bdmv`: the disc ID. |
-| `version.ts`, `stream-types.ts` | The file header check and the `CodingType` constants for stream coding types. |
-| `byte-reader.ts`, `byte-source.ts` | `ByteReader` and `ParseError` for the parsers, and the `ByteSource` interface through which disc bytes are read. |
+| `version.ts`, `stream-types.ts` | The file header check (internal) and the `CodingType` constants for stream coding types. |
+| `byte-reader.ts`, `byte-source.ts` | `ParseError`, which the parsers throw (their internal `ByteReader` reads through `@seikou/bdmv/byte-reader`), and the `ByteSource` interface through which disc bytes are read. |
 | `udf.ts` (`readUdf`, `UdfImage`) | A read-only UDF reader for ISO images. |
 | `demux/` | The M2TS demuxer: 192-byte source packets (`parseSourcePacket`), TS packets, and `PesAssembler`, driven by `M2tsReader`. |
-| `codecs/` | NAL unit scanning and the H.264 and HEVC parameter-set readers that name a WebCodecs codec (`avcCodecString`, `hevcCodecString`). |
+| `codecs/` | The H.264 and HEVC parameter-set readers that name a WebCodecs codec (`avcCodecString`, `hevcCodecString`); NAL unit scanning is internal. |
 
 ## What a consumer must provide
 

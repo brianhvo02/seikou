@@ -4,11 +4,11 @@ An ASS/SSA subtitle renderer ported from libass 0.17.5. It parses a script, matc
 
 ## Modules
 
-The port follows libass function by function; each file's header lists the functions it covers.
+The port follows libass function by function; each file's header lists the functions it covers. The package root exports the names listed in `public-api.txt`; every module can also be imported by path (`@seikou/ass/<module>`), and what the root leaves out is internal and can change without notice.
 
 | Module | What it does |
 | --- | --- |
-| `parse.ts` (`parseAss`) | Reads a script, its `[Fonts]` section included. |
+| `parse.ts` (`parseAss`, `parseAssCodecPrivate`, `parseChunkEvent`) | Reads a script, its `[Fonts]` section included, or an ASS track from Matroska: the track's CodecPrivate as a script header and each block as one event. |
 | `types.ts`, `cstr.ts`, `host-types.ts` | Script types, C string helpers, and the types shared with the host (rectangles, memory limits, the text renderer contract). |
 | `fonts.ts` (`AssFonts`), `font-tables.ts` (`readFontFile`) | Font matching and fallback from the sfnt tables, with faces registered as `FontFace`s. |
 | `device-fonts.ts` (`createDeviceFontSource`) | An addition to the port: looks up a family nothing supplied among the device's installed fonts through CSS `local()`. |

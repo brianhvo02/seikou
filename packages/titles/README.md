@@ -4,16 +4,16 @@ Naming a disc library. The package turns folder names and disc evidence into tit
 
 ## Modules
 
-All sources are in `src/`.
+All sources are in `src/`. The package root exports the names listed in `public-api.txt`; every module can also be imported by path (`@seikou/titles/<module>`), and what the root leaves out is internal and can change without notice.
 
-- Name parsing: `parse-name` (`parseName`) reads titles, seasons, volumes and discs from a folder name or disc title, and gives an empty candidate or a null number when it is unsure. `music-name` (`parseMusicFolder`) reads a music release folder (date, artist, title, catalogue number, concert hint). `corpus` is the made-up set of names that pins the parser's behaviour.
+- Name parsing: `parse-name` (`parseName`) reads titles, seasons, volumes and discs from a folder name or disc title, and gives an empty candidate or a null number when it is unsure. `music-name` (`parseMusicFolder`) reads a music release folder (date, artist, title, catalogue number, concert hint). `corpus` (internal) is the made-up set of names that pins the parser's behaviour.
 - Metadata sources: `anilist` (`createAniList`), `tmdb` (`createTmdb`), `discogs` (`createDiscogs`) and `musicbrainz` (`createMusicBrainz`) are the clients. `sources` holds the shared `Entry` and `MetadataSource` types, `music-sources` the rule that chooses one release among candidates, and `pacer` (`Pacer`) the rate limiting each client uses.
 - TheDiscDB: `discdb` (`loadDiscDb`, `indexDisc`) matches a disc's content hash against the bundled index of titles and episodes.
 - Matching: `disc-evidence` is what a disc's files and path say about it. `match` (`matchDiscs`) groups discs by parent folder, looks them up, and files a disc only when the acceptance rules hold; everything else goes to Unsorted with a reason. `episodes` (`guessEpisodes`) guesses an episode list from playlist lengths, and answers null when unsure.
 - Catalogue: `catalogue` (`buildCatalogue`) builds titles, seasons, disc slots, episodes, extras, Music, Unsorted and Hidden from matches, metadata and the owner's choices, with no network access. `music-info` decides a release's artist, kind and names. `owner-store` (`OwnerStore`) keeps the owner's choices, own titles and gate in `owner.json`.
 - Encodes: `encode-catalogue` groups the NAS's encoded episodes into shows, and `encode-next` (`nextInShow`) is the one rule for the episode after another.
 - Resume: `up-next` (`continueWatching`, `titleProgress`) works out Continue watching and per-title progress from a person's places and the catalogue.
-- Storage: `art` (`ArtCache`) caches posters and banners within a byte budget at the sources' own sizes. `atomic-json` has the lock and atomic-replace helpers the stores use.
+- Storage: `art` (`ArtCache`) caches posters and banners within a byte budget at the sources' own sizes. `atomic-json` has the lock and atomic-replace helpers the stores use; the root exports `replaceAtomically`.
 
 ## What a consumer provides
 

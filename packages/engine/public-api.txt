@@ -71,4 +71,5 @@ ChunkCache
 # disc/http-transport
 HttpTransport
 HttpTransportOptions
+RemoteDiscError
 RemoteFailure
