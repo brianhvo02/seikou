@@ -1,0 +1,74 @@
+# @seikou/engine public API: the README's page-side entry points (createEngineWorker, createController,
+# PlayerController, PlatformSession, walkEntries), the protocol, opening and reading a disc (openDisc,
+# RemoteSource, HttpTransport), with every type their signatures reach.
+# index
+createEngineWorker
+# controller/create-controller
+createController
+CreateControllerOptions
+# controller/player-controller
+PlayerController
+PlayerSnapshot
+Notice
+IndexTitles
+SubtitlesState
+WorkerLike
+AudioOutputLike
+VisibilityLike
+# controller/platform-session
+PlatformSession
+NavigatorLike
+# controller/entry-walk
+walkEntries
+EntryLike
+FileEntryLike
+DirEntryLike
+# protocol
+EngineCommand
+EngineEvent
+Telemetry
+BdjTelemetry
+BdjStartup
+BdjMemoryTelemetry
+StartPoint
+PlaceState
+BufferRequest
+EncodeSpec
+FileData
+SubtitleChoice
+ShaderSetData
+ShaderState
+MenuKey
+AudioTrack
+ChannelsLabel
+PgTrack
+TextFileInfo
+PlaybackState
+NoticeCode
+ErrorCode
+# bdj-types
+JvmMemoryStats
+# clock/master-clock
+ClockMode
+# memory-profile
+MemoryProfileName
+# hdmv/uo-mask
+UoOp
+# nav/timeline
+Chapter
+# disc/disc-spec
+DiscSpec
+RemoteDiscSpec
+# disc/open-disc
+openDisc
+DiscModel
+PlaylistSummary
+# disc/remote-source
+RemoteSource
+RemoteSourceOptions
+RangeTransport
+ChunkCache
+# disc/http-transport
+HttpTransport
+HttpTransportOptions
+RemoteFailure

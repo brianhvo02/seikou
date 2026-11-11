@@ -74,6 +74,7 @@ export const BDJ_REMOTE_IN_FLIGHT = 2;
 /**
  * The disc's bytes: picked files from disk (`FileSource`, paths normalised to the folder holding BDMV), or the NAS by
  * HTTP range reads (`RemoteSource` over `HttpTransport`). Throws `DiscError` for picked files that are not one disc.
+ * @internal
  */
 export function createByteSource(spec: DiscSpec, deps: ByteSourceDeps): FileSource | RemoteSource {
   if (spec.kind === 'files') return new FileSource(normalizeDiscPaths(spec.entries));

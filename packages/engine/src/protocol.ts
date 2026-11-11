@@ -262,10 +262,16 @@ export interface EncodeSpec {
   readonly encodeId: string;
 }
 
-/** The path of an encode's Matroska file in its manifest. */
+/**
+ * The path of an encode's Matroska file in its manifest.
+ * @internal
+ */
 export const ENCODE_FILE = 'EPISODE.MKV';
 
-/** The playlist id an encode's chapters and time are reported under (it has no playlists). */
+/**
+ * The playlist id an encode's chapters and time are reported under (it has no playlists).
+ * @internal
+ */
 export const ENCODE_PLAYLIST_ID = 'mkv';
 
 /**
@@ -505,6 +511,7 @@ export type EngineEvent =
  * The notice of a playlist whose video (MPEG-2, VC-1) the browser can't decode: it plays without a picture. Sent once per
  * disc (unsupported with noPicture, the notice 'no-picture'), and cleared (noticeCleared 'no-picture') when a playlist with
  * a picture starts; that disc never sends it again.
+ * @internal
  */
 export const NO_PICTURE_MESSAGE = "This disc's video can't be played here yet, so it will play without a picture.";
 
@@ -513,5 +520,6 @@ export const NO_PICTURE_MESSAGE = "This disc's video can't be played here yet, s
  * anywhere, a write refused for room (16 MB per scope, the NAS's quota, the VFS's memory cap), or a NAS put that failed
  * for good. Sent at most once per disc open, whatever BD-J sessions the disc runs; it stays until dismissed or another
  * disc opens.
+ * @internal
  */
 export const BDJ_STORAGE_MESSAGE = "This disc's saved data can't be kept right now, so progress you make may be lost.";

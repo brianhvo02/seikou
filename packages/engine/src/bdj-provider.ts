@@ -6,6 +6,8 @@
  *
  * Copyright (C) 2026  Seikou contributors
  *
+ * Internal to @seikou/engine: not part of its public API; importable through the package's subpath for Seikou's own use.
+ *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 

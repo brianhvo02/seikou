@@ -3,7 +3,10 @@ export type MemoryProfileName = 'desktop' | 'constrained';
 
 const MB = 1024 * 1024;
 
-/** Memory limits that differ between desktop browsers and phones or tablets. */
+/**
+ * Memory limits that differ between desktop browsers and phones or tablets.
+ * @internal
+ */
 export interface MemoryProfile {
   /** An IG sub-path clip (menu graphics in a separate clip) larger than this many bytes is not preloaded and its menu fails to open with an error; desktop's 512 MB is libbluray's `PRELOAD_SIZE_LIMIT`. The `menu-memory` notice shows when the error is the constrained profile's. */
   readonly igPreloadLimitBytes: number;
@@ -48,7 +51,10 @@ export interface MemoryProfile {
   readonly bdjRemoteReadAheadBytes: number;
 }
 
-/** The limits of each profile. Desktop's BD-J file system has no cap, which is what libbluray allows. */
+/**
+ * The limits of each profile. Desktop's BD-J file system has no cap, which is what libbluray allows.
+ * @internal
+ */
 export const MEMORY_PROFILES: Readonly<Record<MemoryProfileName, MemoryProfile>> = {
   desktop: {
     igPreloadLimitBytes: 512 * MB,

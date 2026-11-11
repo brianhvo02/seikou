@@ -81,7 +81,10 @@ export interface BackgroundStillDeps {
   readonly maxDecodedBytes?: () => number;
 }
 
-/** What the player uses of a BD-J title's background still (bdj/background.ts BackgroundStill). */
+/**
+ * What the player uses of a BD-J title's background still (bdj/background.ts BackgroundStill).
+ * @internal
+ */
 export interface BackgroundStillLike {
   readonly current: ShownStill | null;
   readonly decodedBytes: number;
@@ -247,7 +250,10 @@ export type FromBdj =
   /** The answer to `stop`: the worker can be terminated. */
   | { readonly type: 'stopped' };
 
-/** The BD-J worker as the engine talks to it (a Worker in production). */
+/**
+ * The BD-J worker as the engine talks to it (a Worker in production).
+ * @internal
+ */
 export interface WorkerLike {
   /** `transfer`: a boot message's fetch port (bootTransfer). */
   postMessage(message: ToBdj, transfer?: Transferable[]): void;
@@ -256,7 +262,10 @@ export interface WorkerLike {
   terminate(): void;
 }
 
-/** A BD-J worker started while the disc opens, which a session adopts later (bdj/early-worker.ts EarlyBdjWorker). */
+/**
+ * A BD-J worker started while the disc opens, which a session adopts later (bdj/early-worker.ts EarlyBdjWorker).
+ * @internal
+ */
 export interface EarlyBdjWorkerLike extends WorkerLike {
   /** The early boot message; false when a boot has already gone out. */
   boot(message: BdjBootMessage): boolean;
@@ -272,7 +281,10 @@ export interface PlaneRect {
   readonly height: number;
 }
 
-/** The engine worker's side of the BD-J graphics plane (bdj/graphics-plane.ts GraphicsPlaneReader). */
+/**
+ * The engine worker's side of the BD-J graphics plane (bdj/graphics-plane.ts GraphicsPlaneReader).
+ * @internal
+ */
 export interface GraphicsPlaneReaderLike {
   readonly buffer: SharedArrayBuffer;
   /** The version the last copyDirtyInto that copied anything took; -1 before the first. */
@@ -288,7 +300,10 @@ export interface GraphicsPlaneReaderLike {
   tryHash(): string | null;
 }
 
-/** The playback state the engine publishes for the BD-J worker (bdj/status-block.ts StatusBlockWriter). */
+/**
+ * The playback state the engine publishes for the BD-J worker (bdj/status-block.ts StatusBlockWriter).
+ * @internal
+ */
 export interface StatusBlockWriterLike {
   readonly buffer: SharedArrayBuffer;
   setTime45(t: bigint): void;
@@ -334,7 +349,10 @@ export interface PlayerBdjHostDeps {
   uoMaskChanged(bits: bigint): void;
 }
 
-/** What the player uses of the BD-J title's host (bdj/player-host.ts PlayerBdjHost). */
+/**
+ * What the player uses of the BD-J title's host (bdj/player-host.ts PlayerBdjHost).
+ * @internal
+ */
 export interface PlayerBdjHostLike {
   replaceDisc(disc: DiscModel): void;
   dispose(): void;
@@ -394,7 +412,10 @@ export interface BdjSessionDeps {
   readonly onMemory?: (stats: Extract<FromBdj, { type: 'memory' }>) => void;
 }
 
-/** What the player uses of a BD-J worker's session (the app's `BdjSession`, in `src/bdj/session.ts`). */
+/**
+ * What the player uses of a BD-J worker's session (the app's `BdjSession`, in `src/bdj/session.ts`).
+ * @internal
+ */
 export interface BdjSessionLike {
   /** Boots the worker: sends the boot message with the disc, the read-ahead size, the disc id and the class library. */
   boot(disc: DiscSpec, readAheadBytes: number, discId: string | null, classLibrary: ClassLibrarySource): Promise<void>;
@@ -452,7 +473,10 @@ export interface TapReactionDeps {
   readonly ignored: (notice: boolean) => void;
 }
 
-/** The ignored-tap rule (bdj/input.ts TapReactionWatch). */
+/**
+ * The ignored-tap rule (bdj/input.ts TapReactionWatch).
+ * @internal
+ */
 export interface TapReactionWatchLike {
   menuShown(): void;
   tap(windowMs: number): void;
@@ -466,7 +490,10 @@ export interface InputLatencyStats {
   readonly count: number;
 }
 
-/** The responsiveness measure (bdj/input.ts InputLatency). */
+/**
+ * The responsiveness measure (bdj/input.ts InputLatency).
+ * @internal
+ */
 export interface InputLatencyLike {
   input(atMs: number, version: number): void;
   presented(atMs: number, version: number): void;

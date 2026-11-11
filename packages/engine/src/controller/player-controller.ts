@@ -142,7 +142,10 @@ export interface IndexTitles {
 /** The notice text shown when the disc masks an operation the user tried. */
 export const UO_MASKED_MESSAGE = "The disc doesn't allow this here.";
 
-/** The snapshot before any disc opens; opening or closing a disc restarts from it, keeping volume, mute and the cache flag. */
+/**
+ * The snapshot before any disc opens; opening or closing a disc restarts from it, keeping volume, mute and the cache flag.
+ * @internal
+ */
 export const INITIAL_SNAPSHOT: PlayerSnapshot = {
   engineState: 'idle',
   playlists: [],
