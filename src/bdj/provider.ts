@@ -21,6 +21,7 @@ import { StatusBlockWriter, createStatusBlock } from './status-block';
 
 export { bdjMissing } from './requirements';
 
+/** What the app gives seikouBdjProvider; read in the engine worker, where the provider runs. */
 export interface SeikouBdjOptions {
   /** What this browser lacks to run BD-J (bdjMissing on the engine worker's global). */
   readonly missing: readonly string[];
@@ -32,7 +33,10 @@ export interface SeikouBdjOptions {
   readonly createWorker?: () => WorkerLike;
 }
 
-/** Seikou's BD-J, for PlayerDeps.bdj. */
+/**
+ * Seikou's BD-J, for PlayerDeps.bdj: the JVM runs in a BD-J worker this provider starts, and everything else it
+ * returns (session, host, graphics plane reader, status block writer, input helpers) runs in the engine worker.
+ */
 export function seikouBdjProvider(options: SeikouBdjOptions): BdjProvider {
   return {
     missing: options.missing,

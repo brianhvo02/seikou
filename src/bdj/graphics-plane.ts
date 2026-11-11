@@ -42,6 +42,10 @@ const PIXELS = PLANE_WIDTH * PLANE_HEIGHT;
 /** The reader never waits for the writer's lock (the render path must not block): it tries again at the next frame. */
 const READER_LOCK_MS = 0;
 
+/**
+ * A new plane buffer: the header (lock free, closed at 0 × 0, nothing dirty) and PLANE_WIDTH × PLANE_HEIGHT
+ * transparent ARGB pixels, about 8 MB in all. The engine worker creates it and sends it to the BD-J worker at boot.
+ */
 export function createGraphicsPlane(): SharedArrayBuffer {
   const buffer = new SharedArrayBuffer(HEADER_BYTES + PIXELS * 4);
   const h = new Int32Array(buffer, 0, HEADER_WORDS);
@@ -81,6 +85,8 @@ class PlaneViews {
 /**
  * The BD-J worker's side: an application-allocated ARGB buffer (BD_ARGB_BUFFER) and the overlay commands that change
  * it. What is drawn becomes visible to the reader only at flush (or at once for init and close, which clear the plane).
+ * Every command takes the plane's lock, waiting with Atomics.wait for the reader to finish a copy, which a worker may
+ * do; the reader never waits for it.
  */
 export class GraphicsPlaneWriter extends PlaneViews {
   private depth = 0;
@@ -95,6 +101,7 @@ export class GraphicsPlaneWriter extends PlaneViews {
     if (this.depth++ === 0) this.acquire(Infinity);
   }
 
+  /** bdpriv_unlock_osd_buffer: releases one lock(); the lock is free again after the outermost. */
   unlock(): void {
     if (this.depth > 0 && --this.depth === 0) this.release();
   }
@@ -225,7 +232,10 @@ export function updateGraphic(
   }
 }
 
-/** The engine worker's side. */
+/**
+ * The engine worker's side: the compositor copies what was published into its own image at the next presented frame,
+ * and the player reads the flush count, version and visibility to tell a menu from an empty plane.
+ */
 export class GraphicsPlaneReader extends PlaneViews implements GraphicsPlaneReaderLike {
   private copied = -1;
 

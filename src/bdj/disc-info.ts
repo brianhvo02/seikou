@@ -16,6 +16,7 @@ import type { StreamEntry } from '@seikou/bdmv/mpls-parser';
 import type { DiscModel } from '@seikou/engine/disc/open-disc';
 import type { PlaylistInfo, StreamInfo, TitleInfo } from './host';
 
+/** The title number libbluray gives First Play (BLURAY_TITLE_FIRST_PLAY in bluray.h). */
 export const TITLE_FIRST_PLAY = 0xffff;
 const HDMV_INTERACTIVE = 1;
 const BDJ_INTERACTIVE = 3;
@@ -57,7 +58,7 @@ function copyStreams(entries: readonly StreamEntry[], clip: Clpi | undefined): S
   }));
 }
 
-/** nav_clip_lookup_aspect */
+/** nav_clip_lookup_aspect: the aspect ratio the clip's program info gives the stream with `pid`, 0 when none does. */
 function lookupAspect(clip: Clpi | undefined, pid: number): number {
   for (const prog of clip?.programs ?? []) for (const ps of prog.streams) if (ps.pid === pid) return ps.aspect;
   return 0;

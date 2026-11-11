@@ -1,6 +1,7 @@
 /*
- * Original code for Seikou: a BD-J worker started while the disc is still opening (spec §4.7), which a BdjSession
- * adopts later.
+ * Original code for Seikou: a BD-J worker started while the disc is still opening, which a BdjSession adopts later.
+ * Fetching the class library and booting the JVM while the disc opens overlaps the two, so BD-J starts sooner
+ * (start-up speed in docs/superpowers/specs/2026-10-16-m5c-bdj-playback-design.md).
  *
  * Copyright (C) 2026  Seikou contributors
  *
@@ -15,7 +16,8 @@ type Held = { readonly message: MessageEvent<FromBdj> } | { readonly error: Erro
 /**
  * Wraps a worker whose boot message may go out before any session exists. Only the first boot message reaches the
  * worker (the session's own, once it adopts the worker, is the same message and is dropped). What the worker sends is
- * held until the session has asked for the boot, so it hears 'booted' after it starts waiting for it.
+ * held until the session has asked for the boot, so it hears 'booted' after it starts waiting for it. Runs in the
+ * engine worker.
  */
 export class EarlyBdjWorker implements EarlyBdjWorkerLike {
   onmessage: ((event: MessageEvent<FromBdj>) => void) | null = null;

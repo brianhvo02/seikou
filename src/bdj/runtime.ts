@@ -33,20 +33,25 @@ import { ZipArchive } from './jvm/zip';
 import type { ClassLibrarySource, BdjMemoryBudgets } from '@seikou/engine/bdj-types';
 export type { ClassLibrarySource, BdjMemoryBudgets } from '@seikou/engine/bdj-types';
 
+/** What a BdjRuntime runs on; in production the BD-J worker gives it (bdj-worker.ts). */
 export interface BdjRuntimeDeps {
   /** The disc, with its normalised file list (FileSource.paths()) for the VFS. */
   readonly disc: ByteSource & { paths(): Iterable<string> };
   /** bdj_open's bdj_disc_id: the disc's CERTIFICATE/id.bdmv disc ID (readBdid); none or '' passes 32 zeros. */
   readonly discId?: string | null;
+  /** The class library's jars, which become the boot class path. */
   readonly classLibrary: ClassLibrarySource;
   /** The runtime passes its own start, and a hook it uses to watch the host's trace. */
   readonly host: (startTitle: (title: number) => void, onTrace: (e: TraceEntry) => void) => BdjHost;
+  /** The wall clock in milliseconds that Java's System.currentTimeMillis and its timers read. */
   readonly nowMs: () => number;
+  /** A one-shot timer; the returned function cancels it. */
   readonly setTimer: (ms: number, fn: () => void) => () => void;
   /** The JVM scheduler's periodic turn of the event loop (SchedulerOptions.yieldTask). */
   readonly yieldTask?: () => Promise<void>;
   /** JvmOptions.extraIntrinsics: the class library's intrinsics, which the engine does not carry. */
   readonly extraIntrinsics?: (table: NativeTable) => void;
+  /** Receives Java's output and the runtime's own lines (events, failures), one line at a time. */
   readonly log: (line: string) => void;
   /**
    * Text: FreeType for the font natives and the bundled fallback font (packages/ass/src/default-font.ttf) as the JRE's
@@ -61,14 +66,22 @@ export interface BdjRuntimeDeps {
   readonly onVfsFull?: (path: string) => void;
 }
 
+/** Where BD-J text comes from; each is called when text first needs it, not at boot. */
 export interface BdjFontSources {
+  /** FreeType for the font natives. */
   readonly loadFreeType: () => Promise<FreeType>;
   /** The bytes of packages/ass/src/default-font.ttf. */
   readonly loadDefaultFont: () => Promise<Uint8Array>;
 }
 
+/**
+ * Why BdjRuntime.run returned: no thread can make progress and no timer is due (`idle`), the wanted trace entry or
+ * end was reached (`until`), the signal aborted it (`aborted`), or every live thread is blocked with nothing to wake
+ * it but an event (`deadlock`, which is how a menu waiting for keys looks).
+ */
 export type RunOutcome = 'idle' | 'until' | 'aborted' | 'deadlock';
 
+/** libbluray's BD-J event numbers, BDJ_EVENT_* in bdj/bdj.h: what Libbluray.processEvent receives as `ev`. */
 export const BdjEvent = {
   NONE: 0,
   START: 1,
@@ -117,8 +130,15 @@ const ERROR_CODES: readonly (readonly [string, BdjErrorCode])[] = [
   ['java/lang/VerifyError', 'verify'],
 ];
 
+/**
+ * One BD-J session's JVM with libbluray's Java stack on it, run in the BD-J worker (or in Node for the tests): it
+ * boots it, starts titles, queues events and drives the green threads. Java's natives reach the player through
+ * `host`.
+ */
 export class BdjRuntime {
+  /** The host Java's natives call. */
   readonly host: BdjHost;
+  /** The JVM the stack runs on. */
   readonly jvm: Jvm;
   private booted = false;
   private booting: Promise<void> | null = null;
@@ -229,7 +249,7 @@ export class BdjRuntime {
     this.booted = true;
   }
 
-  /** _start_bdj */
+  /** _start_bdj: starts BD-J title `title` (BDJ_EVENT_START). Throws BdjError when the runtime is not running. */
   start(title: number): void {
     this.processEvent(BdjEvent.START, title);
   }
@@ -356,7 +376,7 @@ export class BdjRuntime {
     for (const line of s.split('\n')) if (line !== '') this.deps.log(line);
   }
 
-  /** The host the natives see: its log also reaches the runtime's log, as bdpriv_debug prints Logger.logN lines. */
+  /** The host the natives see: its log also reaches the runtime's log, as libbluray's Logger.logN (org_videolan_Logger.c) writes its lines to the debug log. */
   private logging(inner: BdjHost): BdjHost {
     const log = (file: string | null, line: number, msg: string, error: boolean): void => {
       inner.log(file, line, msg, error);
@@ -460,7 +480,8 @@ export class BdjRuntime {
 
   /**
    * Runs the scheduler until `done` (checked when a watched thread ends), an abort, a deadlock or true idleness:
-   * Scheduler.run returns 'idle' while threads sleep, so this waits for the next timer and goes on (rulings R19/R20).
+   * Scheduler.run returns 'idle' while threads sleep, so this waits for the next timer and goes on, so that a thread
+   * sleeping in Thread.sleep or a timed wait runs again without an event to wake the runtime.
    */
   private async drive(signal: AbortSignal | undefined, done: () => boolean): Promise<RunOutcome> {
     const threads = this.jvm.threads;

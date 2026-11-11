@@ -1,6 +1,7 @@
 /*
  * Original code for Seikou: the engine side of a BD-J worker. It boots the worker, answers Java's calls through
- * PlayerBdjHost, passes title starts and BD-J events in, and stops the worker on any failure (spec §5).
+ * PlayerBdjHost, passes title starts and BD-J events in, and stops the worker on any failure, after which the player
+ * falls back to the title picker (errors and fallback in docs/superpowers/specs/2026-10-16-m5c-bdj-playback-design.md).
  *
  * Copyright (C) 2026  Seikou contributors
  *
@@ -16,13 +17,15 @@ export type { BdjFailureCode, BdjSessionDeps, WorkerLike } from '@seikou/engine/
 /**
  * The start-up timeout: a BD-J title that has neither selected a playlist nor shown anything (a visible plane, a
  * background still) this long after boot is taken as hung, and the player falls back to the picker. A menu that waits
- * for input over a still or an empty video plane is alive (ruling R7).
+ * for input over a still or an empty video plane is alive, not hung, so a visible plane or a still counts as well as
+ * a selected playlist.
  */
 export const SELECT_PLAYLIST_TIMEOUT_MS = 20_000;
 
 /**
- * Ruling R22: the start-up timeout counts only time the page is visible and the host awake. It is spent in ticks of at
- * most this long; a hidden page spends nothing.
+ * The start-up timeout counts only time the page is visible and the host awake, since Java gets no time to run while
+ * a hidden page's timers are throttled or the device sleeps. It is spent in ticks of at most this long; a hidden page
+ * spends nothing.
  */
 export const STARTUP_TICK_MS = 1_000;
 
@@ -33,7 +36,8 @@ export const STARTUP_TICK_MS = 1_000;
 export const STARTUP_SLEEP_GAP_MS = 5_000;
 
 /**
- * Ruling R26: waiting on the worker's own I/O pauses the start-up timeout for at most this long in all per boot. Past
+ * Waiting on the worker's own I/O pauses the start-up timeout (a cold first open over the NAS can spend most of 20 s
+ * waiting on JAR and resource reads with nothing hung), but for at most this long in all per boot. Past
  * it the time counts as usual, so a disc that hangs reading in a loop (or retrying a read that keeps failing) still
  * falls back, 20 s of counted time later, with the thread dump. The legitimate waits measured on the NAS were 8–18 s.
  */
@@ -45,6 +49,11 @@ export const DUMP_WAIT_MS = 1_000;
 /** At a stop with unsaved storage changes, how long the worker has to save them before it is terminated. */
 export const STOP_SAVE_WAIT_MS = 3_000;
 
+/**
+ * The engine worker's side of one BD-J worker: it boots it, relays Java's calls to the host and the replies back,
+ * holds title starts and events behind the reply they must follow, runs the start-up timeout, and stops the worker
+ * on a failure or when BD-J stops. Nothing the worker sends after a stop is acted on.
+ */
 export class BdjSession implements BdjSessionLike {
   private stopped = false;
   private bootDone: (() => void) | null = null;
@@ -57,8 +66,8 @@ export class BdjSession implements BdjSessionLike {
   private ticking = false;
   private hidden: boolean;
   /**
-   * The worker waits on its own I/O (its `io` message): that time is not counted either (Task 7g), up to
-   * IO_PAUSE_CEILING_MS in all (R26). A worker that dies without an `onerror` while this is set sends no `io: false`:
+   * The worker waits on its own I/O (its `io` message): that time is not counted either, since a slow link is not a
+   * hang, up to IO_PAUSE_CEILING_MS in all. A worker that dies without an `onerror` while this is set sends no `io: false`:
    * such a session falls back only through that ceiling, 20 s of counted time after it.
    */
   private ioPending = false;
@@ -114,6 +123,10 @@ export class BdjSession implements BdjSessionLike {
     if (!this.stopped) this.post({ type: 'remoteToken', token });
   }
 
+  /**
+   * Starts BD-J title `title` (BDJ_EVENT_START). A start asked for while a call is being handled waits for that
+   * call's reply, so Java hears them in libbluray's order. Arms the start-up timeout if no boot did.
+   */
   start(title: number): void {
     if (this.stopped) return;
     this.armTimeout();
@@ -142,8 +155,8 @@ export class BdjSession implements BdjSessionLike {
   }
 
   /**
-   * Counts the time since the budget was last counted (ruling R22): none while hidden, none while the worker waits on
-   * its own reads (Task 7g: a slow link is not a hang) until IO_PAUSE_CEILING_MS of such waiting (R26), and none across
+   * Counts the time since the budget was last counted: none while hidden, none while the worker waits on its own
+   * reads (a slow link is not a hang) until IO_PAUSE_CEILING_MS of such waiting, and none across
    * a host sleep, found as a wall-clock gap of STARTUP_SLEEP_GAP_MS or more beyond the tick's interval, which restarts
    * the budget.
    */
@@ -174,7 +187,7 @@ export class BdjSession implements BdjSessionLike {
 
   /**
    * Fires the start-up timeout once the budget is spent; otherwise sets the next tick (none while hidden). Ticks go on
-   * while the worker waits on I/O, so the R26 ceiling is noticed while a read stays pending.
+   * while the worker waits on I/O, so IO_PAUSE_CEILING_MS is noticed while a read stays pending.
    */
   private tick(): void {
     this.cancelTimeout = null;
@@ -198,12 +211,13 @@ export class BdjSession implements BdjSessionLike {
    */
   setHidden(hidden: boolean): void {
     if (hidden === this.hidden) return;
-    // shown again: a NAS disc's write-ahead copy goes to the NAS now (ruling R17), as the hide's flush may not have got it there
+    // shown again: a NAS disc's write-ahead copy goes to the NAS now, as the hide's flush may not have got it there
+    // (browsers drop work started during pagehide)
     if (!hidden) this.flush();
     this.pause(() => (this.hidden = hidden));
   }
 
-  /** The worker started or stopped waiting on its own I/O (its `io` message, Task 7g). */
+  /** The worker started or stopped waiting on its own I/O (its `io` message). */
   private setIoPending(pending: boolean): void {
     if (pending !== this.ioPending) this.pause(() => (this.ioPending = pending));
   }
@@ -244,6 +258,7 @@ export class BdjSession implements BdjSessionLike {
     this.post({ type: 'dump', reason: 'start-up timeout' });
   }
 
+  /** Queues a BDJ_EVENT_* for Java (behind a held start, if any); `coalesce` lets a full queue merge it (input.ts). */
   event(ev: number, param: number, coalesce?: Coalesce): void {
     if (!this.stopped) this.send({ type: 'event', ev, param, ...(coalesce ? { coalesce } : {}) });
   }
@@ -386,7 +401,7 @@ export class BdjSession implements BdjSessionLike {
     }
   }
 
-  /** The graphics plane turned visible: a menu on screen keeps the title alive without a playlist (ruling R7). */
+  /** The graphics plane turned visible: a menu on screen keeps the title alive without a playlist (SELECT_PLAYLIST_TIMEOUT_MS). */
   menuShown(): void {
     if (!this.stopped) this.alive('showed a menu');
   }

@@ -52,7 +52,11 @@ const BDJ_PLAYBACK_STOP = 2;
 const num = (v: BdjWireValue | undefined): number => Number(v ?? 0);
 const long = (v: BdjWireValue | undefined): bigint => BigInt(String(v ?? 0));
 
-/** The engine side of Java's playback calls (BdjCallName), carried out by the real player. */
+/**
+ * The engine side of Java's playback calls (BdjCallName), carried out by the real player through its BdjPlaybackPort,
+ * with the playback PSRs and UO mask kept as libbluray keeps them. Runs in the engine worker; the BD-J worker's
+ * calls reach it through BdjSession.
+ */
 export class PlayerBdjHost implements PlayerBdjHostLike {
   private titleType: TitleType = 'bdj';
   /** bd->title: the open playlist, kept after its end until it is closed. */
@@ -95,20 +99,23 @@ export class PlayerBdjHost implements PlayerBdjHostLike {
     this.geometry = itemPackets(pl.playItems, disc.clips);
   }
 
+  /** Stops sending PSR events and playback news to Java (BD-J stopped). */
   dispose(): void {
     this.unbindPsrs?.();
     this.deps.port.setListener(null);
   }
 
+  /** The operations masked now: the title's BD-J mask combined with the open play item's (bd->uo_mask). */
   get uoMask(): UoMask {
     return this.uoMaskValue;
   }
 
-  /** _is_uo_masked */
+  /** _is_uo_masked: whether `op` is masked now; nothing is after a title failed to start (title type undefined). */
   isUoMasked(op: UoOp): boolean {
     return this.titleType !== 'undef' && this.uoMaskValue.has(op);
   }
 
+  /** Carries out one call from the BD-J worker and gives the native's return value (a Java long as a decimal string). */
   async handle(name: BdjCallName, args: readonly BdjWireValue[]): Promise<number | string> {
     switch (name) {
       case 'selectTitle': return this.playTitle(num(args[0]) >>> 0);
@@ -120,7 +127,7 @@ export class PlayerBdjHost implements PlayerBdjHostLike {
       case 'soundEffect': return this.soundEffect(num(args[0]));
       case 'setVirtualPackage': return this.setVirtualPackage(args[1] === true);
       case 'setUOMask': return this.setUoMask(args[0] === true, args[1] === true);
-      case 'setKeyInterest': return 0; // bdpriv_set_bdj_kit: a key interest event for the application (5d)
+      case 'setKeyInterest': return 0; // bdpriv_set_bdj_kit only tells the application (BD_EVENT_KEY_INTEREST_TABLE); keys go to Java unfiltered, as bd_user_input sends them
     }
   }
 
@@ -379,7 +386,7 @@ export class PlayerBdjHost implements PlayerBdjHostLike {
     return 0;
   }
 
-  /** bdpriv_set_bdj_uo_mask */
+  /** bdpriv_set_bdj_uo_mask: the title's own mask of Menu Call and Title Search. */
   private setUoMask(menuCall: boolean, titleSearch: boolean): number {
     const ops: UoOp[] = [];
     if (titleSearch) ops.push('titleSearch');

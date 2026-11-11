@@ -48,7 +48,9 @@ export interface FreeTypeGlyph {
   advance: number;
   /** width * rows bytes, row by row: bitmap.buffer[j * pitch + k] for k < width (8-bit coverage for gray bitmaps) */
   bitmap: Uint8Array;
+  /** The bitmap's width in pixels (bitmap.width). */
   width: number;
+  /** The bitmap's height in pixels (bitmap.rows). */
   rows: number;
   /** bitmap_left: x offset of the bitmap from the pen */
   left: number;
@@ -58,15 +60,21 @@ export interface FreeTypeGlyph {
   pixelMode: number;
 }
 
+/**
+ * FreeType as the BD-J text natives use it, in the BD-J worker. A face is a number (a pointer into the WASM memory)
+ * that stays valid until free().
+ */
 export interface FreeType {
   /** FT_New_Memory_Face; throws FreeTypeError when FreeType cannot open it. The bytes are copied. */
   newFace(bytes: Uint8Array, faceIndex?: number): number;
   /** family_name and style_name (getFontFamilyAndStyleN); null where the font has none. */
   familyName(face: number): string | null;
+  /** The face's style_name; null where the font has none. */
   styleName(face: number): string | null;
   /** FT_Set_Char_Size(face, 0, size << 6, 0, 0) as loadFontN calls it (size points at 72 dpi, so pixels). Returns
    * FreeType's error, which libbluray ignores (0 when it worked). */
   setSize(face: number, pixelSize: number): number;
+  /** The face's metrics at the size last set. */
   metrics(face: number): FreeTypeMetrics;
   /** FT_Load_Char(face, c, FT_LOAD_DEFAULT), horiAdvance >> 6 (charWidthN, stringWidthN, charsWidthN); null when the
    * load fails, where those natives add nothing. */
@@ -81,6 +89,7 @@ export interface FreeType {
   memoryStats(): { readonly wasmBytes: number; readonly faces: number };
 }
 
+/** A FreeType call that failed, with FreeType's error code (FT_Err_*; 0x40 is FT_Err_Out_Of_Memory). */
 export class FreeTypeError extends Error {
   constructor(
     readonly code: number,

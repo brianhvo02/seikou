@@ -19,6 +19,7 @@ const utf8 = new TextEncoder();
 const utf8Strict = new TextDecoder('utf-8', { fatal: true });
 const latin1 = (b: Uint8Array): string => String.fromCharCode(...b);
 
+/** An archive readTar cannot read, or a file writeTar cannot put in a ustar header. */
 export class TarFormatError extends Error {
   constructor(message: string) {
     super(message);

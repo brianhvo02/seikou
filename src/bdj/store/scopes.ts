@@ -20,12 +20,14 @@ import type { DiscSpec } from '@seikou/engine/disc/disc-spec';
  * Java uses.
  */
 export interface StoreScope {
+  /** The scope's key in a store: `persistent/<orgId>`, `buda/<orgId>/<discId>` or `buda/<orgId>`, the org ID as 8 hex digits. */
   readonly key: string;
   /** Canonical, no trailing slash: `/persistent/<org>`, `/buda/<org>/<disc>` or `/buda/<org>`. */
   readonly dir: string;
   /**
-   * Only the files directly in `dir` (ruling R14): `buda/<orgId>` holds the files a disc puts beside the disc folders
-   * in /buda/<org>/, which libbluray keeps on disk as it keeps the rest; its subfolders are not part of it.
+   * Only the files directly in `dir`: `buda/<orgId>` holds the files some discs write beside the disc folders in
+   * /buda/<org>/, which libbluray keeps on disk as it keeps the rest; its subfolders are the other scopes, not part of
+   * it.
    */
   readonly looseOnly?: boolean;
 }
@@ -61,7 +63,7 @@ export function scopesFor(
   fallbackDiscId: string,
 ): { readonly persistent: StoreScope; readonly buda: StoreScope; readonly budaOrg: StoreScope } {
   const javaDisc = javaDiscId(discId);
-  // Task 8's migration of browser scopes to the NAS must key a disc without an ID the same way (ruling R15)
+  // the move of this browser's scopes to the NAS keys a disc without an ID the same way, so the moved data is found
   const keyDisc = javaDisc === NO_DISC_ID ? fallbackDiscId : javaDisc;
   return {
     persistent: { key: `persistent/${orgKey(app.orgId)}`, dir: `/persistent/${orgDirName(app.orgId)}` },
@@ -71,8 +73,9 @@ export function scopesFor(
 }
 
 /**
- * A stand-in disc ID for a disc whose id.bdmv gives none (ruling R15: Task 8's migration must use this same key): 32 hex digits of the SHA-256 of its BDMV files' paths and
- * sizes (not the backup copies), the same whether the disc is a picked folder or on the NAS.
+ * A stand-in disc ID for a disc whose id.bdmv gives none, so two such discs of one organisation keep their BUDA
+ * scopes apart: 32 hex digits of the SHA-256 of its BDMV files' paths and sizes (not the backup copies), the same
+ * whether the disc is a picked folder or on the NAS, so the move of a browser's scopes to the NAS keys it the same.
  */
 export async function discFingerprint(files: Iterable<{ readonly path: string; readonly size: number }>): Promise<string> {
   const lines = [...files]

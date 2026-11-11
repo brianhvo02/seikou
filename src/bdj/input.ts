@@ -5,8 +5,10 @@
  * (bd_user_input's BD-J branch, _get_key_uo_index, bd_mouse_select's BD-J branch) and src/libbluray/keys.h.
  * Copyright (C) 2010-2017  Petri Hintukainen <phintuka@users.sourceforge.net>
  *
- * enqueueBdjEvent (the bounded event queue), TapReactionWatch (the ignored-tap rule of the 5d spec, §4.2) and
- * InputLatency (the responsiveness measure of the same section) are original code for Seikou: libbluray has none.
+ * enqueueBdjEvent (the bounded event queue), TapReactionWatch (the ignored-tap rule: a tap a BD-J menu does not react
+ * to opens the on-screen remote) and InputLatency (how long a menu takes to answer a key or tap) are original code for
+ * Seikou: libbluray has none. The BD-J menus spec, docs/superpowers/specs/2026-10-17-m5d-bdj-menus-design.md, sets
+ * both rules. The event queue runs in the BD-J worker (runtime.ts); everything else runs in the engine worker.
  *
  * Ported to TypeScript and modified for Seikou, 2026.
  *
@@ -18,13 +20,16 @@ import type { UoOp } from '@seikou/engine/hdmv/uo-mask';
 import type { InputLatencyLike, KeyUoContext, BdjInput, Coalesce, TapReactionDeps, InputLatencyStats, TapReactionWatchLike } from '@seikou/engine/bdj-types';
 export type { KeyUoContext, BdjInput, Coalesce, TapReactionDeps, InputLatencyStats } from '@seikou/engine/bdj-types';
 
-/** bdj.h BDJ_EVENT_VK_KEY and BDJ_EVENT_MOUSE (runtime.ts BdjEvent, not imported: runtime.ts uses this module). */
+/** bdj.h BDJ_EVENT_VK_KEY: a key event for Java, its param a key code with flags (runtime.ts BdjEvent, not imported: runtime.ts uses this module). */
 export const BDJ_EVENT_VK_KEY = 16;
+/** bdj.h BDJ_EVENT_MOUSE: a pointer position for Java, its param from bdjMouseParam. */
 export const BDJ_EVENT_MOUSE = 18;
 
-/** keys.h: flags OR'd with the key code. */
+/** keys.h BD_VK_KEY_PRESSED: a flag OR'd with the key code, the key went down. */
 export const BD_VK_KEY_PRESSED = 0x80000000;
+/** keys.h BD_VK_KEY_TYPED: a flag OR'd with the key code, the key was typed. */
 export const BD_VK_KEY_TYPED = 0x40000000;
+/** keys.h BD_VK_KEY_RELEASED: a flag OR'd with the key code, the key came up. */
 export const BD_VK_KEY_RELEASED = 0x20000000;
 const BD_VK_FLAGS_MASK = BD_VK_KEY_PRESSED | BD_VK_KEY_TYPED | BD_VK_KEY_RELEASED;
 
@@ -35,7 +40,10 @@ const vkFlags = (k: number): number => (k & BD_VK_FLAGS_MASK) >>> 0;
 /** BD_KEY_TYPED(k): the HDMV "pressed down" test, which bd_user_input also applies to the root menu key. */
 const keyTyped = (k: number): boolean => (k & (BD_VK_KEY_TYPED | BD_VK_KEY_RELEASED)) === 0;
 
-/** bd_player_setting_uo_restriction_level (player_settings.h). */
+/**
+ * How strictly user operations are checked against the UO mask, from not at all (DISABLED) to as the disc demands
+ * (COMPLIANT): bd_player_setting_uo_restriction_level (player_settings.h).
+ */
 export const UoRestriction = { DISABLED: 0, RELAXED: 5, SAFE: 10, COMPLIANT: 20 } as const;
 
 /**
@@ -90,9 +98,12 @@ export function bdjUserInput(key: number, ctx: KeyUoContext & { readonly isUoMas
 
 // ---- the bounded event queue (original code) ----
 
+/** An event waiting for Java: a libbluray BDJ_EVENT_* number and its param. */
 export interface QueuedBdjEvent {
   readonly ev: number;
+  /** Mutable: a merged pointer move overwrites it with the newest position. */
   param: number;
+  /** How this event may merge with an earlier one once the queue is full; absent, it never merges. */
   readonly coalesce?: Coalesce;
 }
 
@@ -126,8 +137,10 @@ export function enqueueBdjEvent(queue: QueuedBdjEvent[], e: QueuedBdjEvent, cap 
 // ---- the ignored-tap rule (original code) ----
 
 /**
- * The 5d spec's ignored-tap rule (§4.2): a tap forwarded to a BD-J menu that brings no reaction within the window is
- * reported; the notice goes with the first such tap of a menu only (a menu lasts from the plane turning visible).
+ * The ignored-tap rule: a tap forwarded to a BD-J menu that brings no reaction within the window (no change in
+ * `activity`: a plane publication or anything Java sends) is reported, so the player shows its controls instead.
+ * The notice, with which the on-screen remote opens, goes with the first such tap of a menu only (a menu lasts from
+ * the plane turning visible), so a remote the user closed stays closed until the next menu. Runs in the engine worker.
  */
 export class TapReactionWatch implements TapReactionWatchLike {
   private noticed = false;
@@ -159,6 +172,7 @@ export class TapReactionWatch implements TapReactionWatchLike {
     this.cancelTimer = null;
   }
 
+  /** A tap is waiting out its window. */
   get pending(): boolean {
     return this.cancelTimer !== null;
   }
@@ -171,9 +185,9 @@ export const INPUT_LATENCY_EXPIRY_MS = 5_000;
 const MAX_PENDING_INPUTS = 32;
 
 /**
- * The 5d spec's responsiveness (§4.2): from a key press or a tap reaching the engine to the next presented frame that
- * contains a plane change published after it. BD-J has no notion of which flush answers which input, so the first
- * plane publication presented after an input answers it (and every input before it).
+ * How long a BD-J menu takes to answer: from a key press or a tap reaching the engine to the next presented frame that
+ * contains a plane change published after it (telemetry's bdj.inputLatencyMs, held to a 0.2 s bar). BD-J has no notion of which flush answers which input, so the first
+ * plane publication presented after an input answers it (and every input before it). Runs in the engine worker.
  */
 export class InputLatency implements InputLatencyLike {
   private readonly pending: Array<{ readonly atMs: number; readonly version: number }> = [];
@@ -208,6 +222,7 @@ export class InputLatency implements InputLatencyLike {
     this.pending.length = 0;
   }
 
+  /** The last and longest answer in milliseconds and how many were counted; null before the first. */
   get stats(): InputLatencyStats | null {
     return this.count > 0 ? { last: Math.round(this.last), max: Math.round(this.max), count: this.count } : null;
   }

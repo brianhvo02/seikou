@@ -37,6 +37,7 @@ runBdjWorker(globalThis as unknown as BdjPort, {
   loadDefaultFont: () => (defaultFont ??= fetchBytes(defaultFontUrl)),
   // what discs save lasts in this browser's IndexedDB (none where it is missing: it lasts until BD-J stops)
   createStore: (source) => (typeof indexedDB === 'undefined' ? null : new IdbBdjStore(source, indexedDB)),
-  // a NAS disc's go to the person's store on the NAS, with a write-ahead copy in IndexedDB (ruling R17)
+  // a NAS disc's go to the person's store on the NAS, with a write-ahead copy in IndexedDB first, so a page closed
+  // before the NAS has them keeps them on this device
   ...(typeof indexedDB === 'undefined' ? {} : { indexedDB }),
 });

@@ -1,5 +1,6 @@
 /*
- * Original code for Seikou: what a browser needs to run BD-J (spec m5d §4.5), named for the user. The engine
+ * Original code for Seikou: what a browser needs to run BD-J, named for the user (the BD-J menus spec,
+ * docs/superpowers/specs/2026-10-17-m5d-bdj-menus-design.md, lists the same features). The engine
  * worker checks its own global before it offers BD-J (worker.ts); the page's capability report (src/ui/capabilities.ts)
  * checks the page's, which cannot see whether a worker may start workers.
  *
@@ -10,6 +11,7 @@
 
 type Bag = Record<string, unknown>;
 
+/** The features BD-J needs, each with the name the user is shown when it is missing. */
 export const BDJ_REQUIREMENTS = {
   /** The register file, status block and graphics plane are shared with the BD-J worker. */
   sharedMemory: 'cross-origin isolation (SharedArrayBuffer)',
@@ -23,6 +25,7 @@ export const BDJ_REQUIREMENTS = {
   offscreenCanvas: 'OffscreenCanvas',
 } as const;
 
+/** Where bdjMissing runs. */
 export interface BdjRequirementOptions {
   /**
    * `g` is a worker's global, where Atomics.wait may be called: it is tried with a 0 ms timeout. On a page's main

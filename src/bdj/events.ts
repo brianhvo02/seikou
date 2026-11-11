@@ -15,7 +15,12 @@ export type { BdjEventSink, BdjPlaybackEvents } from '@seikou/engine/bdj-types';
 
 const PSR_SECONDARY_AUDIO_VIDEO = PSR.SECONDARY_AUDIO_VIDEO;
 
-/** _process_psr_event: only the BD-J notifications. A change is first a write. */
+/**
+ * Sends Java the PSR events libbluray's _process_psr_event sends (bluray.c, its _process_psr_write_event and
+ * _process_psr_change_event branches): angle, playlist, play item, time and PSR102 on every write, and chapter,
+ * audio, subtitle and secondary stream only on a change. A change is first a write. Runs in the engine worker;
+ * the returned function unsubscribes.
+ */
 export function bindBdjPsrEvents(regs: RegisterFile, sink: BdjEventSink): () => void {
   return regs.onPsrEvent((e) => {
     if (e.type !== 'write' && e.type !== 'change') return;
@@ -39,6 +44,7 @@ export function bindBdjPsrEvents(regs: RegisterFile, sink: BdjEventSink): () => 
   });
 }
 
+/** The playback events Java hears, each as its libbluray BDJ_EVENT_* number sent to `sink`. Runs in the engine worker. */
 export function bdjPlaybackEvents(sink: BdjEventSink): BdjPlaybackEvents {
   return {
     endOfPlaylist: (playlist) => sink(BdjEvent.END_OF_PLAYLIST, playlist),

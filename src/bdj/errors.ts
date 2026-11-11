@@ -9,6 +9,10 @@
 import type { BdjErrorCode } from '@seikou/engine/bdj-types';
 export type { BdjErrorCode } from '@seikou/engine/bdj-types';
 
+/**
+ * A BD-J failure with its kind (`code`) and, for a Java exception, Java's stack as `at ...` lines (empty otherwise).
+ * Thrown by the runtime in the BD-J worker, which reports it to the engine as a `failed` message.
+ */
 export class BdjError extends Error {
   constructor(
     readonly code: BdjErrorCode,

@@ -10,17 +10,20 @@
 
 import { SCOPE_QUOTA_BYTES, ScopeQuotaError, snapshotBytes, type BdjStore, type LoadedSnapshot, type SaveResult, type Snapshot, type SnapshotFile } from './bdj-store';
 
+/** The IndexedDB database the BD-J stores share, in the page's origin. */
 export const BDJ_STORE_DB = 'bdj-store';
+/** Its schema version: one object store, SCOPES_STORE. */
 export const BDJ_STORE_DB_VERSION = 1;
 /** Object store of ScopeRecords, keyed `<source>|<scope>`, with an index on `source`. */
 export const SCOPES_STORE = 'scopes';
+/** The index of SCOPES_STORE on each record's `source`. */
 export const SOURCE_INDEX = 'source';
 
 /**
  * The browser's store saves this soon after Java's last write, not the 2 s a remote store waits: a page closed soon
- * after a save must keep it (ruling R1, Review Focus 3), and the pagehide flush cannot see to that. Chrome and Safari
- * drop an IndexedDB transaction started during pagehide, even one started on the page itself, and the flush has to
- * cross two workers first, which the browser terminates as the page goes (Task 6's report has the measurements).
+ * after a save must keep it, and the pagehide flush cannot see to that. Chrome and Safari drop an IndexedDB
+ * transaction started during pagehide, even one started on the page itself, and the flush has to cross two workers
+ * first, which the browser terminates as the page goes.
  * Writes come in bursts (a FileWriter's open, writes and close; a few files): 100 ms gathers one into one save.
  */
 export const IDB_SAVE_DEBOUNCE_MS = 100;
@@ -31,29 +34,32 @@ export interface ScopeRecord {
   readonly source: string;
   /** `persistent/<orgId>` or `buda/<orgId>/<discId>`. */
   readonly scope: string;
+  /** This record's version, new at every save. */
   readonly etag: string;
+  /** The scope's files, sorted by path. */
   readonly files: readonly SnapshotFile[];
   /** The files' bytes together. */
   readonly bytes: number;
   /** Epoch ms of the save. */
   readonly savedAt: number;
   /**
-   * A NAS disc's write-ahead copy (ruling R17, source `nas-person:<personId>`): true while the snapshot is not yet on
-   * the NAS. Absent on the browser-only sources.
+   * A NAS disc's write-ahead copy (source `nas-person:<personId>`): true while the snapshot is not yet on the NAS. Absent on the browser-only sources.
    */
   readonly pending?: boolean;
   /** A browser-only NAS disc record (`nas:<discId>`) merged into this person's write-ahead copy, to go once the NAS has it. */
   readonly migratedTo?: string;
   /**
-   * A pending write-ahead copy that was never merged with the NAS's (ruling R28): written in a session whose boot got
-   * no answer from the NAS in time and had no copy here, so Java started with none. It is not put in that session;
-   * the next boot merges it with the NAS's files winning at every path both have (ruling R29). Absent once merged.
+   * A pending write-ahead copy that was never merged with the NAS's: written in a session whose boot got no answer
+   * from the NAS in time and had no copy here, so Java started with none. It is not put in that session; the next
+   * boot merges it with the NAS's files winning at every path both have, since Java wrote it without the saved data
+   * in sight. Absent once merged.
    */
   readonly unmerged?: boolean;
 }
 
 /** What a save marks on the record (IdbBdjStore.save). */
 export interface RecordMarks {
+  /** ScopeRecord.pending; left out when undefined. */
   readonly pending?: boolean;
   /** ScopeRecord.unmerged; left out (false) otherwise. */
   readonly unmerged?: boolean;
@@ -66,6 +72,7 @@ interface NoteRecord {
   readonly note: string;
 }
 
+/** A record's key in SCOPES_STORE: `<source>|<scope>`. */
 export function recordKey(source: string, scope: string): string {
   return `${source}|${scope}`;
 }
@@ -88,7 +95,11 @@ function request<T>(r: IDBRequest<T>): Promise<T> {
   });
 }
 
-/** The scopes of one disc source in the database `bdj-store`. Each save is one readwrite transaction, committed when it resolves. */
+/**
+ * The scopes of one disc source in the database `bdj-store`. Each save is one readwrite transaction, committed when
+ * it resolves. Runs in the BD-J worker. Over SCOPE_QUOTA_BYTES (file lengths) a save rejects with ScopeQuotaError,
+ * and IndexedDB's own errors (its quota, an aborted transaction) reject with that error.
+ */
 export class IdbBdjStore implements BdjStore {
   readonly saveDebounceMs = IDB_SAVE_DEBOUNCE_MS;
   private db: Promise<IDBDatabase> | null = null;
@@ -118,7 +129,7 @@ export class IdbBdjStore implements BdjStore {
     const bytes = snapshotBytes(snapshot);
     if (bytes > this.quotaBytes) throw new ScopeQuotaError(scope, bytes, this.quotaBytes);
     const db = await this.open();
-    // strict: committed to disk when the transaction completes, so a page closed right after keeps the save (ruling R1)
+    // strict: committed to disk when the transaction completes, so a page closed right after keeps the save
     const tx = db.transaction(SCOPES_STORE, 'readwrite', { durability: 'strict' });
     const done = new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => resolve();
@@ -241,7 +252,7 @@ export class IdbBdjStore implements BdjStore {
     return gone;
   }
 
-  /** The scopes this source keeps (Task 8's migration). */
+  /** The scopes this source keeps, sorted (the move of `nas:<discId>` records into a person's scopes reads them). */
   async scopes(): Promise<string[]> {
     const db = await this.open();
     const tx = db.transaction(SCOPES_STORE, 'readonly');

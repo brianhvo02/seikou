@@ -49,7 +49,7 @@ const finite = (v: number, fallback: number): number => (Number.isFinite(v) ? v 
 /**
  * The background still of one player: at most one decoded image is held, and it is closed (about 8 MB at 1920×1080)
  * as soon as a newer still replaces it or the background is cleared. A decode that finishes after a newer still or a
- * clear is closed at once and never shown.
+ * clear is closed at once and never shown. Runs in the engine worker, which draws the still under the video.
  */
 export class BackgroundStill implements BackgroundStillLike {
   private generation = 0;
@@ -59,6 +59,7 @@ export class BackgroundStill implements BackgroundStillLike {
 
   constructor(private readonly deps: BackgroundStillDeps) {}
 
+  /** The still drawn now, or null. */
   get current(): ShownStill | null {
     return this.shown;
   }

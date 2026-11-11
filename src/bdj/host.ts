@@ -24,36 +24,53 @@ import { TITLE_FIRST_PLAY, firstPlayInfo, playlistInfo, titleInfos, titleOf } fr
 
 /** One entry of libbluray's title list (BLURAY_TITLE): index 0 is the top menu, then the titles, then First Play. */
 export interface TitleInfo {
+  /** The title number: 0 for the top menu, 1 to n for the index titles, 0xffff for First Play. */
   readonly number: number;
+  /** Whether the title runs a movie object or a BD-J object (BLURAY_TITLE's bdj flag). */
   readonly objectType: 'hdmv' | 'bdj';
-  /** _make_title_info's playback type: interactive + 2 × bdj. */
+  /** _make_title_info's playback type: interactive + 2 × bdj, so 0 to 3 (org_videolan_Libbluray.c). */
   readonly playbackType: number;
+  /** The five-digit name of a BD-J title's BDJO file (without `.bdjo`), else null. */
   readonly bdjoName: string | null;
+  /** The movie object number for an HDMV title (BLURAY_TITLE's id_ref), else null. */
   readonly hdmvObjectId: number | null;
 }
 
-/** BLURAY_STREAM_INFO. */
+/** One stream of a play item as BD-J sees it: BLURAY_STREAM_INFO, filled from the play item's STN table. */
 export interface StreamInfo {
+  /** The stream coding type (coding_type: 0x1b H.264, 0x80 LPCM and so on). */
   readonly codingType: number;
+  /** The video format or audio presentation type (format). */
   readonly format: number;
+  /** The frame rate or audio sample rate code (rate). */
   readonly rate: number;
+  /** The text subtitle character code (char_code). */
   readonly charCode: number;
+  /** The ISO 639-2 language code (lang). */
   readonly lang: string;
+  /** The stream's transport stream PID (pid). */
   readonly pid: number;
+  /** The aspect ratio code from the clip's program info (aspect, nav_clip_lookup_aspect), 0 when unknown. */
   readonly aspect: number;
+  /** The sub-path the stream comes from, or -1 for the main path (subpath_id). */
   readonly subpathId: number;
 }
 
 /** BLURAY_TITLE_MARK, the fields BD-J reads. */
 export interface PlaylistMark {
+  /** The mark type: 1 an entry mark (a chapter), 2 a link point (type). */
   readonly type: number;
+  /** The play item the mark is in (clip_ref). */
   readonly playItem: number;
+  /** Where the mark is in the playlist's time, in 90 kHz ticks (start). */
   readonly startTicks: bigint;
 }
 
 /** BLURAY_CLIP_INFO, the fields BD-J reads. */
 export interface PlaylistClip {
+  /** The clip's five-digit name (clip_id). */
   readonly clipId: string;
+  /** The play item's in and out times in the clip, in 90 kHz ticks (in_time, out_time). */
   readonly inTicks: bigint;
   readonly outTicks: bigint;
   readonly videoStreams: readonly StreamInfo[];
@@ -66,8 +83,11 @@ export interface PlaylistClip {
 
 /** BLURAY_TITLE_INFO from bd_get_playlist_info; times are 90 kHz ticks. */
 export interface PlaylistInfo {
+  /** The playlist number (the MPLS file name). */
   readonly playlist: number;
+  /** The sum of the play items' lengths, in 90 kHz ticks (duration). */
   readonly durationTicks: bigint;
+  /** The largest angle count of any play item (angle_count). */
   readonly angleCount: number;
   readonly marks: readonly PlaylistMark[];
   readonly clips: readonly PlaylistClip[];
@@ -75,6 +95,7 @@ export interface PlaylistInfo {
 
 /** One native call as tools/bdj-trace/trace.patch prints it: Java longs as decimal strings. */
 export interface TraceEntry {
+  /** The native's name, such as `selectPlaylistN`. */
   readonly call: string;
   readonly args: readonly (number | string | boolean | null)[];
   readonly ret: number | string | boolean | null;
@@ -126,11 +147,15 @@ type TitleType = 'undef' | 'hdmv' | 'bdj';
 const sixDigits = (v: number): number => Number(v.toPrecision(6));
 
 /**
- * The only host in milestone 5b: answers from the parsed disc and a real register file, plays nothing, and records
- * every call in trace.patch's format. Its state starts as bd_play leaves it, with First Play selected.
+ * The host the trace comparisons run Java against (tests/bdj/replay.ts and the runtime's tests): answers from the
+ * parsed disc and a real register file, plays nothing, and records every call in trace.patch's format, so the trace
+ * can be compared with libbluray's golden one. Its state starts as bd_play leaves it, with First Play selected. Runs
+ * on the thread the JVM runs on (Node in the tests).
  */
 export class RecordingHost implements BdjHost {
+  /** The register file Java reads and writes, set up as for the disc at open. */
   readonly registers = new RegisterFile();
+  /** How many updateGraphicN calls Java has made. */
   updateGraphicCount = 0;
   private readonly entries: TraceEntry[] = [];
   private titleType: TitleType;
@@ -150,6 +175,7 @@ export class RecordingHost implements BdjHost {
     else if (fp) this.playHdmv(fp.hdmvObjectId ?? 0);
   }
 
+  /** Every call recorded so far, in order. */
   get trace(): readonly TraceEntry[] {
     return this.entries;
   }
@@ -292,7 +318,7 @@ export class RecordingHost implements BdjHost {
     this.record({ call: 'setKeyInterestN', args: [mask], ret: null });
   }
 
-  /** bdpriv_sound_effect */
+  /** bdpriv_sound_effect: -1 for an id past the disc's sound.bdmv or outside 0 to 255, else 0. */
   soundEffect(id: number): number {
     const sounds = this.disc.sounds;
     const ok = !(sounds && id >= sounds.clips.length) && id >= 0 && id <= MAX_SOUND_ID;
@@ -305,7 +331,7 @@ export class RecordingHost implements BdjHost {
     return null;
   }
 
-  /** _bd_set_virtual_package */
+  /** _bd_set_virtual_package: allowed (0) only while a BD-J title runs with no playlist open, else -1. */
   setVirtualPackage(vpPath: string | null, psrBackup: boolean): number {
     let r = -1;
     if (this.playlist === null && this.titleType === 'bdj') {

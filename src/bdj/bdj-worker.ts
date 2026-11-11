@@ -1,5 +1,6 @@
 /*
- * Original code for Seikou: the BD-J worker, which runs the JVM for the engine worker.
+ * Original code for Seikou: the BD-J worker, which runs the JVM for the engine worker. Everything in this file runs
+ * in the BD-J worker.
  *
  * Copyright (C) 2026  Seikou contributors
  *
@@ -28,14 +29,16 @@ import { discScopes, storeSource } from './store/scopes';
 import { WorkerBdjHost } from './worker-host';
 import type { BdjCallName, BdjFailureCode, BdjWireValue, FromBdj, ToBdj } from './worker-protocol';
 
+/** The BD-J worker's side of its channel to the engine worker (the worker's global scope in production). */
 export interface BdjPort {
   postMessage(message: FromBdj): void;
   onmessage: ((event: { readonly data: ToBdj }) => void) | null;
 }
 
 /**
- * Whether Java has shown it runs, as the session's start-up timeout counts it (BdjSession.alive, ruling R7): a
- * selected playlist, a visible plane or a shown background still. Only a deadlock before that is a boot stall.
+ * Whether Java has shown it runs, as the session's start-up timeout counts it (BdjSession.alive): a selected
+ * playlist, a visible plane or a shown background still, since a still menu waiting for input is alive, not hung.
+ * Only a deadlock before that is a boot stall.
  */
 export class StartupWatch {
   private shown = false;
@@ -44,6 +47,7 @@ export class StartupWatch {
   /** `onShown`: called once, when Java first shows it runs (the session's start-up timeout is then disarmed). */
   constructor(private readonly onShown?: () => void) {}
 
+  /** A call Java sent the engine: selecting a playlist (not a stop, playlist -1) shows it runs. */
   call(name: BdjCallName, args: readonly BdjWireValue[]): void {
     if (name === 'selectPlaylist' && Number(args[0]) >= 0) this.show();
   }
@@ -53,6 +57,7 @@ export class StartupWatch {
     if (image) this.show();
   }
 
+  /** The plane after a run of the Java threads: a visible one (a menu) shows it runs. */
   plane(visible: boolean): void {
     if (visible) this.show();
   }
@@ -72,8 +77,8 @@ export class StartupWatch {
 }
 
 /**
- * Whether the worker is waiting on its own I/O, for the engine's start-up timeout (Task 7g): a disc read over a slow
- * link, the storage scopes or the fonts. A change is told at the next turn of the event loop and only if it still
+ * Whether the worker is waiting on its own I/O, for the engine's start-up timeout, which does not count that time
+ * because a slow link is not a hang: a disc read over a slow link, the storage scopes or the fonts. A change is told at the next turn of the event loop and only if it still
  * holds then, so reads answered from memory (the read-ahead, the inlined files) send nothing.
  */
 export class IoWatch {
@@ -127,6 +132,7 @@ export class IoWatch {
   }
 }
 
+/** What runBdjWorker returns: a handle for tests. */
 export interface BdjWorkerHandle {
   /** The runtime once booting has begun (tests reach into the JVM through it). */
   readonly runtime: BdjRuntime | null;
@@ -153,6 +159,7 @@ function eventLoopTurn(): () => Promise<void> {
     });
 }
 
+/** What the BD-J worker's entry gives runBdjWorker; tests pass their own. */
 export interface BdjWorkerOptions {
   /** JvmOptions.extraIntrinsics: the class library's intrinsics (src/bdj-classlib/intrinsics), which the engine does not carry. */
   readonly extraIntrinsics?: (table: NativeTable) => void;
@@ -167,13 +174,13 @@ export interface BdjWorkerOptions {
   readonly fetch?: typeof fetch;
   /**
    * Where the disc's saved data (/persistent/, /buda/) lasts between sessions, for the disc's source (scopes.ts
-   * storeSource); without it (or with null) it lasts until BD-J stops, as before.
+   * storeSource); without it (or with null) it lasts until BD-J stops.
    */
   readonly createStore?: (source: string) => BdjStore | null;
   /**
    * The browser's IndexedDB, for a disc opened from a server (the backend choice): its saved data goes to the person's
-   * NAS store with a write-ahead copy here (nas-store.ts NasDiscStore, ruling R17), or stays here on a server that
-   * keeps no people. Without it such a disc takes `createStore`, as a picked folder does.
+   * NAS store with a write-ahead copy here (nas-store.ts NasDiscStore: browsers drop work started during pagehide, so
+   * the copy here is what keeps a page closed early from losing saves), or stays here on a server that keeps no people. Without it such a disc takes `createStore`, as a picked folder does.
    */
   readonly indexedDB?: IDBFactory;
 }
@@ -218,7 +225,7 @@ export function runBdjWorker(port: BdjPort, options: BdjWorkerOptions = {}): Bdj
   let nasStore: NasBdjStore | null = null;
   /** The NAS's full or not full per scope, heard before `sync` was there (applied once it is). */
   const fullRelay = new FullRelay();
-  /** The engine has heard that saved data won't last (storageLost, ruling R32): it hears it once. */
+  /** The engine has heard that saved data won't last (storageLost): it hears it once a session. */
   let storageLostSent = false;
   /** No scope is kept past the session (no store, or the scopes could not be worked out): a write there is lost. */
   let unkept = false;
@@ -232,7 +239,7 @@ export function runBdjWorker(port: BdjPort, options: BdjWorkerOptions = {}): Bdj
     if (!ended) port.postMessage(m);
   };
 
-  /** Tells the engine, once and only while the session runs, that what the disc saves won't last (ruling R32). */
+  /** Tells the engine, once and only while the session runs, that what the disc saves won't last (the viewer's `bdj-storage` notice). */
   const storageLost = (reason: StorageLoss): void => {
     if (storageLostSent || ended) return;
     storageLostSent = true;
@@ -312,7 +319,8 @@ export function runBdjWorker(port: BdjPort, options: BdjWorkerOptions = {}): Bdj
       // on the WebRTC route the engine relays the disc's requests through a port of this worker's own
       const fetchPort = m.disc.kind === 'remote' ? m.disc.fetchPort : undefined;
       const fetchFn = fetchPort ? portFetch(fetchPort) : (options.fetch ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init)));
-      // the BD-J read-ahead budget (memory profile bdjRemoteReadAheadBytes), in BD-J-sized requests (ruling R20)
+      // the BD-J read-ahead budget (memory profile bdjRemoteReadAheadBytes), in BD-J-sized requests: this worker reads
+      // JARs and metadata, not streams, so the engine's much larger read-ahead would only add memory
       const disc = createByteSource(m.disc, {
         fetch: fetchFn,
         readAheadBytes: m.readAheadBytes,
@@ -329,7 +337,7 @@ export function runBdjWorker(port: BdjPort, options: BdjWorkerOptions = {}): Bdj
         remote = disc;
         if (latestToken !== null) disc.setToken(latestToken);
       }
-      // everything below reads the disc through this: the time Java waits on it is not the start-up timeout's (Task 7g)
+      // everything below reads the disc through this: the time Java waits on it is not the start-up timeout's
       const reads = io.source(disc);
       // the disc model loads while the JDK starts up; the host reads it once Libbluray.init asks for disc info
       let model: { readonly disc: DiscModel; readonly clips: ReadonlyMap<string, Clpi> } | null = null;
@@ -348,7 +356,7 @@ export function runBdjWorker(port: BdjPort, options: BdjWorkerOptions = {}): Bdj
       // the storage scopes load while the JDK starts up too: Libbluray.init (and so every xlet) waits for them
       store = createStore(m, fetchFn);
       // a store was wanted and there is none (no IndexedDB): what the disc saves lasts until BD-J stops, which the
-      // viewer hears of at Java's first write there (ruling R32a)
+      // viewer hears of at Java's first write there, never at boot, since a disc that never writes loses nothing
       if (!store && options.createStore) unkept = true;
       const storeLoading = store ? io.track(loadScopes(store, reads, m.discId)) : Promise.resolve(null);
       planeView = new GraphicsPlaneReader(m.plane);

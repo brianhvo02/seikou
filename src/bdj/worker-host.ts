@@ -20,23 +20,34 @@ import type { SharedRegisterView } from './shared-registers';
 import type { StatusBlockReader } from './status-block';
 import type { BdjCallName, BdjWireValue } from './worker-protocol';
 
+/** What the BD-J worker's host reads and calls. */
 export interface WorkerBdjHostOptions {
+  /** The register file the engine owns, read synchronously by Java's readRegN. */
   readonly regs: SharedRegisterView;
+  /** The time and UO mask the engine publishes, read synchronously by tellTimeN and getUOMaskN. */
   readonly status: StatusBlockReader;
   /** Where updateGraphicN draws; without one, graphics are dropped. */
   readonly plane?: GraphicsPlaneWriter;
   /** Where displayImage's background stills go (the engine worker); without it, they are dropped. */
   readonly background?: (image: Uint8Array | null, rect: ScreenRect) => void;
+  /** Sends a call to the engine worker and resolves with its reply (a Java long as a decimal string). */
   readonly call: (name: BdjCallName, args: readonly BdjWireValue[]) => Promise<number | string>;
   /** Read only once Java asks for disc information (the worker boots the JDK while it loads these). */
   readonly disc: DiscModel;
+  /** The disc's parsed clips by clip id, for getPlaylistInfoN's clip and stream lists. */
   readonly clips: ReadonlyMap<string, Clpi>;
+  /** Receives Java's log lines, `file:line: message` (`JVM` when there is no file). */
   readonly log: (line: string, error: boolean) => void;
 }
 
 const toInt = (v: number | string): number => Number(v) | 0;
 const toLong = (v: number | string): bigint => BigInt(v);
 
+/**
+ * The BdjHost Java's natives call in the BD-J worker. Reads (registers, time, UO mask, title and playlist info), the
+ * graphics plane and background stills are handled here without waiting; anything that changes playback or the
+ * registers is a `call` to the engine worker, which applies it and replies.
+ */
 export class WorkerBdjHost implements BdjHost {
   private titles: readonly (TitleInfo | null)[] | null = null;
 
@@ -66,7 +77,7 @@ export class WorkerBdjHost implements BdjHost {
     return this.int('selectRate', [rate, reason]);
   }
 
-  /** bd_tell_time: the engine publishes out_time in 45 kHz ticks. */
+  /** bd_tell_time: the title time in 90 kHz ticks, twice the 45 kHz out_time the engine publishes, as bd_tell_time doubles it. */
   tellTime(): bigint {
     return this.opts.status.time45() * 2n;
   }

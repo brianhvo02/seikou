@@ -1,6 +1,8 @@
 /*
- * Original code for Seikou: where BD-J's saved data lives between viewings (spec §4.4). A scope (scopes.ts) is
- * read and written whole, as a snapshot, through a BdjStore: the browser's (idb-store.ts) or the NAS's (nas-store.ts).
+ * Original code for Seikou: where BD-J's saved data lives between viewings (saved data in
+ * docs/superpowers/specs/2026-10-18-m5e-bdj-library-coverage-design.md). A scope (scopes.ts) is read and written
+ * whole, as a snapshot, through a BdjStore: the browser's (idb-store.ts) or the NAS's (nas-store.ts). The stores run
+ * in the BD-J worker.
  *
  * Copyright (C) 2026  Seikou contributors
  *
@@ -24,6 +26,7 @@ export interface Snapshot {
 
 /** A loaded snapshot with the version a save must name: null when the store holds none for the scope. */
 export interface LoadedSnapshot extends Snapshot {
+  /** The stored version, which the next save names; null when nothing is stored. */
   readonly etag: string | null;
 }
 
@@ -40,22 +43,25 @@ export type SaveResult = { readonly etag: string } | { readonly conflict: Snapsh
  */
 export interface BdjStore {
   /**
-   * How long a save waits after the last write; without it the plan's 2 s (scope-sync.ts SAVE_DEBOUNCE_MS), which
+   * How long a save waits after the last write; without it 2 s (scope-sync.ts SAVE_DEBOUNCE_MS), which
    * spares a remote store a request per write. A local store sets less (idb-store.ts IDB_SAVE_DEBOUNCE_MS).
    */
   readonly saveDebounceMs?: number;
   /**
    * How long ScopeSync waits for a scope's load before it keeps the scope in memory only; without it 3 s
    * (scope-sync.ts LOAD_TIMEOUT_MS), enough for IndexedDB. A remote store sets more (nas-store.ts), in line with the
-   * disc's own reads: the load counts as I/O for the start-up timer, which bounds it (ruling R26).
+   * disc's own reads: the load counts as I/O, which the start-up timeout passes over for at most 120 s per boot.
    */
   readonly loadTimeoutMs?: number;
   /**
    * How the scope quota counts (Vfs QuotaAccounting): `tar` for a store that keeps scopes as ustar archives with a 16 MB
-   * limit on their size (the NAS, ruling R24); file lengths (`bytes`) without it.
+   * limit on their size (the NAS, which counts headers and padding too, so the write that would cross it fails in Java
+   * at once instead of as a later 507); file lengths (`bytes`) without it.
    */
   readonly quotaAccounting?: 'bytes' | 'tar';
+  /** The scope's stored snapshot, or EMPTY_SNAPSHOT when none is stored. */
   load(scope: string): Promise<LoadedSnapshot>;
+  /** Replaces the scope when `etag` names the stored version, else answers the stored one as a conflict. */
   save(scope: string, snapshot: Snapshot, etag: string | null): Promise<SaveResult>;
   /**
    * Sends on what the store holds but has not passed on yet (a NAS disc's write-ahead copy, nas-store.ts) now, rather
@@ -65,14 +71,17 @@ export interface BdjStore {
   flush?(): Promise<void>;
 }
 
-/** Agreed with the NAS session: 16 MB per scope (the NAS also has 256 MB per person). */
+/** The NAS store's limit per scope, 16 MB, which every store keeps (the NAS also has 256 MB per person). */
 export const SCOPE_QUOTA_BYTES = 16 * 1024 * 1024;
 
 /** A save past a quota (the NAS's 507): Java sees a full disk, and the stored snapshot stays the last complete one. */
 export class ScopeQuotaError extends Error {
   constructor(
+    /** The scope the save was for. */
     readonly scope: string,
+    /** What the save would have held, in bytes. */
     readonly bytes: number,
+    /** The limit it went over, in bytes. */
     readonly limitBytes: number,
   ) {
     super(`${scope}: ${bytes} bytes is over the quota of ${limitBytes} bytes (No space left on device)`);
@@ -83,6 +92,7 @@ export class ScopeQuotaError extends Error {
 /** The NAS's 507: over the scope's 16 MB or the person's 256 MB (the NAS store contract). */
 export const PERSON_QUOTA_BYTES = 256 * 1024 * 1024;
 
+/** The NAS refused a put for room (507): `limit` says whether the scope's 16 MB or the person's 256 MB was crossed. */
 export class NasQuotaError extends ScopeQuotaError {
   constructor(
     scope: string,
@@ -95,6 +105,7 @@ export class NasQuotaError extends ScopeQuotaError {
   }
 }
 
+/** What load answers for a scope never saved: no files, no version. */
 export const EMPTY_SNAPSHOT: LoadedSnapshot = { files: [], etag: null };
 
 /** The bytes a snapshot's files hold together (what the quota counts). */
@@ -126,8 +137,8 @@ export function mergeSnapshots(local: Snapshot, remote: Snapshot): { readonly me
 }
 
 /**
- * The merge of a copy written without seeing `remote` (ruling R29: a write-ahead copy kept after a boot that missed the
- * NAS): `remote`'s file wins at every path on both sides, whatever the mtimes, and only the paths `remote` lacks come
+ * The merge of a copy written without seeing `remote` (a write-ahead copy kept after a boot that missed the NAS, so
+ * Java wrote it without the saved data): `remote`'s file wins at every path on both sides, whatever the mtimes, and only the paths `remote` lacks come
  * from `local`, so a fresh file Java wrote with no saved data in sight never replaces real saved data. `dropped`: the
  * paths on both sides whose local file differed from the remote one (left out).
  */
@@ -143,13 +154,15 @@ export function mergeKeepingRemote(local: Snapshot, remote: Snapshot): { readonl
   return { merged: { files: sortFiles([...byPath.values()]) }, dropped };
 }
 
+/** Sorts `files` in place by path, in code unit order, and returns it: the order snapshots keep their files in. */
 export function sortFiles(files: SnapshotFile[]): SnapshotFile[] {
   return files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 }
 
 /**
  * A store in memory, empty at first: what a browser with no saved data has (the replay harness and the library check
- * use it, so golden runs go through the store's paths with nothing stored).
+ * use it, so golden runs go through the store's paths with nothing stored). Over its quota (file lengths) a save
+ * rejects with ScopeQuotaError.
  */
 export class MemoryBdjStore implements BdjStore {
   private readonly scopes = new Map<string, LoadedSnapshot & { readonly etag: string }>();

@@ -1,8 +1,8 @@
 /*
  * Original code for Seikou: keeps a BD-J session's storage scopes (scopes.ts) in step with a BdjStore. The scopes
  * load before Libbluray.init, into the VFS's /persistent/ and /buda/; Java's writes mark a scope dirty, and it is saved
- * whole 2 s after the last one (spec §4.4; the browser's store sooner, its saveDebounceMs), on the engine's flush
- * (pagehide) and when BD-J stops.
+ * whole 2 s after the last one (the browser's store sooner, its saveDebounceMs), on the engine's flush (pagehide) and
+ * when BD-J stops. Runs in the BD-J worker.
  *
  * Copyright (C) 2026  Seikou contributors
  *
@@ -24,7 +24,7 @@ function keepOurs(merged: Snapshot, ours: Snapshot, paths: ReadonlySet<string>):
   return { files };
 }
 
-/** The save follows the last write by this much (the plan's Global Constraints), unless the store says less (BdjStore.saveDebounceMs). */
+/** The save follows the last write by this much, unless the store says otherwise (BdjStore.saveDebounceMs): a burst of writes is one save. */
 export const SAVE_DEBOUNCE_MS = 2000;
 /** A disc that keeps writing more often than the debounce is still saved this often. */
 export const SAVE_MAX_WAIT_MS = 10_000;
@@ -36,24 +36,32 @@ export const LOAD_TIMEOUT_MS = 3000;
 /** A save that keeps meeting newer snapshots gives up after this many tries (until the next write). */
 const SAVE_ATTEMPTS = 3;
 
+/** What ScopeSync needs of the VFS (Vfs): file import and export, and the quotas. */
 export type ScopeVfs = Pick<Vfs, 'importFiles' | 'exportFiles' | 'setQuota' | 'stat'> & Partial<Pick<Vfs, 'setQuotaLimit' | 'quotaUsed'>>;
 
+/** What a ScopeSync works with. */
 export interface ScopeSyncDeps {
+  /** Where the scopes are kept. */
   readonly store: BdjStore;
+  /** A one-shot timer; the returned function cancels it. */
   readonly setTimer: (ms: number, fn: () => void) => () => void;
   /** A line for the engine's log; `error` for a failure (data not loaded or not kept). */
   readonly log: (line: string, error?: boolean) => void;
   /** Whether a scope has changes not yet stored, on each change of it (the engine waits for the stop flush only then). */
   readonly onUnsaved?: (unsaved: boolean) => void;
   /**
-   * What is written won't last (ruling R32): a write into a scope that did not load (memory only; at each such write,
-   * never at the load, R32a), a write or save refused for room.
-   * Heard on every occurrence; the BD-J worker tells the engine once.
+   * What is written won't last, so the viewer is told: Java's first write into a scope that did not load (memory
+   * only; told at the write, never at the load, since a disc that never writes loses nothing), or a write or save
+   * refused for room (each one). The BD-J worker tells the engine once.
    */
   readonly onLost?: (reason: StorageLoss) => void;
+  /** Each scope's quota in bytes (default SCOPE_QUOTA_BYTES). */
   readonly quotaBytes?: number;
+  /** Overrides the store's save debounce, in ms (tests). */
   readonly debounceMs?: number;
+  /** Overrides SAVE_MAX_WAIT_MS (tests). */
   readonly maxWaitMs?: number;
+  /** Overrides the store's load timeout, in ms (tests). */
   readonly loadTimeoutMs?: number;
 }
 
@@ -67,7 +75,7 @@ interface ScopeState {
   dirty: boolean;
   /**
    * Files a write to was refused for room (quota or memory budget) since they were last emptied: saves keep their
-   * stored version (or leave them out), so the store keeps the last complete snapshot (Review Focus 2).
+   * stored version (or leave them out), so the store keeps the last complete snapshot, never a half-written file.
    */
   readonly refused: Set<string>;
 }
@@ -77,6 +85,7 @@ interface ScopeState {
  * the scopes are in the VFS, so it is kept until `attach`.
  */
 export class FullRelay {
+  /** The NAS has no room for `scope` (`full`), or has room again. */
   private sync: Pick<ScopeSync, 'full'> | null = null;
   private readonly early = new Map<string, boolean>();
 
@@ -85,6 +94,7 @@ export class FullRelay {
     else this.early.set(scope, full);
   }
 
+  /** Passes on what was heard before, then everything from now on, to `sync`. */
   attach(sync: Pick<ScopeSync, 'full'>): void {
     this.sync = sync;
     for (const [scope, full] of this.early) sync.full(scope, full);
@@ -92,6 +102,11 @@ export class FullRelay {
   }
 }
 
+/**
+ * One BD-J session's storage scopes, loaded from a store into the VFS and saved back whole after Java's writes.
+ * Runs in the BD-J worker. A scope that could not load is kept in memory only and never saved, so what the store
+ * holds is not replaced by less; a save that meets a newer stored snapshot merges per file and tries again.
+ */
 export class ScopeSync {
   private readonly states: ScopeState[];
   private vfs: ScopeVfs | null = null;
@@ -127,7 +142,7 @@ export class ScopeSync {
           ]);
           return { scope, memoryOnly: false, etag: loaded.etag, stored: { files: sortFiles([...loaded.files]) }, dirty: false, refused: new Set() };
         } catch (e) {
-          // the viewer hears of it only at Java's first write there (ruling R32a): a disc that never writes loses nothing
+          // the viewer hears of it only at Java's first write there: a disc that never writes loses nothing
           deps.log(`BD-J storage: ${scope.key} could not be loaded (${e instanceof Error ? e.message : String(e)}); what is written there lasts until BD-J stops`, true);
           return { scope, memoryOnly: true, etag: null, stored: EMPTY_SNAPSHOT, dirty: false, refused: new Set() };
         } finally {
@@ -138,6 +153,7 @@ export class ScopeSync {
     return new ScopeSync(deps, states);
   }
 
+  /** The scopes, in the order they were given. */
   get scopes(): readonly StoreScope[] {
     return this.states.map((s) => s.scope);
   }
@@ -150,8 +166,8 @@ export class ScopeSync {
       // a loose-only scope's snapshot has no subfolders (they belong to the disc scopes)
       if (s.scope.looseOnly) s.stored = { files: s.stored.files.filter((f) => !f.path.includes('/')) };
       vfs.importFiles(s.scope.dir, s.stored.files);
-      // counted as the store counts it: a NAS scope as its ustar archive (ruling R24), so the write that would cross
-      // 16 MB there fails here at once, as an IOException
+      // counted as the store counts it: a NAS scope as its ustar archive, headers and padding included, so the write
+      // that would cross 16 MB there fails here at once, as an IOException
       vfs.setQuota(s.scope.dir, quota, s.scope.looseOnly === true, this.deps.store.quotaAccounting ?? 'bytes');
     }
   }
@@ -161,7 +177,7 @@ export class ScopeSync {
     if (!this.vfs) return;
     const from = this.locate(path);
     if (change !== 'mkdir') {
-      // Java's first write into a scope kept in memory only: what it saves won't last (ruling R32a)
+      // Java's first write into a scope kept in memory only: what it saves won't last
       const dest = change === 'rename' && to !== undefined ? this.locate(to) : null;
       if (!this.memoryLossTold && (from?.state.memoryOnly || dest?.state.memoryOnly)) {
         this.memoryLossTold = true;
@@ -292,7 +308,8 @@ export class ScopeSync {
       }
       // the browser's store out of room (IndexedDB's QuotaExceededError): tried again, but the viewer is told
       if (e instanceof Error && e.name === 'QuotaExceededError') this.deps.onLost?.('full');
-      // tried again after the next write, the stop flush, or SAVE_MAX_WAIT_MS from now (review minor 4)
+      // tried again after the next write, the stop flush, or SAVE_MAX_WAIT_MS from now, so a disc that writes nothing
+      // more is still saved
       state.dirty = true;
       this.cancelMaxWait ??= this.deps.setTimer(this.deps.maxWaitMs ?? SAVE_MAX_WAIT_MS, () => {
         this.cancelMaxWait = null;
@@ -303,7 +320,7 @@ export class ScopeSync {
   }
 
   /**
-   * Whether Java's file at `remote`'s path is to stay over `remote` (review minor 3, N7): it changed (or went, or came)
+   * Whether Java's file at `remote`'s path is to stay over `remote`: it changed (or went, or came)
    * since `snapshot` was taken, a write under way, or it is newer than `remote` (whole seconds, as merges compare). An
    * open handle alone does not keep it: a file a disc keeps open all session would then never take another device's.
    */
