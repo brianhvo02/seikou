@@ -8,7 +8,7 @@ The JVM runs in its own BD-J worker, which the engine worker starts once per BD-
 
 `runtime.ts` (`BdjRuntime`) follows libbluray's `bdj.c`, and the natives under `jvm/natives/` follow libbluray's JNI code, so the Java stack sees what it sees in libbluray. `tests/bdj/` compares our control calls and settled plane hashes with traces from patched libbluray; a difference is a bug in the port. The JVM itself is original: never copy HotSpot, GNU Classpath or JamVM code into it.
 
-Java threads are green threads, all scheduled on the BD-J worker's one JavaScript thread (`jvm/threads.ts`). A thread that enters a held monitor, waits, sleeps, parks or waits on a native's promise (a disc read, a font load) gives way to the others. The worker waits with `Atomics.wait` for the graphics plane's lock and for its own green threads, which is why BD-J needs it in workers.
+Java threads are green threads, all scheduled on the BD-J worker's one JavaScript thread (`jvm/threads.ts`). A thread that enters a held monitor, waits, sleeps, parks or waits on a native's promise (a disc read, a font load) gives way to the others. The one `Atomics.wait` is the BD-J worker's wait for the graphics plane's lock (`graphics-plane.ts`), which is why BD-J needs it in workers (`atomicsWait` in `requirements.ts`).
 
 A BD-J title that has neither selected a playlist nor shown anything (a visible plane or a background still) within 20 s of active time from boot counts as hung, and the player falls back to the title picker. The clock runs only while the page is visible and the host awake, and not while the BD-J worker waits on its own reads, for at most 120 s per boot. At the timeout the session logs a dump of every Java thread. A failed boot falls back at once.
 

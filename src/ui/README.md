@@ -18,7 +18,7 @@ Each piece of behaviour worth testing is a plain module with no React (`place-mo
 
 The folder has no public API for other packages; `src/main.tsx` mounts `App` and nothing outside `src/` imports from here. What its parts take from each other:
 
-- `App.tsx` builds the controller, the NAS client, the place saver and the shader model, and passes them to `LandingScreen` and `PlayerScreen` as props.
+- `App.tsx` builds the controller, the NAS client, the place saver and the shader model. `LandingScreen` takes the controller, the NAS client and the place saver as props; `PlayerScreen` takes those and the shader model with its state.
 - `PlayerScreen.tsx` renders the canvas the engine draws on (handed over with `controller.attachCanvas`), `ControlBar.tsx`, and the menus: `AudioMenu.tsx`, `SubtitleMenu.tsx` (disc PG, the viewer's files, the NAS's stored subtitles, `ToshoSearch.tsx`), `ShaderMenu.tsx`, `QualityMenu.tsx`, `EncodeMenus.tsx`, plus `PlaylistPicker.tsx` and `RemotePad.tsx` for disc menus.
 - Input: `keyboard.ts` maps keys to actions and names the disc operation (UO) each needs, `touch.ts` decides what a tap or long press does over a disc menu, and `pointer.ts` maps pointer positions into the 1920×1080 menu space.
 - `db.ts` opens the IndexedDB database `bluray-web` that the place store, recent discs (`recent-discs.ts`), the shader library (`shader-library.ts`) and the NAS pairings (`nas/nas-store.ts`) share. Its name stays from before the rename, so users keep their data.

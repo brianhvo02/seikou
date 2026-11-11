@@ -15,7 +15,7 @@ type Bag = Record<string, unknown>;
 export const BDJ_REQUIREMENTS = {
   /** The register file, status block and graphics plane are shared with the BD-J worker. */
   sharedMemory: 'cross-origin isolation (SharedArrayBuffer)',
-  /** The BD-J worker waits for the plane's lock (graphics-plane.ts) and for its own green threads. */
+  /** The BD-J worker waits for the graphics plane's lock (graphics-plane.ts). */
   atomicsWait: 'Atomics.wait in workers',
   /** The engine worker starts the BD-J worker. */
   nestedWorkers: 'workers started from workers',
