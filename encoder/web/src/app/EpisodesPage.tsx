@@ -106,7 +106,7 @@ function SaveLine({ state }: { readonly state: InfoDraftState }) {
  * list sit side by side on a wide screen (a click on a chapter shows the playlist from there), with a toggle between
  * chapters that cuts an episode, one per chapter that leaves it out, the `--episodes` text (editable, checked as it is
  * typed; a bad text keeps the last good grouping) and the episodes with their lengths. "Choose subtitles" opens the
- * helper for the grouping, "Queue encode" the queue dialog and "Encode without subtitles" the same dialog with that box ticked. When the playlist has saved subtitle choices
+ * helper for the grouping, "Queue encode" the queue dialog and "Queue without subtitles" the same dialog with that box ticked. When the playlist has saved subtitle choices
  * for another episode list, a warning says they won't match until the subtitles are chosen again. Each chapter has a
  * name picker and each episode its AniList entry and number (`EpisodeTitlePicker`), saved as the playlist's episode info
  * as they change (`useInfoDraft`); with none saved, the record's show is suggested, numbered from 1.
@@ -459,7 +459,7 @@ export function EpisodesPage({ api, discKey, playlistId, controller, from }: Epi
             <p id="episodes-spec-help" className={textError ? 'error' : 'muted'}>
               {textError
                 ? `Not an episode list for ${count} chapters. Write chapter runs such as 1-4,5-8 or 1-4,5- (the last can end open); the episodes below are the last good list.`
-                : 'Chapter runs, as --episodes takes them: 1-4,5-8, or 1-4,5- to run to the last chapter.'}
+                : 'Group chapters into episodes: 1-4,5-8 makes two episodes, and 1-4,5- runs the second to the last chapter.'}
             </p>
             {mismatch && (
               <p className="warn" role="status">
@@ -533,7 +533,7 @@ export function EpisodesPage({ api, discKey, playlistId, controller, from }: Epi
                 Queue encode
               </button>
               <button type="button" className="quiet" disabled={!usable || busy} onClick={encodeWithout}>
-                Encode without subtitles
+                Queue without subtitles
               </button>
             </div>
           </div>

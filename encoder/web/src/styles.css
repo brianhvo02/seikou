@@ -110,6 +110,7 @@ button {
 
 .actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   padding-bottom: 10px;
 }
@@ -247,6 +248,14 @@ button:disabled {
   cursor: default;
 }
 
+/* a primary action that cannot be used yet keeps a readable label: muted text on the panel, not dark text on dimmed blue */
+button.primary:disabled {
+  opacity: 1;
+  border-color: var(--rule);
+  background: var(--panel);
+  color: var(--muted);
+}
+
 /* the column under the header */
 .content {
   max-width: calc(var(--column) + 2 * var(--gutter));
@@ -328,6 +337,11 @@ button:disabled {
 
   .actions .primary {
     flex: 1;
+  }
+
+  /* on a phone each action takes the full width, so a long label stays on one line */
+  .actions > button {
+    flex: 1 1 100%;
   }
 }
 
@@ -1330,6 +1344,21 @@ a {
   color: var(--danger);
 }
 
+/* a fact about an item (likely the main title, built in) rather than something done to it: a small outlined tag, so it
+   is not mistaken for the accent links beside it */
+.tag {
+  color: var(--muted);
+  border: 1px solid var(--rule);
+  border-radius: 3px;
+  padding: 0 5px;
+  font-size: 12px;
+  font-weight: 560;
+  white-space: nowrap;
+  /* as wide as its words, also in a grid cell */
+  justify-self: start;
+  width: fit-content;
+}
+
 /* where a disc lives rather than what was done to it: a small outlined tag, set apart from the accent marks */
 .mark-nas {
   color: var(--muted);
@@ -1884,6 +1913,8 @@ a {
   .chapter-mark {
     grid-column: 1 / -1;
     order: -1;
+    /* clear of the current chapter's accent bar, lined up with the chapter number */
+    padding: 6px 4px 0 8px;
   }
 
   .chapter-mark:empty {
@@ -1903,6 +1934,11 @@ a {
 .profile {
   border-bottom: 1px solid var(--rule);
   padding: 12px 0;
+}
+
+/* the NAS section below draws its own rule, so the last profile needs none */
+.profile:last-child {
+  border-bottom: 0;
 }
 
 .profile-head {

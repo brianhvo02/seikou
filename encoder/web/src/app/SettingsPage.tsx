@@ -274,7 +274,7 @@ function ProfileRow({ profile, editing, onEdit, onCancel, onSave, onDuplicate, o
       <div className="profile-head">
         <div className="profile-text">
           <span className="profile-name">{profile.name}</span>
-          {profile.builtIn && <span className="mark">Built in</span>}
+          {profile.builtIn && <span className="tag">Built in</span>}
           <span className="muted profile-summary">{profileSummary(profile.settings)}</span>
         </div>
         {!editing && (

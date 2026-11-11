@@ -351,7 +351,7 @@ export function EpisodeTitlePicker({ api, row, show, sequel, disabled, nasPaired
           disabled={disabled}
           onClick={() => setOpen((o) => !o)}
         >
-          {row.title === null ? 'Choose' : 'Change'}
+          {row.title === null ? 'Choose title' : 'Change title'}
         </button>
       </div>
       {open && (

@@ -143,10 +143,10 @@ describe('EpisodesPage', () => {
     expect(api.createSession).toHaveBeenCalledWith(KEY, '00800', '1-');
   });
 
-  it('Encode without subtitles goes to the queue dialog with the spec', async () => {
+  it('Queue without subtitles goes to the queue dialog with the spec', async () => {
     await show();
     click('Split after chapter 3', 'checkbox');
-    click('Encode without subtitles');
+    click('Queue without subtitles');
     expect(location.pathname).toBe('/queue/new');
     const q = new URLSearchParams(location.search);
     expect([q.get('disc'), q.get('playlist'), q.get('spec'), q.get('noSubtitles')]).toEqual([KEY, '00800', '1-3,4-', '1']);

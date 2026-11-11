@@ -94,7 +94,7 @@ function RootsEditor({ roots, runRoots, unreadable, onSave }: RootsEditorProps) 
             <li key={r}>
               <span className="root-path">{r}</span>
               {unreadable.includes(r) && <span className="mark mark-warn">Cannot be read</span>}
-              <button type="button" disabled={busy} aria-label={`Remove ${r}`} onClick={() => void save(roots.filter((x) => x !== r))}>
+              <button type="button" className="quiet" disabled={busy} aria-label={`Remove ${r}`} onClick={() => void save(roots.filter((x) => x !== r))}>
                 Remove
               </button>
             </li>
@@ -113,7 +113,7 @@ function RootsEditor({ roots, runRoots, unreadable, onSave }: RootsEditorProps) 
           <span className="visually-hidden">Folder path</span>
           <input type="text" value={path} placeholder="/path/to/your/discs" aria-label="Folder path" onChange={(e) => setPath(e.target.value)} />
         </label>
-        <button type="submit" disabled={busy || path.trim() === ''}>
+        <button type="submit" className="quiet" disabled={busy || path.trim() === ''}>
           Add folder
         </button>
       </form>
@@ -203,7 +203,7 @@ export function LibraryPage({ api, pollMs = SCAN_POLL_MS, view: asked }: Library
     <main className="content wide">
       <div className="page-head">
         <h1 className="page-title">Library</h1>
-        <button type="button" onClick={() => void rescan()} disabled={scanning}>
+        <button type="button" className="quiet" onClick={() => void rescan()} disabled={scanning}>
           {scanning ? 'Scanning…' : 'Rescan'}
         </button>
       </div>

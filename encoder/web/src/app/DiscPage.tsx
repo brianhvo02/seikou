@@ -165,7 +165,7 @@ export function DiscPage({ api, discKey, from }: DiscPageProps) {
                 <span>{count(p.chapters, 'chapter', 'chapters')}</span>
               </span>
               <span className="playlist-marks">
-                {p.likelyMain && <span className="mark">Likely main</span>}
+                {p.likelyMain && <span className="tag">Likely main</span>}
                 {disc.recordPlaylists.includes(p.id) && <span className="mark">Subtitle choices saved</span>}
               </span>
               <Link to={{ kind: 'episodes', discKey, playlistId: p.id, ...(from !== undefined ? { from } : {}) }} className="playlist-go">
