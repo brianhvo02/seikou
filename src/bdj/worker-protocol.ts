@@ -1,7 +1,7 @@
 /*
- * Original code for bluray-web: the messages between the engine worker and the BD-J worker.
+ * Original code for Seikou: the messages between the engine worker and the BD-J worker.
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

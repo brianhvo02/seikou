@@ -8,7 +8,7 @@
  * is replaced by a native that gives the form an entry point standing for itself, and invokeBasic evaluates a form's
  * names here in JS, one Java call at a time, with unboxed values. The JDK's InvokerBytecodeGenerator never runs.
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

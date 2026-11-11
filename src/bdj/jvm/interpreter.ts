@@ -1,8 +1,8 @@
 /*
- * Original code for bluray-web: the bytecode interpreter of the BD-J virtual machine (JVM specification, chapter 6).
+ * Original code for Seikou: the bytecode interpreter of the BD-J virtual machine (JVM specification, chapter 6).
  * Java calls never recurse in JS: each pushes a Frame on the thread, so a green thread can park mid-stack.
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

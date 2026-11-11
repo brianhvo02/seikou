@@ -1,5 +1,5 @@
 /*
- * Original code for bluray-web, 2026. Chooses, compiles and runs the selected mpv user shader set for the
+ * Original code for Seikou, 2026. Chooses, compiles and runs the selected mpv user shader set for the
  * compositor (spec section 5).
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later

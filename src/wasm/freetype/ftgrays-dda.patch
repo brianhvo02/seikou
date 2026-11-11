@@ -5,7 +5,7 @@
  #endif
  
 -#if FT_SSE2                || \
-+  /* bluray-web: always DDA, as on the x86-64 host whose FreeType the */
++  /* Seikou: always DDA, as on the x86-64 host whose FreeType the */
 +  /* libbluray BD-J harness links (FT_SSE2 there).  wasm32 would take  */
 +  /* the binary splits, which round some large glyphs' edges otherwise. */
 +#if 1                      || \

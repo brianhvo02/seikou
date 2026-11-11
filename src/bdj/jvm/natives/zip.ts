@@ -1,10 +1,10 @@
 /*
- * Original code for bluray-web: java.util.zip and java.util.jar natives of the BD-J virtual machine. ZipFile handles
+ * Original code for Seikou: java.util.zip and java.util.jar natives of the BD-J virtual machine. ZipFile handles
  * stand for ZipArchives read whole from the Vfs; Inflater and Deflater handles for streams over zip.ts's inflateRaw
  * coroutine and DeflateEncoder, with the zlib wrapper (RFC 1950) when nowrap is false. The fields the JDK's C code
  * updates (off, len, finished, needDict, setParams) are updated the same way.
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

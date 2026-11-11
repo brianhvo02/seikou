@@ -1,7 +1,7 @@
 /*
- * Original code for bluray-web: the object heap of the BD-J virtual machine. The JS garbage collector reclaims objects.
+ * Original code for Seikou: the object heap of the BD-J virtual machine. The JS garbage collector reclaims objects.
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

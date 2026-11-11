@@ -50,7 +50,7 @@ static int plane_has_alpha(void)
 }
 
 /* FNV-1a 32 over the plane's 1920x1080 ARGB words in row-major order, each word as its 4 little-endian bytes
- * (B, G, R, A). bluray-web computes the same hash over its BD-J plane. */
+ * (B, G, R, A). Seikou computes the same hash over its BD-J plane. */
 static uint32_t plane_hash(void)
 {
   uint32_t h = 0x811c9dc5u;

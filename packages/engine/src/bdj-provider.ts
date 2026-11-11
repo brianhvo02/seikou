@@ -1,10 +1,10 @@
 /*
- * Original code for bluray-web: BD-J as an optional provider of the engine. The player takes everything BD-J from a
+ * Original code for Seikou: BD-J as an optional provider of the engine. The player takes everything BD-J from a
  * BdjProvider (PlayerDeps.bdj) and never imports BD-J; the app assembles the provider (src/bdj/provider.ts) in
  * its worker entry. Without one, BD-J discs and titles open to the playlist picker with the missing requirement named
  * BDJ_RUNTIME.
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

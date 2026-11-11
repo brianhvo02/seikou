@@ -13,7 +13,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 # An upstream project or its authors, a porting line at the start of a comment line, or a copyright line for anyone but
 # the project itself. Word boundaries keep "transport of" or "based on the spec" in running text from counting.
 upstream='\b(libbluray|libudfread|ffmpeg|libass|vlc|freetype|anime4k)\b|^[[:space:]]*(\*|//)?[[:space:]]*(ported from|derived from|port of|based on|adapted from)\b'
-own_holder='bluray-web contributors|seikou (authors|contributors)'
+own_holder='seikou (authors|contributors)'
 lgpl21='SPDX-License-Identifier: LGPL-2\.1'
 
 status=0

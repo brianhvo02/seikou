@@ -5,7 +5,7 @@
  * Ported from libass 0.17.5 (ass_fontselect.c): matches_family_name, matches_full_or_postscript_name,
  * font_attributes_similarity, find_font, select_font, ass_font_select, check_glyph_ft; (ass_font.c): add_face,
  * ass_font_get_index, the synthetic-style conditions of ass_font_get_glyph, ass_glyph_italicize's shear,
- * ass_face_set_size. libass is ISC-licensed; see packages/ass/NOTICE. Modified for bluray-web, 2026.
+ * ass_face_set_size. libass is ISC-licensed; see packages/ass/NOTICE. Modified for Seikou, 2026.
  *
  * Not from libass: the device-font branch (marked "device fonts" below, the rest in device-fonts.ts), which stands in
  * for libass's system font provider when a family matches no supplied face. Supplied faces are matched as before.

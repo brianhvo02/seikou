@@ -4,7 +4,7 @@
  * Copyright (C) 2009-2010  John Stebbins
  * Copyright (C) 2010-2017  Petri Hintukainen <phintuka@users.sourceforge.net>
  *
- * Modified for bluray-web, 2026.
+ * Modified for Seikou, 2026.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */

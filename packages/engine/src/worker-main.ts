@@ -1,9 +1,9 @@
 /*
- * Original code for bluray-web: the engine worker's body. startEngineWorker builds the Player with the browser's
+ * Original code for Seikou: the engine worker's body. startEngineWorker builds the Player with the browser's
  * decoders, compositor, shaders and ASS fonts and answers the page's commands. A host that brings BD-J passes a
  * BdjProvider (the app's src/engine-worker.ts); the package's own entry (worker.ts) passes none.
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

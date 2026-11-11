@@ -240,10 +240,10 @@
      int detect_collisions;
      int shift_direction;
      ASS_Event *event;
-+    char *trace;                // bluray-web trace: the event's JSON fields, set when ass_trace_sink is
++    char *trace;                // Seikou trace: the event's JSON fields, set when ass_trace_sink is
  } EventImages;
  
-+// bluray-web trace hook: when set, ass_render_frame passes it one JSON line per event shown
++// Seikou trace hook: when set, ass_render_frame passes it one JSON line per event shown
 +extern void (*ass_trace_sink)(const char *line);
 +
  typedef enum {
@@ -253,7 +253,7 @@
  
      ASS_Vector shift;
      Bitmap *bm, *bm_o;
-+    double trace_m[3][3];       // bluray-web trace: calc_transform_matrix's result
++    double trace_m[3][3];       // Seikou trace: calc_transform_matrix's result
  
      // next glyph in this cluster
      struct glyph_info *next;

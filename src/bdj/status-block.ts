@@ -1,8 +1,8 @@
 /*
- * Original code for bluray-web: the playback state the engine publishes each tick for the BD-J worker's synchronous
+ * Original code for Seikou: the playback state the engine publishes each tick for the BD-J worker's synchronous
  * natives (tellTimeN, getUOMaskN).
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

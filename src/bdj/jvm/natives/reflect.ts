@@ -1,8 +1,8 @@
 /*
- * Original code for bluray-web: reflection natives of the BD-J virtual machine (Class members, Method.invoke,
+ * Original code for Seikou: reflection natives of the BD-J virtual machine (Class members, Method.invoke,
  * Constructor.newInstance, java.lang.reflect.Array, Proxy, sun.reflect.Reflection and ConstantPool).
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

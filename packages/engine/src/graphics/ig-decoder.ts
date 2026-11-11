@@ -2,7 +2,7 @@
  * Ported from libbluray src/libbluray/decoders/ig_decode.c, ig.h and the IG parts of graphics_processor.c
  * Copyright (C) 2010-2013  Petri Hintukainen <phintuka@users.sourceforge.net>
  *
- * Ported to TypeScript and modified for bluray-web, 2026.
+ * Ported to TypeScript and modified for Seikou, 2026.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */

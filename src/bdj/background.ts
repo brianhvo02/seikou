@@ -1,9 +1,9 @@
 /*
- * Original code for bluray-web: the HAVi background still a BD-J title shows under the video
+ * Original code for Seikou: the HAVi background still a BD-J title shows under the video
  * (HStillImageBackgroundConfiguration.displayImage, natives/havi.ts). libbluray never draws one; a player does. Its
  * pixels are never visible to Java, so the browser decodes the encoded bytes (createImageBitmap in production).
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */

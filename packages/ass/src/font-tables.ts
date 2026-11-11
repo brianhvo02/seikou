@@ -5,7 +5,7 @@
  *
  * Ported from libass 0.17.5 (ass_fontselect.c): get_font_info; (ass_font.c): ass_face_get_weight,
  * fsSelection_to_style_flags, ass_face_get_style_flags, set_font_metrics, ass_face_is_postscript, ass_charmap_magic.
- * libass is ISC-licensed; see packages/ass/NOTICE. Modified for bluray-web, 2026.
+ * libass is ISC-licensed; see packages/ass/NOTICE. Modified for Seikou, 2026.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later AND ISC
  */

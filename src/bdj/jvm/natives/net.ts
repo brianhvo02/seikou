@@ -1,11 +1,11 @@
 /*
- * Original code for bluray-web: java.net natives of the BD-J virtual machine. There is no network: every attempt fails
+ * Original code for Seikou: java.net natives of the BD-J virtual machine. There is no network: every attempt fails
  * as it does in libbluray's harness, HotSpot on Linux with no network (docker --network none; the exception classes are
  * checked against it by tests/bdj/conformance/Net.java). A host name other than localhost is unknown, a connection to
  * an address finds no network, and localhost resolves to the loopback addresses, where nothing listens. No real network
  * access is ever made.
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */

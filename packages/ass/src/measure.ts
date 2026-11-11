@@ -1,7 +1,7 @@
 /*
  * Glyph metrics from the browser's text shaping, standing in for FreeType and HarfBuzz in libass's layout.
  *
- * Original implementation for bluray-web, 2026; contains no libass, libbluray or FFmpeg code.
+ * Original implementation for Seikou, 2026; contains no libass, libbluray or FFmpeg code.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */

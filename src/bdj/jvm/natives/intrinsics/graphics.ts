@@ -7,7 +7,7 @@
  * Derived from libbluray, src/libbluray/bdj/java/java/awt/BDGraphicsBase.java, Area.java and BDRootWindow.java.
  * Copyright (C) 2012  libbluray
  * Copyright (C) 2012-2019  Petri Hintukainen <phintuka@users.sourceforge.net>
- * Modified for bluray-web (2026).
+ * Modified for Seikou (2026).
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */

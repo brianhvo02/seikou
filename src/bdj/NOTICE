@@ -2,7 +2,7 @@ Third-party code notices for src/bdj (BD-J, the engine's optional provider)
 ==========================================================================
 
 Parts of BD-J are TypeScript ports of, or derive from, the following
-projects. They are modified for bluray-web (2026) and distributed under the
+projects. They are modified for Seikou (2026) and distributed under the
 GNU Lesser General Public License, version 2.1 or later (LGPL-2.1-or-later),
 except where a licence below says otherwise. Derived-file paths are relative to src/.
 The rest of src/bdj is original Seikou code under LGPL-3.0-or-later, like the

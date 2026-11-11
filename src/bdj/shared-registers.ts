@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

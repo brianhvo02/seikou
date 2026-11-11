@@ -4,7 +4,7 @@
  *
  * Ported from libass 0.17.5 (ass_utils.h, ass_utils.c, ass_strtod.c, ass_string.h): skip_spaces, rskip_spaces,
  * mystrtoi32, mystrtod, ass_strtod, ass_isspace, ass_isdigit, ass_strcasecmp. libass is ISC-licensed; see packages/ass/NOTICE.
- * Modified for bluray-web, 2026.
+ * Modified for Seikou, 2026.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later AND ISC
  */

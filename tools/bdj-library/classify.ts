@@ -60,7 +60,7 @@ export interface RunRecord {
 /** The generic script's steps (generic.keys), by index. */
 export const STEP = { menu: 0, right: 1, afterRight: 2, down: 3, afterDown: 4, ok: 5, playlist: 6 } as const;
 
-/** $BDJ_LIBRARY_DIR, by default ~/.cache/bluray-web/bdj-library (outside the repo: disc names are private). */
+/** `$BDJ_LIBRARY_DIR`, by default `~/.cache/bluray-web/bdj-library` (outside the repo: disc names are private). */
 export function libraryDir(env: Readonly<Record<string, string | undefined>> = process.env): string {
   return env.BDJ_LIBRARY_DIR || join(homedir(), '.cache', 'bluray-web', 'bdj-library');
 }

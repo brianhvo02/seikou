@@ -1,6 +1,6 @@
 /*
- * bluray-web audio decoder shim over FFmpeg libavcodec (eac3, dca).
- * Copyright (c) 2026 bluray-web contributors
+ * Seikou audio decoder shim over FFmpeg libavcodec (eac3, dca).
+ * Copyright (c) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */

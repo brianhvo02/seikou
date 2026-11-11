@@ -1,8 +1,8 @@
 /*
- * Original code for bluray-web: sun.misc natives of the BD-J virtual machine (VM, Signal, Version, Perf,
+ * Original code for Seikou: sun.misc natives of the BD-J virtual machine (VM, Signal, Version, Perf,
  * URLClassPath).
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

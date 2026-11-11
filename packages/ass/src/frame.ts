@@ -4,7 +4,7 @@
  *
  * Ported from libass 0.17.5 (ass_render.c): the frame loop of ass_render_frame, cmp_event_layer, the event box of
  * ass_render_event, the device positions of render_and_combine_glyphs. libass is ISC-licensed; see
- * packages/ass/NOTICE. Modified for bluray-web, 2026.
+ * packages/ass/NOTICE. Modified for Seikou, 2026.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later AND ISC
  */

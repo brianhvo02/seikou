@@ -1,8 +1,8 @@
 /*
- * Original code for bluray-web: Seikou's BD-J provider (bdj-provider.ts), assembled from this directory's modules. The
+ * Original code for Seikou: Seikou's BD-J provider (bdj-provider.ts), assembled from this directory's modules. The
  * app's worker entry passes it to the player as PlayerDeps.bdj.
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

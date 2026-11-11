@@ -1,7 +1,7 @@
 /*
- * Original code for bluray-web: a disc on the NAS, read by byte ranges with sequential read-ahead.
+ * Original code for Seikou: a disc on the NAS, read by byte ranges with sequential read-ahead.
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

@@ -1,7 +1,7 @@
 /*
- * Original code for bluray-web: what a disc is opened from, as it crosses between workers.
+ * Original code for Seikou: what a disc is opened from, as it crosses between workers.
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

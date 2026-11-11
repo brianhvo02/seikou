@@ -1,8 +1,8 @@
 /*
- * Original code for bluray-web: instantiates the standalone (WASI-flavoured) emscripten modules in src/wasm/
+ * Original code for Seikou: instantiates the standalone (WASI-flavoured) emscripten modules in src/wasm/
  * (audio.wasm, freetype.wasm) without emscripten's JS glue.
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */

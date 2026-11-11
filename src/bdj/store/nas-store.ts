@@ -1,11 +1,11 @@
 /*
- * Original code for bluray-web: BD-J saved data on the NAS, per person (the NAS store contract; spec §4.4, rulings
+ * Original code for Seikou: BD-J saved data on the NAS, per person (the NAS store contract; spec §4.4, rulings
  * R15 and R17). NasBdjStore is the HTTP client of `bdj-store/<scope>`; WriteAheadNasStore keeps every change in this
  * browser's IndexedDB first (100 ms after a write, marked pending) and puts it on the NAS 2 s later, so a page closed
  * before the NAS has it loses nothing here and the NAS catches up at the next open; NasDiscStore picks between them
  * for a disc opened from a server, by whose device this is (`GET me`).
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

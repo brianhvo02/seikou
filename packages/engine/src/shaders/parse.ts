@@ -1,5 +1,5 @@
 /*
- * Original code for bluray-web, 2026. Parses the mpv user shader format.
+ * Original code for Seikou, 2026. Parses the mpv user shader format.
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

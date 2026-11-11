@@ -1,11 +1,11 @@
 /*
- * Original code for bluray-web: the fonts BD-J finds under java.home. libbluray's java.awt.BDFontMetrics maps the JRE
+ * Original code for Seikou: the fonts BD-J finds under java.home. libbluray's java.awt.BDFontMetrics maps the JRE
  * logical font names (serif, sansserif, monospaced, dialog, dialoginput, default, in four styles) to Lucida files under
- * java.home/lib/fonts/. bluray-web does not ship them: like the libbluray BD-J harness (tools/bdj-trace/Dockerfile,
+ * java.home/lib/fonts/. Seikou does not ship them: like the libbluray BD-J harness (tools/bdj-trace/Dockerfile,
  * README.md "Fonts"), every one of those files is the bundled fallback font, packages/ass/src/default-font.ttf (DejaVu
  * Sans), so text draws the same on both sides. The font is fetched the first time one of the files is read.
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */

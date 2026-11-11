@@ -1,5 +1,5 @@
 /*
- * Original code for bluray-web, 2026. Plans one frame of mpv user shader
+ * Original code for Seikou, 2026. Plans one frame of mpv user shader
  * passes. Hook semantics follow libplacebo's hook_hook and lookup_tex in
  * src/shaders/custom_mpv.c (spec section 3.2-3.3).
  *

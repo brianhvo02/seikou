@@ -1,10 +1,10 @@
 /*
- * Original code for bluray-web: keeps a BD-J session's storage scopes (scopes.ts) in step with a BdjStore. The scopes
+ * Original code for Seikou: keeps a BD-J session's storage scopes (scopes.ts) in step with a BdjStore. The scopes
  * load before Libbluray.init, into the VFS's /persistent/ and /buda/; Java's writes mark a scope dirty, and it is saved
  * whole 2 s after the last one (spec §4.4; the browser's store sooner, its saveDebounceMs), on the engine's flush
  * (pagehide) and when BD-J stops.
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */

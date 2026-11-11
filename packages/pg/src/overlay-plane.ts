@@ -2,7 +2,7 @@
  * Overlay command semantics from libbluray src/libbluray/decoders/overlay.h
  * (BD_OVERLAY_*), applied the way a YUV overlay consumer does.
  *
- * Original implementation for bluray-web, 2026.
+ * Original implementation for Seikou, 2026.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */

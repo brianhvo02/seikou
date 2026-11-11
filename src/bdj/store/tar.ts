@@ -1,9 +1,9 @@
 /*
- * Original code for bluray-web: a scope's snapshot as the NAS store keeps it, a POSIX ustar archive of regular files
+ * Original code for Seikou: a scope's snapshot as the NAS store keeps it, a POSIX ustar archive of regular files
  * (the NAS store contract: `ustar\0` + `00` headers, typeflag '0', paths of at most 255 bytes split into prefix and
  * name, mtimes in whole seconds).
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

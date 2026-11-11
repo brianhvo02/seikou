@@ -1,4 +1,4 @@
-audio.wasm: FFmpeg libavcodec decoders (ac3, eac3, dca) with shim.c, for bluray-web.
+audio.wasm: FFmpeg libavcodec decoders (ac3, eac3, dca) with shim.c, for Seikou.
 LGPL-2.1-or-later.
 
 FFmpeg (https://ffmpeg.org), LGPL-2.1-or-later. Copyright (c) the FFmpeg developers.

@@ -6,7 +6,7 @@ RUN apt-get update \
     build-essential meson ninja-build pkg-config git ca-certificates python3 patch \
  && rm -rf /var/lib/apt/lists/*
 
-# libbluray at the commit bluray-web ports from. This tree builds with meson (it has no autotools files);
+# libbluray at the commit Seikou ports from. This tree builds with meson (it has no autotools files);
 # libudfread comes from the pinned submodule.
 RUN git clone --quiet https://code.videolan.org/videolan/libbluray.git /src/libbluray \
  && cd /src/libbluray \

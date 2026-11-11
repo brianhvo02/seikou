@@ -1,5 +1,5 @@
 /*
- * FreeType for bluray-web's BD-J text: the calls libbluray's BD-J natives make (bdj/native/java_awt_BDFontMetrics.c,
+ * FreeType for Seikou's BD-J text: the calls libbluray's BD-J natives make (bdj/native/java_awt_BDFontMetrics.c,
  * java_awt_BDGraphics.c), with the same arguments and load flags, so that src/engine/bdj/fonts/freetype.ts can give
  * the port of those natives FreeType's results unchanged.
  *
@@ -9,7 +9,7 @@
  *   drawStringN     FT_Load_Char(face, c, FT_LOAD_RENDER), then bitmap.buffer[j * pitch + k] for k < width
  *   getFontFamilyAndStyleN  family_name, style_name
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 

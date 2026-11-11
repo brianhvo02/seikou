@@ -1,9 +1,9 @@
 /*
- * Original code for bluray-web: FreeType (src/wasm/freetype/freetype.wasm) for BD-J text. The calls are the ones
+ * Original code for Seikou: FreeType (src/wasm/freetype/freetype.wasm) for BD-J text. The calls are the ones
  * libbluray's BD-J text natives make (bdj/native/java_awt_BDFontMetrics.c, java_awt_BDGraphics.c), with their
  * arguments, load flags and shifts, made in shim.c; this wraps them for the port of those natives.
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */

@@ -1,9 +1,9 @@
 /*
- * Original code for bluray-web: what a browser needs to run BD-J (spec m5d §4.5), named for the user. The engine
+ * Original code for Seikou: what a browser needs to run BD-J (spec m5d §4.5), named for the user. The engine
  * worker checks its own global before it offers BD-J (worker.ts); the page's capability report (src/ui/capabilities.ts)
  * checks the page's, which cannot see whether a worker may start workers.
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

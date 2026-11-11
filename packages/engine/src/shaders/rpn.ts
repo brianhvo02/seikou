@@ -1,5 +1,5 @@
 /*
- * Original code for bluray-web, 2026. Evaluates the RPN expressions of mpv
+ * Original code for Seikou, 2026. Evaluates the RPN expressions of mpv
  * user shaders (WIDTH, HEIGHT, WHEN). Semantics follow libplacebo's
  * eval_shexpr in src/shaders/custom_mpv.c.
  *

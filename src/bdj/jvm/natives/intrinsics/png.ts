@@ -1,10 +1,10 @@
 /*
- * Original code for bluray-web: an intrinsic for sun.awt.image.PNGImageDecoder.update_crc, the class library's CRC-32
+ * Original code for Seikou: an intrinsic for sun.awt.image.PNGImageDecoder.update_crc, the class library's CRC-32
  * over each PNG chunk (the CRC-32 of the PNG specification), computed from the class's own crc_table as its bytecode
  * does. The row loop of PNGImageDecoder.produceImage has its loop hook with the class library
  * (src/bdj-classlib/intrinsics/png-rows.ts).
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

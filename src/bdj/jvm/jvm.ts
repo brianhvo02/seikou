@@ -1,8 +1,8 @@
 /*
- * Original code for bluray-web: the BD-J virtual machine, which runs Java 8 class files on green threads in one JS
+ * Original code for Seikou: the BD-J virtual machine, which runs Java 8 class files on green threads in one JS
  * thread.
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

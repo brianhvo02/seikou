@@ -1,7 +1,7 @@
 /*
- * Original code for bluray-web: Java class-file parsing (JVM specification, chapter 4).
+ * Original code for Seikou: Java class-file parsing (JVM specification, chapter 4).
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

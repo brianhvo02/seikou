@@ -1,8 +1,8 @@
 /*
- * Original code for bluray-web: java.lang natives of the BD-J virtual machine (Object, Class, System, Thread,
+ * Original code for Seikou: java.lang natives of the BD-J virtual machine (Object, Class, System, Thread,
  * Throwable, String, Float, Double, Runtime, ClassLoader, Compiler, Package) and AccessController.
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

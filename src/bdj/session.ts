@@ -1,8 +1,8 @@
 /*
- * Original code for bluray-web: the engine side of a BD-J worker. It boots the worker, answers Java's calls through
+ * Original code for Seikou: the engine side of a BD-J worker. It boots the worker, answers Java's calls through
  * PlayerBdjHost, passes title starts and BD-J events in, and stops the worker on any failure (spec §5).
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

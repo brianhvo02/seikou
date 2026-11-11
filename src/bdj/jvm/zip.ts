@@ -1,7 +1,7 @@
 /*
- * Original code for bluray-web: jar (zip) reading and RFC 1951 inflate.
+ * Original code for Seikou: jar (zip) reading and RFC 1951 inflate.
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

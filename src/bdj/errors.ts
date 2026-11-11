@@ -1,7 +1,7 @@
 /*
- * Original code for bluray-web: the errors the BD-J runtime reports to the player.
+ * Original code for Seikou: the errors the BD-J runtime reports to the player.
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

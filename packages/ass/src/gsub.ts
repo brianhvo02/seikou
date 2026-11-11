@@ -2,7 +2,7 @@
  * The GSUB ligature lookups HarfBuzz applies by default (liga, clig, rlig): which runs of characters a face draws
  * as one glyph, so layout can merge them into one cluster as libass's shaping does.
  *
- * Original implementation for bluray-web, 2026, from the OpenType specification; contains no libass, HarfBuzz,
+ * Original implementation for Seikou, 2026, from the OpenType specification; contains no libass, HarfBuzz,
  * libbluray or FFmpeg code.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later

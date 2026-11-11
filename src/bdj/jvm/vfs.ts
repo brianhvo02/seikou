@@ -1,7 +1,7 @@
 /*
- * Original code for bluray-web: the virtual file system that java.io and libbluray's file natives see.
+ * Original code for Seikou: the virtual file system that java.io and libbluray's file natives see.
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */

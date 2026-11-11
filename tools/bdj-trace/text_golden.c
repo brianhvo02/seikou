@@ -1,5 +1,5 @@
 /*
- * Golden values for bluray-web's BD-J font and text natives (src/bdj/jvm/natives/fonts.ts), made by libbluray's
+ * Golden values for Seikou's BD-J font and text natives (src/bdj/jvm/natives/fonts.ts), made by libbluray's
  * own natives: this program links the harness image's compiled bdj/native/java_awt_BDFontMetrics.c and
  * java_awt_BDGraphics.c objects (from the libbluray build in /src/libbluray/build, the same code libbluray.so
  * carries, against the same system FreeType) and calls them through their JNINativeMethod tables with a small fake
@@ -10,12 +10,12 @@
  * calls it makes, and the int[] back buffer those calls leave when BDGraphicsBase.drawPoint runs them with the default
  * composite (AlphaComposite.SrcOver) over a fixed background. That last step is a transliteration of libbluray's Java
  * (java/awt/BDGraphicsBase.java drawPoint, drawPointN, drawSpanN, applyComposite and alphaBlend, for a graphics whose
- * clip is the whole buffer and whose origin is 0, 0), so the Vitest side can run the real Java in bluray-web's JVM and
+ * clip is the whole buffer and whose origin is 0, 0), so the Vitest side can run the real Java in Seikou's JVM and
  * compare.
  *
  * Usage: text_golden <fallback font path> <disc font path> <missing path> <non-font file>
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 

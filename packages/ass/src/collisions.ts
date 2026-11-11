@@ -3,7 +3,7 @@
  * up (bottom-aligned) or down until they no longer overlap.
  *
  * Ported from libass 0.17.5 (ass_render.c): get_render_priv, overlap, cmp_rect_y0, shift_event (its top only),
- * fit_rect, fix_collisions. libass is ISC-licensed; see packages/ass/NOTICE. Modified for bluray-web, 2026.
+ * fit_rect, fix_collisions. libass is ISC-licensed; see packages/ass/NOTICE. Modified for Seikou, 2026.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later AND ISC
  */

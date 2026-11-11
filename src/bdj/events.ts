@@ -3,7 +3,7 @@
  * (_process_psr_write_event, _process_psr_change_event, the _bdj_event call sites)
  * Copyright (C) 2010-2017  Petri Hintukainen <phintuka@users.sourceforge.net>
  *
- * Ported to TypeScript and modified for bluray-web, 2026.
+ * Ported to TypeScript and modified for Seikou, 2026.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */

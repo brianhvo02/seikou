@@ -1,8 +1,8 @@
 /*
- * Original code for bluray-web: the on-disk read-ahead cache of a NAS disc (buffer first), in the Origin Private File
+ * Original code for Seikou: the on-disk read-ahead cache of a NAS disc (buffer first), in the Origin Private File
  * System.
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

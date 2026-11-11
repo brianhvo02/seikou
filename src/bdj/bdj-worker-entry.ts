@@ -1,11 +1,11 @@
 /*
- * Original code for bluray-web: the BD-J worker's entry point. Like the engine worker's entry, which loads the class
+ * Original code for Seikou: the BD-J worker's entry point. Like the engine worker's entry, which loads the class
  * library's jars, it brings in the class library's own intrinsics (src/bdj-classlib/intrinsics, GPLv2 with the
  * Classpath Exception); the engine does not import from the class library. It also gives the worker
  * FreeType (src/wasm/freetype/freetype.wasm) and the fallback font (packages/ass/src/default-font.ttf), each fetched the
  * first time BD-J text needs it.
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */

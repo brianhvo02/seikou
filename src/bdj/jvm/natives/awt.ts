@@ -1,5 +1,5 @@
 /*
- * Original code for bluray-web: the AWT natives of the BD-J virtual machine that are not libbluray's. They cache JNI
+ * Original code for Seikou: the AWT natives of the BD-J virtual machine that are not libbluray's. They cache JNI
  * field IDs in the JDK, which this VM does not need, so they do nothing; libbluray's BDToolkit does the drawing.
  * Component.getFontMetrics(Font) is replaced too: the JDK's asks its platform font manager whether to use platform
  * metrics (on HotSpot under libbluray, the X11 font manager, which does not) and then calls
@@ -7,7 +7,7 @@
  * font manager is not in the class library (libbluray's java.awt.Font replaces the JDK's), so the method makes that
  * last call at once.
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */

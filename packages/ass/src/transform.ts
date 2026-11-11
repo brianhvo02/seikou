@@ -4,7 +4,7 @@
  *
  * Ported from libass 0.17.5 (ass_render.c): calc_transform_matrix, calculate_rotation_params. The matrix is used
  * exactly; of quantize_transform only the position rounding is ported (raster.ts). libass is ISC-licensed; see
- * packages/ass/NOTICE. Modified for bluray-web, 2026.
+ * packages/ass/NOTICE. Modified for Seikou, 2026.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later AND ISC
  */

@@ -2,7 +2,7 @@
 # Grows src/bdj-classlib/classes.txt and tests/bdj/natives.txt from real runs: each BD-J disc runs through libbluray up
 # to its first playlist selection with -verbose:class and -verbose:jni, and a synthetic disc with key scripts
 # (tests/bdj/scripts/<disc>.<name>.keys, <disc> in lower case) runs each script to its end as well. A disc of the
-# library check (a folder under $BDJ_LIBRARY_DIR/discs, default ~/.cache/bluray-web/bdj-library/discs) runs the
+# library check (a folder under $BDJ_LIBRARY_DIR/discs, default `~/.cache/bluray-web/bdj-library/discs`) runs the
 # check's generic script instead (tools/bdj-library/generic.keys: menu, two arrows, ok), with the check's limits. The
 # conformance programs (tests/bdj/conformance) run too, for their classes only.
 # The runs are offline (tools/bdj-trace/run.sh), so classes HotSpot loads only once a BD-Live server answers are never

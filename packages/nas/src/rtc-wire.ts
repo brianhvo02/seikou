@@ -1,8 +1,8 @@
 /*
- * Original code for bluray-web: HTTP-shaped requests and responses over one ordered, reliable data channel (the
+ * Original code for Seikou: HTTP-shaped requests and responses over one ordered, reliable data channel (the
  * WebRTC route to the NAS). The NAS server and the browser both use it.
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

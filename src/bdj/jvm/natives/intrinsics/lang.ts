@@ -1,10 +1,10 @@
 /*
- * Original code for bluray-web: intrinsics for small java.lang and java.util methods that a disc's start-up calls tens
+ * Original code for Seikou: intrinsics for small java.lang and java.util methods that a disc's start-up calls tens
  * of thousands of times (Math.min and Math.max on ints, Arrays.copyOfRange on chars and the String(char[], int, int)
  * constructor that uses it). Each implements the specified Java API behaviour (their Javadoc); checked against the
  * class library by the equivalence tests (tests/bdj/intrinsics.test.ts). Whatever would throw is left to the bytecode.
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

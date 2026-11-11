@@ -1,8 +1,8 @@
 /*
- * Original code for bluray-web: the green-thread scheduler of the BD-J virtual machine (Java threads, monitors,
+ * Original code for Seikou: the green-thread scheduler of the BD-J virtual machine (Java threads, monitors,
  * wait/notify, sleep, interrupt and parking), all on one JS thread.
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

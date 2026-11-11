@@ -1,9 +1,9 @@
 /*
- * Original code for bluray-web: java.io and sun.nio natives of the BD-J virtual machine over its Vfs. File
+ * Original code for Seikou: java.io and sun.nio natives of the BD-J virtual machine over its Vfs. File
  * descriptors are integers kept in FileDescriptor.fd, each standing for a VfsHandle; 1 and 2 are the host's stdout
  * and stderr. Relative paths resolve against user.dir, which is /.
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

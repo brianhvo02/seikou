@@ -2,7 +2,7 @@
  * Draws an ASS track on the player canvas: the events active at the playback time, laid out and rasterized as libass
  * does, static events cached as finished bitmaps, collision memory dropped on seeks.
  *
- * Original implementation for bluray-web, 2026; contains no libass, libbluray or FFmpeg code.
+ * Original implementation for Seikou, 2026; contains no libass, libbluray or FFmpeg code.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */

@@ -1,11 +1,11 @@
 /*
- * Original code for bluray-web: intrinsics for the arithmetic under jar signature checks, which the JDK runs on every
+ * Original code for Seikou: intrinsics for the arithmetic under jar signature checks, which the JDK runs on every
  * signed disc jar: sun.security.provider.SHA.implCompress0 (one SHA-1 block over the W and state fields) and
  * java.math.BigInteger.implMulAdd (a multiply-accumulate row of RSA's modPow). Both implement the specified algorithm
  * (FIPS 180-4's SHA-1 compression; schoolbook multi-word multiply-accumulate); checked against the class library by the
  * equivalence tests (tests/bdj/intrinsics.test.ts), int for int.
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

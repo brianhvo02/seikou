@@ -1,5 +1,5 @@
 /*
- * Original code for bluray-web, 2026. Builds the GLSL ES 3.00 source of an
+ * Original code for Seikou, 2026. Builds the GLSL ES 3.00 source of an
  * mpv user shader pass. The texture macros follow the definitions libplacebo
  * emits in bind_pass_tex and hook_hook (src/shaders/custom_mpv.c), spec
  * section 3.4.

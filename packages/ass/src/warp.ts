@@ -3,7 +3,7 @@
  * grid of triangles, each drawn with the affine map of its corners, fine enough that the result stays within a
  * quarter pixel of the true projection.
  *
- * Original implementation for bluray-web, 2026; contains no libass, libbluray or FFmpeg code.
+ * Original implementation for Seikou, 2026; contains no libass, libbluray or FFmpeg code.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */

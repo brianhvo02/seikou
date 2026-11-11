@@ -6,7 +6,7 @@
  * java.awt.BDGraphicsBase).
  * Copyright (C) 2012  libbluray
  *
- * Ported to TypeScript and modified for bluray-web, 2026: FT_New_Face reads the font file from the JVM's Vfs, and
+ * Ported to TypeScript and modified for Seikou, 2026: FT_New_Face reads the font file from the JVM's Vfs, and
  * FreeType itself is loaded the first time a font file is opened (initN does not need it); the "fontconfig" that
  * resolveFontN asks is the bundled fallback font (tools/bdj-trace/README.md, Fonts).
  *

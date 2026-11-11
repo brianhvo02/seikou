@@ -1,7 +1,7 @@
 /*
- * Original code for bluray-web: filling a NAS disc's read-ahead cache ahead of the play position (buffer first).
+ * Original code for Seikou: filling a NAS disc's read-ahead cache ahead of the play position (buffer first).
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

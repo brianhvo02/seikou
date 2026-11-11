@@ -1,9 +1,9 @@
 /*
- * Original code for bluray-web: ColorModel.getRGB(int) as a function of the pixel, for the loop hooks over whole pixel
+ * Original code for Seikou: ColorModel.getRGB(int) as a function of the pixel, for the loop hooks over whole pixel
  * arrays. IndexColorModel.getRGB(int) (a palette lookup) is here; other colour models come from the converters a class
  * library registers (NativeTable.helpers.pixelConverters; DirectColorModel's is in src/bdj-classlib/intrinsics).
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

@@ -1,9 +1,9 @@
 /*
- * Original code for bluray-web: the browser's BD-J store, in IndexedDB. Discs from a picked folder keep their saved
+ * Original code for Seikou: the browser's BD-J store, in IndexedDB. Discs from a picked folder keep their saved
  * data here, and so do discs on a server without a per-person store (`nas:<discId>`); a NAS disc keeps its write-ahead
  * copy here (nas-store.ts, source `nas-person:<personId>`), into which the `nas:<discId>` records move once.
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

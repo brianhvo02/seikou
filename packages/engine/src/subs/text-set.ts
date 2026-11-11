@@ -2,7 +2,7 @@
  * A set of text subtitle files for one playlist, each placed at an episode start: which file shows at a playlist
  * time and at what time inside it, per-file offsets, and placement by play items.
  *
- * Original implementation for bluray-web, 2026; contains no libass, libbluray or FFmpeg code.
+ * Original implementation for Seikou, 2026; contains no libass, libbluray or FFmpeg code.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */

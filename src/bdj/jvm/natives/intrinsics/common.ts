@@ -1,7 +1,7 @@
 /*
- * Original code for bluray-web: what the BD-J virtual machine's intrinsics (index.ts) share.
+ * Original code for Seikou: what the BD-J virtual machine's intrinsics (index.ts) share.
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

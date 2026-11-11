@@ -2,7 +2,7 @@
  * A frame's layout in the libass trace format (tools/ass-trace/trace.patch), for comparing the port with libass.
  * Runs are split as render_and_combine_glyphs splits them.
  *
- * Original implementation for bluray-web, 2026; contains no libass, libbluray or FFmpeg code.
+ * Original implementation for Seikou, 2026; contains no libass, libbluray or FFmpeg code.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */

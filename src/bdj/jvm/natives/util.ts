@@ -1,7 +1,7 @@
 /*
- * Original code for bluray-web: helpers shared by the BD-J virtual machine's native methods.
+ * Original code for Seikou: helpers shared by the BD-J virtual machine's native methods.
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

@@ -1,5 +1,5 @@
 /*
- * Original code for bluray-web: intrinsics of the BD-J virtual machine, JS fast paths for hot class-library methods.
+ * Original code for Seikou: intrinsics of the BD-J virtual machine, JS fast paths for hot class-library methods.
  *
  * An intrinsic runs in place of a Java method's bytecode and must leave exactly what the bytecode would: the same
  * return value, array contents and field values. Whenever the bytecode would throw, block on a monitor, call code
@@ -7,7 +7,7 @@
  * DECLINE) before changing anything, and the interpreter runs the bytecode instead. Exceptions therefore always come
  * from the bytecode, at the same point and with the same stack trace.
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

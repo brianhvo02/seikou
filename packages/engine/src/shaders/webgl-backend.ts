@@ -1,5 +1,5 @@
 /*
- * Original code for bluray-web, 2026. Runs mpv user shader passes on WebGL2.
+ * Original code for Seikou, 2026. Runs mpv user shader passes on WebGL2.
  * Pass execution follows libplacebo's semantics (src/renderer.c,
  * src/shaders/custom_mpv.c), spec sections 3 and 5.
  *

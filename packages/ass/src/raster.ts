@@ -8,7 +8,7 @@
  * render_glyph (rectangle and karaoke split), blend_vector_clip (as a canvas clip), the BorderStyle 3 box of
  * get_bitmap_glyph; (ass_bitmap.c):
  * ass_fix_outline; (ass_font.c): the strengths of ass_glyph_embolden and ass_glyph_italicize and the decoration
- * rectangles of ass_get_glyph_outline. libass is ISC-licensed; see packages/ass/NOTICE. Modified for bluray-web, 2026.
+ * rectangles of ass_get_glyph_outline. libass is ISC-licensed; see packages/ass/NOTICE. Modified for Seikou, 2026.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later AND ISC
  */

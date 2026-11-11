@@ -1,8 +1,8 @@
 /*
- * Original code for bluray-web: an intrinsic for java.util.Arrays.fill(int[], int), which libbluray uses to clear
+ * Original code for Seikou: an intrinsic for java.util.Arrays.fill(int[], int), which libbluray uses to clear
  * whole back buffers.
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */

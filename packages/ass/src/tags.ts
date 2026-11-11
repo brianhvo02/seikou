@@ -6,7 +6,7 @@
  * calc_anim_int32, change_color, change_alpha, mult_alpha, ass_apply_fade, interpolate_alpha, parse_vector_clip,
  * parse_alpha_tag, parse_color_tag, lookup_style_strict, ass_parse_tags, ass_get_next_char,
  * ass_event_has_hard_overrides (in state.ts). libass is ISC-licensed; see packages/ass/NOTICE.
- * Modified for bluray-web, 2026.
+ * Modified for Seikou, 2026.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later AND ISC
  */

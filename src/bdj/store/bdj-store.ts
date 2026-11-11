@@ -1,8 +1,8 @@
 /*
- * Original code for bluray-web: where BD-J's saved data lives between viewings (spec §4.4). A scope (scopes.ts) is
+ * Original code for Seikou: where BD-J's saved data lives between viewings (spec §4.4). A scope (scopes.ts) is
  * read and written whole, as a snapshot, through a BdjStore: the browser's (idb-store.ts) or the NAS's (nas-store.ts).
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

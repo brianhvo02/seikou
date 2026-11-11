@@ -1,8 +1,8 @@
 /*
- * Original code for bluray-web: class loading, linking and initialisation of the BD-J virtual machine (JVM
+ * Original code for Seikou: class loading, linking and initialisation of the BD-J virtual machine (JVM
  * specification §5.3 to §5.5).
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

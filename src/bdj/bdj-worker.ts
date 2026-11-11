@@ -1,7 +1,7 @@
 /*
- * Original code for bluray-web: the BD-J worker, which runs the JVM for the engine worker.
+ * Original code for Seikou: the BD-J worker, which runs the JVM for the engine worker.
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

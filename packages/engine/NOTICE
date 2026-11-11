@@ -3,7 +3,7 @@ Copyright (C) 2026  Seikou contributors
 Licensed under LGPL-3.0-or-later; see LICENSE and COPYING (the GNU GPL, which the LGPL supplements).
 
 Parts of this package are TypeScript ports of, or derive from, the following
-projects. They are modified for bluray-web (2026) and distributed under the
+projects. They are modified for Seikou (2026) and distributed under the
 GNU Lesser General Public License, version 2.1 or later (LGPL-2.1-or-later).
 Derived-file paths are relative to this package's src/.
 

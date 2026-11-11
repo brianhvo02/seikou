@@ -1,5 +1,5 @@
 /*
- * libass trace harness for bluray-web: renders an ASS script at given times with the settings our renderer uses,
+ * libass trace harness for Seikou: renders an ASS script at given times with the settings our renderer uses,
  * prints one JSON line per event shown (via the trace.patch hook) and writes each frame as a PNG (RGBA on #808080).
  *
  * usage: ass_trace <file.ass> <fonts dir> <times file> <out dir> [<storage w>x<storage h>]

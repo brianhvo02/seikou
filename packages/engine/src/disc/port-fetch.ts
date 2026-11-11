@@ -1,8 +1,8 @@
 /*
- * Original code for bluray-web: fetch over a MessagePort, so a worker can reach a connection that lives on the main
+ * Original code for Seikou: fetch over a MessagePort, so a worker can reach a connection that lives on the main
  * thread (the WebRTC route to the NAS). Bodies cross as transferred ArrayBuffers, and so does an abort.
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

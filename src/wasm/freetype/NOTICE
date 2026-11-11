@@ -1,16 +1,16 @@
-freetype.wasm: the FreeType font engine with shim.c, for bluray-web's BD-J text.
+freetype.wasm: the FreeType font engine with shim.c, for Seikou's BD-J text.
 
 Portions of this software are copyright © 2023 The FreeType Project (www.freetype.org). All rights reserved.
 
 FreeType (https://freetype.org), used under the FreeType License (FTL.TXT in this folder; FreeType is dual-licensed
-FTL / GPLv2, and bluray-web takes it under the FTL). Copyright (C) 1996-2023 David Turner, Robert Wilhelm, Werner
+FTL / GPLv2, and Seikou takes it under the FTL). Copyright (C) 1996-2023 David Turner, Robert Wilhelm, Werner
 Lemberg and the FreeType contributors.
   Source: FreeType 2.13.2 as Ubuntu 24.04 packages it (libfreetype6 2.13.2+dfsg-1ubuntu0.2), from
   https://snapshot.ubuntu.com/ubuntu/20261015T000000Z/pool/main/f/freetype/ (freetype_2.13.2+dfsg.orig.tar.xz and
   freetype_2.13.2+dfsg-1ubuntu0.2.debian.tar.xz, checked by SHA-256), with Ubuntu's ftoption.patch,
-  CVE-2026-23865.patch and CVE-2026-95512.patch applied. Modified by bluray-web: ftgrays-dda.patch (in this folder)
+  CVE-2026-23865.patch and CVE-2026-95512.patch applied. Modified by Seikou: ftgrays-dda.patch (in this folder)
   makes src/smooth/ftgrays.c flatten curves by DDA on wasm32, as it does on x86-64.
   Options and modules: config/bluray-ftoption.h and config/bluray-ftmodule.h; compile and link flags: build.sh.
   Rebuild: npm run wasm:build (Docker). The output is reproducible; CI checks freetype.wasm.sha256.
 
-shim.c is original code for bluray-web, LGPL-2.1-or-later.
+shim.c is original code for Seikou, LGPL-2.1-or-later.

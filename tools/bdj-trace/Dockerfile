@@ -16,7 +16,7 @@ RUN apt-get update \
 
 ENV JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64 LIBBLURAY_CP=/usr/local/share/java/
 
-# libbluray at the commit bluray-web ports from; libudfread comes from the pinned submodule.
+# libbluray at the commit Seikou ports from; libudfread comes from the pinned submodule.
 RUN git clone --quiet https://code.videolan.org/videolan/libbluray.git /src/libbluray \
  && cd /src/libbluray \
  && git checkout --quiet 448f896 \
@@ -34,7 +34,7 @@ RUN cd /src/libbluray \
 # Font fallback. fontconfig is off, so libbluray's BDFontMetrics maps the JRE logical names (serif, sansserif,
 # monospaced, dialog, dialoginput, default; plain/bold/italic/bold-italic) to the Lucida files under
 # $JAVA_HOME/jre/lib/fonts/, which the headless JDK does not ship. Every one of those files is a link to the bundled
-# default-font.ttf (packages/ass/src/default-font.ttf, staged into the build context by build.sh), so bluray-web can
+# default-font.ttf (packages/ass/src/default-font.ttf, staged into the build context by build.sh), so Seikou can
 # resolve the same names to the same file. See README.md.
 COPY default-font.ttf /usr/local/share/fonts/default-font.ttf
 RUN mkdir -p $JAVA_HOME/jre/lib/fonts && cd $JAVA_HOME/jre/lib/fonts \

@@ -8,7 +8,7 @@
  *   is preserved.
  * The other functions map onto JS Math, as DoppioJVM's src/natives/java_lang.ts does (MIT; see src/bdj/NOTICE).
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */

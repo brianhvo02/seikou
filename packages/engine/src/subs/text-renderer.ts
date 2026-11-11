@@ -1,7 +1,7 @@
 /*
  * Draws text subtitle cues onto the player canvas.
  *
- * Original implementation for bluray-web, 2026; contains no libbluray or FFmpeg code.
+ * Original implementation for Seikou, 2026; contains no libbluray or FFmpeg code.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */

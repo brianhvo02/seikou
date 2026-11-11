@@ -1,8 +1,8 @@
 /*
- * Original code for bluray-web: a BD-J worker started while the disc is still opening (spec §4.7), which a BdjSession
+ * Original code for Seikou: a BD-J worker started while the disc is still opening (spec §4.7), which a BdjSession
  * adopts later.
  *
- * Copyright (C) 2026  bluray-web contributors
+ * Copyright (C) 2026  Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */

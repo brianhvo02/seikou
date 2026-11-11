@@ -1,12 +1,12 @@
 /*
- * Original code for bluray-web: intrinsics for the java.lang.String methods (and the UTF-8 decoder's ASCII case,
+ * Original code for Seikou: intrinsics for the java.lang.String methods (and the UTF-8 decoder's ASCII case,
  * StringBuilder.append(String) and Integer.parseInt) that the JDK's jar, manifest and class handling calls hundreds of
  * thousands of times while a disc starts. Each implements the specified Java API behaviour (the java.lang.String,
  * StringBuilder, Integer, Character and UTF-8 Javadoc); checked against the class library by the
  * equivalence tests (tests/bdj/intrinsics.test.ts). Anything else (a supplementary code point, a non-ASCII byte, an
  * index the bytecode would throw on) declines to that bytecode.
  *
- * Copyright (C) 2026 bluray-web contributors
+ * Copyright (C) 2026 Seikou contributors
  *
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
