@@ -34,7 +34,8 @@ export default async function example(): Promise<void> {
   // #endregion
 
   // #region rgba
-  const pixels = plane.rgba(area!); // RGBA bytes of just that area, ready for ImageData
+  const corner = { x: area!.x, y: area!.y, w: 64, h: 32 }; // any rectangle: here the top left 64 by 32 pixels of the changed area
+  const pixels = plane.rgba(corner); // RGBA bytes of just that rectangle, ready for ImageData
   console.log(pixels.length / 4, 'pixels');
   // #endregion
 
@@ -46,5 +47,5 @@ export default async function example(): Promise<void> {
   plane.takeDirty(); // read and clear: the next call answers null until something changes
   // #endregion
 
-  if (!area || area.w <= 0 || pixels.every((v) => v === 0) || plane.dirty() !== null) throw new Error('the caption did not reach the plane');
+  if (!area || area.w <= 0 || pixels.length !== 64 * 32 * 4 || plane.dirty() !== null) throw new Error('the caption did not reach the plane');
 }

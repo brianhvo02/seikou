@@ -292,7 +292,7 @@ export class AssRenderer implements TextRendererLike {
   }
 
   /**
-   * How many static events are cached, composited.
+   * How many static events are held in the event cache (one entry per event, including events that draw nothing).
    * @example ../examples/ass-renderer.browser.ts#cacheSize
    */
   cacheSize(): number {

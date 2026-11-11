@@ -1,10 +1,21 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
+import { existsSync, readdirSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 
 interface Result {
   file: string;
   ok: boolean;
   error?: string;
+}
+
+/** Every `packages/<pkg>/examples/*.browser.ts`, from the repository root, sorted. */
+function browserExamples(): string[] {
+  const out: string[] = [];
+  for (const pkg of readdirSync('packages')) {
+    const dir = `packages/${pkg}/examples`;
+    if (existsSync(dir)) for (const f of readdirSync(dir)) if (f.endsWith('.browser.ts')) out.push(`${dir}/${f}`);
+  }
+  return out.sort();
 }
 
 test('browser examples run', async ({ page }, info) => {
@@ -15,7 +26,7 @@ test('browser examples run', async ({ page }, info) => {
   test.skip(!body.includes('data-examples-page'), 'the build does not emit /developers/_examples/ yet');
   await page.waitForFunction(() => (window as unknown as { __examplesDone?: boolean }).__examplesDone === true, undefined, { timeout: 30_000 });
   const results = await page.evaluate(() => (window as unknown as { __examples: Result[] }).__examples);
-  // Browser examples exist (the renderer's, at least), so a page that ran none is a broken page, not a pass.
-  expect(results.length).toBeGreaterThan(0);
+  // The page must have run every browser example on disk, so one dropped from it fails here.
+  expect(results.map((r) => r.file).sort()).toEqual(browserExamples());
   for (const r of results) expect(r.ok, `${r.file}: ${r.error ?? ''}`).toBe(true);
 });
