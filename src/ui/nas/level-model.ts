@@ -67,7 +67,11 @@ export function levelRows(
   });
 }
 
-/** The notice for a level list where re-encoded levels are busy: `BUSY_COPY` when Original can play, `BUSY_TRY_LATER_COPY` when no level can, null when nothing is busy or some level can still be picked. */
+/**
+ * The notice for a level list: null when no re-encoded level is busy; else `BUSY_COPY` when Original can play (or the
+ * list has no Original entry); else, with Original unavailable, null if some re-encoded level can still be picked and
+ * `BUSY_TRY_LATER_COPY` if none can.
+ */
 export function busyMessage(levels: readonly LevelInfo[]): string | null {
   const reencoded = levels.filter((l) => l.level !== 'original');
   const original = levels.find((l) => l.level === 'original');

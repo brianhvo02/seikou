@@ -22,7 +22,7 @@ interface MusicReleaseMenuProps {
 }
 
 /**
- * An owner's "⋯" menu on a release card, the owner's corrections: Rename…, Set artist…, Not this release (only when
+ * An owner's "⋯" menu on a release card, for corrections: Rename…, Set artist…, Not this release (only when
  * a lookup matched) or Use this release again (only when the match was dropped), and File differently…. An own title
  * has no lookup and no artist, so only Rename… and File differently….
  */

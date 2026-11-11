@@ -7,9 +7,9 @@ import { MusicRefile, MusicReleaseMenu, RenameForm, SetArtistForm, type ReleaseA
 import { Poster } from './Poster';
 import { nameLang } from '../name-lang';
 
-/** What an owner of the NAS adds to an artist page: the release corrections (rename, set artist, not this release), which need the lookups the NAS has. */
+/** What an owner of the NAS adds to an artist page: the release corrections (rename, set artist, not this release), made through the NAS's admin routes. */
 export interface MusicOwner {
-  /** Whether the NAS has a TMDB key, which the "file differently" form uses to search TMDB. */
+  /** Whether the NAS has a TMDB key, which "File differently" uses to search TMDB. */
   readonly tmdb: boolean;
   /** The names the Set artist picker suggests. */
   readonly artists: readonly string[];
