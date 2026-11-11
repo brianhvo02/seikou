@@ -19,7 +19,10 @@ function formatTime(ms: number): string {
   return `${h}:${p2(m)}:${p2(s)}.${p2(cs % 100)}`;
 }
 
-/** `offset` adds `offsetMs`; `split` uses the part the event's start falls in; `none` and `original` change nothing. */
+/**
+ * `offset` adds `offsetMs`; `split` uses the part the event's start falls in; `none` and `original` change nothing.
+ * @example ../examples/retime.ts
+ */
 export function retime(ass: string, alignment: FansubAlignment): string {
   if (alignment.kind === 'none' || alignment.kind === 'original') return ass;
   const parts = alignment.kind === 'split' ? [...alignment.parts].sort((a, b) => a.fromMs - b.fromMs) : [];

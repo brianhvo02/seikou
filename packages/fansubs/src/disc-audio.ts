@@ -139,6 +139,7 @@ export function assertNoDecodeGap(pesPts: readonly number[], decodedSamples: num
  * exact to 10 ms: each decoded stretch is placed by the PTS of its first audio PES.
  * It throws, never returning silence for audio it could not read: when the stream isn't there, the decoder fails, frames were
  * lost inside a stretch (`assertNoDecodeGap`), or what was decoded leaves more than `MAX_UNCOVERED_MS` of a play item's share of the window empty.
+ * @example ../examples/episode-audio.ts
  */
 export async function episodeAudio(
   disc: FansubDiscSource,

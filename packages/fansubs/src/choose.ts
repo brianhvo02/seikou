@@ -51,7 +51,10 @@ export function languageTag(code: string): string {
 const WEB_TAG = /web/i;
 const WEB_NAME = /\bWEB[- ]?(DL|Rip)?\b/i;
 
-/** Public releases only: best first, then WEB, then the rest in SeaDex's order. */
+/**
+ * Public releases only: best first, then WEB, then the rest in SeaDex's order.
+ * @example ../examples/rank-releases.ts
+ */
 export function rankReleases(entry: SeaDexEntry): { release: SeaDexRelease; rank: SeaDexRank }[] {
   const out: { release: SeaDexRelease; rank: SeaDexRank }[] = [];
   const pub = entry.releases.filter((r) => r.infoHash !== null);
@@ -74,6 +77,7 @@ export interface EpisodeChoice {
 /**
  * Picks for each episode the first candidate (in the order given) whose file for it has ASS/SSA tracks in one of
  * `languages`. `season: null` means a movie (`episodes` is `[1]`).
+ * @example ../examples/choose-per-episode.ts
  */
 export function choosePerEpisode(
   candidates: readonly Candidate[],

@@ -483,6 +483,7 @@ function usable(w: Masked, dialogue: readonly Span[]): boolean {
  * (an episode short enough to be one window is read whole at once, and cut into 30 s stretches to compare).
  * A window that can't be read, or whose speech mask went quiet, is skipped; too few left is `low-confidence`.
  * The disc is read and decoded through `decode`.
+ * @example ../examples/align.ts
  */
 export async function align(
   disc: FansubDiscSource,

@@ -5,7 +5,10 @@ import { createRequire } from 'node:module';
 import SevenZip from '7z-wasm/7zz.es6.js';
 import type { SevenZipModule } from '7z-wasm';
 
-/** Thrown when an archive or a download is larger than its limit; the message says which limit. */
+/**
+ * Thrown when an archive or a download is larger than its limit; the message says which limit.
+ * @example ../examples/too-large-archive.ts
+ */
 export class TooLargeArchive extends Error {
   constructor(what: string) {
     super(`archive too large: ${what}`);
@@ -113,7 +116,10 @@ function removeTree(fs: SevenZipModule['FS'], path: string): void {
   try { fs.rmdir(path); } catch { /* not a directory or gone */ }
 }
 
-/** Decompresses an .xz stream. Bytes past `maxBytes` are dropped as they arrive and the call throws TooLargeArchive. */
+/**
+ * Decompresses an .xz stream. Bytes past `maxBytes` are dropped as they arrive and the call throws TooLargeArchive.
+ * @example ../examples/unxz.ts
+ */
 export function unxz(data: Buffer, maxBytes: number): Promise<Buffer> {
   return serialized((inst) => {
     const { FS } = inst.sz;
@@ -146,7 +152,10 @@ export function unxz(data: Buffer, maxBytes: number): Promise<Buffer> {
   });
 }
 
-/** The font files in a 7z pack (base names only), at most 200 entries and 200 MB. */
+/**
+ * The font files in a 7z pack (base names only), at most 200 entries and 200 MB.
+ * @example ../examples/fonts-in7z.ts
+ */
 export function fontsIn7z(data: Buffer): Promise<{ name: string; data: Buffer }[]> {
   return serialized((inst) => {
     const { FS } = inst.sz;

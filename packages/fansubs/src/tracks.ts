@@ -10,7 +10,10 @@ import type { Tosho, ToshoTrack } from './tosho';
 /** A fetched track bigger than this once unpacked is skipped. */
 export const MAX_TRACK_BYTES = 50 * 1024 * 1024;
 
-/** A track's text, through the download cache; throws `TooLargeArchive` past the cap, and the client's errors. */
+/**
+ * A track's text, through the download cache; throws `TooLargeArchive` past the cap, and the client's errors.
+ * @example ../examples/fetch-track.ts
+ */
 export async function fetchTrack(cache: FetchCache, tosho: Tosho, track: ToshoTrack, paced: PacedOptions): Promise<string> {
   const raw = await cache.get(track.url, () => tosho.download(track.url, paced, TRACK_DOWNLOAD_BYTES));
   return (await unxz(raw, MAX_TRACK_BYTES)).toString('utf8');

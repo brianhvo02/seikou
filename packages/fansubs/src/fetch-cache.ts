@@ -21,6 +21,7 @@ const INDEX = 'index.json';
  * `maxBytes`. One fetch per URL runs at a time. A file is written to a temp name and renamed, and enters the
  * index only after it is in place, so a restart mid-write leaves nothing half-served; files the index doesn't
  * name are removed at the next start.
+ * @example ../examples/fetch-cache.ts#construct
  */
 export class FetchCache {
   private entries: Record<string, Entry> = {};
@@ -45,6 +46,10 @@ export class FetchCache {
     }
   }
 
+  /**
+   * The cached bytes for `url`, running `fetchFn` to fetch them when they are not on disk; calls for one URL share one fetch.
+   * @example ../examples/fetch-cache.ts#get
+   */
   async get(url: string, fetchFn: () => Promise<Buffer>): Promise<Buffer> {
     const hash = createHash('sha256').update(url).digest('hex');
     const running = this.inFlight.get(hash);

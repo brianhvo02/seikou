@@ -43,6 +43,7 @@ const ownBytes = (s: FansubPick): number => s.fileSize + s.fonts.reduce((n, f) =
  * The viewers' own Anime Tosho picks on disk under `<dataDir>/fansubs/`: each pick's folder holds its `meta.json` and
  * lined-up file, and fonts are pooled by content in `pick-fonts/`. It keeps the total under `maxBytes` by removing the
  * least recently used picks. It uses synchronous file calls and is meant to run inside one server process.
+ * @example ../examples/pick-store.ts#construct
  */
 export class PickStore {
   private readonly root: string;
@@ -63,12 +64,18 @@ export class PickStore {
     this.sweep();
   }
 
-  /** The pick with this id, or null. */
+  /**
+   * The pick with this id, or null.
+   * @example ../examples/pick-store.ts#get
+   */
   get(id: string): PickFile | null {
     return this.entries.get(id) ?? null;
   }
 
-  /** The pick's lined-up file, or null; a use keeps it another 30 days. */
+  /**
+   * The pick's lined-up file, or null; a use keeps it another 30 days.
+   * @example ../examples/pick-store.ts#filePath
+   */
   filePath(id: string): string | null {
     const kept = this.entries.get(id);
     if (!kept) return null;
@@ -76,7 +83,10 @@ export class PickStore {
     return join(this.root, id, 'sub', kept.subtitle.fileName);
   }
 
-  /** The path of the pick's font by file name, or null when the pick or the font is unknown; a use keeps the pick. */
+  /**
+   * The path of the pick's font by file name, or null when the pick or the font is unknown; a use keeps the pick.
+   * @example ../examples/pick-store.ts#fontPath
+   */
   fontPath(id: string, name: string): string | null {
     const kept = this.entries.get(id);
     const font = kept?.subtitle.fonts.find((f) => f.name === name);
@@ -88,6 +98,7 @@ export class PickStore {
   /**
    * Keeps a pick (its fonts pooled by content, each written once), making room by removing the least recently used
    * others; a pick larger than the whole budget is refused. Returns the subtitle as kept, its fonts with their hashes.
+   * @example ../examples/pick-store.ts#put
    */
   put(subtitle: FansubPick, data: Buffer, fonts: ReadonlyMap<string, Buffer>): FansubPick {
     const hashed = [...fonts].map(([name, d]) => ({ name, size: d.length, hash: createHash('sha256').update(d).digest('hex'), data: d }));
@@ -131,7 +142,10 @@ export class PickStore {
     return kept.subtitle;
   }
 
-  /** Removes picks unused for 30 days, damaged ones, leftover temp folders and pooled fonts no pick uses. */
+  /**
+   * Removes picks unused for 30 days, damaged ones, leftover temp folders and pooled fonts no pick uses.
+   * @example ../examples/pick-store.ts#sweep
+   */
   sweep(): void {
     const now = this.opts.now();
     for (const name of readdirSync(this.root)) {
@@ -153,7 +167,10 @@ export class PickStore {
     }
   }
 
-  /** Notes a use, at most once an hour per pick. */
+  /**
+   * Notes a use, at most once an hour per pick.
+   * @example ../examples/pick-store.ts#touch
+   */
   touch(id: string, kept = this.entries.get(id)): void {
     if (!kept) return;
     const now = this.opts.now();

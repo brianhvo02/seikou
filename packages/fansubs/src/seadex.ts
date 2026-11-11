@@ -75,6 +75,7 @@ function toRelease(t: RawTorrent): SeaDexRelease {
  * A SeaDex client. `fetch` is injected, `pacer` spaces the calls, `userAgent` is sent with each, and `base` is the
  * site's URL without a trailing slash. A network error, a bad status or an unreadable answer throws `SourceUnavailable`; a 429 is
  * retried once by the pacer after its `Retry-After`, and a second one throws `SourceUnavailable` too.
+ * @example ../examples/create-seadex.ts
  */
 export function createSeaDex(fetch: typeof globalThis.fetch, pacer: Pacer, userAgent: string, base: string): SeaDex {
   return {

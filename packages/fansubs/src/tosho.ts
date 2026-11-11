@@ -188,6 +188,7 @@ function urlCheck(bases: { feed: string; site: string }): (url: string) => boole
  * feed's and the storage site's URLs. A download follows at most three redirects and only to Anime Tosho's own hosts
  * (and loopback for tests), else it throws `NotFoundOnTosho`. A network error, a bad status or an unreadable answer
  * throws `SourceUnavailable`.
+ * @example ../examples/create-tosho.ts
  */
 export function createTosho(fetch: typeof globalThis.fetch, pacer: Pacer, userAgent: string, bases: { feed: string; site: string }): Tosho {
   const allowed = urlCheck(bases);

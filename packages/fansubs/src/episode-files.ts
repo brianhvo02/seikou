@@ -35,7 +35,10 @@ export function isExtraFile(name: string): boolean {
   return dirsOf(name).some((d) => EXTRA_DIRS.has(d.trim().toLowerCase())) || EXTRA_WORD.test(baseOf(name));
 }
 
-/** The episode number a file name gives (`Show - 05`, `S01E05`, `Ep05` and the like, ignoring a trailing CRC), or null for an extra or a name with none. */
+/**
+ * The episode number a file name gives (`Show - 05`, `S01E05`, `Ep05` and the like, ignoring a trailing CRC), or null for an extra or a name with none.
+ * @example ../examples/episode-of-file.ts
+ */
 export function episodeOfFile(name: string): number | null {
   if (isExtraFile(name)) return null;
   const base = baseOf(name).replace(/\.[A-Za-z0-9]{2,4}$/, '').replace(CRC, '');
@@ -59,7 +62,10 @@ export function seasonEpisode(fileEpisode: number, season: { readonly count: num
   return n >= 1 && n <= season.count ? n : null;
 }
 
-/** A movie's file: the largest that is not an extra. */
+/**
+ * A movie's file: the largest that is not an extra.
+ * @example ../examples/main-file.ts
+ */
 export function mainFile(files: readonly ToshoFile[]): ToshoFile | null {
   let best: ToshoFile | null = null;
   for (const f of files) if (!isExtraFile(f.name) && (best === null || f.size > best.size)) best = f;

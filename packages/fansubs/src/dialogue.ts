@@ -13,7 +13,10 @@ function isNonDialogueStyle(name: string): boolean {
 const MIN_MS = 300;
 const MAX_MS = 10_000;
 
-/** Dialogue events' spans, sorted and merged where they overlap. Commented lines are not events. */
+/**
+ * Dialogue events' spans, sorted and merged where they overlap. Commented lines are not events.
+ * @example ../examples/dialogue-intervals.ts
+ */
 export function dialogueIntervals(ass: string): { fromMs: number; toMs: number }[] {
   const track = parseAss(ass);
   const spans: { fromMs: number; toMs: number }[] = [];

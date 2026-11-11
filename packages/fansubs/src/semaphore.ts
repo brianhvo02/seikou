@@ -1,4 +1,7 @@
-/** At most `limit` jobs at once; the rest wait in order, and a waiter whose signal aborts leaves the line. Original code. */
+/**
+ * At most `limit` jobs at once; the rest wait in order, and a waiter whose signal aborts leaves the line. Original code.
+ * @example ../examples/semaphore.ts#construct
+ */
 export class Semaphore {
   private running = 0;
   private readonly waiting: (() => void)[] = [];
@@ -13,6 +16,10 @@ export class Semaphore {
     return this.waiting.length;
   }
 
+  /**
+   * Runs `job` once a slot is free, and rejects with the signal's reason if `signal` aborts while it waits.
+   * @example ../examples/semaphore.ts#run
+   */
   async run<T>(job: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     await this.acquire(signal);
     try {
