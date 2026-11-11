@@ -326,9 +326,9 @@ export type EngineCommand =
   | { readonly type: 'playPlaylist'; readonly playlistId: string }
   /** Plays; from `ended` it restarts the playlist. */
   | { readonly type: 'play' }
-  /** Pauses; refused (with the `uo-masked` notice) where the disc masks pause. */
+  /** Pauses. Under an HDMV program it is refused (with the `uo-masked` notice) where the disc masks pause; under BD-J or with no program it is never refused. */
   | { readonly type: 'pause' }
-  /** Moves to a time in the playing playlist, in microseconds, and keeps playing or staying paused; refused where the disc masks time search. */
+  /** Moves to a time in the playing playlist, in microseconds, and keeps playing or staying paused. Under an HDMV program it is refused where the disc masks time search; otherwise never. */
   | { readonly type: 'seek'; readonly timeUs: number }
   /** An AudioTrack's index: a disc's STN stream, or an encoded episode's audio track; playback goes on at the same time. */
   | { readonly type: 'selectAudio'; readonly index: number }
@@ -353,9 +353,9 @@ export type EngineCommand =
   | { readonly type: 'setSubtitleOffset'; readonly file: number; readonly ms: number }
   /** Text subtitle size factor, clamped to 0.5–2. */
   | { readonly type: 'setSubtitleScale'; readonly scale: number }
-  /** Skips to the next chapter that starts more than half a second ahead; does nothing after the last. Refused where the disc masks it. */
+  /** Skips to the next chapter that starts more than half a second ahead; does nothing after the last. Under an HDMV program it is refused where the disc masks it; otherwise never. */
   | { readonly type: 'nextChapter' }
-  /** Goes to the latest chapter that started more than 3 seconds ago, or to the start of the playlist when there is none. Refused where the disc masks it. */
+  /** Goes to the latest chapter that started more than 3 seconds ago, or to the start of the playlist when there is none. Under an HDMV program it is refused where the disc masks it; otherwise never. */
   | { readonly type: 'prevChapter' }
   /** Starts a title of the disc's index (an `indexTitles` number); 0 = top menu. Refused where the disc masks title search or menu call. */
   | { readonly type: 'playTitle'; readonly title: number }
@@ -403,7 +403,7 @@ export type EngineEvent =
   | { readonly type: 'bdjMenu'; readonly visible: boolean }
   /** A tap on a BD-J menu brought no reaction within the window: the UI opens the on-screen remote. */
   | { readonly type: 'bdjTapIgnored' }
-  /** After 'titles', for discs whose First Play is an HDMV object. */
+  /** For discs with movie objects, sent right after 'titles': the index's HDMV and BD-J titles and whether a top menu exists. */
   | { readonly type: 'indexTitles'; readonly titles: ReadonlyArray<{ readonly number: number; readonly kind: 'hdmv' | 'bdj' }>; readonly hasTopMenu: boolean }
   /**
    * The user operations the disc forbids right now, sent when the set changes (empty when none, and on entering and

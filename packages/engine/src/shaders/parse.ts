@@ -1,5 +1,5 @@
 /*
- * Original code for Seikou, 2026. Parses the mpv user shader format (the mpv manual's USER SHADERS section: a file is
+ * Original code for Seikou, 2026. Parses the mpv user shader format (documented under the `--glsl-shader` option in mpv's manual, DOCS/man/options.rst: a file is
  * GLSL split into passes by `//!` directive lines, `//!HOOK`, `//!BIND`, `//!SAVE`, `//!DESC`, `//!WIDTH`, `//!HEIGHT`,
  * `//!WHEN` and `//!COMPONENTS`). `//!COMPUTE`, `//!OFFSET`, `//!TEXTURE`, `//!PARAM` and `//!BUFFER` are refused. The
  * accepted subset and its limits are in docs/superpowers/specs/2026-10-15-video-shaders-design.md.

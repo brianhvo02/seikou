@@ -5,7 +5,7 @@ const MB = 1024 * 1024;
 
 /** Memory limits that differ between desktop browsers and phones or tablets. */
 export interface MemoryProfile {
-  /** An IG sub-path clip (menu graphics in a separate clip) larger than this many bytes is not preloaded and its menu fails to open; desktop's 512 MB is libbluray's `PRELOAD_SIZE_LIMIT`, and the constrained profile shows the `menu-memory` notice. */
+  /** An IG sub-path clip (menu graphics in a separate clip) larger than this many bytes is not preloaded and its menu fails to open with an error; desktop's 512 MB is libbluray's `PRELOAD_SIZE_LIMIT`. The `menu-memory` notice shows when the error is the constrained profile's. */
   readonly igPreloadLimitBytes: number;
   /** Byte budget of the ASS renderer's cache of laid-out events. */
   readonly assEventCacheBytes: number;

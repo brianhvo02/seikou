@@ -250,7 +250,7 @@ const MAX_DECODE_QUEUE = 8;
 const BDJ_MEMORY_STATS_MS = 5000;
 const MENU_MEMORY_MESSAGE = "This disc's menus need more memory than this device allows.";
 const NAS_WAITING_MESSAGE = 'Waiting for the NAS drive…';
-/** A NAS disc starts once this many seconds of stream are read ahead, so playback does not begin on a read that is still in flight. */
+/** A NAS disc starts (and resumes) playing once this many seconds of stream, at the clip's recording rate, are read ahead of the reader; see remoteReadAhead. */
 const REMOTE_START_SECONDS = 3;
 /**
  * Read-ahead budget for compressed video waiting to enter the decoder. Discs may multiplex video
