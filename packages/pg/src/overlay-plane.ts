@@ -66,6 +66,7 @@ export interface Rect { readonly x: number; readonly y: number; readonly w: numb
  *
  * hash(): FNV-1a 64-bit (offset basis 0xcbf29ce484222325, prime 0x100000001b3) over the
  * bytes Y, Cr, Cb, T of every pixel in row-major order, printed as 16 lowercase hex digits.
+ * @example ../examples/overlay-plane.ts#construct
  */
 export class OverlayPlane {
   /** The plane's width in pixels, fixed at construction (1920 by default). */
@@ -104,7 +105,10 @@ export class OverlayPlane {
     return (this.buffered ? this.shownRects : this.drawnRects).length > 0;
   }
 
-  /** Applies one overlay operation as described above. Never throws; out-of-plane areas are clipped. */
+  /**
+   * Applies one overlay operation as described above. Never throws; out-of-plane areas are clipped.
+   * @example ../examples/overlay-plane.ts#apply
+   */
   apply(op: OverlayOp): void {
     switch (op.cmd) {
       case 'init':
@@ -131,19 +135,28 @@ export class OverlayPlane {
     }
   }
 
-  /** The area changed since the last `takeDirty` (visible pixels only), or null. */
+  /**
+   * The area changed since the last `takeDirty` (visible pixels only), or null.
+   * @example ../examples/overlay-plane.ts#dirty
+   */
   dirty(): Rect | null {
     return this.dirtyRect;
   }
 
-  /** Returns the dirty area and clears it, so the caller redraws only what changed. */
+  /**
+   * Returns the dirty area and clears it, so the caller redraws only what changed.
+   * @example ../examples/overlay-plane.ts#takeDirty
+   */
   takeDirty(): Rect | null {
     const d = this.dirtyRect;
     this.dirtyRect = null;
     return d;
   }
 
-  /** RGBA (non-premultiplied, ImageData order) for the rect clipped to the plane; only touches the rect. */
+  /**
+   * RGBA (non-premultiplied, ImageData order) for the rect clipped to the plane; only touches the rect.
+   * @example ../examples/overlay-plane.ts#rgba
+   */
   rgba(rect: Rect): Uint8ClampedArray<ArrayBuffer> {
     const x0 = Math.max(0, rect.x);
     const y0 = Math.max(0, rect.y);
@@ -178,7 +191,10 @@ export class OverlayPlane {
     return out;
   }
 
-  /** FNV-1a 64 over the raw plane; test and trace use only. */
+  /**
+   * FNV-1a 64 over the raw plane; test and trace use only.
+   * @example ../examples/overlay-plane.ts#hash
+   */
   hash(): string {
     // 64-bit state as two 32-bit halves; the prime is 2^40 + 0x1b3
     let hi = 0xcbf29ce4;

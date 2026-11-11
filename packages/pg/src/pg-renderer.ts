@@ -24,6 +24,7 @@ export interface PgRendererDeps {
 /**
  * The PG half of libbluray's graphics controller (BD_OVERLAY_PG). It is separate from GraphicsController
  * because PG also plays on discs without a navigator, where no IG controller exists.
+ * @example ../examples/pg-renderer.ts#construct
  */
 export class PgRenderer {
   private pgOpen = false;
@@ -41,7 +42,10 @@ export class PgRenderer {
     return this.forced;
   }
 
-  /** GC_CTRL_PG_UPDATE with this display set (_render_pg). Returns the number of composition objects drawn. */
+  /**
+   * GC_CTRL_PG_UPDATE with this display set (_render_pg). Returns the number of composition objects drawn.
+   * @example ../examples/pg-renderer.ts#render
+   */
   render(ds: PgDisplaySet): number {
     const pcs = ds.composition;
     this.forced = 0;
@@ -76,7 +80,10 @@ export class PgRenderer {
     return drawn;
   }
 
-  /** GC_CTRL_PG_RESET (_reset_pg); the caller resets its PgSegmentDecoder (graphics_processor_free). */
+  /**
+   * GC_CTRL_PG_RESET (_reset_pg); the caller resets its PgSegmentDecoder (graphics_processor_free).
+   * @example ../examples/pg-renderer.ts#reset
+   */
   reset(): void {
     if (this.pgOpen) {
       // _close_osd

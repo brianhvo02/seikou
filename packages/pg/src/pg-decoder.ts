@@ -77,6 +77,7 @@ export function decodeWindows(r: ByteReader): PgWindow[] {
  * decode time gating (the system time clock check in C), pushing each unit when the clock reaches its DTS. It runs
  * in whichever context the caller runs it in and keeps no timers. A corrupt segment is dropped and counted in
  * `errors`; other exceptions propagate.
+ * @example ../examples/pg-segment-decoder.ts#construct
  */
 export class PgSegmentDecoder {
   /** The number of corrupt segments dropped so far (those that threw `ParseError`). */
@@ -95,6 +96,7 @@ export class PgSegmentDecoder {
   /**
    * Decodes one segment's payload. `pts` and `dts` are the PES timestamps (90 kHz) and are kept by a composition
    * segment. Returns the complete display set when the END segment arrives, else null.
+   * @example ../examples/pg-segment-decoder.ts#push
    */
   push(payload: Uint8Array, pts: number, dts: number | null): PgDisplaySet | null {
     let result: PgDisplaySet | null = null;
@@ -120,13 +122,19 @@ export class PgSegmentDecoder {
     return result;
   }
 
-  /** Drops a half-received display set (a seek cut it); the epoch's objects and palettes stay. */
+  /**
+   * Drops a half-received display set (a seek cut it); the epoch's objects and palettes stay.
+   * @example ../examples/pg-segment-decoder.ts#discardPartial
+   */
   discardPartial(): void {
     this.joiner.reset();
     this.decoding = false;
   }
 
-  /** Forgets everything including the epoch (`_reset_pg`). */
+  /**
+   * Forgets everything including the epoch (`_reset_pg`).
+   * @example ../examples/pg-segment-decoder.ts#reset
+   */
   reset(): void {
     this.joiner.reset();
     this.pcs = null;
