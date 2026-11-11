@@ -1,6 +1,9 @@
 import { SourceUnavailable } from './sources';
 
-/** Thrown by a paced call that got a 429; `retryAfterMs` is from its Retry-After header. */
+/**
+ * Thrown by a paced call that got a 429; `retryAfterMs` is from its Retry-After header.
+ * @example ../examples/rate-limited.ts
+ */
 export class RateLimited extends Error {
   override name = 'RateLimited';
   constructor(readonly retryAfterMs: number | null) {
@@ -42,6 +45,7 @@ function defaultSleep(ms: number, signal?: AbortSignal): Promise<void> {
  * order, so background calls keep progressing.
  * A call that throws `RateLimited` holds every call back for its Retry-After (one window without one),
  * is retried once, and a second `RateLimited` becomes `SourceUnavailable`.
+ * @example ../examples/pacer.ts#construct
  */
 export class Pacer {
   private readonly starts: { readonly at: number; readonly urgent: boolean }[] = [];
@@ -62,6 +66,10 @@ export class Pacer {
     this.urgentShare = Math.max(1, Math.floor((perWindow * 2) / 3));
   }
 
+  /**
+   * Runs `fn` when the pacer lets it start, retrying once after a `RateLimited` it throws.
+   * @example ../examples/pacer.ts#run
+   */
   async run<T>(fn: () => Promise<T>, opts: PacedOptions = {}): Promise<T> {
     for (let attempt = 0; ; attempt++) {
       await this.slot(opts);

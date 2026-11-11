@@ -68,6 +68,7 @@ export interface ReleaseCandidate<T> {
 /**
  * The release choice rule: among exact catalogue hits prefer one with a Blu-ray medium, then one from Japan, then the
  * earliest date (an unknown date last; ties keep the source's order). Hits whose first artists disagree are a miss.
+ * @example ../examples/choose-release.ts
  */
 export function chooseRelease<T>(candidates: readonly ReleaseCandidate<T>[]): T | null {
   if (candidates.length === 0) return null;

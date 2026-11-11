@@ -11,6 +11,7 @@ import type { EncodeEpisode, EncodeShow } from '@seikou/nas/nas-api';
  * next season with episodes, in the show's order (a TMDB or own title's seasons are ordered by number). Nothing follows
  * a film, a non-season row's last episode or the last season's; a season never leads into a film or another row.
  * Null when the show doesn't hold it.
+ * @example ../examples/next-in-show.ts
  */
 export function nextInShow(show: EncodeShow, encodeId: string): EncodeEpisode | null {
   const at = show.seasons.findIndex((s) => s.episodes.some((e) => e.id === encodeId));

@@ -44,7 +44,10 @@ export interface MetadataSource {
   entry(id: string, opts?: { urgent?: boolean; signal?: AbortSignal }): Promise<Entry | null>;
 }
 
-/** Network errors, 429 after retries, 5xx. */
+/**
+ * Network errors, 429 after retries, 5xx.
+ * @example ../examples/source-unavailable.ts
+ */
 export class SourceUnavailable extends Error {
   override name = 'SourceUnavailable';
 }
@@ -87,7 +90,10 @@ export function withSharperPoster(entry: Entry): Entry {
   return poster === entry.poster ? entry : { ...entry, poster };
 }
 
-/** The User-Agent of MusicBrainz and Discogs requests; both ask to be able to reach whoever runs the client. */
+/**
+ * The User-Agent of MusicBrainz and Discogs requests; both ask to be able to reach whoever runs the client.
+ * @example ../examples/lookup-user-agent.ts
+ */
 export function lookupUserAgent(contact: string | null): string {
   return `seikou/1.0 (https://github.com/brianhvo02/seikou${contact === null ? '' : `; ${contact}`})`;
 }

@@ -53,7 +53,10 @@ function fromMusicArtist(a: MusicArtist): ArtistInfo {
   return headline ? { id, name: headline, otherName: a.name } : { id, name: a.name, otherName: null };
 }
 
-/** Decides a release's music info. `lookup` is ignored when `rejectMatch` is set. */
+/**
+ * Decides a release's music info. `lookup` is ignored when `rejectMatch` is set.
+ * @example ../examples/music-info.ts
+ */
 export function musicInfo(o: {
   releaseFolder: string;
   parentFolder: string | null;

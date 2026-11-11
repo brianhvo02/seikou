@@ -303,6 +303,7 @@ function scanGroup(group: Group, f: Found): string {
 /**
  * Reads a folder name or a disc title. It never throws: a field the name doesn't give, or gives twice with different
  * values, is null (or false), and `candidates` may be empty.
+ * @example ../examples/parse-name.ts
  */
 export function parseName(text: string): ParsedName {
   const f = new Found();

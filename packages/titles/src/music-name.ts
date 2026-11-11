@@ -25,7 +25,10 @@ function tidy(s: string): string {
   return s.replace(/\s+/g, ' ').trim();
 }
 
-/** Splits a music release folder name into date, artist and title. */
+/**
+ * Splits a music release folder name into date, artist and title.
+ * @example ../examples/parse-music-folder.ts
+ */
 export function parseMusicFolder(name: string): ParsedMusicName {
   let rest = name.trim().replace(ISO_SUFFIX, '');
   let date: string | null = null;

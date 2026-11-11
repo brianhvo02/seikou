@@ -30,6 +30,7 @@ export interface DiscDbIndex {
 /**
  * Reads the index file. Throws (synchronously) when the file is missing, isn't JSON or isn't an index;
  * the caller decides what that means (the server runs without TheDiscDB and logs that once).
+ * @example ../examples/load-disc-db.ts
  */
 export function loadDiscDb(file: string): { lookup(fingerprint: string): DiscDbHit | null } {
   const index = JSON.parse(readFileSync(file, 'utf8')) as Partial<DiscDbIndex>;
@@ -62,6 +63,7 @@ export function discDbKind(metadata: unknown): DiscDbHit['kind'] | null {
  * or null for a DVD, a disc without a hash, or a title without a name or with a `Type` other than `Series`
  * or `Movie`. The name is `Title` (the clean name), not `FullTitle` (which often adds a year or is the
  * original-language title). Both inputs are untrusted JSON.
+ * @example ../examples/index-disc.ts
  */
 export function indexDisc(disc: unknown, metadata: unknown): { hash: string; hit: DiscDbHit } | null {
   const d = obj(disc);

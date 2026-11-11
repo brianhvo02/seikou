@@ -33,6 +33,7 @@ function fail(file: string, what: string): never {
  * The owner's choices per disc, own titles, display names and the library gate, in `<dir>/owner.json`.
  * Choices are keyed by disc id and carry the disc's content fingerprint so `reattach` can follow a moved disc.
  * Every change re-reads the file under a lock and replaces it atomically, like `Store`.
+ * @example ../examples/owner-store.ts#construct
  */
 export class OwnerStore {
   private readonly file: string;
@@ -44,6 +45,10 @@ export class OwnerStore {
     this.file = join(dir, 'owner.json');
   }
 
+  /**
+   * The owner's choices, own titles, display names and gate as they are on disk now.
+   * @example ../examples/owner-store.ts#snapshot
+   */
   snapshot(): OwnerSnapshot {
     const data = this.load();
     return {
@@ -56,6 +61,7 @@ export class OwnerStore {
 
   /**
    * The library gate, read again only when owner.json changes: it is asked on every title and art request.
+   * @example ../examples/owner-store.ts#gate
    */
   gate(): 'owners' | 'everyone' | null {
     let stamp = 'missing';
@@ -69,6 +75,10 @@ export class OwnerStore {
     return this.gateRead.gate;
   }
 
+  /**
+   * Records the owner's choice for a disc, with its fingerprint so the choice can follow the disc.
+   * @example ../examples/owner-store.ts#setChoice
+   */
   setChoice(discId: string, fingerprint: string | null, choice: OwnerChoice, origin: ChoiceOrigin = 'direct'): void {
     this.update((d) => {
       d.choices[discId] = { choice, fingerprint, setAt: Date.now(), propagated: false, origin };
@@ -79,6 +89,7 @@ export class OwnerStore {
    * Where a disc's choice comes from: null when it has none, `direct` or `group` when it was set with `setChoice`,
    * otherwise `copy` with the disc whose choice it follows (the newest for its fingerprint, as `reattach` picks it), or
    * null when none is left.
+   * @example ../examples/owner-store.ts#choiceOrigin
    */
   choiceOrigin(discId: string): { readonly kind: ChoiceOrigin } | { readonly kind: 'copy'; readonly source: string | null } | null {
     const data = this.load();
@@ -97,13 +108,20 @@ export class OwnerStore {
     return { kind: 'copy', source };
   }
 
+  /**
+   * Removes a disc's own choice.
+   * @example ../examples/owner-store.ts#clearChoice
+   */
   clearChoice(discId: string): void {
     this.update((d) => {
       delete d.choices[discId];
     });
   }
 
-  /** `id` is a disc id or a music title id; null clears the name. */
+  /**
+   * `id` is a disc id or a music title id; null clears the name.
+   * @example ../examples/owner-store.ts#setDisplayName
+   */
   setDisplayName(id: string, name: string | null): void {
     this.update((d) => {
       if (name === null) delete d.displayNames[id];
@@ -111,6 +129,10 @@ export class OwnerStore {
     });
   }
 
+  /**
+   * Adds an own title the owner can file discs under and returns it.
+   * @example ../examples/owner-store.ts#createTitle
+   */
   createTitle(kind: TitleKind, name: string, seasons: number | null): OwnTitle {
     const title: OwnTitle = { id: `own:${randomUUID()}`, kind, name, seasons };
     this.update((d) => {
@@ -119,6 +141,10 @@ export class OwnerStore {
     return title;
   }
 
+  /**
+   * Renames an own title or changes its season count and returns it; throws when there is no such title.
+   * @example ../examples/owner-store.ts#updateTitle
+   */
   updateTitle(id: string, change: { name?: string; seasons?: number | null }): OwnTitle {
     return this.update((d) => {
       const at = d.ownTitles.findIndex((t) => t.id === id);
@@ -133,7 +159,10 @@ export class OwnerStore {
     });
   }
 
-  /** Also clears every choice naming the title, so those discs return to Unsorted. */
+  /**
+   * Also clears every choice naming the title, so those discs return to Unsorted.
+   * @example ../examples/owner-store.ts#deleteTitle
+   */
   deleteTitle(id: string): void {
     this.update((d) => {
       d.ownTitles = d.ownTitles.filter((t) => t.id !== id);
@@ -143,6 +172,10 @@ export class OwnerStore {
     });
   }
 
+  /**
+   * Sets who may use the title routes: `owners` or `everyone`.
+   * @example ../examples/owner-store.ts#setGate
+   */
   setGate(gate: 'owners' | 'everyone'): void {
     this.update((d) => {
       d.gate = gate;
@@ -162,6 +195,7 @@ export class OwnerStore {
    * - No direct entry is ever deleted, even one whose disc is absent: a disc that is only offline (a mount down during
    *   the scan) keeps its choice for when it returns. A choice with a null fingerprint stays under its id.
    * The file is written only when something changed.
+   * @example ../examples/owner-store.ts#reattach
    */
   reattach(discs: readonly { id: string; fingerprint: string | null }[]): void {
     this.update((d) => {

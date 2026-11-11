@@ -61,6 +61,7 @@ export interface ArtCacheOptions {
  * The NAS's cache of poster, banner and cover images under one folder, kept within a byte budget by removing the least
  * recently used. Images are fetched from allowed https hosts (or read from a folder cover's file) and served at their
  * own sizes. It is synchronous on its index and runs in one server process.
+ * @example ../examples/art-cache.ts#construct
  */
 export class ArtCache {
   private readonly index: string;
@@ -107,7 +108,9 @@ export class ArtCache {
 
   /**
    * The cached image, fetched from `source` (a URL, or a folder cover's `{ file }`) when it isn't cached, keyed by
-   * `artId` and `size`; calls for one image share one fetch; null when the fetch fails or isn't an allowed image. */
+   * `artId` and `size`; calls for one image share one fetch; null when the fetch fails or isn't an allowed image.
+   * @example ../examples/art-cache.ts#get
+   */
   get(artId: string, size: 'small' | 'large', source: string | { readonly file: string }): Promise<{ path: string; type: string } | null> {
     if (!SAFE_ID.test(artId) || !SIZES.has(size)) return Promise.resolve(null);
     const name = `${artId}-${size}`;

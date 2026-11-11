@@ -115,7 +115,10 @@ function anilistQuery(fetch: typeof globalThis.fetch, pacer: Pacer): QueryFn {
     }, paced);
 }
 
-/** AniList as a `MetadataSource` (search and entry by `anilist:<id>`), paced by `pacer`. */
+/**
+ * AniList as a `MetadataSource` (search and entry by `anilist:<id>`), paced by `pacer`.
+ * @example ../examples/create-anilist.ts
+ */
 export function createAniList(fetch: typeof globalThis.fetch, pacer: Pacer): MetadataSource {
   const query = anilistQuery(fetch, pacer);
   return {

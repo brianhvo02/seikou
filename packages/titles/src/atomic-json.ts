@@ -59,7 +59,10 @@ export function syncDir(dir: string): void {
   }
 }
 
-/** Replaces `file` atomically: a synced temp file, then rename, then a directory sync. */
+/**
+ * Replaces `file` atomically: a synced temp file, then rename, then a directory sync.
+ * @example ../examples/replace-atomically.ts
+ */
 export function replaceAtomically(file: string, text: string): void {
   const temp = `${file}.${process.pid}.tmp`;
   writeSynced(temp, text);

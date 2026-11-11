@@ -299,6 +299,7 @@ function chainPlace(en: Entry, entries: ReadonlyMap<string, Entry>, prequels: Re
  * Makes titles, seasons, disc slots, episodes, extras, Music, Unsorted and Hidden from the matches, the metadata and
  * the owner's choices. An owner's choice for a disc wins over its match. It is deterministic for one input and does
  * no I/O.
+ * @example ../examples/build-catalogue.ts
  */
 export function buildCatalogue(input: CatalogueInput): Catalogue {
   const { entries, owner } = input;

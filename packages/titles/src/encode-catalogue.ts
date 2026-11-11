@@ -61,6 +61,7 @@ function startOf(en: Entry, others: ReadonlyMap<string, Entry>): number {
  * its seasons by number, a TMDB film the show `mv<id>` with one film row, an own title the show `own<hex>` with its
  * seasons by number and, for encodes with no season, one row (a film when `names` says so). Their names come from
  * `names`, else the encodes' `TITLE_NAME`, else `TMDB <id>` or `Own title`. Only titles with encodes are listed.
+ * @example ../examples/build-encode-catalogue.ts
  */
 export function buildEncodeCatalogue(encodes: readonly EncodeEntryLike[], anilist: ReadonlyMap<number, Entry>, names: EncodeNames = () => null): EncodeCatalogue {
   const byEntry = new Map<number, EncodeEntryLike[]>();

@@ -22,6 +22,7 @@ const naturalOrder = (a: string, b: string): number => a.localeCompare(b, undefi
  * The episodes of a season's discs, given in disc order, numbered from `firstNumber` and continuing from disc to disc;
  * null when the runtime or episode count is unknown, when a disc's episodes can't be ordered, or when the total isn't
  * the season's episode count.
+ * @example ../examples/guess-episodes.ts
  */
 export function guessEpisodes(
   season: { episodes: number | null; runtimeMin: number | null },

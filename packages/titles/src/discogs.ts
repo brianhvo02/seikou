@@ -40,6 +40,7 @@ function toDate(released: string | null | undefined): string | null {
  * A Discogs client for release lookups by catalogue number, authenticated with `token` and sending a User-Agent that
  * carries `contact` when given. A network error, a bad status or rate limiting throws `SourceUnavailable`; no match
  * is null. The token never appears in an error message.
+ * @example ../examples/create-discogs.ts
  */
 export function createDiscogs(fetch: typeof globalThis.fetch, pacer: Pacer, token: string, contact: string | null = null): MusicSource {
   const userAgent = lookupUserAgent(contact);

@@ -87,6 +87,7 @@ function catalogueFields(slot: EpisodeSlot): Pick<ContinueItem, 'titleId' | 'tit
  * for the following episode (on whichever disc), unless the series has a newer place or the next episode has one of
  * its own; movies, music and a series' last episode drop off. Newest first, at most 50. `discKeyOf` names the disc an
  * Up next episode is on (default `d.<id>`).
+ * @example ../examples/continue-watching.ts
  */
 export function continueWatching(
   places: readonly PlaybackPlace[], catalogue: Catalogue, discsOf: DiscsOf, discKeyOf: (discId: string) => string = (id) => `d.${id}`,
@@ -130,7 +131,10 @@ export function continueWatching(
   return items.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, CONTINUE_LIMIT);
 }
 
-/** Where the person is in each playlist of a title's discs, by disc id (every copy of a disc) and playlist id. */
+/**
+ * Where the person is in each playlist of a title's discs, by disc id (every copy of a disc) and playlist id.
+ * @example ../examples/title-progress.ts
+ */
 export function titleProgress(places: readonly PlaybackPlace[], detail: TitleDetail, discsOf: DiscsOf): Record<string, Record<string, PlaylistProgress>> {
   const ids = new Set<string>();
   const slots = (list: readonly { readonly copies: readonly { readonly discId: string }[] }[]): void => {

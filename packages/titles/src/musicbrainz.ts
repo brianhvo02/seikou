@@ -28,6 +28,7 @@ interface MbRelease {
 /**
  * A MusicBrainz client for release lookups by catalogue number, sending a User-Agent that carries `contact` when
  * given. A network error, a bad status or rate limiting throws `SourceUnavailable`; no match is null.
+ * @example ../examples/create-music-brainz.ts
  */
 export function createMusicBrainz(fetch: typeof globalThis.fetch, pacer: Pacer, contact: string | null = null): MusicSource {
   const userAgent = lookupUserAgent(contact);

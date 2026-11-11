@@ -271,6 +271,7 @@ const lastSegment = (path: string): string => path.slice(path.lastIndexOf('/') +
  * group is a parent folder). Source lookups go through `ctx.cache`, so each query is made once per run. When the sources
  * fail for `CIRCUIT_BREAKER` groups in a row, the run stops early with `aborted` set and the remaining groups are left
  * for the next run. It does not touch the disk; `ctx.onGroupDone` is how a caller saves progress.
+ * @example ../examples/match-discs.ts
  */
 export async function matchDiscs(evidence: readonly DiscEvidence[], ctx: MatchContext): Promise<MatchResult> {
   const groups = new Map<string, DiscEvidence[]>();
