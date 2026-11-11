@@ -2,7 +2,10 @@
 // @seikou/engine: the browser Blu-ray player engine (its worker) and the page-side controller that drives it.
 // Named exports only: @seikou/pg and @seikou/ass each have their own Rect. Everything else is internal, reached through ./*.
 
-/** Starts the package's engine worker (no BD-J); `name` is the worker's name, `bluray-engine` or with test flags. */
+/**
+ * Starts the package's engine worker (no BD-J); `name` is the worker's name, `bluray-engine` or with test flags.
+ * @example ../examples/create-controller.browser.ts
+ */
 export function createEngineWorker(name: string): Worker {
   // (the options stay an object literal with a literal type: Vite reads it to bundle the worker as a module)
   return new Worker(new URL('./worker.ts', import.meta.url), { type: 'module', name });

@@ -333,6 +333,7 @@ function documentVisibility(): VisibilityLike {
  * controller never waits on it, so a method returns at once and its effect shows in a later snapshot. It owns the audio
  * output (volume, mute, menu sounds), starts audio from user gestures, pauses when the platform suspends audio in the
  * background, and keeps each NAS disc's fetch port serving until the engine has closed it.
+ * @example ../../examples/player-controller.browser.ts#construct
  */
 export class PlayerController {
   private snapshot: PlayerSnapshot = INITIAL_SNAPSHOT;
@@ -426,6 +427,7 @@ export class PlayerController {
   /**
    * Surfaces a failure of the engine worker itself (it can no longer report through events): the snapshot gets an
    * `internal` error and state `error`, and pending `readPlace` calls reject.
+   * @example ../../examples/player-controller.browser.ts#reportInternalError
    */
   reportInternalError(message: string): void {
     this.engineFailed = new Error(message);
@@ -436,7 +438,10 @@ export class PlayerController {
     this.update({ ...s, engineState: 'error' }); // the engine can't report its own state any more
   }
 
-  /** Registers a listener called after every snapshot change; returns the function that removes it. */
+  /**
+   * Registers a listener called after every snapshot change; returns the function that removes it.
+   * @example ../../examples/player-controller.browser.ts#subscribe
+   */
   readonly subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
     return () => {
@@ -444,13 +449,17 @@ export class PlayerController {
     };
   };
 
-  /** The current snapshot; the same object until something changes. */
+  /**
+   * The current snapshot; the same object until something changes.
+   * @example ../../examples/player-controller.browser.ts#getSnapshot
+   */
   readonly getSnapshot = (): PlayerSnapshot => this.snapshot;
 
   /**
    * Hands the video canvas to the engine as an `OffscreenCanvas`, after which the worker draws on it and the page can no
    * longer. A canvas is transferred once (React StrictMode runs effects twice, so a second call with it is ignored);
    * a remounted screen brings a new canvas.
+   * @example ../../examples/player-controller.browser.ts#attachCanvas
    */
   attachCanvas(canvas: HTMLCanvasElement): void {
     if (this.transferredCanvases.has(canvas)) return;
@@ -459,7 +468,10 @@ export class PlayerController {
     this.post({ type: 'attachCanvas', canvas: offscreen }, [offscreen]);
   }
 
-  /** Sets the canvas's drawing size in pixels (sends `resize`); the engine repaints at that size. */
+  /**
+   * Sets the canvas's drawing size in pixels (sends `resize`); the engine repaints at that size.
+   * @example ../../examples/player-controller.browser.ts#resize
+   */
   resize(width: number, height: number): void {
     this.post({ type: 'resize', width, height });
   }
@@ -469,6 +481,7 @@ export class PlayerController {
    * posted to the engine (or at once when it already was), and also when audio could not start (a notice says why);
    * it never rejects. A host that opens a disc right after should wait for it: a playlist that starts before the ring
    * arrives plays without sound until the next playlist.
+   * @example ../../examples/player-controller.browser.ts#startAudio
    */
   startAudio(): Promise<void> {
     return this.audio.ensureStarted().then(
@@ -493,6 +506,7 @@ export class PlayerController {
    * The registers a saved place needs, as the engine reads them now (its next placeState). The engine answers at once,
    * in command order, so a read made before an open or a close describes the disc that was open when it was made (a
    * save just before switching discs), and resolves; it rejects only once the engine worker has failed.
+   * @example ../../examples/player-controller.browser.ts#readPlace
    */
   readPlace(): Promise<PlaceState> {
     if (this.engineFailed) return Promise.reject(this.engineFailed);
@@ -509,7 +523,10 @@ export class PlayerController {
     for (const w of waiters) w.resolve(place);
   }
 
-  /** A notice from the UI itself (the engine's arrive as events), replacing any with the same code. */
+  /**
+   * A notice from the UI itself (the engine's arrive as events), replacing any with the same code.
+   * @example ../../examples/player-controller.browser.ts#showNotice
+   */
   showNotice(code: string, message: string): void {
     this.update(withNotice(this.snapshot, { code, message }));
   }
@@ -518,6 +535,7 @@ export class PlayerController {
    * Opens a disc from picked files (`[path, file]` pairs, paths like `BDMV/index.bdmv`). Sends `open`; the snapshot
    * restarts from `INITIAL_SNAPSHOT` (keeping volume and mute) with state `loading`, then `titles` or `error` follows.
    * `start`: open at that place instead of running the disc's First Play (`startFailed` says when it can't).
+   * @example ../../examples/player-controller.browser.ts#open
    */
   open(entries: ReadonlyArray<readonly [string, File]>, start?: StartPoint): void {
     this.opens++;
@@ -534,6 +552,7 @@ export class PlayerController {
    * transferred to the engine, and `release` (what serves it) runs once the engine has closed that port, after another disc
    * opened or this one closed (or failed to open), so no read of it fails early. With `bufferFirst` the engine fills the
    * disc's read-ahead cache (bufferProgress) before it opens the disc; cancelBuffer opens it at once. `start`: as open's.
+   * @example ../../examples/player-controller.browser.ts#openRemote
    */
   openRemote(spec: RemoteDiscSpec, refreshToken?: () => Promise<string>, release?: () => void, bufferFirst?: BufferRequest, start?: StartPoint): void {
     this.opens++;
@@ -550,6 +569,7 @@ export class PlayerController {
    * An encoded episode on the NAS, played from `startUs` (from the start without it). It is read as a NAS disc is:
    * `refreshToken` answers the engine's token requests, and a spec's fetch port (the WebRTC route) is transferred, with
    * `release` run once the engine has closed it. encodeId is set until another disc opens or this one closes.
+   * @example ../../examples/player-controller.browser.ts#openEncode
    */
   openEncode(spec: EncodeSpec, refreshToken?: () => Promise<string>, startUs?: number, release?: () => void): void {
     this.opens++;
@@ -566,18 +586,25 @@ export class PlayerController {
    * Switches the open NAS disc to another version (a quality level, or the original): same disc id, never with a fetch
    * port (over WebRTC the open disc's port goes on serving). levelSwitch is 'switching' until the engine answers.
    * `audio`: with a switch to the original, the audio stream (original numbering) to keep playing.
+   * @example ../../examples/player-controller.browser.ts#setLevel
    */
   setLevel(spec: RemoteDiscSpec, audio?: number): void {
     this.update({ ...this.snapshot, levelSwitch: 'switching' });
     this.post({ type: 'setLevel', disc: spec, ...(audio !== undefined ? { audio } : {}) });
   }
 
-  /** Fetches the open NAS disc's main playlist from `fromSeconds` on into its read-ahead cache, `targetBytes` of it. */
+  /**
+   * Fetches the open NAS disc's main playlist from `fromSeconds` on into its read-ahead cache, `targetBytes` of it.
+   * @example ../../examples/player-controller.browser.ts#bufferAhead
+   */
   bufferAhead(fromSeconds: number, targetBytes: number): void {
     this.post({ type: 'bufferAhead', fromSeconds, targetBytes });
   }
 
-  /** Stops the fill; a disc opened with bufferFirst opens at once (it plays now, with pauses). */
+  /**
+   * Stops the fill; a disc opened with bufferFirst opens at once (it plays now, with pauses).
+   * @example ../../examples/player-controller.browser.ts#cancelBuffer
+   */
   cancelBuffer(): void {
     this.post({ type: 'cancelBuffer' });
   }
@@ -595,7 +622,10 @@ export class PlayerController {
     if (entry) releaseServing(entry);
   }
 
-  /** A fresh session token for the open NAS disc. */
+  /**
+   * A fresh session token for the open NAS disc.
+   * @example ../../examples/player-controller.browser.ts#setRemoteToken
+   */
   setRemoteToken(token: string): void {
     this.post({ type: 'remoteToken', token });
   }
@@ -608,7 +638,10 @@ export class PlayerController {
     );
   }
 
-  /** Plays a playlist by id, from its start. Sends `playPlaylist` and first drops the previous playlist's notices. */
+  /**
+   * Plays a playlist by id, from its start. Sends `playPlaylist` and first drops the previous playlist's notices.
+   * @example ../../examples/player-controller.browser.ts#playPlaylist
+   */
   playPlaylist(playlistId: string): void {
     this.startAudio();
     // Drop the previous playlist's notices now; the engine handles commands in order, so every notice
@@ -621,58 +654,88 @@ export class PlayerController {
     this.post({ type: 'playPlaylist', playlistId });
   }
 
-  /** Starts or resumes playback (sends `play`, and starts audio if it is not running). */
+  /**
+   * Starts or resumes playback (sends `play`, and starts audio if it is not running).
+   * @example ../../examples/player-controller.browser.ts#play
+   */
   play(): void {
     this.startAudio();
     this.post({ type: 'play' });
   }
 
-  /** Pauses playback (sends `pause`). */
+  /**
+   * Pauses playback (sends `pause`).
+   * @example ../../examples/player-controller.browser.ts#pause
+   */
   pause(): void {
     this.post({ type: 'pause' });
   }
 
-  /** Pauses when the state is `playing` or `buffering`, plays otherwise. */
+  /**
+   * Pauses when the state is `playing` or `buffering`, plays otherwise.
+   * @example ../../examples/player-controller.browser.ts#togglePlay
+   */
   togglePlay(): void {
     const state = this.snapshot.engineState;
     if (state === 'playing' || state === 'buffering') this.pause();
     else this.play();
   }
 
-  /** Seeks the current playlist to `timeUs` microseconds, clamped to 0 and its duration. The snapshot's `timeUs` follows from the engine. */
+  /**
+   * Seeks the current playlist to `timeUs` microseconds, clamped to 0 and its duration. The snapshot's `timeUs` follows from the engine.
+   * @example ../../examples/player-controller.browser.ts#seek
+   */
   seek(timeUs: number): void {
     this.post({ type: 'seek', timeUs: Math.min(Math.max(0, timeUs), this.snapshot.durationUs) });
   }
 
-  /** Seeks relative to the last known position, `deltaUs` microseconds (negative goes back). */
+  /**
+   * Seeks relative to the last known position, `deltaUs` microseconds (negative goes back).
+   * @example ../../examples/player-controller.browser.ts#seekBy
+   */
   seekBy(deltaUs: number): void {
     this.seek(this.snapshot.timeUs + deltaUs);
   }
 
-  /** Seeks to the next chapter (sends `nextChapter`; the engine refuses it where an HDMV or plain-playlist disc's UO mask forbids skipping; a running BD-J title is not checked). */
+  /**
+   * Seeks to the next chapter (sends `nextChapter`; the engine refuses it where an HDMV or plain-playlist disc's UO mask forbids skipping; a running BD-J title is not checked).
+   * @example ../../examples/player-controller.browser.ts#nextChapter
+   */
   nextChapter(): void {
     this.post({ type: 'nextChapter' });
   }
 
-  /** Seeks to the previous chapter (sends `prevChapter`; refused like `nextChapter`). */
+  /**
+   * Seeks to the previous chapter (sends `prevChapter`; refused like `nextChapter`).
+   * @example ../../examples/player-controller.browser.ts#prevChapter
+   */
   prevChapter(): void {
     this.post({ type: 'prevChapter' });
   }
 
-  /** Sets the volume, clamped to 0 to 1. Applied on the main thread's audio output; the engine is not told. */
+  /**
+   * Sets the volume, clamped to 0 to 1. Applied on the main thread's audio output; the engine is not told.
+   * @example ../../examples/player-controller.browser.ts#setVolume
+   */
   setVolume(volume: number): void {
     const v = Math.min(Math.max(0, volume), 1);
     this.audio.setVolume(v);
     this.update({ ...this.snapshot, volume: v });
   }
 
-  /** Volume keys: change the level and unmute, so the change is audible. */
+  /**
+   * Volume keys: change the level and unmute, so the change is audible.
+   * @example ../../examples/player-controller.browser.ts#adjustVolume
+   */
   adjustVolume(delta: number): void {
     if (this.snapshot.muted) this.toggleMute();
     this.setVolume(this.snapshot.volume + delta);
   }
 
-  /** Flips mute on the audio output; the volume is kept. */
+  /**
+   * Flips mute on the audio output; the volume is kept.
+   * @example ../../examples/player-controller.browser.ts#toggleMute
+   */
   toggleMute(): void {
     const muted = !this.snapshot.muted;
     this.audio.setMuted(muted);
@@ -683,6 +746,7 @@ export class PlayerController {
    * Switches to the audio track with that `index`. Ignored for an unknown or undecodable track or the one already
    * playing. The snapshot's `selectedAudio` changes at once and an `audio-track` notice names the track; the engine's
    * `tracks` event corrects it if the switch is refused.
+   * @example ../../examples/player-controller.browser.ts#selectAudio
    */
   selectAudio(index: number): void {
     const track = this.snapshot.audioTracks.find((t) => t.index === index);
@@ -693,7 +757,10 @@ export class PlayerController {
     this.update(withNotice(selected, { code: 'audio-track', message: `Audio: ${trackLabel(track)}` }));
   }
 
-  /** The A key: the next playable track, wrapping around. */
+  /**
+   * The A key: the next playable track, wrapping around.
+   * @example ../../examples/player-controller.browser.ts#cycleAudio
+   */
   cycleAudio(): void {
     const playable = this.snapshot.audioTracks.filter((t) => t.playable);
     if (playable.length < 2) return;
@@ -704,6 +771,7 @@ export class PlayerController {
   /**
    * One subtitle choice. Checked against the UO mask like the keys: a change of PG stream is pgChange, turning PG's
    * display on or off is pgEnableDisable (the engine checks the exact register change itself).
+   * @example ../../examples/player-controller.browser.ts#selectSubtitle
    */
   selectSubtitle(choice: SubtitleChoice): void {
     const subs = this.snapshot.subtitles;
@@ -722,7 +790,10 @@ export class PlayerController {
     }
   }
 
-  /** The S key: Off → each PG track → the subtitle file → Off. */
+  /**
+   * The S key: Off → each PG track → the subtitle file → Off.
+   * @example ../../examples/player-controller.browser.ts#cycleSubtitles
+   */
   cycleSubtitles(): void {
     const subs = this.snapshot.subtitles;
     if (!subs) return;
@@ -733,7 +804,10 @@ export class PlayerController {
     this.selectSubtitle(order[(at + 1) % order.length]!);
   }
 
-  /** Loads one subtitle file as the text set; see `loadSubtitleFiles`. */
+  /**
+   * Loads one subtitle file as the text set; see `loadSubtitleFiles`.
+   * @example ../../examples/player-controller.browser.ts#loadSubtitleFile
+   */
   async loadSubtitleFile(file: File, encoding?: string): Promise<void> {
     await this.loadSubtitleFiles([file], encoding);
   }
@@ -741,6 +815,7 @@ export class PlayerController {
   /**
    * A pick or drop: its subtitle files become the set (sent with its fonts, every buffer transferred); a pick of
    * fonts alone adds them to an ASS set. `encoding` answers an encoding prompt.
+   * @example ../../examples/player-controller.browser.ts#loadSubtitleFiles
    */
   async loadSubtitleFiles(files: readonly File[], encoding?: string): Promise<void> {
     const fonts = splitPick(files).fonts;
@@ -765,7 +840,10 @@ export class PlayerController {
     this.post({ type: 'addTextSubtitles', files: fileData, ...(fontData.length ? { fonts: fontData } : {}), ...(encoding !== undefined ? { encoding } : {}) }, transfer);
   }
 
-  /** More fonts for the set's ASS files. */
+  /**
+   * More fonts for the set's ASS files.
+   * @example ../../examples/player-controller.browser.ts#addSubtitleFonts
+   */
   async addSubtitleFonts(files: readonly File[]): Promise<void> {
     const fonts = await this.readFonts(splitPick(files).fonts);
     if (fonts.length) this.post({ type: 'addSubtitleFonts', fonts }, fonts.map((f) => f.bytes));
@@ -787,7 +865,10 @@ export class PlayerController {
     return Promise.all(kept.map(async (f) => ({ name: f.name, bytes: await f.arrayBuffer() })));
   }
 
-  /** Places a file of the text set at a playlist time in microseconds (null: not placed, so the file shows nowhere). */
+  /**
+   * Places a file of the text set at a playlist time in microseconds (null: not placed, so the file shows nowhere).
+   * @example ../../examples/player-controller.browser.ts#setSubtitleStart
+   */
   setSubtitleStart(file: number, startUs: number | null): void {
     this.post({ type: 'setSubtitleStart', file, startUs });
   }
@@ -797,7 +878,10 @@ export class PlayerController {
     return this.cancels;
   }
 
-  /** The encoding prompt's answer; null cancels. */
+  /**
+   * The encoding prompt's answer; null cancels.
+   * @example ../../examples/player-controller.browser.ts#answerEncoding
+   */
   async answerEncoding(encoding: string | null): Promise<void> {
     const load = this.pendingSubtitleLoad;
     this.pendingSubtitleLoad = null;
@@ -806,12 +890,18 @@ export class PlayerController {
     if (encoding !== null && load) await this.loadSubtitleFiles(load, encoding);
   }
 
-  /** Removes the whole text subtitle set (sends `removeTextSubtitle`). */
+  /**
+   * Removes the whole text subtitle set (sends `removeTextSubtitle`).
+   * @example ../../examples/player-controller.browser.ts#removeSubtitleFile
+   */
   removeSubtitleFile(): void {
     this.post({ type: 'removeTextSubtitle' });
   }
 
-  /** The `[` and `]` keys move the showing subtitle file's cues by `deltaMs`, with a short notice of the new offset. */
+  /**
+   * The `[` and `]` keys move the showing subtitle file's cues by `deltaMs`, with a short notice of the new offset.
+   * @example ../../examples/player-controller.browser.ts#shiftSubtitles
+   */
   shiftSubtitles(deltaMs: number): void {
     const subs = this.snapshot.subtitles;
     const text = subs?.text;
@@ -820,7 +910,10 @@ export class PlayerController {
     if (file !== null) this.shiftSubtitleFile(file, deltaMs);
   }
 
-  /** Moves one file of the set by `deltaMs`, with a short notice of its new offset. */
+  /**
+   * Moves one file of the set by `deltaMs`, with a short notice of its new offset.
+   * @example ../../examples/player-controller.browser.ts#shiftSubtitleFile
+   */
   shiftSubtitleFile(file: number, deltaMs: number): void {
     const subs = this.snapshot.subtitles;
     const text = subs?.text;
@@ -832,7 +925,10 @@ export class PlayerController {
     this.update(withNotice({ ...this.snapshot, subtitles: { ...subs, text: { ...text, files } } }, { code: 'subtitle-offset', message: `Subtitles ${formatSubtitleOffset(offsetMs)}` }));
   }
 
-  /** Changes the text subtitle scale by `delta`, clamped to the scale limits and rounded to one decimal; ignored without a text set. */
+  /**
+   * Changes the text subtitle scale by `delta`, clamped to the scale limits and rounded to one decimal; ignored without a text set.
+   * @example ../../examples/player-controller.browser.ts#scaleSubtitles
+   */
   scaleSubtitles(delta: number): void {
     const subs = this.snapshot.subtitles;
     if (!subs?.text) return;
@@ -841,66 +937,102 @@ export class PlayerController {
     this.update({ ...this.snapshot, subtitles: { ...subs, scale } });
   }
 
-  /** The page is going away: a BD-J disc's saved data is stored now rather than after its debounce. */
+  /**
+   * The page is going away: a BD-J disc's saved data is stored now rather than after its debounce.
+   * @example ../../examples/player-controller.browser.ts#flushSaves
+   */
   flushSaves(): void {
     this.post({ type: 'flushSaves' });
   }
 
-  /** The page was hidden or shown (document.hidden): a BD-J title's start-up timeout counts only visible time. */
+  /**
+   * The page was hidden or shown (document.hidden): a BD-J title's start-up timeout counts only visible time.
+   * @example ../../examples/player-controller.browser.ts#setVisibility
+   */
   setVisibility(hidden: boolean): void {
     this.post({ type: 'visibility', hidden });
   }
 
-  /** Tells the engine which memory limits to use (sent once, before a disc opens). */
+  /**
+   * Tells the engine which memory limits to use (sent once, before a disc opens).
+   * @example ../../examples/player-controller.browser.ts#setMemoryProfile
+   */
   setMemoryProfile(profile: MemoryProfileName): void {
     this.post({ type: 'setMemoryProfile', profile });
   }
 
-  /** Applies a shader set to the video; null turns shaders off. */
+  /**
+   * Applies a shader set to the video; null turns shaders off.
+   * @example ../../examples/player-controller.browser.ts#setShaderSet
+   */
   setShaderSet(set: ShaderSetData | null): void {
     this.post({ type: 'setVideoShaders', set });
   }
 
-  /** An index title of an HDMV disc (its movie object decides what plays). */
+  /**
+   * An index title of an HDMV disc (its movie object decides what plays).
+   * @example ../../examples/player-controller.browser.ts#playTitle
+   */
   playTitle(title: number): void {
     this.startAudio();
     this.post({ type: 'playTitle', title });
   }
 
-  /** Top Menu. */
+  /**
+   * Top Menu.
+   * @example ../../examples/player-controller.browser.ts#menuCall
+   */
   menuCall(): void {
     this.startAudio();
     this.post({ type: 'menuCall' });
   }
 
-  /** Whether the disc's current UO mask forbids `op`. */
+  /**
+   * Whether the disc's current UO mask forbids `op`.
+   * @example ../../examples/player-controller.browser.ts#isMasked
+   */
   isMasked(op: UoOp): boolean {
     return this.snapshot.uoMask.includes(op);
   }
 
-  /** False (with the engine's notice, shown at once) if the disc masks `op`; the engine still checks every command itself. */
+  /**
+   * False (with the engine's notice, shown at once) if the disc masks `op`; the engine still checks every command itself.
+   * @example ../../examples/player-controller.browser.ts#allow
+   */
   allow(op: UoOp): boolean {
     if (!this.isMasked(op)) return true;
     this.update(withNotice(this.snapshot, { code: 'uo-masked', message: UO_MASKED_MESSAGE }));
     return false;
   }
 
-  /** `repeat`: a held key's auto-repeat. */
+  /**
+   * `repeat`: a held key's auto-repeat.
+   * @example ../../examples/player-controller.browser.ts#menuKey
+   */
   menuKey(key: MenuKey, repeat = false): void {
     this.post(repeat ? { type: 'menuKey', key, repeat } : { type: 'menuKey', key });
   }
 
-  /** (x, y) in the 1920×1080 menu space. */
+  /**
+   * (x, y) in the 1920×1080 menu space.
+   * @example ../../examples/player-controller.browser.ts#pointer
+   */
   pointer(kind: 'move' | 'click', x: number, y: number): void {
     this.post({ type: 'pointer', kind, x, y });
   }
 
-  /** Removes the notice with that code. */
+  /**
+   * Removes the notice with that code.
+   * @example ../../examples/player-controller.browser.ts#dismissNotice
+   */
   dismissNotice(code: string): void {
     this.update({ ...this.snapshot, notices: this.snapshot.notices.filter((n) => n.code !== code) });
   }
 
-  /** Closes the open disc (sends `close`) and resets the snapshot, keeping volume, mute and the cache flag. */
+  /**
+   * Closes the open disc (sends `close`) and resets the snapshot, keeping volume, mute and the cache flag.
+   * @example ../../examples/player-controller.browser.ts#closeDisc
+   */
   closeDisc(): void {
     this.opens++;
     this.refreshToken = null;

@@ -17,6 +17,7 @@ export interface CreateControllerOptions {
  * Builds a `PlayerController` on the main thread: starts the engine worker, creates the audio output, sends the memory
  * profile, and hooks `pagehide` and `visibilitychange` so the engine flushes a BD-J disc's saved data and learns when
  * the page is hidden. It touches `window` and `document`, so call it only in a page, once per player.
+ * @example ../../examples/create-controller.browser.ts
  */
 export function createController(options: CreateControllerOptions): PlayerController {
   const controller = new PlayerController(options.worker(), new AudioOutput());
