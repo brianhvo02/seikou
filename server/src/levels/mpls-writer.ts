@@ -1,6 +1,6 @@
 /*
  * Writes a playlist (.mpls) for a quality level. The structure follows how libbluray reads it
- * (src/libbluray/bdnav/mpls_parse.c: _parse_playlist, _parse_playitem, _parse_stn, _parse_stream)
+ * (src/libbluray/bdnav/mpls_parse.c: `_parse_playlist`, `_parse_playitem`, `_parse_stn`, `_parse_stream`)
  * and how packages/bdmv/src/mpls-parser.ts ports that; everything but the STN tables is copied
  * byte for byte.
  *
@@ -17,9 +17,14 @@ import { BeWriter, readU16, readU32, rebuildSections, sectionBytes } from './sec
 const LIST_AT = 8;
 const MARK_AT = 12;
 const EXTENSION_AT = 16;
-/** clip_id, codec_id, flags, stc_id, in, out, UO mask, random access, still mode and time. */
+/**
+ * A play item's bytes after its 2-byte length up to its STN table, in libbluray `_parse_playitem`'s order: clip_id (5
+ * bytes) and codec_id (4), 2 bytes holding is_multi_angle and connection_condition, stc_id, in_time and out_time (4
+ * each), the 8-byte UO mask table, random_access_flag, still_mode and still_time (2).
+ */
 const PLAY_ITEM_FIXED_BYTES = 32;
 
+/** The video attributes written into a play item's STN video entries: `coding_type`, and the 4-bit `format` and `rate` codes. */
 export interface VideoAttrs {
   readonly newCoding: number;
   readonly newFormat: number;
@@ -60,6 +65,7 @@ export function rewriteMpls(
   return rebuildSections(original, [LIST_AT, MARK_AT, EXTENSION_AT], new Map([[LIST_AT, newList]]));
 }
 
+/** One play item (with its length prefix) whose STN table is rewritten by `rewriteStn`; the rest is copied. */
 function rewritePlayItem(item: Uint8Array, audio: KeptAudio | null, video: VideoAttrs, index: number): Uint8Array {
   let stnAt = 2 + PLAY_ITEM_FIXED_BYTES;
   const isMultiAngle = (item[2 + 10]! & 0x10) !== 0; // bit 11 of the 16 bits after codec_id
@@ -80,6 +86,11 @@ function rewritePlayItem(item: Uint8Array, audio: KeptAudio | null, video: Video
   return out;
 }
 
+/**
+ * An STN table (libbluray `_parse_stn`) with the primary video's coding attributes set, the one kept audio entry set to
+ * its core, and PG, PiP PG and IG entries copied. The counts for secondary audio, secondary video and Dolby Vision
+ * (`num_dv`) are written as 0 and their entries dropped.
+ */
 function rewriteStn(stn: Uint8Array, kept: KeptAudio | null, video: VideoAttrs, index: number): Uint8Array {
   const [videoCount, audioCount, pgCount, igCount, , , pipPgCount] = stn.subarray(4, 11);
   let at = 16; // length, 2 reserved, 8 counts, 4 reserved

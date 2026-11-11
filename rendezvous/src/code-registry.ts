@@ -11,6 +11,7 @@ export interface RegistryStorage {
   setAlarm(scheduledTime: number): Promise<void>;
 }
 
+/** The part of `DurableObjectState` the registry uses: its storage. */
 export interface RegistryState {
   readonly storage: RegistryStorage;
 }
@@ -79,6 +80,7 @@ const rateKey = (route: Route, client: string): string => `rate:${route}:${clien
 const TURN_DAY_KEY = rateKey('turnDay', 'all');
 const FAILED_KEY = 'global:failed-lookups';
 
+/** A JSON response with `status`; `body` is serialized as is. */
 export function json(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 }
@@ -141,6 +143,19 @@ export class CodeRegistry {
     this.storage = state.storage;
   }
 
+  /**
+   * The registry's routes, reached only through the Worker in `index.ts` (which bounds the body and adds CORS) or, for
+   * the `INTERNAL` paths, from the Worker's own objects.
+   *
+   * - `POST /nas`: any client may register a key. 400 for a body that isn't a P-256 public key.
+   * - `POST /codes` and `DELETE /codes`: only the NAS that holds the registered key, by a signature over the request's
+   *   fields. 400 for a malformed body or an `expiresAt` in the past or more than `MAX_CODE_AHEAD_MS` ahead, 401 for
+   *   an unknown or expired NAS or a bad signature, 409 when another NAS holds that code hash, 429 when the NAS has
+   *   `CODES_PER_NAS` live codes.
+   * - `POST /codes/lookup`: any client, the app with the code its user typed. 404 for an unknown or expired code.
+   * - Every route: 429 once the client's address bucket (`clientBucket`) has used its window, and 405 for a method
+   *   the route doesn't take.
+   */
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === INTERNAL.nasKey) return this.nasKeyOf(url.searchParams.get('nasId'));
@@ -169,7 +184,7 @@ export class CodeRegistry {
     }
   }
 
-  /** Deletes expired codes, expired NAS records and stale rate logs page by page, then wakes again for the next one. */
+  /** The runtime's alarm: deletes expired codes, expired NAS records and stale rate logs page by page, then wakes again for the next one. */
   async alarm(): Promise<void> {
     const now = this.now();
     const next = Math.min(
@@ -241,7 +256,7 @@ export class CodeRegistry {
     return new Response(null, { status: 204 });
   }
 
-  /** `POST /nas { publicKeyJwk }` → `{ nasId }`; the id is the key's thumbprint, so this is idempotent. */
+  /** `POST /nas { publicKeyJwk }` → `{ nasId }`; open to any client. The id is the key's thumbprint, so this is idempotent. 400 for a key that isn't a P-256 public JWK (or carries a private part). */
   private async registerNas(body: unknown): Promise<Response> {
     const jwk = isObject(body) ? publicJwk(body.publicKeyJwk) : null;
     if (!jwk) return json(400, { error: 'bad request' });

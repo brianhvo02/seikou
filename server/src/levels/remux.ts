@@ -32,12 +32,15 @@ export interface PcrAnchor {
   readonly pcr27: number;
 }
 
+/** One EP interval's inputs for `remuxInterval`. */
 export interface RemuxInput {
+  /** The interval being built; `budgetBytes` is the exact size of its output. */
   readonly plan: IntervalPlan;
   /** The kept packets assigned to this interval (spn within [plan.srcSpnStart, plan.srcSpnEnd)), in any order. */
   readonly kept: readonly KeptPacket[];
   /** The encoded video of the interval, in decode order. */
   readonly video: readonly EncodedPes[];
+  /** The primary video's PID, which the output keeps. */
   readonly videoPid: number;
   /** The source video's PES in the interval, in decode order: where the encode's PES go, by DTS. */
   readonly videoTimeline: readonly VideoAnchor[];
@@ -67,6 +70,7 @@ function unwrap(raw: number, ref: number, wrap: number): number {
   return ref + d;
 }
 
+/** The arrival time stamp of a 192-byte source packet: the low 30 bits of its 4-byte TP_extra_header, 27 MHz ticks. */
 export function atsOf(packet: Uint8Array): number {
   return ((packet[0]! & 0x3f) * 0x1000000) + ((packet[1]! << 16) | (packet[2]! << 8) | packet[3]!);
 }
@@ -165,7 +169,7 @@ function withPcrPid(packet: Uint8Array, pcrPid: number): Uint8Array {
 }
 
 /**
- * Re-muxes one EP interval of a clip at a level (spec §5): the kept packets and the encoded video, then null packets,
+ * Re-muxes one EP interval of a clip at a level: the kept packets and the encoded video, then null packets,
  * to exactly `plan.budgetBytes`.
  *
  * - **Kept packets** go in the order of their assigned SPN (stable within one SPN), each with its original ATS, raised
@@ -185,6 +189,7 @@ function withPcrPid(packet: Uint8Array, pcrPid: number): Uint8Array {
  * - **Padding**: null packets (PID 0x1FFF) after the content, their ATS spread up to `endAts`.
  *
  * Returns `overflow`, the content's bytes past the budget, when it doesn't fit; the caller re-encodes the video smaller.
+ * Returns the whole interval as `bytes`, a multiple of the aligned unit, when it does.
  */
 export function remuxInterval(input: RemuxInput): { bytes: Uint8Array } | { overflow: number } {
   const { plan, videoPid } = input;
@@ -351,9 +356,13 @@ function padding(input: RemuxInput, content: readonly Slot[], count: number, ref
 
 /** What `remuxInterval` needs from the source for one interval, besides its plan and the encoded video. */
 export interface IntervalSource {
+  /** The kept packets assigned to the interval. */
   readonly kept: KeptPacket[];
+  /** The source video's PES starts in the interval. */
   readonly videoTimeline: VideoAnchor[];
+  /** The PCR anchor when PCR rides on the video PID; else null. */
   readonly pcr: PcrAnchor | null;
+  /** The ATS of the next interval's first source packet, when it is known. */
   readonly endAts?: number;
 }
 
@@ -364,7 +373,9 @@ function readPcr(packet: Uint8Array): number | null {
   return base * 300 + (((packet[14]! & 0x01) << 8) | packet[15]!);
 }
 
+/** What an `IntervalCollector` needs to know about the clip. */
 export interface IntervalCollectorOptions {
+  /** The primary video's PID. */
   readonly videoPid: number;
   /** The source's PCR PID (from the PMT); its PCRs are collected only when it is the video PID. */
   readonly pcrPid: number;
@@ -376,7 +387,7 @@ export interface IntervalCollectorOptions {
 
 /**
  * Collects a clip's source packets, fed in order from an interval's start, into what each interval's re-mux needs: the
- * kept packets assigned to it (ruling L-R4), the source video's PES starts and, when PCR rides on the video PID, a PCR
+ * kept packets assigned to it, the source video's PES starts and, when PCR rides on the video PID, a PCR
  * (the interval's first, else the latest earlier one in the same STC sequence). A filtered PES that starts in an
  * interval completes only past its end, so an interval is ready once the source was fed past its end and no unit
  * started in it is still open (or `finish()` was called at the clip's end).
@@ -427,6 +438,7 @@ export class IntervalCollector {
     this.finished = true;
   }
 
+  /** Whether `take(plan)` has everything: the source is fed past the interval's end and no unit started in it is still open. */
   ready(plan: IntervalPlan): boolean {
     if (this.finished) return true;
     const open = this.streams.openSince();
@@ -459,18 +471,22 @@ export class IntervalCollector {
 
 /** The kept graphics streams by stream number (the play item's STN order): the order the last resort drops them in. */
 export interface GraphicsByNumber {
+  /** The kept PG (subtitle) PIDs, stream number 1 first. */
   readonly pg: readonly number[];
+  /** The kept IG (menu) PIDs, stream number 1 first. */
   readonly ig: readonly number[];
 }
 
 /** A graphics stream the last resort dropped PES of. */
 export interface DroppedGraphics {
+  /** The stream's PID. */
   readonly pid: number;
+  /** Which kind of stream it is. */
   readonly kind: 'pg' | 'ig';
 }
 
 /**
- * The re-mux's last resort (spec §5.2), when an interval's kept packets don't fit its budget even with its video at the
+ * The re-mux's last resort, because a clip's graphics are the only thing the level may drop, when an interval's kept packets don't fit its budget even with its video at the
  * floor rate: drops whole PES of graphics streams from the interval, one stream after another, PG first from the
  * highest stream number, and IG (menus) only once every PG stream is gone, until it fits. A dropped stream loses every
  * PES that starts in the interval; the packets before its first PES start (the end of a PES that began in the interval

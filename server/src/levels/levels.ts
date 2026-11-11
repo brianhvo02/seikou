@@ -5,9 +5,12 @@ import { CodingType, isVideoCoding } from '@seikou/bdmv/stream-types';
 
 export type { LevelId };
 
+/** A quality level's encode settings: the output codec and frame size, and the bit rate its byte budget is sized for. */
 export interface LevelDef {
   readonly id: Exclude<LevelId, 'original'>;
+  /** The output video codec. */
   readonly codec: 'h264' | 'hevc';
+  /** The output picture size in pixels; `levelDefFor` narrows it for a standard-definition source. */
   readonly width: number;
   readonly height: number;
   /** The encoder's target rate, bits per second. */
@@ -27,6 +30,10 @@ function level(id: LevelDef['id'], codec: LevelDef['codec'], height: 720 | 1080,
   return { id, codec, width, height, targetBps, peakBps: targetBps * PEAK_FACTOR, hdr, tonemap };
 }
 
+/**
+ * The re-encoded levels. The H.264 levels target 8 Mb/s at 1080 lines and 3 Mb/s at 720; the HEVC levels target 5 Mb/s,
+ * the HDR one as Main10 with the source's HDR10 metadata and the SDR one tone-mapped from an HDR source.
+ */
 export const LEVELS: Readonly<Record<Exclude<LevelId, 'original'>, LevelDef>> = {
   'h264-1080': level('h264-1080', 'h264', 1080, 8_000_000),
   'phone-720': level('phone-720', 'h264', 720, 3_000_000),
@@ -35,10 +42,14 @@ export const LEVELS: Readonly<Record<Exclude<LevelId, 'original'>, LevelDef>> = 
   'h264-1080-sdr': level('h264-1080-sdr', 'h264', 1080, 8_000_000, false, true),
 };
 
-/** Video no browser decodes, so a disc with it never plays at `original` (ruling L-R1). */
+/** Video no browser decodes (MPEG-1, MPEG-2, VC-1), so a disc with it is never offered `original` and plays only at a re-encoded level. */
 const UNPLAYABLE_VIDEO = new Set<number>([CodingType.MPEG1_VIDEO, CodingType.MPEG2_VIDEO, CodingType.VC1]);
 
-/** The levels a disc's primary video can be served at, best first. */
+/**
+ * The levels a disc's primary video can be served at, best first: `original` unless the video is one no browser
+ * decodes, an HDR source at the HDR and the tone-mapped levels, a source of 720 lines or fewer only at `phone-720`,
+ * else the 1080 levels and `phone-720`.
+ */
 export function levelsFor(source: { codingType: number; height: number; hdr: boolean }): LevelId[] {
   const original: LevelId[] = UNPLAYABLE_VIDEO.has(source.codingType) ? [] : ['original'];
   if (source.hdr) return [...original, 'hevc-1080-hdr', 'h264-1080-sdr'];
@@ -68,7 +79,8 @@ const VIDEO_RATE_30000_1001 = 4;
  * The primary video's coding attributes at a level. For 720p and 1080p the frame-rate code is the
  * source's: an interlaced source is deinterlaced to its frame rate, so 1080i 29.97 (rate 4) becomes
  * 1080p 29.97. Standard definition has one rate per format (480 lines 29.97, 576 lines 25), as
- * 480i and 576i do on disc.
+ * 480i and 576i do on disc. The codes are libbluray's `bd_video_format_e` and `bd_video_rate_e`, which
+ * `ProgramStream.format` and `.rate` carry; `sourceRate` is the source's own `rate` code.
  */
 export function videoAttrsFor(level: LevelDef, sourceRate: number): { newCoding: number; newFormat: number; newRate: number } {
   const newCoding = level.codec === 'h264' ? CodingType.AVC : CodingType.HEVC;
@@ -77,19 +89,22 @@ export function videoAttrsFor(level: LevelDef, sourceRate: number): { newCoding:
   return { newCoding, newFormat: level.height === 720 ? VIDEO_FORMAT_720P : VIDEO_FORMAT_1080P, newRate: sourceRate };
 }
 
+/** The one primary audio stream a level keeps in a play item. */
 export interface KeptAudio {
-  /** 1-based, in the play item's STN. */
+  /** The stream's 1-based place in the play item's STN audio table, the number PSR1 holds. */
   readonly streamNumber: number;
+  /** The stream's transport stream PID in the clip. */
   readonly pid: number;
   /** The coding on the disc; the level carries `coreCoding(coding)`. */
   readonly coding: number;
 }
 
 /**
- * The primary audio a play item keeps at a level (ruling L-R3): the requested stream number
+ * The primary audio a play item keeps at a level: the requested stream number
  * (1-based, as PSR1) when the item has it as a main-clip stream; otherwise the item's first
- * main-clip primary audio stream (stream 1 on any disc whose stream 1 is in the main clip);
- * otherwise null, and the item keeps no audio. Sub-path audio is never kept. `coding` is the
+ * main-clip primary audio stream (stream 1 on any disc whose stream 1 is in the main clip),
+ * so a viewer's choice never leaves a play item silent where another stream would play; otherwise null, and the item
+ * keeps no audio. Sub-path audio is never kept, because it lives in another clip. `coding` is the
  * stream's coding on the disc; the level carries `coreCoding(coding)`.
  */
 export function keptAudioFor(item: PlayItem, requestedNumber: number): KeptAudio | null {
@@ -114,7 +129,7 @@ export function coreCoding(codingType: number): number {
 /** BD audio sample-rate code for 48 kHz, the rate of every AC-3 and DTS core. */
 export const AUDIO_RATE_48K = 1;
 
-/** Intervals shorter than this (the clip's last, cut at the presentation end) don't set the rate. */
+/** Intervals shorter than this, 0.5 s in 45 kHz ticks (the clip's last, cut at the presentation end), don't set the rate. */
 const MIN_RATE_INTERVAL_45 = 22_500;
 
 /**
@@ -140,6 +155,7 @@ export function maxBudgetRate(intervals: readonly IntervalPlan[]): number {
 
 /** One EP interval of a clip: the bytes from one video EP entry to the next, and its place at a level. */
 export interface IntervalPlan {
+  /** The interval's place in the level's plan, from 0. */
   readonly index: number;
   /** 45 kHz, the EP entry's PTS. */
   readonly startPts45: number;
@@ -147,6 +163,7 @@ export interface IntervalPlan {
   readonly endPts45: number;
   /** Source packets [srcSpnStart, srcSpnEnd) of the original clip; the first interval starts at 0. */
   readonly srcSpnStart: number;
+  /** The end of the source packet range, exclusive. */
   readonly srcSpnEnd: number;
   /** The interval's bytes at the level, a whole number of aligned units. */
   readonly budgetBytes: number;
@@ -154,21 +171,26 @@ export interface IntervalPlan {
   readonly spnStart: number;
 }
 
-/** 32 source packets, the aligned unit of an m2ts file. */
+/** 6144 bytes, 32 source packets: the aligned unit of an m2ts file, of which every interval's budget is a whole number. */
 export const ALIGNED_UNIT_BYTES = 6144;
+/** A BDMV source packet: a 4-byte arrival time stamp and a 188-byte transport stream packet. */
 export const SOURCE_PACKET_BYTES = 192;
 const TS_PACKET_BYTES = 188;
 /** Room for the clip's graphics in every interval's budget: this much with one PG or IG stream (or none). */
+/** 1.5 Mb/s, in bits per second. */
 export const GRAPHICS_ALLOWANCE_BPS = 1_500_000;
 /**
  * More room per PG stream beyond the first, since every language's subtitles change at once. With 2 s intervals, 11-PG
  * discs (bursts of 420 KB in 0.75 s, a 5-PG film's 768 KB in 1 s) fit with at least 240 KB to spare at phone-720 across
  * 12 sampled discs, and the video is squeezed below its peak in 0.13% of intervals (7.4% with no merge and 1.5 Mb/s).
  */
+/** 50 kb/s, in bits per second. */
 export const PG_EXTRA_BPS = 50_000;
 /** More room per IG stream (menu pages arrive in bursts). */
+/** 1 Mb/s, in bits per second. */
 export const IG_EXTRA_BPS = 1_000_000;
 /** The least room for graphics in any interval, per PG or IG stream: a display set arrives whole (binds only below 2 s). */
+/** 32 KB. */
 export const GRAPHICS_BURST_BYTES = 32 * 1024;
 /**
  * EP intervals shorter than this (2 s) are merged with the next ones (a clip's last with the one before), within one
@@ -177,8 +199,10 @@ export const GRAPHICS_BURST_BYTES = 32 * 1024;
  * EP entries are dropped from the level's EP map (a seek lands on the entry before, at most 2 s earlier), and keyframes
  * are forced only at the kept ones.
  */
+/** 90,000 ticks of the 45 kHz clock. */
 export const MIN_INTERVAL_45 = 90_000;
 /** The rate an over-budget interval's video is re-encoded down to, at the least (`encodeIntervalAt`). */
+/** 1 Mb/s, in bits per second. */
 export const VIDEO_FLOOR_BPS = 1_000_000;
 /** The least room for an interval's video, an IDR at the floor rate with room (measured 4 to 18 KB on Quick Sync). */
 const IDR_ALLOWANCE_BYTES = 48 * 1024;
@@ -187,12 +211,16 @@ const IDR_ALLOWANCE_BYTES = 48 * 1024;
  * `planHash`): 2 merges short intervals, counts the audio at its packets' rate and sizes the graphics room by the clip's
  * PG and IG streams.
  */
+/** The plan's formula version. */
 export const BUDGET_VERSION = 2;
 
 /** The plan's knobs, for the real-disc simulation; production uses the constants above. */
 export interface PlanTuning {
+  /** Replaces `MIN_INTERVAL_45`, in 45 kHz ticks. */
   readonly minInterval45: number;
+  /** Replaces the graphics rate, in bits per second. */
   readonly graphicsBps: number;
+  /** Replaces the least graphics bytes per interval. */
   readonly graphicsMinBytes: number;
 }
 
@@ -260,7 +288,7 @@ interface RawInterval {
  * units, where `audioBps` is the kept audio's rate in source packets (`audioWireBps`) and the graphics room comes from the
  * clip's PG and IG streams (`graphicsRoom`). The budget holds the kept packets of a burst of subtitles or of the audio
  * muxed among the source's IDR with the video at the floor rate at worst; what still doesn't fit is the re-mux's last
- * resort (`shedGraphics`).
+ * resort (`shedGraphics`). Throws an `Error` for a clip with no video EP map; `audioBps` is bits per second.
  */
 export function planClip(clpi: Clpi, level: LevelDef, audioBps: number, tuning?: Partial<PlanTuning>): { intervals: IntervalPlan[]; sizeBytes: number } {
   const map = videoEpMap(clpi);

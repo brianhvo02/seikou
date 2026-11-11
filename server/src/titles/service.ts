@@ -36,7 +36,7 @@ const REFRESH_MS = 30 * DAY_MS;
 const SEARCH_CACHE_MS = 30 * DAY_MS;
 /** How often the timer checks whether a retry or refresh is due. */
 const TICK_MS = DAY_MS;
-/** Entries loaded per PREQUEL/SEQUEL chain, at most (ruling T8a). */
+/** Entries loaded per PREQUEL/SEQUEL chain, at most, so a long franchise or a loop in the sources' relations can't make one disc fetch without end. */
 const MAX_CHAIN_ENTRIES = 30;
 const TV_FORMATS = new Set(['TV', 'TV_SHORT']);
 /** The matcher's cache keys for entries looked up by id (`anilist-entry:anilist:1`, `tmdb-entry:tmdb-tv:2`). */
@@ -62,21 +62,47 @@ function isStoredEntry(id: string, en: unknown): en is Entry {
   return Array.isArray(en.relations) && en.relations.every((r) =>
     isRecord(r) && typeof r.type === 'string' && typeof r.id === 'string' && isNullableString(r.format) && isNullableNumber(r.startDate));
 }
-/** Posters of lookup results kept for `GET art/<id>`, at most (ruling T9e). */
+/** Posters of lookup results kept for `GET art/<id>`, at most, so the art route can serve results the catalogue doesn't hold; the least recently used go first. */
 const MAX_LOOKUP_ART = 500;
-/** A run saves and publishes its progress after this many groups, or this long, whichever comes first (ruling F4). */
+/** A run saves and publishes its progress after this many groups, or this long, whichever comes first, so a restart resumes where it stopped and the library fills in while a first run goes. */
 const CHECKPOINT_GROUPS = 25;
 const CHECKPOINT_MS = 3 * 60_000;
 
-export interface TitleStatus { readonly running: boolean; readonly groupsDone: number; readonly groupsTotal: number; readonly filed: number; readonly unsorted: number; readonly music: number; readonly lastRunAt: number | null; readonly tmdb: boolean; readonly gate: 'owners' | 'everyone' }
+/** What the title service is doing and holds, for the owner's admin screen. */
+export interface TitleStatus {
+  /** A matching run is going. */
+  readonly running: boolean;
+  /** Groups (sibling folders matched together) the current or last run has matched, and how many it set out to match. */
+  readonly groupsDone: number;
+  readonly groupsTotal: number;
+  /** Discs filed under a title, and entries in Unsorted. */
+  readonly filed: number;
+  readonly unsorted: number;
+  /** Discs filed as Music. */
+  readonly music: number;
+  /** When the last completed run ended, in milliseconds since the epoch, or null before the first. */
+  readonly lastRunAt: number | null;
+  /** Whether a TMDB key is configured. */
+  readonly tmdb: boolean;
+  /** Who may open the title library now: the owner's setting, else the config's. */
+  readonly gate: 'owners' | 'everyone';
+}
 
+/** What a `TitleService` is built from. The sources, the clock and the timer are injected so tests run with no network and no waiting. */
 export interface TitleServiceOptions {
+  /** The library's evidence of each present disc (see `evidence.ts`). */
   readonly library: Pick<Library, 'evidence'>;
+  /** The owner's choices, own titles and gate. */
   readonly owner: OwnerStore;
+  /** Where `metadata.json` and `encode-entries.json` live; created when missing. */
   readonly dataDir: string;
+  /** AniList, paced. */
   readonly anilist: MetadataSource;
+  /** TMDB, paced; null without `TMDB_API_KEY`. */
   readonly tmdb: MetadataSource | null;
+  /** The bundled TheDiscDB index, by content fingerprint. */
   readonly discdb: { lookup(fp: string): DiscDbHit | null };
+  /** The poster cache the service shares with the art route. */
   readonly art: ArtCache;
   /** Music lookups by catalogue number; null for none. */
   readonly musicbrainz: MusicSource | null;
@@ -90,7 +116,9 @@ export interface TitleServiceOptions {
   readonly downloadRoots?: ReadonlySet<string>;
   /** `TITLE_LIBRARY`, used while the owner hasn't set the gate. Default 'owners'. */
   readonly titleLibrary?: 'owners' | 'everyone';
+  /** The clock, milliseconds since the epoch. Default `Date.now`. */
   readonly now?: () => number;
+  /** Schedules `fn` once after `ms` and returns the function that cancels it. Default: an unref'd `setTimeout`. */
   readonly setTimer?: (fn: () => void, ms: number) => () => void;
 }
 
@@ -99,14 +127,14 @@ interface Dated<T> {
   readonly value: T;
 }
 
-/** metadata.json. */
+/** What `<dataDir>/metadata.json` holds. */
 interface MetadataFile {
   readonly version: 2;
   readonly matches: readonly DiscMatch[];
   readonly entries: Record<string, Dated<Entry>>;
   /**
    * The matcher's cache: search results and entries looked up by id, with when they were fetched, as entry ids over
-   * `pool` (M1), so an entry several searches found is kept once.
+   * `pool`, so an entry several searches found is kept once.
    */
   readonly cache: Record<string, Dated<string[]>>;
   /** Every entry the cache names, once; an entry looked up by id wins over a search's copy, which may lack seasons. */
@@ -137,7 +165,7 @@ interface MusicCoverRecord {
 const evidenceKey = (e: DiscEvidence): string => createHash('sha256').update(JSON.stringify(e)).digest('hex').slice(0, 32);
 const parentOf = (path: string): string => path.slice(0, Math.max(0, path.lastIndexOf('/')));
 const lastSegment = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
-/** A box folder's box family, the folder its box folders share (T8b), or null when the group isn't a box folder. */
+/** A box folder's box family, the folder its box folders share, or null when the group isn't a box folder. */
 const boxFamily = (group: string): string | null => (parseName(lastSegment(group)).box !== null ? parentOf(group) : null);
 const sourceOf = (id: string): 'anilist' | 'tmdb' | null => (id.startsWith('anilist:') ? 'anilist' : id.startsWith('tmdb-') ? 'tmdb' : null);
 
@@ -164,7 +192,7 @@ export function downloadRootNames(roots: readonly LibraryRoot[]): Set<string> {
   return new Set(roots.filter((r) => r.group === 'Downloads').map((r) => r.name));
 }
 
-/** The TheDiscDB index at `file`, or none when it is missing or unreadable (ruling R2), which is logged once. */
+/** The TheDiscDB index at `file`, or an index with no entries when the file is missing or unreadable, so the server still starts and matches without it; logged once. */
 export function loadDiscDbOrNone(file: string, log: (message: string) => void = console.log): { lookup(fp: string): DiscDbHit | null } {
   try {
     return loadDiscDb(file);
@@ -175,7 +203,7 @@ export function loadDiscDbOrNone(file: string, log: (message: string) => void = 
 }
 
 /**
- * Test-only sources (ruling R3, `METADATA_FIXTURE`): recorded search results keyed by query stand in for AniList and
+ * Test-only sources (`METADATA_FIXTURE`): recorded search results keyed by query stand in for AniList and
  * TMDB. A query matches under `normalizeTitle`; each source answers its own entries, and entries by id from all of them.
  */
 export function fixtureSources(recorded: Readonly<Record<string, readonly Entry[]>>): { anilist: MetadataSource; tmdb: MetadataSource } {
@@ -188,6 +216,12 @@ export function fixtureSources(recorded: Readonly<Record<string, readonly Entry[
   return { anilist: source('anilist'), tmdb: source('tmdb') };
 }
 
+/**
+ * Matches the library's discs to titles and builds the catalogue the title routes serve. One instance per server. A
+ * matching run (`runNow`) never fails for an unreachable source: the discs it couldn't match go to Unsorted with the
+ * reason `source-unreachable`, and the next run tries again; the owner's `lookup` and `anilistPlace` instead throw
+ * `SourceUnavailable`, so the owner is told.
+ */
 export class TitleService {
   private readonly file: string;
   private readonly now: () => number;
@@ -226,7 +260,7 @@ export class TitleService {
   private closed = false;
   private encodeEntriesDirty = false;
   private readonly encodeFile: string;
-  /** A hash of what metadata.json holds, besides `lastRunAt`, so a run that changed nothing doesn't write it (M1). */
+  /** A hash of what metadata.json holds, besides `lastRunAt`, so a run that changed nothing doesn't rewrite the file. */
   private savedHash: string | null = null;
 
   constructor(private readonly opts: TitleServiceOptions) {
@@ -246,6 +280,7 @@ export class TitleService {
     return this.built;
   }
 
+  /** The service's progress and counts, from the last built catalogue. */
   status(): TitleStatus {
     let filed = 0;
     let music = 0;
@@ -291,9 +326,9 @@ export class TitleService {
   }
 
   /**
-   * The owner's search (spec §9): AniList or TMDB through their paced sources, ahead of background matching, or the
-   * own titles by name. A title the catalogue lists comes back as listed. Other results' posters are registered for
-   * `lookupArtUrls` (ruling T9e). No TMDB key: no results. A source that is down throws `SourceUnavailable`; aborting
+   * The owner's search when filing a disc differently: AniList or TMDB through their paced sources, ahead of background
+   * matching, or the own titles by name. A title the catalogue lists comes back as listed. Other results' posters are
+   * registered for `lookupArtUrls`, so the art route can serve them. No TMDB key: no results. A source that is down throws `SourceUnavailable`; aborting
    * `signal` rejects with its reason.
    */
   async lookup(query: string, source: 'anilist' | 'tmdb' | 'own', signal?: AbortSignal): Promise<TitleSummary[]> {
@@ -367,7 +402,7 @@ export class TitleService {
     const entries = new Map([...this.entries].map(([id, d]) => [id, d.value]));
     for (const [id, en] of chain) if (!entries.has(id)) entries.set(id, en);
     const series = anilistSeries(entries).get(start.id)!;
-    // the catalogue's numbering: the chain's count, else the matcher's season (ruling T7h)
+    // the catalogue's numbering: the chain's count, else the matcher's season, so the season a choice names is the one the catalogue shows
     const matcherSeason = new Map<string, number>();
     for (const m of this.matches.values()) if (m.status === 'filed' && m.season !== null && !matcherSeason.has(m.entryId)) matcherSeason.set(m.entryId, m.season);
     const seasonOf = (id: string): number | null => series.number.get(id) ?? matcherSeason.get(id) ?? null;
@@ -677,17 +712,17 @@ export class TitleService {
       if (rulesChanged || !before || before.key !== d.key || !m || (m.status === 'unsorted' && (m.reason === 'source-unreachable' || retryDue))) dirty.add(d.group);
     }
     for (const [id, d] of this.discs) if (!keys.has(id)) dirty.add(d.group);
-    // a box family is matched whole, so rule 4 numbers its discs across all its boxes (T8b)
+    // a box family is matched whole, so the discs of a box set are numbered across all its boxes, not per box folder
     const families = new Set([...dirty].map(boxFamily).filter((f): f is string => f !== null));
     if (families.size > 0) for (const d of keys.values()) if (families.has(boxFamily(d.group) ?? '\0')) dirty.add(d.group);
     const toMatch = evidence.filter((e) => dirty.has(groupKey(e)));
 
-    // new rules may read entries' start dates (M11), which entries cached before them lack: those the discs name are
-    // fetched again first, so the re-match from the cache sees them
+    // the rules may read entries' start dates, which entries cached before entries carried one lack: those the discs name
+    // are fetched again first, so the re-match from the cache sees them
     if (rulesChanged) await this.refreshStartDates(now);
 
     // the matcher's cache; on retry day, search results and entry lookups that found nothing, older than a week, are
-    // looked up again (T8c)
+    // looked up again, so a title a source lacked earlier gets another chance
     const cache = new Map<string, Entry[]>();
     for (const [k, d] of this.cache) {
       if (retryDue && (!ENTRY_KEY.test(k) || d.value.length === 0) && now - d.at >= RETRY_UNSORTED_MS) continue;
@@ -697,7 +732,7 @@ export class TitleService {
     this.groupsTotal = new Set(toMatch.map(groupKey)).size;
 
     // every CHECKPOINT_GROUPS groups or CHECKPOINT_MS, whichever comes first, the progress is saved and published, so a
-    // restart resumes from the cache and the library fills in as the first run goes (ruling F4)
+    // restart resumes from the cache and the library fills in as the first run goes
     let sinceCheckpoint = 0;
     let checkpointAt = this.now();
     const onGroupDone = async (progress: () => { matches: DiscMatch[]; entries: Map<string, Entry> }): Promise<void> => {
@@ -714,7 +749,7 @@ export class TitleService {
       : await matchDiscs(toMatch, { anilist: this.opts.anilist, tmdb: this.opts.tmdb, discdb: this.opts.discdb, cache, onGroupDone });
 
     if (result.aborted) {
-      // the sources are down (M3): what was matched before the failures is kept, the rest waits for the next run
+      // the sources are down: what was matched before the failures is kept, the rest waits for the next run
       console.error(`title matching stopped: AniList or TMDB was unreachable for ${CIRCUIT_BREAKER} folders in a row; the rest are matched on the next run`);
       const reached = result.matches.filter((m) => !(m.status === 'unsorted' && m.reason === 'source-unreachable'));
       await this.checkpoint(reached, result.entries, keys, cache, now);
@@ -734,7 +769,7 @@ export class TitleService {
     this.addEntries(entries, result.entries, now);
     const loaded = await this.loadEntries(entries, matches, cache, now);
     failed ||= loaded.failed;
-    // unreferenced entries go, unless a lookup failed and the walk is incomplete (C5)
+    // unreferenced entries go, unless a lookup failed and the walk is incomplete (an entry only the missing part reaches must stay)
     if (!failed) for (const id of entries.keys()) if (!loaded.keep.has(id)) entries.delete(id);
 
     // monthly: entries older than 30 days are fetched again
@@ -767,7 +802,7 @@ export class TitleService {
     this.cache = nextCache;
     this.discs = discs;
     this.lastRunAt = now;
-    // only a run that got through sets the version: a stopped one (M3) leaves the rest to re-match next time
+    // only a run that got through sets the version: a stopped one (the sources were down) leaves the rest to re-match next time
     this.rulesVersion = MATCH_RULES_VERSION;
     if (this.lastRetryAt === null || retryDue) this.lastRetryAt = now;
     if (this.lastRefreshAt === null || (refreshed && this.due(this.lastRefreshAt, REFRESH_MS))) this.lastRefreshAt = now;
@@ -777,7 +812,7 @@ export class TitleService {
   }
 
   /**
-   * After matching (spec §3, Sources and Covers): finds each music release's folder cover when its discs' evidence
+   * After matching: finds each music release's folder cover when its discs' evidence
    * changed or on retry day, then looks its catalogue numbers up, discs in path order, until one hits. A cached hit is
    * looked up again after 30 days and a miss after 7; a source that is down keeps what was cached, and CIRCUIT_BREAKER
    * failures in a row end the lookups until the next run. A release whose match the owner rejected isn't looked up.
@@ -883,7 +918,7 @@ export class TitleService {
   }
 
   /**
-   * Saves a run's progress and publishes it (ruling F4): the matches so far over the previous ones, their discs'
+   * Saves a run's progress and publishes it: the matches so far over the previous ones, their discs'
    * evidence keys (discs not reached yet keep their old keys, so a restart matches them again), the entries they name
    * with their chains, and the cache, so a restart repeats no lookup. Nothing is pruned until the run ends.
    */
@@ -904,8 +939,8 @@ export class TitleService {
 
   /**
    * Puts a run's matches into `matches` and their evidence keys into `discs` (from `keys`; null when `discs` already
-   * holds the new keys). A disc filed before stays filed when a source was unreachable (Review Focus 2), and keeps its
-   * old key, so it is matched again (T8d). Answers whether a source was unreachable.
+   * holds the new keys). A disc filed before stays filed when a source was unreachable, so an outage doesn't move it to
+   * Unsorted, and keeps its old key, so it is matched again. Answers whether a source was unreachable.
    */
   private merge(results: readonly DiscMatch[], matches: Map<string, DiscMatch>, discs: Map<string, { key: string; group: string }>, keys: ReadonlyMap<string, { key: string; group: string }> | null): boolean {
     let failed = false;
@@ -926,7 +961,7 @@ export class TitleService {
     return failed;
   }
 
-  /** Adds the entries a run found; a TMDB series found by search, without seasons, gives way to one with them (I1). */
+  /** Adds the entries a run found; a TMDB series found by search, without seasons, gives way to one with them. */
   private addEntries(entries: Map<string, Dated<Entry>>, found: ReadonlyMap<string, Entry>, now: number): void {
     for (const [id, en] of found) {
       const known = entries.get(id);
@@ -935,9 +970,9 @@ export class TitleService {
   }
 
   /**
-   * Loads the entries owner choices name (C3), every entry on the TV PREQUEL/SEQUEL chain of a filed AniList entry so
-   * its series has its root (C2), and each TMDB series' full entry with its seasons where only a search's copy is known
-   * (I1). Answers the ids to keep, and whether a lookup failed.
+   * Loads the entries owner choices name (a choice must show its title), every entry on the TV PREQUEL/SEQUEL chain of a
+   * filed AniList entry (so its series has its root), and each TMDB series' full entry with its seasons where only a
+   * search's copy is known. Answers the ids to keep, and whether a lookup failed.
    */
   private async loadEntries(entries: Map<string, Dated<Entry>>, matches: ReadonlyMap<string, DiscMatch>, cache: Map<string, Entry[]>, now: number): Promise<{ keep: Set<string>; failed: boolean }> {
     const byId = async (id: string): Promise<Entry | null> => {
@@ -1005,7 +1040,7 @@ export class TitleService {
 
   /**
    * Fetches again, by id and paced like any lookup, each cached entry that a disc's match names (filed or suggested)
-   * and that has no `startDate` field, from before entries carried one (M11). The fresh entry replaces every cached
+   * and that has no `startDate` field, from before entries carried one. The fresh entry replaces every cached
    * copy. One that fails is kept as it is, and CIRCUIT_BREAKER failures in a row end the batch; progress is saved
    * every CHECKPOINT_GROUPS entries or CHECKPOINT_MS, as a matching run is.
    */
@@ -1064,7 +1099,7 @@ export class TitleService {
     return next;
   }
 
-  /** Reads metadata.json; a malformed one is set aside as `metadata.json.corrupt-<time>` and matching starts afresh (T8e). */
+  /** Reads metadata.json; a malformed one is set aside as `metadata.json.corrupt-<time>` and matching starts afresh. */
   private load(): void {
     let data: unknown;
     try {
@@ -1098,7 +1133,7 @@ export class TitleService {
     this.savedHash = this.contentHash(this.serialize());
   }
 
-  /** Writes metadata.json, unless nothing but `lastRunAt` changed since it was last written or read (M1). */
+  /** Writes metadata.json, unless nothing but `lastRunAt` changed since it was last written or read, so an idle run doesn't rewrite a large file. */
   private save(): void {
     const data = this.serialize();
     const hash = this.contentHash(data);

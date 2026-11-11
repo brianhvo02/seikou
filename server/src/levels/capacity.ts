@@ -1,13 +1,16 @@
-/** A viewing needs its film's output frame rate times this, for a margin (spec §6.4). */
+/** A viewing needs its film's output frame rate times this, as a margin so a lease isn't sized exactly to the encoder's best case. */
 export const NEED_MARGIN = 1.3;
-/** The NAS GPU's encoder output per codec alone, frames per second (spec §2's spike, rounded down). */
+/** The NAS GPU's encoder output per codec when only that codec runs, frames per second: measured on the NAS's Intel Quick Sync GPU and rounded down. */
 export const GPU_BUDGETS = { h264: 190, hevc: 100 } as const;
-/** A lease no read has touched for this long is gone (spec §6.4). */
+/** A lease no read has touched for this long, in milliseconds, is gone. */
 export const LEASE_IDLE_MS = 120_000;
 
+/** The codecs the GPU encodes, each with its own budget. */
 export type EncoderCodec = 'h264' | 'hevc';
 
+/** One viewing's hold on the GPU. */
 export interface Lease {
+  /** The viewing's key (see `viewingIdOf` in `level-service.ts`). */
   readonly viewingId: string;
   readonly codec: EncoderCodec;
   /** Encoder frames per second the viewing needs: its film's fps × 1.3. */
@@ -15,7 +18,7 @@ export interface Lease {
 }
 
 /**
- * The GPU's encoder capacity, leased per viewing (spec §6.4). The budgets are what the GPU encodes per second of one
+ * The GPU's encoder capacity, leased per viewing. The budgets are what the GPU encodes per second of one
  * codec alone (H.264 190 fps, HEVC 100 fps); both codecs run on the same GPU, so each lease takes its need's share of its
  * own codec's budget, and a lease is admitted while the shares add up to at most the whole GPU. First come, first served.
  * A lease is kept by `touch` and expires 2 min after the last one.
@@ -54,17 +57,20 @@ export class Capacity {
     return this.share(new Set(replacing)) + (fps * NEED_MARGIN) / this.budgets[codec] <= 1 + 1e-9;
   }
 
+  /** Whether `viewingId` holds a live lease. */
   has(viewingId: string): boolean {
     this.expire();
     return this.leases.has(viewingId);
   }
 
+  /** Restarts the idle clock of the lease, if there is one. */
   touch(viewingId: string): void {
     this.expire();
     const held = this.leases.get(viewingId);
     if (held) held.touchedAt = this.now();
   }
 
+  /** Gives the lease up; no effect without one. */
   release(viewingId: string): void {
     this.leases.delete(viewingId);
   }

@@ -12,6 +12,7 @@ export interface Clock {
   clearTimeout(handle: unknown): void;
 }
 
+/** The system clock: `Date.now` and the Node timers. */
 export const realClock: Clock = {
   now: () => Date.now(),
   setTimeout: (fn, ms) => setTimeout(fn, ms),
@@ -62,6 +63,7 @@ function rememberUnfittable(cache: SegmentCache, key: string, err: Error): void 
 
 /** One clip at one level and audio stream: its plan, where its bytes come from, and how it is encoded. */
 export interface ClipRunPlan {
+  /** The clip's EP intervals at the level, with their byte budgets. */
   readonly intervals: readonly IntervalPlan[];
   /** The segment cache key (`SegmentCache.key`); it waits for the clip's scan probe, and rejects when that fails. */
   readonly cacheKey: () => Promise<string>;
@@ -69,24 +71,30 @@ export interface ClipRunPlan {
   readonly read: ClipReader;
   /** The encoder's options but `interlaced` and `frameTicks`, which `scan()` answers (one ffprobe per clip). */
   readonly encoder: Omit<ClipEncoderOptions, 'interlaced' | 'frameTicks' | 'maxIntervalsPerRun'>;
+  /** The clip's probe: whether to deinterlace, and the encoder's shortest frame time in 90 kHz ticks (`ClipEncoderOptions.frameTicks`). */
   readonly scan: () => Promise<{ readonly interlaced: boolean; readonly frameTicks: number }>;
+  /** What the level keeps of the clip besides its video. */
   readonly kept: KeptConfig;
   /** Names the clip in the log: `disc <id> clip <clip> at <level>, audio <n>`. */
   readonly label?: string;
 }
 
+/** What a `ClipRunner` needs besides the plan. */
 export interface ClipRunDeps {
+  /** The ffmpeg command lines. */
   readonly backend: EncoderBackend;
+  /** Where finished intervals are kept. */
   readonly cache: SegmentCache;
   readonly clock: Clock;
-  /** Film the encoder runs ahead of the latest read (spec §6.1: 120 s). */
+  /** Film the encoder runs ahead of the latest read, in milliseconds (the service passes 120 s). */
   readonly readAheadMs: number;
   /** A read at most this much film ahead of the running encoder waits for it (10 s); one further ahead restarts it. */
   readonly waitFilmMs: number;
-  /** No read for this long stops the encoder (spec §6.1: 60 s). */
+  /** No read for this long, in milliseconds, stops the encoder (the service passes 60 s). */
   readonly idleMs: number;
   /** Called once the runner went idle and stopped; the service forgets it. */
   readonly onIdle: () => void;
+  /** Receives log lines. */
   readonly log: (message: string) => void;
 }
 
@@ -132,7 +140,7 @@ function waiter(): Waiter {
 }
 
 /**
- * Serves one clip's intervals at a level (spec §6.1): from the segment cache, else from the clip's encoder run.
+ * Serves one clip's intervals at a level for one viewing: from the segment cache, else from the clip's encoder run.
  *
  * - A read of an interval the running encoder will reach within `waitFilmMs` of film waits for it; any other (a seek,
  *   or an interval produced before and since evicted) restarts the encoder at that interval. Intervals already in the
@@ -171,6 +179,7 @@ export class ClipRunner {
     });
   }
 
+  /** The clip's intervals at the level. */
   get intervals(): readonly IntervalPlan[] {
     return this.plan.intervals;
   }
@@ -564,7 +573,7 @@ class Run {
     }
   }
 
-  /** The interval's bytes at its budget; an encode that overflows it is re-encoded smaller first (Review Focus 1). */
+  /** The interval's bytes at its budget; an encode that overflows it is re-encoded smaller first. */
   private async remux(plan: IntervalPlan, source: IntervalSource, video: readonly EncodedPes[]): Promise<Uint8Array> {
     const { encoder, kept } = this.plan;
     const input = (v: readonly EncodedPes[]): RemuxInput => ({

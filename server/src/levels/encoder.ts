@@ -34,6 +34,7 @@ export interface EncoderArgsInput {
   readonly videoPid: number;
   /** The source video's coding type (CLPI), which names the hardware decoder. */
   readonly sourceCoding: number;
+  /** The level the run encodes for. */
   readonly level: LevelDef;
   /** Deinterlace the source to its frame rate (see `deinterlaces`). */
   readonly interlaced: boolean;
@@ -43,10 +44,13 @@ export interface EncoderArgsInput {
   readonly rateBps: number;
 }
 
+/** An encoder: how an ffmpeg process is built for one run (`qsvBackend`, `x264Backend`). */
 export interface EncoderBackend {
   /** Which encoder (`qsv`, `x264`): part of the segment cache key, since the two make different bytes. */
   readonly id: string;
+  /** The ffmpeg executable (the server sets it from `FFMPEG_PATH`). */
   readonly binary: string;
+  /** The ffmpeg arguments for a run; throws an `Error` for a source or level this backend can't encode. */
   args(input: EncoderArgsInput): string[];
   /** How far to lower the encoder process's priority (a nice value; 0 or absent leaves it as it is). */
   nice?(input: EncoderArgsInput): number;
@@ -132,7 +136,7 @@ function qsvFilter(input: EncoderArgsInput): string {
 }
 
 /**
- * The NAS's Intel Quick Sync encoder (spec §2's spike): the source's QSV decoder, `scale_qsv` or `vpp_qsv` (advanced
+ * The NAS's Intel Quick Sync encoder (measured on its GPU): the source's QSV decoder, `scale_qsv` or `vpp_qsv` (advanced
  * deinterlacing, tone-mapping), `h264_qsv` at preset medium or `hevc_qsv` at veryfast, an IDR at every EP entry.
  */
 export const qsvBackend: EncoderBackend = {
@@ -193,11 +197,15 @@ export type ClipReader = (fromByte: number, toByte?: number) => Readable;
 /** The clip as a path ffmpeg opens itself, or a reader whose bytes are piped to it (an ISO image's extents). */
 export type ClipInput = { readonly path: string } | { readonly read: ClipReader };
 
+/** What a `ClipEncoder` run needs: the clip, its plan and how to encode it. */
 export interface ClipEncoderOptions {
+  /** The clip's bytes. */
   readonly input: ClipInput;
+  /** The clip's EP intervals at the level. */
   readonly intervals: readonly IntervalPlan[];
   /** SPNs where the clip's STC sequences start (CLPI spnStcStart); a run never crosses one. */
   readonly stcStarts?: readonly number[];
+  /** The source's primary video PID. */
   readonly videoPid: number;
   /** The source video's coding type (CLPI). */
   readonly sourceCoding: number;
@@ -209,8 +217,9 @@ export interface ClipEncoderOptions {
    * rate): the scan probe's `frameTicks`, else `frameTicks(fps)` of the CLPI's rate. It places the forced keyframes.
    */
   readonly frameTicks: number;
+  /** The source is HDR10 (`clpiVideoIsHdr`). */
   readonly hdr: boolean;
-  /** Default: the level's target. */
+  /** The encoder's target rate in bits per second. Default: the level's target. */
   readonly rateBps?: number;
   /** The most intervals one ffmpeg run covers (its keyframe list stays far below the argument limit). Default 300. */
   readonly maxIntervalsPerRun?: number;
@@ -220,14 +229,18 @@ export interface ClipEncoderOptions {
   readonly setPriority?: (pid: number, nice: number) => void;
 }
 
+/** The default for `ClipEncoderOptions.maxIntervalsPerRun`. */
 export const MAX_INTERVALS_PER_RUN = 300;
 const TS_PACKET = 188;
 /** An EP entry's PTS keeps 45 kHz bits 8 and up (90 kHz bits 9 and up); frames are always more than 512 ticks apart. */
 const EP_PTS_GRAIN = 512;
 const STDERR_KEEP = 4096;
 
+/** The events of a `ClipEncoder`, as `EventEmitter` listener arguments. */
 export interface ClipEncoderEvents {
+  /** Interval `index`'s encoded video PES, in decode order; emitted in interval order. */
   interval: [index: number, video: EncodedPes[]];
+  /** The run failed (ffmpeg did not start or exited non-zero, a read failed, a frame didn't match its source frame, or an interval didn't start with an IDR); the encoder has stopped. */
   error: [err: Error];
   /** The run finished at `lastIndex`, the last interval of its window; the caller starts the next run after it. */
   end: [lastIndex: number];
@@ -289,6 +302,7 @@ export class ClipEncoder extends EventEmitter<ClipEncoderEvents> {
     super();
   }
 
+  /** Starts a run at interval `fromInterval`, stopping any run in progress; results arrive as events. */
   start(fromInterval: number): void {
     this.stop();
     const run = ++this.run;
@@ -419,6 +433,7 @@ export class ClipEncoder extends EventEmitter<ClipEncoderEvents> {
     this.process?.stdout?.pause();
   }
 
+  /** Lets ffmpeg's output flow again after `pause`. */
   resume(): void {
     this.process?.stdout?.resume();
   }
@@ -612,11 +627,6 @@ interface EncodedFrame {
 }
 
 /**
- * Collects ffmpeg's TS output (188-byte packets) into whole video PES, gives each its source frame's timestamps
- * (`SourceFrames`: the PTS restored, the DTS moved with it, kept increasing and at most the PTS), then splits them into
- * the run's intervals. A PES waits while its source frame isn't known yet.
- */
-/**
  * An encoded frame's DTS once its PTS is the source frame's (`pts`): the encoder's own DTS, kept as it is. It already
  * rises with every frame and is at or before the encoder's PTS, which the restore only ever moves later (to the source
  * frame at or after it), so it stays at or before the restored PTS. Shifting each DTS by its own frame's restore does
@@ -632,6 +642,11 @@ export function encodedFrameDts(encodedDts: number | null, pts: number, lastDts:
   return dts;
 }
 
+/**
+ * Collects ffmpeg's TS output (188-byte packets) into whole video PES, gives each its source frame's timestamps
+ * (`SourceFrames`: the PTS restored, the DTS moved with it, kept increasing and at most the PTS), then splits them into
+ * the run's intervals. A PES waits while its source frame isn't known yet.
+ */
 class IntervalSplitter {
   private videoPid: number | null = null;
   private chunks: Uint8Array[] = [];
@@ -765,7 +780,7 @@ class IntervalSplitter {
 
 /** What the start of a clip's primary video says about its scan. */
 export interface ScanInfo {
-  /** Some frames are coded interlaced. */
+  /** Some frames are coded interlaced (ffprobe's `interlaced_frame`). */
   readonly interlaced: boolean;
   /** MPEG-2 repeat flags (soft pulldown): progressive film at 23.976 shown as 29.97i. */
   readonly softPulldown: boolean;
@@ -776,15 +791,17 @@ export interface ScanInfo {
   readonly frameTicks?: number;
 }
 
+/** How many frames `probeScan` reads. */
 export const SCAN_PROBE_FRAMES = 120;
 
-/**
- * Probes about the first 120 frames of the primary video from the clip's first EP entry (`startByte`) with ffprobe:
- * `interlaced_frame`, `repeat_pict` and `pts` per frame. Task 6 calls it once per clip.
- */
 /** A scan probe that hasn't answered after this long is killed, and the probe fails (tried again on the next build). */
 export const PROBE_TIMEOUT_MS = 20_000;
 
+/**
+ * Probes about the first 120 frames of the primary video from the clip's first EP entry (`startByte`) with ffprobe:
+ * `interlaced_frame`, `repeat_pict` and `pts` per frame. Called once per clip. Rejects when ffprobe fails, times out
+ * (`PROBE_TIMEOUT_MS`), is stopped by `signal`, or reads no frame.
+ */
 export function probeScan(
   input: ClipInput,
   options: {
@@ -864,7 +881,7 @@ export function deinterlaces(scan: ScanInfo): boolean {
   return scan.interlaced && !scan.softPulldown;
 }
 
-/** The floor of the over-budget retry, which the budget formula counts on (`graphicsAllowanceBps`). */
+/** The floor of the over-budget retry, which the budget formula counts on (`VIDEO_FLOOR_BPS`). */
 export const MIN_RETRY_RATE_BPS = VIDEO_FLOOR_BPS;
 /** The retry aims this far under the rate that would just fill the budget. */
 const RETRY_MARGIN = 0.95;
@@ -901,6 +918,7 @@ export const LAST_TRY_RATE_BPS = 250_000;
 
 /** An interval whose bytes can't fit its budget at any rate, even with its graphics dropped: it is never served. */
 export class IntervalDoesNotFit extends Error {
+  /** `index` is the interval's index in the plan. */
   constructor(readonly index: number) {
     super(`levels: interval ${index} overflows its budget even at ${LAST_TRY_RATE_BPS / 1000} kbps with its graphics dropped`);
     this.name = 'IntervalDoesNotFit';
@@ -908,7 +926,7 @@ export class IntervalDoesNotFit extends Error {
 }
 
 /**
- * The over-budget retry (Review Focus 1): re-encodes interval `index` at `rate × (budget ÷ actual) × 0.95`, where
+ * The over-budget retry: re-encodes interval `index` at `rate × (budget ÷ actual) × 0.95`, where
  * `actual` is the re-muxed size the last try needed (budget + overflow), down to a floor of 1 Mbps, until `remux` fits
  * it into the plan's budget. One try is always made, at the floor at least. When it doesn't fit at the floor,
  * `lastResort` gets the floor's video (the re-mux drops subtitle and menu PES, `shedGraphics`); when that can't fit it

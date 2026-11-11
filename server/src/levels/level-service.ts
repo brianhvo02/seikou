@@ -11,19 +11,20 @@ import type { SegmentCache } from './segment-cache';
 export { firstAudioBps, folderDiscSource, isoDiscSource, libraryDiscSources, type ClipSource, type LevelDiscSource } from './level-discs';
 export type { EncodedLevel } from './level-version';
 
-/** Film the encoder runs ahead of the latest read (spec §6.1). */
+/** Film the encoder runs ahead of the latest read, in milliseconds: far enough that playback rarely catches it, short enough not to encode what is never watched. */
 export const READ_AHEAD_FILM_MS = 120_000;
 /** A read at most this much film ahead of the running encoder waits for it; one further ahead (a seek) restarts it there. */
 export const WAIT_FILM_MS = 10_000;
-/** A read waiting this long answers `retryAfter` (spec §6.1). */
+/** A read waiting this long, in milliseconds, answers `retryAfter`, which the route turns into a 503 with `Retry-After: 1`. */
 export const READ_WAIT_MS = 15_000;
-/** An encoder no read has touched for this long stops (spec §6.1). */
+/** An encoder no read has touched for this long, in milliseconds, stops. */
 export const ENCODER_IDLE_MS = 60_000;
 const DISC_INFOS = 16;
 const VERSIONS = 32;
 
 export type { LevelInfo, LevelReason };
 
+/** The short name each level shows in the player's Quality menu and the pre-flight's level list. */
 export const LEVEL_LABELS: Readonly<Record<LevelId, string>> = {
   original: 'Original',
   'h264-1080': '1080p',
@@ -35,7 +36,10 @@ export const LEVEL_LABELS: Readonly<Record<LevelId, string>> = {
 
 const ENCODED_LEVELS = new Set<string>(['h264-1080', 'phone-720', 'hevc-1080', 'hevc-1080-hdr', 'h264-1080-sdr']);
 
-/** The viewing a lease is for (spec §6.4): a device watching a disc at a level and audio stream. */
+/**
+ * The id of a viewing, which a GPU lease is for: a device watching a disc at a level and audio stream number. Disc ids
+ * hold no colon, which `parseViewingId` relies on.
+ */
 export function viewingIdOf(deviceId: string, discId: string, level: EncodedLevel, audio: number): string {
   return `${deviceId}:${discId}:${level}:${audio}`;
 }
@@ -58,11 +62,15 @@ function viewerOf(viewingId: string): string {
   return viewingId.slice(0, viewingId.lastIndexOf(':', audioAt - 1) + 1);
 }
 
+/** What a `LevelService` is built from; everything but `discs`, `cache`, `capacity` and `backend` is optional. */
 export interface LevelServiceOptions {
   /** A disc's files by its id; null when it is gone or changed. */
   readonly discs: (discId: string) => Promise<LevelDiscSource | null>;
+  /** Where encoded intervals are kept. */
   readonly cache: SegmentCache;
+  /** The GPU's leases. */
   readonly capacity: Capacity;
+  /** The encoder's ffmpeg command lines. */
   readonly backend: EncoderBackend;
   /** The codecs the backend encodes (whose self-test passed); levels of other codecs aren't offered. Default: both. */
   readonly codecs?: ReadonlySet<EncoderCodec>;
@@ -71,10 +79,15 @@ export interface LevelServiceOptions {
   /** Injectable for tests: the scan probe (ffprobe). */
   readonly probe?: (input: ClipInput, options: { readonly startByte: number; readonly videoPid: number; readonly signal?: AbortSignal }) => Promise<ScanInfo>;
   readonly clock?: Clock;
+  /** Replaces `READ_AHEAD_FILM_MS`. */
   readonly readAheadMs?: number;
+  /** Replaces `WAIT_FILM_MS`. */
   readonly waitFilmMs?: number;
+  /** Replaces `READ_WAIT_MS`. */
   readonly waitMs?: number;
+  /** Replaces `ENCODER_IDLE_MS`. */
   readonly idleMs?: number;
+  /** Receives log lines; default none. */
   readonly log?: (message: string) => void;
   /** Injectable for tests whose fixtures' intervals are short: the plan's knobs (`planClip`). */
   readonly planTuning?: Partial<PlanTuning>;
@@ -125,7 +138,7 @@ function filmSeconds(intervals: readonly IntervalPlan[]): number {
 }
 
 /**
- * Serves discs at re-encoded quality levels (spec §5–§6): each level is another version of the disc, with the same
+ * Serves discs at re-encoded quality levels: each level is another version of the disc, with the same
  * files, its stream files re-encoded and the CLPI and MPLS files that describe them rewritten (`level-version.ts`).
  * Reads of a level's stream files drive the viewing's encoder for that clip (`ClipRunner`), ahead of the reader;
  * finished intervals live in the segment cache. Every viewing holds a lease on the GPU's capacity. A version is rebuilt
@@ -282,7 +295,7 @@ export class LevelService {
     this.options.capacity.release(viewingId);
   }
 
-  /** Stops every encoder. */
+  /** Stops every encoder and aborts the scan probes still running. */
   close(): void {
     this.closing.abort();
     this.closeRunners(() => true);

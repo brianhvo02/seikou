@@ -4,9 +4,9 @@ import type { LevelsConfig } from '../config';
 import type { EncoderCodec } from './capacity';
 import { qsvBackend, x264Backend, type EncoderBackend } from './encoder';
 
-/** The GPU's render node, which compose passes into the container (spec §6.2). */
+/** The GPU's render node, which the deploy's `compose.gpu.yaml` passes into the container; without it Quick Sync can't run. */
 export const RENDER_NODE = '/dev/dri/renderD128';
-/** How long the start-up self-test may take. */
+/** How long each start-up self-test may take, in milliseconds, before ffmpeg is killed. */
 export const SELF_TEST_TIMEOUT_MS = 10_000;
 
 const HEAD = ['-hide_banner', '-nostats', '-loglevel', 'error'];
@@ -54,9 +54,13 @@ export interface LevelsEncoder {
 
 const CODEC_NAMES: Readonly<Record<EncoderCodec, string>> = { h264: 'H.264', hevc: 'HEVC' };
 
+/** `levelsBackend`'s side effects, replaced in tests. */
 export interface BackendCheckDeps {
+  /** Starts ffmpeg; defaults to `child_process.spawn`. */
   readonly spawn?: typeof nodeSpawn;
+  /** Whether a path exists; defaults to `fs.existsSync`. */
   readonly exists?: (path: string) => boolean;
+  /** Receives the one line the check logs; defaults to `console.log`. */
   readonly log?: (message: string) => void;
   /** Injectable for tests; the log still says 10 s. */
   readonly timeoutMs?: number;
@@ -97,7 +101,7 @@ function run(spawn: typeof nodeSpawn, binary: string, args: readonly string[], t
 }
 
 /**
- * The encoder the quality levels use, or null for Original only (spec §6.2): `LEVELS_BACKEND=off`; `qsv` without the
+ * The encoder the quality levels use, or null for Original only: `LEVELS_BACKEND=off`; `qsv` without the
  * render node; or when every codec's 1 s `testsrc` encode fails or takes over 10 s. `qsv` tests H.264 and HEVC Main10,
  * and offers the codecs that pass; `x264` tests and offers H.264 only. The backend runs `FFMPEG_PATH`. Logs one line.
  */

@@ -39,11 +39,13 @@ function concat(parts: readonly Uint8Array[]): Uint8Array {
 }
 
 /**
- * Reduces one audio PID's PES packets to the core a level carries (spec §5.2), bit-exact: TrueHD keeps only its AC-3
+ * Reduces one audio PID's PES packets to the core a level carries, because a level keeps one audio stream at a rate the
+ * budget can hold and the browser decodes the core (see `coreCoding`), bit-exact: TrueHD keeps only its AC-3
  * substream (stream_id_extension 0x76, or AC-3 sync 0x0B77 where the PES carries no extension) and drops the MLP units;
  * DTS-HD keeps only the DTS core frames (sync 0x7FFE8001) and drops the extension substream. Other codings pass through.
  */
 export class PesCoreFilter {
+  /** `codingType` is the stream's `CodingType` on the disc; a coding with no core passes through unchanged. */
   constructor(private readonly codingType: number) {}
 
   /** The PES to carry (the same object when unchanged, a shorter one when frames were removed), or null to drop it. */
@@ -185,7 +187,7 @@ function fallbackNominalBps(codingType: number, clpiStream: { readonly format: n
   }
 }
 
-/** MPEG-2 CRC-32 (polynomial 0x04C11DB7, no reflection), as PSI sections carry it. Over a whole section it is 0. */
+/** The MPEG-2 CRC-32 (ISO/IEC 13818-1 Annex A: polynomial 0x04C11DB7, no reflection) that PSI sections end with. Over a whole section, CRC included, it is 0. */
 export function mpegCrc32(data: Uint8Array): number {
   let crc = 0xffffffff;
   for (const byte of data) {
@@ -195,18 +197,23 @@ export function mpegCrc32(data: Uint8Array): number {
   return crc >>> 0;
 }
 
+/** One elementary stream line of a PMT section (ISO/IEC 13818-1 §2.4.4.8). */
 export interface PmtStream {
+  /** `elementary_PID`. */
   readonly pid: number;
+  /** `stream_type`: 0x1B H.264, 0x24 HEVC, 0x81 AC-3, 0x82 DTS and so on. */
   readonly streamType: number;
   /** The ES_info descriptors, as bytes. */
   readonly descriptors?: Uint8Array;
 }
 
+/** The program-level fields of a PMT section (ISO/IEC 13818-1 §2.4.4.8). */
 export interface PmtProgram {
-  /** Default 1, as on Blu-ray. */
+  /** `program_number`. Default 1, as on Blu-ray. */
   readonly programNumber?: number;
-  /** Default: the first video stream's PID, else the first stream's. */
+  /** `PCR_PID`. Default: the first video stream's PID, else the first stream's. */
   readonly pcrPid?: number;
+  /** `version_number`, 5 bits. Default 0. */
   readonly version?: number;
   /** The program_info descriptors, as bytes. */
   readonly programInfo?: Uint8Array;
@@ -214,7 +221,7 @@ export interface PmtProgram {
 
 const VIDEO_STREAM_TYPES = new Set<number>([0x01, 0x02, 0x1b, 0x20, 0x24, 0xea]);
 
-/** A PMT section (with its CRC) listing exactly `streams`, in order. */
+/** A program map section (ISO/IEC 13818-1 §2.4.4.8) with its CRC, listing exactly `streams`, in order, without a pointer field. */
 export function pmtFor(streams: readonly PmtStream[], program: PmtProgram = {}): Uint8Array {
   const programInfo = program.programInfo ?? new Uint8Array(0);
   const pcrPid = program.pcrPid ?? (streams.find((s) => VIDEO_STREAM_TYPES.has(s.streamType)) ?? streams[0])?.pid ?? 0x1fff;
@@ -281,7 +288,7 @@ function parsePmt(section: Uint8Array): ParsedPmt | null {
 
 /** Packets of one PES (or PSI section) being collected on a PID. */
 interface Pending {
-  /** The source packet number of the first packet: every packet made from this unit is assigned it (ruling L-R4). */
+  /** The source packet number of the first packet: every packet made from this unit is assigned it, so the unit belongs to the interval that holds its start. */
   readonly spn: number;
   readonly packets: Uint8Array[];
   readonly chunks: Uint8Array[];
@@ -290,6 +297,7 @@ interface Pending {
   expected: number | null;
 }
 
+/** `KeptStreams`'s options. */
 export interface KeptStreamsOptions {
   /** The clip's PMT PIDs (CLPI program_map_PID); default 0x0100. Given, not learned from the PAT, so a run's start doesn't matter. */
   readonly pmtPids?: readonly number[];
@@ -300,15 +308,16 @@ export interface KeptStreamsOptions {
   readonly video?: { readonly pid: number; readonly streamType: number };
 }
 
-/** A kept packet and the source packet number that assigns it to an EP interval (ruling L-R4). */
+/** A kept 192-byte source packet and the source packet number of the original that assigns it to an EP interval. */
 export interface KeptPacket {
+  /** The original's source packet number (not the level's). */
   readonly spn: number;
   readonly bytes: Uint8Array;
 }
 
 /**
  * Picks a clip's packets for a level. Interval k's packets come out byte-identical whether the run started at the clip's
- * start or at k (ruling L-R4), under two models:
+ * start or at k, so a segment cached from either run is the same bytes, under two models:
  *
  * - **Pass-through PIDs** (`keepPids`: PG, IG and any other kept as is) and the PAT: every packet passes bit-exact and is
  *   assigned its own SPN. A run started at k passes the tails of PES that began earlier too: each packet stands alone.
@@ -332,6 +341,10 @@ export class KeptStreams {
   private readonly pmtPids: ReadonlySet<number>;
   private readonly pending = new Map<number, Pending>();
 
+  /**
+   * `keepPids` pass through as they are; `coreFilters` maps each PID that is reduced to a core to its filter (such a PID
+   * need not be in `keepPids`).
+   */
   constructor(
     private readonly keepPids: Set<number>,
     private readonly coreFilters: Map<number, PesCoreFilter>,

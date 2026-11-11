@@ -12,7 +12,7 @@ function part(value: string | number, what: string): string {
 }
 
 /**
- * Encoded, re-muxed EP intervals on disk (spec §6.3): `<dir>/<discId>/<level>/<audio>/<clip>/<size>-<mtimeMs>/<index>.seg`,
+ * Encoded, re-muxed EP intervals on disk: `<dir>/<discId>/<level>/<audio>/<clip>/<size>-<mtimeMs>/<index>.seg`,
  * one file per interval. The clip's size and mtime are part of the key, so a replaced clip is a miss. Files are written
  * atomically (a synced temp file, hard-linked into place, then a directory sync), and the first writer wins. An LRU by
  * total bytes: past `limitBytes`, the least recently used whole files go (a read counts as a use, and is written to the
@@ -29,10 +29,15 @@ export class SegmentCache {
     private readonly limitBytes: number,
   ) {}
 
+  /** The bytes of every stored interval, as far as the cache has loaded them. */
   get totalBytes(): number {
     return this.total;
   }
 
+  /**
+   * The key of one clip's intervals at a level and audio stream, for `has`, `get` and `put`. Each part must be 1 to 128 of
+   * `A-Za-z0-9_.-` and not `.` or `..`, else this throws an `Error`, so a key can't leave the cache directory.
+   */
   key(discId: string, level: string, audio: string | number, clip: string, clipSize: number, clipMtimeMs: number): string {
     return [
       part(discId, 'disc id'),
@@ -49,6 +54,10 @@ export class SegmentCache {
     return this.files.has(this.pathOf(key, index));
   }
 
+  /**
+   * The stored bytes of interval `index` under `key`, or null for a miss. A hit counts as a use for the LRU order. Throws
+   * an `Error` for a bad key or index, and the file system's error for a read failure other than a missing file.
+   */
   async get(key: string, index: number): Promise<Buffer | null> {
     await this.load();
     const path = this.pathOf(key, index);
@@ -69,7 +78,8 @@ export class SegmentCache {
 
   /**
    * Stores an interval's bytes. The first writer wins: a file already there stays (an interval's bytes at a key are
-   * always the same size, and a reader may be serving it), and the later bytes are dropped.
+   * always the same size, and a reader may be serving it), and the later bytes are dropped. May evict the least recently
+   * used files, never this one. Throws the file system's error when the write fails (a full disk).
    */
   async put(key: string, index: number, bytes: Uint8Array): Promise<void> {
     await this.load();

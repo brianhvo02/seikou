@@ -12,9 +12,13 @@ import { SOURCE_PACKET_BYTES } from './levels';
 
 /** A stream file of a disc: what ffmpeg reads, how the server reads it, and its identity for the cache key. */
 export interface ClipSource {
+  /** What ffmpeg reads: a path for a folder disc, a byte stream for a file inside an ISO. */
   readonly input: ClipInput;
+  /** Reads the file from byte `from` to `to` (exclusive; to the end when omitted) as a stream. */
   readonly read: ClipReader;
+  /** The file's size in bytes when the source was opened. */
   readonly size: number;
+  /** The mtime of the file, or of the ISO image that holds it, in milliseconds. */
   readonly mtimeMs: number;
   /** The file's size and mtime now (a stat of the resolved file), or null when it is gone: whether it was replaced. */
   stamp(): Promise<{ readonly size: number; readonly mtimeMs: number } | null>;
@@ -22,18 +26,21 @@ export interface ClipSource {
 
 /** One disc's original files, as the level service reads them. Paths are disc-relative and upper-case. */
 export interface LevelDiscSource {
+  /** The disc's manifest of original files (`DiscManifest`), as the disc routes serve it. */
   manifest(): Promise<DiscManifest>;
   /** A whole file (a CLPI or MPLS the manifest didn't inline), or null. */
   readFile(path: string): Promise<Uint8Array | null>;
   /** Bytes [offset, offset + length) of a file, or null when it is missing. */
   readRange(path: string, offset: number, length: number): Promise<Buffer | null>;
+  /** A stream file's source (what ffmpeg and the remux read), or null when it is missing. */
   clip(path: string): Promise<ClipSource | null>;
 }
 
 /**
  * The rate an audio PID takes at a level, in source packets, from its first readable frame in `stream` (the head of a
  * clip): its PES packets are gathered in order, reduced to the core a level carries, and the first one `audioWireBps`
- * reads decides.
+ * reads decides. Destroys `stream` before it returns. Throws the last decoding error, or an `Error` when no audio frame
+ * of `pid` is found in the stream.
  */
 export async function firstAudioBps(stream: Readable, pid: number, coding: number): Promise<number> {
   const filter = new PesCoreFilter(coding);

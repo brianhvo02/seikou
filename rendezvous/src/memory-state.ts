@@ -44,6 +44,7 @@ export async function fireAlarm(storage: MemoryStorage, registry: { alarm(): Pro
   await registry.alarm();
 }
 
+/** A fresh in-memory state for a `CodeRegistry` in a test. */
 export function memoryState(): RegistryState & { storage: MemoryStorage } {
   return { storage: new MemoryStorage() };
 }

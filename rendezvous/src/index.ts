@@ -1,5 +1,5 @@
 /**
- * bluray-rendezvous: turns a pairing code into "this NAS and how to reach it".
+ * `bluray-rendezvous`, the Worker: turns a pairing code into "this NAS and how to reach it".
  * The NAS registers its key (`POST /nas`) and signed code hashes (`POST /codes`, server to server), and unregisters
  * a code it no longer needs (`DELETE /codes`, signed);
  * the app looks a typed code up (`POST /codes/lookup`, CORS for the app's origins).
@@ -22,6 +22,7 @@ export interface RegistryNamespace {
   get(id: object): { fetch(request: Request): Promise<Response> };
 }
 
+/** The Worker's bindings and secrets, as Cloudflare passes them to `fetch`. */
 export interface Env {
   CODE_REGISTRY: RegistryNamespace;
   SIGNALLING: RegistryNamespace;
@@ -119,7 +120,14 @@ async function signal(request: Request, env: Env): Promise<Response> {
   return signalling.get(signalling.idFromName(nasId)).fetch(request);
 }
 
+/** The Worker's entry point: routes by path and adds CORS to every answer but a signalling upgrade and `/turn`. */
 export default {
+  /**
+   * Routes: `POST /nas`, `POST /codes`, `DELETE /codes` and `POST /codes/lookup` (to the registry; 404 for another
+   * path, 405 for another method, 413 for a body over `MAX_BODY_BYTES`, 403 `nas-not-allowed` for a NAS off
+   * `NAS_IDS`); `GET /signal/nas` and `GET /signal/device` (WebSocket upgrades: 426 without the upgrade header, 400
+   * for a bad `nasId`, 403 `nas-not-allowed`, 429 past the per-address attempt limit); `POST /turn` (see `turnRoute`).
+   */
   async fetch(request: Request, env: Env): Promise<Response> {
     const path = new URL(request.url).pathname;
     if (SIGNAL_ROUTES.has(path)) return signal(request, env);

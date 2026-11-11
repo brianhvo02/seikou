@@ -53,6 +53,7 @@ export interface SignallingState {
   setWebSocketAutoResponse(pair: AutoResponse): void;
 }
 
+/** The bindings the object uses: the registry, which holds the NAS keys. */
 export interface SignallingEnv {
   CODE_REGISTRY: RegistryNamespace;
 }
@@ -63,6 +64,7 @@ export interface Upgrade {
   response: Response;
 }
 
+/** The object's side effects, replaced in tests: the clock, the socket pair and the heartbeat's auto-response. */
 export interface SignallingDeps {
   now(): number;
   upgrade(): Upgrade;
@@ -141,6 +143,12 @@ function parse(message: string | ArrayBuffer): { value: Record<string, unknown> 
   }
 }
 
+/**
+ * The Durable Object for one NAS's signalling. Who may connect: a NAS socket must answer its challenge with a signature
+ * by the NAS's registered key (closed `bad-auth` or `auth-timeout` otherwise); a device socket needs no proof here
+ * (the NAS checks a device's `turn-request` itself) but is closed `nas-offline` while no authenticated NAS socket is
+ * live, `busy` past `SIGNAL_DEVICES_PER_NAS` open sockets, `too-many-messages`, `expired` and so on as `SIGNAL_CLOSE` lists.
+ */
 export class Signalling {
   private readonly deps: SignallingDeps;
 
@@ -191,6 +199,7 @@ export class Signalling {
     return response;
   }
 
+  /** A hibernation callback: a text or binary message arrived on `ws`; messages on a closed socket are ignored. */
   async webSocketMessage(ws: SignalSocket, message: string | ArrayBuffer): Promise<void> {
     const attachment = attachmentOf(ws);
     if (attachment === null || attachment.closed) return;
@@ -199,10 +208,12 @@ export class Signalling {
     else await this.authenticate(ws, attachment, message);
   }
 
+  /** A hibernation callback: the peer closed `ws`. */
   async webSocketClose(ws: SignalSocket, _code: number, _reason: string, _wasClean: boolean): Promise<void> {
     this.gone(ws);
   }
 
+  /** A hibernation callback: `ws` failed. */
   async webSocketError(ws: SignalSocket, _error: unknown): Promise<void> {
     this.gone(ws);
   }

@@ -30,24 +30,29 @@ import { rewriteMpls, type VideoAttrs } from './mpls-writer';
 import type { GraphicsByNumber } from './remux';
 import type { SegmentCache } from './segment-cache';
 
+/** A quality level that re-encodes: every `LevelId` but `original`. */
 export type EncodedLevel = Exclude<LevelId, 'original'>;
 
 /** Where a clip's first audio frame is looked for. */
 const AUDIO_PROBE_BYTES = 16 * 1024 * 1024;
-/** CLPI video_format code → lines (libbluray bd_video_format_e). */
+/** CLPI `format` code → picture lines (libbluray `bd_video_format_e`: 1 480i, 2 576i, 3 480p, 4 1080i, 5 720p, 6 1080p, 7 576p, 8 2160p). */
 const FORMAT_LINES: Readonly<Record<number, number>> = { 1: 480, 2: 576, 3: 480, 4: 1080, 5: 720, 6: 1080, 7: 576, 8: 2160 };
-/** CLPI frame-rate code → frames per second (an interlaced source is deinterlaced to its frame rate). */
+/** CLPI `rate` code → frames per second (libbluray `bd_video_rate_e`; an interlaced source is deinterlaced to its frame rate). */
 const RATE_FPS: Readonly<Record<number, number>> = { 1: 24_000 / 1001, 2: 24, 3: 25, 4: 30_000 / 1001, 6: 50, 7: 60_000 / 1001 };
 const GRAPHICS_CODINGS = new Set<number>([CodingType.PG, CodingType.IG, CodingType.TEXT_SUBTITLE]);
 
-/** A film's output frame rate, from its CLPI rate code (29.97 when unknown). */
+/** A film's output frame rate in frames per second, from its CLPI frame-rate code (29.97 when unknown). */
 export function fpsOf(rate: number): number {
   return RATE_FPS[rate] ?? RATE_FPS[4]!;
 }
 
+/** A clip's primary video as its CLPI describes it. */
 export interface VideoInfo {
+  /** The video's transport stream PID. */
   readonly pid: number;
+  /** The CLPI `coding_type`, a `CodingType`. */
   readonly codingType: number;
+  /** The picture height in lines, from the CLPI `format` code (1080 when the code is unknown). */
   readonly height: number;
   /** CLPI frame-rate code. */
   readonly rate: number;
@@ -55,10 +60,15 @@ export interface VideoInfo {
   readonly hdr: boolean;
 }
 
+/** One stream clip of a disc that a level re-encodes. */
 export interface ClipInfo {
+  /** The 5-digit clip name, such as `00001`. */
   readonly id: string;
+  /** The clip's information file in the manifest, `BDMV/CLIPINF/<id>.CLPI`. */
   readonly clpiPath: string;
+  /** The clip's stream file in the manifest, `BDMV/STREAM/<id>.M2TS`. */
   readonly m2tsPath: string;
+  /** The original CLPI file. */
   readonly clpiBytes: Uint8Array;
   readonly clpi: Clpi;
   readonly video: VideoInfo;
@@ -71,38 +81,50 @@ export interface ClipInfo {
   readonly item: PlayItem;
 }
 
+/** What the level service reads of a disc once and keeps: its manifest, playlists and the clips a level re-encodes. */
 export interface DiscInfo {
+  /** The library's disc id. */
   readonly id: string;
   readonly source: LevelDiscSource;
   readonly manifest: DiscManifest;
+  /** The original size of every file in the manifest by disc-relative path, bytes. */
   readonly sizes: ReadonlyMap<string, number>;
+  /** Each readable playlist's path, original bytes, play items and the clip ids those items (and their angles) play. */
   readonly playlists: readonly { readonly path: string; readonly bytes: Uint8Array; readonly items: readonly PlayItem[]; readonly clipIds: readonly string[] }[];
   /** The clips with primary video that a playlist's main path plays: the ones a level re-encodes. */
   readonly clips: ReadonlyMap<string, ClipInfo>;
   /** The largest of them: its video decides the disc's levels, rates and capacity. */
   readonly main: ClipInfo | null;
-  /** By `<clip id>:<PID>`. */
+  /** The kept audio's rate in bits per second of source packets (`audioBpsOf`), by `<clip id>:<PID>`. */
   readonly audioBps: Map<string, Promise<number>>;
-  /** By clip id. */
+  /** The probe of each clip's picture (`scanOf`), by clip id. */
   readonly scans: Map<string, Promise<ScanInfo>>;
 }
 
+/** One clip of a version: its plan and the size the version serves. */
 export interface ClipVersion {
   readonly info: ClipInfo;
+  /** What the clip's encoder and re-mux need (`ClipRunner`). */
   readonly runPlan: ClipRunPlan;
+  /** The re-encoded stream file's size in bytes: the sum of the interval budgets. */
   readonly sizeBytes: number;
   /** The source clip's size and mtime the version was built with. */
   readonly stamp: { readonly size: number; readonly mtimeMs: number };
   readonly source: ClipSource;
 }
 
+/** A disc at one level and audio stream: another version of the same files. */
 export interface Version {
   /** `<disc id>:<level>:<audio>`. */
   readonly key: string;
   readonly disc: DiscInfo;
+  /** The codec the level encodes, for the GPU lease. */
   readonly codec: EncoderCodec;
+  /** The film's output frame rate, for the GPU lease. */
   readonly fps: number;
+  /** The disc's manifest with the version's sizes and rewritten inline files. */
   readonly manifest: DiscManifest;
+  /** Every file's size in this version by upper-case disc-relative path, bytes. */
   readonly sizes: ReadonlyMap<string, number>;
   /** CLPI and MPLS files rewritten for the level. */
   readonly rewritten: ReadonlyMap<string, Uint8Array>;
@@ -110,10 +132,15 @@ export interface Version {
   readonly clips: ReadonlyMap<string, ClipVersion>;
 }
 
+/** What `buildVersion` needs besides the disc. */
 export interface VersionDeps {
+  /** Where encoded intervals are kept, for the cache key. */
   readonly cache: SegmentCache;
+  /** Starts ffmpeg; default `child_process.spawn`. */
   readonly spawn?: typeof nodeSpawn;
+  /** The scan probe (ffprobe); default `probeScan`. */
   readonly probe?: (input: ClipInput, options: { readonly startByte: number; readonly videoPid: number; readonly signal?: AbortSignal }) => Promise<ScanInfo>;
+  /** Receives log lines; default none. */
   readonly log?: (message: string) => void;
   /** Aborted when the service closes: stops a scan probe still running. */
   readonly signal?: AbortSignal;
@@ -129,7 +156,10 @@ async function fileBytes(manifest: DiscManifest, source: LevelDiscSource, path: 
   return source.readFile(path);
 }
 
-/** Reads a disc's playlists and clip information, and finds the clips a level re-encodes. */
+/**
+ * Reads a disc's playlists and clip information, and finds the clips a level re-encodes. A playlist or CLPI the parsers
+ * refuse is skipped, as the player skips it. Throws what `source.manifest()` throws.
+ */
 export async function loadDisc(id: string, source: LevelDiscSource): Promise<DiscInfo> {
   const manifest = await source.manifest();
   const sizes = new Map(manifest.files.map((f) => [f.path, f.size]));
@@ -181,8 +211,8 @@ export async function loadDisc(id: string, source: LevelDiscSource): Promise<Dis
 }
 
 /**
- * The kept audio's rate in source packets (`audioWireBps`: its nominal rate, spec §5.2, plus what its PES and TS packets
- * add), from its first frame in the clip; one read per clip and PID. With no readable frame in the clip's first 16 MiB,
+ * The kept audio's rate in bits per second of source packets (`audioWireBps`: its nominal rate plus what its PES and TS
+ * packets add), from its first frame in the clip; one read per clip and PID. With no readable frame in the clip's first 16 MiB,
  * the coding's fallback (`fallbackAudioBps`), logged.
  */
 export function audioBpsOf(disc: DiscInfo, info: ClipInfo, kept: KeptAudio, log: (message: string) => void = () => {}): Promise<number> {
@@ -210,7 +240,10 @@ export function audioBpsOf(disc: DiscInfo, info: ClipInfo, kept: KeptAudio, log:
   return bps;
 }
 
-/** A clip's scan: one probe per clip (ruling L-R6), a failed one tried again next time. */
+/**
+ * A clip's scan: one probe per clip, because it reads the clip's head with ffprobe and every level and audio stream of
+ * the disc needs the same answer; a failed probe is tried again next time.
+ */
 function scanOf(disc: DiscInfo, info: ClipInfo, clip: ClipSource, deps: VersionDeps): Promise<ScanInfo> {
   let scan = disc.scans.get(info.id);
   if (!scan) {
@@ -227,11 +260,6 @@ function scanOf(disc: DiscInfo, info: ClipInfo, clip: ClipSource, deps: VersionD
 }
 
 /**
- * A short hash of what decides a clip's bytes at a level besides the clip itself: the level's definition, the kept
- * audio, every interval's place and budget, the encoder backend and its version, and whether the clip is deinterlaced. It is part of
- * the segment cache key, so a changed plan never reuses bytes made for another.
- */
-/**
  * The encoder's shortest frame time for a clip (`ClipEncoderOptions.frameTicks`): the probe's, never more than the
  * CLPI rate's, so a clip that opens on a still (long frames in the probe) can't inflate it.
  */
@@ -246,6 +274,11 @@ export function clipFrameTicks(scan: ScanInfo, rate: number): number {
  */
 export const ENCODER_VERSION = 2;
 
+/**
+ * A short hash of what decides a clip's bytes at a level besides the clip itself: the level's definition, the kept
+ * audio, every interval's place and budget, the encoder backend and its version, and whether the clip is deinterlaced. It is part of
+ * the segment cache key, so a changed plan never reuses bytes made for another.
+ */
 export function planHash(
   def: LevelDef,
   kept: KeptAudio | null,
@@ -323,6 +356,7 @@ export function graphicsByNumber(info: Pick<ClipInfo, 'item' | 'clpi'>, graphics
   };
 }
 
+/** The clip's plan for its encoder and re-mux: the intervals, the cache key, the kept PIDs and the program's stream types. */
 function clipRunPlan(
   disc: DiscInfo,
   info: ClipInfo,

@@ -5,18 +5,22 @@
 import { normalizeCode } from '@seikou/nas/pairing-code';
 import type { CodeRegistration, EcPublicJwk } from '@seikou/nas/nas-api';
 
+/** WebCrypto parameters for importing and generating the NAS's P-256 ECDSA keys. */
 export const ECDSA_KEY = { name: 'ECDSA', namedCurve: 'P-256' } as const;
+/** WebCrypto parameters for ECDSA signatures: SHA-256, in WebCrypto's raw r || s form (64 bytes). */
 export const ECDSA_SIGN = { name: 'ECDSA', hash: 'SHA-256' } as const;
 
 /** A code's `expiresAt` may be at most this far ahead; invites live 3 days, the hour absorbs clock skew. */
 export const MAX_CODE_AHEAD_MS = 3 * 24 * 60 * 60_000 + 60 * 60_000;
 
+/** RFC 4648 base64url of `bytes` without padding. */
 export function base64url(bytes: Uint8Array): string {
   let binary = '';
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+/** The bytes of an unpadded base64url string, or null when it holds a character outside the alphabet or isn't valid base64. */
 export function fromBase64url(text: string): Uint8Array<ArrayBuffer> | null {
   if (!/^[A-Za-z0-9_-]*$/.test(text)) return null;
   try {
@@ -78,8 +82,11 @@ export const SIGNAL_CLOSE = {
   replaced: { code: 4409, reason: 'replaced' },
   /** A device message of an unknown type, not JSON, or binary; a NAS message before auth that isn't `auth`. */
   badMessage: { code: 1008, reason: 'bad-message' },
+  /** A message over `SIGNAL_MAX_MESSAGE_BYTES`. */
   tooBig: { code: 1009, reason: 'too-big' },
+  /** A NAS's `auth` signature didn't verify, or the NAS id is unknown or expired. */
   badAuth: { code: 1008, reason: 'bad-auth' },
+  /** A NAS socket that didn't answer its challenge within 10 s of opening. */
   authTimeout: { code: 1008, reason: 'auth-timeout' },
   /** A device socket that sent more than `SIGNAL_DEVICE_MESSAGES` messages. */
   tooManyMessages: { code: 1008, reason: 'too-many-messages' },
@@ -100,7 +107,9 @@ export const SIGNAL_DEVICES_PER_NAS = 32;
 export const DEVICE_SIGNAL_TYPES = ['offer', 'candidate', 'turn-request'] as const;
 /** The types a NAS may send once authenticated; the Worker forwards them to the device `sid` names, without `sid`. */
 export const NAS_SIGNAL_TYPES = ['answer', 'candidate', 'turn-response'] as const;
+/** One of `DEVICE_SIGNAL_TYPES`. */
 export type DeviceSignalType = (typeof DEVICE_SIGNAL_TYPES)[number];
+/** One of `NAS_SIGNAL_TYPES`. */
 export type NasSignalType = (typeof NAS_SIGNAL_TYPES)[number];
 
 /** Worker → NAS, first on a NAS socket. */
@@ -126,15 +135,19 @@ export interface SignalPing {
   readonly t: 'ping';
 }
 
+/** The Worker runtime's answer to `SignalPing`, sent as exactly `SIGNAL_PONG_MESSAGE`. */
 export interface SignalPong {
   readonly t: 'pong';
 }
 
 /** The heartbeat's bytes, matched byte for byte by the auto-response: never re-serialize them. */
 export const SIGNAL_PING_MESSAGE = '{"t":"ping"}';
+/** The heartbeat answer's bytes (see `SIGNAL_PING_MESSAGE`). */
 export const SIGNAL_PONG_MESSAGE = '{"t":"pong"}';
 
+/** How often a NAS sends `SIGNAL_PING_MESSAGE` on its authenticated socket, in milliseconds. */
 export const SIGNAL_PING_INTERVAL_MS = 25_000;
+/** How long a NAS waits for the pong before it reconnects, in milliseconds. */
 export const SIGNAL_PONG_TIMEOUT_MS = 10_000;
 
 /** Device → Worker. */
@@ -179,7 +192,7 @@ export interface SignalHello {
 }
 
 /*
- * The relay (spec §6.4). A device that can't connect directly asks the NAS for TURN servers over signalling
+ * The relay (design in `docs/superpowers/specs/2026-10-18-webrtc-people-design.md`). A device that can't connect directly asks the NAS for TURN servers over signalling
  * (`TurnRequest`); the NAS checks the device, the relay's switch and its allowance, asks the Worker for
  * credentials (`POST /turn`, signed with the NAS key) and answers `TurnResponse`.
  */

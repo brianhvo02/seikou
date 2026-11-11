@@ -1,5 +1,5 @@
 /**
- * `POST /turn`: TURN credentials for the Cloudflare relay (spec §6.4), minted only at a NAS's signed request. The
+ * `POST /turn`: TURN credentials for the Cloudflare relay (see `docs/superpowers/specs/2026-10-18-webrtc-people-design.md`), minted only at a NAS's signed request. The
  * Worker knows nothing about devices; the NAS checks the device and its own relay switch before it asks. The
  * Cloudflare TURN key id and API token are Worker secrets (`wrangler secret put TURN_KEY_ID` and
  * `TURN_KEY_API_TOKEN`), never in the repo, and never in a response or a log line.
@@ -20,8 +20,10 @@ import { INTERNAL, REGISTRY_NAME, json } from './code-registry';
 import type { RegistryNamespace } from './index';
 import { ECDSA_KEY, ECDSA_SIGN, TURN_MAX_SKEW_MS, TURN_TTL_SECONDS, fromBase64url, iceServersOf, isNasId, turnRequestMessage } from './protocol';
 
+/** The base of Cloudflare's TURN key API; the key id and `/credentials/generate-ice-servers` follow it. */
 export const CLOUDFLARE_TURN_BASE = 'https://rtc.live.cloudflare.com/v1/turn/keys';
 
+/** The bindings and secrets `turnRoute` reads. */
 export interface TurnEnv {
   CODE_REGISTRY: RegistryNamespace;
   TURN_KEY_ID?: string;
@@ -32,6 +34,7 @@ export interface TurnEnv {
   NAS_IDS?: string;
 }
 
+/** `turnRoute`'s side effects, replaced in tests. */
 export interface TurnDeps {
   fetch: typeof fetch;
   now: () => number;
@@ -54,8 +57,13 @@ export function turnNasIds(value: string | undefined): ReadonlySet<string> {
 }
 
 /**
- * `POST /turn {nasId, ts, signature}` → 200 `{iceServers}`; 503 without the secrets or the allowlist, 403 for a NAS
- * not on the allowlist, 401 for a stale `ts`, an unknown NAS or a bad signature, 429 past the limits.
+ * `POST /turn {nasId, ts, signature}` → 200 `{iceServers}`. Only a NAS may call it, proving itself by a signature with
+ * its registered key (`turnRequestMessage`); the Worker never sees a device. Refusals: 400 for a malformed body, 503
+ * `turn-not-configured` without the key secrets or while `TURN_NAS_IDS` is empty, 401 `unauthorized` for a `ts` more than
+ * `TURN_MAX_SKEW_MS` from the Worker's clock, an unknown or expired NAS or a bad signature, 403 `turn-not-allowed` for a
+ * NAS not in `TURN_NAS_IDS` and 403 `nas-not-allowed` for one not in `NAS_IDS`, 429 `turn-rate-limited` past the hourly
+ * per-NAS or daily Worker-wide limit (`scope` says which), 502 `turn-upstream` when Cloudflare fails or answers
+ * something unusable.
  */
 export async function turnRoute(request: Request, env: TurnEnv, deps: TurnDeps): Promise<Response> {
   if (request.method !== 'POST') {

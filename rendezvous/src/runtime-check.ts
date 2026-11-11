@@ -9,6 +9,7 @@ import type { Env } from './index';
 
 type Assert<T extends true> = T;
 
+/** Never used as a value: each entry fails the type check when a real Workers object stops fitting the narrow interface. */
 export type RuntimeChecks = [
   Assert<DurableObjectState extends RegistryState ? true : false>,
   Assert<DurableObjectState extends SignallingState ? true : false>,

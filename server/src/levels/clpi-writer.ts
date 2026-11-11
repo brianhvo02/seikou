@@ -1,7 +1,7 @@
 /*
  * Writes a clip information file (.clpi) for a quality level. The structure follows how libbluray
- * reads it (src/libbluray/bdnav/clpi_parse.c, extdata_parse.c) and how packages/bdmv/src/clpi-parser.ts
- * ports that; sections this rewrite doesn't touch are copied byte for byte.
+ * reads it (src/libbluray/bdnav/clpi_parse.c `_clpi_parse` and its `_parse_*` functions, extdata_parse.c) and how
+ * packages/bdmv/src/clpi-parser.ts ports that; sections this rewrite doesn't touch are copied byte for byte.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
@@ -13,18 +13,26 @@ import type { IntervalPlan, KeptAudio, LevelDef } from './levels';
 import { AUDIO_RATE_48K, SOURCE_PACKET_BYTES, coreCoding, mapSpn, mapSpnDown, maxBudgetRate } from './levels';
 import { BeWriter, readU16, readU32, rebuildSections, sectionBytes, writeU32 } from './sections';
 
+/**
+ * What `rewriteClpi` is asked for: `original` leaves the file as it is, otherwise the clip's byte plan at a level.
+ */
 export type ClpiRewrite =
   | { readonly level: 'original' }
   | {
+      /** The clip's EP intervals as planned for the level; their budgets fix every new source packet number. */
       readonly intervals: readonly IntervalPlan[];
       readonly level: LevelDef;
       /** The graphics streams kept (PG, IG); the video and `audio` are kept besides. */
       readonly keepPids: readonly number[];
       /** The clip's kept audio (`keptAudioFor`), carried as its core; null keeps none. */
       readonly audio: KeptAudio | null;
+      /** The PID of the primary video stream, whose EP map is regenerated. */
       readonly videoPid: number;
+      /** The video's new `coding_type` (a `CodingType`: 0x1b H.264, 0x24 HEVC). */
       readonly newCoding: number;
+      /** The video's new `format` code, 4 bits (such as 1080p), as `ProgramStream.format` reads it. */
       readonly newFormat: number;
+      /** The video's new frame rate `rate` code, 4 bits, as `ProgramStream.rate` reads it. */
       readonly newRate: number;
     };
 
@@ -34,17 +42,24 @@ const PROGRAM_AT = 12;
 const CPI_AT = 16;
 const CLIP_MARK_AT = 20;
 const EXTENSION_AT = 24;
-/** ClipInfo's number_of_source_packets (ClipInfo starts at 40). */
+/**
+ * Byte offsets inside ClipInfo, which starts at offset 40 (4 length, 2 reserved, clip_stream_type, application_type,
+ * 4 reserved and is_atc_delta bytes): `ts_recording_rate` (bytes per second) and `num_source_packets`, which
+ * libbluray's `_parse_clipinfo` reads into `CLPI_CLIP_INFO`.
+ */
 const RECORDING_RATE_AT = 52;
 const NUM_SOURCE_PACKETS_AT = 56;
-/** is_angle_change_point among a fine entry's 4 leading bits. */
+/** `is_angle_change_point`, the top bit of a fine EP entry's 4 leading bits (the other three are `I_end_position_offset`). */
 const ANGLE_CHANGE_POINT = 0x8;
 
 /**
  * The CLPI of a clip at a level: the video's EP map regenerated from the plan, dropped streams
  * gone from the program info, the video's coding, format and rate set, the kept audio's coding
- * set to its core, the recording rate and source packet count set, sequence and program starts moved to their new packets, and every section address fixed.
- * At `original` it is the file unchanged.
+ * set to its core, `ts_recording_rate` (the highest interval budget rate) and `num_source_packets` set, ATC and STC
+ * sequence starts and program starts moved to their new source packets, and every section address fixed.
+ * At `original` it is a copy of the file unchanged. Throws an `Error` for an empty plan, an interval that starts at no
+ * EP entry of the clip, or a file whose sections overlap; `parseClpi`'s `ParseError` for a file libbluray's parser
+ * would refuse.
  */
 export function rewriteClpi(original: Uint8Array, plan: ClpiRewrite): Uint8Array {
   if (plan.level === 'original') return original.slice();
@@ -93,7 +108,7 @@ function planEntries(intervals: readonly IntervalPlan[]): EpEntry[] {
   return intervals.map((iv) => ({ pts: iv.startPts45, spn: iv.spnStart }));
 }
 
-/** SequenceInfo with each ATC and STC sequence's first packet moved to the level's layout. */
+/** SequenceInfo with each ATC sequence's `spn_atc_start` and each STC sequence's `spn_stc_start` moved to the level's layout (libbluray `_parse_sequence`). */
 function rewriteSequenceInfo(section: Uint8Array, intervals: readonly IntervalPlan[]): Uint8Array {
   const out = section.slice();
   let at = 5;
@@ -139,7 +154,7 @@ export function clpiVideoIsHdr(clpi: Uint8Array, pid: number): boolean {
   return attrs !== null && attrs[0] === CodingType.HEVC && attrs.length > 3 && attrs[3]! >> 4 !== 0;
 }
 
-/** ProgramInfo with only the kept streams, the video's coding attributes set. */
+/** ProgramInfo with only the kept streams (libbluray `_parse_program`), each program's `spn_program_sequence_start` mapped and the video's coding attributes set. */
 function rewriteProgramInfo(
   section: Uint8Array,
   intervals: readonly IntervalPlan[],
@@ -177,10 +192,11 @@ function rewriteProgramInfo(
 }
 
 /**
- * Sets coding type, format and rate in a stream's coding attributes (after its length byte). A
- * video that stops being HEVC loses the HEVC-only bits (cr_flag, dynamic range, colour space,
- * HDR10+), which are reserved for the other codings. `clpi` marks the CLPI layout, whose third
- * byte holds the aspect ratio and oc_flag ahead of cr_flag.
+ * Sets `coding_type`, `format` and `rate` in a video stream's coding attributes (after its length byte; libbluray
+ * `_parse_stream_attr` in clpi_parse.c, `_parse_stream` in mpls_parse.c). A video that stops being HEVC loses the
+ * HEVC-only bits (`cr_flag`, `dynamic_range_type`, `color_space`, `hdr_plus_flag`), which are reserved for the other
+ * codings. `clpi` marks the CLPI layout, whose third byte holds the aspect ratio and `oc_flag` ahead of `cr_flag`; the
+ * playlist's STN layout has no such byte. Changes `attr` in place.
  */
 export function setVideoAttrs(attr: Uint8Array, video: { newCoding: number; newFormat: number; newRate: number }, clpi: boolean): void {
   const wasHevc = attr[0] === CodingType.HEVC;
@@ -196,8 +212,8 @@ export function setVideoAttrs(attr: Uint8Array, video: { newCoding: number; newF
 }
 
 /**
- * Sets an audio stream's coding type in its coding attributes (after the length byte), keeping
- * the channel layout and language. A stream reduced to its core is 48 kHz, so its rate code
+ * Sets `coding_type` in an audio stream's coding attributes (after the length byte), keeping
+ * the channel layout (`format`) and language, and changes `attr` in place. A stream reduced to its core is 48 kHz, so its rate code
  * changes with it.
  */
 export function setAudioCoding(attr: Uint8Array, newCoding: number): void {
@@ -216,7 +232,7 @@ function keptFlags(entries: readonly EpEntry[], intervals: readonly IntervalPlan
   });
 }
 
-/** The 4 leading bits (is_angle_change_point, I_end_position_offset) of each fine entry of a PID. */
+/** The 4 leading bits (`is_angle_change_point`, `I_end_position_offset`) of each fine EP entry of a PID in a CPI section, in file order. */
 function fineFlags(cpi: Uint8Array, pid: number): number[] {
   if (readU32(cpi, 0) === 0) return [];
   const epMapStart = 6;
@@ -243,7 +259,8 @@ interface MapToWrite {
 /**
  * The CPI section with these EP maps. A coarse entry opens whenever the PTS bits above the fine
  * entry's (45 kHz bit 19 up) or the SPN bits above the low 17 change, which is what libbluray's
- * reading of coarse plus fine entries recovers.
+ * `_parse_ep_map_stream` and `_parse_cpi` recover when they join coarse and fine entries. The fine entry holds PTS
+ * bits 8 to 18 and SPN bits 0 to 16, the coarse entry PTS bits 19 to 32 and the whole SPN.
  */
 function writeCpi(original: Uint8Array, maps: readonly MapToWrite[]): Uint8Array {
   const w = new BeWriter();
@@ -276,7 +293,7 @@ function writeCpi(original: Uint8Array, maps: readonly MapToWrite[]): Uint8Array
   return out;
 }
 
-/** The indexes of the entries that open a coarse entry. */
+/** The indexes of the entries that open a coarse entry: those whose PTS bits 19 and up or SPN bits 17 and up differ from the previous entry's. */
 function groupEntries(entries: readonly EpEntry[]): number[] {
   const starts: number[] = [];
   let key = '';
@@ -289,8 +306,8 @@ function groupEntries(entries: readonly EpEntry[]): number[] {
 }
 
 /**
- * Extension data without the 3D entries (2.4 extent start points, 2.5 ProgramInfo SS, 2.6 CPI SS),
- * which describe the MVC dependent view every level drops; null when nothing is left. Unchanged
+ * Extension data without the 3D entries (id1 2 with id2 4 extent start points, 5 ProgramInfo SS, 6 CPI SS: libbluray
+ * `_parse_clpi_extension`), which describe the MVC dependent view every level drops; null when nothing is left. Unchanged
  * when there is nothing to drop.
  */
 function rewriteExtension(section: Uint8Array): Uint8Array | null {
