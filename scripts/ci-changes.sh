@@ -27,9 +27,9 @@ PKG='package\.json|package-lock\.json'
 # Everything but Markdown (except docs/*.md, the /help pages), the owner's deploy files and the other workflows.
 UNIT_SKIP='(\.md$|^server/deploy/|^\.github/workflows/)'
 UNIT_KEEP='^docs/[^/]+\.md$'
-E2E='^(src/|server/|rendezvous/|fixtures/synthetic/|fixtures/shaders/|fixtures/encodes/|encoder/fixtures/disc-speech/|tests/e2e/|public/|vite/|vite\.config\.ts|playwright\.config\.ts|index\.html|probe\.html|docs/[^/]+\.md$|packages/)'
+E2E='^(src/|tools/devsite/|server/|rendezvous/|fixtures/synthetic/|fixtures/shaders/|fixtures/encodes/|encoder/fixtures/disc-speech/|tests/e2e/|public/|vite/|vite\.config\.ts|playwright\.config\.ts|index\.html|probe\.html|docs/[^/]+\.md$|packages/)'
 ASS='^(packages/ass/|packages/engine/src/subs/|packages/engine/src/memory-profile\.ts|fixtures/ass/|tests/ass-trace/|playwright\.ass\.config\.ts|vite/|vite\.config\.ts)'
-SITE="^(src/|public/|vite/|vite\.config\.ts|index\.html|probe\.html|docs/[^/]+\.md$|tsconfig[^/]*\.json|$PKG|packages/)"
+SITE="^(src/|tools/devsite/|public/|vite/|vite\.config\.ts|index\.html|probe\.html|docs/[^/]+\.md$|tsconfig[^/]*\.json|$PKG|packages/)"
 WORKER="^(rendezvous/|packages/nas/|tsconfig\.rendezvous\.json|$PKG)"
 IMAGE="^(server/|tsconfig\.server\.json|$PKG|packages/)"
 

@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react';
 import type { Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { defineConfig } from 'vitest/config';
+import { developerSite } from './vite/devsite/plugin.ts';
 import { helpPages } from './vite/markdown.ts';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
@@ -40,6 +41,7 @@ export default defineConfig({
   plugins: [
     isolateEveryResponse,
     helpPages(root),
+    developerSite(root),
     react(),
     VitePWA({
       strategies: 'injectManifest',
@@ -53,8 +55,8 @@ export default defineConfig({
         // No glsl: the bundled Anime4K shaders load on demand, and src/sw.ts caches them at runtime.
         globPatterns: ['**/*.{js,css,html,wasm,ttf,woff2,svg,png,webmanifest,jar}'],
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
-        // The diagnostics page is online-only.
-        globIgnores: ['probe.html', 'assets/probe-*.js'],
+        // The diagnostics page is online-only, and the developer pages are a site of their own, outside the player.
+        globIgnores: ['probe.html', 'assets/probe-*.js', 'developers/**'],
       },
     }),
   ],
