@@ -1,3 +1,4 @@
+/** Which fullscreen API the page uses: the standard one or the WebKit-prefixed one. */
 export type FullscreenKind = 'standard' | 'webkit';
 
 interface WebkitDocument {
@@ -20,9 +21,12 @@ export function toggleFullscreen(doc: Document, element: HTMLElement, kind: Full
   else void element.requestFullscreen();
 }
 
+/** `localStorage` key (a kept `bluray-web` name) that remembers the hint was dismissed. */
 export const FULLSCREEN_HINT_KEY = 'bluray-web.fullscreen-hint-dismissed';
+/** The hint shown on a touch device whose browser has no fullscreen API. */
 export const FULLSCREEN_HINT_TEXT = 'Add to Home Screen to watch fullscreen.';
 
+/** What decides whether the Add to Home Screen hint shows. */
 export interface FullscreenHintInput {
   readonly fullscreen: FullscreenKind | null;
   readonly coarsePointer: boolean;
@@ -30,10 +34,12 @@ export interface FullscreenHintInput {
   readonly dismissed: boolean;
 }
 
+/** The hint shows only where there is no fullscreen API, on a touch device, outside an installed app, until dismissed. */
 export function shouldShowFullscreenHint({ fullscreen, coarsePointer, standalone, dismissed }: FullscreenHintInput): boolean {
   return fullscreen === null && coarsePointer && !standalone && !dismissed;
 }
 
+/** The part of `Storage` the hint uses. */
 export interface HintStorage {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
@@ -48,6 +54,7 @@ export function isFullscreenHintDismissed(storage: HintStorage): boolean {
   }
 }
 
+/** Remembers the dismissal; a storage that throws is ignored. */
 export function markFullscreenHintDismissed(storage: HintStorage): void {
   try {
     storage.setItem(FULLSCREEN_HINT_KEY, '1');
@@ -65,6 +72,7 @@ export function safeLocalStorage(win: { readonly localStorage: HintStorage } = w
   }
 }
 
+/** The parts of `window` `evaluateFullscreenHint` reads. */
 export interface HintEnvironment {
   matchMedia(query: string): { readonly matches: boolean };
   readonly localStorage: HintStorage;

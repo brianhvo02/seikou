@@ -9,6 +9,7 @@
 import type { RemoteDiscSpec } from '@seikou/engine/disc/disc-spec';
 import type { DiscManifest, LibraryListing } from '@seikou/nas/nas-api';
 
+/** The disc server a page URL points at: its token, the one disc it names (if any) and its API base. */
 export interface ServerLink {
   readonly token: string;
   /** The disc's API base (`…/api/discs/<id>/`, ending with '/'), or null to offer every disc in the list. */
@@ -17,6 +18,7 @@ export interface ServerLink {
   readonly api: string;
 }
 
+/** One disc in the disc server's library listing. */
 export interface ServerDisc {
   readonly name: string;
   /** The disc's API base, ending with '/'. */

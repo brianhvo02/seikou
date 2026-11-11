@@ -8,6 +8,10 @@ export interface Tap {
   readonly timeMs: number;
 }
 
+/**
+ * What a tap on the video does: show or hide the controls, seek back or forward (a double tap on the left or right third),
+ * click the disc menu, show the controls over a menu, or nothing.
+ */
 export type TapAction = 'toggleControls' | 'seekBack' | 'seekForward' | 'menuClick' | 'showControls' | 'none';
 
 /** Two taps within this many ms make a double tap. */
@@ -16,7 +20,7 @@ export const DOUBLE_TAP_MS = 300;
 /**
  * Whether a point (client px) on the canvas lies off the picture: in a letterbox or pillarbox band (top, bottom or sides)
  * around the 1920×1080 picture as the compositor fits it into the canvas (the rectangle taps are mapped through, as
- * toMenuSpace). A tap there reaches no disc, so over a menu it shows the controls instead (rulings R13, R14).
+ * toMenuSpace). A tap there reaches no disc, so over a menu it shows the controls instead.
  */
 export function offPicture(x: number, y: number, canvas: { readonly left: number; readonly top: number; readonly width: number; readonly height: number }): boolean {
   const fit = fitRect(MENU_WIDTH, MENU_HEIGHT, canvas.width, canvas.height);
@@ -37,7 +41,7 @@ export function beyondLongPressSlop(start: { readonly x: number; readonly y: num
 }
 
 /**
- * Whether a touch held for `heldMs` makes a long press that shows the controls (ruling R15): only over a disc menu, held at
+ * Whether a touch held for `heldMs` makes a long press that shows the controls: only over a disc menu, held at
  * least LONG_PRESS_MS without moving beyond the slop. It is not sent to the disc; elsewhere a long touch is an ordinary tap.
  */
 export function isMenuLongPress(ctx: { readonly inMenu: boolean; readonly heldMs: number; readonly moved: boolean }): boolean {
@@ -47,7 +51,7 @@ export function isMenuLongPress(ctx: { readonly inMenu: boolean; readonly heldMs
 /**
  * What a tap on the video does. While a disc menu is shown (an HDMV menu, or a BD-J plane with anything visible) a tap on
  * the picture is a click on the menu, and with the controls hidden a tap off it (`offPicture`) shows them: nothing reaches
- * the disc there (rulings R13, R14). Otherwise a single tap toggles the controls, and a second tap within DOUBLE_TAP_MS in
+ * the disc there. Otherwise a single tap toggles the controls, and a second tap within DOUBLE_TAP_MS in
  * the left or right third seeks back or forward.
  */
 export function classifyTap(
@@ -89,8 +93,9 @@ export function controlsMayIdle(ctx: { playing: boolean; pressed: boolean; menuO
 }
 
 /**
- * Whether a menu click the disc didn't take (an HDMV tap on no button) shows the controls (ruling R13): for a touch, which
- * has no other way to bring them back over the picture. A mouse or pen click leaves them as they are (ruling R9).
+ * Whether a menu click the disc didn't take (an HDMV tap on no button) shows the controls: for a touch, which
+ * has no other way to bring them back over the picture. A mouse or pen click leaves them as they are, since the pointer
+ * can wake the bar at the bottom edge.
  */
 export function missedMenuTapShowsControls(pointerType: string): boolean {
   return pointerType === 'touch';
@@ -101,14 +106,14 @@ export function isHoverPointer(pointerType: string): boolean {
   return pointerType === 'mouse' || pointerType === 'pen';
 }
 
-/** Over a disc menu, the mouse wakes the control bar only within this many px of the player's bottom edge (ruling R9). */
+/** Over a disc menu, the mouse wakes the control bar only within this many px of the player's bottom edge. */
 export const MENU_WAKE_ZONE_PX = 24;
 
 /** What a hover pointer's move (or press) over a disc menu does to the control bar. */
 export type MenuPointerEffect = 'wake' | 'hide' | 'keep';
 
 /**
- * The control bar never covers a disc menu (ruling R9). Over a menu a mouse or pen wakes the bar only within
+ * The control bar never covers a disc menu. Over a menu a mouse or pen wakes the bar only within
  * MENU_WAKE_ZONE_PX of the player's bottom edge, or while the pointer is over the shown bar (`barTop`, null when hidden)
  * or on a control (so its buttons can be reached once it shows). Anywhere else the bar hides at once, unless something
  * holds it (a control held down, a bar menu open, the remote open), and then it is left as it is.
@@ -121,8 +126,8 @@ export function menuPointerEffect(p: { y: number; playerBottom: number; barTop: 
 
 /**
  * Whether the controls show. They always show while paused, except over a disc menu when a hover pointer hid them (moving
- * over the menu, ruling R9): then they stay hidden while paused, since a real player draws nothing over the menu. Controls
- * that idled out by the timer show again on pause, as outside a menu (ruling R12).
+ * over the menu): then they stay hidden while paused, since a real player draws nothing over the menu. Controls
+ * that idled out by the timer show again on pause, as outside a menu.
  */
 export function controlsShown(ctx: { idle: boolean; playing: boolean; inMenu: boolean; hiddenByHover: boolean }): boolean {
   return !ctx.idle || (!ctx.playing && !(ctx.inMenu && ctx.hiddenByHover));

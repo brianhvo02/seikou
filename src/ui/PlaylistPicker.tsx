@@ -21,6 +21,13 @@ interface PlaylistPickerProps {
   onCloseDisc(): void;
 }
 
+/**
+ * The dialog for choosing what to play: the disc's playlists (the likely main feature marked), and for an HDMV disc its
+ * index titles above them (`onPickTitle`). It lists the files a disc lacks when no playlist can play, shows `messages`
+ * (errors and unsupported-codec notices) inline, and for a BD-J disc (`usesBdj`) explains that the menus are not
+ * available when `bdjSupported` is false, naming what the browser lacks (`bdjMissing`). `onPick` plays a playlist,
+ * `onClose` dismisses the dialog (absent when there is nothing to go back to) and `onCloseDisc` closes the disc.
+ */
 export function PlaylistPicker({ playlists, usesBdj, bdjSupported = false, bdjMissing = [], titles = [], onPickTitle, messages = [], onPick, onClose, onCloseDisc }: PlaylistPickerProps): ReactElement {
   const mainId = playlists.find((p) => p.playable)?.id;
   const missing = playlists.length > 0 && !mainId ? [...new Set(playlists.flatMap((p) => p.missingPaths))] : [];

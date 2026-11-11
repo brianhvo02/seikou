@@ -5,10 +5,14 @@ const MAX_RECENT = 5;
 const withStore = <T>(factory: IDBFactory, mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T> | void) =>
   withDbStore<T>(factory, STORES.recentDiscs, mode, run);
 
+/** A disc folder opened before, kept in IndexedDB as its directory handle (Chromium only) so it can be reopened without picking it again. */
 export interface RecentDisc {
+  /** The store's auto-increment key. */
   readonly id: number;
+  /** The folder's name when last opened. */
   readonly name: string;
   readonly handle: FileSystemDirectoryHandle;
+  /** When it was last opened, in ms since the epoch. */
   readonly openedAt: number;
   /** `discKeyOf` of the disc's files when it was last opened, for its place on this device; null when it has no fingerprint (or an older entry). */
   readonly discKey: string | null;
@@ -19,11 +23,16 @@ export type SameFolder = (a: FileSystemDirectoryHandle, b: FileSystemDirectoryHa
 
 const isSameFolder: SameFolder = (a, b) => a.isSameEntry(b);
 
+/** The remembered discs, most recently opened first. */
 export async function listRecentDiscs(factory: IDBFactory = indexedDB): Promise<RecentDisc[]> {
   const all = (await withStore<RecentDisc[]>(factory, 'readonly', (store) => store.getAll() as IDBRequest<RecentDisc[]>)) ?? [];
   return all.map((d) => ({ ...d, discKey: d.discKey ?? null })).sort((a, b) => b.openedAt - a.openedAt);
 }
 
+/**
+ * Remembers `handle` as just opened at `now`. A handle to a folder already remembered (`sameFolder`, compared one by one)
+ * updates that entry rather than adding another; only the five most recent entries are kept.
+ */
 export async function saveRecentDisc(
   handle: FileSystemDirectoryHandle,
   now = Date.now(),
@@ -45,6 +54,7 @@ export async function saveRecentDisc(
   for (const disc of stale) await removeRecentDisc(disc.id, factory);
 }
 
+/** Forgets one remembered disc by its `id`. */
 export async function removeRecentDisc(id: number, factory: IDBFactory = indexedDB): Promise<void> {
   await withStore(factory, 'readwrite', (store) => {
     store.delete(id);

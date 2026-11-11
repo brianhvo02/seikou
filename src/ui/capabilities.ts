@@ -1,9 +1,10 @@
 import { bdjMissing } from '../bdj/requirements';
 
+/** What this browser can do, from feature checks on its globals (never its user agent), for gating features and explaining what is missing. */
 export interface CapabilityReport {
   readonly core: { readonly ok: boolean; readonly missing: readonly string[] };
   /**
-   * What BD-J menus need (engine/bdj/requirements.ts), as far as the page can see: whether a worker may start workers
+   * What BD-J menus need (`bdjMissing` in `src/bdj/requirements.ts`), as far as the page can see: whether a worker may start workers
    * is known only inside the engine worker, which checks again before it runs BD-J and names what it lacks.
    */
   readonly bdj: { readonly ok: boolean; readonly missing: readonly string[] };
@@ -13,9 +14,13 @@ export interface CapabilityReport {
   readonly canPickFolderInput: boolean;
   /** FileSystemHandle permissions (recent discs) */
   readonly canRememberDiscs: boolean;
+  /** Which fullscreen API the document offers: the standard one, the WebKit-prefixed one, or none (iPhone Safari). */
   readonly fullscreen: 'standard' | 'webkit' | null;
+  /** `navigator.audioSession` exists (Safari), so the page can mark its audio as playback. */
   readonly audioSession: boolean;
+  /** The Screen Wake Lock API exists. */
   readonly wakeLock: boolean;
+  /** The Media Session API exists (lock-screen and media-key controls). */
   readonly mediaSession: boolean;
 }
 
@@ -25,6 +30,10 @@ function obj(v: unknown): Bag | undefined {
   return (typeof v === 'object' || typeof v === 'function') && v !== null ? (v as Bag) : undefined;
 }
 
+/**
+ * Builds the capability report from `g`, the global scope (the real one by default; tests pass a stand-in). It only reads
+ * properties and never throws. `core` lists what playback cannot start without; `bdj` what BD-J menus need on top.
+ */
 export function checkCapabilities(g: Bag = globalThis as unknown as Bag): CapabilityReport {
   const missing: string[] = [];
   if (!('VideoDecoder' in g)) missing.push('WebCodecs video decoding');

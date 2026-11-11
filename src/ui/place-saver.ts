@@ -9,7 +9,7 @@ import { MAX_TEXT_FILE_BYTES, MAX_TEXT_FILES_BYTES, placeKey, type PlaceStore, t
 
 /** A local disc's places name their device this way ("Stopped at 3:12 of 24:00 on this device"). */
 export const LOCAL_DEVICE_NAME = 'this device';
-/** Spec 2026-10-20 §6.2: saved this often while playing. */
+/** A place is saved this often (ms) while playing. */
 export const SAVE_EVERY_MS = 10_000;
 /** A time that moves this much more (or less) than the clock did between two snapshots was a seek. */
 const SEEK_JUMP_US = 2_000_000;
@@ -48,7 +48,7 @@ export interface PlaceTarget {
 
 /**
  * Settings a launch hands to the player, applied once the disc has opened: a resumed place's (or Start from
- * beginning's), an Up next card's, or the disc's defaults (spec 2026-10-20 §6.1, §6.3, §6.6).
+ * beginning's), an Up next card's, or the disc's defaults (its own settings, or another playlist's chosen by language).
  */
 export interface LaunchSettings {
   readonly settings: PlaceSettings;
@@ -61,7 +61,9 @@ export interface LaunchSettings {
   readonly names?: TrackNames;
 }
 
+/** What `PlaceSaver` needs from outside (all injectable): the device store, the NAS client, the engine's registers, timers and the place threshold. */
 export interface PlaceSaverDeps {
+  /** The device-side store (IndexedDB); a local disc's places and every NAS place's outbox live in it. */
   readonly store: PlaceStore;
   /** Where a NAS disc's places go; null with no NAS paired. */
   readonly nas: Pick<NasClient, 'putPlace' | 'pairing'> | null;
@@ -69,8 +71,11 @@ export interface PlaceSaverDeps {
   readonly readPlace: () => Promise<PlaceState>;
   /** PlayerController.discOpens: a read made under another open is not this disc's. */
   readonly discOpens: () => number;
+  /** The current time in ms since the epoch. */
   readonly nowMs: () => number;
+  /** Starts a one-shot timer (the 10 s save tick and retry waits); returns a handle for `clearTimer`. */
   readonly setTimer: (fn: () => void, ms: number) => unknown;
+  /** Cancels a timer `setTimer` started. */
   readonly clearTimer: (handle: unknown) => void;
   /** PLACE_MIN_DURATION_US, or `?placemin=` (placeMinDurationUs). */
   readonly minDurationUs?: number;
@@ -110,7 +115,7 @@ function settingsOf(seen: Seen): string {
   return JSON.stringify([s.selectedAudio, subs?.selected ?? null, subs?.scale ?? null, subs?.text?.files.map((f) => [f.name, f.startUs, f.offsetMs]) ?? null, seen.shaderSet]);
 }
 
-/** Spec §6.2's "at once" saves: a pause (or the end), a seek, a track, offset or shader change. */
+/** Whether a change between two snapshots is saved at once rather than at the next 10 s tick: a pause (or the end), a seek, a track, offset or shader change. */
 function savesAtOnce(prev: Seen, next: Seen): boolean {
   const a = prev.snapshot;
   const b = next.snapshot;
@@ -138,7 +143,7 @@ const TRANSIENT = new Set([404, 429, 502, 503, 504]);
 const ENCODE_REGISTERS: PlaceState = { mode: 'none', title: null, psrs: [], gprs: null };
 
 /**
- * Saves the open disc's place (spec 2026-10-20 §6.2): every 10 s while playing and at once on a pause, seek, track,
+ * Saves the open disc's place: every 10 s while playing and at once on a pause, seek, track,
  * offset or shader change, or when the playlist changes (the one that stopped, where it stopped). Only a qualifying
  * playlist (qualifies) makes a place, so a menu loop after an episode keeps the episode's. Every save goes to the
  * device first: a local disc's into its places, a NAS disc's into the outbox only, sent from there and kept there while

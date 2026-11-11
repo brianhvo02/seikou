@@ -16,6 +16,12 @@ interface ShaderMenuProps {
   onOpenChange(open: boolean): void;
 }
 
+/**
+ * The control bar's Shaders button: a radio list of shader sets (Off, the Anime4K sets, imported sets; a set with missing
+ * files is disabled and says which) and a Manage dialog for importing shader files, folders and `input.conf` files and
+ * removing them. `status` is the engine's report (the menu says so when WebGL2 is unavailable) and `dropWarning` the share
+ * of dropped frames while a set runs. `onOpenChange` tells the player to keep its controls up while the menu or the dialog is open.
+ */
 export function ShaderMenu({ model, state, status, dropWarning, onOpenChange }: ShaderMenuProps): ReactElement {
   const [open, setOpen] = useState(false);
   const [manageOpen, setManageOpen] = useState(false);

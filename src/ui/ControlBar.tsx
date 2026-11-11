@@ -29,6 +29,11 @@ const SEEK_SETTLE_MS = 3000;
 /** The engine time counts as having reached a committed target within this distance. */
 const SEEK_REACHED_US = 1_000_000;
 
+/**
+ * The seek slider over `durationUs` with a tick per chapter. A pointer drag moves the thumb and seeks once on release; a change by keyboard seeks at once (`onSeek`,
+ * microseconds). After a seek the thumb holds the target until the engine's time reaches it, so it does not jump back while the
+ * seek is in flight. `disabled` is the disc's UO mask forbidding seeks.
+ */
 function SeekBar({ durationUs, timeUs, chapters, disabled, onSeek }: SeekBarProps): ReactElement {
   // While dragging: the thumb position. After a commit: the target, held until the engine time gets there,
   // so the thumb doesn't jump back to the old time while the seek is in flight.
@@ -135,6 +140,14 @@ interface ControlBarProps {
   readonly encode?: { readonly countdown: boolean | null; onCountdown(on: boolean): void; onClose(): void } | null;
 }
 
+/**
+ * The player's control bar: seek bar with chapter ticks, previous and next chapter, play and pause, time, mute and
+ * volume, then the Audio, Quality (`quality`), Subtitles, Chapters and Settings (`encode`), and Shaders menus, and the
+ * buttons Top Menu and Pop-up (when the disc has them), Remote (HDMV or BD-J), Titles or Playlists (Close for an
+ * encode) and Fullscreen (when `onFullscreen` is given). A control the disc's UO mask forbids is disabled with a
+ * tooltip. `visible` false hides the bar with a CSS class and keeps it mounted. Everything is driven by `snapshot` and
+ * the `controller`'s commands.
+ */
 export function ControlBar({ controller, snapshot, shaderModel, shaderState, visible, onOpenPlaylists, onFullscreen, onMenuKey, remoteOpen, onToggleRemote, onMenuOpenChange, onSubtitleFiles, storedSubtitles = null, toshoSearch = null, quality = null, encode = null }: ControlBarProps): ReactElement {
   const playing = snapshot.engineState === 'playing' || snapshot.engineState === 'buffering';
   const silent = snapshot.muted || snapshot.volume === 0;

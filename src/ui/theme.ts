@@ -5,9 +5,12 @@
  * `applyTheme` before first paint; `theme-boot.test.ts` keeps the two in step.
  */
 
+/** The device's theme setting: follow the system, or force light or dark. */
 export type ThemeChoice = 'auto' | 'light' | 'dark';
+/** The theme actually applied: what the choice, the device and an open disc resolve to. */
 export type EffectiveTheme = 'light' | 'dark';
 
+/** `localStorage` key (a kept `bluray-web` name) of the device's choice. */
 export const THEME_KEY = 'bluray-web:theme';
 
 /** The page grounds (`--night`), for the browser's own bar. */
@@ -25,12 +28,14 @@ export function readThemeChoice(storage: Pick<Storage, 'getItem'> | null): Theme
   }
 }
 
+/** Resolves the choice: always dark while a disc is open; Auto follows `prefersLight`. */
 export function effectiveTheme(choice: ThemeChoice, prefersLight: boolean, discOpen: boolean): EffectiveTheme {
   if (discOpen) return 'dark';
   if (choice === 'auto') return prefersLight ? 'light' : 'dark';
   return choice;
 }
 
+/** Sets `data-theme` and `color-scheme` on `<html>` and the `theme-color` meta tags to the theme's page colour. */
 export function applyTheme(doc: Document, theme: EffectiveTheme): void {
   const root = doc.documentElement;
   root.dataset.theme = theme;
@@ -38,15 +43,23 @@ export function applyTheme(doc: Document, theme: EffectiveTheme): void {
   for (const meta of doc.querySelectorAll('meta[name="theme-color"]')) meta.setAttribute('content', THEME_COLORS[theme]);
 }
 
+/** What `ThemeController` reads from the page, injectable for tests. */
 export interface ThemeDeps {
+  /** `localStorage`, or null when it is unavailable (it can throw in some privacy modes). */
   readonly storage: () => Storage | null;
+  /** `window.matchMedia`, for `prefers-color-scheme`. */
   readonly matchMedia: (query: string) => MediaQueryList;
+  /** Where `storage` events from other tabs arrive. */
   readonly target: Pick<Window, 'addEventListener' | 'removeEventListener'>;
+  /** The document whose `<html>` gets the theme. */
   readonly doc: Document;
 }
 
+/** The theme store's state. */
 export interface ThemeSnapshot {
+  /** What the user picked. */
   readonly choice: ThemeChoice;
+  /** What is applied now. */
   readonly effective: EffectiveTheme;
 }
 

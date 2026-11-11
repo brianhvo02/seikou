@@ -1,6 +1,8 @@
 import { fitRect } from '@seikou/engine/render/compositor';
 
+/** The width of menu space, the graphics plane's size on the disc (1920 px). */
 export const MENU_WIDTH = 1920;
+/** The height of menu space (1080 px). */
 export const MENU_HEIGHT = 1080;
 
 /** A point on the canvas in menu space (1920×1080, letterboxed as the compositor draws it), or null outside the picture. */

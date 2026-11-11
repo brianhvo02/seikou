@@ -1,17 +1,26 @@
 import type { MemoryProfileName } from '@seikou/engine/memory-profile';
 import { chooseMemoryProfile } from './memory-profile';
 
+/** What this device can play and show, used to pick and enable quality levels. */
 export interface VideoCaps {
+  /** WebCodecs decodes HEVC Main (8-bit) at 1080p. */
   hevc: boolean;
+  /** WebCodecs decodes HEVC Main 10. */
   hevc10: boolean;
+  /** The display reports `(dynamic-range: high)`. */
   hdrDisplay: boolean;
+  /** A phone-sized device: the constrained memory profile or a screen under 600 CSS px on its shorter side. */
   phone: boolean;
 }
 
+/** What the caps probes read, injectable for tests. */
 export interface VideoCapsEnv {
+  /** `VideoDecoder.isConfigSupported`; absent when WebCodecs is. */
   isConfigSupported?: (c: { codec: string; codedWidth: number; codedHeight: number }) => Promise<{ supported?: boolean }>;
   matchMedia: (q: string) => { matches: boolean };
+  /** The screen size in CSS px. */
   screen: { width: number; height: number };
+  /** The memory profile in force. */
   memoryProfile: 'desktop' | 'constrained';
 }
 
@@ -36,7 +45,10 @@ export function noAv1Flag(search: string): boolean {
   return new URLSearchParams(search).has('noav1');
 }
 
-/** `?noav1=1`, read once as the app loads (as the other test flags are): the address bar changes as the app navigates. */
+/**
+ * `?noav1=1` (test-only), read once as the app loads (as the other test flags are, since the address bar changes as the app
+ * navigates): the AV1 check then says unsupported, so an encode's pre-flight shows its AV1 warning in any browser.
+ */
 const NO_AV1 = typeof location !== 'undefined' && noAv1Flag(location.search);
 
 /** detectAv1 in this browser; never rejects. `?noav1=1` (test-only) makes it false. */
@@ -58,6 +70,7 @@ async function probe(env: Pick<VideoCapsEnv, 'isConfigSupported'>, codec: string
   }
 }
 
+/** Probes the device once: HEVC Main and Main 10 through `isConfigSupported` (false for a probe that throws or is missing), the display's dynamic range and the phone test. */
 export async function detectVideoCaps(env: VideoCapsEnv): Promise<VideoCaps> {
   const [hevc, hevc10] = await Promise.all([probe(env, HEVC_MAIN), probe(env, HEVC_MAIN10)]);
   return {
@@ -78,6 +91,7 @@ function browserMemoryProfile(): MemoryProfileName {
   });
 }
 
+/** The real browser's `VideoCapsEnv`. */
 export function browserVideoCapsEnv(): VideoCapsEnv {
   return {
     isConfigSupported: typeof VideoDecoder !== 'undefined' && typeof VideoDecoder.isConfigSupported === 'function'

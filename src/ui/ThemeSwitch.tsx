@@ -17,7 +17,7 @@ const OPTIONS: readonly { readonly value: ThemeChoice; readonly label: string; r
   { value: 'dark', label: 'Dark', icon: <path d="M13.5 10.2A6 6 0 0 1 5.8 2.5a6 6 0 1 0 7.7 7.7Z" /> },
 ];
 
-/** Auto (the device's setting), Light or Dark, for this device (spec 2026-10-27 §3). */
+/** A radio group (an icon each on a narrow screen, the word otherwise) for this device's theme choice, Auto (follow the system), Light or Dark, read from and written to `theme`. */
 export function ThemeSwitch({ theme }: { readonly theme: ThemeController }): ReactElement {
   const { choice } = useSyncExternalStore(theme.subscribe, theme.getSnapshot);
   return (

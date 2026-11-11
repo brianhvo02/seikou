@@ -62,6 +62,7 @@ function usePopup(onOpenChange: (open: boolean) => void): Popup {
   return { open, rootRef, buttonRef, listRef, toggle: () => setOpen((o) => !o), close, moveFocus };
 }
 
+/** The button and popup list the encode's menus share: a `label` button that opens `popup`'s list, with the list's `children` inside. */
 function MenuShell({ popup, label, testId, className, children }: { popup: Popup; label: string; testId: string; className?: string; children: ReactNode }): ReactElement {
   return (
     <div className="audio-menu" ref={popup.rootRef}>

@@ -31,6 +31,7 @@ function within<T>(p: Promise<T>, ms: number, onLate?: () => void): Promise<T> {
   return Promise.race([p, late]).finally(() => clearTimeout(timer));
 }
 
+/** What `LaunchSettingsApplier` works through: the player controller, the place saver and, when a NAS is paired, its subtitle routes and the picks that add a stored or Anime Tosho subtitle to the player. */
 export interface LaunchSettingsDeps {
   readonly controller: Pick<
     PlayerController,
@@ -58,7 +59,9 @@ export interface LaunchSettingsDeps {
   readonly onStoredSubtitle?: (id: string) => void;
   /** A resumed Anime Tosho pick is in the text set again (the search checks its track). */
   readonly onFansubPick?: (pick: FansubPick, fansub: PlaceFansub) => void;
+  /** Where a failed fetch or listing is reported (the app logs it); the applier never throws for them. */
   readonly log?: (message: string, err: unknown) => void;
+  /** The clock for the engine's list wait; the real one by default. */
   readonly nowMs?: () => number;
 }
 
@@ -109,7 +112,7 @@ export function filesToAdd(wanted: readonly PlaceTextFile[], stored: readonly St
 }
 
 /**
- * Applies a launch's settings once its disc plays (spec 2026-10-20 §6.1, §6.3, §6.6): volume and mute, audio and PG by language for another playlist's settings, and the text subtitle files (this device's, and on a resume
+ * Applies a launch's settings once its disc plays: volume and mute, audio and PG by language for another playlist's settings, and the text subtitle files (this device's, and on a resume
  * those stored on the NAS) with their placements, offsets and scale. A carried file this device has no bytes for (for
  * this disc), or that the NAS no longer has or can't send, is skipped silently. For Up next, a stored subtitle that was
  * shown picks this playlist's stored subtitle in its language instead, and the episode before's other files are left.
@@ -150,7 +153,7 @@ export class LaunchSettingsApplier {
     controller.setVolume(settings.volume);
     if (settings.muted !== s.muted) controller.toggleMute();
     const pg = s.subtitles?.pg ?? [];
-    // Up next: a stored subtitle shown on the episode before carries its language to this one's (spec §6.6)
+    // Up next: a stored subtitle shown on the episode before carries its language to this one's
     const carried = launch.byLanguage && settings.textOn ? settings.textFiles.find((f) => fromNas(f) && f.language !== undefined) : undefined;
     // an encode opens with no registers to restore its tracks from, so a resume sets them by number
     if (launch.byLanguage || s.encodeId !== null) {
@@ -219,7 +222,7 @@ export class LaunchSettingsApplier {
   }
 
   /**
-   * Up next after an Anime Tosho pick (spec §9): the release is listed for this playlist, and the episode's file there
+   * Up next after an Anime Tosho pick: the release is listed for this playlist, and the episode's file there
    * with a track of the same name is picked as the search picks one. With none (or the release not listed), as for a
    * stored subtitle: this playlist's stored subtitle in the pick's language, else PG.
    */

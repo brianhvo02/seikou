@@ -32,7 +32,7 @@ interface SubtitleMenuProps {
   readonly showingFile: number | null;
   /** A NAS disc's stored subtitles ("From the NAS"); null for other discs. */
   readonly stored?: StoredSubtitles | null;
-  /** A NAS disc's Anime Tosho search ("Search Anime Tosho…", spec §9); null for other discs. */
+  /** A NAS disc's Anime Tosho search ("Search Anime Tosho…"); null for other discs. */
   readonly search?: ToshoSearch | null;
   onSelect(choice: SubtitleChoice): void;
   onLoadFiles(files: readonly File[]): void;

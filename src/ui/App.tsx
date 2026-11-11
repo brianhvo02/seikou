@@ -38,6 +38,7 @@ function createAppController(): PlayerController {
   // Test-only (E2E): ?bdjfail=1, ?nonestedworkers=1, ?nodecoder=1 and ?telemetry=1 go to the engine worker as flags in
   // its name (@seikou/engine/worker-main engineWorkerTestFlags, src/engine-worker.ts): an unreadable class library, no
   // workers started from workers, no video decoder configuration supported, the BD-J plane's hash in telemetry.
+  // `?telemetry=1` also makes the controller copy telemetry to `window.__blurayTelemetry`, which the E2E tests read.
   const flags = ['bdjfail', 'nonestedworkers', 'nodecoder', 'telemetry'].filter((f) => params.has(f));
   const name = flags.length > 0 ? `bluray-engine:${flags.join(',')}` : 'bluray-engine';
   return createController({
@@ -77,7 +78,7 @@ function getPlaceSaver(controller: PlayerController, nas: NasClient): PlaceSaver
     nowMs: Date.now,
     setTimer: (fn, ms) => window.setTimeout(fn, ms),
     clearTimer: (handle) => window.clearTimeout(handle as number),
-    // ?placemin=<seconds> is test-only: shorter playlists make places
+    // `?placemin=<seconds>` is test-only: the playlist length that makes a place, so the short synthetic discs can save places
     minDurationUs: placeMinDurationUs(window.location.search),
     levelAudio: () => {
       const s = levelSessionOf(nas).get();
@@ -92,7 +93,7 @@ let takenPairLink: PairLink | undefined;
 
 /**
  * A `?pair=<code>` link (with the `nas=` or `rv=` it may carry), taken out of the address bar (once) so a reload doesn't
- * pair again. `http:` addresses count only while the app itself is on a loopback origin (ruling R1).
+ * pair again. `http:` addresses count only while the app itself is on a loopback origin, so a hosted page never pairs over plain HTTP.
  */
 function takePairLink(): PairLink | undefined {
   if (pairLinkTaken) return takenPairLink;
@@ -148,6 +149,7 @@ function useWaitingWorker(): ServiceWorker | null {
   return waiting;
 }
 
+/** A status bar saying a new version is ready, with a Reload button that activates the waiting `worker` (skip waiting, then reload when it takes control) or reloads at once if it already has. */
 function UpdatePrompt({ worker }: { worker: ServiceWorker }): ReactElement {
   const reload = (): void => {
     if (reloadAction(worker.state) === 'reload') {
@@ -167,6 +169,12 @@ function UpdatePrompt({ worker }: { worker: ServiceWorker }): ReactElement {
   );
 }
 
+/**
+ * The whole app: owns the shared controller, NAS client, place saver, shader model and theme, and shows one of three
+ * screens. While no disc is open it shows the help pages (a `/help` address) or the landing screen; once the controller
+ * reports a disc (a playlist list or an open encode) it shows the player. It also shows the update prompt when a new
+ * service worker waits and the touch log when `?touchlog=1` is set.
+ */
 export function App(): ReactElement {
   const [controller] = useState(getController);
   const [nas] = useState(getNasClient);
@@ -181,7 +189,7 @@ export function App(): ReactElement {
   const [playingRoute] = useState(() => new PlayingRoute(history, () => performance.now()));
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   const theme = themeController();
-  // the player, and the page with it, stay dark while a disc is open (spec 2026-10-27 §3)
+  // the player, and the page with it, stay dark while a disc is open, so the player has no light values
   const discOpen = snapshot.playlists.length > 0 || snapshot.encodeId !== null;
   useEffect(() => theme.setDiscOpen(discOpen), [theme, discOpen]);
   useEffect(() => {
@@ -193,8 +201,8 @@ export function App(): ReactElement {
   }, [controller]);
   const [places] = useState(() => getPlaceSaver(controller, nas));
   useEffect(() => {
-    // Spec §6.2: the place is saved as the page is hidden or goes away (over HTTPS with keepalive), and places
-    // waiting on this device go out whenever the NAS answers again.
+    // The place is saved as the page is hidden or goes away (over HTTPS with keepalive, which lets the request outlive the
+    // page), and places waiting on this device go out whenever the NAS answers again.
     const hidden = (): void => {
       if (document.visibilityState === 'hidden') void places.flushNow({ keepalive: true });
     };

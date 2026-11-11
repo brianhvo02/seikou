@@ -24,6 +24,7 @@ function describe(e: Event): string {
   return `${e.type}${kind} ${where}${at}${e.defaultPrevented ? ' prevented' : ''}`;
 }
 
+/** The debugging box: shows the last 14 lines of event log, each stamped with seconds since it mounted, plus the viewport size and any uncaught error. It is hidden from assistive technology. */
 export function TouchLog(): ReactElement {
   const [lines, setLines] = useState<string[]>([]);
   useEffect(() => {

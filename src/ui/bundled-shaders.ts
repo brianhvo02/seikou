@@ -1,6 +1,8 @@
 /** Shader files that ship with the app, fetched only when a mode that uses them is applied. */
 export interface BundledShaders {
+  /** The file names (such as `Anime4K_Restore_CNN_M.glsl`) that can be loaded. */
   readonly names: ReadonlySet<string>;
+  /** Fetches one bundled file's text. */
   load(name: string): Promise<string>;
 }
 
@@ -20,6 +22,10 @@ const FETCH_TIMEOUT_MS = 15_000;
 
 const baseName = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
 
+/**
+ * The bundled Anime4K shaders. `load(name)` fetches the file on first use (`fetchFn` is injectable for tests; each fetch is
+ * aborted after 15 s) and rejects with a plain error for a name that is not bundled or a non-2xx answer.
+ */
 export function bundledAnime4k(fetchFn: (url: string, signal: AbortSignal) => Promise<Response> = (url, signal) => fetch(url, { signal })): BundledShaders {
   const urls = new Map(Object.entries(ANIME4K_URLS).map(([path, url]) => [baseName(path), url]));
   return {

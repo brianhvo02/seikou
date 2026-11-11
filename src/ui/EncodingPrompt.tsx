@@ -18,6 +18,10 @@ interface EncodingPromptProps {
   onAnswer(encoding: string | null): void;
 }
 
+/**
+ * A modal asking which text encoding a subtitle file that isn't UTF-8 uses, with a button per entry of `ENCODINGS`. It
+ * calls `onAnswer` with the chosen `TextDecoder` label, or null on Cancel or Escape. Focus starts on the first choice.
+ */
 export function EncodingPrompt({ fileName, onAnswer }: EncodingPromptProps): ReactElement {
   const firstRef = useRef<HTMLButtonElement>(null);
 

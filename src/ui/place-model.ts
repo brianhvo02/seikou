@@ -3,11 +3,11 @@ import type { AudioTrack, PgTrack, PlaceState, StartPoint } from '@seikou/engine
 import type { PlayerSnapshot } from '@seikou/engine/controller/player-controller';
 import { formatTime } from './format';
 
-/** Spec §6.2: a playlist of this length or more makes a place. */
+/** A playlist of this length (300 s, in microseconds) or more makes a place, so a menu loop or a short extra does not. */
 export const PLACE_MIN_DURATION_US = 300_000_000;
 const PG_DISPLAY_FLAG = 0x80000000;
 
-/** `?placemin=<seconds>` (test-only) overrides the threshold. */
+/** The place threshold in microseconds: `?placemin=<seconds>` (test-only, so the short synthetic discs can save places) overrides the default; a missing, empty, negative or non-numeric value keeps it. */
 export function placeMinDurationUs(search: string): number {
   const raw = new URLSearchParams(search).get('placemin');
   if (raw === null || raw.trim() === '') return PLACE_MIN_DURATION_US;
@@ -16,7 +16,7 @@ export function placeMinDurationUs(search: string): number {
 }
 
 /**
- * Spec §6.2: the playlist the user launched (an episode or a link), the disc's main title, or any playlist of
+ * Whether the playing playlist makes a place: the playlist the user launched (an episode or a link), the disc's main title, or any playlist of
  * `minUs` or more makes a place; a shorter one (a menu loop) never does.
  */
 export function qualifies(
@@ -31,7 +31,7 @@ export function qualifies(
   return snapshot.durationUs >= minUs;
 }
 
-/** Spec §6.5: ended, past the start of a last chapter that starts in the final 10%, or past 95% with no chapters. */
+/** Whether the playlist counts as watched: ended, past the start of a last chapter that starts in the final 10%, or past 95% with no chapters. */
 export function isFinished(s: {
   readonly engineState: string; readonly timeUs: number; readonly durationUs: number; readonly chapters: readonly { readonly startUs: number }[];
 }): boolean {
@@ -48,6 +48,10 @@ export function isFinished(s: {
  */
 export type StoredSubtitleNote = { readonly size: number; readonly language: string; readonly source?: PlaceSubtitleSource } & ({ readonly id: string } | { readonly fansub: PlaceFansub });
 
+/**
+ * Builds the place to save from the player's snapshot and the engine's registers (`place`). `discKey` and `discId` name the
+ * disc, `nowMs` stamps `updatedAt`; the text files' sizes and the NAS-sourced subtitles are added by file name.
+ */
 export function buildPlace(input: {
   readonly discKey: string; readonly discId: string; readonly snapshot: PlayerSnapshot; readonly place: PlaceState;
   readonly shaderSet: string | null; readonly deviceName: string; readonly nowMs: number;
@@ -122,7 +126,7 @@ export function settingsForUpNext(prev: PlaceSettings, tracks: readonly AudioTra
 }
 
 /**
- * Where to open for a resume. `hdmv` carries the whole register file (the engine skips the setting PSRs, §6.1); direct
+ * Where to open for a resume. `hdmv` carries the whole register file (the engine skips the player-setting PSRs); direct
  * playback gets only PSR 1–3. `playlists` null means the disc's list isn't known yet: no check is made.
  */
 export function resumeStart(
@@ -155,6 +159,7 @@ function when(updatedAt: number, nowMs: number): string {
   return new Date(updatedAt).toISOString().slice(0, 10);
 }
 
+/** The Resume prompt's words for a place: a heading, where and when it stopped, the audio, subtitle and shader choices it keeps, and the button label. `nowMs` is the current time. */
 export function promptLines(place: PlaybackPlace, nowMs: number): { heading: string; line: string; details: string; resumeLabel: string } {
   const t = formatTime(place.timeUs);
   const s = place.settings;

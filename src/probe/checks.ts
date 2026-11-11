@@ -1,11 +1,13 @@
 import type { RemoteDiscSpec } from '@seikou/engine/disc/disc-spec';
 
+/** One check's outcome: its name, whether it passed, and a one-line detail for the page to show. */
 export interface ProbeResult {
   readonly name: string;
   readonly ok: boolean;
   readonly detail: string;
 }
 
+/** What the probe worker measures (it needs worker-only APIs): HEVC support, requestAnimationFrame cadence and WebGL2 float render targets. */
 export interface WorkerProbe {
   /** null only when the folder has no HEVC clip; `error` is set when probing it failed. */
   readonly hevc: { hvc1: boolean; hev1: boolean; decoded: boolean; error?: string } | null;
@@ -24,12 +26,13 @@ export interface ProbeFile {
 /** A disc served by tools/disc-server, as the NAS's RemoteDiscSpec (manifest, API base `…/api/discs/<id>/`, token). */
 export type ProbeServerRef = RemoteDiscSpec;
 
-/** The disc under test: a folder picked on the device, or a disc on the development disc server (spec 2026-10-17 §4.5). */
+/** The disc under test: a folder picked on the device, or a disc on the development disc server (`tools/disc-server`). */
 export type ProbeDisc = { readonly route: 'folder'; readonly files: readonly File[] } | { readonly route: 'server'; readonly files: readonly ProbeFile[]; readonly server: ProbeServerRef };
 
 /** What the worker probes: the picked files, or the served disc (the worker reads it over HTTP itself). */
 export type WorkerInput = { readonly entries: ReadonlyArray<readonly [string, File]> } | { readonly server: ProbeServerRef };
 
+/** Everything the checks touch outside themselves, so tests can inject fakes: the disc, an audio context, the worker, the global scope and an optional progress log. */
 export interface ProbeEnv {
   openDisc(): Promise<ProbeDisc>;
   createAudioContext(): BaseAudioContext;
@@ -130,6 +133,11 @@ async function attempt(name: string, fn: () => Promise<ProbeResult> | ProbeResul
 
 const GIB = 2 ** 30;
 
+/**
+ * Runs every device check against the disc `env` opens and returns one result per check, in order. A check that throws or
+ * takes longer than its time limit is reported as failed with the reason in `detail`; the function itself rejects only when
+ * the disc cannot be opened.
+ */
 export async function runChecks(env: ProbeEnv): Promise<ProbeResult[]> {
   const disc = await env.openDisc();
   const log = env.log ?? ((): void => undefined);

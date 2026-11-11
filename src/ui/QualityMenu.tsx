@@ -15,11 +15,17 @@ export function levelItemLabel(l: LevelInfo): string {
   return l.level === 'original' ? l.label : `${l.label} · ${Math.round(levelRateMbps(l, 0))} Mbps`;
 }
 
+/** One row of the Quality menu. */
 export interface LevelMenuItem {
+  /** The level it switches to. */
   readonly level: LevelId;
+  /** `levelItemLabel` of the level. */
   readonly label: string;
+  /** It is the level now playing. */
   readonly checked: boolean;
+  /** The NAS says the level is not available. */
   readonly disabled: boolean;
+  /** The reason it is unavailable, shown as a tooltip; undefined when it is available. */
   readonly title: string | undefined;
 }
 
@@ -35,6 +41,11 @@ export function levelMenuItems(state: LevelState): LevelMenuItem[] {
   }));
 }
 
+/**
+ * The control bar's Quality button and its radio list of the NAS's quality levels for the open disc (`state`), with the
+ * playing one checked and unavailable ones disabled with their reason. It renders nothing unless two or more levels are
+ * available. `onPick` switches level; `onOpenChange` tells the player to keep its controls up while the list is open.
+ */
 export function QualityMenu({ state, onPick, onOpenChange }: QualityMenuProps): ReactElement | null {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);

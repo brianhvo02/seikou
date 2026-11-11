@@ -84,6 +84,7 @@ function uoContext(controller: PlayerController): { playing: boolean; popupShown
   return { playing: now.engineState === 'playing' || now.engineState === 'buffering', popupShown: now.menuActive && now.popupAvailable };
 }
 
+/** A dismissible status message over the picture, with an optional `data-testid`. */
 function Notice({ message, onDismiss, testId }: { message: string; onDismiss(): void; testId?: string }): ReactElement {
   return (
     <div className="notice" role="status" data-testid={testId}>
@@ -95,12 +96,21 @@ function Notice({ message, onDismiss, testId }: { message: string; onDismiss(): 
   );
 }
 
+/**
+ * The player: the canvas the engine draws on, the control bar (`ControlBar`), notices, and the overlays a disc needs: the
+ * playlist picker, the on-screen remote, the encoding prompt for a subtitle file, the Next episode button and chapter
+ * action of an encode, and the fullscreen hint on touch devices. It handles keys, mouse, touch (taps, double taps,
+ * long presses) and the idle timer that hides the controls; over a disc menu the pointer and keys go to the disc and the
+ * bar stays out of the way. `snapshot` drives everything shown. A NAS disc's playlist and time follow in the address
+ * bar (`playingRoute`), and Back out of the play route closes the disc; `places` saves the place as the disc plays.
+ * `nas` (absent without one) supplies the quality level, stored subtitles and Anime Tosho search of a NAS disc.
+ */
 export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, nas, places, history, playingRoute }: PlayerScreenProps): ReactElement {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [idle, setIdleState] = useState(false);
-  /** Whether a hover pointer (moving over a disc menu) hid the controls, rather than the idle timer or a tap (ruling R12). */
+  /** Whether a hover pointer (moving over a disc menu) hid the controls, rather than the idle timer or a tap: a pause then keeps them hidden, since a real player draws nothing over a menu. */
   const [hiddenByHover, setHiddenByHover] = useState(false);
   const setIdle = (next: boolean, byHover = false): void => {
     setIdleState(next);
@@ -121,9 +131,9 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
   const idleRef = useRef(idle);
   idleRef.current = idle;
   const lastUpWasTouch = useRef(false);
-  /** A touch on the video over a disc menu that may become a long press (ruling R15). */
+  /** A touch on the video over a disc menu that may become a long press. */
   const press = useRef<Press | null>(null);
-  /** Whether the controls showed at the last render (a tap at the bottom edge of a menu shows hidden ones, ruling R12). */
+  /** Whether the controls showed at the last render (a tap at the bottom edge of a menu shows hidden ones). */
   const controlsVisibleRef = useRef(true);
   /** The last touch pointerdown on the video: a tap's position comes from it (see tapPoint). */
   const touchDown = useRef<PointerPoint | null>(null);
@@ -139,7 +149,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
   // The address bar follows a NAS disc's playlist and time (a local or disc-server disc never started playingRoute).
   const { currentPlaylistId, timeUs, engineState } = snapshot;
   useEffect(() => playingRoute.update({ currentPlaylistId, timeUs, engineState }), [playingRoute, currentPlaylistId, timeUs, engineState]);
-  // Each snapshot may save the place (spec 2026-10-20 §6.2).
+  // Each snapshot may save the place (PlaceSaver decides which ones do).
   const shaderSet = shaderState.selected;
   useEffect(() => places.observe(snapshot, shaderSet), [places, snapshot, shaderSet]);
   // A resumed (or carried-over) launch's settings, once the disc plays: volume, tracks and subtitle files.
@@ -330,7 +340,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
     places.addTextFiles(files).catch((err: unknown) => console.warn('keeping the subtitle files failed', err));
   };
 
-  // A NAS disc's stored subtitles (piece 3), listed once per open; a local or disc-server disc has none.
+  // A NAS disc's stored subtitles (the ones owners uploaded), listed once per open; a local or disc-server disc has none.
   const nasDiscKey = nas ? playingRoute.discKey : null;
   const [stored, setStored] = useState<{ readonly discKey: string; readonly items: readonly StoredSubtitle[] } | null>(null);
   const [storedActive, setStoredActive] = useState<string | null>(null);
@@ -416,7 +426,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
   // checked while its file is still the text set's (Remove takes it away)
   const storedActiveId = storedHere?.find((s) => s.id === storedActive && snapshot.subtitles?.text?.files.some((f) => f.name === s.fileName))?.id ?? null;
   const storedSubtitles = storedHere ? { items: storedHere, activeId: storedActiveId, onPick: pickStored } : null;
-  // A NAS disc's Anime Tosho search (spec §9), for the playlist playing: its box starts with the catalogue title's name
+  // A NAS disc's Anime Tosho search, for the playlist playing: its box starts with the catalogue title's name
   // when the disc was opened from it (this person sees titles), else the disc's name.
   const about = playingRoute.about;
   const fansubHere = fansubActive && snapshot.subtitles?.text?.files.some((f) => f.name === fansubActive.fileName) ? fansubActive : null;
@@ -476,7 +486,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      // Any key shows the controls again, like mouse movement does, except a key that goes to a disc menu (ruling R11):
+      // Any key shows the controls again, like mouse movement does, except a key that goes to a disc menu:
       // the bar never comes over the menu.
       const modified = e.ctrlKey || e.metaKey || e.altKey;
       const shown = controller.getSnapshot();
@@ -602,7 +612,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
 
   // The first tap a BD-J menu ignores opens the remote, with the controls it sits over, once per menu (with the notice):
   // a remote the user closes stays closed until the next menu.
-  // A touch on an HDMV menu that hit no button shows the controls (ruling R13); a mouse click that missed leaves them.
+  // A touch on an HDMV menu that hit no button shows the controls, since a touch has no other way back to them; a mouse click that missed leaves them.
   // (On a BD-J menu the ignored-tap rule below opens the remote with them.)
   const lastMenuClickPointer = useRef('mouse');
   const tapMisses = snapshot.menuTapMisses;
@@ -673,7 +683,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
   };
 
   // A touch held still over a disc menu shows the controls once LONG_PRESS_MS pass, with the finger still down, and is not
-  // sent to the disc (ruling R15): the way back to the controls when every tap on the picture goes to the disc.
+  // sent to the disc: the way back to the controls when every tap on the picture goes to the disc.
   // The press starts at the pointerdown's position, as a tap's position does (tapPoint).
   const onCanvasPointerDown = (e: PointerEvent<HTMLCanvasElement>): void => {
     if (e.pointerType !== 'touch') return;
@@ -793,7 +803,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
 
   /**
    * A pointer move or press anywhere in the player. Over a disc menu a mouse or pen wakes the bar only at the bottom edge
-   * (or over the bar it woke) and hides it at once elsewhere (ruling R9); otherwise any move wakes it, and a touch on the
+   * (or over the bar it woke) and hides it at once elsewhere, so the bar never covers the menu; otherwise any move wakes it, and a touch on the
    * video is left to the tap handling.
    */
   const onPlayerPointer = (e: PointerEvent<HTMLDivElement>): void => {

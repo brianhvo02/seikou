@@ -14,7 +14,7 @@ const ARROWS: ReadonlyArray<{ readonly key: MenuKey; readonly label: string; rea
 ];
 const DIGITS: readonly MenuKey[] = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'];
 
-/** An on-screen remote for disc menus: arrows, OK, digits, Top Menu and Pop-up. */
+/** An on-screen remote for disc menus: arrows, OK, digits, Top Menu and Pop-up. Each button calls `onKey` with its menu key; the player routes it through the same UO check as the keyboard. */
 export function RemotePad({ onKey }: RemotePadProps): ReactElement {
   const button = (key: MenuKey, label: string, glyph: string, className = ''): ReactElement => (
     <button key={key} type="button" className={className} aria-label={label} data-testid={`remote-${key}`} onClick={() => onKey(key)}>

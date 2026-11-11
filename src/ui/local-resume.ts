@@ -17,6 +17,7 @@ export function localKeyOf(entries: ReadonlyArray<readonly [string, { readonly s
   }
 }
 
+/** A resume offer that needs the user's answer: Resume or Start from beginning (`ask`), or only Start from beginning because the playlist changed (`changed`). */
 export type AskOffer = Extract<ResumeOffer, { readonly kind: 'ask' | 'changed' }>;
 
 /**

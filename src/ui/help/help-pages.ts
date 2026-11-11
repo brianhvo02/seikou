@@ -12,6 +12,7 @@ export interface HelpPage {
   readonly title: string;
 }
 
+/** The help pages in menu order; each is built from the `docs/` file named. */
 export const HELP_PAGES: readonly HelpPage[] = [
   { slug: 'getting-started', file: 'docs/getting-started.md', title: 'Getting started' },
   { slug: 'playing-discs', file: 'docs/playing-discs.md', title: 'Playing discs' },
@@ -54,6 +55,7 @@ export function helpHref(link: string, fromFile: string): string | null {
   return GITHUB_BLOB + path + target.search + target.hash;
 }
 
+/** The site path of a help page, or `/help` (the index) for a null slug. */
 export function helpPath(slug: string | null): string {
   return slug === null ? '/help' : `/help/${slug}`;
 }

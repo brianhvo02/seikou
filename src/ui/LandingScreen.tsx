@@ -135,6 +135,14 @@ interface LandingScreenProps {
   readonly onPairLinkSpent?: () => void;
 }
 
+/**
+ * The screen shown while no disc is open: the app bar (disc picker, theme switch, Help), the home hero, recent discs (where
+ * the browser can remember folders), the capability and storage notices, and the NAS panel: pairing, the title and
+ * encode libraries, a play link's pre-flight, or the not-found screen, chosen from the address (`history`). A folder picked,
+ * dropped or reopened is opened through `controller`, after asking Resume or Start from beginning when `places` holds an
+ * unfinished place. Discs of a development disc server named by the address (`?disc=` or `?token=`) are offered too.
+ * `pairLink` opens the pair screen with a code filled in, and `onPairLinkSpent` reports it used.
+ */
 export function LandingScreen({ controller, theme, snapshot, nas, places, history, playingRoute, pairLink, onPairLinkSpent }: LandingScreenProps): ReactElement {
   const route = useNasRoute(history);
   /**
@@ -158,7 +166,7 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
   const [dragging, setDragging] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  // tools/disc-server: ?disc=<disc API base>&token= or ?token= (spec 2026-10-17 §4.5). Each disc's manifest is fetched
+  // tools/disc-server: ?disc=<disc API base>&token= or ?token= (see `tools/disc-server`). Each disc's manifest is fetched
   // before its button is enabled, so the tap opens it at once (audio starts inside the tap), as the NAS pre-flight does.
   const [serverLink] = useState<ServerLink | null>(() => serverLinkFromLocation(window.location.href));
   const [serverDiscs, setServerDiscs] = useState<ServerDisc[] | null>(null);
@@ -311,10 +319,6 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
     task.catch((err: unknown) => setLocalError(err instanceof Error ? err.message : String(err)));
   };
 
-  /**
-   * Opens a local disc, after asking when this device holds an unfinished place for it: the prompt comes before the
-   * open, and its buttons (taps) start audio, so Resume and Start from beginning open inside a gesture.
-   */
   /** Counts the opens asked for: a call that a later one superseded (or any other open) does nothing when its read ends. */
   const openSeq = useRef(0);
   // Another open (the engine leaves idle, or the NAS route changes) drops a prompt and any read still waiting.
@@ -329,6 +333,10 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
     openSeq.current++;
     setPending(null);
   }, [routeKey]);
+  /**
+   * Opens a local disc, after asking when this device holds an unfinished place for it: the prompt comes before the
+   * open, and its buttons (taps) start audio, so Resume and Start from beginning open inside a gesture.
+   */
   const openAskingFirst = async (
     discKey: string | null,
     playlists: ReturnType<typeof playlistsOf> | null,
@@ -459,7 +467,6 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
   const paired = pairing !== undefined && pairing !== null && !pairRequested;
   const errorPaths = localError ? [] : (snapshot.error?.paths ?? []);
 
-  /** Which NAS panel shows: the not-found screen, the pair screen, the paired line, or none while pairings load. */
   /** Discs and Encodes, on every NAS screen of a paired device the title library is open to (a link's pre-flight has none). */
   const showTabs = paired && browsing && playLink === null && !(typeof access === 'object' && access !== null && !access.titles);
   /** Until `me` says the title library is open, the tabs' room is kept but they don't show (a guest behind the gate never sees them). */
@@ -467,6 +474,7 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
   // One element, where its layout reads it: at the bar's left on a wide screen, after the tools on a phone (its own row).
   const narrowBar = useMediaQuery(NARROW_BAR);
   const tabs = showTabs && <LibraryTabs history={history} route={shown} pending={!tabsReady} />;
+  /** Which NAS panel shows: the not-found screen, the pair screen, the paired line, or none while pairings load. */
   const nasPanel = pairing === undefined ? null : pairing === null && browsing && !pairRequested ? 'not-found' : pairing === null || pairRequested ? 'pair' : 'paired';
   const pairedLine = nasPanel === 'paired' && pairing && (
     <p className="status nas-paired" data-testid="nas-paired">

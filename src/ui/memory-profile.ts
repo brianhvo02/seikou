@@ -1,5 +1,6 @@
 import type { MemoryProfileName } from '@seikou/engine/memory-profile';
 
+/** What `chooseMemoryProfile` reads, so tests can pass them in: the query string, `(pointer: coarse)`, `navigator.maxTouchPoints` and `navigator.platform`. */
 export interface MemoryProfileEnv {
   readonly search: string;
   readonly coarsePointer: boolean;
@@ -7,7 +8,7 @@ export interface MemoryProfileEnv {
   readonly platform: string;
 }
 
-/** `?memory=desktop|constrained` wins. Otherwise touch devices are constrained; iPadOS reports a Mac, so it is told apart by its touch points (the one place the platform string is read). */
+/** Picks the engine's memory profile. `?memory=desktop|constrained` (a manual override, also used by tests) wins. Otherwise touch devices are constrained; iPadOS reports a Mac, so it is told apart by its touch points (the one place the platform string is read). */
 export function chooseMemoryProfile(env: MemoryProfileEnv): MemoryProfileName {
   const forced = new URLSearchParams(env.search).get('memory');
   if (forced === 'desktop' || forced === 'constrained') return forced;

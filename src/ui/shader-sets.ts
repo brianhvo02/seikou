@@ -1,12 +1,16 @@
 import hqConf from './anime4k/input-hq.conf?raw';
 import fastConf from './anime4k/input-fast.conf?raw';
 
+/** A named list of shader files applied together, in order. */
 export interface ShaderSetDef {
   readonly name: string;
+  /** File base names, in the order they run. */
   readonly files: readonly string[];
+  /** Where the set came from: the built-in Anime4K sets or an imported `input.conf`. */
   readonly origin: 'anime4k' | 'imported';
 }
 
+/** A set as the menu lists it, with the files it lacks and whether it can be applied. */
 export interface SetEntry extends ShaderSetDef {
   readonly missing: readonly string[];
   readonly available: boolean;
@@ -53,6 +57,7 @@ export function parseInputConf(text: string): ShaderSetDef[] {
   return sets;
 }
 
+/** The built-in Anime4K sets, parsed from the bundled `input.conf` files (the high-quality and the fast modes). */
 export const BUILT_IN_SETS: readonly ShaderSetDef[] = [
   ...parseInputConf(hqConf),
   ...parseInputConf(fastConf),
@@ -89,6 +94,7 @@ export function resolveSets(imported: readonly ShaderSetDef[], library: Readonly
   return [...out.filter((e) => e.available), ...out.filter((e) => !e.available)];
 }
 
+/** The menu's note for a set with missing files: the first name and how many more. */
 export function missingLabel(missing: readonly string[]): string {
   const more = missing.length - 1;
   return `missing: ${missing[0]}${more > 0 ? ` +${more} more` : ''}`;

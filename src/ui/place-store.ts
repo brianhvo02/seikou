@@ -24,7 +24,7 @@ export const MAX_TEXT_FILE_BYTES = 5 * 1024 * 1024;
 export const MAX_TEXT_FILES_BYTES = 50 * 1024 * 1024;
 
 /**
- * Places on this device (spec 2026-10-20 §6.2, §6.4): every place saved here, the NAS discs' places waiting to be sent
+ * Places on this device: every place saved here, the NAS discs' places waiting to be sent
  * (the outbox), and the subtitle files added per disc. Every save goes here first.
  */
 export interface PlaceStore {

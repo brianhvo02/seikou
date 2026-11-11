@@ -4,22 +4,30 @@ import type { BundledShaders } from './bundled-shaders';
 import type { ShaderLibrary, StoredShaderFile } from './shader-library';
 import { importedName, parseInputConf, resolveSets, type SetEntry, type ShaderSetDef } from './shader-sets';
 
+/** What the last add of files did: the names kept, the ones refused with the reason, and how many sets an `input.conf` contributed. */
 export interface AddReport {
   readonly added: readonly string[];
   readonly rejected: readonly { readonly name: string; readonly reason: string }[];
   readonly importedSets: number;
 }
 
+/** What the Shaders menu shows. */
 export interface ShaderModelState {
+  /** Every set, available ones first. */
   readonly sets: readonly SetEntry[];
+  /** The names of the imported shader files. */
   readonly files: readonly string[];
+  /** The names of the imported sets. */
   readonly imported: readonly string[];
+  /** The selected set's name, or null for Off. */
   readonly selected: string | null;
   /** The saved or chosen set exists but some of its files are missing or failed to load, so nothing is applied. */
   readonly selectedMissing: boolean;
+  /** The report of the last add, or null before one. */
   readonly report: AddReport | null;
 }
 
+/** A file the user picked: its name, size in bytes and a reader for its text. */
 export interface PickedFile {
   readonly name: string;
   readonly text: () => Promise<string>;

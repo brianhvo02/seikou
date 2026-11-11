@@ -3,6 +3,7 @@ const DB_VERSION = 6;
 /** v1 keyed discs by folder name, so two discs opened via folders named "BDMV" overwrote each other. */
 const LEGACY_RECENT_STORE = 'recent-discs';
 
+/** The names of the object stores in the `bluray-web` IndexedDB database, which opens at version 6 and creates any that are missing. */
 export const STORES = {
   recentDiscs: 'recent-discs-v2',
   shaderFiles: 'shader-files',
@@ -10,7 +11,7 @@ export const STORES = {
   settings: 'settings',
   /** The NAS pairing, one record under the key 'pairing'. */
   nas: 'nas',
-  /** Places saved on this device, keyed `<discKey>/<playlistId>` (spec 2026-10-20 §6.4). */
+  /** Places saved on this device, keyed `<discKey>/<playlistId>`; see `PlaceStore`. */
   places: 'places',
   /** Places of NAS discs not yet accepted by the NAS, keyed as `places`. */
   placeOutbox: 'place-outbox',

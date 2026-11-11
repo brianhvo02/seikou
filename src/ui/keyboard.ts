@@ -1,6 +1,7 @@
 import type { UoOp } from '@seikou/engine/hdmv/uo-mask';
 import type { MenuKey } from '@seikou/engine/protocol';
 
+/** What a key press asks the player to do; `keyToAction` maps a key to one, and `keyActionUo` names the disc operation it needs. */
 export type KeyAction =
   | { readonly type: 'togglePlay' }
   | { readonly type: 'seekBy'; readonly deltaUs: number }
@@ -12,6 +13,7 @@ export type KeyAction =
   | { readonly type: 'cycleShaders' }
   | { readonly type: 'menuKey'; readonly key: MenuKey };
 
+/** What `keyToAction` needs to know about the player. */
 export interface KeyContext {
   /** A disc menu is shown: arrows, Enter and digits go to it. */
   readonly menuActive: boolean;
@@ -19,7 +21,7 @@ export interface KeyContext {
 
 const MENU_ARROWS: Readonly<Record<string, MenuKey>> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', Enter: 'ok' };
 
-/** Playback keys (spec §7), A (audio track), S (subtitles), V (video shaders), [ and ] (text subtitle timing), M (top menu), P (pop-up), and menu keys while a menu is shown. */
+/** Maps a `KeyboardEvent.key` to an action: playback keys (space, arrows, F for fullscreen), A (audio track), S (subtitles), V (video shaders), [ and ] (text subtitle timing), M (top menu), P (pop-up), and menu keys while a menu is shown. Returns null for a key that maps to nothing. */
 export function keyToAction(key: string, ctx: KeyContext = { menuActive: false }): KeyAction | null {
   if (ctx.menuActive) {
     const menuKey = MENU_ARROWS[key] ?? (/^[0-9]$/.test(key) ? (key as MenuKey) : undefined);
@@ -64,7 +66,7 @@ export function keyToAction(key: string, ctx: KeyContext = { menuActive: false }
 }
 
 /**
- * Whether a key press shows the controls (ruling R11). Over a disc menu, keys that go to the disc (arrows, Enter, digits,
+ * Whether a key press shows the controls. Over a disc menu, keys that go to the disc (arrows, Enter, digits,
  * Top Menu, pop-up: any menu key) leave the control bar as it is, so it never comes over the menu; every other key,
  * player shortcuts included, wakes it as anywhere else. `action` is null for a key that maps to nothing.
  */
