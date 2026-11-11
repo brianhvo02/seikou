@@ -38,6 +38,7 @@ const HIGH_PROFILES = new Set([100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 13
  * The WebCodecs codec string `avc1.PPCCLL` (RFC 6381 §3.3) from an SPS NAL unit with its header: profile_idc, the
  * constraint flags byte and level_idc (H.264 §7.3.2.1.1) in hex. Throws a ParseError when the SPS is shorter than
  * 4 bytes.
+ * @example ../../examples/avc-codec-string.ts#codec
  */
 export function avcCodecString(sps: Uint8Array): string {
   if (sps.length < 4) throw new ParseError(`H.264 SPS is truncated (${sps.length} bytes)`);

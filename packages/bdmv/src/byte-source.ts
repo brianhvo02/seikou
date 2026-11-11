@@ -39,7 +39,10 @@ export type DiscErrorCode =
   | 'unreadable-stream'
   | 'read-failed';
 
-/** A disc failure the player shows the user: `code` says which, `message` is the text shown, `paths` the files concerned. */
+/**
+ * A disc failure the player shows the user: `code` says which, `message` is the text shown, `paths` the files concerned.
+ * @example ../examples/disc-error.ts#construct
+ */
 export class DiscError extends Error {
   constructor(
     readonly code: DiscErrorCode,

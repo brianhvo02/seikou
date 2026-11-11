@@ -29,6 +29,7 @@ const hex = (bytes: Uint8Array): string => [...bytes].map((b) => b.toString(16).
 /**
  * Parses the bytes of `CERTIFICATE/id.bdmv` (libbluray `_bdid_parse`); the extension data libbluray ignores is ignored.
  * Throws a ParseError for a bad `BDID` signature, an unsupported version, or a file too short to hold both IDs.
+ * @example ../examples/parse-bdid.ts#parse
  */
 export function parseBdid(bytes: Uint8Array): BdidData {
   const r = new ByteReader(bytes);

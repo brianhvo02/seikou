@@ -5,7 +5,10 @@
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
-/** Bytes that do not parse: a bad signature or version, a truncated section or parameter set, or a read outside the buffer. */
+/**
+ * Bytes that do not parse: a bad signature or version, a truncated section or parameter set, or a read outside the buffer.
+ * @example ../examples/parse-error.ts#construct
+ */
 export class ParseError extends Error {
   constructor(message: string) {
     super(message);

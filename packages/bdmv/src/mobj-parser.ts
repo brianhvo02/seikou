@@ -206,6 +206,7 @@ function parseObject(r: ByteReader): MovieObject {
 /**
  * Parses the bytes of `BDMV/MovieObject.bdmv` (libbluray `_mobj_parse`). Throws a ParseError for a bad signature, an
  * unsupported version, a `data_len` longer than the file, or a command cut off by the end of the file.
+ * @example ../examples/parse-movie-objects.ts#parse
  */
 export function parseMovieObjects(bytes: Uint8Array): MovieObjects {
   const r = new ByteReader(bytes);

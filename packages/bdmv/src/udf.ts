@@ -34,7 +34,10 @@ export interface UdfFile {
 /** Reads `length` bytes at `offset` of the image; a short result means the image ends there. */
 export type UdfRead = (offset: number, length: number) => Promise<Uint8Array>;
 
-/** A malformed or unsupported image (as opposed to an error of `read`, which propagates as it is). */
+/**
+ * A malformed or unsupported image (as opposed to an error of `read`, which propagates as it is).
+ * @example ../examples/udf-error.ts#construct
+ */
 export class UdfError extends Error {}
 
 const BLOCK = 2048;
@@ -504,7 +507,10 @@ async function openVolume(input: UdfRead): Promise<{ volume: Volume; root: DirEn
 
 const isDir = (e: DirEntry): boolean => (e.characteristic & CHAR_DIR) !== 0;
 
-/** An opened image: its root directory read, everything else on demand. */
+/**
+ * An opened image: its root directory read, everything else on demand.
+ * @example ../examples/udf-image.ts#open
+ */
 export class UdfImage {
   private constructor(
     private readonly volume: Volume,
@@ -514,13 +520,17 @@ export class UdfImage {
   /**
    * Opens the image `read` reads: checks the volume recognition sequence, finds the partitions and reads the root
    * directory. Rejects with a UdfError (`not a UDF image` when it isn't one) or with the error `read` threw.
+   * @example ../examples/udf-image.ts#open
    */
   static async open(read: UdfRead): Promise<UdfImage> {
     const { volume, root } = await openVolume(read);
     return new UdfImage(volume, root);
   }
 
-  /** The regular file at `path` (any case, '/'-separated), reading only the directories on the way; null if absent. */
+  /**
+   * The regular file at `path` (any case, '/'-separated), reading only the directories on the way; null if absent.
+   * @example ../examples/udf-image.ts#find
+   */
   async find(path: string): Promise<UdfFile | null> {
     const segments = path.toUpperCase().split('/').filter((s) => s !== '');
     let dir: DirEntry[] | null = this.root;
@@ -537,6 +547,7 @@ export class UdfImage {
   /**
    * Every regular file, sorted by path; on a case clash the first name wins, and unreadable entries (and other file
    * types) are left out. Rejects with a UdfError when a directory or allocation extent is malformed.
+   * @example ../examples/udf-image.ts#files
    */
   async files(): Promise<UdfFile[]> {
     const out = new Map<string, UdfFile>();
@@ -568,7 +579,10 @@ export class UdfImage {
   }
 }
 
-/** Every regular file of the UDF image `read` reads. Rejects with `not a UDF image` when it isn't one. */
+/**
+ * Every regular file of the UDF image `read` reads. Rejects with `not a UDF image` when it isn't one.
+ * @example ../examples/read-udf.ts#read
+ */
 export async function readUdf(read: UdfRead): Promise<UdfFile[]> {
   return (await UdfImage.open(read)).files();
 }

@@ -17,6 +17,7 @@ export interface TsPacket {
 /**
  * Parses the 192-byte source packet at `offset` (4-byte TP_extra_header, then the TS packet). Null when it is unusable:
  * no 0x47 sync byte, `transport_error_indicator` set, or an adaptation field longer than the packet.
+ * @example ../../examples/parse-source-packet.ts#parse
  */
 export function parseSourcePacket(buf: Uint8Array, offset: number): TsPacket | null {
   const o = offset + 4;

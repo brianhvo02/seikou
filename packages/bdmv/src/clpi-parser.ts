@@ -118,6 +118,7 @@ export interface Clpi {
  * `_parse_program`, `_parse_cpi`). Throws a ParseError for a bad signature, an unsupported version, a read past the end
  * of the file, or a coarse EP entry whose fine entries lie outside the fine table. The clip marks, the extension data
  * and the 3D extensions are not read.
+ * @example ../examples/parse-clpi.ts#parse
  */
 export function parseClpi(bytes: Uint8Array): Clpi {
   const r = new ByteReader(bytes);

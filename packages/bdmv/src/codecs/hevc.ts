@@ -27,6 +27,7 @@ function reverseBits32(x: number): number {
  * profile_tier_level (H.265 §7.3.2.2 and §7.3.3): profile space, profile, the compatibility flags bit-reversed, tier,
  * level and the constraint bytes with trailing zero bytes left out. Throws a ParseError when the SPS ends before
  * general_level_idc.
+ * @example ../../examples/hevc-codec-string.ts#codec
  */
 export function hevcCodecString(sps: Uint8Array): string {
   const r = unescapeRbsp(sps);

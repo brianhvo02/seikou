@@ -292,6 +292,7 @@ function parseAppManagementTable(r: ByteReader): BdjoApp[] {
  * Parses the bytes of a `.bdjo` file (libbluray `_bdjo_parse`). Throws a ParseError naming the section (header,
  * terminal info, app cache info, accessible playlists, app management table, key interest table, file access info)
  * for a bad signature, an unsupported version or a read past the end of the file.
+ * @example ../examples/parse-bdjo.ts#parse
  */
 export function parseBdjo(bytes: Uint8Array): Bdjo {
   const r = new ByteReader(bytes);

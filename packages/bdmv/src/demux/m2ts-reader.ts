@@ -43,6 +43,7 @@ export const DEFAULT_CHUNK_PACKETS = PACKETS_PER_ALIGNED_UNIT * 341;
  * packets of the selected PIDs. A PES that started before the first packet read is skipped, and one with a declared
  * length that `endSpn` cuts off is dropped. Read errors from the source reject `next()`; damaged packets are counted
  * in `stats` and skipped.
+ * @example ../../examples/m2ts-reader.ts#construct
  */
 export class M2tsReader {
   private readonly assembler: PesAssembler;
@@ -78,14 +79,20 @@ export class M2tsReader {
     return { corruptPackets: this.corruptPackets, continuityErrors: this.assembler.continuityErrors };
   }
 
-  /** Stops reading: an in-flight read or prefetch is cancelled, and next() returns null from now on. */
+  /**
+   * Stops reading: an in-flight read or prefetch is cancelled, and next() returns null from now on.
+   * @example ../../examples/m2ts-reader.ts#cancel
+   */
   cancel(): void {
     this.done = true;
     this.prefetch = null;
     this.abort.abort(new DOMException('reader cancelled', 'AbortError'));
   }
 
-  /** PES packets completed by the next chunk (possibly empty), or null once the range is exhausted. */
+  /**
+   * PES packets completed by the next chunk (possibly empty), or null once the range is exhausted.
+   * @example ../../examples/m2ts-reader.ts#next
+   */
   async next(): Promise<PesPacket[] | null> {
     if (this.done) return null;
     if (this.cursor >= this.endSpn) {

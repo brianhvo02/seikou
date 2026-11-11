@@ -53,6 +53,7 @@ export function readTimestamp(d: Uint8Array, o: number): number {
 /**
  * Reassembles PES packets per PID. A PES whose header declares its length completes as soon as that many bytes arrived
  * (as libbluray's m2ts_demux); an unbounded one (length 0, usual for video) at the next unit start on its PID, or on flush().
+ * @example ../../examples/pes-assembler.ts#construct
  */
 export class PesAssembler {
   continuityErrors = 0;
@@ -60,7 +61,10 @@ export class PesAssembler {
 
   constructor(private readonly onPes: (pes: PesPacket) => void) {}
 
-  /** Adds one transport packet of any PID; a PES it completes is handed to `onPes` before this returns. */
+  /**
+   * Adds one transport packet of any PID; a PES it completes is handed to `onPes` before this returns.
+   * @example ../../examples/pes-assembler.ts#push
+   */
   push(packet: TsPacket): void {
     if (!packet.hasPayload) return; // CC does not advance on adaptation-only packets
     const state = this.states.get(packet.pid);
@@ -101,13 +105,17 @@ export class PesAssembler {
   /**
    * Ends every PES still open, then forgets all PIDs: an unbounded PES is handed over, and a broken one or one shorter
    * than its declared length is dropped.
+   * @example ../../examples/pes-assembler.ts#flush
    */
   flush(): void {
     for (const [pid, state] of this.states) if (!state.done) this.emit(pid, state);
     this.states.clear();
   }
 
-  /** Drops every PES still open without handing it over, as after a seek. */
+  /**
+   * Drops every PES still open without handing it over, as after a seek.
+   * @example ../../examples/pes-assembler.ts#reset
+   */
   reset(): void {
     this.states.clear();
   }

@@ -68,6 +68,7 @@ const OBJECT_TYPE_BDJ = 2;
 /**
  * Parses the bytes of `BDMV/index.bdmv` (libbluray `_indx_parse`). Throws a ParseError for a bad signature, an
  * unsupported version, or a truncated indexes section. The UHD extension data libbluray reads is ignored.
+ * @example ../examples/parse-index.ts#parse
  */
 export function parseIndex(bytes: Uint8Array): IndexBdmv {
   const r = new ByteReader(bytes);

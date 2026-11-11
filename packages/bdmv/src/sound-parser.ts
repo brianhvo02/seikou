@@ -56,6 +56,7 @@ function parseSoundIndex(r: ByteReader): SoundIndex {
  * Parses the bytes of `BDMV/AUXDATA/sound.bdmv` (libbluray `_sound_parse`, reached through `sound_get`). Throws a
  * ParseError for a bad `BCLK` signature, an unsupported version, a file with no sounds, or sample data cut off by the
  * end of the file.
+ * @example ../examples/parse-sound-bdmv.ts#parse
  */
 export function parseSoundBdmv(bytes: Uint8Array): SoundData {
   const r = new ByteReader(bytes);
