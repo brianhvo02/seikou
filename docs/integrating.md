@@ -61,6 +61,17 @@ export default defineConfig({ plugins: [isolateEveryResponse] });
 
 The engine imports its worker, its AudioWorklet, `audio.wasm` and the default font with Vite's `?url` and `?worker&url` suffixes, so a page that uses it is built with Vite. A TypeScript project also needs Vite's client types, `"types": ["vite/client"]` in its tsconfig, or tsc reports those imports as unknown modules. Seikou's own build sets `worker: { format: 'es' }`; the example below builds without it.
 
+Vite's dev server pre-bundles the dependencies it finds in `node_modules`, and that step cannot follow the `?url` and `?worker&url` imports inside the packages' TypeScript sources: `vite` stops with "Could not load …/pcm-worklet.ts?worker&url". Exclude the packages from it, so the dev server serves them as source as it does your own code:
+
+```ts
+export default defineConfig({
+  plugins: [isolateEveryResponse],
+  optimizeDeps: { exclude: ['@seikou/engine', '@seikou/bdmv', '@seikou/ass', '@seikou/pg', '@seikou/nas', '@seikou/matroska'] },
+});
+```
+
+A production build (`vite build`) has no such step and needs nothing. Seikou's own app does not set it either, because Vite never pre-bundles workspace packages linked into the repository.
+
 ### Installing the packages
 
 The packages are not published to npm. Install them from a checkout of the repository as `file:` dependencies, with `--install-links` so npm copies each package, with only what its `files` lists. The engine's own `@seikou` dependencies are unpublished too, so install them alongside:
