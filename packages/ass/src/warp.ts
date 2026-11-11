@@ -10,6 +10,7 @@
 
 import { applyMat3, isAffine, type Mat3 } from './transform';
 
+/** A 2D affine map as the canvas takes it in `setTransform`: x' = a x + c y + e, y' = b x + d y + f. */
 export interface Affine2D { a: number; b: number; c: number; d: number; e: number; f: number }
 
 const MAX_GRID = 32;

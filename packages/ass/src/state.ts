@@ -11,21 +11,33 @@
 import type { FontRequest } from './fonts';
 import type { AssEvent, AssStyle, AssTrack } from './types';
 
+/** Glyph decoration flag, libass `ass_font.h` `DECO_UNDERLINE`: draw an underline (`\u1`). */
 export const DECO_UNDERLINE = 1;
+/** Glyph decoration flag, libass `DECO_STRIKETHROUGH`: draw a strike-out line (`\s1`). */
 export const DECO_STRIKETHROUGH = 2;
+/** Glyph flag, libass `DECO_ROTATE`: the glyph is turned a quarter turn: vertical text (a family name starting with `@`) in characters above U+02F1. */
 export const DECO_ROTATE = 4;
 
+/** Event placement, libass `ass_render.h` `EVENT_NORMAL`: placed by alignment and margins. */
 export const EVENT_NORMAL = 0;
+/** Event placement, libass `EVENT_POSITIONED`: after `\pos` or `\move`, where the margins are ignored. */
 export const EVENT_POSITIONED = 1;
 
+/** Karaoke effect type, libass `ass_render.h` `EF_NONE`: no effect. */
 export const EF_NONE = 0;
+/** Karaoke effect type `EF_KARAOKE` (`\k`): a syllable changes colour at once when its time comes. */
 export const EF_KARAOKE = 1;
+/** Karaoke effect type `EF_KARAOKE_KF` (`\kf` and `\K`): the colour sweeps across the syllable over its duration. */
 export const EF_KARAOKE_KF = 2;
+/** Karaoke effect type `EF_KARAOKE_KO` (`\ko`): like `\kf`, and the outline sweeps too. */
 export const EF_KARAOKE_KO = 3;
 
+/** Set in `parsedTags` once the event has had a `\fad` or `\fade` tag (libass `PARSED_FADE`; later ones are ignored). */
 export const PARSED_FADE = 1 << 0;
+/** Set in `parsedTags` once the event has had an alignment tag, `\a` or `\an` (libass `PARSED_A`; later ones are ignored). */
 export const PARSED_A = 1 << 1;
 
+/** The frame the renderer draws for, set by the host as libass's `ass_set_frame_size`, `ass_set_storage_size` and `ass_set_font_scale` set it. */
 export interface RenderSettings {
   /** The frame (the video rectangle) in device pixels: ass_set_frame_size. */
   readonly frameWidth: number;
@@ -37,56 +49,94 @@ export interface RenderSettings {
   readonly fontScale: number;
 }
 
-/** RenderContext: same fields, units and meanings. */
+/**
+ * The state of one event's text as override tags change it: libass `RenderContext` (`ass_render.h`), with the same
+ * fields, units and meanings. It starts from the event's style (`resetRenderState`), each `{...}` block edits it
+ * (`parseTags`), and glyph records copy it as they are made. Lengths are script pixels unless noted.
+ */
 export interface RenderState {
   readonly track: AssTrack;
   readonly event: AssEvent;
   readonly settings: RenderSettings;
+  /** The style the state was last reset to (the event's, or the one `\r` named). */
   style: AssStyle;
   /** ass_update_font's ASS_FontDesc. */
   fontRequest: FontRequest;
+  /** The font family as the tags last set it (`\fn`). */
   family: string;
+  /** Bold as `\b` sets it: 0 or 1, or a weight such as 700; `updateFont` turns it into the requested weight. */
   bold: number;
+  /** Italic as `\i` sets it: 0 or 1. */
   italic: number;
+  /** The font size (`\fs`). */
   fontSize: number;
+  /** `PARSED_*` bits: which once-only tags the event has already used. */
   parsedTags: number;
+  /** `DECO_*` bits: underline (`\u`), strike-out (`\s`). */
   flags: number;
+  /** `VALIGN_* | HALIGN_*` (`\an`, `\a`). */
   alignment: number;
+  /** Line justification inside the text box: 0 follows the alignment, 1 left, 2 centre, 3 right (the style's `Justify`; no tag sets it). */
   justify: number;
+  /** Rotation in degrees about the x, y and z axes (`\frx`, `\fry`, `\frz`). */
   frx: number; fry: number; frz: number;
+  /** Shear factors along x and y (`\fax`, `\fay`). */
   fax: number; fay: number;
+  /** The position given by `\pos` or `\move`, valid when `evtType` is `EVENT_POSITIONED`. */
   posX: number; posY: number;
+  /** The rotation origin (`\org`), valid when `haveOrigin`. */
   orgX: number; orgY: number;
+  /** Glyph scale as fractions (`\fscx`, `\fscy`). */
   scaleX: number; scaleY: number;
+  /** Extra space between characters (`\fsp`). */
   hspacing: number;
+  /** Outline width along x and y (`\bord`, `\xbord`, `\ybord`). */
   borderX: number; borderY: number;
+  /** `EVENT_NORMAL` or `EVENT_POSITIONED`. */
   evtType: number;
+  /** BorderStyle (1 outline and shadow, 3 box); the style's, there is no tag for it. */
   borderStyle: number;
-  /** 0xRRGGBBAA, primary, secondary, outline, back. */
+  /** 0xRRGGBBAA, primary, secondary, outline, back (`\c`/`\1c` to `\4c`, `\alpha`, `\1a` to `\4a`). */
   c: [number, number, number, number];
-  /** Integers, as libass's int fields. */
+  /** The rectangle clip (`\clip`, `\iclip`) in script pixels. Integers, as libass's int fields. */
   clipX0: number; clipY0: number; clipX1: number; clipY1: number;
+  /** An origin was given with `\org`; otherwise the rotation point comes from the alignment. */
   haveOrigin: boolean;
   /** 1 = \iclip rectangle. */
   clipMode: number;
+  /** Whether the event takes part in collision handling: false once `\pos`, `\move` or `\org` has been used. */
   detectCollisions: boolean;
+  /** Edge blur passes (`\be`). */
   be: number;
+  /** The fade alpha at the event's current time, from `\fad` or `\fade`. */
   fade: number;
+  /** Gaussian blur radius (`\blur`). */
   blur: number;
+  /** Shadow distance along x and y (`\shad`, `\xshad`, `\yshad`). */
   shadowX: number; shadowY: number;
+  /** Baseline offset of a drawing (`\pbo`). */
   pbo: number;
+  /** The vector clip's drawing text (`\clip` with a drawing), or null. */
   clipDrawingText: string | null;
+  /** The `\p` scale for drawings (0 outside drawing mode). */
   drawingScale: number;
+  /** The scale given to the vector clip. */
   clipDrawingScale: number;
   /** 1 = \iclip drawing. */
   clipDrawingMode: number;
+  /** Karaoke: the `EF_*` type, the time of the current syllable and the time skipped so far. */
   effectType: number;
   effectTiming: number;
   effectSkipTiming: number;
+  /** Set by a karaoke tag so the next glyph starts a new syllable. */
   resetEffect: boolean;
+  /** `WrapStyle`, as `\q` sets it. */
   wrapStyle: number;
+  /** Character set number (`\fe`). */
   fontEncoding: number;
+  /** The event has a hard override (`\pos`, `\move`, `\clip`, `\org`, `\p`), which `hasHardOverrides` finds. */
   explicit: boolean;
+  /** Script pixels to frame pixels for text, borders and blur, with the viewer's font scale folded in. */
   screenScaleX: number; screenScaleY: number;
   borderScaleX: number; borderScaleY: number;
   blurScaleX: number; blurScaleY: number;

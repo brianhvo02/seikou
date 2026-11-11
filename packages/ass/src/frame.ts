@@ -19,6 +19,7 @@ import type { RenderSettings } from './state';
 import { rotationParams, transformMatrix, type Mat3 } from './transform';
 import type { AssTrack } from './types';
 
+/** One event of a frame, laid out and placed, ready to draw. `index` is the event's index in the track. */
 export interface FrameEvent {
   readonly index: number;
   readonly layout: LaidOutEvent;
@@ -31,6 +32,7 @@ export interface FrameEvent {
   readonly shiftY: number;
 }
 
+/** What `FrameBuilder.build` returns: the events shown at time `t` (ms) in drawing order (layer, then file order). */
 export interface FrameLayout { readonly t: number; readonly events: readonly FrameEvent[] }
 
 const ANIMATED = /\{[^}]*\\(t\(|move|fade?\(|k|K)/;
@@ -77,6 +79,10 @@ class IntervalIndex {
   }
 }
 
+/**
+ * Lays out a track one frame at a time. It is the TypeScript form of the event loop of libass `ass_render_frame` and
+ * keeps the collision memory (`fix_collisions`) that libass keeps between frames in its renderer.
+ */
 export class FrameBuilder {
   private indexValue: IntervalIndex;
   /** Events were appended since the index was built: it is built again at the next query. */
@@ -129,6 +135,10 @@ export class FrameBuilder {
     return a;
   }
 
+  /**
+   * Parses, lays out and places every event active at `t` (ms) for the frame in `settings`, then moves colliding
+   * events apart layer by layer. Events whose style index is out of range are skipped.
+   */
   build(t: number, settings: RenderSettings): FrameLayout {
     const last = this.lastSettings;
     if (!last || last.frameWidth !== settings.frameWidth || last.frameHeight !== settings.frameHeight

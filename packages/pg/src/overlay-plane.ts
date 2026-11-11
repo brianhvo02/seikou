@@ -10,8 +10,19 @@
 import { ycrcbToRgba } from './palette';
 import type { PgPaletteEntry, RleElem } from './segments';
 
+/**
+ * The operations a PG or IG plane receives, libbluray `overlay.h` `bd_overlay_cmd_e`: init and close open and
+ * close the plane, clear empties it, draw and wipe paint and erase a rectangle, hide says the plane is empty
+ * and may be hidden, and flush makes the changes since the last flush visible.
+ */
 export type OverlayCmd = 'init' | 'close' | 'clear' | 'draw' | 'wipe' | 'hide' | 'flush';
 
+/**
+ * One overlay operation, libbluray `overlay.h` `BD_OVERLAY` (the YUV form). `pts` is the time in 90 kHz ticks at
+ * which a flush takes effect (-1 on the commands that have no time of their own). `x`, `y`, `w` and `h` are the rectangle in plane pixels
+ * (zero where the command has none). `palette` and `img` give a draw its colours and run-length image, and
+ * `paletteUpdate` is the composition's palette update flag.
+ */
 export interface OverlayOp {
   readonly cmd: OverlayCmd;
   readonly pts: number;
@@ -26,6 +37,7 @@ export interface OverlayOp {
 
 const MAX_CACHED_COLOURS = 4096;
 
+/** A rectangle in plane pixels: top left corner `x`, `y` and size `w` by `h`. */
 export interface Rect { readonly x: number; readonly y: number; readonly w: number; readonly h: number }
 
 /**
@@ -90,6 +102,7 @@ export class OverlayPlane {
     return (this.buffered ? this.shownRects : this.drawnRects).length > 0;
   }
 
+  /** Applies one overlay operation as described above. Never throws; out-of-plane areas are clipped. */
   apply(op: OverlayOp): void {
     switch (op.cmd) {
       case 'init':
@@ -116,10 +129,12 @@ export class OverlayPlane {
     }
   }
 
+  /** The area changed since the last `takeDirty` (visible pixels only), or null. */
   dirty(): Rect | null {
     return this.dirtyRect;
   }
 
+  /** Returns the dirty area and clears it, so the caller redraws only what changed. */
   takeDirty(): Rect | null {
     const d = this.dirtyRect;
     this.dirtyRect = null;

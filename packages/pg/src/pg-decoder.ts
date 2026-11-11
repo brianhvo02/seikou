@@ -14,7 +14,11 @@ import {
   type PgCompositionDescriptor, type PgCompositionObject, type PgObject, type PgPalette, type PgVideoDescriptor, type PgWindow,
 } from './segments';
 
-/** BD_PG_COMPOSITION */
+/**
+ * A decoded presentation composition segment, libbluray `pg.h` `BD_PG_COMPOSITION`: what one display set shows.
+ * `paletteIdRef` names the palette to draw with, `paletteUpdateFlag` says the set only changes the palette, and
+ * `pts` is the presentation time of the segment in 90 kHz ticks as the caller passed it.
+ */
 export interface PgComposition {
   readonly videoDescriptor: PgVideoDescriptor;
   readonly compositionDescriptor: PgCompositionDescriptor;
@@ -24,7 +28,12 @@ export interface PgComposition {
   readonly pts: number;
 }
 
-/** A complete PG_DISPLAY_SET as graphics_processor_decode_pes hands it to the graphics controller. */
+/**
+ * A complete display set (libbluray `PG_DISPLAY_SET`) as `graphics_processor_decode_pes` hands it to the graphics
+ * controller: one composition with the windows, palettes and objects it draws from. `pts` and `dts` are 90 kHz
+ * ticks (`dts` is null when the PES had none), `epochStart` says the composition began a new epoch, and `palettes`
+ * and `objects` are keyed by id and hold everything the epoch has defined so far.
+ */
 export interface PgDisplaySet {
   readonly pts: number; // the PCS PTS (valid_pts)
   readonly dts: number | null;
@@ -35,7 +44,7 @@ export interface PgDisplaySet {
   readonly objects: ReadonlyMap<number, PgObject>;
 }
 
-/** pg_decode_composition: `r` is positioned after the 3-byte segment header. */
+/** `pg_decode_composition`: reads a presentation composition segment, with `r` positioned after the 3-byte segment header. `pts` is stored in the result. */
 export function decodeComposition(r: ByteReader, pts: number): PgComposition {
   const videoDescriptor = decodeVideoDescriptor(r);
   const compositionDescriptor = decodeCompositionDescriptor(r);
@@ -48,7 +57,7 @@ export function decodeComposition(r: ByteReader, pts: number): PgComposition {
   return { videoDescriptor, compositionDescriptor, paletteUpdateFlag, paletteIdRef, compositionObjects, pts };
 }
 
-/** pg_decode_windows */
+/** `pg_decode_windows`: reads a window definition segment (a count, then that many windows). */
 export function decodeWindows(r: ByteReader): PgWindow[] {
   const num = r.u8();
   const windows: PgWindow[] = [];
@@ -57,12 +66,14 @@ export function decodeWindows(r: ByteReader): PgWindow[] {
 }
 
 /**
- * graphics_processor for PG: PG_DISPLAY_SET state plus graphics_processor_decode_pes. Feed one PES
- * payload (one segment) per push(); an END_OF_DISPLAY segment completes the display set. DTS gating
- * (the stc check) is done by the caller, which pushes each unit when the clock reaches its DTS.
+ * The PG half of libbluray's `graphics_processor.c`: the display set state plus `graphics_processor_decode_pes`.
+ * Feed one PES payload (one segment) per `push`; an END segment completes the display set. The caller does the
+ * decode time gating (the system time clock check in C), pushing each unit when the clock reaches its DTS. It runs
+ * in whichever context the caller runs it in and keeps no timers. A corrupt segment is dropped and counted in
+ * `errors`; other exceptions propagate.
  */
 export class PgSegmentDecoder {
-  /** corrupt segments dropped */
+  /** The number of corrupt segments dropped so far (those that threw `ParseError`). */
   errors = 0;
 
   private readonly joiner = new SegmentJoiner();
@@ -75,7 +86,10 @@ export class PgSegmentDecoder {
   private palettes = new Map<number, PgPalette>();
   private objects = new Map<number, PgObject>();
 
-  /** A complete display set at its END segment, else null. */
+  /**
+   * Decodes one segment's payload. `pts` and `dts` are the PES timestamps (90 kHz) and are kept by a composition
+   * segment. Returns the complete display set when the END segment arrives, else null.
+   */
   push(payload: Uint8Array, pts: number, dts: number | null): PgDisplaySet | null {
     let result: PgDisplaySet | null = null;
     for (const seg of this.joiner.push(payload)) {
@@ -106,7 +120,7 @@ export class PgSegmentDecoder {
     this.decoding = false;
   }
 
-  /** _reset_pg: everything, including the epoch. */
+  /** Forgets everything including the epoch (`_reset_pg`). */
   reset(): void {
     this.joiner.reset();
     this.pcs = null;
@@ -173,7 +187,7 @@ export class PgSegmentDecoder {
     const start = r.position;
     const existing = this.palettes.get(r.u8());
     r.seek(start);
-    // 8.8.3.1.1: in a normal-state composition a palette update keeps the entries it does not mention
+    // in a normal-state composition a palette update keeps the entries it does not mention
     const update = existing !== undefined && this.pcs !== null && this.pcs.compositionDescriptor.state === 0;
     const palette = decodePalette(r, update ? existing : undefined);
     this.palettes.set(palette.id, palette);

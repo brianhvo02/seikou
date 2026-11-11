@@ -30,8 +30,13 @@ const NEWLINE = 0x0a;
 const NO_INK = { advance: 0, inkLeft: 0, inkRight: 0, inkTop: 0, inkBottom: 0 } as const;
 const SPACE = 0x20;
 
+/** A laid-out line's ascent and descent in pixels (libass `LineInfo`). */
 export interface LineInfo { asc: number; desc: number }
 
+/**
+ * An event after layout (`ass_render_event`'s result, before bitmaps): its text and glyph positions, the box it
+ * occupies and its clip. Positions are in frame pixels unless the field says otherwise.
+ */
 export interface LaidOutEvent {
   readonly text: EventText;
   readonly lines: readonly LineInfo[];
@@ -50,7 +55,9 @@ export interface LaidOutEvent {
 
 /** Frame mapping with use_margins off and no API margins: every x2scr/y2scr variant is this. */
 export const x2scr = (s: RenderState, x: number): number => (x * s.settings.frameWidth) / s.parScaleX / s.track.playResX;
+/** libass `x2scr_pos_scaled` with no margins: script x to frame pixels, without the pixel aspect correction. */
 export const x2scrScaled = (s: RenderState, x: number): number => (x * s.settings.frameWidth) / s.track.playResX;
+/** libass `y2scr` with no margins: script y to frame pixels. */
 export const y2scr = (s: RenderState, y: number): number => (y * s.settings.frameHeight) / s.track.playResY;
 
 /** is_harfbuzz_ignorable */

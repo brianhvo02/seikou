@@ -12,10 +12,14 @@
 /** A position in a string, advanced by the scanning functions as libass advances its char pointers. */
 export interface Cursor { s: string; i: number }
 
+/** A cursor at index `i` (default the start) of `s`. */
 export const cursor = (s: string, i = 0): Cursor => ({ s, i });
+/** The character `off` places after the cursor, or the empty string past the end (C reads a NUL there). */
 export const ch = (c: Cursor, off = 0): string => c.s[c.i + off] ?? '';
 
+/** `ass_isspace`'s class as C `isspace` sees it in the C locale: blank, tab, newline, vertical tab, form feed, carriage return. */
 export const isSpace = (c: string): boolean => c === ' ' || c === '\t' || c === '\n' || c === '\v' || c === '\f' || c === '\r';
+/** `ass_isdigit`: an ASCII digit `0` to `9`. */
 export const isDigit = (c: string): boolean => c >= '0' && c <= '9';
 
 /** skip_spaces: blanks and tabs only. */
@@ -31,6 +35,7 @@ export function rskipSpaces(s: string, end: number, limit: number): number {
 
 /** ASCII case-insensitive comparison (ass_strcasecmp). */
 export const strcaseeq = (a: string, b: string): boolean => a.length === b.length && a.toLowerCase() === b.toLowerCase();
+/** Whether `s` has `prefix` at index `at`, ignoring ASCII case (the `ass_strncasecmp` use in libass's parsers). */
 export const startsWithCase = (s: string, prefix: string, at = 0): boolean => s.substr(at, prefix.length).toLowerCase() === prefix.toLowerCase();
 
 const INT32_MIN = -0x80000000;

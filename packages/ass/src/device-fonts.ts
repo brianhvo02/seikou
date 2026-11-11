@@ -31,7 +31,9 @@ export interface DeviceFontSource {
   unload(cssFamily: string): void;
 }
 
+/** The four styles asked of an installed family: weight (regular or bold) and slant (upright or italic). */
 export type DeviceStyle = 'regular' | 'bold' | 'italic' | 'boldItalic';
+/** Every `DeviceStyle`, in the order a family's styles are looked up. */
 export const DEVICE_STYLES: readonly DeviceStyle[] = ['regular', 'bold', 'italic', 'boldItalic'];
 
 const STYLE_WORDS: Record<DeviceStyle, readonly [full: string, ps: string]> = {

@@ -55,6 +55,7 @@ export function transformMatrix(s: RenderState, info: GlyphInfo): Mat3 {
   return m as unknown as Mat3;
 }
 
+/** Applies a projective matrix to the point (`x`, `y`): the matrix product, then the divide by its third row. */
 export function applyMat3(m: Mat3, x: number, y: number): readonly [number, number] {
   const w = m[6] * x + m[7] * y + m[8];
   return [(m[0] * x + m[1] * y + m[2]) / w, (m[3] * x + m[4] * y + m[5]) / w];

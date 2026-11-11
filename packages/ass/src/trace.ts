@@ -66,6 +66,7 @@ function runOf(e: FrameEvent, idx: readonly number[], fonts: AssFonts): TraceRun
   };
 }
 
+/** Turns a built frame into the trace lines the libass trace harness prints, so the two can be compared. */
 export function frameToTrace(frame: FrameLayout, fonts: AssFonts): TraceEvent[] {
   return frame.events.map((e) => {
     const l = e.layout;

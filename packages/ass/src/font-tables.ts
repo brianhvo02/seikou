@@ -12,6 +12,12 @@
 
 import { ligatureClusters, readLigatureLookups, scriptTag } from './gsub';
 
+/**
+ * What font matching and layout need to know about one face, read from its sfnt tables (`ass_fontselect.c`
+ * `get_font_info` and the helpers in `ass_font.c`). Metrics are in font units (`unitsPerEm` to the em).
+ * `weight`, `italic` and `bold` are the values libass derives (`ass_face_get_weight`, `ass_face_get_style_flags`),
+ * which can differ from what the style name says. `file` is the name of the file the face came from.
+ */
 export interface FaceInfo {
   readonly file: string;
   /** Face index inside a collection (0 otherwise). */
@@ -46,8 +52,10 @@ export interface FaceInfo {
   clusters(codepoints: readonly number[]): number[];
 }
 
+/** A font file as read: its `name`, its `bytes` and the faces it holds (several in a collection). */
 export interface FontFile { readonly name: string; readonly bytes: Uint8Array; readonly faces: readonly FaceInfo[] }
 
+/** Thrown for bytes that are not a readable TrueType, OpenType, collection or WOFF file; the message says what is wrong. */
 export class FontFileError extends Error {}
 
 type Tables = Map<string, Uint8Array>;

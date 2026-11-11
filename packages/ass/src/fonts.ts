@@ -19,6 +19,10 @@ import { extractFace, FontFileError, readFontFile, type FaceInfo, type FontFile 
 /** ASS_FontDesc: `bold` is a weight (ass_update_font maps \b1 to 700, \b0 to 400), `italic` 0 or 100 (or the \i value). */
 export interface FontRequest { readonly family: string; readonly bold: number; readonly italic: number; readonly vertical: boolean }
 
+/**
+ * The face chosen for a request: the result of libass `ass_font_select` for one font. `face` is the table data,
+ * `cssFamily` the name the browser draws it under, and the flags and shear say which synthetic styling to add.
+ */
 export interface ResolvedFace {
   readonly face: FaceInfo;
   /** The private CSS family the face is registered under. */
@@ -33,6 +37,7 @@ export interface ResolvedFace {
   readonly fallback: boolean;
 }
 
+/** Registers font bytes with the browser under a private CSS family, and removes them again. */
 export interface FontLoader {
   load(cssFamily: string, bytes: Uint8Array): Promise<void>;
   unload(cssFamily: string): void;
@@ -49,6 +54,7 @@ const ITALIC_SHEAR_PS = 0x02d24 / 0x10000;
 /** A supplied face (`file`), or an installed one (device fonts: `file` null, registered under `cssFamily` already). */
 interface Entry { readonly face: FaceInfo; readonly file: FontFile | null; readonly uid: number; readonly cssFamily?: string }
 
+/** Options of `AssFonts`. */
 export interface AssFontsOptions {
   /**
    * Where a family no supplied face matches is looked up before falling back to the default font; null or absent
@@ -100,6 +106,12 @@ export function advanceEmSize(face: FaceInfo, size: number): number {
 /** The faces an ASS_Font has added so far (add_face), in order. */
 interface FontState { readonly faces: ResolvedFace[] }
 
+/**
+ * The fonts of one subtitle track: the supplied faces (script attachments, then the viewer's files), the bundled
+ * default font, and the device-font lookup. It is the TypeScript form of libass's font selection (`ass_fontselect.c`)
+ * and of the `ASS_Font` face list in `ass_font.c`, with the browser's `FontFace` standing in for FreeType.
+ * The device-font part is not from libass (see `device-fonts.ts`). It runs wherever the renderer runs, the engine worker.
+ */
 export class AssFonts {
   private readonly entries: Entry[] = [];
   private readonly defaultEntry: Entry;
@@ -337,6 +349,7 @@ export class AssFonts {
     return [...this.missing.values()].filter((f) => !this.deviceFaces.get(lower(f)));
   }
 
+  /** Unregisters every font this object registered, and stops any device-font lookup from registering one later. */
   dispose(): void {
     this.disposed = true;
     for (const uid of this.loaded) {

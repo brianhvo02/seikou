@@ -17,6 +17,10 @@ export interface GlyphMetrics {
   readonly inkBottom: number;
 }
 
+/**
+ * Measures shaped text. It stands in for FreeType and HarfBuzz in libass's layout (`ass_shaper.c`, `ass_font.c`), so
+ * layout gets advances and ink extents from the browser's text engine.
+ */
 export interface GlyphMeasurer {
   /** Metrics of each code point of `codepoints` shaped as one run in `cssFamily` at `emPx`. */
   measureRun(cssFamily: string, emPx: number, codepoints: readonly number[], kerning: boolean): readonly GlyphMetrics[];

@@ -13,9 +13,11 @@ import type { OverlayCmd, OverlayOp } from './overlay-plane';
 import type { PgDisplaySet } from './pg-decoder';
 import type { PgCompositionObject, PgPalette } from './segments';
 
+/** What the renderer needs from its host, so it depends on neither the register file nor a canvas. */
 export interface PgRendererDeps {
   /** The PG display flag (bit 31 of PSR2): when false only forced objects are drawn. */
   displayFlag(): boolean;
+  /** Receives each overlay operation, in order, as the renderer produces it. */
   onOverlay(op: OverlayOp): void;
 }
 

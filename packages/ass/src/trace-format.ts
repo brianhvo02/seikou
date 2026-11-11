@@ -6,6 +6,7 @@
 
 export interface TraceGlyph { readonly x: number; readonly y: number; readonly adv: number; readonly ch: number }
 
+/** One run of glyphs with the same drawing state, as the libass trace patch prints it. */
 export interface TraceRun {
   readonly text: string;
   /** "<requested family>|<PostScript name of the face drawn>". */
@@ -33,10 +34,12 @@ export interface TraceRun {
   readonly glyphs: readonly TraceGlyph[];
 }
 
+/** An event's clip: a rectangle (`\clip` or `\iclip` with four numbers) or a vector drawing, and whether it is inverse (`\iclip`). */
 export type TraceClip =
   | { readonly rect: readonly [number, number, number, number]; readonly inverse: boolean }
   | { readonly vector: string; readonly scale: number; readonly inverse: boolean };
 
+/** One event shown at time `t` (ms): its box after collisions, its line count, its clip and its runs. */
 export interface TraceEvent {
   readonly t: number;
   /** Index in the track's events (file order). */

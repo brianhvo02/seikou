@@ -12,12 +12,20 @@
 import { cursor, mystrtod, type Cursor } from './cstr';
 import { doubleToD6 } from './events';
 
+/**
+ * One outline command, in 26.6 fixed point units (64 per script pixel): move to (`M`), line to (`L`), cubic Bezier with
+ * two control points and an end point (`C`) and close the contour (`Z`). The libass counterpart is its `ASS_Outline`.
+ */
 export type PathCommand =
   | readonly ['M', number, number]
   | readonly ['L', number, number]
   | readonly ['C', number, number, number, number, number, number]
   | readonly ['Z'];
 
+/**
+ * A parsed vector drawing: the outline as path commands, with its control box. `parseDrawing` is the TypeScript
+ * form of `ass_drawing_parse`, which builds an `ASS_Outline` for the `\p` and `\clip` drawing syntax.
+ */
 export interface Drawing {
   readonly commands: readonly PathCommand[];
   /** x_min, y_min, x_max, y_max over every point read (26.6); null when nothing was drawn. */

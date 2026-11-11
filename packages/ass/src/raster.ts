@@ -20,10 +20,19 @@ import { DECO_STRIKETHROUGH, DECO_UNDERLINE, EF_KARAOKE, EF_KARAOKE_KF, EF_KARAO
 import { applyFade } from './tags';
 import { applyMat3, isAffine, normalize, type Mat3 } from './transform';
 
+/** Run filter flag, libass `ass_cache.h` `FILTER_BORDER_STYLE_3`: BorderStyle 3, where the border is an opaque box behind the text. */
 export const FILTER_BORDER_STYLE_3 = 0x01;
+/** The run has an outline width above zero on either axis. */
+/** Run filter flag `FILTER_NONZERO_BORDER`: the run has an outline width above zero on either axis. */
 export const FILTER_NONZERO_BORDER = 0x02;
+/** The run has a shadow offset on either axis, and the shadow is drawn. */
+/** Run filter flag `FILTER_NONZERO_SHADOW`: the run has a shadow offset on either axis and the shadow is drawn. */
 export const FILTER_NONZERO_SHADOW = 0x04;
+/** The shadow shows through the fill, so it is drawn as the whole shape rather than only the part outside the fill. */
+/** Run filter flag `FILTER_FILL_IN_SHADOW`: the shadow shows through the fill, so it is drawn whole rather than only outside the fill. */
 export const FILTER_FILL_IN_SHADOW = 0x08;
+/** The border shows through the fill, so it is drawn whole rather than with the fill cut out of it. */
+/** Run filter flag `FILTER_FILL_IN_BORDER`: the border shows through the fill, so it is drawn whole rather than with the fill cut out. */
 export const FILTER_FILL_IN_BORDER = 0x10;
 
 const BLUR_PRECISION = 1 / 256;
@@ -164,10 +173,13 @@ export interface RasterContext {
   readonly layers?: LayerCache;
 }
 
+/** The 8-bit coverage masks of one run, `w` by `h` pixels: the fill, the border and the shadow (null when it has none). */
 export interface RunMasks { readonly w: number; readonly h: number; readonly fill: Uint8Array; readonly border: Uint8Array | null; readonly shadow: Uint8Array | null }
+/** A cache of `RunMasks` by key, the counterpart of libass's bitmap cache (`ass_cache.c`). */
 export interface MaskCache { get(key: string): RunMasks | undefined; set(key: string, masks: RunMasks): void }
 /** Layers positioned relative to the run's canvas origin. */
 export interface CachedLayers { readonly shadow: Layer | null; readonly border: Layer | null; readonly fill: Layer | null; readonly ox: number; readonly oy: number }
+/** A cache of coloured `CachedLayers` by key, the counterpart of libass's composite cache. */
 export interface LayerCache { get(key: string): CachedLayers | undefined; set(key: string, layers: CachedLayers): void }
 
 /** libass's subpixel grid: 1/8 px, in 26.6 units. */

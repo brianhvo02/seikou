@@ -16,10 +16,15 @@ import type { RenderSettings } from './state';
 import type { Mat3 } from './transform';
 import { YCbCr, type AssTrack, type YCbCrMatrix } from './types';
 
+/**
+ * What the last render did: `events` shown, how many of them are `animated`, `renderMs` the time it took in ms, and
+ * the counts since the renderer was made: `renders` done and `overBudget`, those that took more than 8 ms.
+ */
 export interface AssRenderStats { readonly events: number; readonly animated: number; readonly renderMs: number; readonly overBudget: number; readonly renders: number }
 
 export type { AssRendererLimits };
 
+/** What `AssRenderer` needs from its host: a measurer, canvas and clock, and the browser's drawing classes. */
 export interface AssRendererDeps {
   readonly measurer: GlyphMeasurer;
   readonly createCanvas: (w: number, h: number) => OffscreenCanvas;
@@ -102,6 +107,11 @@ export function convertColor(c: number, matrix: YCbCrMatrix, mode: 'video' | 'no
 const sameSettings = (a: RenderSettings | null, b: RenderSettings): boolean =>
   !!a && a.frameWidth === b.frameWidth && a.frameHeight === b.frameHeight && a.storageWidth === b.storageWidth && a.storageHeight === b.storageHeight && a.fontScale === b.fontScale;
 
+/**
+ * Draws an ASS track onto the player canvas. It is the counterpart of libass's `ass_render_frame` plus the bitmap
+ * caches, with Canvas2D doing the rasterising. It runs in the engine worker and keeps its caches within the
+ * byte limits it is given.
+ */
 export class AssRenderer implements TextRendererLike {
   private builder: FrameBuilder;
   private readonly rc: RasterContext;

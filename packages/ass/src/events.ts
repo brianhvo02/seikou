@@ -77,6 +77,10 @@ export interface GlyphInfo {
   clusterText: string | null;
 }
 
+/**
+ * One event after parsing: its glyph records in text order, the render state as it stands at the end of the text (the
+ * last override tags applied) and `now`, the time since the event started in ms that the tags were evaluated at.
+ */
 export interface EventText { readonly glyphs: GlyphInfo[]; readonly state: RenderState; readonly now: number }
 
 /** lrint: round half to even. */
@@ -84,7 +88,9 @@ export function lrint(x: number): number {
   const r = Math.round(x);
   return Math.abs(x % 1) === 0.5 && r % 2 !== 0 ? r - 1 : r;
 }
+/** libass `double_to_d6`: a double to 26.6 fixed point (64 units per pixel), rounded to nearest, half to even. */
 export const doubleToD6 = (x: number): number => lrint(x * 64);
+/** libass `d6_to_double`: 26.6 fixed point back to a double. */
 export const d6ToDouble = (x: number): number => x / 64;
 
 /** fix_glyph_scaling with ASS_HINTING_NONE: outlines at 256 px, the rest of the size moved into scale_x/y. */

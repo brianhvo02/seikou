@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
+/** A rectangle in canvas pixels: top left corner `x`, `y` and its `width` and `height`. */
 export interface Rect {
   readonly x: number;
   readonly y: number;
@@ -12,6 +13,7 @@ export interface Rect {
   readonly height: number;
 }
 
+/** What the compositor passes to a text renderer for each draw. */
 export interface TextRenderOptions {
   /** Added to every cue's times (a positive offset shows cues later). */
   readonly offsetUs: number;
