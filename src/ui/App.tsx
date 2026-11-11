@@ -37,7 +37,7 @@ function createAppController(): PlayerController {
   const params = new URLSearchParams(location.search);
   // Test-only (E2E): ?bdjfail=1, ?nonestedworkers=1, ?nodecoder=1 and ?telemetry=1 go to the engine worker as flags in
   // its name (@seikou/engine/worker-main engineWorkerTestFlags, src/engine-worker.ts): an unreadable class library, no
-  // workers started from workers, no video decoder configuration supported, the BD-J plane's hash in telemetry.
+  // workers started from workers, no video decoder configuration supported, the BD-J plane's hash and BD-J's memory in telemetry.
   // `?telemetry=1` also makes the controller copy telemetry to `window.__blurayTelemetry`, which the E2E tests read.
   const flags = ['bdjfail', 'nonestedworkers', 'nodecoder', 'telemetry'].filter((f) => params.has(f));
   const name = flags.length > 0 ? `bluray-engine:${flags.join(',')}` : 'bluray-engine';
@@ -173,7 +173,7 @@ function UpdatePrompt({ worker }: { worker: ServiceWorker }): ReactElement {
  * The whole app: owns the shared controller, NAS client, place saver, shader model and theme, and shows one of three
  * screens. While no disc is open it shows the help pages (a `/help` address) or the landing screen; once the controller
  * reports a disc (a playlist list or an open encode) it shows the player. It also shows the update prompt when a new
- * service worker waits and the touch log when `?touchlog=1` is set.
+ * service worker waits and the engine is neither playing nor buffering, and the touch log when `?touchlog=1` is set.
  */
 export function App(): ReactElement {
   const [controller] = useState(getController);

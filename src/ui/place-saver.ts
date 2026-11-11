@@ -73,7 +73,7 @@ export interface PlaceSaverDeps {
   readonly discOpens: () => number;
   /** The current time in ms since the epoch. */
   readonly nowMs: () => number;
-  /** Starts a one-shot timer (the 10 s save tick and retry waits); returns a handle for `clearTimer`. */
+  /** Starts a one-shot timer (the 10 s save tick); returns a handle for `clearTimer`. */
   readonly setTimer: (fn: () => void, ms: number) => unknown;
   /** Cancels a timer `setTimer` started. */
   readonly clearTimer: (handle: unknown) => void;

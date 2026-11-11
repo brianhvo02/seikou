@@ -142,7 +142,7 @@ interface ControlBarProps {
 
 /**
  * The player's control bar: seek bar with chapter ticks, previous and next chapter, play and pause, time, mute and
- * volume, then the Audio, Quality (`quality`), Subtitles, Chapters and Settings (`encode`), and Shaders menus, and the
+ * volume, then the Audio, Quality (`quality`), Subtitles, Chapters (`encode`), Shaders and Settings (`encode`) menus, and the
  * buttons Top Menu and Pop-up (when the disc has them), Remote (HDMV or BD-J), Titles or Playlists (Close for an
  * encode) and Fullscreen (when `onFullscreen` is given). A control the disc's UO mask forbids is disabled with a
  * tooltip. `visible` false hides the bar with a CSS class and keeps it mounted. Everything is driven by `snapshot` and

@@ -61,7 +61,7 @@ export interface LaunchSettingsDeps {
   readonly onFansubPick?: (pick: FansubPick, fansub: PlaceFansub) => void;
   /** Where a failed fetch or listing is reported (the app logs it); the applier never throws for them. */
   readonly log?: (message: string, err: unknown) => void;
-  /** The clock for the engine's list wait; the real one by default. */
+  /** The clock for the wait (TEXT_WAIT_MS) before the text files are added again; `Date.now` by default. */
   readonly nowMs?: () => number;
 }
 
