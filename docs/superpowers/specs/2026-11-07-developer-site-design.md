@@ -1,12 +1,12 @@
 # Developer Site: Design Spec
 
 Date: 2026-11-07
-Status: Approved in conversation; queued after the encoder project, together with the packages documentation pass.
+Status: Approved in conversation; updated 2026-11-10 after the documentation pass (§7), which is done. Next to build.
 Related: `2026-11-07-packages-design.md` (the seven packages this site documents).
 
 ## 1. Intent
 
-Seikou is being cut into seven packages (`@seikou/bdmv`, `nas`, `pg`, `ass`, `engine`, `titles`, `fansubs`) so other code can build on it, the encoder first. Someone writing code against them needs to find the right package quickly, understand its concepts, see the exact signature, units and failure behaviour of a function, and copy a working example. Today that knowledge lives in source comments of uneven depth and in planning records an outside reader will not read.
+Seikou is cut into eight packages (`@seikou/bdmv`, `nas`, `pg`, `ass`, `engine`, `titles`, `fansubs`, `matroska`) so other code can build on it, the encoder first. Someone writing code against them needs to find the right package quickly, understand its concepts, see the exact signature, units and failure behaviour of a function, and copy a working example. Today that knowledge lives in source comments of uneven depth and in planning records an outside reader will not read.
 
 This project adds a developer reference to the existing site, at `bluray.pages.dev/developers`, generated from the packages' code so it cannot drift from it, with a tested usage example for every public function.
 
@@ -62,3 +62,22 @@ Scope (from the conversation): by the time this work starts, all seven packages 
 ## 6. Left to the builder
 
 The page templates' structure within section 4, the exact TypeDoc options, how class members and overloads are laid out, the search ranking, the example runner's harness, and how fixtures are made available to examples.
+
+## 7. Update, 2026-11-10
+
+The documentation pass (`2026-11-10-documentation-pass-design.md`) is done: every export in the repository has a doc comment, the parsers' fields say what they mean, history pointers are gone, the old name is fixed, `docs/integrating.md` exists, and `tests/documentation.test.ts` keeps it so. What changes here:
+
+- **Eight packages.** `@seikou/matroska` joined after this spec was written; the site documents it like the others.
+- **The integration guide is a page.** `docs/integrating.md` is shown on the site (`/developers/integrating`, linked from the index), from the same file, so there is one copy. Its example block stays checked by `tests/documentation.test.ts` and built by `package-smoke`.
+- **TypeDoc runs in its own tool folder (the owner's decision).** The repository is on TypeScript 7, which has no JavaScript compiler API, and TypeDoc needs one. `tools/devsite/` gets its own `package.json` with TypeScript 5.9 and TypeDoc, used only to read the packages and write the JSON model (`.cache/devsite/model.json` or the builder's equivalent); the repository's own typecheck and build stay on TypeScript 7. The site's Vite plugin reads that model. CI installs the tool folder's dependencies in the job that builds the site.
+- **Narrowing the barrels is part of this project.** §3 counted on the documentation pass to narrow each `index.ts` to a deliberate API; it did not. Five barrels (`bdmv`, `matroska`, `nas`, `pg`, and one line of `ass`) still re-export whole modules with `export *`. The first step replaces each with named exports of the public API, after finding every root import of the package in the app, the server, the rendezvous Worker, the encoder, the tools and the tests, so nothing that imports from a package root breaks. Anything left out of a barrel stays importable through the package's `./*` subpath and is marked internal in its file header, as §3 says.
+- **Order of work, revised:** (1) narrow the barrels; (2) the tool folder, the model, the Vite plugin, the routes, search, the example runner and the "every export has an example" check in warn mode; (3) the visual design (frontend-design skill) and the page templates; (4) an example per public function, constructor and method, package by package; (5) the check fails the build. §5's step 3 is done apart from the examples.
+
+### 7.1 Decisions from the builder check (2026-11-10)
+
+- **The public API is what an integrator uses (the owner's decision).** A name stays in a package's `index.ts` when `docs/integrating.md` uses it, or when code outside the package (the app, the server, the rendezvous Worker, the encoder, `tools/`) imports it from the package root. Everything else leaves the barrel: it stays importable through the `./*` subpath, its file header says it is internal, it is not on the site and it needs no example. A consumer that imported a name the narrowing drops keeps working through the subpath (the narrowing step moves those imports). Tests may import anything through subpaths and do not count as consumers for this rule. Every function, class constructor and public method left in the barrels gets an example (§3).
+- **Example links (my call).** `@example <path>` in a doc comment names a file relative to the source file; the site's plugin resolves and inlines it (standard TypeDoc reads `@example` as inline code, so the plugin does this itself). A class's methods may share one example file, one `// #region <method>` section per method; the check matches each public method to a region. An export tagged `@internal` is outside the check.
+- **Theme (my call).** The colour tokens move from `src/ui/styles.css` into one shared stylesheet (for example `src/ui/tokens.css`) that the player and the developer pages both import; the developer pages carry the same theme switch, stored under the same `bluray-web:theme` key, with their own copy of the boot script kept in step with `index.html`'s by a test, as `theme-boot.test.ts` does today. The developer entry imports nothing else from `src/ui`.
+- **Build and deploy (my call).** The pages are part of the main `vite build`: a plugin beside `vite/markdown.ts` emits them into `dist/developers/`. A prebuild npm script runs `tools/devsite` to write the model before `vite build`; a missing or stale model fails the build with a message saying which command to run. `dist/developers/404.html` answers unknown developer URLs (Cloudflare Pages serves the nearest `404.html`). The service worker's precache ignores `developers/**` and its navigation route does not answer `/developers/` paths.
+- **CI (my call).** `scripts/ci-changes.sh` runs the site build and the examples tests when `packages/`, `docs/integrating.md` or `tools/devsite/` change; the site deploys from `main` and `beta` as it does today.
+- **Search (my call).** One small JSON index, fetched the first time the search box gets focus.
