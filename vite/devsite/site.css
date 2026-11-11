@@ -116,6 +116,11 @@ body.dev { margin: 0; min-height: 100vh; display: flex; flex-direction: column; 
 .signature, .code, .prose pre { margin: 0; overflow-x: auto; background: var(--night-deep); border: 1px solid var(--control-rim); border-radius: var(--r-m); color: var(--ice); tab-size: 2; -webkit-overflow-scrolling: touch; }
 .signature { padding: 18px 22px; font-size: 1.0625rem; line-height: 1.6; }
 .signature + .signature { margin-top: 10px; }
+/* a constant with a long type: a short signature, and the whole type behind a disclosure */
+.sig-full { margin-top: 10px; }
+.sig-full > summary { width: max-content; padding: 2px 0; color: var(--mist); font-size: 0.9rem; cursor: pointer; }
+.sig-full > summary:hover { color: var(--ice); }
+.sig-full[open] > summary { margin-bottom: 10px; }
 .signature + .prose, .signature + .api-section { margin-top: 24px; }
 .code, .prose pre { padding: 16px 20px; font-size: 0.875rem; line-height: 1.6; }
 .prose pre { margin: 0 0 18px; }
