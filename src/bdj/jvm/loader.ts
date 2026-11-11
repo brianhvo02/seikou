@@ -20,46 +20,75 @@ import type { NativeFn } from './natives/index';
 import type { IntrinsicFn, LoopHook, LoopHookFn } from './natives/intrinsics/index';
 import { HOOKED_GOTO, codeChecksum } from './natives/intrinsics/common';
 
+/** access_flags bit: declared public (JVM Specification, Java SE 8, §4.1, §4.5, §4.6). */
 export const ACC_PUBLIC = 0x0001;
+/** access_flags bit: declared private (§4.5, §4.6). */
 export const ACC_PRIVATE = 0x0002;
+/** access_flags bit: declared protected (§4.5, §4.6). */
 export const ACC_PROTECTED = 0x0004;
+/** access_flags bit: declared static (§4.5, §4.6). */
 export const ACC_STATIC = 0x0008;
+/** access_flags bit: declared final (§4.1, §4.5, §4.6). */
 export const ACC_FINAL = 0x0010;
+/** access_flags bit of a method: declared synchronized (§4.6). The same bit is ACC_SUPER on a class (§4.1). */
 export const ACC_SYNCHRONIZED = 0x0020;
+/** access_flags bit of a method: declared native (§4.6). */
 export const ACC_NATIVE = 0x0100;
+/** access_flags bit of a class: an interface (§4.1). */
 export const ACC_INTERFACE = 0x0200;
+/** access_flags bit: an abstract class (§4.1) or method (§4.6). */
 export const ACC_ABSTRACT = 0x0400;
 
+/**
+ * Where a class is in its life (§5.3 to §5.5). A class from a class file is `linked` as soon as it is defined (there
+ * is no verification, and preparation is done then), so `loaded` is not used; array and primitive classes are
+ * `initialized` from the start. `erroneous` is a class whose initialiser failed (§5.5 steps 10 to 12).
+ */
 export type ClassState = 'loaded' | 'linked' | 'initializing' | 'initialized' | 'erroneous';
 
+/** A field of a linked class (§4.5), laid out when the class is defined (preparation, §5.4.2). */
 export interface JField {
+  /** The class that declares it. */
   readonly cls: JClass;
   readonly name: string;
+  /** The field descriptor (§4.3.2). */
   readonly desc: string;
+  /** The field's access_flags. */
   readonly access: number;
   /** Index into the object's `fields` (instance) or the class's `staticValues` (static). */
   readonly slot: number;
   readonly isStatic: boolean;
+  /** A long or double, which takes two operand-stack slots. */
   readonly wide: boolean;
 }
 
+/** A method of a linked class (§4.6), with what the interpreter caches on it. */
 export interface JMethod {
+  /** The class that declares it. */
   readonly cls: JClass;
   readonly name: string;
+  /** The method descriptor (§4.3.3). */
   readonly desc: string;
+  /** The method's access_flags. */
   readonly access: number;
+  /** The bytecode, with any loop-hooked gotos rewritten; null for abstract and native methods. */
   readonly code: CodeAttr | null;
   /** Local-variable slots the arguments take, including `this`. */
   readonly argSlots: number;
+  /** The parameters' field descriptors, in order. */
   readonly argTypes: readonly string[];
+  /** The return descriptor, `V` for void. */
   readonly returnType: string;
+  /** The method's index in its class's vtable; -1 for static, private and initialiser methods and interface methods. */
   vtableIndex: number;
   readonly isStatic: boolean;
+  /** Declared native, or a Java method the native table replaces (NativeTable.replace). */
   readonly isNative: boolean;
   readonly isAbstract: boolean;
   readonly isSynchronized: boolean;
   /** The native table key, 'java/lang/Object.hashCode()I'. */
   readonly nativeKey: string;
+  /** The native function, looked up in the native table on the first call. */
   native: NativeFn | undefined;
   /** A JS fast path the interpreter tries before the bytecode (natives/intrinsics); it may decline. */
   readonly intrinsic?: IntrinsicFn | undefined;
@@ -73,6 +102,11 @@ export interface JMethod {
   callSites?: Map<number, JMethod>;
 }
 
+/**
+ * Splits a method descriptor (§4.3.3) into its parameter descriptors and return descriptor:
+ * `(ILjava/lang/String;)V` gives `['I', 'Ljava/lang/String;']` and `V`. Throws ClassFormatError on an unterminated
+ * class name; other malformed descriptors are not detected.
+ */
 export function parseMethodDescriptor(desc: string): { args: string[]; ret: string } {
   const args: string[] = [];
   let i = 1;
@@ -127,28 +161,47 @@ interface JClassInit {
   readonly loopHooks?: ReadonlyMap<string, readonly LoopHook[]>;
 }
 
+/**
+ * A loaded and linked class, array class or primitive class, with its fields laid out, its vtable built and its
+ * constant-pool resolutions cached. Classes are identified by name and defining loader (§5.3).
+ */
 export class JClass {
+  /** The internal name (`java/lang/String`, `[I`), or `int` and the like for a primitive class. */
   readonly name: string;
+  /** The parsed class file; null for array and primitive classes. */
   readonly file: ClassFile | null;
+  /** Null for java/lang/Object, interfaces and primitive classes. */
   readonly superClass: JClass | null;
+  /** The direct superinterfaces. */
   readonly interfaces: readonly JClass[];
+  /** The defining Java class loader; null for the bootstrap loader. */
   readonly loader: JObject | null;
+  /** The ProtectionDomain the class was defined with, for AccessController; null for boot classes. */
   readonly protectionDomain: JObject | null;
   state: ClassState = 'linked';
+  /** The thread running the initialiser while `initializing`. */
   initThread: JThread | null = null;
+  /** The exception the failed initialiser threw, once `erroneous`. */
   initError: JObject | null = null;
+  /** Every instance field, the superclass's first, in slot order. */
   readonly instanceFields: readonly JField[];
+  /** The values of the class's own static fields, by slot. */
   readonly staticValues: JValue[];
+  /** Virtual methods by vtable index, for invokevirtual; empty for interfaces. */
   readonly vtable: JMethod[];
+  /** The declared methods, keyed by name and descriptor (`toString()Ljava/lang/String;`). */
   readonly methods: ReadonlyMap<string, JMethod>;
+  /** The java.lang.Class instance, made by Jvm.mirror on first use. */
   mirror: JObject | null = null;
   /** Class.setSigners. */
   signers: JObject | null = null;
+  /** The component class of an array class; null otherwise. */
   readonly componentType: JClass | null;
   readonly isInterface: boolean;
   readonly isPrimitive: boolean;
+  /** The class's access_flags; public, final and abstract for array and primitive classes. */
   readonly access: number;
-  /** 'I', '[I', 'Ljava/lang/String;'. */
+  /** The field descriptor naming this class: 'I', '[I', 'Ljava/lang/String;'. */
   readonly descriptor: string;
   /** Per constant-pool index, the resolved class, field, method or interned string. */
   readonly resolved: unknown[];
@@ -248,7 +301,7 @@ export class JClass {
     }
   }
 
-  /** Overriding by name and descriptor; a package-private method is overridden only from its runtime package. */
+  /** Overriding (§5.4.5) by name and descriptor; a package-private method is overridden only from its runtime package. */
   private buildVtable(methods: ReadonlyMap<string, JMethod>): JMethod[] {
     const vtable = this.superClass ? [...this.superClass.vtable] : [];
     const byKey = new Map<string, number[]>();
@@ -275,6 +328,7 @@ export class JClass {
     return vtable;
   }
 
+  /** Whether both classes are in the same runtime package (§5.3): the same defining loader and package name. */
   samePackage(other: JClass): boolean {
     return this.loader === other.loader && packageOf(this.name) === packageOf(other.name);
   }
@@ -292,7 +346,7 @@ export class JClass {
     return this.ifaceSet;
   }
 
-  /** Assignability (JVM §6.5 checkcast), including interfaces and arrays. */
+  /** Assignability as checkcast and instanceof define it (§6.5), including interfaces and arrays. */
   isSubclassOf(other: JClass): boolean {
     if (this === other) return true;
     if (other.isPrimitive || this.isPrimitive) return false;
@@ -308,7 +362,7 @@ export class JClass {
     return false;
   }
 
-  /** Method resolution (JVM §5.4.3.3): this class, its superclasses, then the maximally specific superinterface method. */
+  /** Method resolution (§5.4.3.3): this class, its superclasses, then the maximally specific superinterface method. */
   findMethod(name: string, desc: string): JMethod | null {
     const key = name + desc;
     for (let c: JClass | null = this; c; c = c.superClass) {
@@ -318,7 +372,7 @@ export class JClass {
     return maximallySpecific(this.allInterfaces(), key, true);
   }
 
-  /** Interface method resolution (JVM §5.4.3.4): this interface, public methods of Object, then superinterfaces. */
+  /** Interface method resolution (§5.4.3.4): this interface, public methods of Object, then superinterfaces. */
   findInterfaceMethod(name: string, desc: string): JMethod | null {
     const key = name + desc;
     const own = this.methods.get(key);
@@ -328,7 +382,7 @@ export class JClass {
     return maximallySpecific(this.allInterfaces(), key, true);
   }
 
-  /** Field resolution (JVM §5.4.3.2). */
+  /** Field resolution (§5.4.3.2): this class, its superinterfaces, then its superclasses in turn; null when none declares it. */
   findField(name: string, desc: string): JField | null {
     const key = name + desc;
     for (let c: JClass | null = this; c; c = c.superClass) {
@@ -342,10 +396,12 @@ export class JClass {
     return null;
   }
 
+  /** A field this class itself declares, static or not. */
   declaredField(name: string, desc: string): JField | undefined {
     return this.declared.get(name + desc);
   }
 
+  /** The fields this class itself declares, in class-file order. */
   get declaredFields(): IterableIterator<JField> {
     return this.declared.values();
   }
@@ -391,7 +447,11 @@ function maximallySpecific(ifaces: ReadonlySet<JClass>, key: string, allowAbstra
   return allowAbstract ? (specific[0] ?? abstract) : null;
 }
 
-/** Method selection for invokeinterface and for interface methods reached by invokevirtual (JVM §5.4.6). */
+/**
+ * Method selection for invokeinterface and for interface methods reached by invokevirtual, as those instructions
+ * describe it (§6.5): the receiver's class and its superclasses, then the maximally specific superinterface method.
+ * Null when there is none (the caller throws AbstractMethodError). Cached per receiver class.
+ */
 export function selectMethod(receiver: JClass, resolved: JMethod): JMethod | null {
   const hit = receiver.dispatch.get(resolved);
   if (hit) return hit;
@@ -406,13 +466,16 @@ export function selectMethod(receiver: JClass, resolved: JMethod): JMethod | nul
   return selected;
 }
 
+/** The boot class path: jars searched in order, the first holding an entry wins. */
 export class ClassPath {
   constructor(private readonly jars: readonly ZipArchive[]) {}
 
+  /** The bytes of a class file such as `java/lang/Object.class`; null when no jar has it. */
   find(classFileName: string): Uint8Array | null {
     return this.findResource(classFileName);
   }
 
+  /** The bytes of a jar entry by its path in the jar; null when no jar has it. Throws ZipError on a corrupt entry. */
   findResource(name: string): Uint8Array | null {
     for (const jar of this.jars) {
       const data = jar.read(name);
@@ -443,9 +506,15 @@ export function retrying(fn: () => NativeResult): NativeResult {
 const PRIMITIVE_NAMES = { I: 'int', J: 'long', F: 'float', D: 'double', Z: 'boolean', B: 'byte', C: 'char', S: 'short', V: 'void' } as const;
 type PrimitiveCode = keyof typeof PRIMITIVE_NAMES;
 
+/**
+ * Loads, links and initialises classes (§5.3 to §5.5): the bootstrap loader over the boot class path, classes Java
+ * class loaders define, array and primitive classes, and the record of which loader initiated which name. One per
+ * JVM. Its errors are Java exceptions thrown as JavaThrowable; resolution through a Java class loader throws
+ * LoadPending.
+ */
 export class Loader {
   private readonly boot = new Map<string, JClass>();
-  /** Per Java class loader, the classes it defined or initiated loading of (JVM §5.3). */
+  /** Per Java class loader, the classes it defined or initiated loading of (§5.3). */
   private readonly byLoader = new Map<JObject, Map<string, JClass>>();
   private readonly defining = new Set<string>();
   private readonly primitives = new Map<string, JClass>();
@@ -460,7 +529,7 @@ export class Loader {
     readonly bootPath: ClassPath,
   ) {}
 
-  /** Bootstrap loading; null when the class path has no such class. */
+  /** Bootstrap loading (§5.3.1); null when the class path has no such class. Throws ClassFormatError and the like for a bad class file. */
   loadBoot(name: string): JClass | null {
     const hit = this.boot.get(name);
     if (hit) return hit;
@@ -480,7 +549,7 @@ export class Loader {
   }
 
   /**
-   * Resolves a class name as seen from `from` (JVM §5.4.3.1); throws NoClassDefFoundError, or LoadPending when
+   * Resolves a class name as seen from `from` (§5.4.3.1); throws NoClassDefFoundError, or LoadPending when
    * `from`'s Java class loader has to be asked first.
    */
   resolveClass(from: JClass, name: string): JClass {
@@ -554,7 +623,11 @@ export class Loader {
     map.set(name, c);
   }
 
-  /** Defines a class; the superclass and interfaces are resolved through `loader`, so this may throw LoadPending. */
+  /**
+   * Defines a class (§5.3.5) in `loader` (null: the bootstrap loader). Throws NoClassDefFoundError when the file
+   * names another class, LinkageError on a second definition, ClassCircularityError, IncompatibleClassChangeError and
+   * the class-file errors; the superclass and interfaces are resolved through `loader`, so this may throw LoadPending.
+   */
   define(name: string, bytes: Uint8Array, loader: JObject | null, protectionDomain: JObject | null): JClass {
     const file = this.parse(name, bytes);
     if (file.name !== name) throw this.error('java/lang/NoClassDefFoundError', `${name} (wrong name: ${file.name})`);
@@ -707,6 +780,7 @@ export class Loader {
     return o;
   }
 
+  /** The array class of `component` (§5.3.3), made once and kept on the component class. */
   arrayOf(component: JClass): JClass {
     if (component.arrayType) return component.arrayType;
     const iface = (n: string): JClass => {
@@ -730,6 +804,7 @@ export class Loader {
     return cls;
   }
 
+  /** The primitive class for a descriptor letter (`I` gives `int`), as `int.class` stands for it. */
   primitive(code: PrimitiveCode): JClass {
     let cls = this.primitives.get(code);
     if (!cls) {
@@ -751,7 +826,7 @@ export class Loader {
   }
 
   /**
-   * Class initialisation (JVM §5.5). Null when the class is ready for this thread now; otherwise the work to do
+   * Class initialisation (§5.5). Null when the class is ready for this thread now; otherwise the work to do
    * (an Invoke chain running the initialisers, a wait for the thread initialising it, or the exception), after which
    * the caller retries.
    */

@@ -14,6 +14,7 @@ import type { Jvm } from '../jvm';
 import type { JThread } from '../threads';
 import type { JArray, JObject, JValue } from '../values';
 
+/** A native that does nothing and returns void, for the JDK's registerNatives and initIDs methods. */
 export const none = (): undefined => undefined;
 
 /** Enters `o`'s monitor, blocking until it is free (retried when the scheduler wakes the thread), then runs `k`. */
@@ -26,6 +27,7 @@ export function withMonitor(jvm: Jvm, t: JThread, o: JObject, k: () => NativeRes
   return attempt();
 }
 
+/** The text of a java.lang.String; '' for null. */
 export function jsStr(jvm: Jvm, s: JValue): string {
   return jvm.heap.jsString(s as JObject | null) ?? '';
 }
@@ -42,6 +44,7 @@ export function virtual(receiver: JObject, base: JClass, key: string): JMethod {
   return m;
 }
 
+/** The method `key` (`name` and descriptor) that `c` itself declares; throws a JS Error when it does not, a fault in the class library. */
 export function method(c: JClass, key: string): JMethod {
   const m = c.methods.get(key);
   if (!m) throw new Error(`${c.name}.${key} is missing`);
@@ -63,6 +66,7 @@ export function throwConstructed(jvm: Jvm, t: JThread, cls: string, desc: string
   });
 }
 
+/** A new Java byte[] holding a copy of `bytes`; null for null. */
 export function byteArray(jvm: Jvm, bytes: Uint8Array | null): JArray | null {
   if (!bytes) return null;
   const loader = jvm.loader;

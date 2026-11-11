@@ -75,6 +75,10 @@ const socketConnect = (ctx: NativeContext, _self: JValue, addr: JValue, _port: J
 // send ICMP and throw SocketException instead; libbluray's players do not run as root
 const isReachable = (_ctx: NativeContext, _self: JValue, addr: JValue): NativeResult => (loopbackBytes(addr) ? 1 : 0);
 
+/**
+ * Registers the java.net natives for name lookup, reachability and sockets of InetAddress, Inet4AddressImpl,
+ * Inet6AddressImpl, PlainSocketImpl, the socket streams and PlainDatagramSocketImpl, all failing as described above.
+ */
 export function registerNetNatives(natives: NativeTable): void {
   const impl = (cls: string): Record<string, (ctx: NativeContext, ...args: JValue[]) => NativeResult> => ({
     [`java/net/${cls}.getLocalHostName()Ljava/lang/String;`]: (ctx) => ctx.jvm.heap.newString('localhost'),

@@ -17,15 +17,28 @@ import type { Jvm } from './jvm';
 import { linkCallSite, resolveConstant, signaturePolymorphic } from './natives/invoke';
 import { DECLINE } from './natives/intrinsics/common';
 
+/**
+ * A method's frame (JVM Specification, Java SE 8, §2.6): its local variables and operand stack, a long or double
+ * taking two slots in each. A native method has a marker frame with no slots while it runs.
+ */
 export interface Frame {
   readonly method: JMethod;
+  /** The bytecode offset of the instruction running, or to run next once the frame resumes. */
   pc: number;
+  /** Local variables (§2.6.1), parameters first. */
   readonly locals: JValue[];
+  /** The operand stack (§2.6.2), its top at `sp - 1`. */
   readonly stack: JValue[];
+  /** How many operand-stack slots are in use. */
   sp: number;
+  /** Receives the frame's return value or exception instead of its caller, for a call a native made (Invoke). */
   then?: (ret: JValue | undefined, thrown: JObject | null) => NativeResult;
 }
 
+/**
+ * What a native method gives back: a value (a JValue, or undefined for void), a Suspend to park the thread, an
+ * Invoke to call a Java method and continue with its result, or a ThrowResult to throw.
+ */
 export type NativeResult = JValue | undefined | Suspend | Invoke | ThrowResult;
 
 /**
@@ -55,12 +68,15 @@ export class Invoke {
   ) {}
 }
 
+/** A native's result that throws `exception` in the calling thread. */
 export class ThrowResult {
   constructor(readonly exception: JObject) {}
 }
 
+/** Why execute() returned: its bytecode budget ran out or the thread was preempted, it blocked, or it ended. */
 export type ExitReason = 'budget' | 'blocked' | 'finished';
 
+/** The deepest a thread's stack gets: a call beyond it throws StackOverflowError (§2.5.2). */
 export const MAX_FRAMES = 4000;
 
 class JFrame implements Frame {
@@ -623,6 +639,12 @@ export function setBytecodeProfile(p: BytecodeProfile | null): void {
   profile = p;
 }
 
+/**
+ * Runs thread `t`'s top frames for at most `budget` bytecodes, carrying out the instructions of chapter 6 (§6.5).
+ * Calls push frames and returns pop them without JS recursion, exceptions unwind to handlers (§2.10), and the thread
+ * stops early when it blocks on a monitor, suspends or is preempted. A JS error escaping here is a fault in the JVM
+ * and stops the runtime.
+ */
 export function execute(jvm: Jvm, t: JThread, budget: number): ExitReason {
   if (t.state === 'terminated') return 'finished';
   if (t.state !== 'runnable') return 'blocked';
@@ -1439,7 +1461,7 @@ function run(jvm: Jvm, t: JThread, budget: number): ExitReason {
             jvm.threads.monitorExit(t, o);
             pc++;
             if (jvm.threads.preempted) {
-              // the monitor passed to another thread, which runs first (Ruling R19)
+              // the monitor passed to another thread, which runs before this one goes on, as it would in parallel on HotSpot
               f.pc = pc;
               f.sp = sp;
               // this instruction counted, unlike at the budget check (which stops before running one)

@@ -9,25 +9,36 @@
 import type { ByteSource } from '@seikou/bdmv/byte-source';
 import type { ZipArchive } from './zip';
 
+/** What stat() reports for a path. */
 export interface VfsStat {
   readonly kind: 'file' | 'dir';
+  /** The file's length in bytes; 0 for a directory. */
   readonly size: number;
+  /** Modification time in ms since the epoch; 0 on the read-only mounts. */
   readonly mtimeMs: number;
 }
 
+/** An open file (open()), which the java.io natives keep behind a file descriptor until close(). */
 export interface VfsHandle {
+  /** The path it was opened with. */
   readonly path: string;
+  /** The byte offset the next read or write uses. */
   position: number;
+  /** The file's current length in bytes. */
   readonly size: () => number;
+  /** Opened for writing, on a memory mount. */
   readonly writable: boolean;
 }
 
+/** What a Vfs serves and how it reports changes. */
 export interface VfsOptions {
+  /** The disc, served read-only under /disc/ with case-insensitive names; null for no disc. */
   readonly disc: ByteSource | null;
   /** rt-bdj.jar; its lib/ entries appear under /jdk/lib/. */
   readonly jdkLib: ZipArchive;
   /** The disc's normalised file paths (FileSource.paths()); required when `disc` is given. */
   readonly discPaths?: Iterable<string>;
+  /** The clock for modification times, in ms since the epoch. */
   readonly nowMs: () => number;
   /** Normalised (upper-case) disc path to the disc's own spelling, used for listings. */
   readonly originalNames?: ReadonlyMap<string, string>;
@@ -76,8 +87,8 @@ interface QuotaRoot {
 }
 
 /**
- * How a quota counts: `bytes`, the files' lengths; `tar`, the size of the ustar archive the NAS keeps the scope in
- * (ruling R24): 512 bytes of header per file plus its length rounded up to 512, and 1024 bytes of end blocks.
+ * How a quota counts: `bytes`, the files' lengths; `tar`, the size of the ustar archive the NAS keeps the scope in, so
+ * the write that would cross the NAS's limit fails at once instead of a later refused upload: 512 bytes of header per file plus its length rounded up to 512, and 1024 bytes of end blocks.
  */
 export type QuotaAccounting = 'bytes' | 'tar';
 
@@ -92,6 +103,7 @@ export interface LazyFile {
   readonly load: () => Promise<Uint8Array>;
 }
 
+/** How open() opens a file, as fopen does: read, write (create or truncate), append (create), or read and write (create, no truncation). */
 export type VfsMode = 'r' | 'w' | 'a' | 'rw';
 
 interface MemDir {
@@ -198,7 +210,14 @@ function newDir(now: number): MemDir {
   return { kind: 'dir', children: new Map(), mtimeMs: now };
 }
 
+/**
+ * The file system Java sees on the BD-J worker: /disc/ (the disc, read-only), /tmp/, /persistent/ and /buda/ (in
+ * memory, writable, with a shared limit and per-scope quotas), /jdk/ (the class library's lib/ files, read-only) and
+ * /app/ (read-only files the host supplies). Paths are absolute with `/` separators. Failures are reported as false
+ * or null (a failed disc or lazy read as a rejected promise), so the natives can give the messages the JDK would.
+ */
 export class Vfs {
+  /** The mount points, each with a trailing slash. */
   readonly mounts: readonly string[] = MOUNTS;
   private readonly disc: ByteSource | null;
   private readonly nowMs: () => number;
@@ -313,6 +332,7 @@ export class Vfs {
     return out;
   }
 
+  /** `path` without empty, `.` and `..` segments, as an absolute path; `..` above the root stays at the root. */
   canonicalize(path: string): string {
     const out: string[] = [];
     for (const seg of path.split('/')) {
@@ -323,6 +343,7 @@ export class Vfs {
     return `/${out.join('/')}`;
   }
 
+  /** The file or directory at `path`; null when there is none. The root and mount points are directories. */
   stat(path: string): VfsStat | null {
     const r = this.resolve(path);
     if (!r) return null;
@@ -342,6 +363,7 @@ export class Vfs {
     return this.discStat(r.rest);
   }
 
+  /** The names in directory `dir`, sorted (disc names in the disc's own spelling where it is known); null when it is not a directory. */
   list(dir: string): string[] | null {
     const r = this.resolve(dir);
     if (!r) return null;
@@ -355,6 +377,7 @@ export class Vfs {
     return this.discList(r.rest);
   }
 
+  /** Makes a directory on a memory mount; false when its parent is missing, the name exists or the mount is read-only. */
   mkdir(path: string): boolean {
     const t = this.memParent(path);
     if (!t || t.parent.children.has(t.name)) return false;
@@ -369,6 +392,7 @@ export class Vfs {
     if (this.onChange) this.onChange(this.canonicalize(path), change, to === undefined ? undefined : this.canonicalize(to));
   }
 
+  /** Deletes a file or empty directory on a memory mount; false otherwise. An open handle keeps the deleted file's bytes. */
   delete(path: string): boolean {
     const t = this.memParent(path);
     if (!t) return false;
@@ -569,6 +593,11 @@ export class Vfs {
     return true;
   }
 
+  /**
+   * Moves a file or directory within the memory mounts, replacing a file at `to`, as rename(2) does. False when either
+   * path is not on a memory mount, `from` is missing, a directory meets a file or would move into itself, or a quota
+   * would go over.
+   */
   rename(from: string, to: string): boolean {
     const src = this.memParent(from);
     const dst = this.memParent(to);
@@ -616,7 +645,10 @@ export class Vfs {
     return true;
   }
 
-  /** Returns null when the file is missing, is a directory, or the mode needs a read-only mount to be written. */
+  /**
+   * Opens a file in `mode`, creating it on a memory mount for any mode but 'r'. Returns null when the file is missing,
+   * is a directory, the mode needs a read-only mount to be written, or a new file does not fit its quota.
+   */
   open(path: string, mode: VfsMode): VfsHandle | null {
     const r = this.resolve(path);
     if (!r || r.mount === null || r.rest.length === 0) return null;

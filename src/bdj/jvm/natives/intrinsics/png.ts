@@ -31,6 +31,7 @@ const updateCrc: IntrinsicFn = (_jvm, _t, m, stack, base) => {
   return crc;
 };
 
+/** The intrinsics in this file by native-table key, for NativeTable.intrinsify. */
 export const pngIntrinsics: Readonly<Record<string, IntrinsicFn>> = {
   'sun/awt/image/PNGImageDecoder.update_crc(I[BII)I': updateCrc,
 };

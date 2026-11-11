@@ -70,6 +70,10 @@ function setPixelsHook(bytes: boolean, exit: number): LoopHookFn {
   };
 }
 
+/**
+ * The setPixels loop hooks by native-table key, for NativeTable.hookLoops: each names the pc of the loop's goto and
+ * the checksum of the bytecode it was written for, so a changed class library fails loudly when the class is defined.
+ */
 export const imageLoopHooks: Readonly<Record<string, readonly LoopHook[]>> = {
   'java/awt/BDImageConsumer.setPixels(IIIILjava/awt/image/ColorModel;[III)V': [{ pc: 64, checksum: 0xf38b02b0, fn: setPixelsHook(false, 73) }],
   'java/awt/BDImageConsumer.setPixels(IIIILjava/awt/image/ColorModel;[BII)V': [{ pc: 68, checksum: 0xe4bf8ad9, fn: setPixelsHook(true, 77) }],

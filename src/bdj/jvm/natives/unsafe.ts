@@ -182,6 +182,11 @@ function accessors(): Record<string, (ctx: NativeContext, ...a: JValue[]) => Nat
   return out;
 }
 
+/**
+ * Registers the sun.misc.Unsafe natives: field, array and off-heap accessors (volatile and ordered forms are the plain
+ * ones, since green threads never run in parallel), compare-and-swap, offsets, memory blocks, park and unpark, class
+ * definition and allocation, on the addressing scheme above.
+ */
 export function registerUnsafeNatives(table: NativeTable): void {
   table.register(accessors());
   table.register({

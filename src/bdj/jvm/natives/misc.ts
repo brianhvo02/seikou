@@ -32,6 +32,11 @@ function allocateBuffer(jvm: Jvm, t: JThread, n: number, fill?: Int8Array): Nati
   );
 }
 
+/**
+ * Registers the sun.misc natives: VM.latestUserDefinedLoader0 (the innermost frame's non-boot loader), signals that
+ * are never delivered, empty version strings, Perf counters as plain buffers that nothing reads, and URLClassPath's
+ * lookup cache, which is always absent.
+ */
 export function registerMiscNatives(table: NativeTable): void {
   table.register({
     'sun/misc/VM.initialize()V': none,

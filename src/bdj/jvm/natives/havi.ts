@@ -26,6 +26,7 @@ import { ZipArchive } from '../zip';
 import type { NativeTable } from './index';
 import { absolute, readVfsFile } from './io';
 
+/** The native-table key of HStillImageBackgroundConfiguration.displayImage(HBackgroundImage, HScreenRectangle), which this file replaces. */
 export const DISPLAY_IMAGE = 'org/havi/ui/HStillImageBackgroundConfiguration.displayImage(Lorg/havi/ui/HBackgroundImage;Lorg/havi/ui/HScreenRectangle;)V';
 
 const CONFIG = 'org/havi/ui/HStillImageBackgroundConfiguration';
@@ -124,6 +125,11 @@ function rectOf(jvm: Jvm, r: JObject | null): ScreenRect {
   return { x: f('x'), y: f('y'), width: f('width'), height: f('height') };
 }
 
+/**
+ * Replaces HStillImageBackgroundConfiguration.displayImage with the version described above, which hands the still's
+ * encoded bytes and its screen rectangle to `host.displayImage` (null bytes clear the background). Without
+ * `host.displayImage` it only keeps the fields, as libbluray does.
+ */
 export function registerHaviNatives(table: NativeTable, host: BdjHost): void {
   const log = (msg: string): void => host.log(CONFIG, 0, msg, true);
   table.replace({

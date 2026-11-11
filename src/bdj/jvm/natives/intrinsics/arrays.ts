@@ -19,6 +19,7 @@ const fillInt: IntrinsicFn = (_jvm, _t, _m, stack, base) => {
   return undefined;
 };
 
+/** The intrinsics in this file by native-table key, for NativeTable.intrinsify. */
 export const arrayIntrinsics: Readonly<Record<string, IntrinsicFn>> = {
   'java/util/Arrays.fill([II)V': fillInt,
 };

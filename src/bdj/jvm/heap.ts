@@ -34,6 +34,7 @@ class Arr implements JArray {
   ) {}
 }
 
+/** Zeroed element storage for `length` elements of the component type `componentDescriptor` (see `ArrayData`). */
 export function newArrayData(componentDescriptor: string, length: number): ArrayData {
   switch (componentDescriptor) {
     case 'Z':
@@ -56,6 +57,10 @@ export function newArrayData(componentDescriptor: string, length: number): Array
   }
 }
 
+/**
+ * Allocates objects, arrays and strings, keeps the string intern table and gives identity hashes. One per JVM, used on
+ * the BD-J worker only. There is no collector of its own: an unreachable object is reclaimed by the JS engine.
+ */
 export class Heap {
   private readonly interned = new Map<string, JObject>();
   private hashState = 0x2545f491;
@@ -63,6 +68,7 @@ export class Heap {
 
   constructor(private readonly jvm: Jvm) {}
 
+  /** A new instance of `cls` with every field at its default; no constructor runs and `cls` is not initialized here. */
   newObject(cls: JClass): JObject {
     return new Obj(cls, cls.fieldTemplate.slice());
   }
@@ -72,6 +78,10 @@ export class Heap {
     return new Arr(cls, newArrayData(cls.componentType!.descriptor, length));
   }
 
+  /**
+   * A new java.lang.String holding the UTF-16 code units of `s`. Throws a JS Error when java/lang/String is not on the
+   * boot class path.
+   */
   newString(s: string): JObject {
     const loader = this.jvm.loader;
     const chars = new Uint16Array(s.length);
@@ -81,6 +91,7 @@ export class Heap {
     return str;
   }
 
+  /** The interned java.lang.String for `s`, made on first use; string literals (`ldc`) resolve to these (§5.1). */
   intern(s: string): JObject {
     let str = this.interned.get(s);
     if (!str) {
@@ -107,6 +118,7 @@ export class Heap {
     return c;
   }
 
+  /** The text of a java.lang.String; null for a null reference or a string whose value array is null. */
   jsString(str: JObject | null): string | null {
     if (str === null) return null;
     this.stringClass();
@@ -118,7 +130,10 @@ export class Heap {
     return out;
   }
 
-  /** Never 0 and 31 bits wide, as HotSpot's identity hashes are. */
+  /**
+   * Object.hashCode's identity hash, from a xorshift generator, kept on the object once given. Never 0 and 31 bits
+   * wide, as HotSpot's identity hashes are.
+   */
   identityHash(o: JObject): number {
     if (o.hash === 0) {
       let x = this.hashState;

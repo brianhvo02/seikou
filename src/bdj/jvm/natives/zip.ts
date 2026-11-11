@@ -300,6 +300,11 @@ function isMetaName(name: string): boolean {
   return name.length >= 9 && name.slice(0, 9).toUpperCase() === 'META-INF/';
 }
 
+/**
+ * Registers the java.util.zip natives (ZipFile, Inflater, Deflater, CRC32, Adler32) and the java.util.jar one
+ * (JarFile.getMetaInfEntryNames) over zip.ts, as the JDK's zip_util.c behaves: open zips of an unchanged file share a
+ * handle, and the error messages are its own.
+ */
 export function registerZipNatives(natives: NativeTable): void {
   natives.register({
     'java/util/zip/ZipFile.initIDs()V': none,

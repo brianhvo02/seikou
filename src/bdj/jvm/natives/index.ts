@@ -23,6 +23,7 @@ import { registerUnsafeNatives } from './unsafe';
 import { registerZipNatives } from './zip';
 import type { ClassLibraryHelpers, IntrinsicFn, LoopHook } from './intrinsics/index';
 
+/** What a native function is called with besides its arguments: the JVM, the calling thread and the native method. */
 export interface NativeContext {
   readonly jvm: Jvm;
   readonly thread: JThread;
@@ -32,6 +33,11 @@ export interface NativeContext {
 /** Receives the receiver (instance methods) and then one value per parameter; a long is one bigint. */
 export type NativeFn = (ctx: NativeContext, ...args: JValue[]) => NativeResult;
 
+/**
+ * The JVM's table of native methods by key (`java/lang/Object.hashCode()I`): natives proper, Java methods replaced
+ * by natives, intrinsics and loop hooks. Classes take their replacements, intrinsics and hooks when they are defined,
+ * and look natives up on the first call, so everything is registered before the classes load.
+ */
 export class NativeTable {
   private readonly fns = new Map<string, NativeFn>();
   private readonly replacedKeys = new Set<string>();
@@ -51,6 +57,7 @@ export class NativeTable {
     for (const key of Object.keys(entries)) this.replacedKeys.add(key);
   }
 
+  /** The keys of the replaced Java methods (replace). */
   get replaced(): ReadonlySet<string> {
     return this.replacedKeys;
   }
@@ -63,6 +70,7 @@ export class NativeTable {
     for (const [key, fn] of Object.entries(entries)) this.intrinsicFns.set(key, fn);
   }
 
+  /** The intrinsics by key (intrinsify). */
   get intrinsics(): ReadonlyMap<string, IntrinsicFn> {
     return this.intrinsicFns;
   }
@@ -72,14 +80,17 @@ export class NativeTable {
     for (const [key, list] of Object.entries(entries)) this.hooks.set(key, list);
   }
 
+  /** The loop hooks by key (hookLoops). */
   get loopHooks(): ReadonlyMap<string, readonly LoopHook[]> {
     return this.hooks;
   }
 
+  /** The native function for `key`, if one is registered. */
   get(key: string): NativeFn | undefined {
     return this.fns.get(key);
   }
 
+  /** Every registered native's key. */
   get keys(): readonly string[] {
     return [...this.fns.keys()];
   }

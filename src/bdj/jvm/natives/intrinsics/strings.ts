@@ -292,6 +292,7 @@ const asciiCase =
     return jvm.heap.newString(out);
   };
 
+/** The intrinsics in this file by native-table key, for NativeTable.intrinsify. */
 export const stringIntrinsics: Readonly<Record<string, IntrinsicFn>> = {
   'java/lang/String.toLowerCase(Ljava/util/Locale;)Ljava/lang/String;': asciiCase(false),
   'java/lang/String.toUpperCase(Ljava/util/Locale;)Ljava/lang/String;': asciiCase(true),

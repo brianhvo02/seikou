@@ -77,7 +77,8 @@ function openFailure(vfs: Vfs | null, path: string, write: boolean): string {
   const parent = vfs?.stat(path.slice(0, path.lastIndexOf('/')) || '/') ?? null;
   if (parent?.kind !== 'dir') return 'No such file or directory';
   if (write && !vfs!.writable(path)) return 'Read-only file system';
-  // a new file the storage scope's quota has no room for (its tar header, ruling R24), as open(2) on a full disk
+  // a new file the storage scope's quota has no room for (its 512-byte tar header, since the quota counts the scope
+  // as the ustar archive the NAS keeps), as open(2) on a full disk
   if (write && st === null && vfs!.quotaRefusesNewFile(path)) return 'No space left on device';
   return 'No such file or directory';
 }
@@ -152,6 +153,11 @@ function readHandle(jvm: Jvm, h: VfsHandle, out: Uint8Array, off: number, len: n
   return typeof r === 'number' ? k(r) : suspendRead(jvm, r, 'java/io/IOException', k);
 }
 
+/**
+ * FileInputStream.readBytes and RandomAccessFile.readBytes: reads up to `len` bytes into `b` at `off`, returning the
+ * count or -1 at end of file. Throws NullPointerException or IndexOutOfBoundsException for bad arguments and
+ * IOException("Stream Closed") on a closed stream; a disc read suspends the thread and its failure is an IOException.
+ */
 export function readBytes(ctx: NativeContext, self: JValue, b: JValue, off: JValue, len: JValue): NativeResult {
   const jvm = ctx.jvm;
   const bad = checkBounds(jvm, b, off as number, len as number);
@@ -212,6 +218,10 @@ const ACCESS_WRITE = 0x02;
 const SPACE_TOTAL = 0;
 const O_RDWR = 2;
 
+/**
+ * The close0 natives of FileInputStream, FileOutputStream and RandomAccessFile: frees the descriptor and sets
+ * FileDescriptor.fd to -1. Returns 0 for libbluray's own FileInputStream, whose close0 returns an int.
+ */
 export function closeStream(ctx: NativeContext, self: JValue): number {
   closeFd(ctx.jvm, fdObject(ctx.jvm, self));
   return 0;
@@ -223,6 +233,10 @@ function memory(jvm: Jvm, address: JValue, len: number): Uint8Array | null {
   return b ? new Uint8Array(b.view.buffer, b.view.byteOffset + b.offset, len) : null;
 }
 
+/**
+ * Registers the java.io natives (FileDescriptor, UnixFileSystem, FileInputStream, FileOutputStream,
+ * RandomAccessFile, Console, ObjectStreamClass) and the sun.nio ones FileChannel needs, all over the JVM's Vfs.
+ */
 export function registerIoNatives(natives: NativeTable): void {
   natives.register({
     'java/io/FileDescriptor.initIDs()V': none,

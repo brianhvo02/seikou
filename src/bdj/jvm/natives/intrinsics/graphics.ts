@@ -245,6 +245,7 @@ const isBackBufferClear: IntrinsicFn = (_jvm, _t, m, stack, base) => {
   return 1;
 };
 
+/** The intrinsics in this file by native-table key, for NativeTable.intrinsify. */
 export const graphicsIntrinsics: Readonly<Record<string, IntrinsicFn>> = {
   'java/awt/BDGraphicsBase.drawSpanN(IIII)V': drawSpanColor,
   'java/awt/BDGraphicsBase.drawSpanN(III[IIZ)V': drawSpanPixels,

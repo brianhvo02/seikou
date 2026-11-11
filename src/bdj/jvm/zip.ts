@@ -6,23 +6,37 @@
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
+/** A malformed zip archive or DEFLATE stream; the zip natives turn it into Java's ZipException or DataFormatException. */
 export class ZipError extends Error {}
 
+/**
+ * One central directory file header of a zip archive (PKWARE APPNOTE.TXT §4.3.12), with its fields as §4.4 defines
+ * them. Sizes and offsets are bytes; zip64 archives are refused.
+ */
 export interface ZipEntry {
+  /** The file name decoded as UTF-8. */
   readonly name: string;
+  /** The file name as stored (§4.4.17). */
   readonly nameBytes: Uint8Array;
-  /** 0 (stored) and 8 (deflated) can be read; others are listed but read() rejects them. */
+  /** Compression method (§4.4.5): 0 (stored) and 8 (deflated) can be read; others are listed but read() rejects them. */
   readonly method: number;
-  /** The general-purpose bit flag. */
+  /** The general purpose bit flag (§4.4.4). */
   readonly flag: number;
+  /** compressed size (§4.4.8). */
   readonly compressedSize: number;
+  /** uncompressed size (§4.4.9). */
   readonly size: number;
+  /** CRC-32 of the uncompressed data (§4.4.7). */
   readonly crc: number;
+  /** relative offset of local header (§4.4.16): where the entry's local file header starts. */
   readonly localHeaderOffset: number;
+  /** last mod file date and time (§4.4.6) as ms since the epoch, reading the MS-DOS fields as UTC. */
   readonly time: number;
   /** MS-DOS date and time, (date << 16) | time, unsigned. */
   readonly dosTime: number;
+  /** The extra field: tagged blocks of further data about the entry. */
   readonly extra: Uint8Array;
+  /** The file comment (§4.4.18). */
   readonly comment: Uint8Array;
 }
 
@@ -39,6 +53,7 @@ const CRC_TABLES = (() => {
 })();
 const CRC_TABLE = CRC_TABLES[0]!;
 
+/** The Adler-32 checksum (RFC 1950 §2.2) of `data[start, end)`, continuing from `seed` (1 for a new checksum). */
 export function adler32(data: Uint8Array, start = 0, end = data.length, seed = 1): number {
   let a = seed & 0xffff;
   let b = seed >>> 16;
@@ -54,6 +69,10 @@ export function adler32(data: Uint8Array, start = 0, end = data.length, seed = 1
   return ((b << 16) | a) >>> 0;
 }
 
+/**
+ * The CRC-32 zip uses (PKWARE APPNOTE.TXT §4.4.7; the reflected polynomial 0xEDB88320) of `data[start, end)`,
+ * continuing from `seed` (0 for a new CRC).
+ */
 export function crc32(data: Uint8Array, start = 0, end = data.length, seed = 0): number {
   const [t0, t1, t2, t3] = CRC_TABLES as [Int32Array, Int32Array, Int32Array, Int32Array];
   let c = ~seed;
@@ -66,11 +85,18 @@ export function crc32(data: Uint8Array, start = 0, end = data.length, seed = 0):
   return ~c >>> 0;
 }
 
+/**
+ * A streaming raw DEFLATE decoder (RFC 1951) that takes input and gives output in pieces, for java.util.zip.Inflater.
+ * Methods throw ZipError on a malformed stream; after one, pull throws it again.
+ */
 export interface InflateCoroutine {
+  /** Adds compressed input; the bytes are copied, so the caller may reuse its buffer. */
   push(input: Uint8Array): void;
-  /** Writes up to out.length bytes; returns bytes written. */
+  /** Writes up to `length` decoded bytes into `out` at `offset`; returns how many it wrote (0 when it needs input or has finished). */
   pull(out: Uint8Array, offset: number, length: number): number;
+  /** The final block has been decoded and every output byte pulled. */
   readonly finished: boolean;
+  /** Nothing more can be decoded until push() adds input. */
   readonly needsInput: boolean;
   /** Bytes of pushed input not consumed (valid after finished). */
   readonly remaining: number;
@@ -139,6 +165,7 @@ const FIXED_LIT = (() => {
 })();
 const FIXED_DIST = buildHuffman(new Uint8Array(30).fill(5), 30, true);
 
+/** A new streaming DEFLATE decoder with a 64 KiB output ring. */
 export function inflateRaw(): InflateCoroutine {
   const ring = new Uint8Array(RING);
   let wpos = 0;
@@ -544,14 +571,21 @@ const SIG_EOCD = 0x06054b50;
 const SIG_CEN = 0x02014b50;
 const SIG_LOC = 0x04034b50;
 
+/**
+ * A zip or jar archive held whole in memory (PKWARE APPNOTE.TXT §4.3.6): the central directory is read when it is
+ * opened, entries are read on demand. Zip64 (§4.3.14) and encryption are not supported.
+ */
 export class ZipArchive {
   private constructor(
     /** The whole archive, which the archive keeps. */
     readonly bytes: Uint8Array,
+    /** Entries by name; for a name stored twice, the later record. */
     readonly entries: ReadonlyMap<string, ZipEntry>,
+    /** The distinct names in central-directory order. */
     readonly names: readonly string[],
     /** Every central-directory record in order, duplicates included. */
     readonly list: readonly ZipEntry[],
+    /** The archive comment from the end of central directory record (§4.3.16). */
     readonly comment: Uint8Array,
   ) {}
 
@@ -566,6 +600,11 @@ export class ZipArchive {
     return this.bytes.subarray(start, start + entry.compressedSize);
   }
 
+  /**
+   * Reads the archive's directory: finds the end of central directory record (§4.3.16) by scanning back over at most
+   * a 64 KiB comment, then every central directory header (§4.3.12). Keeps `bytes` without copying. Throws ZipError
+   * when the record is missing, the archive is zip64 or a record is out of range.
+   */
   static open(bytes: Uint8Array): ZipArchive {
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.length);
     let eocd = -1;
@@ -621,6 +660,10 @@ export class ZipArchive {
     return new ZipArchive(bytes, entries, names, list, bytes.subarray(eocd + 22, eocd + 22 + commentLen));
   }
 
+  /**
+   * Where the entry's data starts: after its local file header (§4.3.7) and that header's own name and extra field,
+   * whose lengths can differ from the central directory's. Throws ZipError when the header or data is out of range.
+   */
   dataOffset(entry: ZipEntry): number {
     const o = entry.localHeaderOffset;
     if (o + 30 > this.bytes.length) throw new ZipError('zip: local header out of range');
@@ -631,6 +674,10 @@ export class ZipArchive {
     return start;
   }
 
+  /**
+   * The entry's uncompressed bytes, a new copy; null when there is no such entry. Throws ZipError for a method other
+   * than stored or deflated, a corrupt stream, or a size or CRC-32 that does not match the directory.
+   */
   read(name: string): Uint8Array | null {
     const entry = this.entries.get(name);
     if (!entry) return null;
@@ -680,6 +727,7 @@ export class DeflateEncoder {
     for (const b of [0, 0, 0xff, 0xff]) this.byte(b);
   }
 
+  /** Encodes what is left as the final block and byte-aligns the output; later writes throw. */
   finish(): void {
     if (this.ended) return;
     this.encode(this.take(), true);
@@ -697,6 +745,7 @@ export class DeflateEncoder {
     return this.ended && this.available === 0;
   }
 
+  /** Copies up to `length` encoded bytes into `out` at `offset`; returns how many. */
   read(out: Uint8Array, offset: number, length: number): number {
     const n = Math.min(length, this.available);
     out.set(this.out.subarray(this.outStart, this.outStart + n), offset);

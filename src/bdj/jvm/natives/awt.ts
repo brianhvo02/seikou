@@ -48,6 +48,10 @@ const INIT_IDS = [
   'sun/java2d/Disposer',
 ];
 
+/**
+ * Registers the AWT natives above: every listed class's initIDs, a few peer and splash-screen natives that do
+ * nothing, and the replacement of Component.getFontMetrics.
+ */
 export function registerAwtNatives(natives: NativeTable): void {
   const entries: Record<string, NativeFn> = {};
   for (const c of INIT_IDS) entries[`${c}.initIDs()V`] = none;

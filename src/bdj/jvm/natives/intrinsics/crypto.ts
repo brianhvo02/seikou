@@ -89,6 +89,7 @@ export const mulAdd: IntrinsicFn = (_jvm, _t, _m, stack, base) => {
   return carry | 0;
 };
 
+/** The intrinsics in this file by native-table key, for NativeTable.intrinsify. */
 export const cryptoIntrinsics: Readonly<Record<string, IntrinsicFn>> = {
   'sun/security/provider/SHA.implCompress0([BI)V': shaCompress,
   'java/math/BigInteger.implMulAdd([I[IIII)I': mulAdd,

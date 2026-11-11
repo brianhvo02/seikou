@@ -23,14 +23,21 @@ import type { Vfs } from './vfs';
 import type { JvmMemoryStats } from '@seikou/engine/bdj-types';
 export type { JvmMemoryStats } from '@seikou/engine/bdj-types';
 
+/** What a Jvm is built from and how it reaches the outside world. */
 export interface JvmOptions {
+  /** The boot class path's jars, searched in order (the class library's `rt-bdj.jar` and libbluray's jars). */
   readonly bootJars: readonly Uint8Array[];
+  /** Wall-clock time in ms since the epoch: System.currentTimeMillis, nanoTime (scaled) and Unsafe.park deadlines. */
   readonly nowMs: () => number;
+  /** Runs `fn` after `ms` milliseconds and returns its cancel function; sleeps, timed waits and parks use it. */
   readonly setTimer: (ms: number, fn: () => void) => () => void;
   /** The scheduler's periodic turn of the event loop (SchedulerOptions.yieldTask). */
   readonly yieldTask?: () => Promise<void>;
+  /** What Java writes to standard output (file descriptor 1). */
   readonly stdout: (s: string) => void;
+  /** What Java writes to standard error (file descriptor 2). */
   readonly stderr: (s: string) => void;
+  /** The file system Java's file natives see; without one, every file open fails with FileNotFoundException. */
   readonly vfs?: Vfs;
   /** Added to the JDK's own (initProperties), as the runtime's -D options are. */
   readonly systemProperties?: ReadonlyMap<string, string>;
@@ -57,10 +64,16 @@ export interface StackTrace {
 const MAX_TRACE_DEPTH = 1024;
 const TIME_SLICE = 10_000;
 
+/**
+ * The BD-J virtual machine: a heap, a class loader over the boot jars, the green-thread scheduler and the native
+ * table. It runs on the BD-J worker only, on its one JS thread. boot() starts the JDK; callStatic runs Java code.
+ * Java exceptions move through JS as JavaThrowable or ThrowResult; a JS Error means a fault in the JVM itself.
+ */
 export class Jvm {
   readonly heap: Heap;
   readonly loader: Loader;
   readonly threads: Scheduler;
+  /** Native methods, replacements, intrinsics and loop hooks, keyed like `java/lang/Object.hashCode()I`. */
   readonly natives: NativeTable;
   /** The thread the interpreter is running, if any. */
   currentThread: JThread | null = null;
@@ -179,7 +192,7 @@ export class Jvm {
     await this.drive(t, 'System.initializeSystemClass');
   }
 
-  /** Runs `k` once `c` is initialised for thread `t` (JVM §5.5), waiting for or running its initialisers first. */
+  /** Runs `k` once `c` is initialised for thread `t` (JVM Specification §5.5), waiting for or running its initialisers first. */
   withInit(t: JThread, c: JClass, k: () => NativeResult): NativeResult {
     const r = this.loader.initialize(t, c);
     return r === null ? k() : andThen(r, () => this.withInit(t, c, k));
@@ -260,12 +273,14 @@ export class Jvm {
     return cls.mirror;
   }
 
+  /** Reads an instance field by name and descriptor (searching superclasses); throws a JS Error when there is none. */
   getField(o: JObject, name: string, desc: string): JValue {
     const f = o.cls.findField(name, desc);
     if (!f || f.isStatic) throw new Error(`${o.cls.name} has no field ${name} ${desc}`);
     return o.fields[f.slot]!;
   }
 
+  /** Writes an instance field by name and descriptor (searching superclasses); throws a JS Error when there is none. */
   setField(o: JObject, name: string, desc: string, value: JValue): void {
     const f = o.cls.findField(name, desc);
     if (!f || f.isStatic) throw new Error(`${o.cls.name} has no field ${name} ${desc}`);

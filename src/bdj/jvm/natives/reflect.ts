@@ -54,6 +54,10 @@ function classArray(jvm: Jvm, classes: readonly JClass[]): JArray {
   return jvm.newArray(jvm.bootClass('java/lang/Class'), classes.map((c) => jvm.mirror(c)));
 }
 
+/**
+ * A new java.lang.reflect.Field for `f`, filled as HotSpot's Reflection::new_field fills it: class, slot, name, type,
+ * modifiers, signature and annotation bytes. Resolving the field's type may throw LoadPending.
+ */
 export function newField(jvm: Jvm, f: JField): JObject {
   const info = fieldInfo(f);
   const o = jvm.heap.newObject(jvm.bootClass('java/lang/reflect/Field'));
@@ -76,6 +80,11 @@ export function fieldOf(jvm: Jvm, o: JObject): JField | null {
   return null;
 }
 
+/**
+ * A new java.lang.reflect.Method, or Constructor for `<init>`, for `m`: class, slot (its index in methodList),
+ * parameter and exception types, modifiers, signature and annotation bytes, and for a method its name, return type
+ * and annotation default. Resolving the types may throw LoadPending.
+ */
 export function newExecutable(jvm: Jvm, m: JMethod): JObject {
   const c = m.cls;
   const slot = methodList(c).indexOf(m);
@@ -269,6 +278,7 @@ function cpMember(jvm: Jvm, cp: JValue, index: JValue, field: boolean): NativeRe
   });
 }
 
+/** Registers the reflection natives listed in this file's header. */
 export function registerReflectNatives(table: NativeTable): void {
   table.register({
     'java/lang/Class.getDeclaredFields0(Z)[Ljava/lang/reflect/Field;': (ctx, self, publicOnly) => {

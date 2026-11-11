@@ -762,6 +762,12 @@ function compileToBytecode(ctx: NativeContext, self: JValue): NativeResult {
 const unsupported = (ctx: NativeContext): NativeResult =>
   ctx.jvm.throwNew('java/lang/UnsupportedOperationException', `${ctx.method.name} cannot be invoked reflectively`);
 
+/**
+ * Registers the java.lang.invoke natives: MethodHandleNatives (init, expand, resolve, getMembers, the offsets and
+ * call-site targets), MethodHandle.invoke and invokeExact for reflective calls, which throw
+ * UnsupportedOperationException, and the replacement of LambdaForm.compileToBytecode. Bytecode calls of the
+ * signature-polymorphic methods are linked by signaturePolymorphic instead.
+ */
 export function registerInvokeNatives(table: NativeTable): void {
   table.replace({ 'java/lang/invoke/LambdaForm.compileToBytecode()Ljava/lang/invoke/MemberName;': compileToBytecode });
   table.register({

@@ -85,7 +85,10 @@ function all(steps: readonly (() => NativeResult)[], k: (values: JValue[]) => Na
   return step(0);
 }
 
-/** _make_title_info */
+/**
+ * A new org.videolan.TitleInfo (title number, HDMV or BD-J, playback type, object id); null for no title. Ported
+ * from libbluray `org_videolan_Libbluray.c` `_make_title_info`.
+ */
 function makeTitleInfo(ctx: NativeContext, t: TitleInfo | null): NativeResult {
   if (!t) return null;
   const bdj = t.objectType === 'bdj';
@@ -93,7 +96,10 @@ function makeTitleInfo(ctx: NativeContext, t: TitleInfo | null): NativeResult {
   return makeObject(ctx, 'org/videolan/TitleInfo', '(IIII)V', [t.number, bdj ? TITLE_TYPE_BDJ : TITLE_TYPE_HDMV, t.playbackType, idRef]);
 }
 
-/** _make_stream_array */
+/**
+ * A new org.videolan.StreamInfo[] for one stream list of a clip. Ported from libbluray `org_videolan_Libbluray.c`
+ * `_make_stream_array`.
+ */
 function makeStreamArray(ctx: NativeContext, streams: readonly StreamInfo[]): NativeResult {
   return makeArray(ctx, 'org/videolan/StreamInfo', streams, (s) =>
     makeObject(ctx, 'org/videolan/StreamInfo', '(BBBCLjava/lang/String;BB)V', [
@@ -110,7 +116,10 @@ function makeStreamArray(ctx: NativeContext, streams: readonly StreamInfo[]): Na
 
 const STREAM_ARRAY = '[Lorg/videolan/StreamInfo;';
 
-/** _make_playlist_info */
+/**
+ * A new org.videolan.PlaylistInfo: playlist number, duration in 90 kHz ticks, angle count, marks and clips with their
+ * stream arrays. Ported from libbluray `org_videolan_Libbluray.c` `_make_playlist_info`.
+ */
 function makePlaylistInfo(ctx: NativeContext, ti: PlaylistInfo): NativeResult {
   return all(
     [
@@ -134,7 +143,10 @@ function makePlaylistInfo(ctx: NativeContext, ti: PlaylistInfo): NativeResult {
   );
 }
 
-/** _make_app */
+/**
+ * A new org.videolan.bdjo.AppEntry for one application of a BDJO's application management table. Ported from
+ * libbluray `bdjo.c` `_make_app`.
+ */
 function makeApp(ctx: NativeContext, p: BdjoApp): NativeResult {
   const heap = ctx.jvm.heap;
   return all(
@@ -172,7 +184,10 @@ function makeApp(ctx: NativeContext, p: BdjoApp): NativeResult {
   );
 }
 
-/** bdjo_make_jobj; the key interest bits are libbluray's bit-field order (vk_play first, at bit 31 of the table). */
+/**
+ * A new org.videolan.bdjo.Bdjo for a parsed BDJO, ported from libbluray `bdjo.c` `bdjo_make_jobj`; the key interest
+ * bits are libbluray's bit-field order (vk_play first, at bit 31 of the table).
+ */
 function makeBdjo(ctx: NativeContext, p: Bdjo): NativeResult {
   const heap = ctx.jvm.heap;
   let keyInterest = 0;
@@ -221,7 +236,11 @@ function mkdirs(vfs: Vfs, path: string): boolean {
   return true;
 }
 
-/** disc_cache_bdrom_file */
+/**
+ * Copies a disc file (`relPath` under /disc/) to `cachePath` in the Vfs, making its directories; `k` gets 0 on
+ * success, also for a directory path, which copies nothing, and -1 on failure. Ported from libbluray `disc.c`
+ * `disc_cache_bdrom_file`.
+ */
 function cacheBdromFile(vfs: Vfs, relPath: string, cachePath: string, k: (result: number) => NativeResult): NativeResult {
   if (cachePath === '' || !mkdirs(vfs, cachePath)) return k(-1);
   if (relPath === '' || relPath.endsWith('/') || relPath.endsWith('\\')) return k(0);

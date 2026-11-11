@@ -57,6 +57,7 @@ export const BASE_PROPERTIES: readonly (readonly [string, string])[] = [
   ['sun.reflect.inflationThreshold', '2147483647'],
 ];
 
+/** The class a java.lang.Class instance stands for. */
 export function classOf(o: JValue): JClass {
   return (o as JObject).nativeData as JClass;
 }
@@ -86,6 +87,7 @@ export function lineNumber(m: JMethod, pc: number): number {
   return best;
 }
 
+/** A new java.lang.StackTraceElement for `m` at bytecode offset `pc`: class, method, source file and line (see lineNumber). */
 export function stackTraceElement(jvm: Jvm, m: JMethod, pc: number): JObject {
   const e = jvm.heap.newObject(jvm.bootClass('java/lang/StackTraceElement'));
   jvm.setField(e, 'declaringClass', 'Ljava/lang/String;', jvm.heap.newString(externalName(m.cls.name)));
@@ -184,7 +186,11 @@ function defineClass(jvm: Jvm, loader: JObject | null, name: JValue, b: JValue, 
   return retrying(() => jvm.mirror(jvm.loader.define(internal, bytes, loader, pd as JObject | null)));
 }
 
-/** A frame that called AccessController.doPrivileged, while the action runs: where a stack walk stops (Ruling R20). */
+/**
+ * A frame that called AccessController.doPrivileged, while the action runs: where a stack walk stops. Walking the
+ * interpreter's frames against the protection domains makes the denials HotSpot makes under libbluray's security
+ * manager happen here too.
+ */
 interface PrivilegedFrame {
   readonly frame: object;
   /** The protection domain of the class that called doPrivileged (null: a boot class, fully trusted). */
@@ -237,7 +243,7 @@ function doPrivileged(jvm: Jvm, t: JThread, action: JValue, iface: string, conte
 }
 
 /**
- * AccessController.getStackAccessControlContext (Ruling R20): the protection domains of the methods on the calling
+ * AccessController.getStackAccessControlContext: the protection domains of the methods on the calling
  * thread's stack, innermost first, up to and including the innermost caller of doPrivileged, whose own domain counts
  * and whose context argument becomes the privileged context. Boot classes (null domain) add nothing. Null only for a
  * privileged walk that found no domain and no privileged context (trusted code inside doPrivileged: nothing to check).
@@ -335,6 +341,10 @@ function contextClasses(t: JThread): JClass[] {
   return out;
 }
 
+/**
+ * Registers the java.lang natives listed in this file's header, the AccessController ones, and the system properties
+ * (BASE_PROPERTIES plus JvmOptions.systemProperties) that System.initProperties fills.
+ */
 export function registerLangNatives(table: NativeTable): void {
   table.register({
     'java/lang/Object.clone()Ljava/lang/Object;': (ctx, self) => {

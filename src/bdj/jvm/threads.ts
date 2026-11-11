@@ -15,6 +15,11 @@ import { BLOCKED, Invoke, Suspend, ThrowResult, andThen, complete, execute } fro
 import type { Frame, NativeResult } from './interpreter';
 import { dropPerClassFastPaths } from './natives/intrinsics/common';
 
+/**
+ * What a green thread is doing: running or ready (`runnable`), blocked entering a monitor, in Object.wait (untimed,
+ * or timed), in Thread.sleep or Thread.yield (`sleeping`), in Unsafe.park, waiting on a native's promise
+ * (`suspended-native`, which Java sees as RUNNABLE) or ended.
+ */
 export type ThreadState =
   | 'runnable'
   | 'blocked-monitor'
@@ -35,10 +40,18 @@ const STATUS_PARKED = 0x0291;
 const STATUS_PARKED_TIMED = 0x02a1;
 const STATUS_TERMINATED = 0x0002;
 
+/**
+ * One green thread: its own stack of interpreter frames (§2.5.2), run by the Scheduler on the BD-J worker's one JS
+ * thread. `javaThread` is its java.lang.Thread; null for the boot thread until `main` exists and for a thread
+ * Jvm.callStatic starts before boot.
+ */
 export class JThread {
+  /** The thread's frames, outermost first; the last is the one running. */
   readonly frames: Frame[] = [];
   private current: ThreadState = 'runnable';
+  /** Thread.interrupt's flag. */
   interrupted = false;
+  /** The exception that ended the thread, when no handler took it. */
   uncaught: JObject | null = null;
   /** What the thread's first method returned. */
   result: JValue | undefined = undefined;
@@ -46,6 +59,7 @@ export class JThread {
   statusSlot = -1;
   /** A 'sleeping' thread that only yielded, which Java sees as RUNNABLE. */
   yielding = false;
+  /** A 'parked' thread parked with a timeout, which Java sees as TIMED_WAITING. */
   parkTimed = false;
   /** The thread has run its exit sequence; Thread.isAlive is false from here on. */
   exited = false;
@@ -58,6 +72,7 @@ export class JThread {
     public javaThread: JObject | null,
   ) {}
 
+  /** The scheduler's state for the thread. Setting it updates threadStatus when synced and runs `onTerminate` on termination. */
   get state(): ThreadState {
     return this.current;
   }
@@ -96,16 +111,28 @@ export class JThread {
   }
 }
 
+/**
+ * An object's monitor (JVM Specification, Java SE 8, §2.11.10; wait sets as the Java Language Specification §17.2
+ * describes them), made on first use.
+ */
 export interface Monitor {
+  /** The thread that holds it; null when free. */
   owner: JThread | null;
+  /** How many times the owner has entered it (monitors are reentrant). */
   count: number;
+  /** Threads blocked entering, and woken waiters taking it back, in arrival order. */
   readonly entrySet: JThread[];
+  /** Threads in Object.wait on it, and threads waiting for the class it mirrors to finish initialising. */
   readonly waitSet: JThread[];
 }
 
+/** How the Scheduler runs and keeps time. */
 export interface SchedulerOptions {
+  /** Bytecodes a thread runs before the next thread's turn. */
   readonly slice: number;
+  /** The clock for Unsafe.park's absolute deadlines, in ms (Java's currentTimeMillis clock). */
   readonly nowMs: () => number;
+  /** Runs `fn` after `ms` milliseconds; returns a function that cancels it. */
   readonly setTimer: (ms: number, fn: () => void) => () => void;
   /**
    * A turn of the event loop for the scheduler's periodic yield; setTimer(0) by default, which browsers clamp to
@@ -129,6 +156,11 @@ interface Waiting {
 
 const blocked = (): Suspend => new Suspend(BLOCKED);
 
+/**
+ * Runs the JVM's green threads round robin on one JS thread: each runnable thread gets `slice` bytecodes, monitors and
+ * wait sets are kept here, and sleeps, timed waits and parks are JS timers. A thread blocked on I/O waits on a promise
+ * while the others run. Java code never runs in parallel, so a monitor's state needs no atomics.
+ */
 export class Scheduler {
   private nextId = 1;
   private threads: JThread[] = [];
@@ -164,6 +196,7 @@ export class Scheduler {
     this.slice = opts.slice;
   }
 
+  /** Every thread that has not terminated. */
   get live(): readonly JThread[] {
     return this.threads.filter((t) => t.state !== 'terminated');
   }
@@ -178,7 +211,10 @@ export class Scheduler {
     return new Promise((r) => this.timerWaiters.push(r));
   }
 
-  /** A static method's class is initialised first, as invokestatic would. */
+  /**
+   * Starts a thread running `method` with `args`, its result kept in `JThread.result`. A static method's class is
+   * initialised first, as invokestatic would. After halt() the thread is made terminated and never runs.
+   */
   spawn(javaThread: JObject | null, method: JMethod, args: readonly JValue[]): JThread {
     return this.spawnWith(javaThread, (t) => {
       const call = (): Invoke =>
@@ -207,6 +243,10 @@ export class Scheduler {
     return t;
   }
 
+  /**
+   * monitorenter (§6.5): takes or re-enters `o`'s monitor and returns true, or puts `t` in its entry set as
+   * 'blocked-monitor' and returns false; the caller then retries the entry when the thread next runs.
+   */
   monitorEnter(t: JThread, o: JObject): boolean {
     const m = monitorOf(o);
     if (m.owner === null) {
@@ -224,12 +264,19 @@ export class Scheduler {
     return false;
   }
 
+  /** monitorexit (§6.5): leaves `o`'s monitor once, freeing it at count 0. Throws IllegalMonitorStateException (a JavaThrowable) when `t` does not own it. */
   monitorExit(t: JThread, o: JObject): void {
     const m = o.monitor;
     if (m?.owner !== t) throw this.illegalMonitorState();
     if (--m.count === 0) this.release(m);
   }
 
+  /**
+   * Object.wait: releases `o`'s monitor entirely and waits until notify, interrupt or `ms` milliseconds (0: no
+   * timeout), then takes the monitor back at its old count before returning. Returns the exception to throw instead:
+   * IllegalMonitorStateException when `t` does not own the monitor, IllegalArgumentException for a negative timeout,
+   * InterruptedException when the thread was already interrupted.
+   */
   wait(t: JThread, o: JObject, ms: number): NativeResult {
     const m = o.monitor;
     if (m?.owner !== t) return this.jvm.throwNew('java/lang/IllegalMonitorStateException');
@@ -244,6 +291,7 @@ export class Scheduler {
     return blocked();
   }
 
+  /** Object.notify (the first waiter) and notifyAll (`all`). Throws IllegalMonitorStateException when `t` does not own the monitor. */
   notify(o: JObject, all: boolean, t: JThread): void {
     const m = o.monitor;
     if (m?.owner !== t) throw this.illegalMonitorState();
@@ -255,6 +303,10 @@ export class Scheduler {
     for (const w of all ? waiters : waiters.slice(0, 1)) this.endWait(w, () => undefined);
   }
 
+  /**
+   * Thread.sleep for `ms` milliseconds; 0 returns at once. Returns IllegalArgumentException for a negative time and
+   * InterruptedException when already interrupted.
+   */
   sleep(t: JThread, ms: number): NativeResult {
     if (ms < 0) return this.jvm.throwNew('java/lang/IllegalArgumentException', 'timeout value is negative');
     if (takeInterrupt(t)) return this.jvm.throwNew('java/lang/InterruptedException', 'sleep interrupted');
@@ -291,6 +343,7 @@ export class Scheduler {
     return blocked();
   }
 
+  /** Unsafe.unpark: wakes a parked thread, or gives it the permit that makes its next park return at once. */
   unpark(t: JThread): void {
     if (t.state === 'parked') this.resume(t, () => undefined);
     else this.permits.add(t);
@@ -310,7 +363,7 @@ export class Scheduler {
     }
   }
 
-  /** JVM §5.5 step 2: waits on the class's monitor until the initialising thread finishes; the caller then retries. */
+  /** JVM Specification §5.5, step 2: waits on the class's monitor until the initialising thread finishes; the caller then retries. */
   awaitInit(t: JThread, c: JClass): NativeResult {
     const o = this.jvm.mirror(c);
     monitorOf(o).waitSet.push(t);
@@ -327,6 +380,7 @@ export class Scheduler {
     for (const w of m.waitSet.filter((x) => this.waiting.get(x)!.count === 0)) this.endWait(w, () => undefined);
   }
 
+  /** Parks the thread until `p` settles, its value becoming the pending native call's result. */
   suspendOn(t: JThread, p: Promise<JValue | undefined>): void {
     this.suspend(t, new Suspend(p));
   }
@@ -378,6 +432,7 @@ export class Scheduler {
     if (this.running) this.preempted = true;
   }
 
+  /** Whether halt() has run. */
   get isHalted(): boolean {
     return this.halted;
   }
@@ -539,10 +594,11 @@ export class Scheduler {
   }
 
   /**
-   * Frees a monitor and hands it on: to a waiter woken by notify (it takes the monitor back), or to the first thread
-   * blocked entering. Ruling R19: either way the releasing thread's slice ends here (preempt), so the thread handed the
-   * monitor runs before the releaser goes on, as on HotSpot, where it runs in parallel at once. Without it, a MediaTracker
-   * waiter woken by an image's "complete" only ran after the fetcher had also reported its late error.
+   * Frees a monitor and hands it on: to a waiter woken by notify, which takes the monitor back at its old count, or
+   * by waking the first thread blocked entering, which retries its entry. Either way the releasing thread's slice
+   * ends here (preempt), so the woken thread runs before the releaser goes on, as on HotSpot, where it runs in
+   * parallel at once. Without it, a MediaTracker waiter woken by an image's "complete" only ran after the fetcher had
+   * also reported its late error, which held some discs back from their menus.
    */
   private release(m: Monitor): void {
     m.owner = null;

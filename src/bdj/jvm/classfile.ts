@@ -6,6 +6,14 @@
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
+/**
+ * One constant-pool entry (JVM Specification, Java SE 8, §4.4), with its references to other entries kept as pool
+ * indices. Tags: Utf8 (§4.4.7, decoded from modified UTF-8), Integer and Float (§4.4.4), Long and Double (§4.4.5),
+ * Class (§4.4.1, `name` the Utf8 index of its internal name), String (§4.4.3), Fieldref, Methodref and
+ * InterfaceMethodref (§4.4.2, `cls` the Class index, `nat` the NameAndType index), NameAndType (§4.4.6), MethodHandle
+ * (§4.4.8, `kind` the reference kind 1 to 9), MethodType (§4.4.9) and InvokeDynamic (§4.4.10, `bsm` an index into the
+ * BootstrapMethods attribute, not into the pool).
+ */
 export type CpEntry =
   | { readonly tag: 'utf8'; readonly value: string }
   | { readonly tag: 'int'; readonly value: number }
@@ -19,66 +27,102 @@ export type CpEntry =
   | { readonly tag: 'mhandle'; readonly kind: number; readonly ref: number }
   | { readonly tag: 'mtype'; readonly desc: number }
   | { readonly tag: 'indy'; readonly bsm: number; readonly nat: number }
-  | null; // index 0 and the slot after long/double
+  | null; // index 0 and the slot after a Long or Double, which take two entries (§4.4.5)
 
+/**
+ * One row of a Code attribute's exception_table (§4.7.3): the handler at `handlerPc` covers the bytecode offsets from
+ * `startPc` (inclusive) to `endPc` (exclusive).
+ */
 export interface ExceptionHandler {
+  /** First bytecode offset the handler covers. */
   readonly startPc: number;
+  /** Bytecode offset after the last one the handler covers. */
   readonly endPc: number;
+  /** Bytecode offset of the handler's first instruction. */
   readonly handlerPc: number;
   /** Constant-pool index of the class, 0 for catch-all. */
   readonly catchType: number;
 }
 
+/** A method's Code attribute (§4.7.3). Of its own attributes only LineNumberTable (§4.7.12) is kept. */
 export interface CodeAttr {
+  /** max_stack: the deepest the operand stack gets, in slots (a long or double takes two). */
   readonly maxStack: number;
+  /** max_locals: local variable slots, parameters included (a long or double takes two). */
   readonly maxLocals: number;
+  /** The bytecode, in a buffer shared with the class's other kept bytes (see `ClassFile.retainedBytes`). */
   readonly code: Uint8Array;
   readonly handlers: readonly ExceptionHandler[];
-  /** The LineNumberTable as (start pc, line) pairs, flattened. */
+  /** The LineNumberTable (§4.7.12) as (start pc, line) pairs, flattened; empty when the method has none. */
   readonly lineNumbers: Uint16Array;
 }
 
+/** A field_info (§4.5) or method_info (§4.6) with the attributes the JVM uses; other attributes are skipped. */
 export interface MemberInfo {
+  /** access_flags (§4.5, §4.6): the `ACC_*` bits in `loader.ts`. */
   readonly access: number;
   readonly name: string;
+  /** The field or method descriptor (§4.3.2, §4.3.3), such as `(ILjava/lang/String;)V`. */
   readonly desc: string;
+  /** The Code attribute (§4.7.3); null for abstract and native methods and for fields. */
   readonly code: CodeAttr | null;
-  /** Constant-pool index from the ConstantValue attribute. */
+  /** Constant-pool index from the ConstantValue attribute (§4.7.2), for a static field's initial value. */
   readonly constantValue: number | null;
+  /** Internal names of the classes in the Exceptions attribute (§4.7.5), the checked exceptions a method declares. */
   readonly exceptions: readonly string[];
+  /** The Signature attribute (§4.7.9): the generic signature, for reflection. */
   readonly signature: string | null;
-  /** Raw RuntimeVisibleAnnotations, RuntimeVisibleParameterAnnotations and AnnotationDefault, as reflection wants them. */
+  /**
+   * Raw RuntimeVisibleAnnotations (§4.7.16), RuntimeVisibleParameterAnnotations (§4.7.18) and AnnotationDefault
+   * (§4.7.22) attribute bodies, as reflection hands them to Java's annotation parser.
+   */
   readonly annotations: Uint8Array | null;
   readonly parameterAnnotations: Uint8Array | null;
   readonly annotationDefault: Uint8Array | null;
 }
 
+/** One entry of the BootstrapMethods attribute (§4.7.23), which `invokedynamic` call sites name. */
 export interface BootstrapMethod {
+  /** Constant-pool index of the bootstrap method's MethodHandle. */
   readonly ref: number;
+  /** Constant-pool indices of the static arguments passed to it. */
   readonly args: readonly number[];
 }
 
+/** A parsed class file (§4.1). Class names are internal names with slashes (§4.2.1). */
 export interface ClassFile {
+  /** major_version: 45 to 52 (Java SE 8) are accepted. */
   readonly major: number;
   readonly minor: number;
+  /** The constant pool, indexed as the class file indexes it: entry 0 is null. */
   readonly cp: readonly CpEntry[];
+  /** access_flags of the class (§4.1): the `ACC_*` bits in `loader.ts`. */
   readonly access: number;
   readonly name: string;
+  /** The superclass's internal name; null when super_class is 0, as it is for `java/lang/Object`. */
   readonly superName: string | null;
   readonly interfaces: readonly string[];
   readonly fields: readonly MemberInfo[];
   readonly methods: readonly MemberInfo[];
+  /** The BootstrapMethods attribute (§4.7.23); empty when the class has none. */
   readonly bootstrapMethods: readonly BootstrapMethod[];
+  /** The SourceFile attribute (§4.7.10), for stack traces. */
   readonly sourceFile: string | null;
+  /**
+   * The InnerClasses attribute (§4.7.6): each nested class, the class it is a member of (null for a local or anonymous
+   * class), its simple name (null when anonymous) and its inner_class_access_flags.
+   */
   readonly innerClasses: readonly {
     readonly inner: string;
     readonly outer: string | null;
     readonly name: string | null;
     readonly access: number;
   }[];
+  /** The class's Signature attribute (§4.7.9). */
   readonly signature: string | null;
+  /** The class's raw RuntimeVisibleAnnotations attribute body (§4.7.16). */
   readonly annotations: Uint8Array | null;
-  /** EnclosingMethod: the class and the NameAndType index (0 when not in a method). */
+  /** EnclosingMethod (§4.7.7): the class and the NameAndType index (0 when not in a method). */
   readonly enclosingMethod: { readonly cls: string; readonly nat: number } | null;
   /**
    * Bytes of the class file the parsed class keeps (code and annotations), copied into one buffer of their own so the
@@ -87,9 +131,17 @@ export interface ClassFile {
   readonly retainedBytes: number;
 }
 
+/** A class file that breaks the format of chapter 4: bad magic, truncation, a wrong constant type. The loader turns it into Java's `ClassFormatError`. */
 export class ClassFormatError extends Error {}
+/** A class file newer than major version 52 (Java SE 8). The loader turns it into Java's `UnsupportedClassVersionError`. */
 export class UnsupportedClassVersionError extends Error {}
 
+/**
+ * Decodes modified UTF-8 (§4.4.7) to a JavaScript string: one-, two- and three-byte forms only, each giving one UTF-16
+ * code unit, so a supplementary character arrives as its two surrogates encoded separately and NUL as `C0 80`. Throws
+ * ClassFormatError on a truncated sequence or a byte that starts no form (including the four-byte form of standard
+ * UTF-8). Continuation bytes are not checked.
+ */
 export function decodeModifiedUtf8(bytes: Uint8Array): string {
   const units: number[] = [];
   let out = '';
@@ -202,6 +254,12 @@ class Kept {
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };
 
+/**
+ * Parses a class file (§4.1): magic, version, constant pool (§4.4), access flags, this and super class, interfaces,
+ * fields (§4.5), methods (§4.6) and the class attributes it uses (§4.7). It checks structure only (no verification,
+ * §4.10). Throws ClassFormatError on a malformed file and UnsupportedClassVersionError on a version over 52. The result
+ * keeps no reference to `bytes`.
+ */
 export function parseClassFile(bytes: Uint8Array): ClassFile {
   const r = new Reader(bytes);
   const kept = new Kept();

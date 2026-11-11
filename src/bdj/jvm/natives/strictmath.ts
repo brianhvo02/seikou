@@ -118,6 +118,7 @@ export function fdlibmRemainder(x: number, p: number): number {
 const d = (f: (x: number) => number) => (_ctx: unknown, x: unknown): number => f(x as number);
 const dd = (f: (x: number, y: number) => number) => (_ctx: unknown, x: unknown, y: unknown): number => f(x as number, y as number);
 
+/** Registers the java.lang.StrictMath natives: exp and IEEEremainder from fdlibm, the others onto JS Math. */
 export function registerStrictMathNatives(table: NativeTable): void {
   table.register({
     'java/lang/StrictMath.exp(D)D': d(fdlibmExp),

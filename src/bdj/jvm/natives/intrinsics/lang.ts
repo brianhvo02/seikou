@@ -74,6 +74,7 @@ const stringFromChars: IntrinsicFn = (jvm, _t, m, stack, base) => {
   return undefined;
 };
 
+/** The intrinsics in this file by native-table key, for NativeTable.intrinsify. */
 export const langIntrinsics: Readonly<Record<string, IntrinsicFn>> = {
   'java/lang/Math.min(II)I': minInt,
   'java/lang/Math.max(II)I': maxInt,

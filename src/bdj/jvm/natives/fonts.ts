@@ -22,6 +22,7 @@ import type { JArray, JObject, JValue } from '../values';
 import type { NativeContext, NativeTable } from './index';
 import { absolute, readVfsFile } from './io';
 
+/** What the font natives need from the BD-J worker. */
 export interface FontNativeDeps {
   /**
    * FreeType, loaded the first time a font file is opened; calls may share one load. Without it the natives behave
@@ -43,6 +44,11 @@ export interface FontNativeDeps {
 /** The FT_Library handle initN returns (FreeType itself is loaded later). */
 const LIB = 1n;
 
+/**
+ * Registers libbluray's java.awt.BDFontMetrics natives and java.awt.BDGraphicsBase.drawStringN, ported from the
+ * functions named above. Font handles are FT_Face stand-ins as bigints; text is measured and drawn with FreeType on
+ * the BD-J worker.
+ */
 export function registerFontNatives(table: NativeTable, deps: FontNativeDeps = {}): void {
   const log = deps.log ?? (() => {});
   let ft: FreeType | null = null;
