@@ -1,5 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { existsSync, readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -49,4 +51,22 @@ maybe('devsite model (run npm run devsite:model to build it)', () => {
   });
 
   it('carries the hash of the current sources', () => expect(model.seikouSourceHash).toBe(sourceHash(root)));
+});
+
+describe('sourceHash', () => {
+  it('changes when an untracked source or example file appears', () => {
+    const dir = mkdtempSync(resolve(tmpdir(), 'devsite-hash-'));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: dir });
+      mkdirSync(resolve(dir, 'packages/x/src'), { recursive: true });
+      writeFileSync(resolve(dir, 'packages/x/src/a.ts'), 'export {};\n');
+      execFileSync('git', ['add', '.'], { cwd: dir });
+      const before = sourceHash(dir);
+      mkdirSync(resolve(dir, 'packages/x/examples'), { recursive: true });
+      writeFileSync(resolve(dir, 'packages/x/examples/one.ts'), 'export {};\n');
+      expect(sourceHash(dir)).not.toBe(before);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });

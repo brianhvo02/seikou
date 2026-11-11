@@ -3,8 +3,17 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Application, TSConfigReader } from 'typedoc';
 import { sourceHash } from './source-hash.mjs';
+
+let typedoc;
+try {
+  typedoc = await import('typedoc');
+} catch (error) {
+  if (error?.code !== 'ERR_MODULE_NOT_FOUND') throw error;
+  console.error('tools/devsite has no dependencies: run npm run devsite:install');
+  process.exit(1);
+}
+const { Application, TSConfigReader } = typedoc;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
