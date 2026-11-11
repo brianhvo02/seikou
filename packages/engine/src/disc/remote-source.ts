@@ -61,6 +61,7 @@ interface Chunk {
  * `chunkBytes`, aligned in each file. After every read the chunks that follow it are fetched ahead, `inFlight` at a
  * time, until `readAheadBytes` are held; a read elsewhere in the same file (a seek) aborts that read-ahead and starts
  * it again from there.
+ * @example ../../examples/remote-source.ts#construct
  */
 export class RemoteSource implements ByteSource {
   private readonly sizes = new Map<string, number>();
@@ -104,6 +105,7 @@ export class RemoteSource implements ByteSource {
   /**
    * Bytes of `path` landed after the chunk of the last read (the reader holds that one), up to the first chunk not yet
    * landed, and whether they run to the end of the file. Nothing when the last read was in another file.
+   * @example ../../examples/remote-source.ts#bufferedAhead
    */
   bufferedAhead(path: string): { bytes: number; toEnd: boolean } {
     const key = path.toUpperCase();
@@ -125,22 +127,34 @@ export class RemoteSource implements ByteSource {
     return this.fetching > 0;
   }
 
-  /** Whether the manifest lists `path` (case-insensitive). */
+  /**
+   * Whether the manifest lists `path` (case-insensitive).
+   * @example ../../examples/remote-source.ts#exists
+   */
   exists(path: string): boolean {
     return this.sizes.has(path.toUpperCase());
   }
 
-  /** The size the manifest gives; throws `DiscError` `missing-file` for an unlisted path. */
+  /**
+   * The size the manifest gives; throws `DiscError` `missing-file` for an unlisted path.
+   * @example ../../examples/remote-source.ts#size
+   */
   size(path: string): number {
     return this.get(path);
   }
 
-  /** The normalised (upper-case) paths of every file. */
+  /**
+   * The normalised (upper-case) paths of every file.
+   * @example ../../examples/remote-source.ts#paths
+   */
   paths(): string[] {
     return [...this.sizes.keys()];
   }
 
-  /** The names directly inside `dir`, sorted, upper case. */
+  /**
+   * The names directly inside `dir`, sorted, upper case.
+   * @example ../../examples/remote-source.ts#list
+   */
   list(dir: string): string[] {
     const prefix = `${dir.toUpperCase().replace(/\/$/, '')}/`;
     const names: string[] = [];
@@ -152,12 +166,18 @@ export class RemoteSource implements ByteSource {
     return names.sort();
   }
 
-  /** Passes a fresh session token to the transport. */
+  /**
+   * Passes a fresh session token to the transport.
+   * @example ../../examples/remote-source.ts#setToken
+   */
   setToken(token: string): void {
     this.transport.setToken(token);
   }
 
-  /** Chunks are read from `cache` when it holds them, before the network. */
+  /**
+   * Chunks are read from `cache` when it holds them, before the network.
+   * @example ../../examples/remote-source.ts#setCache
+   */
   setCache(cache: ChunkCache | null): void {
     this.cache = cache;
   }
@@ -166,6 +186,7 @@ export class RemoteSource implements ByteSource {
    * Fetches the chunk of `path` at `offset` (a chunk boundary) into the cache unless it holds it, and resolves with the
    * bytes that came over the network (0 when it was held). A read of that chunk meanwhile waits for this fetch rather
    * than fetching it again.
+   * @example ../../examples/remote-source.ts#fillChunk
    */
   async fillChunk(path: string, offset: number, signal: AbortSignal): Promise<number> {
     const cache = this.cache;
@@ -191,7 +212,10 @@ export class RemoteSource implements ByteSource {
     return this.readsWaiting > 0;
   }
 
-  /** The chunk at `offset` of `path` is being fetched (by a read, read-ahead or the fill). */
+  /**
+   * The chunk at `offset` of `path` is being fetched (by a read, read-ahead or the fill).
+   * @example ../../examples/remote-source.ts#isFetching
+   */
   isFetching(path: string, offset: number): boolean {
     const ck = chunkKey(path.toUpperCase(), Math.floor(offset / this.opts.chunkBytes));
     return this.chunks.get(ck)?.pending === true || this.filling.has(ck);
@@ -201,12 +225,16 @@ export class RemoteSource implements ByteSource {
    * While a fill follows playback (bufferFirst), every chunk read from the network is offered to `keep` (CacheFill.keep),
    * which stores it in the cache when the fill would have fetched it, so the fill doesn't fetch it again; the fill frees
    * it once playback has passed it. Null: nothing is kept.
+   * @example ../../examples/remote-source.ts#setWriteThrough
    */
   setWriteThrough(keep: ((path: string, offset: number, bytes: Uint8Array) => void) | null): void {
     this.writeThrough = keep;
   }
 
-  /** Aborts every fetch and drops the cache (the disc was closed). */
+  /**
+   * Aborts every fetch and drops the cache (the disc was closed).
+   * @example ../../examples/remote-source.ts#close
+   */
   close(): void {
     this.closed = true;
     for (const c of this.chunks.values()) {
@@ -226,6 +254,7 @@ export class RemoteSource implements ByteSource {
    * cache, the fill's in-flight fetch or the network, in that order, and the read starts read-ahead after its last
    * chunk. Throws `DiscError` `missing-file` for an unlisted path or `read-failed` once the source is closed, and passes on
    * the transport's errors.
+   * @example ../../examples/remote-source.ts#read
    */
   read(path: string, offset: number, length: number, signal?: AbortSignal): Promise<Uint8Array> {
     return this.readRange(path, offset, length, signal, false);
@@ -234,6 +263,7 @@ export class RemoteSource implements ByteSource {
   /**
    * ByteSource.peek: from the chunks held when they cover the range, else exactly the range from the network, kept
    * nowhere. Either way no read-ahead starts and the read-ahead cursor stays put.
+   * @example ../../examples/remote-source.ts#peek
    */
   async peek(path: string, offset: number, length: number, signal?: AbortSignal): Promise<Uint8Array> {
     if (!Number.isInteger(offset) || offset < 0) throw new RangeError(`invalid read offset ${offset} in ${path}`);

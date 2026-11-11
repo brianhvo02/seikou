@@ -24,7 +24,10 @@ export const TOKEN_TIMEOUT_MS = 10_000;
 /** Why a remote read failed, for the UI: the disc changed, the NAS cannot be reached, or the device is not paired. */
 export type RemoteFailure = 'disc-changed' | 'nas-lost' | 'nas-unpaired';
 
-/** A DiscError of a remote disc, with what went wrong for the UI. */
+/**
+ * A DiscError of a remote disc, with what went wrong for the UI.
+ * @example ../../examples/remote-disc-error.ts#construct
+ */
 export class RemoteDiscError extends DiscError {
   constructor(
     readonly reason: RemoteFailure,
@@ -54,6 +57,7 @@ export interface HttpTransportOptions {
  * Reads `<base>files/<path>?t=<token>` with a single `Range: bytes=a-b` and no other headers, so the request needs no
  * preflight. `base` ends with '/': `https://…/bluray/api/discs/<id>/`. A 503 is waited out for its `Retry-After`, and a
  * 401 is retried once with a fresh token. Runs wherever it is built: the engine worker or the BD-J worker.
+ * @example ../../examples/http-transport.ts#construct
  */
 export class HttpTransport implements RangeTransport {
   private refreshing: Promise<string> | null = null;
@@ -64,7 +68,10 @@ export class HttpTransport implements RangeTransport {
     private readonly opts: HttpTransportOptions,
   ) {}
 
-  /** Uses `token` for later requests (a refresh the main thread pushed). */
+  /**
+   * Uses `token` for later requests (a refresh the main thread pushed).
+   * @example ../../examples/http-transport.ts#setToken
+   */
   setToken(token: string): void {
     this.token = token;
   }
@@ -73,6 +80,7 @@ export class HttpTransport implements RangeTransport {
    * The bytes of `path` from `offset`, at most `length`; fewer at the end of the file, none past it. Throws a
    * `RemoteDiscError` (`nas-lost` after 30 s without an answer or on a network failure, `nas-unpaired` after a refused
    * refresh, `disc-changed` on the NAS's changed-disc 404) or a `DiscError` for other failures; an abort rejects with the signal's reason.
+   * @example ../../examples/http-transport.ts#read
    */
   async read(path: string, offset: number, length: number, signal?: AbortSignal): Promise<Uint8Array> {
     if (length <= 0) return new Uint8Array(0);

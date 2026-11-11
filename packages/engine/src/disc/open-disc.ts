@@ -68,6 +68,7 @@ export interface DiscModel {
  * `unreadable-stream` (the main clip's packets are not clear MPEG-TS), and passes on a failed read of the source. A
  * damaged playlist or `MovieObject.bdmv` becomes a warning; damaged menu sounds or clip info are skipped silently.
  * Runs on the engine worker.
+ * @example ../../examples/open-disc.ts
  */
 export async function openDisc(source: ByteSource): Promise<DiscModel> {
   const playlistFiles = source.list('BDMV/PLAYLIST').filter((name) => name.endsWith('.MPLS'));

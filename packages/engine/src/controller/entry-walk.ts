@@ -22,6 +22,7 @@ async function childrenOf(dir: DirEntryLike): Promise<EntryLike[]> {
 /**
  * The files under the entries, with paths joining entry names by `/` from each entry's own name.
  * A directory is read when it is at most `maxDepth` levels below a dropped entry (a dropped folder is level 0).
+ * @example ../../examples/walk-entries.ts
  */
 export async function walkEntries(entries: readonly EntryLike[], maxDepth: number): Promise<Array<[string, File]>> {
   const out: Array<[string, File]> = [];

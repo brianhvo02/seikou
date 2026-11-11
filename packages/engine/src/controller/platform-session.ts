@@ -33,6 +33,7 @@ function chapterNumber(s: PlayerSnapshot): number | null {
 /**
  * Screen wake lock while playing, and Media Session metadata and transport handlers (play, pause, seek by 10 s).
  * Main thread only; it follows a `PlayerController` through its store interface and has no worker of its own.
+ * @example ../../examples/platform-session.ts#construct
  */
 export class PlatformSession {
   private sentinel: SentinelLike | null = null;
@@ -56,7 +57,10 @@ export class PlatformSession {
     this.sync();
   }
 
-  /** Stops following the controller: releases the wake lock and removes the Media Session handlers. */
+  /**
+   * Stops following the controller: releases the wake lock and removes the Media Session handlers.
+   * @example ../../examples/platform-session.ts#dispose
+   */
   dispose(): void {
     this.disposed = true;
     this.unsubscribe();
