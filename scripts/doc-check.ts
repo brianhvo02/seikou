@@ -172,7 +172,8 @@ export function oldNameComments(files: readonly string[]): HistoryComment[] {
 /** The program with positions dropped, as JSON: equal for two sources that differ only in comments and layout. */
 function codeShape(file: string, source: string): string {
   const p = parseSource(file, source);
-  return JSON.stringify(p.program, (k, v: unknown) => (k === 'start' || k === 'end' || k === 'range' || k === 'loc' ? undefined : v));
+  return JSON.stringify(p.program, (k, v: unknown) =>
+    k === 'start' || k === 'end' || k === 'range' || k === 'loc' ? undefined : typeof v === 'bigint' ? `${v.toString()}n` : v);
 }
 
 /** The file's text at `base`, or undefined when it did not exist there. */
@@ -191,7 +192,7 @@ function textAt(base: string, file: string): string | undefined {
 
 /**
  * Lists the files whose code differs from `git show <base>:<file>`. Comments, whitespace and
- * layout between tokens are ignored (the programs are compared as syntax trees), but a string,
+ * layout between tokens (and trailing commas) are ignored (the programs are compared as syntax trees), but a string,
  * template or regex literal is compared as written. A file deleted since `base` is listed; a file
  * new since `base` is listed unless it is Markdown. A file that exists in neither is skipped.
  */

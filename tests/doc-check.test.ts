@@ -88,4 +88,20 @@ describe('the documentation checker', () => {
     writeFileSync(a, "/** a */\nexport const a = 'x y';\n");
     expect(codeChanges('HEAD', [a])).toEqual([a]);
   });
+
+  it('codeChanges handles BigInt literals', () => {
+    const dir = tempDir();
+    const git = (...args: string[]): void => {
+      execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: dir, stdio: 'ignore' });
+    };
+    const f = join(dir, 'big.ts');
+    writeFileSync(f, 'export const n = 1n;\n');
+    git('init', '-q');
+    git('add', '.');
+    git('commit', '-q', '-m', 'base');
+    writeFileSync(f, '/** One. */\nexport const n = /* x */ 1n; // same\n');
+    expect(codeChanges('HEAD', [f])).toEqual([]);
+    writeFileSync(f, 'export const n = 2n;\n');
+    expect(codeChanges('HEAD', [f])).toEqual([f]);
+  });
 });
