@@ -7,8 +7,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#0a1330">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f8fe">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0a1330">
 <title>Seikou developers</title>
 <script>(function () {
 var choice = 'auto';
@@ -30,8 +31,8 @@ document.documentElement.dataset.theme = theme; document.documentElement.style.c
       <label class="visually-hidden" for="search-input">Search exports</label>
       <input class="search-input" id="search-input" type="search" placeholder="Search exports" autocomplete="off" aria-controls="search-results" aria-expanded="false">
       <ul class="search-results" id="search-results" role="listbox" hidden>
-        <li class="search-result" role="option" aria-selected="true"><a href="mock-function.html"><span class="search-name">parseMpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">Parses the bytes of a .mpls playlist.</span></a></li>
-        <li class="search-result" role="option" aria-selected="false"><a href="mock-type.html"><span class="search-name">Mpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">A parsed playlist: its play items, sub-paths and marks.</span></a></li>
+        <li class="search-result" role="option" aria-selected="true"><a href="mock-function.html"><span class="search-name">parseMpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">Parses the bytes of a .mpls playlist (libbluray _parse_playlist and _parse_playlistmark).</span></a></li>
+        <li class="search-result" role="option" aria-selected="false"><a href="mock-type.html"><span class="search-name">Mpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">A parsed BDMV/PLAYLIST/*.mpls playlist, libbluray MPLS_PL (mpls_data.h).</span></a></li>
       </ul>
     </form>
     <fieldset class="theme-switch">
@@ -53,16 +54,16 @@ document.documentElement.dataset.theme = theme; document.documentElement.style.c
 <span class="tok-k">for</span> (<span class="tok-k">const</span> item <span class="tok-k">of</span> playlist.playItems) console.log(item.clipId, item.inTime, item.outTime);</code></pre>
       </figure>
       <a class="guide-link" href="#"><span class="guide-link-name">Put the player in a page</span><span class="guide-link-text">The integration guide: the engine worker, the controller and a disc from files or a server.</span></a>
-      <section class="pkg-group"><h2 id="playing">Reading and playing discs</h2><ul class="pkg-list">
-        <li><a class="pkg-row" href="mock-package.html"><code class="pkg-name">@seikou/bdmv</code><span class="pkg-summary">The Blu-ray disc format, read without a player: the parsers and the M2TS demuxer.</span></a></li>
-        <li><a class="pkg-row" href="mock-package.html"><code class="pkg-name">@seikou/pg</code><span class="pkg-summary">Presentation Graphics, the Blu-ray bitmap subtitles, ported from libbluray.</span></a></li>
+      <section class="pkg-group"><h2 id="media">Reading and playing media</h2><ul class="pkg-list">
+        <li><a class="pkg-row" href="mock-package.html"><code class="pkg-name">@seikou/bdmv</code><span class="pkg-summary">The Blu-ray disc format, read without a player.</span></a></li>
+        <li><a class="pkg-row" href="mock-package.html"><code class="pkg-name">@seikou/pg</code><span class="pkg-summary">Presentation Graphics (PG), the Blu-ray bitmap subtitles, ported from libbluray.</span></a></li>
         <li><a class="pkg-row" href="mock-package.html"><code class="pkg-name">@seikou/ass</code><span class="pkg-summary">An ASS/SSA subtitle renderer ported from libass 0.17.5.</span></a></li>
-        <li><a class="pkg-row" href="mock-package.html"><code class="pkg-name">@seikou/engine</code><span class="pkg-summary">The Blu-ray player engine for browsers, and the page-side controller.</span></a></li>
-        <li><a class="pkg-row" href="mock-package.html"><code class="pkg-name">@seikou/matroska</code><span class="pkg-summary">Matroska and WebM reading and writing for any JavaScript host.</span></a></li>
+        <li><a class="pkg-row" href="mock-package.html"><code class="pkg-name">@seikou/engine</code><span class="pkg-summary">The Blu-ray player engine for browsers.</span></a></li>
+        <li><a class="pkg-row" href="mock-package.html"><code class="pkg-name">@seikou/matroska</code><span class="pkg-summary">Matroska and WebM reading and writing for any JavaScript host: Node, browsers and workers (no <code>node:</code> imports, no <code>Buffer</code>).</span></a></li>
       </ul></section>
       <section class="pkg-group"><h2 id="library">Running a disc library</h2><ul class="pkg-list">
         <li><a class="pkg-row" href="mock-package.html"><code class="pkg-name">@seikou/nas</code><span class="pkg-summary">The wire contract between Seikou’s NAS server, the player and the pairing Worker.</span></a></li>
-        <li><a class="pkg-row" href="mock-package.html"><code class="pkg-name">@seikou/titles</code><span class="pkg-summary">Naming a disc library: titles, seasons, episodes and music releases.</span></a></li>
+        <li><a class="pkg-row" href="mock-package.html"><code class="pkg-name">@seikou/titles</code><span class="pkg-summary">Naming a disc library.</span></a></li>
         <li><a class="pkg-row" href="mock-package.html"><code class="pkg-name">@seikou/fansubs</code><span class="pkg-summary">Finding and timing fansub subtitles for a disc.</span></a></li>
       </ul></section>
     </main>

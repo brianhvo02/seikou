@@ -62,7 +62,7 @@ One column of content, left aligned, with the package navigation to its left on 
 |                                                                          |
 |  Put the player in a page          the integration guide, one line   >   |
 |  ----------------------------------------------------------------------  |
-|  Reading and playing discs                                               |
+|  Reading and playing media                                               |
 |  @seikou/bdmv      The Blu-ray disc format, read without a player.       |
 |  @seikou/pg        Presentation Graphics, the Blu-ray bitmap subtitles.  |
 |  @seikou/ass       An ASS/SSA subtitle renderer ported from libass.      |
@@ -78,7 +78,7 @@ One column of content, left aligned, with the package navigation to its left on 
 +--------------------------------------------------------------------------+
 ```
 
-The hero is code, the most characteristic thing in this subject: a short, real snippet from `@seikou/bdmv`'s example, in the same well as every example on the site. The packages are rows, not cards, grouped by what a reader is building (the two groups are information: the first five run in a page or a worker, the last three serve a library), each with its README's first sentence. The index has no navigation column.
+The hero is code, the most characteristic thing in this subject: a short, real snippet from `@seikou/bdmv`'s example, in the same well as every example on the site. The packages are rows, not cards, grouped by what a reader is building (the two groups are information: "Reading and playing media" holds the disc format, its subtitles, the player and the Matroska files it plays, which run in a page or a worker; "Running a disc library" holds the three a library server uses), each with its README's first sentence. The index has no navigation column.
 
 ### Package page (`/developers/<package>`)
 
@@ -117,7 +117,7 @@ The README comes first (concepts before API, spec §2), then the exports grouped
 |    PlayerContr.. |                                                       |
 |   Functions      |  Members  constructor  setToken  read   (anchor list) |
 |    openDisc      |                                                       |
-|    ...           |  ### read                                  (#read)    |
+|    ...           |  ### read                                (#m-read)    |
 |                  |  +-- signature well ---------------------------------+ |
 |                  |  | read(                                             | |
 |                  |  |   path: string,                                   | |
@@ -140,7 +140,7 @@ The README comes first (concepts before API, spec §2), then the exports grouped
 +------------------+-------------------------------------------------------+
 ```
 
-The order follows the reader's question: what is it called (h1), what is its exact shape (the signature, before any prose), what does it do, what goes in, what comes out, what goes wrong, how do I call it, where is it. An interface or type page has its fields in the same table as parameters, then **Used by**, the exports whose signatures take or return it. A class page puts its constructor and members one after another, each a section with its own anchor (`#read`), listed under the class's summary.
+The order follows the reader's question: what is it called (h1), what is its exact shape (the signature, before any prose), what does it do, what goes in, what comes out, what goes wrong, how do I call it, where is it. An interface or type page has its fields in the same table as parameters, then **Used by**, the exports whose signatures take or return it. A class page puts its constructor and members one after another, each a section with its own anchor (`#m-read`), listed under the class's summary.
 
 ### Phone width (375 px)
 
@@ -183,7 +183,7 @@ The search field takes a second row of the bar, beside a **Packages** link (the 
 
 ## 5. The memorable element: the read head
 
-A disc player reads with a laser that tracks across the disc; this site's one bold move borrows it. In a signature, every parameter name is a link to its row in the parameter table (`#param-<name>`, `#<member>-param-<name>` on a class page), and a member's name is a link to its section. When a reader follows one, the target row lights in `--selected` and a 2 px laser line sweeps along its top edge, left to right, once (420 ms, ease-out), as if the read head had moved to that track. It answers the reader's own action, it shows exactly which row they asked about, and it needs no script (`:target`). With `prefers-reduced-motion: reduce` the line is simply there, without the sweep. A class member reached by its anchor (`#read`) gets the same line under its heading.
+A disc player reads with a laser that tracks across the disc; this site's one bold move borrows it. In a signature, every parameter name is a link to its row in the parameter table (`#param-<name>` on a function page, `#field-<name>` on an interface page, `#m-<member>-param-<name>` on a class page), and a member's name is a link to its section. When a reader follows one, the target row lights in `--selected` and a 2 px laser line sweeps along its top edge, left to right, once (420 ms, ease-out), as if the read head had moved to that track. It answers the reader's own action, it shows exactly which row they asked about, and it needs no script (`:target`). With `prefers-reduced-motion: reduce` the line is simply there, without the sweep. A class member reached by its anchor (`#m-read`) gets the same line under its heading.
 
 Everything around it stays quiet: no hover effects on rows, no entrance motion, no decoration in the bar.
 
@@ -206,13 +206,42 @@ After the first screenshots (1280 and 375 px, dark and light):
 - **The parameter table's type column** took 30% of the width and left a gap; it now fits its type, and the sentence takes the rest.
 - **The current page in the navigation** used `--deep`, which in light is white on near-white and vanished; it uses `--selected` in both themes.
 - **Package names in the index rows** came out in ice through `a code { color: inherit }`; they are laser like every other link, as principle 3 says.
-- **Middle-dot meta strings and arrows on links.** Not used: the meta line is a sentence, and the source line reads "Source: `<path>:<line>`".
+
+After review (round 1):
+
+- **Identifiers in README tables** broke mid-name at 375 px (`index-` / `parser.ts`) through inline code's `overflow-wrap: anywhere`; code in a prose table now stays whole, since the table scrolls.
+- **Member ids** were the bare member name, which a member named `example` or `parameters` would have shared with a page section; they are `m-<name>` now, with the id rule in §7.
+- **The first group's name** was "Reading and playing discs", which `@seikou/matroska` does not fit; it is "Reading and playing media".
+- **Mock copy** now takes each summary from its doc comment's first sentence, and the PlayItem page shows all thirteen fields (its `stillMode` row names `stillTime`).
+- **Middle-dot meta strings and arrows on links.** Not used on the page: the meta line is a sentence, and the source line reads "Source: `<path>:<line>`". The one exception is the tab title, `<name> · @seikou/<pkg> · Seikou developers`, the plan's pattern: a tab is narrow and the dots separate three names a reader scans from the left, and the title is never drawn on the page.
 
 ## 7. The markup contract
 
 The page templates (`vite/devsite/render.ts`) emit this structure; the mocks show each piece with real content. Classes not listed here are not styled.
 
-Every page:
+Every page's `<head>`, in this order (the theme is set before the stylesheets apply, so the first paint has the right ground):
+
+```html
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f8fe">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0a1330">
+<title>parseMpls · @seikou/bdmv · Seikou developers</title>   <!-- a package page: "@seikou/bdmv · Seikou developers"; the guide: "Integrating the player · Seikou developers"; the 404: "Not found · Seikou developers"; the index: "Seikou developers" -->
+<meta name="description" content="…the export's or package's first sentence, as plain text…">
+<script>…THEME_BOOT_SCRIPT from vite/devsite/theme-boot.ts, inline and unchanged…</script>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="…Instrument Sans (@fontsource-variable/instrument-sans/wdth.css, as built)…">
+<link rel="stylesheet" href="…src/ui/tokens.css, as built…">
+<link rel="stylesheet" href="/developers/site.css">
+</head>
+```
+
+The boot script sets both `theme-color` metas to the chosen theme's ground, as the player's does. The three stylesheets may be bundled into one file as long as the order stays Instrument Sans, then tokens, then `site.css`. The mocks add a `?theme=` override to their copy of the script for screenshots; the real pages do not.
+
+Every page's `<body>`:
 
 ```html
 <body class="dev">
@@ -260,7 +289,7 @@ Navigation column:
 
 Index main: `h1.index-title`, `p.lede`, `figure.example.hero-example` (the example block below), `a.guide-link` (with `span.guide-link-name` and `span.guide-link-text`), then per group `section.pkg-group` > `h2` + `ul.pkg-list` > `li` > `a.pkg-row` > `code.pkg-name` + `span.pkg-summary`.
 
-Package main: `nav.crumbs`, `h1.page-title`, `div.prose` (the README as HTML), then `section.export-group` > `h2` + `ul.export-list` > `li` > `a.export-row` > `code.export-row-name` + `span.export-row-summary`.
+Package main: `nav.crumbs` (`a` "Packages" to `/developers`, `span.crumb-sep` "/", `span[aria-current=page]` with the short name, `bdmv`), `h1.page-title` (`@seikou/bdmv`), `div.prose` (the README as HTML, its title heading dropped since the h1 says it), then one `section.export-group` per kind in the order Functions, Classes, Interfaces, Types, Constants (a kind with no exports is left out), each `h2#kind-<kind>` + `ul.export-list` > `li` > `a.export-row` > `code.export-row-name` + `span.export-row-summary`. The navigation column on a package page lists the packages only (no `div.nav-exports`), since the main column lists the exports.
 
 Export main:
 
@@ -281,9 +310,11 @@ Export main:
 <p class="source-link">Source: <a href="https://github.com/…/blob/main/packages/bdmv/src/mpls-parser.ts#L188"><code>packages/bdmv/src/mpls-parser.ts:188</code></a></p>
 ```
 
-An optional parameter carries `class="optional"` on its `tr` (the name gets a `?` in the signature already; the row says "Optional." at the start of its sentence). An interface's fields use the same `table.params` under `h2#fields`, rows `id="field-<name>"`.
+On a member, the section ids are prefixed with the member's id: `h4#m-read-parameters`, `#m-read-returns`, `#m-read-throws`, `#m-read-example`, rows `#m-read-param-path`.
 
-Signature text: the template breaks a signature longer than 72 characters into one parameter a line, indented two spaces, with a trailing comma, as Prettier would. Inside `pre.signature > code`: `span.sig-name` for the declared name, `a.sig-param` (`href="#param-<name>"`) for each parameter name, `a.type-link` for a type that is a public export, `span.tok-k` for keywords (`function`, `class`, `new`, `readonly`, `type`, `const`) and `span.tok-p` for punctuation the template chooses to mute (`:`, `?`, `=>`, `|`). A type that is not a public export stays plain text.
+An optional parameter carries `class="optional"` on its `tr` (the name gets a `?` in the signature already; the row says "Optional." at the start of its sentence). An interface's fields use the same `table.params` under `h2#fields`, rows `id="field-<name>"`, and its signature (the interface's fields, one a line) links each field name with `a.sig-param` to `#field-<name>`. A type alias or constant has no table, only the signature and the prose.
+
+Signature text: the template breaks a signature longer than 72 characters into one parameter a line, indented two spaces, with a trailing comma, as Prettier would. Inside `pre.signature > code`: `span.sig-name` for the declared name, `a.sig-param` for each parameter or field name (`href` as in the id rule below), `a.type-link` for a type that is a public export, `span.tok-k` for keywords (`function`, `class`, `new`, `readonly`, `type`, `const`) and `span.tok-p` for punctuation the template chooses to mute (`:`, `?`, `=>`, `|`). A type that is not a public export stays plain text.
 
 Example block:
 
@@ -296,9 +327,11 @@ Example block:
 
 Highlighting inside `pre.code > code` is optional: if the template tokenizes, it emits `span.tok-k` (keywords), `span.tok-s` (strings), `span.tok-c` (comments), `span.tok-n` (numbers) and `a.type-link`; without them the code is plain ice in the well and still reads. Prose code blocks from READMEs and the guide (`div.prose pre`) take the same well.
 
-Class page: after the class's prose, `nav.member-index` (`h2#members` "Members", `ul` of `a` with `code`), then one `section.member` per member, `id` = the member's name (`constructor` for the constructor), holding `h3.member-name` > `a.member-anchor` (`href="#<name>"`, the name in `code`), `p.member-kind` ("Method", "Property", "Constructor"), the `pre.signature`, `div.prose`, and `h4`-headed `.api-section`s (parameter rows `id="<member>-param-<name>"`).
+Class page: after the class's prose, `nav.member-index` (`h2#members` "Members", `ul` of `a` with `code`), then one `section.member` per member, `id="m-<name>"` (`m-constructor` for the constructor), holding `h3.member-name` > `a.member-anchor` (`href="#m-<name>"`, the name in `code`), `p.member-kind` ("Method", "Property", "Accessor", "Constructor"), the `pre.signature`, `div.prose`, and `h4`-headed `.api-section`s (ids as above).
 
-404 main: `div.not-found` > `h1.page-title` ("No page at this address"), `p` ("It may name an export that was renamed or is no longer public. Search for it, or start from the packages."), and `a.guide-link` to `/developers`.
+404 page: the bar as on every page (with the search, and without the Packages link), then `div.dev-layout.dev-layout-wide` with no navigation column, and in `main` a `div.not-found` > `h1.page-title` ("No page at this address"), `p` ("It may name an export that was renamed or is no longer public. Search for it, or start from the packages."), and `a.guide-link` to `/developers` (`span.guide-link-name` "All packages", `span.guide-link-text` "The eight packages and the integration guide."). Links in the 404 are absolute (`/developers/…`), since Cloudflare Pages serves it at the missing URL.
+
+The id rule. Ids a page owns: `main`, `packages`, `search-input`, `search-results`; on an export page `parameters`, `fields`, `returns`, `throws`, `example`, `used-by`, `members`; on a package page `kind-<kind>`. Ids made from names always carry a prefix those can't take: `param-<name>`, `field-<name>`, `m-<member>`, `m-<member>-param-<name>` and `m-<member>-<section>`. Headings inside `div.prose` (README and doc comment headings, slugged as `vite/markdown.ts` does) get `doc-` before their slug, so a README heading "Example" is `doc-example`. No two ids on a page can then be equal unless two names are.
 
 Shared utilities: `.visually-hidden` (as the player's), `.skip-link`.
 

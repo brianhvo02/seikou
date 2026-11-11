@@ -7,8 +7,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#0a1330">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f8fe">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0a1330">
 <title>HttpTransport · @seikou/engine · Seikou developers</title>
 <script>(function () {
 var choice = 'auto';
@@ -30,8 +31,8 @@ document.documentElement.dataset.theme = theme; document.documentElement.style.c
       <label class="visually-hidden" for="search-input">Search exports</label>
       <input class="search-input" id="search-input" type="search" placeholder="Search exports" autocomplete="off" aria-controls="search-results" aria-expanded="false">
       <ul class="search-results" id="search-results" role="listbox" hidden>
-        <li class="search-result" role="option" aria-selected="true"><a href="mock-function.html"><span class="search-name">parseMpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">Parses the bytes of a .mpls playlist.</span></a></li>
-        <li class="search-result" role="option" aria-selected="false"><a href="mock-type.html"><span class="search-name">Mpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">A parsed playlist: its play items, sub-paths and marks.</span></a></li>
+        <li class="search-result" role="option" aria-selected="true"><a href="mock-function.html"><span class="search-name">parseMpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">Parses the bytes of a .mpls playlist (libbluray _parse_playlist and _parse_playlistmark).</span></a></li>
+        <li class="search-result" role="option" aria-selected="false"><a href="mock-type.html"><span class="search-name">Mpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">A parsed BDMV/PLAYLIST/*.mpls playlist, libbluray MPLS_PL (mpls_data.h).</span></a></li>
       </ul>
     </form>
     <a class="dev-bar-packages" href="#packages">Packages</a>
@@ -53,57 +54,57 @@ document.documentElement.dataset.theme = theme; document.documentElement.style.c
       </div>
       <nav class="member-index" aria-labelledby="members">
         <h2 id="members">Members</h2>
-        <ul><li><a href="#constructor"><code>constructor</code></a></li><li><a href="#setToken"><code>setToken</code></a></li><li><a href="#read"><code>read</code></a></li></ul>
+        <ul><li><a href="#m-constructor"><code>constructor</code></a></li><li><a href="#m-setToken"><code>setToken</code></a></li><li><a href="#m-read"><code>read</code></a></li></ul>
       </nav>
 
-      <section class="member" id="constructor">
-        <h3 class="member-name"><a class="member-anchor" href="#constructor"><code>constructor</code></a></h3>
+      <section class="member" id="m-constructor">
+        <h3 class="member-name"><a class="member-anchor" href="#m-constructor"><code>constructor</code></a></h3>
         <p class="member-kind">Constructor</p>
-        <pre class="signature"><code><span class="tok-k">new</span> <span class="sig-name">HttpTransport</span>(<a class="sig-param" href="#constructor-param-base">base</a><span class="tok-p">:</span> string, <a class="sig-param" href="#constructor-param-token">token</a><span class="tok-p">:</span> string, <a class="sig-param" href="#constructor-param-opts">opts</a><span class="tok-p">:</span> <a class="type-link" href="#">HttpTransportOptions</a>)</code></pre>
-        <section class="api-section"><h4 id="constructor-parameters">Parameters</h4>
+        <pre class="signature"><code><span class="tok-k">new</span> <span class="sig-name">HttpTransport</span>(<a class="sig-param" href="#m-constructor-param-base">base</a><span class="tok-p">:</span> string, <a class="sig-param" href="#m-constructor-param-token">token</a><span class="tok-p">:</span> string, <a class="sig-param" href="#m-constructor-param-opts">opts</a><span class="tok-p">:</span> <a class="type-link" href="#">HttpTransportOptions</a>)</code></pre>
+        <section class="api-section"><h4 id="m-constructor-parameters">Parameters</h4>
           <table class="params"><thead class="visually-hidden"><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead><tbody>
-            <tr id="constructor-param-base"><th scope="row"><code>base</code></th><td class="param-type"><code>string</code></td><td class="param-doc">The disc's API base, ending with <code>/</code>.</td></tr>
-            <tr id="constructor-param-token"><th scope="row"><code>token</code></th><td class="param-type"><code>string</code></td><td class="param-doc">The device's session token, sent as <code>t</code> on every request.</td></tr>
-            <tr id="constructor-param-opts"><th scope="row"><code>opts</code></th><td class="param-type"><code><a class="type-link" href="#">HttpTransportOptions</a></code></td><td class="param-doc">The <code>fetch</code> to use, how to refresh the token, and extra query parameters.</td></tr>
+            <tr id="m-constructor-param-base"><th scope="row"><code>base</code></th><td class="param-type"><code>string</code></td><td class="param-doc">The disc's API base, ending with <code>/</code>.</td></tr>
+            <tr id="m-constructor-param-token"><th scope="row"><code>token</code></th><td class="param-type"><code>string</code></td><td class="param-doc">The device's session token, sent as <code>t</code> on every request.</td></tr>
+            <tr id="m-constructor-param-opts"><th scope="row"><code>opts</code></th><td class="param-type"><code><a class="type-link" href="#">HttpTransportOptions</a></code></td><td class="param-doc">The <code>fetch</code> to use, how to refresh the token, and extra query parameters.</td></tr>
           </tbody></table>
         </section>
       </section>
 
-      <section class="member" id="setToken">
-        <h3 class="member-name"><a class="member-anchor" href="#setToken"><code>setToken</code></a></h3>
+      <section class="member" id="m-setToken">
+        <h3 class="member-name"><a class="member-anchor" href="#m-setToken"><code>setToken</code></a></h3>
         <p class="member-kind">Method</p>
-        <pre class="signature"><code><span class="sig-name">setToken</span>(<a class="sig-param" href="#setToken-param-token">token</a><span class="tok-p">:</span> string)<span class="tok-p">:</span> void</code></pre>
+        <pre class="signature"><code><span class="sig-name">setToken</span>(<a class="sig-param" href="#m-setToken-param-token">token</a><span class="tok-p">:</span> string)<span class="tok-p">:</span> void</code></pre>
         <div class="prose"><p>Uses <code>token</code> for later requests (a refresh the main thread pushed).</p></div>
       </section>
 
-      <section class="member" id="read">
-        <h3 class="member-name"><a class="member-anchor" href="#read"><code>read</code></a></h3>
+      <section class="member" id="m-read">
+        <h3 class="member-name"><a class="member-anchor" href="#m-read"><code>read</code></a></h3>
         <p class="member-kind">Method</p>
         <pre class="signature"><code><span class="sig-name">read</span>(
-  <a class="sig-param" href="#read-param-path">path</a><span class="tok-p">:</span> string,
-  <a class="sig-param" href="#read-param-offset">offset</a><span class="tok-p">:</span> number,
-  <a class="sig-param" href="#read-param-length">length</a><span class="tok-p">:</span> number,
-  <a class="sig-param" href="#read-param-signal">signal</a><span class="tok-p">?:</span> AbortSignal,
+  <a class="sig-param" href="#m-read-param-path">path</a><span class="tok-p">:</span> string,
+  <a class="sig-param" href="#m-read-param-offset">offset</a><span class="tok-p">:</span> number,
+  <a class="sig-param" href="#m-read-param-length">length</a><span class="tok-p">:</span> number,
+  <a class="sig-param" href="#m-read-param-signal">signal</a><span class="tok-p">?:</span> AbortSignal,
 )<span class="tok-p">:</span> Promise&lt;Uint8Array&gt;</code></pre>
         <div class="prose"><p>The bytes of <code>path</code> from <code>offset</code>, at most <code>length</code>; fewer at the end of the file, none past it. An abort rejects with the signal's reason.</p></div>
-        <section class="api-section"><h4 id="read-parameters">Parameters</h4>
+        <section class="api-section"><h4 id="m-read-parameters">Parameters</h4>
           <table class="params"><thead class="visually-hidden"><tr><th>Name</th><th>Type</th><th>Description</th></tr></thead><tbody>
-            <tr id="read-param-path"><th scope="row"><code>path</code></th><td class="param-type"><code>string</code></td><td class="param-doc">The file's path on the disc, such as <code>BDMV/STREAM/00000.m2ts</code>.</td></tr>
-            <tr id="read-param-offset"><th scope="row"><code>offset</code></th><td class="param-type"><code>number</code></td><td class="param-doc">Bytes from the start of the file.</td></tr>
-            <tr id="read-param-length"><th scope="row"><code>length</code></th><td class="param-type"><code>number</code></td><td class="param-doc">The most bytes to read; 0 or less reads nothing and makes no request.</td></tr>
-            <tr id="read-param-signal" class="optional"><th scope="row"><code>signal</code></th><td class="param-type"><code>AbortSignal</code></td><td class="param-doc">Cancels the read, as a seek does with a read nobody waits for any more.</td></tr>
+            <tr id="m-read-param-path"><th scope="row"><code>path</code></th><td class="param-type"><code>string</code></td><td class="param-doc">The file's path on the disc, such as <code>BDMV/STREAM/00000.m2ts</code>.</td></tr>
+            <tr id="m-read-param-offset"><th scope="row"><code>offset</code></th><td class="param-type"><code>number</code></td><td class="param-doc">Bytes from the start of the file.</td></tr>
+            <tr id="m-read-param-length"><th scope="row"><code>length</code></th><td class="param-type"><code>number</code></td><td class="param-doc">The most bytes to read; 0 or less reads nothing and makes no request.</td></tr>
+            <tr id="m-read-param-signal" class="optional"><th scope="row"><code>signal</code></th><td class="param-type"><code>AbortSignal</code></td><td class="param-doc">Aborts the read, which then rejects with the signal’s reason.</td></tr>
           </tbody></table>
         </section>
-        <section class="api-section"><h4 id="read-returns">Returns</h4>
+        <section class="api-section"><h4 id="m-read-returns">Returns</h4>
           <p class="returns"><code class="returns-type">Promise&lt;Uint8Array&gt;</code> The bytes read, shorter than <code>length</code> only at the end of the file.</p>
         </section>
-        <section class="api-section"><h4 id="read-throws">Throws</h4>
+        <section class="api-section"><h4 id="m-read-throws">Throws</h4>
           <ul class="throws">
             <li><code><a class="type-link" href="#">RemoteDiscError</a></code> <code>nas-lost</code> after 30 s without an answer or on a network failure, <code>nas-unpaired</code> after a refused token refresh, <code>disc-changed</code> on the NAS's changed-disc 404.</li>
             <li><code><a class="type-link" href="#">DiscError</a></code> for any other failure of the request.</li>
           </ul>
         </section>
-        <section class="api-section"><h4 id="read-example">Example</h4>
+        <section class="api-section"><h4 id="m-read-example">Example</h4>
           <figure class="example">
             <figcaption class="example-file"><a href="https://github.com/brianhvo02/seikou/blob/main/packages/engine/examples/http-transport.browser.ts"><code>packages/engine/examples/http-transport.browser.ts</code></a></figcaption>
             <pre class="code"><code><span class="tok-c">// Read the first source packet of a clip from a disc server.</span>

@@ -7,8 +7,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#0a1330">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f8fe">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0a1330">
 <title>@seikou/bdmv · Seikou developers</title>
 <script>(function () {
 var choice = 'auto';
@@ -30,8 +31,8 @@ document.documentElement.dataset.theme = theme; document.documentElement.style.c
       <label class="visually-hidden" for="search-input">Search exports</label>
       <input class="search-input" id="search-input" type="search" placeholder="Search exports" autocomplete="off" aria-controls="search-results" aria-expanded="false">
       <ul class="search-results" id="search-results" role="listbox" hidden>
-        <li class="search-result" role="option" aria-selected="true"><a href="mock-function.html"><span class="search-name">parseMpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">Parses the bytes of a .mpls playlist.</span></a></li>
-        <li class="search-result" role="option" aria-selected="false"><a href="mock-type.html"><span class="search-name">Mpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">A parsed playlist: its play items, sub-paths and marks.</span></a></li>
+        <li class="search-result" role="option" aria-selected="true"><a href="mock-function.html"><span class="search-name">parseMpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">Parses the bytes of a .mpls playlist (libbluray _parse_playlist and _parse_playlistmark).</span></a></li>
+        <li class="search-result" role="option" aria-selected="false"><a href="mock-type.html"><span class="search-name">Mpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">A parsed BDMV/PLAYLIST/*.mpls playlist, libbluray MPLS_PL (mpls_data.h).</span></a></li>
       </ul>
     </form>
     <a class="dev-bar-packages" href="#packages">Packages</a>
@@ -48,7 +49,7 @@ document.documentElement.dataset.theme = theme; document.documentElement.style.c
       <h1 class="page-title">@seikou/bdmv</h1>
       <div class="prose">
         <p>The Blu-ray disc format, read without a player. This package parses a disc's files and demuxes its video and audio, so a browser player, a server and the tests can all read a disc with the same code. It takes its input as bytes or a <code>ByteSource</code>, so it runs in a page, a worker or Node.</p>
-        <h2 id="modules">Modules</h2>
+        <h2 id="doc-modules">Modules</h2>
         <table><thead><tr><th>Module</th><th>What it does</th></tr></thead><tbody>
           <tr><td><code>index-parser.ts</code> (<code>parseIndex</code>)</td><td><code>index.bdmv</code>: the disc's titles and its First Play and Top Menu objects.</td></tr>
           <tr><td><code>mpls-parser.ts</code> (<code>parseMpls</code>)</td><td>Playlists (<code>.mpls</code>): play items, sub paths, marks and the stream tables.</td></tr>
@@ -56,7 +57,7 @@ document.documentElement.dataset.theme = theme; document.documentElement.style.c
           <tr><td><code>udf.ts</code> (<code>readUdf</code>, <code>UdfImage</code>)</td><td>A read-only UDF reader for ISO images.</td></tr>
           <tr><td><code>demux/</code></td><td>The M2TS demuxer: 192-byte source packets, TS packets, and <code>PesAssembler</code>, driven by <code>M2tsReader</code>.</td></tr>
         </tbody></table>
-        <h2 id="usage">Usage</h2>
+        <h2 id="doc-usage">Usage</h2>
         <pre><code><span class="tok-k">import</span> { readFile } <span class="tok-k">from</span> <span class="tok-s">'node:fs/promises'</span>;
 <span class="tok-k">import</span> { parseClpi, parseIndex, parseMpls } <span class="tok-k">from</span> <span class="tok-s">'@seikou/bdmv'</span>;
 
@@ -64,21 +65,21 @@ document.documentElement.dataset.theme = theme; document.documentElement.style.c
 <span class="tok-k">const</span> playlist = parseMpls(<span class="tok-k">await</span> bytes(<span class="tok-s">'BDMV/PLAYLIST/00000.mpls'</span>));
 <span class="tok-k">for</span> (<span class="tok-k">const</span> item <span class="tok-k">of</span> playlist.playItems) console.log(item.clipId, (item.outTime - item.inTime) / <span class="tok-n">45_000</span>, <span class="tok-s">'seconds'</span>); <span class="tok-c">// 45 kHz clip time</span></code></pre>
       </div>
-      <section class="export-group"><h2 id="functions">Functions</h2><ul class="export-list">
-        <li><a class="export-row" href="#"><code class="export-row-name">parseIndex</code><span class="export-row-summary">Parses the bytes of <code>index.bdmv</code>.</span></a></li>
-        <li><a class="export-row" href="#"><code class="export-row-name">parseMpls</code><span class="export-row-summary">Parses the bytes of a <code>.mpls</code> playlist.</span></a></li>
-        <li><a class="export-row" href="#"><code class="export-row-name">parseClpi</code><span class="export-row-summary">Parses the bytes of a <code>.clpi</code> clip information file.</span></a></li>
-        <li><a class="export-row" href="#"><code class="export-row-name">readUdf</code><span class="export-row-summary">Opens an ISO image’s UDF file system for reading.</span></a></li>
-        <li><a class="export-row" href="#"><code class="export-row-name">avcCodecString</code><span class="export-row-summary">The WebCodecs codec string of an H.264 stream, from its SPS.</span></a></li>
+      <section class="export-group"><h2 id="kind-functions">Functions</h2><ul class="export-list">
+        <li><a class="export-row" href="#"><code class="export-row-name">parseIndex</code><span class="export-row-summary">Parses the bytes of <code>BDMV/index.bdmv</code> (libbluray <code>_indx_parse</code>).</span></a></li>
+        <li><a class="export-row" href="#"><code class="export-row-name">parseMpls</code><span class="export-row-summary">Parses the bytes of a <code>.mpls</code> playlist (libbluray <code>_parse_playlist</code> and <code>_parse_playlistmark</code>).</span></a></li>
+        <li><a class="export-row" href="#"><code class="export-row-name">parseClpi</code><span class="export-row-summary">Parses the bytes of a <code>.clpi</code> clip information file (libbluray <code>_clpi_parse</code>: <code>_parse_clipinfo</code>, <code>_parse_sequence</code>, <code>_parse_program</code>, <code>_parse_cpi</code>).</span></a></li>
+        <li><a class="export-row" href="#"><code class="export-row-name">readUdf</code><span class="export-row-summary">Every regular file of the UDF image <code>read</code> reads.</span></a></li>
+        <li><a class="export-row" href="#"><code class="export-row-name">avcCodecString</code><span class="export-row-summary">The WebCodecs codec string <code>avc1.PPCCLL</code> (RFC 6381 §3.3) from an SPS NAL unit with its header: profile_idc, the constraint flags byte and level_idc (H.264 §7.3.2.1.1) in hex.</span></a></li>
       </ul></section>
-      <section class="export-group"><h2 id="classes">Classes</h2><ul class="export-list">
-        <li><a class="export-row" href="#"><code class="export-row-name">M2tsReader</code><span class="export-row-summary">Demuxes a clip’s 192-byte source packets into PES packets of the PIDs asked for.</span></a></li>
-        <li><a class="export-row" href="#"><code class="export-row-name">ParseError</code><span class="export-row-summary">Bytes that do not parse: a bad signature or version, a truncated section, or a read outside the buffer.</span></a></li>
+      <section class="export-group"><h2 id="kind-classes">Classes</h2><ul class="export-list">
+        <li><a class="export-row" href="#"><code class="export-row-name">M2tsReader</code><span class="export-row-summary">Reads a clip in aligned chunks, prefetching the next chunk while the current one is demuxed, and hands out the PES packets of the selected PIDs.</span></a></li>
+        <li><a class="export-row" href="#"><code class="export-row-name">ParseError</code><span class="export-row-summary">Bytes that do not parse: a bad signature or version, a truncated section or parameter set, or a read outside the buffer.</span></a></li>
       </ul></section>
-      <section class="export-group"><h2 id="interfaces">Interfaces</h2><ul class="export-list">
-        <li><a class="export-row" href="#"><code class="export-row-name">ByteSource</code><span class="export-row-summary">Where a disc’s bytes come from: folders, a server or an ISO.</span></a></li>
-        <li><a class="export-row" href="#"><code class="export-row-name">Mpls</code><span class="export-row-summary">A parsed playlist: its play items, sub-paths and marks.</span></a></li>
-        <li><a class="export-row" href="#"><code class="export-row-name">PlayItem</code><span class="export-row-summary">One item of a playlist’s main path.</span></a></li>
+      <section class="export-group"><h2 id="kind-interfaces">Interfaces</h2><ul class="export-list">
+        <li><a class="export-row" href="#"><code class="export-row-name">ByteSource</code><span class="export-row-summary">Read access to the files of one disc, by path relative to the disc root (such as <code>BDMV/index.bdmv</code>).</span></a></li>
+        <li><a class="export-row" href="#"><code class="export-row-name">Mpls</code><span class="export-row-summary">A parsed <code>BDMV/PLAYLIST/*.mpls</code> playlist, libbluray <code>MPLS_PL</code> (<code>mpls_data.h</code>).</span></a></li>
+        <li><a class="export-row" href="#"><code class="export-row-name">PlayItem</code><span class="export-row-summary">One play item: a stretch of one clip that the playlist plays.</span></a></li>
       </ul></section>
     </main>
   <nav class="dev-nav" id="packages" aria-label="Packages">

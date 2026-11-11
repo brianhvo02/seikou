@@ -7,8 +7,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="theme-color" content="#0a1330">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f8fe">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0a1330">
 <title>Not found · Seikou developers</title>
 <script>(function () {
 var choice = 'auto';
@@ -30,8 +31,8 @@ document.documentElement.dataset.theme = theme; document.documentElement.style.c
       <label class="visually-hidden" for="search-input">Search exports</label>
       <input class="search-input" id="search-input" type="search" placeholder="Search exports" autocomplete="off" aria-controls="search-results" aria-expanded="false">
       <ul class="search-results" id="search-results" role="listbox" hidden>
-        <li class="search-result" role="option" aria-selected="true"><a href="mock-function.html"><span class="search-name">parseMpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">Parses the bytes of a .mpls playlist.</span></a></li>
-        <li class="search-result" role="option" aria-selected="false"><a href="mock-type.html"><span class="search-name">Mpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">A parsed playlist: its play items, sub-paths and marks.</span></a></li>
+        <li class="search-result" role="option" aria-selected="true"><a href="mock-function.html"><span class="search-name">parseMpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">Parses the bytes of a .mpls playlist (libbluray _parse_playlist and _parse_playlistmark).</span></a></li>
+        <li class="search-result" role="option" aria-selected="false"><a href="mock-type.html"><span class="search-name">Mpls</span><span class="search-pkg">@seikou/bdmv</span><span class="search-summary">A parsed BDMV/PLAYLIST/*.mpls playlist, libbluray MPLS_PL (mpls_data.h).</span></a></li>
       </ul>
     </form>
     <fieldset class="theme-switch">
