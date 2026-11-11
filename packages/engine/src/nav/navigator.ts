@@ -386,9 +386,10 @@ export class Navigator {
   /**
    * `bd_user_input` for a key press (a `BdVk` value). ROOT_MENU is a menu call. At libbluray's default UO restriction level
    * (RELAXED) no key is checked against the UO mask here; enforcement for the UI is the player's. Returns as libbluray
-   * does: negative when no HDMV title runs, for example, or when the IG menu is not open, a popup menu is hidden, the page is unknown
-   * or an activate key arrives with no valid mouse position; 0 when nothing changed (the menu is not drawn, or an effect is
-   * running); positive when the selection or an activation changed.
+   * does: negative when no HDMV title runs, there is no complete IG composition, the IG menu is not open, a popup menu is
+   * hidden, the page is unknown, an activate key arrives with no valid mouse position, or a ROOT_MENU menu call fails;
+   * 0 when nothing changed (the menu is not drawn, or an effect is running); positive when the selection or an activation
+   * changed.
    */
   userInput(key: number): number {
     if (key === BdVk.ROOT_MENU) return this.menuCall() ? 0 : -1;
@@ -397,8 +398,9 @@ export class Navigator {
   }
 
   /**
-   * `bd_mouse_select`: moves the selection to the button at (x, y) in IG plane pixels. Negative with no HDMV title, when the menu is not drawn, when a
-   * button effect is running or when the page is unknown; 0 when the point is outside every button; 1 when it is inside one.
+   * `bd_mouse_select`: moves the selection to the button at (x, y) in IG plane pixels. Negative with no HDMV title, when
+   * there is no complete IG composition, when the menu is not drawn, when a button effect is running or when the page is
+   * unknown; 0 when the point is outside every button; 1 when it is inside one.
    */
   mouseSelect(x: number, y: number): number {
     this.updateTimePsr();
