@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 
 /** Requests that would mean the player engine started: its worker module, the audio decoders, the BD-J class library. */
@@ -94,6 +96,25 @@ test('every page has one h1, and a focused link shows a ring', async ({ page }) 
   expect(ring).not.toBeNull();
   expect(ring!.style).not.toBe('none');
   expect(ring!.width).toBeGreaterThan(0);
+});
+
+/** Every file under `dir` (a path from the repository root), as paths from it. */
+function filesUnder(dir: string): string[] {
+  return readdirSync(dir, { recursive: true, withFileTypes: true })
+    .filter((e) => e.isFile())
+    .map((e) => join(e.parentPath, e.name));
+}
+
+test("the examples page shares no chunk with the player, so the player's chunks are its own", () => {
+  // Built as another entry of the player's build, the examples page split the code they share into new player chunks
+  // (ThemeSwitch, create-controller), and WebKit then never recovered a failed lazy import of the help screen.
+  const scripts = (dir: string): string[] => filesUnder(dir).filter((f) => /\.(js|mjs)$/.test(f));
+  const examples = scripts('dist/developers/_examples');
+  expect(examples.length, 'the build must emit the examples page').toBeGreaterThan(0);
+  const reachPlayer = examples.filter((f) => /(^|["'`(/])(\.\.\/)+assets\/|["'`]\/assets\//.test(readFileSync(f, 'utf8')));
+  expect(reachPlayer, 'examples files that import the player\'s chunks').toEqual([]);
+  const reachExamples = scripts('dist/assets').filter((f) => readFileSync(f, 'utf8').includes('developers/_examples'));
+  expect(reachExamples, 'player chunks that name the examples page').toEqual([]);
 });
 
 test.describe('with the player service worker installed', () => {

@@ -4,6 +4,8 @@
  * (the index, each package, each export, the integration guide and the 404), the search index, one stylesheet
  * (Instrument Sans, the player's tokens and `site.css`, in that order, with the font files beside it), the search
  * script, and the browser examples page under `/developers/_examples/`. The pages import nothing from the player.
+ * The examples page's module is built by a Vite build of its own once the player's has closed (`buildExamples`), never
+ * as another entry of the player's build, which would split the code the two share into new chunks of the player's.
  * The preview server answers a developer address with its folder's `index.html`, and an unknown one with
  * `developers/404.html`, as the static host does.
  */
@@ -11,7 +13,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, posix, relative, resolve, sep } from 'node:path';
 import { build as esbuild } from 'esbuild';
-import type { Plugin } from 'vite';
+import { build as viteBuild, type Plugin } from 'vite';
 import { examplesPage } from './examples-page.ts';
 import { exampleFiles, loadSite, type DevPackage } from './model.ts';
 import { render404, renderExport, renderGuide, renderIndex, renderPackage } from './render.ts';
@@ -19,7 +21,8 @@ import { searchIndex } from './search-index.ts';
 
 const EXAMPLES_ID = 'virtual:devsite-examples';
 const RESOLVED_EXAMPLES_ID = `\0${EXAMPLES_ID}`;
-const EXAMPLES_ENTRY = 'developers/_examples/examples-entry.js';
+const EXAMPLES_DIR = 'developers/_examples';
+const EXAMPLES_ENTRY = `${EXAMPLES_DIR}/examples-entry.js`;
 const FIXTURE_ROOT = 'fixtures/synthetic';
 /** The committed encoded episodes, which examples name as `encodes/<path under fixtures/encodes>`. */
 const ENCODES_ROOT = 'fixtures/encodes';
@@ -107,15 +110,51 @@ function isFile(path: string): boolean {
   }
 }
 
+/**
+ * Builds the examples page's module into `<outDir>/developers/_examples/` with a Vite build of its own (no config
+ * file, none of the player's plugins), so it shares no chunk with the player. Its assets resolve under
+ * `/developers/_examples/`, and workers are ES modules, as in the player's build.
+ *
+ * @param repoRoot The repository root, which the examples' `/packages/...` imports resolve from.
+ * @param outDir The player's build output folder.
+ * @param entry The module's source (`examplesPage(...).entry`).
+ */
+export async function buildExamples(repoRoot: string, outDir: string, entry: string): Promise<void> {
+  await viteBuild({
+    configFile: false,
+    root: repoRoot,
+    base: `/${EXAMPLES_DIR}/`,
+    mode: 'production',
+    logLevel: 'warn',
+    publicDir: false,
+    worker: { format: 'es' },
+    plugins: [
+      {
+        name: 'seikou-developer-examples-entry',
+        resolveId: (id) => (id === EXAMPLES_ID ? RESOLVED_EXAMPLES_ID : undefined),
+        load: (id) => (id === RESOLVED_EXAMPLES_ID ? entry : undefined),
+      },
+    ],
+    build: {
+      outDir: join(outDir, EXAMPLES_DIR),
+      emptyOutDir: false,
+      copyPublicDir: false,
+      rollupOptions: { input: EXAMPLES_ID, output: { entryFileNames: posix.basename(EXAMPLES_ENTRY) } },
+    },
+  });
+}
+
 /** The Vite plugin that builds `/developers`; `repoRoot` holds the model, the packages and the guide. */
 export function developerSite(repoRoot: string): Plugin {
   let building = false;
+  let outDir = '';
   let site: DevPackage[] | null = null;
   let examples: { files: string[]; fixtures: string[] } = { files: [], fixtures: [] };
   return {
     name: 'seikou-developer-site',
     configResolved(config) {
       building = config.command === 'build';
+      outDir = resolve(config.root, config.build.outDir);
     },
     buildStart() {
       if (!building || this.environment.name !== 'client') return;
@@ -124,13 +163,6 @@ export function developerSite(repoRoot: string): Plugin {
       site = loadSite(model, repoRoot); // throws on a model built from other sources
       const files = browserExampleFiles(repoRoot);
       examples = { files, fixtures: exampleFixtures(repoRoot, files) };
-      this.emitFile({ type: 'chunk', id: EXAMPLES_ID, fileName: EXAMPLES_ENTRY });
-    },
-    resolveId(id) {
-      return id === EXAMPLES_ID ? RESOLVED_EXAMPLES_ID : undefined;
-    },
-    load(id) {
-      return id === RESOLVED_EXAMPLES_ID ? examplesPage(examples.files, examples.fixtures).entry : undefined;
     },
     async generateBundle() {
       if (!site) return;
@@ -155,7 +187,11 @@ export function developerSite(repoRoot: string): Plugin {
       emit('developers/search.js', script.outputFiles[0]!.text);
       const page = examplesPage(examples.files, examples.fixtures, `/${EXAMPLES_ENTRY}`);
       emit('developers/_examples/index.html', page.html);
-      for (const f of page.fixtures) emit(`developers/_examples/fixtures/${fixtureUrlPath(f)}`, readFileSync(join(repoRoot, f)));
+      for (const f of page.fixtures) emit(`${EXAMPLES_DIR}/fixtures/${fixtureUrlPath(f)}`, readFileSync(join(repoRoot, f)));
+    },
+    async closeBundle(error) {
+      if (!site || error || this.environment.name !== 'client') return;
+      await buildExamples(repoRoot, outDir, examplesPage(examples.files, examples.fixtures).entry);
     },
     configurePreviewServer(server) {
       const outDir = resolve(server.config.root, server.config.build.outDir);
