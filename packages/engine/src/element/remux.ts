@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { analyzeAvc } from '@seikou/bdmv/codecs/h264';
 import { analyzeHevc } from '@seikou/bdmv/codecs/hevc';
+import { ParseError } from '@seikou/bdmv/byte-reader';
 import { findParameterSets } from '@seikou/bdmv/codecs/param-sets';
 import type { ParameterSets } from '@seikou/bdmv/codecs/param-sets';
 import { ELEMENT_TIME_OFFSET_US, initSegment, mediaSegment, TIMESCALE, toLengthPrefixed, videoTrack } from './fmp4';
@@ -30,6 +31,22 @@ const OFFSET_TICKS = ticks(ELEMENT_TIME_OFFSET_US);
 
 function paramKey(p: ParameterSets): string {
   return [p.vps, p.sps, p.pps].map((list) => list.map((n) => Array.from(n, (b) => b.toString(16).padStart(2, '0')).join('')).join(',')).join('|');
+}
+
+/**
+ * The codec string the element's init segment would carry for a unit holding the stream's parameter sets (what the page
+ * is asked about before an element session starts); null when the unit has no SPS, or one this can't read.
+ * @internal
+ */
+export function elementCodec(coding: 'avc' | 'hevc', data: Uint8Array): string | null {
+  try {
+    const info = coding === 'avc' ? analyzeAvc(data) : analyzeHevc(data);
+    const params = findParameterSets(info.data, coding);
+    return params.sps.length > 0 ? videoTrack(coding, params).codec : null;
+  } catch (err) {
+    if (err instanceof ParseError) return null; // the canvas path's decoder judges such a stream
+    throw err;
+  }
 }
 
 /**

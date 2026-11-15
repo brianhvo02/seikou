@@ -49,6 +49,11 @@ export interface MemoryProfile {
    * than the engine's playback read-ahead.
    */
   readonly bdjRemoteReadAheadBytes: number;
+  /**
+   * On the element path, how far the video element's buffered end may run ahead of the clock before reading waits, in
+   * microseconds (a SourceBuffer holds 100–300 MB, and UHD runs at up to about 100 Mb/s).
+   */
+  readonly elementLeadUs: number;
 }
 
 /**
@@ -70,6 +75,7 @@ export const MEMORY_PROFILES: Readonly<Record<MemoryProfileName, MemoryProfile>>
     bdjDecodedImageBytes: 64 * MB,
     remoteReadAheadBytes: 128 * MB,
     bdjRemoteReadAheadBytes: 16 * MB,
+    elementLeadUs: 10_000_000,
   },
   constrained: {
     igPreloadLimitBytes: 64 * MB,
@@ -85,5 +91,6 @@ export const MEMORY_PROFILES: Readonly<Record<MemoryProfileName, MemoryProfile>>
     bdjDecodedImageBytes: 16 * MB,
     remoteReadAheadBytes: 48 * MB,
     bdjRemoteReadAheadBytes: 8 * MB,
+    elementLeadUs: 4_000_000,
   },
 };

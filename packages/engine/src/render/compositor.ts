@@ -26,13 +26,20 @@ export function fitRect(srcW: number, srcH: number, dstW: number, dstH: number):
 export interface CompositorLike {
   /** Sets the canvas size in device pixels (at least 1×1). */
   resize(width: number, height: number): void;
-  /** Clears to black, draws the background still (if any), then the frame. */
+  /**
+   * Clears to black, draws the background still (if any), then the frame. In element mode (startPlaylist's `element`)
+   * it clears to transparent and draws nothing: the page's video element shows the picture under the canvas.
+   */
   drawVideo(frame: VideoFrame | null): void;
   /**
    * A playlist starts: the last frame's size is forgotten. With `picture` false (video the browser can't decode) text is
-   * laid out over the 1920×1080 screen; otherwise none is drawn until the playlist's first frame.
+   * laid out over the 1920×1080 screen; otherwise none is drawn until the playlist's first frame. With `element` (the
+   * picture's size), the page's video element shows the picture: the canvas is cleared to transparent, no video is
+   * drawn, and text is laid out on that size.
    */
-  startPlaylist?(picture: boolean): void;
+  startPlaylist?(picture: boolean, opts?: { readonly element?: { readonly width: number; readonly height: number } }): void;
+  /** In element mode, the picture's size changed (a new init segment): text is laid out on it from now on. */
+  setElementSize?(width: number, height: number): void;
   /**
    * The BD-J background still drawn under the video from the next drawVideo on (null: none), placed in its screen
    * rectangle of the 1920×1080 menu rectangle. The caller owns the image and closes it after replacing it here.
@@ -86,12 +93,15 @@ export class Compositor implements CompositorLike {
   private storageSize: { readonly width: number; readonly height: number } | null = null;
   private stage: ShaderStage | null = null;
   private background: ShownStill | null = null;
+  /** The page's video element shows the picture (startPlaylist with `element`): clear to transparent, draw no video. */
+  private element = false;
 
   constructor(
     private readonly canvas: OffscreenCanvas,
     private readonly createCanvas: (width: number, height: number) => OffscreenCanvas = (w, h) => new OffscreenCanvas(w, h),
   ) {
-    const ctx = canvas.getContext('2d', { alpha: false });
+    // with alpha, so the element path can clear to transparent; the canvas path fills opaque black under every frame
+    const ctx = canvas.getContext('2d', { alpha: true });
     if (!ctx) throw new Error('2D canvas context is unavailable');
     this.ctx = ctx;
   }
@@ -111,6 +121,10 @@ export class Compositor implements CompositorLike {
 
   drawVideo(frame: VideoFrame | null): void {
     const { width, height } = this.canvas;
+    if (this.element) {
+      this.ctx.clearRect(0, 0, width, height);
+      return;
+    }
     this.ctx.fillStyle = '#000';
     this.ctx.fillRect(0, 0, width, height);
     const r = frame ? fitRect(frame.displayWidth, frame.displayHeight, width, height) : null;
@@ -173,10 +187,18 @@ export class Compositor implements CompositorLike {
     this.bdj = null;
   }
 
-  startPlaylist(picture: boolean): void {
+  startPlaylist(picture: boolean, opts?: { readonly element?: { readonly width: number; readonly height: number } }): void {
     this.frameSize = null;
     this.storageSize = null;
     this.noPicture = !picture;
+    this.element = opts?.element !== undefined;
+    if (opts?.element) this.setElementSize(opts.element.width, opts.element.height);
+  }
+
+  setElementSize(width: number, height: number): void {
+    if (!this.element) return;
+    this.frameSize = { width, height };
+    this.storageSize = { width, height };
   }
 
   drawText(renderer: TextRendererLike, timeUs: number, opts: TextRenderOptions): void {

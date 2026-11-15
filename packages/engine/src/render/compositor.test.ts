@@ -223,3 +223,51 @@ describe('Compositor background still (BD-J displayImage)', () => {
     expect(calls.filter(([n]) => n === 'main.drawImage').map(([, src]) => src)).toEqual([image, frame]);
   });
 });
+
+describe('Compositor on the element path', () => {
+  function fake(width: number, height: number) {
+    const calls: Array<[string, ...unknown[]]> = [];
+    const options: unknown[] = [];
+    const mainCtx = new Proxy({}, { get: (_t, prop: string) => (...args: unknown[]) => calls.push([`main.${prop}`, ...args]) });
+    const main = {
+      width,
+      height,
+      getContext: (_kind: string, opts: unknown) => {
+        options.push(opts);
+        return mainCtx;
+      },
+    } as unknown as OffscreenCanvas;
+    return { calls, options, compositor: new Compositor(main, () => ({}) as OffscreenCanvas) };
+  }
+  const frame = { displayWidth: 1920, displayHeight: 1080, codedWidth: 1920, codedHeight: 1080 } as unknown as VideoFrame;
+
+  it('creates its context with alpha, and the canvas path still fills black', () => {
+    const { calls, options, compositor } = fake(1000, 1000);
+    expect(options).toEqual([{ alpha: true }]);
+    compositor.startPlaylist(true);
+    compositor.drawVideo(frame);
+    expect(calls.map(([n]) => n)).toEqual(['main.fillRect', 'main.drawImage']);
+    expect(calls.some(([n]) => n === 'main.clearRect')).toBe(false);
+  });
+
+  it('clears to transparent in element mode and draws no video, laying text out on the element size', () => {
+    const { calls, compositor } = fake(1000, 1000);
+    compositor.startPlaylist(true, { element: { width: 1920, height: 1080 } });
+    compositor.drawVideo(frame);
+    compositor.drawVideo(null);
+    expect(calls).toEqual([['main.clearRect', 0, 0, 1000, 1000], ['main.clearRect', 0, 0, 1000, 1000]]);
+    const text: unknown[][] = [];
+    const renderer = { render: (...args: unknown[]) => { text.push(args); return 0; }, changed: () => false, visible: () => false };
+    compositor.drawText(renderer, 0, { offsetUs: 0, scale: 1 });
+    expect(text[0]!.slice(2)).toEqual([{ x: 0, y: 218, width: 1000, height: 563 }, { offsetUs: 0, scale: 1, storage: { width: 1920, height: 1080 } }]);
+    // a new init with another size moves the text
+    compositor.setElementSize(1440, 1080);
+    compositor.drawText(renderer, 0, { offsetUs: 0, scale: 1 });
+    expect(text[1]!.slice(2)).toEqual([fitRect(1440, 1080, 1000, 1000), { offsetUs: 0, scale: 1, storage: { width: 1440, height: 1080 } }]);
+    // the next playlist on the canvas path fills black again
+    calls.length = 0;
+    compositor.startPlaylist(true);
+    compositor.drawVideo(null);
+    expect(calls).toEqual([['main.fillRect', 0, 0, 1000, 1000]]);
+  });
+});

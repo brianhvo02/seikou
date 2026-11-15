@@ -8,7 +8,8 @@ import { describe, expect, it } from 'vitest';
 import { fixtureDiscFiles } from '../../../../tests/helpers/fixture-disc';
 import { VIDEO_PID } from '../../../../tests/helpers/synthetic-disc';
 import { ELEMENT_TIME_OFFSET_US, mediaSegment } from './fmp4';
-import { ElementRemux } from './remux';
+import { ElementRemux, elementCodec } from './remux';
+import { PROGRESSIVE_SPS, avcAu } from '../../../../tests/helpers/h264-units';
 import type { RemuxOutput } from './remux';
 
 interface Unit { data: Uint8Array; ptsUs: number; dtsUs?: number; inRange: boolean }
@@ -208,5 +209,13 @@ describe('ElementRemux', () => {
     const second = kinds.lastIndexOf('init');
     expect(kinds.slice(0, second)).toEqual(['init', 'segment', 'segment']);
     expect(kinds[second + 1]).toBe('segment');
+  });
+});
+
+describe('elementCodec', () => {
+  it("gives the init segment's codec string for a unit with an SPS, and null for none or one it can't read", () => {
+    expect(elementCodec('avc', avcAu({ idr: true, spsNal: PROGRESSIVE_SPS }))).toMatch(/^avc1\.640029$/i);
+    expect(elementCodec('avc', avcAu({ fill: 10 }))).toBeNull();
+    expect(elementCodec('avc', avcAu({ idr: true }))).toBeNull(); // TEST_SPS is cut short
   });
 });
