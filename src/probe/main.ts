@@ -1,6 +1,9 @@
 import { createByteSource } from '@seikou/engine/disc/disc-spec';
 import { serverDiscSpec, serverLinkFromLocation } from '../ui/disc-server';
-import { runChecks, type ProbeDisc, type ProbeEnv, type ProbeFile, type ProbeResult, type WorkerInput, type WorkerProbe } from './checks';
+import type { RemoteDiscSpec } from '@seikou/engine/disc/disc-spec';
+import { qrSvg } from '../ui/nas/qr';
+import { runChecks, type DecodeRateReply, type DecodeRateRequest, type ProbeDisc, type ProbeEnv, type ProbeFile, type ProbeResult, type WorkerInput, type WorkerProbe } from './checks';
+import { pickNasDisc } from './nas-pick';
 
 const root = document.getElementById('root') as HTMLElement;
 const logView = document.createElement('pre');
@@ -12,35 +15,31 @@ function log(line: string): void {
   logView.textContent = lines.join('\n');
 }
 
-function pickFolder(): Promise<File[]> {
-  return new Promise((resolve) => {
-    const button = document.createElement('button');
-    button.textContent = 'Pick a disc folder';
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.multiple = true;
-    input.setAttribute('webkitdirectory', '');
-    input.hidden = true;
+/** The folder picker's button and the files it hands over. */
+function folderPicker(): { button: HTMLButtonElement; input: HTMLInputElement; files: Promise<File[]> } {
+  const button = document.createElement('button');
+  button.textContent = 'Pick a disc folder';
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.multiple = true;
+  input.setAttribute('webkitdirectory', '');
+  input.hidden = true;
+  const files = new Promise<File[]>((resolve) => {
     input.addEventListener('change', () => {
       log(`files handed over (${input.files?.length ?? 0})`);
       button.disabled = true;
       resolve([...(input.files ?? [])]);
     });
-    button.addEventListener('click', () => {
-      log('picker opened');
-      input.click();
-    });
-    root.append(button, input, logView);
   });
+  button.addEventListener('click', () => {
+    log('picker opened');
+    input.click();
+  });
+  return { button, input, files };
 }
 
-/**
- * `probe.html?disc=<disc API base>&token=<token>` probes a disc on the development disc server (tools/disc-server) instead
- * of a picked folder, so tools/devices/probe.ts can run it without a human. It is read as the player reads a NAS disc:
- * the manifest, then range reads through RemoteSource.
- */
-async function openServerDisc(base: string, token: string): Promise<ProbeDisc> {
-  const spec = await serverDiscSpec({ name: 'the disc', base }, token);
+/** A served disc as the checks read it: its file list, and a byte-range read per file through RemoteSource. */
+function servedDisc(spec: RemoteDiscSpec): ProbeDisc {
   // the probe reads a few ranges: no read-ahead beyond the chunk a read needs
   const source = createByteSource(spec, { fetch: (input, init) => fetch(input, init), readAheadBytes: 0, onWaiting: () => undefined });
   const files = source.paths().map((path): ProbeFile => ({
@@ -50,6 +49,41 @@ async function openServerDisc(base: string, token: string): Promise<ProbeDisc> {
     slice: (start, end) => ({ arrayBuffer: async () => (await source.read(path, start, end - start)).slice().buffer }),
   }));
   return { route: 'server', files, server: spec };
+}
+
+/**
+ * Asks where the disc comes from: a picked folder (where the browser can pick folders) or a disc on the paired NAS
+ * (the only way on a TV, which has no folder picker).
+ */
+function chooseDisc(): Promise<ProbeDisc> {
+  return new Promise((resolve, reject) => {
+    const nasButton = document.createElement('button');
+    nasButton.textContent = 'Use a disc on the NAS';
+    nasButton.addEventListener('click', () => {
+      log('NAS route chosen');
+      pickNasDisc(root, log).then((spec) => {
+        root.replaceChildren(logView);
+        resolve(servedDisc(spec));
+      }, reject);
+    });
+    const choices: HTMLElement[] = [nasButton];
+    if ('webkitdirectory' in HTMLInputElement.prototype) {
+      const picker = folderPicker();
+      picker.files.then((files) => resolve({ route: 'folder', files }), reject);
+      choices.unshift(picker.button, picker.input);
+    }
+    root.replaceChildren(...choices, logView);
+    (choices[0] as HTMLButtonElement).focus();
+  });
+}
+
+/**
+ * `probe.html?disc=<disc API base>&token=<token>` probes a disc on the development disc server (tools/disc-server) instead
+ * of a picked folder, so tools/devices/probe.ts can run it without a human. It is read as the player reads a NAS disc:
+ * the manifest, then range reads through RemoteSource.
+ */
+async function openServerDisc(base: string, token: string): Promise<ProbeDisc> {
+  return servedDisc(await serverDiscSpec({ name: 'the disc', base }, token));
 }
 
 function openDisc(): Promise<ProbeDisc> {
@@ -62,7 +96,7 @@ function openDisc(): Promise<ProbeDisc> {
     log('probing the disc on the disc server');
     return openServerDisc(link.disc, link.token);
   }
-  return pickFolder().then((files) => ({ route: 'folder', files }));
+  return chooseDisc();
 }
 
 function worker(input: WorkerInput): Promise<WorkerProbe> {
@@ -82,10 +116,75 @@ function worker(input: WorkerInput): Promise<WorkerProbe> {
   });
 }
 
+/** The decode-rate worker gives up a little before its check does, and is stopped, so it can't hold the decoder for the next. */
+const DECODE_RATE_WORKER_TIMEOUT_MS = 170_000;
+
+function decodeRate(request: DecodeRateRequest): Promise<DecodeRateReply> {
+  return new Promise((resolve) => {
+    const w = new Worker(new URL('./decode-rate-worker.ts', import.meta.url), { type: 'module' });
+    const finish = (reply: DecodeRateReply): void => {
+      clearTimeout(timer);
+      w.terminate();
+      resolve(reply);
+    };
+    const timer = setTimeout(() => finish({ error: 'timed out' }), DECODE_RATE_WORKER_TIMEOUT_MS);
+    w.onmessage = (e: MessageEvent<DecodeRateReply>) => finish(e.data);
+    w.onerror = () => finish({ error: 'worker failed' });
+    w.onmessageerror = () => finish({ error: 'worker message failed' });
+    w.postMessage(request);
+  });
+}
+
+/**
+ * Arrow keys move focus through the page's buttons and fields in order, since a TV remote has no pointer and the TV's
+ * browser doesn't move focus by itself; Enter on a focused button clicks it as usual. Left and right stay with a field.
+ */
+function arrowFocus(): void {
+  document.addEventListener('keydown', (e) => {
+    const step = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 0;
+    if (step === 0) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLInputElement && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) return;
+    const all = [...document.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([hidden])')];
+    if (all.length === 0) return;
+    const at = active instanceof HTMLElement ? all.indexOf(active) : -1;
+    const next = all[Math.min(all.length - 1, Math.max(0, at + step))];
+    next.focus();
+    next.scrollIntoView({ block: 'nearest' });
+    e.preventDefault();
+  });
+}
+
+/** A QR of the results (no log), so they can be read off a TV with a phone; null when they don't fit in one. */
+function resultsQr(results: readonly ProbeResult[]): SVGSVGElement | null {
+  let qr: { size: number; path: string };
+  try {
+    qr = qrSvg(JSON.stringify({ ua: navigator.userAgent, r: results.map((r) => [r.name, r.ok ? 1 : 0, r.detail]) }));
+  } catch {
+    return null;
+  }
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${qr.size} ${qr.size}`);
+  svg.setAttribute('class', 'qr');
+  const bg = document.createElementNS(ns, 'rect');
+  bg.setAttribute('width', String(qr.size));
+  bg.setAttribute('height', String(qr.size));
+  bg.setAttribute('fill', '#fff');
+  const path = document.createElementNS(ns, 'path');
+  path.setAttribute('d', qr.path);
+  path.setAttribute('fill', '#000');
+  svg.append(bg, path);
+  return svg;
+}
+
+arrowFocus();
+
 const env: ProbeEnv = {
   openDisc,
   createAudioContext: () => new AudioContext({ sampleRate: 48000 }),
   worker,
+  decodeRate,
   globals: globalThis as unknown as Record<string, unknown>,
   log,
 };
@@ -112,7 +211,15 @@ runChecks(env).then((results) => {
     const json = JSON.stringify({ userAgent: navigator.userAgent, results, log: lines }, null, 2);
     void navigator.clipboard.writeText(json).catch(() => window.prompt('Copy:', json));
   });
-  root.append(table, copy, logView);
+  const qr = resultsQr(results);
+  // the QR sits beside the table: a TV remote moves focus, it doesn't scroll
+  const resultsRow = document.createElement('div');
+  resultsRow.className = 'results';
+  const left = document.createElement('div');
+  left.append(table, copy);
+  resultsRow.append(left, ...(qr ? [qr] : []));
+  root.append(resultsRow, logView);
+  copy.focus();
 }).catch((err: unknown) => {
   published.__probeResults = { userAgent: navigator.userAgent, error: err instanceof Error ? err.message : String(err) };
   log(`probe failed: ${err instanceof Error ? err.message : String(err)}`);

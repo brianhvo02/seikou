@@ -1,4 +1,5 @@
 import type { RemoteDiscSpec } from '@seikou/engine/disc/disc-spec';
+import type { DecodeRate, ProbeCoding } from './decode-rate';
 
 /** One check's outcome: its name, whether it passed, and a one-line detail for the page to show. */
 export interface ProbeResult {
@@ -32,11 +33,22 @@ export type ProbeDisc = { readonly route: 'folder'; readonly files: readonly Fil
 /** What the worker probes: the picked files, or the served disc (the worker reads it over HTTP itself). */
 export type WorkerInput = { readonly entries: ReadonlyArray<readonly [string, File]> } | { readonly server: ProbeServerRef };
 
+/** What the decode-rate worker is asked: the disc and the coding to measure. */
+export interface DecodeRateRequest {
+  readonly input: WorkerInput;
+  readonly coding: ProbeCoding;
+}
+
+/** The decode-rate worker's answer: the measurement (null when the disc has no clip of that coding), or why it failed. */
+export type DecodeRateReply = { readonly rate: DecodeRate | null } | { readonly error: string };
+
 /** Everything the checks touch outside themselves, so tests can inject fakes: the disc, an audio context, the worker, the global scope and an optional progress log. */
 export interface ProbeEnv {
   openDisc(): Promise<ProbeDisc>;
   createAudioContext(): BaseAudioContext;
   worker(input: WorkerInput): Promise<WorkerProbe>;
+  /** Runs the decode-rate measurement (`decode-rate.ts`) in a worker of its own. */
+  decodeRate(request: DecodeRateRequest): Promise<DecodeRateReply>;
   globals: Record<string, unknown>;
   /** Progress lines (files received, each check's start and end with its duration), shown live by the page. */
   log?(line: string): void;
@@ -46,6 +58,8 @@ const FOUR_GIB = 2 ** 32;
 const WORKER_TIMEOUT_MS = 15000;
 /** Every other check gives up after this, so a stalled read (e.g. a file provider fetching a huge file) still reports. */
 const CHECK_TIMEOUT_MS = 60000;
+/** A decode-rate check reads ten seconds of video and decodes it twice, which a slow TV may need minutes for. */
+const DECODE_RATE_TIMEOUT_MS = 180000;
 const SOURCE_PACKET = 192;
 const ALIGNED_UNIT = SOURCE_PACKET * 32;
 
@@ -118,12 +132,12 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-async function attempt(name: string, fn: () => Promise<ProbeResult> | ProbeResult, log: (line: string) => void): Promise<ProbeResult> {
+async function attempt(name: string, fn: () => Promise<ProbeResult> | ProbeResult, log: (line: string) => void, timeoutMs = CHECK_TIMEOUT_MS): Promise<ProbeResult> {
   const start = Date.now();
   log(`${name}: started`);
   let result: ProbeResult;
   try {
-    result = await withTimeout(Promise.resolve().then(fn), CHECK_TIMEOUT_MS);
+    result = await withTimeout(Promise.resolve().then(fn), timeoutMs);
   } catch (err) {
     result = { name, ok: false, detail: err instanceof Error && err.message === 'timed out' ? 'timed out' : `threw: ${err instanceof Error ? err.message : String(err)}` };
   }
@@ -132,6 +146,38 @@ async function attempt(name: string, fn: () => Promise<ProbeResult> | ProbeResul
 }
 
 const GIB = 2 ** 30;
+
+/** Decoding and drawing must keep this far ahead of the clip's frame rate to pass: the engine also decodes audio and draws subtitles. */
+export const DECODE_HEADROOM = 1.25;
+
+/** The decode-rate check of one coding: passes when decoding and drawing runs at least DECODE_HEADROOM times real time. */
+async function decodeRate(env: ProbeEnv, input: WorkerInput, coding: ProbeCoding, route: ProbeDisc['route']): Promise<ProbeResult> {
+  const name = `decode-rate-${coding}`;
+  const reply = await env.decodeRate({ input, coding });
+  if ('error' in reply) return { name, ok: false, detail: `error: ${reply.error}` };
+  const r = reply.rate;
+  if (!r) return { name, ok: false, detail: `untested: no ${coding === 'h264' ? 'H.264' : 'HEVC'} clip ${route === 'server' ? 'on the disc' : 'in the folder'}` };
+  const needed = r.frameRate * DECODE_HEADROOM;
+  const size = r.width > 0 ? `${r.width}×${r.height} ` : '';
+  const rates = `decode ${r.decodeFps.toFixed(1)} fps, decode+draw ${r.drawFps.toFixed(1)} fps (needs ${needed.toFixed(1)})`;
+  const detail = `${r.clip} ${size}${r.codec}: ${rates}${r.error ? `; ${r.error}` : ''}`;
+  return { name, ok: !r.error && r.drawFps >= needed, detail };
+}
+
+/** What the device says about itself: always passes; its detail is for the record. */
+function deviceInfo(g: Record<string, unknown>): ProbeResult {
+  const nav = (g.navigator ?? {}) as { hardwareConcurrency?: number; deviceMemory?: number };
+  const screen = g.screen as { width?: number; height?: number } | undefined;
+  const parts = [
+    `cores ${nav.hardwareConcurrency ?? '?'}`,
+    `memory ${nav.deviceMemory === undefined ? '?' : `${nav.deviceMemory} GB`}`,
+    `screen ${screen?.width ?? '?'}×${screen?.height ?? '?'} @${String(g.devicePixelRatio ?? '?')}`,
+    // Samsung's TV globals: `tizen` (device APIs) and `webapis` (TV APIs); a hosted app may lack them without the privilege
+    `tizen ${'tizen' in g ? 'yes' : 'no'}`,
+    `webapis ${'webapis' in g ? 'yes' : 'no'}`,
+  ];
+  return { name: 'device', ok: true, detail: parts.join(', ') };
+}
 
 /**
  * Runs every device check against the disc `env` opens and returns one result per check, in order. A check that throws or
@@ -150,6 +196,12 @@ export async function runChecks(env: ProbeEnv): Promise<ProbeResult[]> {
   workerProbe.catch(() => undefined); // each worker-backed check reports the failure itself
 
   return [
+    await attempt('device', () => deviceInfo(g), log),
+    await attempt('cross-origin-isolated', () => {
+      const isolated = g.crossOriginIsolated === true;
+      const sab = typeof g.SharedArrayBuffer === 'function';
+      return { name: 'cross-origin-isolated', ok: isolated && sab, detail: `crossOriginIsolated ${isolated}, SharedArrayBuffer ${sab ? 'present' : 'missing'}` };
+    }, log),
     await attempt('blob-slice-over-4gib', () => blobSlice(disc), log),
     await attempt('audio-sample-rate', () => {
       const context = env.createAudioContext();
@@ -172,6 +224,8 @@ export async function runChecks(env: ProbeEnv): Promise<ProbeResult[]> {
       const form = hevc.hvc1 ? 'hvc1' : hevc.hev1 ? 'hev1' : 'unsupported';
       return { name: 'hevc', ok: (hevc.hvc1 || hevc.hev1) && hevc.decoded, detail: hevc.decoded ? form : `${form}, first GOP did not decode` };
     }, log),
+    await attempt('decode-rate-h264', () => decodeRate(env, input, 'h264', disc.route), log, DECODE_RATE_TIMEOUT_MS),
+    await attempt('decode-rate-hevc', () => decodeRate(env, input, 'hevc', disc.route), log, DECODE_RATE_TIMEOUT_MS),
     await attempt('webgl2-float', async () => {
       const { webgl } = await workerProbe;
       return { name: 'webgl2-float', ok: webgl.float, detail: `float ${webgl.float}, half-float ${webgl.half}` };
