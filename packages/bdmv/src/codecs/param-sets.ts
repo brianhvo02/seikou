@@ -71,6 +71,12 @@ export interface AvcSpsInfo {
   /** The byte holding constraint_set0..5_flag and the two reserved bits. */
   constraintFlags: number;
   levelIdc: number;
+  /** chroma_format_idc (1 when the SPS has no high-profile fields). */
+  chromaFormatIdc: number;
+  /** Luma bit depth (8 when the SPS has no high-profile fields). */
+  bitDepthLuma: number;
+  /** Chroma bit depth (8 when the SPS has no high-profile fields). */
+  bitDepthChroma: number;
   /** The picture size in luma samples after frame cropping. */
   width: number;
   height: number;
@@ -182,11 +188,13 @@ export function readAvcSps(sps: Uint8Array): AvcSpsInfo {
   r.ue(); // seq_parameter_set_id
   let chromaFormat = 1;
   let separatePlanes = 0;
+  let bitDepthLuma = 8;
+  let bitDepthChroma = 8;
   if (HIGH_PROFILES.has(profileIdc)) {
     chromaFormat = r.ue();
     if (chromaFormat === 3) separatePlanes = r.u(1);
-    r.ue(); // bit_depth_luma_minus8
-    r.ue(); // bit_depth_chroma_minus8
+    bitDepthLuma = r.ue() + 8;
+    bitDepthChroma = r.ue() + 8;
     r.u(1); // qpprime_y_zero_transform_bypass_flag
     if (r.u(1)) {
       for (let i = 0; i < (chromaFormat !== 3 ? 8 : 12); i++) if (r.u(1)) skipScalingList(r, i < 6 ? 16 : 64);
@@ -223,5 +231,5 @@ export function readAvcSps(sps: Uint8Array): AvcSpsInfo {
     width -= (left + right) * unitX;
     height -= (top + bottom) * unitY;
   }
-  return { profileIdc, constraintFlags, levelIdc, width, height };
+  return { profileIdc, constraintFlags, levelIdc, chromaFormatIdc: chromaFormat, bitDepthLuma, bitDepthChroma, width, height };
 }

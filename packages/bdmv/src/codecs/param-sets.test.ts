@@ -33,7 +33,7 @@ describe('parameter sets', () => {
     const sets = findParameterSets(firstAccessUnit('disc1'), 'avc');
     expect(sets.sps.length).toBe(1);
     expect(sets.pps.length).toBe(1);
-    expect(readAvcSps(sets.sps[0])).toMatchObject({ profileIdc: 100, width: 640, height: 360 });
+    expect(readAvcSps(sets.sps[0])).toMatchObject({ profileIdc: 100, chromaFormatIdc: 1, bitDepthLuma: 8, bitDepthChroma: 8, width: 640, height: 360 });
   });
 
   it('splits Annex B units', () => {
