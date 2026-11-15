@@ -67,9 +67,17 @@ You need a Samsung account and the TV on the same network as the Mac.
 ```sh
 tools/tizen/make-wgt.sh --profile seikou --url https://<branch>.bluray.pages.dev/probe
 sdb devices                                   # the serial, such as 192.168.1.50:26101
-tizen install -s <serial> -n "Seikou probe.wgt" -- .cache/tizen/SeikouPrb1
+sdb -s <serial> push ~/SamsungCertificate/seikou/device-profile.xml /home/owner/share/tmp/sdk_tools/device-profile.xml
+tizen install -s <serial> -n SeikouPrb1.wgt -- .cache/tizen/SeikouPrb1
 tizen run -s <serial> -p SeikouPrb1.Probe
 ```
+
+The `sdb push` is Samsung's "Permit to install applications": a TV that reports `platform_version` 4.0 or lower in
+`sdb -s <serial> capability` (a 2025 QN65Q6FNA does, whatever Tizen it runs) refuses every package signed for it
+with `install failed[118012]` until the certificate's device profile is in its SDK tool folder (`sdk_toolpath`
+there, `/home/owner/share/tmp/sdk_tools`; `/home/developer`, where older guides put it, is refused). Push it again if a
+later install fails the same way. The package file is named after the package id because the TV's installer splits
+a file name at its spaces.
 
 `--url` defaults to `https://bluray.pages.dev/probe`. A branch's preview (`gh workflow run preview.yml --ref
 <branch>`) is at `https://<branch>.bluray.pages.dev/`, which the NAS's CORS rule allows like the main site. The URL
@@ -106,8 +114,11 @@ results there, as in `tools/devices/probe.ts`.
 
 ## Troubleshooting
 
-- **`install failed[118, -12]` or a certificate error (1010):** the profile wasn't made for this TV's DUID, or a
-  different profile is active. Make the certificate with the TV connected and pass that profile to `--profile`.
+- **`install failed[118012]` (or `[118, -12]`, or 1010):** first push the device profile (above); that is the usual
+  cause. Otherwise the profile wasn't made for this TV's DUID (`sdb -s <serial> shell 0 getduid`; the certificate's
+  `device-profile.xml` must name it), or a different profile is active.
+- **`install failed[118019]`:** the TV couldn't parse `config.xml`. A `required_version` above the TV's
+  `platform_version` is one cause, which is why the template asks for 2.3.
 - **`sdb connect` times out:** Developer Mode isn't on, the Host PC IP isn't this Mac's current address, or the TV
   wasn't restarted after setting it.
 - **The app opens a blank or error page:** the TV can't reach the URL. Open the URL on another device first, and

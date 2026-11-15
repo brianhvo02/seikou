@@ -2,14 +2,15 @@
 <!-- SPDX-License-Identifier: LGPL-3.0-or-later -->
 <!-- A hosted Samsung TV web app: the widget holds no page of its own; it opens @URL@, so the page comes with its server's headers (COOP/COEP). Written by make-wgt.sh. -->
 <widget xmlns="http://www.w3.org/ns/widgets" xmlns:tizen="http://tizen.org/ns/widgets" id="https://bluray.pages.dev/tizen/@PACKAGE@" version="@VERSION@" viewmodes="maximized">
-  <tizen:application id="@PACKAGE@.@APPNAME@" package="@PACKAGE@" required_version="6.0"/>
+  <tizen:application id="@PACKAGE@.@APPNAME@" package="@PACKAGE@" required_version="2.3"/>
   <content src="@URL@"/>
   <access origin="*" subdomains="true"/>
   <tizen:allow-navigation>@HOST@</tizen:allow-navigation>
   <feature name="http://tizen.org/feature/screen.size.normal.1080.1920"/>
   <icon src="icon.png"/>
+  <tizen:metadata key="http://tizen.org/metadata/app_ui_type/base_screen_resolution" value="extensive"/>
   <name>@NAME@</name>
   <tizen:privilege name="http://tizen.org/privilege/internet"/>
-  <tizen:profile name="tv-samsung"/>
+  <tizen:profile name="tv"/>
   <tizen:setting screen-orientation="landscape" context-menu="enable" background-support="disable" encryption="disable" install-location="auto" hwkey-event="enable"/>
 </widget>

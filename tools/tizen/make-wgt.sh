@@ -52,12 +52,18 @@ sed -e "s#@URL@#$(xml "$url" | sed 's/[#&\\]/\\&/g')#g" \
 cp "$repo/public/icons/icon-512.png" "$build/icon.png"
 
 tizen package -t wgt -s "$profile" -- "$build"
-wgt="$(ls -t "$build"/*.wgt | head -1)"
+# the TV's installer splits a file name at its spaces: give the package a plain one
+built="$(ls -t "$build"/*.wgt | head -1)"
+wgt="$build/$package.wgt"
+mv "$built" "$wgt"
 echo
 echo "Built $wgt"
 echo "  opens  $url"
 echo "  app id $package.$appname"
 echo
-echo "Install and start it on the TV (sdb devices lists its serial, such as 192.168.1.50:26101):"
-echo "  tizen install -s <serial> -n \"$(basename "$wgt")\" -- \"$build\""
+echo "Install and start it on the TV (sdb devices lists its serial, such as 192.168.1.50:26101). A TV that reports"
+echo "platform_version 4.0 or lower (sdb capability), 2025 models included, takes an install only once the"
+echo "certificate's device profile is in its SDK tool folder (sdk_toolpath in sdb capability):"
+echo "  sdb -s <serial> push ~/SamsungCertificate/$profile/device-profile.xml /home/owner/share/tmp/sdk_tools/device-profile.xml"
+echo "  tizen install -s <serial> -n $package.wgt -- \"$build\""
 echo "  tizen run -s <serial> -p $package.$appname"
