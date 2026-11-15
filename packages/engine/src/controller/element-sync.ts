@@ -2,8 +2,8 @@
 
 /**
  * What the page does after a presented frame: the playback rate to set, a
- * time to seek to (µs, or null), and the measured offset (µs, or null when
- * nothing was measured).
+ * time to seek to (µs, or null), and the measured raw offset (µs, or null
+ * when nothing was measured).
  *
  * @internal
  */
@@ -13,81 +13,104 @@ export interface SyncAction {
   offsetUs: number | null;
 }
 
-/** Settings for {@link ElementSync}. @internal */
+/**
+ * Settings for {@link ElementSync}. `seekBeyondUs` is the offset (µs) past
+ * which the element is seeked; `maxRateDelta` bounds the rate correction and
+ * the learned trim (a fraction of rate 1); `gain` is the proportional gain,
+ * rate change per second of smoothed offset.
+ *
+ * @internal
+ */
 export interface ElementSyncOptions {
-  deadBandUs?: number;
   seekBeyondUs?: number;
   maxRateDelta?: number;
   gain?: number;
-  integralGain?: number;
 }
 
 const SETTLE_FRAMES = 2;
-const INTEGRAL_GAIN = 0.1;
-const FALLBACK_FRAME_S = 1 / 24;
+const SMOOTHING = 0.1;
+const FIRST_FRAME_S = 1 / 24;
+const MAX_FRAME_S = 0.125;
 
 /**
- * Keeps a muted video element on the audio clock: rate 1 inside a dead band,
- * a small rate nudge up to a threshold, a seek beyond it. Pure logic; all
- * times are µs on one timeline.
+ * Keeps a muted video element on the audio clock. The raw offset is
+ * smoothed with an exponential moving average; the playback rate is
+ * `1 - clamp(gain * smoothed + trim)`, where the trim integrates the
+ * smoothed offset (gain and integral gain give critical damping), so a
+ * steady drift of the element is learned and the offset settles to zero
+ * rather than hunting. A raw offset beyond the seek threshold seeks to the
+ * clock instead and clears the smoothing and the trim. Pure logic; all times
+ * are µs on one timeline.
  *
  * @internal
  */
 export class ElementSync {
-  private readonly deadBandUs: number;
   private readonly seekBeyondUs: number;
   private readonly maxRateDelta: number;
   private readonly gain: number;
   private readonly integralGain: number;
   private settling = 0;
   private trim = 0;
+  private smoothed: number | null = null;
   private prevMediaUs: number | null = null;
 
-  /** Creates a controller; defaults are 10 ms, 100 ms, 0.005 and 0.1. @internal */
+  /**
+   * Creates a controller. Defaults: seek beyond 100 000 µs, rate delta
+   * limit 0.005, proportional gain 0.25 per second of offset (the integral
+   * gain is a quarter of its square). @internal
+   */
   constructor(opts: ElementSyncOptions = {}) {
-    this.deadBandUs = opts.deadBandUs ?? 10_000;
     this.seekBeyondUs = opts.seekBeyondUs ?? 100_000;
     this.maxRateDelta = opts.maxRateDelta ?? 0.005;
-    this.gain = opts.gain ?? 0.1;
-    this.integralGain = opts.integralGain ?? INTEGRAL_GAIN;
+    this.gain = opts.gain ?? 0.25;
+    this.integralGain = (this.gain * this.gain) / 4;
   }
 
   /**
    * Decides what to do for a presented frame at `mediaTimeUs` when the clock
-   * reads `clockUs`. A positive offset means the video is ahead. @internal
+   * reads `clockUs`. A positive offset means the video is ahead. Not playing
+   * or no clock: rate 1, no offset, state kept. @internal
    */
   onFrame(mediaTimeUs: number, clockUs: number | null, playing: boolean): SyncAction {
     if (!playing || clockUs === null) return { rate: 1, seekToUs: null, offsetUs: null };
     const offsetUs = mediaTimeUs - clockUs;
-    const dtRaw = this.prevMediaUs === null ? 0 : (mediaTimeUs - this.prevMediaUs) / 1e6;
-    this.prevMediaUs = mediaTimeUs;
-    const dt = dtRaw > 0 && dtRaw < 0.5 ? dtRaw : FALLBACK_FRAME_S;
     if (this.settling > 0) {
       this.settling--;
       return { rate: 1, seekToUs: null, offsetUs };
     }
-    const abs = Math.abs(offsetUs);
-    if (abs > this.seekBeyondUs) {
+    if (Math.abs(offsetUs) > this.seekBeyondUs) {
       this.settling = SETTLE_FRAMES;
       this.trim = 0;
+      this.smoothed = null;
+      this.prevMediaUs = null;
       return { rate: 1, seekToUs: clockUs, offsetUs };
     }
+    const dtS = this.frameSeconds(mediaTimeUs);
+    this.smoothed =
+      this.smoothed === null ? offsetUs : this.smoothed + SMOOTHING * (offsetUs - this.smoothed);
+    const errS = this.smoothed / 1e6;
     const max = this.maxRateDelta;
-    const p = abs <= this.deadBandUs ? 0 : -(offsetUs / 1e6) * this.gain;
-    const rate = 1 + clamp(this.trim + p, max);
-    const u = this.trim + p;
-    const saturated = Math.abs(u) >= max && Math.sign(u) === Math.sign(-offsetUs);
-    if (!saturated) {
-      this.trim = clamp(this.trim - (offsetUs / 1e6) * this.integralGain * dt, max);
-    }
+    const u = this.gain * errS + this.trim;
+    const rate = 1 - clamp(u, max);
+    const saturated = Math.abs(u) >= max && Math.sign(u) === Math.sign(errS);
+    if (!saturated) this.trim = clamp(this.trim + this.integralGain * errS * dtS, max);
     return { rate, seekToUs: null, offsetUs };
   }
 
-  /** Forgets the settle state, as after a playlist change. @internal */
+  /** Clears the smoothing, the trim and the settle state, as after a playlist change. @internal */
   reset(): void {
     this.settling = 0;
     this.trim = 0;
+    this.smoothed = null;
     this.prevMediaUs = null;
+  }
+
+  private frameSeconds(mediaTimeUs: number): number {
+    const prev = this.prevMediaUs;
+    this.prevMediaUs = mediaTimeUs;
+    if (prev === null) return FIRST_FRAME_S;
+    const dt = (mediaTimeUs - prev) / 1e6;
+    return dt > 0 ? Math.min(dt, MAX_FRAME_S) : 0;
   }
 }
 
