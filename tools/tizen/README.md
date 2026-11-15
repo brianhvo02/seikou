@@ -33,12 +33,17 @@ You need a Samsung account and the TV on the same network as the Mac.
    Tizen Studio (Samsung's older IDE) works too: its Package Manager installs the same pieces, and its CLI is in the
    same place.
 
-2. **Turn on Developer Mode on the TV.** Find the Mac's LAN address (`ipconfig getifaddr en0`). On the TV open
-   **Apps**, then **App Settings** (the exact place moves between model years), and type
-   **1 2 3 4 5** on the remote's number pad (or the on-screen keypad). In the popup switch **Developer mode** to
-   **On**, enter the Mac's address as the **Host PC IP**, press **OK**, and restart the TV by holding the power
-   button until the logo shows. **Develop Mode** then shows at the top of Apps. Only that Mac can install apps; to
-   use another, enter its address instead. Turning Developer Mode off removes the apps installed this way.
+2. **Turn on Developer Mode on the TV.** Find the Mac's LAN address (`ipconfig getifaddr en0`). On the TV press
+   **Home** and open **Apps**. On models from 2024 on, the code is typed on the Apps page's own settings: select
+   **Settings** (a gear, near the bottom of the Apps page or at its top right); older models call it **App
+   Settings**. Type **1 2 3 4 5**. The SolarCell remote of recent models has no number keys: press its **123** (or
+   colour) button for the on-screen keypad and type the five digits quickly, since a slow entry is often ignored.
+   In the popup switch **Developer mode** to **On**, enter the Mac's address as the **Host PC IP**, press **OK**,
+   and restart the TV by holding the power button until the logo shows (if `sdb` later can't connect, unplug the
+   TV for 15 seconds instead). **Develop Mode** then shows on the Apps page. Some firmware saves the address
+   backwards (192.168.1.20 as 20.1.168.192): reopen the popup to check, and if it is reversed, type it in reverse
+   so it is stored the right way round. Only that Mac can install apps; to use another, enter its address instead.
+   Turning Developer Mode off removes the apps installed this way.
 
 3. **Connect to the TV.** Find the TV's address (Settings → Connection → Network → Network Status → IP Settings),
    then:
