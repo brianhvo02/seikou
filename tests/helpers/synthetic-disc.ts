@@ -46,6 +46,9 @@ export interface SyntheticClipSpec {
   /** Video format and frame-rate codes of the CLPI and STN entries (default: the stream-attribute defaults, 1080p at 23.976). */
   videoFormat?: number;
   videoRate?: number;
+  /** HEVC only: the CLPI's `dynamic_range_type` (1 HDR10) and `color_space` (2 BT.2020) of the video stream. */
+  videoDynamicRange?: number;
+  videoColorSpace?: number;
   /** 90 kHz ticks per frame (default: 24 fps, FRAME_TICKS_90K). */
   frameTicks?: number;
   /** Secondary video streams (AVC, one access unit per frame like the primary): multiplexed on their own PIDs and listed in the CLPI and every play item's STN. */
@@ -195,8 +198,8 @@ export function buildSyntheticDisc(spec: SyntheticDiscSpec): Map<string, Uint8Ar
     const audioSpecs = audioStreams.map((s) => ({ pid: s.pid, codingType: s.codingType, format: s.format, lang: s.lang }));
     const videoCodingType = clip.videoCodingType ?? CodingType.AVC;
     const secondaryVideo = (clip.secondaryVideo ?? []).map(({ pid }) => ({ pid, codingType: CodingType.AVC, format: clip.videoFormat, rate: clip.videoRate }));
-    const streams: Array<{ pid: number; codingType: number; format?: number; rate?: number }> = [
-      { pid: VIDEO_PID, codingType: videoCodingType, format: clip.videoFormat, rate: clip.videoRate },
+    const streams: Array<{ pid: number; codingType: number; format?: number; rate?: number; dynamicRange?: number; colorSpace?: number }> = [
+      { pid: VIDEO_PID, codingType: videoCodingType, format: clip.videoFormat, rate: clip.videoRate, dynamicRange: clip.videoDynamicRange, colorSpace: clip.videoColorSpace },
       ...secondaryVideo,
       ...audioSpecs.map(({ pid, codingType }) => ({ pid, codingType })),
       ...igStreams.map((g) => ({ pid: g.pid, codingType: CodingType.IG })),
