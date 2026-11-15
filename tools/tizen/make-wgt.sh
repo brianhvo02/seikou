@@ -62,7 +62,7 @@ echo "  opens  $url"
 echo "  app id $package.$appname"
 echo
 echo "Install and start it on the TV (sdb devices lists its serial, such as 192.168.1.50:26101). A TV that reports"
-echo "platform_version 4.0 or lower (sdb capability), 2025 models included, takes an install only once the"
+echo "platform_version 4.0 or lower (sdb capability), such as a 2018 Tizen 4.0 TV, takes an install only once the"
 echo "certificate's device profile is in its SDK tool folder (sdk_toolpath in sdb capability):"
 echo "  sdb -s <serial> push ~/SamsungCertificate/$profile/device-profile.xml /home/owner/share/tmp/sdk_tools/device-profile.xml"
 echo "  tizen install -s <serial> -n $package.wgt -- \"$build\""

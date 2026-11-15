@@ -6,7 +6,9 @@ gets the COOP and COEP headers that SharedArrayBuffer needs, if its web engine h
 thing the probe answers). Nothing is installed on the TV but the wrapper: a new deploy of the page reaches the TV on
 its next start.
 
-The first use is the device probe (`probe.html`) on a 2025 Samsung TV (Tizen 9, Chromium M120). On a TV the probe
+The first use is the device probe (`probe.html`). The player needs a TV from 2023 on (Chromium M94 or later, for
+WebCodecs); a Tizen 4.0 TV (2018, Chromium M56) installs the wrapper but can't parse the page's script, so it shows
+black. On a TV the probe
 has no folder picker, so it pairs with the NAS by code and lists the NAS's folders and discs, moved through with
 the remote's arrow keys. It adds four checks for TVs: `cross-origin-isolated`, `device` (cores, memory, screen,
 whether the `tizen` and `webapis` globals are there), and `decode-rate-h264` and `decode-rate-hevc`. Each decode
@@ -73,7 +75,7 @@ tizen run -s <serial> -p SeikouPrb1.Probe
 ```
 
 The `sdb push` is Samsung's "Permit to install applications": a TV that reports `platform_version` 4.0 or lower in
-`sdb -s <serial> capability` (a 2025 QN65Q6FNA does, whatever Tizen it runs) refuses every package signed for it
+`sdb -s <serial> capability` (a 2018 Tizen 4.0 TV does) refuses every package signed for it
 with `install failed[118012]` until the certificate's device profile is in its SDK tool folder (`sdk_toolpath`
 there, `/home/owner/share/tmp/sdk_tools`; `/home/developer`, where older guides put it, is refused). Push it again if a
 later install fails the same way. The package file is named after the package id because the TV's installer splits
