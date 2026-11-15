@@ -44,17 +44,17 @@ describe('ElementSync', () => {
     expect(s.onFrame(1_050_000, 1_000_000, true).rate).toBeCloseTo(0.995, 6);
   });
 
-  it('stays bounded, with no seeks, when the element runs 0.2% fast', () => {
+  function simulate(drift: number, frames: number, startOffsetUs = 0) {
     const s = new ElementSync();
     const frame = 41_667;
     let clock = 1_000_000;
-    let media = 1_000_000;
+    let media = 1_000_000 + startOffsetUs;
     let rate = 1;
-    const offsets: number[] = [];
     let seeks = 0;
-    for (let i = 0; i < 240; i++) {
+    const offsets: number[] = [];
+    for (let i = 0; i < frames; i++) {
       clock += frame;
-      media += frame * 1.002 * rate;
+      media += frame * drift * rate;
       const a = s.onFrame(media, clock, true);
       rate = a.rate;
       if (a.seekToUs !== null) {
@@ -63,9 +63,24 @@ describe('ElementSync', () => {
       }
       offsets.push(media - clock);
     }
-    // A proportional controller with gain 0.1 settles where 1.002 * rate = 1,
-    // an offset of 20 ms, so the last 48 frames stay under that, not 10 ms.
+    return { offsets, seeks, rate };
+  }
+
+  it.each([1.002, 0.998])('converges when the element drifts at %s', (drift) => {
+    const { offsets, seeks } = simulate(drift, 240);
     expect(seeks).toBe(0);
-    for (const o of offsets.slice(-48)) expect(Math.abs(o)).toBeLessThanOrEqual(20_000);
+    for (const o of offsets.slice(-48)) expect(Math.abs(o)).toBeLessThanOrEqual(10_000);
+  });
+
+  it('settles a +60 ms step inside the dead band without overshooting past -20 ms', () => {
+    const { offsets, seeks } = simulate(1, 600, 60_000);
+    expect(seeks).toBe(0);
+    expect(Math.min(...offsets)).toBeGreaterThan(-20_000);
+    for (const o of offsets.slice(-48)) expect(Math.abs(o)).toBeLessThanOrEqual(10_000);
+  });
+
+  it('keeps the learned trim within the rate bound', () => {
+    const { rate } = simulate(1.02, 600);
+    expect(Math.abs(rate - 1)).toBeLessThanOrEqual(0.005 + 1e-12);
   });
 });
