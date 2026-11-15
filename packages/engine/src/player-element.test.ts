@@ -72,7 +72,7 @@ async function harness(opts: Options = {}) {
   let player!: Player;
   const autoBuffered = opts.autoBuffered ?? true;
   /** The last videoReset's generation, which the fake page echoes. */
-  const page = { generation: 0 };
+  const page = { generation: 0, appendedEndUs: -Infinity };
   player = new Player({
     emit: (e, transfer) => {
       events.push(e);
@@ -82,7 +82,11 @@ async function harness(opts: Options = {}) {
         const playable = opts.playable ?? true;
         queueMicrotask(() => void player.handle({ type: 'videoElementAnswer', codec: e.codec, playable }));
       }
-      if (e.type === 'videoReset') page.generation = e.generation;
+      if (e.type === 'videoReset') {
+        page.generation = e.generation;
+        page.appendedEndUs = -Infinity;
+      }
+      if (e.type === 'videoSegment') page.appendedEndUs = Math.max(page.appendedEndUs, e.endUs);
       if (e.type === 'videoSegment' && opts.reportEndUs) void player.handle({ type: 'videoBuffered', endUs: opts.reportEndUs.value, generation: page.generation });
       else if (e.type === 'videoSegment' && autoBuffered) {
         const endUs = e.endUs;
@@ -118,6 +122,11 @@ async function harness(opts: Options = {}) {
     /** The page reports a buffered end under its current generation. */
     buffered: (endUs: number) => player.handle({ type: 'videoBuffered', endUs, generation: page.generation }),
     stalled: () => player.handle({ type: 'videoStalled', generation: page.generation }),
+    /** What the page does on a stall (ruling R10): videoStalled, then at once its buffered report, with no append. */
+    pageStall: async () => {
+      await player.handle({ type: 'videoStalled', generation: page.generation });
+      await player.handle({ type: 'videoBuffered', endUs: page.appendedEndUs, generation: page.generation });
+    },
     events,
     transfers,
     drawn,
@@ -398,7 +407,7 @@ describe('Player on the element path', () => {
     await untilState(h, 'playing');
   }, 20_000);
 
-  it('holds a stall after the end of reading until a fresh videoBuffered', async () => {
+  it('holds a stall after the end of reading until a fresh videoBuffered, which the page posts with the stall', async () => {
     const h = await harness();
     await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
     await untilState(h, 'playing');
@@ -409,12 +418,47 @@ describe('Player on the element path', () => {
       },
       { timeout: 15_000 },
     );
+    await h.play(100); // every segment appended and reported; none follows
+    const segments = ofType(h, 'videoSegment').length;
+    // a stall alone holds the clock: the earlier reports don't count
     await h.stalled();
     expect(lastState(h)).toBe('buffering');
     await h.play(300);
     expect(lastState(h)).toBe('buffering');
     expect(h.ringPlaying()).toBe(false);
-    await h.buffered(Math.max(...ofType(h, 'videoSegment').map((x) => x.endUs)));
+    // the page's report right after its stall: what it holds, which covers the remuxer's end
+    await h.buffered(h.page.appendedEndUs);
+    await untilState(h, 'playing');
+    expect(ofType(h, 'videoSegment')).toHaveLength(segments);
+  }, 20_000);
+
+  it("resumes a stall after the end of reading from the page's immediate report", async () => {
+    const h = await harness();
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    await vi.waitFor(
+      async () => {
+        await h.play(200);
+        expect(ofType(h, 'videoEnded')).toHaveLength(1);
+      },
+      { timeout: 15_000 },
+    );
+    await h.play(100);
+    await h.pageStall();
+    expect(lastState(h)).toBe('buffering');
     await untilState(h, 'playing');
   }, 20_000);
+
+  it("resumes a stall mid-playlist, with the reader held at the lead, from the page's immediate report", async () => {
+    const h = await harness({ audio: false, memory: 'constrained' });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    await h.play(300);
+    expect(ofType(h, 'videoEnded')).toHaveLength(0); // held at the 4 s lead
+    const segments = ofType(h, 'videoSegment').length;
+    await h.pageStall();
+    expect(lastState(h)).toBe('buffering');
+    await untilState(h, 'playing');
+    expect(ofType(h, 'videoSegment')).toHaveLength(segments); // nothing was appended meanwhile
+  });
 });

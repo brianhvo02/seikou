@@ -256,9 +256,9 @@ const seg = (n: number, startUs: number, endUs: number): EngineEvent => ({ type:
 const reset = (startUs: number, paused = false, generation = 1): EngineEvent => ({ type: 'videoReset', startUs, paused, generation });
 
 /** A session opened at `startUs`, its init appended, the buffer ready. */
-function opened(startUs = 0, paused = false) {
+function opened(startUs = 0, paused = false, generation = 1) {
   const t = setup();
-  t.out.handle(reset(startUs, paused));
+  t.out.handle(reset(startUs, paused, generation));
   t.out.handle(init());
   t.ms.fireOpen();
   t.sb().finish(); // init appended
@@ -424,7 +424,7 @@ describe('ElementVideoOutput', () => {
     appendSegment(t, 1, 0, 2);
     t.out.setPlaying(true);
     t.video.fire('waiting');
-    expect(commands(t.posted, 'videoBuffered').map((c) => c.generation)).toEqual([1]);
+    expect(commands(t.posted, 'videoBuffered').map((c) => c.generation)).toEqual([1, 1]); // after the append, and with the stall
     expect(commands(t.posted, 'videoStalled').map((c) => c.generation)).toEqual([1]);
     t.posted.length = 0;
     t.out.handle(reset(60_000_000, false, 2));
@@ -433,7 +433,7 @@ describe('ElementVideoOutput', () => {
     t.sb().finish(); // the init
     appendSegment(t, 2, 60, 62);
     t.video.fire('waiting');
-    expect(commands(t.posted, 'videoBuffered').map((c) => c.generation)).toEqual([2]);
+    expect(commands(t.posted, 'videoBuffered').map((c) => c.generation)).toEqual([2, 2]);
     expect(commands(t.posted, 'videoStalled').map((c) => c.generation)).toEqual([2]);
   });
 
@@ -535,6 +535,15 @@ describe('ElementVideoOutput', () => {
     expect(commands(t.posted, 'videoResumed')).toHaveLength(1);
     t.out.setPlaying(false);
     expect(t.video.paused).toBe(true);
+  });
+
+  it('follows a videoStalled at once with the buffered report of the same generation (no append may follow)', () => {
+    const t = opened(0, false, 3);
+    appendSegment(t, 1, 0, 2);
+    t.posted.length = 0;
+    t.video.fire('waiting');
+    expect(t.posted.map((c) => c.type)).toEqual(['videoStalled', 'videoBuffered']);
+    expect(t.posted[1]).toEqual({ type: 'videoBuffered', endUs: 2_000_000, generation: 3 });
   });
 
   it('waiting while seeking posts nothing', () => {

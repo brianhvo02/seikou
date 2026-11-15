@@ -144,6 +144,10 @@ export class ElementVideoOutput {
       if (!this.attached || !this.playing || this.pendingStart || video.seeking || this.stalled) return;
       this.stalled = true;
       deps.post({ type: 'videoStalled', generation: this.generation });
+      // the engine resumes only on a buffered report made after the stall, and no append may follow (the playlist read
+      // to its end, or the reader held at its lead): report what is held now
+      const buffer = this.attached.buffer;
+      if (buffer) this.reportBuffered(buffer);
     });
     video.addEventListener('playing', () => {
       if (!this.attached || !this.stalled) return;
