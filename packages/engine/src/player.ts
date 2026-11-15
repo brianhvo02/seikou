@@ -584,7 +584,7 @@ export class Player {
   /** Queries sent and not answered yet, by codec string: settled by the answer, or false at the timeout. */
   private readonly elementQueries = new Map<string, { readonly answer: Promise<boolean>; readonly settle: (playable: boolean) => void }>();
   /** The element's presented and dropped frames, totals since its source opened (videoSync); telemetry on the element path. */
-  private elementFrames = { presented: 0, dropped: 0 };
+  private elementFrames = { presented: 0, dropped: 0, catchUps: 0 };
   /** The compositor went transparent for the element: the next paint clears the canvas even when nothing else changed. */
   private elementDirty = false;
   /** The last videoReset's generation (grows with every reset, across sessions). */
@@ -3474,7 +3474,7 @@ export class Player {
       case 'videoSync':
         if (!s?.element) return;
         this.offsets.push(...cmd.offsetsUs);
-        this.elementFrames = { presented: cmd.presented, dropped: cmd.dropped };
+        this.elementFrames = { presented: cmd.presented, dropped: cmd.dropped, catchUps: cmd.catchUps };
         return;
     }
   }
@@ -3871,6 +3871,7 @@ export class Player {
         ass: this.assStats(),
         shader: this.shaderStage?.stats ?? null,
         videoPath: s ? (s.element ? 'element' : 'canvas') : null,
+        ...(s?.element ? { elementCatchUps: this.elementFrames.catchUps } : {}),
         bdj: this.bdjStartup ? { ...this.bdjStartup, inputLatencyMs: this.bdjLatency?.stats ?? null } : null,
         ...(this.deps.memoryTelemetry ? { bdjMemory: this.bdjMemory() } : {}),
         bdjPlane: this.bdj ? { flushes: this.bdj.plane.flushCount(), tapsIgnored: this.bdjTapsIgnored, ...(this.deps.planeHashTelemetry ? { hash: this.settledPlaneHash(this.bdj.plane) } : {}) } : null,

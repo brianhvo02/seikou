@@ -330,14 +330,14 @@ describe('Player on the element path', () => {
     );
   });
 
-  it('reports the element path in telemetry, with the offsets and frame totals the page posts', async () => {
+  it('reports the element path in telemetry, with the offsets, frame totals and catch-ups the page posts', async () => {
     const h = await harness();
     await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
     await untilState(h, 'playing');
-    await h.player.handle({ type: 'videoSync', offsetsUs: [1000, -3000], presented: 50, dropped: 2 });
+    await h.player.handle({ type: 'videoSync', offsetsUs: [1000, -3000], presented: 50, dropped: 2, catchUps: 1 });
     await h.play(600);
     const t = telemetries(h).find((x) => x.avOffsetMeanUs === -1000);
-    expect(t).toMatchObject({ videoPath: 'element', avOffsetMaxAbsUs: 3000, framesInWindow: 2, framesPresented: 50, framesDropped: 2 });
+    expect(t).toMatchObject({ videoPath: 'element', avOffsetMaxAbsUs: 3000, framesInWindow: 2, framesPresented: 50, framesDropped: 2, elementCatchUps: 1 });
   });
 
   it('publishes the wall clock in the clock block when the playlist has no audio: running while playing', async () => {

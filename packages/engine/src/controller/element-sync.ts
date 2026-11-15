@@ -2,8 +2,8 @@
 
 /**
  * What the page does after a presented frame: the playback rate to set, a
- * time to seek to (µs, or null), and the measured raw offset (µs, or null
- * when nothing was measured).
+ * time to seek to (µs, or null), the measured raw offset (µs, or null
+ * when nothing was measured), and whether a catch-up began.
  *
  * @internal
  */
@@ -11,6 +11,8 @@ export interface SyncAction {
   rate: number;
   seekToUs: number | null;
   offsetUs: number | null;
+  /** True on the frame a catch-up begins (counted for telemetry); absent otherwise. */
+  catchUp?: true;
 }
 
 /**
@@ -31,13 +33,25 @@ const SETTLE_FRAMES = 2;
 const SMOOTHING = 0.1;
 const FIRST_FRAME_S = 1 / 24;
 const MAX_FRAME_S = 0.125;
-/** The raw offsets averaged to decide on a catch-up: enough frames to average out a 24 fps film's 3:2 cadence on a 60 Hz display. */
-const CATCH_UP_FRAMES = 4;
-/** An average offset beyond which the element catches up (faster or slower for a moment) rather than through the loop. */
-const CATCH_UP_BEYOND_US = 10_000;
-/** How much media time a catch-up takes to remove its offset: its rate is set by the offset, within the bounds below. */
-const CATCH_UP_MEDIA_S = 0.2;
-/** The most a catch-up moves the rate from 1 (an offset of 50 ms or more); the least is 5%, for an offset just past 10 ms. */
+/**
+ * Frames after a start, resume, seek or reset in which the start catch-up may fire (about a second at 24 fps, the
+ * second the spec gives sync to settle after a seek).
+ */
+const START_WINDOW_FRAMES = 24;
+/** The raw offsets a start catch-up averages: two frames, a 24 fps film's 3:2 cadence pair on a 60 Hz display. */
+const START_CATCH_UP_FRAMES = 2;
+/** The average offset beyond which a start catch-up fires. */
+const START_CATCH_UP_BEYOND_US = 10_000;
+/**
+ * The raw offsets a steady-state catch-up averages, and the average it needs: well above the steady band (the
+ * measurement sits within about ±10 ms of the clock, quantized by the display's refresh), so the loop alone corrects
+ * at most 0.5% in steady state, and only a slip (a decoder hiccup) is caught up.
+ */
+const STEADY_CATCH_UP_FRAMES = 8;
+const STEADY_CATCH_UP_BEYOND_US = 20_000;
+/** How much media time a catch-up takes to remove its offset: its rate is set by the offset, within the bound below. */
+const CATCH_UP_MEDIA_S = 0.12;
+/** The most a catch-up moves the rate from 1 (an offset of 30 ms or more); the least is about 8%, for an offset just past 10 ms. */
 const CATCH_UP_MAX_DELTA = 0.25;
 
 /**
@@ -52,12 +66,15 @@ const CATCH_UP_MAX_DELTA = 0.25;
  * The loop corrects at most half a percent, 5 ms a second, which is right
  * for drift but too slow for the step an element starts with: `play()`
  * takes a display frame or two to start, so every start, resume and seek
- * leaves it 10–40 ms off. When the last four raw offsets average beyond
- * 10 ms, the element catches up instead: it plays fast or slow, by what
- * removes the average in about 0.2 s of media (5% to 25%), for just the
- * media time that removes it (computed from the rate, not measured, so a
- * late measurement cannot make it overshoot), then the loop takes over
- * again with fresh smoothing and the trim it had. Pure logic; all
+ * leaves it 10–40 ms off. In the second after a start, resume, seek or
+ * reset ({@link restart}), when two raw offsets average beyond 10 ms, the
+ * element catches up instead, once: it plays fast or slow, by what removes
+ * the average in about 0.12 s of media (8% to 25%), for just the media time
+ * that removes it (computed from the rate, not measured, so a late
+ * measurement cannot make it overshoot), then the loop takes over again
+ * with fresh smoothing and the trim it had. In steady state only a slip
+ * (eight raw offsets averaging beyond 20 ms) is caught up; otherwise the
+ * loop's half percent is all. Pure logic; all
  * times are µs on one timeline.
  *
  * @internal
@@ -75,6 +92,8 @@ export class ElementSync {
   private recent: number[] = [];
   /** While catching up: the rate played and the offset still to remove (µs, signed as the offset). */
   private catchUp: { readonly rate: number; remainingUs: number } | null = null;
+  /** Frames left in which a start catch-up may fire; 0 in steady state. */
+  private startFrames = START_WINDOW_FRAMES;
 
   /**
    * Creates a controller. Defaults: seek beyond 100 000 µs, rate delta
@@ -104,6 +123,7 @@ export class ElementSync {
       this.settling = SETTLE_FRAMES;
       this.trim = 0;
       this.restartLoop();
+      this.startFrames = START_WINDOW_FRAMES; // the seek is a start of its own
       this.prevMediaUs = null;
       return { rate: 1, seekToUs: clockUs, offsetUs };
     }
@@ -119,14 +139,20 @@ export class ElementSync {
       return { rate: catchUp.rate, seekToUs: null, offsetUs };
     }
     this.recent.push(offsetUs);
-    if (this.recent.length > CATCH_UP_FRAMES) this.recent.shift();
-    if (this.recent.length === CATCH_UP_FRAMES) {
-      const mean = this.recent.reduce((a, b) => a + b, 0) / CATCH_UP_FRAMES;
-      if (Math.abs(mean) > CATCH_UP_BEYOND_US) {
+    if (this.recent.length > STEADY_CATCH_UP_FRAMES) this.recent.shift();
+    const starting = this.startFrames > 0;
+    if (starting) this.startFrames--;
+    const n = starting ? START_CATCH_UP_FRAMES : STEADY_CATCH_UP_FRAMES;
+    if (this.recent.length >= n) {
+      let sum = 0;
+      for (let i = this.recent.length - n; i < this.recent.length; i++) sum += this.recent[i]!;
+      const mean = sum / n;
+      if (Math.abs(mean) > (starting ? START_CATCH_UP_BEYOND_US : STEADY_CATCH_UP_BEYOND_US)) {
         const delta = Math.min(CATCH_UP_MAX_DELTA, Math.abs(mean) / 1e6 / CATCH_UP_MEDIA_S);
         const rate = 1 - Math.sign(mean) * delta;
         this.catchUp = { rate, remainingUs: mean };
-        return { rate, seekToUs: null, offsetUs };
+        this.startFrames = 0; // one start catch-up; what it leaves is the loop's
+        return { rate, seekToUs: null, offsetUs, catchUp: true };
       }
     }
     this.smoothed =
@@ -140,11 +166,22 @@ export class ElementSync {
     return { rate, seekToUs: null, offsetUs };
   }
 
-  /** Clears the smoothing, the trim, a catch-up and the settle state, as after a playlist change. @internal */
+  /** Clears the smoothing, the trim, a catch-up and the settle state, as after a playlist change; a start follows. @internal */
   reset(): void {
     this.settling = 0;
     this.trim = 0;
     this.restartLoop();
+    this.startFrames = START_WINDOW_FRAMES;
+    this.prevMediaUs = null;
+  }
+
+  /**
+   * The element starts or resumes playing: the next second's frames may run a start catch-up. Keeps the trim (the
+   * element's own drift). @internal
+   */
+  restart(): void {
+    this.restartLoop();
+    this.startFrames = START_WINDOW_FRAMES;
     this.prevMediaUs = null;
   }
 

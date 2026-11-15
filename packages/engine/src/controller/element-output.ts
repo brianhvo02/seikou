@@ -57,7 +57,9 @@ export interface SourceBufferLike {
  * (null when the browser has none); `epochMs` is now in epoch milliseconds (`performance.timeOrigin +
  * performance.now()`), used for a frame whose display time is unknown; `timeOrigin` is `performance.timeOrigin`,
  * which turns a frame's `expectedDisplayTime` into epoch milliseconds; `post` sends a command to the engine; `setTimer`
- * runs `fn` once after `ms` and returns its cancel.
+ * runs `fn` once after `ms` and returns its cancel; `animationFrame` (`requestAnimationFrame`, optional) runs `fn`
+ * at the next display refresh with its time and returns its cancel, which measures the refresh interval when a frame's
+ * display time has to be estimated.
  * @internal
  */
 export interface ElementOutputDeps {
@@ -68,6 +70,7 @@ export interface ElementOutputDeps {
   timeOrigin: number;
   post(cmd: EngineCommand): void;
   setTimer(fn: () => void, ms: number): () => void;
+  animationFrame?(fn: (now: number) => void): () => void;
 }
 
 type Op =
@@ -98,15 +101,25 @@ const MIN_RATE_CHANGE = 0.0002;
 
 /** How far a frame's expected display time may lie from the callback's own time and still be believed. */
 const DISPLAY_TIME_SLACK_MS = 1000;
+/** The display refresh interval assumed until one is measured (60 Hz), and the range a measured one is kept within. */
+const DEFAULT_REFRESH_MS = 1000 / 60;
+const MIN_REFRESH_MS = 4;
+const MAX_REFRESH_MS = 50;
+/** How many successive animation-frame intervals the refresh estimate is the median of. */
+const REFRESH_SAMPLES = 31;
 
-/**
- * When a frame shows, on the page's clock (milliseconds since its time origin): its `expectedDisplayTime`, or the
- * callback's time when that is missing or not on the page's clock (WebKit gives a time from another origin, about
- * -1.4e9 ms); null when neither is.
- */
-function displayTime(now: number, expectedDisplayTime: number): number | null {
-  if (Number.isFinite(expectedDisplayTime) && Number.isFinite(now) && Math.abs(expectedDisplayTime - now) <= DISPLAY_TIME_SLACK_MS) return expectedDisplayTime;
-  return Number.isFinite(now) ? now : null;
+/** The refresh interval measured from successive animation frames: the last intervals, the last frame's time, the estimate. */
+interface RefreshEstimate {
+  samples: number[];
+  last: number | null;
+  estimateMs: number;
+  cancel: (() => void) | null;
+}
+
+/** The median of `xs` (not empty). */
+function median(xs: readonly number[]): number {
+  const sorted = [...xs].sort((a, b) => a - b);
+  return sorted[sorted.length >> 1]!;
 }
 
 function mimeType(codec: string): string {
@@ -149,6 +162,13 @@ export class ElementVideoOutput {
   /** The last videoReset's generation, echoed in videoBuffered and videoStalled so the engine can drop reports from before it. */
   private generation = 0;
   private offsets: number[] = [];
+  /** Catch-ups run since the media source opened (videoSync reports the total). */
+  private catchUps = 0;
+  /**
+   * The display's refresh interval (ms) as measured from successive animation frames, used only when a frame's
+   * expectedDisplayTime is off the page's clock; null until the first such frame starts the measuring.
+   */
+  private refresh: RefreshEstimate | null = null;
 
   /** Mutes the element, plays it inline, and listens to its stalls and errors. */
   constructor(private readonly deps: ElementOutputDeps) {
@@ -423,6 +443,7 @@ export class ElementVideoOutput {
     // it does not start ahead of the sound.
     if (this.reader.read()?.running === true) {
       this.cancelStart();
+      this.sync.restart(); // a start or resume: the next second may catch up what play()'s start-up leaves
       void video.play().catch(() => undefined);
     } else if (!this.cancelStartTimer) {
       this.cancelStartTimer = this.deps.setTimer(() => {
@@ -443,9 +464,50 @@ export class ElementVideoOutput {
     this.frameId = this.deps.video.requestVideoFrameCallback((now, meta) => {
       this.frameId = null;
       if (!this.attached) return;
-      this.onFrame(meta.mediaTime, displayTime(now, meta.expectedDisplayTime));
+      this.onFrame(meta.mediaTime, this.displayTime(now, meta.expectedDisplayTime));
       this.startFrames();
     });
+  }
+
+  /**
+   * When a frame shows, on the page's clock (milliseconds since its time origin): its `expectedDisplayTime`, or, when
+   * that is missing or off the page's clock (WebKit gives a time from another origin, about -1.4e9 ms), the callback's
+   * time plus one display refresh, since the callback runs about a refresh before the frame is seen; null with neither.
+   * The refresh is the median of measured animation-frame intervals (60 Hz until measured, or without animation
+   * frames); a frame shown later than one refresh after its callback still reads early by the difference.
+   */
+  private displayTime(now: number, expectedDisplayTime: number): number | null {
+    if (Number.isFinite(expectedDisplayTime) && Number.isFinite(now) && Math.abs(expectedDisplayTime - now) <= DISPLAY_TIME_SLACK_MS) {
+      return expectedDisplayTime;
+    }
+    if (!Number.isFinite(now)) return null;
+    return now + this.refreshMs();
+  }
+
+  /** The display refresh interval: measured from animation frames (started on first use), else 60 Hz. */
+  private refreshMs(): number {
+    if (!this.refresh) {
+      const r: RefreshEstimate = { samples: [], last: null, estimateMs: DEFAULT_REFRESH_MS, cancel: null };
+      this.refresh = r;
+      const frame = this.deps.animationFrame;
+      if (frame) {
+        const tick = (t: number): void => {
+          r.cancel = null;
+          if (r.last !== null) {
+            const d = t - r.last;
+            if (d > 0) {
+              r.samples.push(d);
+              if (r.samples.length > REFRESH_SAMPLES) r.samples.shift();
+              r.estimateMs = Math.min(MAX_REFRESH_MS, Math.max(MIN_REFRESH_MS, median(r.samples)));
+            }
+          }
+          r.last = t;
+          if (this.refresh === r && this.attached) r.cancel = frame(tick);
+        };
+        r.cancel = frame(tick);
+      }
+    }
+    return this.refresh.estimateMs;
   }
 
   private onFrame(mediaTimeS: number, displayMs: number | null): void {
@@ -454,6 +516,7 @@ export class ElementVideoOutput {
     const epoch = displayMs !== null ? this.deps.timeOrigin + displayMs : this.deps.epochMs();
     const clockUs = this.reader.clockAt(epoch);
     const action = this.sync.onFrame(mediaTimeS * 1e6 - ELEMENT_TIME_OFFSET_US, clockUs, this.playing);
+    if (action.catchUp) this.catchUps++;
     // videoSync carries clock minus frame time, as the canvas path measures it.
     if (action.offsetUs !== null) this.offsets.push(-action.offsetUs);
     if (action.seekToUs !== null) {
@@ -483,6 +546,7 @@ export class ElementVideoOutput {
       offsetsUs,
       presented: q.totalVideoFrames - q.droppedVideoFrames,
       dropped: q.droppedVideoFrames,
+      catchUps: this.catchUps,
     });
   }
 
@@ -502,6 +566,9 @@ export class ElementVideoOutput {
     this.cancelSyncTimer?.();
     this.cancelSyncTimer = null;
     this.cancelStart();
+    this.refresh?.cancel?.();
+    this.refresh = null;
+    this.catchUps = 0;
     this.queue = [];
     this.inFlight = null;
     this.offsets = [];

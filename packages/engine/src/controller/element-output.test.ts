@@ -205,11 +205,12 @@ class FakeVideo implements VideoElementLike {
   }
 }
 
-function setup(opts: { noMediaSource?: boolean; supported?: (t: string) => boolean } = {}) {
+function setup(opts: { noMediaSource?: boolean; supported?: (t: string) => boolean; noAnimationFrame?: boolean } = {}) {
   const video = new FakeVideo();
   const ms = new FakeMediaSource();
   const posted: EngineCommand[] = [];
   const timers: Array<{ fn: () => void; ms: number; cancelled: boolean }> = [];
+  const rafs: Array<{ fn: (now: number) => void; cancelled: boolean }> = [];
   let revoked = 0;
   let created = 0;
   const out = new ElementVideoOutput({
@@ -230,12 +231,29 @@ function setup(opts: { noMediaSource?: boolean; supported?: (t: string) => boole
         t.cancelled = true;
       };
     },
+    ...(opts.noAnimationFrame
+      ? {}
+      : {
+          animationFrame: (fn: (now: number) => void) => {
+            const f = { fn, cancelled: false };
+            rafs.push(f);
+            return () => {
+              f.cancelled = true;
+            };
+          },
+        }),
   });
   const sb = (): FakeSourceBuffer => ms.buffers[ms.buffers.length - 1]!;
   const fireTimers = (): void => {
     const live = timers.filter((t) => !t.cancelled);
     timers.length = 0;
     for (const t of live) t.fn();
+  };
+  /** Runs the pending animation frames once, at page time `now` (ms). */
+  const fireRaf = (now: number): void => {
+    const live = rafs.filter((f) => !f.cancelled);
+    rafs.length = 0;
+    for (const f of live) f.fn(now);
   };
   return {
     out,
@@ -244,6 +262,8 @@ function setup(opts: { noMediaSource?: boolean; supported?: (t: string) => boole
     posted,
     sb,
     fireTimers,
+    fireRaf,
+    rafs,
     timers,
     revoked: () => revoked,
     created: () => created,
@@ -522,15 +542,39 @@ describe('ElementVideoOutput', () => {
     expect(t.video.frames.size).toBe(1);
   });
 
-  it("takes the callback's time when the frame's display time is not on the page's clock (WebKit)", () => {
+  /** The clock read for a frame shown with WebKit's off-clock expectedDisplayTime, its callback at page time `now`. */
+  const offClockOffset = (t: ReturnType<typeof setup>, now: number): number => {
+    t.posted.length = 0;
+    t.video.presentFrame(1 + OFFSET_S, -1_415_423_273.6, now);
+    t.fireTimers();
+    return commands(t.posted, 'videoSync')[0]!.offsetsUs.at(-1)!; // clock minus frame time
+  };
+
+  it("takes the callback's time plus a 60 Hz refresh when the frame's display time is off the page's clock (WebKit)", () => {
+    const t = setup({ noAnimationFrame: true });
+    t.out.handle(reset(0, false));
+    t.out.handle(init());
+    t.ms.fireOpen();
+    t.sb().finish();
+    appendSegment(t, 1, 0, 4);
+    // the clock reads 1.0 s at page time 1000 ms (epoch 2000); believed, WebKit's display time would put it days off
+    // and seek the element to a negative time
+    new ClockBlockWriter(t.out.clock).write(1_000_000, true, 2000);
+    expect(offClockOffset(t, 1000)).toBeCloseTo(16_667, 0); // shown a refresh after the callback
+    expect(t.video.currentTime).toBeCloseTo(OFFSET_S, 9); // no seek
+  });
+
+  it('measures the refresh from animation frames once a display time is off the clock (a 120 Hz display)', () => {
     const t = opened();
     appendSegment(t, 1, 0, 4);
     new ClockBlockWriter(t.out.clock).write(1_000_000, true, 2000);
-    // WebKit's expectedDisplayTime comes from another time origin; believed, the clock there would be days off and the
-    // element seeked to a negative time
-    t.video.presentFrame(1.05 + OFFSET_S, -1_415_423_273.6, 1000);
-    expect(t.video.currentTime).toBeCloseTo(OFFSET_S, 9); // no seek
-    expect(t.video.playbackRate).toBeCloseTo(0.995, 9);
+    expect(t.rafs).toHaveLength(0); // nothing measured while display times are on the clock
+    expect(offClockOffset(t, 1000)).toBeCloseTo(16_667, 0); // 60 Hz until measured
+    for (let i = 0; i <= 31; i++) t.fireRaf(500 + i * (1000 / 120));
+    expect(offClockOffset(t, 1000)).toBeCloseTo(8_333, 0);
+    // a stray long interval (a dropped frame) does not move the median
+    t.fireRaf(800);
+    expect(offClockOffset(t, 1000)).toBeCloseTo(8_333, 0);
   });
 
   it('leaves playbackRate alone when the change is under 0.0002', () => {
@@ -565,6 +609,7 @@ describe('ElementVideoOutput', () => {
     expect(sync[0]!.offsetsUs.map((o) => Math.round(o))).toEqual([-20_000, -20_000]);
     expect(sync[0]!.presented).toBe(10);
     expect(sync[0]!.dropped).toBe(2);
+    expect(sync[0]!.catchUps).toBe(1); // 20 ms ahead just after the start: one catch-up
     // The timer is armed again.
     expect(t.timers.some((x) => x.ms === 250 && !x.cancelled)).toBe(true);
   });

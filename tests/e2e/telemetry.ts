@@ -16,6 +16,8 @@ export interface TelemetrySample {
   clockMode: string;
   /** How video is presented: 'element' (a <video> element fed by MSE), 'canvas' (WebCodecs onto the canvas), null with no session. */
   videoPath?: 'canvas' | 'element' | null;
+  /** On the element path, the catch-ups the page has run since its media source opened. */
+  elementCatchUps?: number;
   avOffsetMeanUs: number | null;
   avOffsetMaxAbsUs: number | null;
   framesInWindow: number;

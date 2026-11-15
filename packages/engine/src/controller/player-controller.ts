@@ -522,6 +522,10 @@ export class PlayerController {
         const id = setTimeout(fn, ms);
         return () => clearTimeout(id);
       },
+      animationFrame: (fn) => {
+        const id = requestAnimationFrame(fn);
+        return () => cancelAnimationFrame(id);
+      },
     });
     this.videoOutput = { element: video, output };
     this.post({ type: 'attachVideoElement', clock: output.clock });

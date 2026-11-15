@@ -48,7 +48,20 @@ async function startAudioAsOpenFolderDoes(page: Page): Promise<void> {
   await expect.poll(() => page.evaluate(() => (window as unknown as { __audioWorkletReady?: boolean }).__audioWorkletReady === true)).toBe(true);
 }
 
+/**
+ * The windows after the first: sync settles within the second after a start (spec §5.5: the element starts a display
+ * frame or more late, and the start catch-up removes it within about 0.2 s), and the canvas path's sync tests leave the
+ * first window after a start out the same way (audio.spec.ts and local-discs.spec.ts, `windows.slice(1)`). The first
+ * window still has to show element frames on the audio clock (expectElementWindows).
+ */
+function afterStart(windows: TelemetrySample[]): TelemetrySample[] {
+  return windows.slice(1);
+}
+
 function expectElementWindows(windows: TelemetrySample[]): void {
+  const w0 = windows[0];
+  // each window's mean and max (ms), for reading a failure; and the catch-ups run so far
+  console.log(`element windows: ${windows.map((w) => `${Math.round((w.avOffsetMeanUs ?? NaN) / 1000)}/${Math.round((w.avOffsetMaxAbsUs ?? NaN) / 1000)}`).join(' ')} catch-ups=${windows.at(-1)?.elementCatchUps ?? w0?.elementCatchUps}`);
   for (const w of windows) {
     expect(w.videoPath).toBe('element');
     // 'wall' here means the browser has no running audio output (run headed or use a machine with audio).
@@ -66,7 +79,7 @@ test('disc1 plays on the element path in sync across the play-item boundary to t
   console.log(`element: ${JSON.stringify(await elementState(page))}`);
   expect(windows.length).toBeGreaterThan(5);
   expectElementWindows(windows);
-  expectInSync(windows);
+  expectInSync(afterStart(windows));
   await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'ended', { timeout: 10_000 });
 });
 
@@ -145,7 +158,7 @@ test('a B-frame disc plays on the element path in sync', async ({ page, browserN
   console.log(`element: ${JSON.stringify(await elementState(page))}`);
   expect(windows.length).toBeGreaterThan(3);
   expectElementWindows(windows);
-  expectInSync(windows);
+  expectInSync(afterStart(windows));
 });
 
 test('the HDR disc plays on the element path where MSE plays HEVC Main10', async ({ page, browserName, isMobile }) => {
@@ -176,7 +189,7 @@ test('the HDR disc plays on the element path where MSE plays HEVC Main10', async
   console.log(`element: ${JSON.stringify(await elementState(page))}`);
   expect(windows.length).toBeGreaterThan(2);
   expectElementWindows(windows);
-  expectInSync(windows);
+  expectInSync(afterStart(windows));
 });
 
 test('without the flag the canvas path plays', async ({ page }) => {

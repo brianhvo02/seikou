@@ -117,6 +117,11 @@ export interface Telemetry {
   readonly bdjMemory?: BdjMemoryTelemetry | null;
   /** How the playing playlist's video is drawn: on the engine's canvas, or by the page's video element; null with no playlist. */
   readonly videoPath: 'canvas' | 'element' | null;
+  /**
+   * On the element path, how many catch-ups the page has run since its media source opened: moments at 8% to 25% off
+   * speed that remove what a start, resume or seek leaves (or, past 20 ms, a steady-state slip); absent on the canvas path.
+   */
+  readonly elementCatchUps?: number;
 }
 
 /** What BD-J holds in memory, so the budgets of the constrained memory profile can be checked on a device; sizes in bytes. */
@@ -347,8 +352,12 @@ export type EngineCommand =
   | { readonly type: 'videoResumed' }
   /** The video element or its media source failed (`message` says how); the engine falls back to the canvas. Handled at once. */
   | { readonly type: 'videoElementFailed'; readonly message: string }
-  /** Sync measurements from the page: clock minus frame time offsets (microseconds) of frames presented since the last report, with the element's presented and dropped frame counts. Handled at once. */
-  | { readonly type: 'videoSync'; readonly offsetsUs: readonly number[]; readonly presented: number; readonly dropped: number }
+  /**
+   * Sync measurements from the page: clock minus frame time offsets (microseconds) of frames presented since the last
+   * report, with the element's presented and dropped frame counts and its catch-ups, all three totals since its media
+   * source opened. Handled at once.
+   */
+  | { readonly type: 'videoSync'; readonly offsetsUs: readonly number[]; readonly presented: number; readonly dropped: number; readonly catchUps: number }
   /** A fresh session token for the open NAS disc (a scheduled refresh, or the answer to remoteTokenNeeded). Handled at once, not queued. */
   | { readonly type: 'remoteToken'; readonly token: string }
   /** The page's transferred canvas, which the engine draws video, subtitles and menus on. */

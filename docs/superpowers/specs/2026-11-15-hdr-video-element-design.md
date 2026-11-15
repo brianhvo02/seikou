@@ -165,6 +165,18 @@ to it by the UI as the canvas is (`attachVideoElement`):
     closes over a second or two without visible speed change;
   - beyond that, or after a pause, seek or stall: set `currentTime` to the clock time.
   The thresholds are the builder's to tune against the sync tests.
+- **Catch-up (added in the end-to-end checks, for the owner to judge at the sync checkpoint):** `play()` takes a
+  display frame or more to start the element, so a start, resume or seek leaves it 10 to 40 ms off, which the 0.5%
+  correction would take seconds to close. In the second after a start, resume, seek or reset only, when two frames'
+  offsets average beyond 10 ms, the element runs a catch-up once: 8% to 25% faster or slower, set so the offset goes in
+  about 0.12 s of media, for exactly the media time that removes it, then the 0.5% correction again. In steady state the
+  correction is the 0.5% one alone; only a slip of more than 20 ms (averaged over eight frames, well above the
+  measurement's ±10 ms band at a 60 Hz refresh) runs a catch-up. Telemetry counts them (`elementCatchUps`), so the
+  checkpoint can tell catch-ups from the steady correction.
+- **The clock the page reads** is the line through the audio clock's steps (the audio clock moves once per audio
+  callback, 21 to 43 ms in Chrome), published as not running until it first moves, and the element starts only then.
+- **Display times:** a frame's `expectedDisplayTime` when it is on the page's clock; WebKit's is not, and the
+  callback's time plus one display refresh (measured from animation frames) stands in for it.
 - **Pause, play, seek** follow the engine's state; the element plays only while the engine's clock runs.
 - **Stalls:** when the element runs dry while the engine plays, the engine holds (as it does for a read stall) until
   the element has data again, so audio doesn't run ahead.

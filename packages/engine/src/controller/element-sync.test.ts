@@ -106,32 +106,75 @@ describe('ElementSync', () => {
     expect(maxAbs(offsets.slice(16))).toBeLessThanOrEqual(5_000);
   });
 
-  it('catches up at the rate that removes the averaged offset in about 0.2 s of media, then hands back to the loop', () => {
+  it('catches up at the rate that removes the averaged offset in about 0.12 s of media, then hands back to the loop', () => {
     const s = new ElementSync();
     const frame = 41_667;
     const rates: number[] = [];
-    for (let i = 0; i < 4; i++) rates.push(s.onFrame(1_000_000 + i * frame - 20_000, 1_000_000 + i * frame, true).rate);
-    expect(rates[3]).toBeCloseTo(1.1, 9); // 20 ms behind: 10% fast
-    // 20 ms at 10% fast is 20 / (1 − 1/1.1) ≈ 220 ms of media, about five frames; then rate 1 less the trim
+    for (let i = 0; i < 2; i++) rates.push(s.onFrame(1_000_000 + i * frame - 18_000, 1_000_000 + i * frame, true).rate);
+    expect(rates[1]).toBeCloseTo(1.15, 9); // 18 ms behind just after the start: 15% fast
+    // 18 ms at 15% fast is 18 / (1 − 1/1.15) ≈ 138 ms of media, between three and four frames; then rate 1 less the trim
     let n = 0;
-    let rate = rates[3]!;
+    let rate = rates[1]!;
     while (rate > 1.05 && n < 20) {
       n++;
-      rate = s.onFrame(1_000_000 + (3 + n) * frame - 20_000, 1_000_000 + (3 + n) * frame, true).rate; // open loop: the offsets seen meanwhile do not count
+      rate = s.onFrame(1_000_000 + (1 + n) * frame - 18_000, 1_000_000 + (1 + n) * frame, true).rate; // open loop: the offsets seen meanwhile do not count
     }
-    expect(n).toBe(6);
+    expect(n).toBe(4);
     expect(Math.abs(rate - 1)).toBeLessThanOrEqual(0.005);
   });
 
   it.each([
-    [12_000, 0.94],
-    [-30_000, 1.15],
+    [12_000, 0.9],
+    [-24_000, 1.2],
     [60_000, 0.75],
-  ])('sets a catch-up for %s us to remove it in 0.2 s of media, at most 25%', (offsetUs, expected) => {
+  ])('sets a catch-up for %s us to remove it in 0.12 s of media, at most 25%', (offsetUs, expected) => {
     const s = new ElementSync();
     let rate = 1;
     for (let i = 0; i < 4; i++) rate = s.onFrame(1_000_000 + i * 41_667 + offsetUs, 1_000_000 + i * 41_667, true).rate;
     expect(rate).toBeCloseTo(expected, 9);
+  });
+
+  /** Frames at a constant offset after `skip` frames in sync; the actions of the offset frames. */
+  const steady = (s: ElementSync, from: number, frames: number, offsetUs: number) => {
+    const out = [];
+    for (let i = 0; i < frames; i++) out.push(s.onFrame(1_000_000 + (from + i) * 41_667 + offsetUs, 1_000_000 + (from + i) * 41_667, true));
+    return out;
+  };
+
+  it.each([12_000, 15_000, -15_000])('runs no catch-up in steady state at a %s us mean: the loop alone, at most 0.5%', (offsetUs) => {
+    const s = new ElementSync();
+    steady(s, 0, 48, 0); // two seconds in sync: past the start window
+    const actions = steady(s, 48, 48, offsetUs);
+    expect(actions.some((a) => a.catchUp)).toBe(false);
+    for (const a of actions) expect(Math.abs(a.rate - 1)).toBeLessThanOrEqual(0.005);
+  });
+
+  it('catches up a steady-state slip of more than 20 ms (eight frames), counted once', () => {
+    const s = new ElementSync();
+    steady(s, 0, 48, 0);
+    const actions = steady(s, 48, 8, -30_000);
+    expect(actions.filter((a) => a.catchUp)).toHaveLength(1);
+    // it fires once the eight-frame mean passes 20 ms (six of the eight at −30 ms), at the rate that removes that mean
+    expect(actions.at(-1)!.rate).toBeCloseTo(1 + 22_500 / 1e6 / 0.12, 9);
+  });
+
+  it('catches up after a seek, in the seek\'s own start window', () => {
+    const s = new ElementSync();
+    steady(s, 0, 48, 0);
+    expect(s.onFrame(1_000_000 + 48 * 41_667 + 150_000, 1_000_000 + 48 * 41_667, true).seekToUs).not.toBeNull();
+    steady(s, 49, 2, 0); // the two settle frames
+    const actions = steady(s, 51, 2, 14_000);
+    expect(actions[1]!.catchUp).toBe(true);
+    expect(actions[1]!.rate).toBeCloseTo(1 - 0.014 / 0.12, 9);
+  });
+
+  it('catches up after a resume (restart), and only once per start', () => {
+    const s = new ElementSync();
+    steady(s, 0, 48, 0);
+    expect(steady(s, 48, 8, 14_000).some((a) => a.catchUp)).toBe(false); // steady state: below 20 ms
+    s.restart();
+    const actions = steady(s, 56, 24, 14_000); // the offset the frames show does not move: the catch-up is open loop
+    expect(actions.filter((a) => a.catchUp)).toHaveLength(1);
   });
 
   it('stays within 10 ms under clock jitter and drift', () => {

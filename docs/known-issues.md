@@ -93,6 +93,13 @@ what would change that decision.
   notice, not an error. `UnsupportedCodecError` is left for a decoder that fails to configure. On a NAS disc the
   quality levels (cross-browser step 4) play them with a picture, re-encoded on the NAS; a local folder still plays
   them without one. *Revisit if* the browsers gain MPEG-2 or VC-1 decoding.
+- **On the element path in WebKit, the sync telemetry can't see the last part of the display delay.** WebKit's
+  `requestVideoFrameCallback` gives an `expectedDisplayTime` from another time origin (about -1.4e9 ms), so the page
+  takes the callback's time plus one display refresh, measured from animation frames, as the time the frame shows. A
+  frame that shows later than one refresh after its callback (a compositor that holds frames longer) is measured early
+  by the difference, and the element is kept that much behind the sound while `avOffsetMeanUs` reads in sync. Judge
+  lip sync in Safari by eye as well as by telemetry. *Revisit if* WebKit's `expectedDisplayTime` comes onto the page's
+  clock.
 
 ## Menus (HDMV)
 
