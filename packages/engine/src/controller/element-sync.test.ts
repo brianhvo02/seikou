@@ -42,18 +42,31 @@ function simulate(opts: {
 
 const maxAbs = (xs: number[]): number => Math.max(...xs.map(Math.abs));
 
+/** A controller past its start window: a second of frames in sync, so the next frame is the steady loop's. */
+function steadySync(): ElementSync {
+  const s = new ElementSync();
+  for (let i = 0; i < 24; i++) s.onFrame(i * 41_667, i * 41_667, true);
+  return s;
+}
+
 describe('ElementSync', () => {
   it('gives a small rate nudge for a small offset', () => {
-    const a = new ElementSync().onFrame(1_005_000, 1_000_000, true);
-    expect(a.rate).toBeCloseTo(0.99875, 6);
+    const a = steadySync().onFrame(1_005_000, 1_000_000, true);
+    expect(a.rate).toBeCloseTo(1 - 0.25 * 0.0005, 6); // the smoothed offset moves a tenth of the way to 5 ms
     expect(a.seekToUs).toBeNull();
     expect(a.offsetUs).toBe(5000);
   });
 
   it('nudges the rate against the offset, clamped at 0.005', () => {
-    expect(new ElementSync().onFrame(1_050_000, 1_000_000, true).rate).toBeCloseTo(0.995, 6);
-    expect(new ElementSync().onFrame(950_000, 1_000_000, true).rate).toBeCloseTo(1.005, 6);
-    expect(new ElementSync().onFrame(1_030_000, 1_000_000, true).rate).toBeCloseTo(0.995, 6);
+    // 18 ms held for six seconds: below the 20 ms slip, so the loop alone, which saturates at half a percent
+    const held = (offsetUs: number): number => {
+      const s = steadySync();
+      let rate = 1;
+      for (let i = 24; i < 168; i++) rate = s.onFrame(i * 41_667 + offsetUs, i * 41_667, true).rate;
+      return rate;
+    };
+    expect(held(18_000)).toBeCloseTo(0.995, 6);
+    expect(held(-18_000)).toBeCloseTo(1.005, 6);
   });
 
   it('seeks to the clock beyond the seek threshold', () => {
@@ -70,20 +83,42 @@ describe('ElementSync', () => {
     expect(new ElementSync().onFrame(1_150_000, null, true)).toEqual(idle);
   });
 
-  it('leaves the two frames after a seek uncorrected, then corrects again', () => {
-    const s = new ElementSync();
+  it('leaves the two frames after a seek uncorrected, then catches up from the first it measures', () => {
+    const s = steadySync();
     expect(s.onFrame(1_150_000, 1_000_000, true).seekToUs).toBe(1_000_000);
     for (let i = 0; i < 2; i++) {
       expect(s.onFrame(1_050_000, 1_000_000, true)).toEqual({ rate: 1, seekToUs: null, offsetUs: 50_000 });
     }
-    expect(s.onFrame(1_050_000, 1_000_000, true).rate).toBeCloseTo(0.995, 6);
+    expect(s.onFrame(1_050_000, 1_000_000, true)).toEqual({ rate: 0.75, seekToUs: null, offsetUs: 50_000, catchUp: true });
   });
 
-  it('reset clears the settle state', () => {
-    const s = new ElementSync();
+  it('reset clears the settle state; the next frame is a start', () => {
+    const s = steadySync();
     s.onFrame(1_150_000, 1_000_000, true);
     s.reset();
-    expect(s.onFrame(1_050_000, 1_000_000, true).rate).toBeCloseTo(0.995, 6);
+    expect(s.onFrame(1_050_000, 1_000_000, true)).toMatchObject({ rate: 0.75, catchUp: true });
+  });
+
+  it("plans a start's catch-up from the lag the page expects, and re-plans it from the first frame it measures", () => {
+    const s = steadySync();
+    // the clock is 20 ms past the element as it starts, plus play()'s expected 15 ms
+    const start = s.restart(35_000);
+    expect(start.catchUp).toBe(true);
+    expect(start.rate).toBeCloseTo(1.25, 9);
+    // the first frame shows the element only 12 ms behind: re-planned at 10% fast, not counted again
+    expect(s.onFrame(1_988_000, 2_000_000, true)).toEqual({ rate: 1.1, seekToUs: null, offsetUs: -12_000 });
+  });
+
+  it("drops a planned start catch-up when the first frame finds the element within 10 ms", () => {
+    const s = steadySync();
+    s.restart(35_000);
+    const a = s.onFrame(1_995_000, 2_000_000, true);
+    expect(a.catchUp).toBeUndefined();
+    expect(Math.abs(a.rate - 1)).toBeLessThanOrEqual(0.005);
+  });
+
+  it('starts at rate 1 (less the trim) when the expected lag is within 10 ms', () => {
+    expect(steadySync().restart(8_000)).toEqual({ rate: 1, catchUp: false });
   });
 
   it.each([1.002, 0.998])('converges when the element drifts at %s', (drift) => {
@@ -102,7 +137,7 @@ describe('ElementSync', () => {
   it.each([-25_000, 40_000])('catches up a %s us start in well under a second, then the loop holds it', (startOffsetUs) => {
     const { offsets, seeks } = simulate({ drift: 1, frames: 24 * 10, startOffsetUs });
     expect(seeks).toBe(0);
-    // four frames to measure, then at 10% about 6–10 frames to remove the step
+    // one frame to measure, then at up to 25% a few frames to remove the step
     expect(maxAbs(offsets.slice(16))).toBeLessThanOrEqual(5_000);
   });
 
@@ -111,7 +146,7 @@ describe('ElementSync', () => {
     const frame = 41_667;
     const rates: number[] = [];
     for (let i = 0; i < 2; i++) rates.push(s.onFrame(1_000_000 + i * frame - 18_000, 1_000_000 + i * frame, true).rate);
-    expect(rates[1]).toBeCloseTo(1.15, 9); // 18 ms behind just after the start: 15% fast
+    expect(rates[0]).toBeCloseTo(1.15, 9); // 18 ms behind at the start's first frame: 15% fast
     // 18 ms at 15% fast is 18 / (1 − 1/1.15) ≈ 138 ms of media, between three and four frames; then rate 1 less the trim
     let n = 0;
     let rate = rates[1]!;
@@ -119,7 +154,7 @@ describe('ElementSync', () => {
       n++;
       rate = s.onFrame(1_000_000 + (1 + n) * frame - 18_000, 1_000_000 + (1 + n) * frame, true).rate; // open loop: the offsets seen meanwhile do not count
     }
-    expect(n).toBe(4);
+    expect(n).toBe(3);
     expect(Math.abs(rate - 1)).toBeLessThanOrEqual(0.005);
   });
 
@@ -129,9 +164,7 @@ describe('ElementSync', () => {
     [60_000, 0.75],
   ])('sets a catch-up for %s us to remove it in 0.12 s of media, at most 25%', (offsetUs, expected) => {
     const s = new ElementSync();
-    let rate = 1;
-    for (let i = 0; i < 4; i++) rate = s.onFrame(1_000_000 + i * 41_667 + offsetUs, 1_000_000 + i * 41_667, true).rate;
-    expect(rate).toBeCloseTo(expected, 9);
+    expect(s.onFrame(1_000_000 + offsetUs, 1_000_000, true).rate).toBeCloseTo(expected, 9);
   });
 
   /** Frames at a constant offset after `skip` frames in sync; the actions of the offset frames. */
@@ -164,17 +197,49 @@ describe('ElementSync', () => {
     expect(s.onFrame(1_000_000 + 48 * 41_667 + 150_000, 1_000_000 + 48 * 41_667, true).seekToUs).not.toBeNull();
     steady(s, 49, 2, 0); // the two settle frames
     const actions = steady(s, 51, 2, 14_000);
-    expect(actions[1]!.catchUp).toBe(true);
-    expect(actions[1]!.rate).toBeCloseTo(1 - 0.014 / 0.12, 9);
+    expect(actions[0]!.catchUp).toBe(true); // the first frame measured after the seek
+    expect(actions[0]!.rate).toBeCloseTo(1 - 0.014 / 0.12, 9);
   });
 
-  it('catches up after a resume (restart), and only once per start', () => {
+  /**
+   * Plays `frames` frames from a restart with the element `startOffsetUs` off, applying each rate, with the element
+   * slipping `slipUs` a frame for the first `slipFrames` frames (a start that keeps falling behind); the offsets and
+   * the catch-ups counted.
+   */
+  const fromRestart = (s: ElementSync, opts: { startOffsetUs: number; frames: number; slipUs?: number; slipFrames?: number }) => {
+    const frame = 41_667;
+    let clock = 10_000_000;
+    let media = clock + opts.startOffsetUs;
+    let rate = s.restart().rate;
+    let catchUps = 0;
+    const offsets: number[] = [];
+    for (let i = 0; i < opts.frames; i++) {
+      clock += frame;
+      media += frame * rate - (i < (opts.slipFrames ?? 0) ? (opts.slipUs ?? 0) : 0);
+      const a = s.onFrame(media, clock, true);
+      if (a.catchUp) catchUps++;
+      rate = a.rate;
+      offsets.push(media - clock);
+    }
+    return { offsets, catchUps };
+  };
+
+  it('catches up after a resume (restart), once when that removes the offset', () => {
     const s = new ElementSync();
     steady(s, 0, 48, 0);
     expect(steady(s, 48, 8, 14_000).some((a) => a.catchUp)).toBe(false); // steady state: below 20 ms
-    s.restart();
-    const actions = steady(s, 56, 24, 14_000); // the offset the frames show does not move: the catch-up is open loop
-    expect(actions.filter((a) => a.catchUp)).toHaveLength(1);
+    const { offsets, catchUps } = fromRestart(s, { startOffsetUs: -30_000, frames: 24 });
+    expect(catchUps).toBe(1);
+    expect(maxAbs(offsets.slice(6))).toBeLessThanOrEqual(10_000);
+  });
+
+  it('keeps catching up in the start window while a starting element keeps slipping', () => {
+    const s = new ElementSync();
+    steady(s, 0, 48, 0);
+    // as Chrome under load does: the first frames come late, 6 ms more each for six frames
+    const { offsets, catchUps } = fromRestart(s, { startOffsetUs: -5_000, frames: 24, slipUs: 6_000, slipFrames: 6 });
+    expect(catchUps).toBeGreaterThanOrEqual(2);
+    expect(maxAbs(offsets.slice(12))).toBeLessThanOrEqual(10_000);
   });
 
   it('stays within 10 ms under clock jitter and drift', () => {

@@ -64,18 +64,22 @@ const CATCH_UP_MAX_DELTA = 0.25;
  * clock instead and clears the smoothing and the trim.
  *
  * The loop corrects at most half a percent, 5 ms a second, which is right
- * for drift but too slow for the step an element starts with: `play()`
- * takes a display frame or two to start, so every start, resume and seek
- * leaves it 10–40 ms off. In the second after a start, resume, seek or
- * reset ({@link restart}), when two raw offsets average beyond 10 ms, the
- * element catches up instead, once: it plays fast or slow, by what removes
- * the average in about 0.12 s of media (8% to 25%), for just the media time
- * that removes it (computed from the rate, not measured, so a late
- * measurement cannot make it overshoot), then the loop takes over again
- * with fresh smoothing and the trim it had. In steady state only a slip
- * (eight raw offsets averaging beyond 20 ms) is caught up; otherwise the
- * loop's half percent is all. Pure logic; all
- * times are µs on one timeline.
+ * for drift but too slow for the step an element starts with: by the time
+ * the page sees the clock move it is already a step in, and `play()` takes
+ * a display frame or two to start, so every start, resume and seek leaves
+ * it 10–60 ms behind. So a start ({@link restart}) begins with a catch-up
+ * planned from the lag the page expects, the start's first measured frame
+ * re-plans it (or drops it within 10 ms), and for the rest of the second
+ * after a start, resume, seek or reset, two raw offsets averaging beyond
+ * 10 ms (once a catch-up has ended, measured afresh) run another, since an
+ * element can keep slipping while it starts: it plays fast or slow, by what
+ * removes the offset
+ * in about 0.12 s of media (8% to 25%), for just the media time that
+ * removes it (computed from the rate, not measured, so a late measurement
+ * cannot make it overshoot), then the loop takes over again with fresh
+ * smoothing and the trim it had. In steady state only a slip (eight raw
+ * offsets averaging beyond 20 ms) is caught up; otherwise the loop's half
+ * percent is all. Pure logic; all times are µs on one timeline.
  *
  * @internal
  */
@@ -94,6 +98,8 @@ export class ElementSync {
   private catchUp: { readonly rate: number; remainingUs: number } | null = null;
   /** Frames left in which a start catch-up may fire; 0 in steady state. */
   private startFrames = START_WINDOW_FRAMES;
+  /** Whether the next measured frame is a start's first, which plans (or re-plans) its catch-up from what it measures. */
+  private firstOfStart = true;
 
   /**
    * Creates a controller. Defaults: seek beyond 100 000 µs, rate delta
@@ -124,10 +130,26 @@ export class ElementSync {
       this.trim = 0;
       this.restartLoop();
       this.startFrames = START_WINDOW_FRAMES; // the seek is a start of its own
+      this.firstOfStart = true;
       this.prevMediaUs = null;
       return { rate: 1, seekToUs: clockUs, offsetUs };
     }
     const dtS = this.frameSeconds(mediaTimeUs);
+    if (this.firstOfStart && this.startFrames > 0) {
+      // A start's first measured frame: what play()'s start-up actually left. A catch-up planned at the start from the
+      // expected lag is re-planned from it; none is needed when it is within the start threshold.
+      this.firstOfStart = false;
+      this.startFrames--;
+      const planned = this.catchUp !== null;
+      if (Math.abs(offsetUs) > START_CATCH_UP_BEYOND_US) {
+        const rate = this.planCatchUp(offsetUs);
+        return planned ? { rate, seekToUs: null, offsetUs } : { rate, seekToUs: null, offsetUs, catchUp: true };
+      }
+      if (planned) {
+        this.restartLoop();
+        return { rate: 1 - this.trim, seekToUs: null, offsetUs };
+      }
+    }
     const catchUp = this.catchUp;
     if (catchUp) {
       // the frame advanced dtS of media in dtS / rate of clock time
@@ -148,11 +170,7 @@ export class ElementSync {
       for (let i = this.recent.length - n; i < this.recent.length; i++) sum += this.recent[i]!;
       const mean = sum / n;
       if (Math.abs(mean) > (starting ? START_CATCH_UP_BEYOND_US : STEADY_CATCH_UP_BEYOND_US)) {
-        const delta = Math.min(CATCH_UP_MAX_DELTA, Math.abs(mean) / 1e6 / CATCH_UP_MEDIA_S);
-        const rate = 1 - Math.sign(mean) * delta;
-        this.catchUp = { rate, remainingUs: mean };
-        this.startFrames = 0; // one start catch-up; what it leaves is the loop's
-        return { rate, seekToUs: null, offsetUs, catchUp: true };
+        return { rate: this.planCatchUp(mean), seekToUs: null, offsetUs, catchUp: true };
       }
     }
     this.smoothed =
@@ -172,17 +190,32 @@ export class ElementSync {
     this.trim = 0;
     this.restartLoop();
     this.startFrames = START_WINDOW_FRAMES;
+    this.firstOfStart = true;
     this.prevMediaUs = null;
   }
 
   /**
-   * The element starts or resumes playing: the next second's frames may run a start catch-up. Keeps the trim (the
-   * element's own drift). @internal
+   * The element starts or resumes playing, `lagUs` behind the clock as far as the page can tell (how far the clock is
+   * past the element's position, plus play()'s expected start-up): the rate to start at, a catch-up planned from that
+   * lag when it is beyond the start threshold, which the start's first measured frame re-plans. The next second's
+   * frames may run a start catch-up. Keeps the trim (the element's own drift). @internal
    */
-  restart(): void {
+  restart(lagUs = 0): { rate: number; catchUp: boolean } {
     this.restartLoop();
     this.startFrames = START_WINDOW_FRAMES;
+    this.firstOfStart = true;
     this.prevMediaUs = null;
+    if (lagUs <= START_CATCH_UP_BEYOND_US) return { rate: 1 - this.trim, catchUp: false };
+    return { rate: this.planCatchUp(-lagUs), catchUp: true }; // the first measured frame re-plans it
+  }
+
+  /** Starts a catch-up that removes `offsetUs` (positive: the element is ahead); its rate. */
+  private planCatchUp(offsetUs: number): number {
+    const delta = Math.min(CATCH_UP_MAX_DELTA, Math.abs(offsetUs) / 1e6 / CATCH_UP_MEDIA_S);
+    const rate = 1 - Math.sign(offsetUs) * delta;
+    this.restartLoop();
+    this.catchUp = { rate, remainingUs: offsetUs };
+    return rate;
   }
 
   /** Forgets the smoothing, the offsets averaged for a catch-up and any catch-up under way; keeps the trim. */

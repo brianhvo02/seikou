@@ -531,13 +531,14 @@ describe('ElementVideoOutput', () => {
     expect(t.timers.every((x) => x.cancelled)).toBe(true);
   });
 
-  it('a frame 50 ms ahead of the clock slows the element to 0.995', () => {
+  it("the first frame measured, 50 ms ahead of the clock, starts a catch-up at 25% slow", () => {
     const t = opened();
     appendSegment(t, 1, 0, 4);
+    t.video.paused = false; // the element plays
     new ClockBlockWriter(t.out.clock).write(1_000_000, true, 2000);
     // Display at epoch 1000 + 1000 = 2000 ms, where the clock reads 1.0 s.
     t.video.presentFrame(1.05 + OFFSET_S, 1000);
-    expect(t.video.playbackRate).toBeCloseTo(0.995, 9);
+    expect(t.video.playbackRate).toBeCloseTo(0.75, 9);
     // The callback is registered again for the next frame.
     expect(t.video.frames.size).toBe(1);
   });
@@ -557,6 +558,7 @@ describe('ElementVideoOutput', () => {
     t.ms.fireOpen();
     t.sb().finish();
     appendSegment(t, 1, 0, 4);
+    t.video.paused = false; // the element plays
     // the clock reads 1.0 s at page time 1000 ms (epoch 2000); believed, WebKit's display time would put it days off
     // and seek the element to a negative time
     new ClockBlockWriter(t.out.clock).write(1_000_000, true, 2000);
@@ -567,6 +569,7 @@ describe('ElementVideoOutput', () => {
   it('measures the refresh from animation frames once a display time is off the clock (a 120 Hz display)', () => {
     const t = opened();
     appendSegment(t, 1, 0, 4);
+    t.video.paused = false; // the element plays
     new ClockBlockWriter(t.out.clock).write(1_000_000, true, 2000);
     expect(t.rafs).toHaveLength(0); // nothing measured while display times are on the clock
     expect(offClockOffset(t, 1000)).toBeCloseTo(16_667, 0); // 60 Hz until measured
@@ -577,10 +580,34 @@ describe('ElementVideoOutput', () => {
     expect(offClockOffset(t, 1000)).toBeCloseTo(8_333, 0);
   });
 
+  it("starts the element at the rate that catches up the clock's lead and play()'s start-up, counted as a catch-up", () => {
+    const t = setup();
+    const clock = new ClockBlockWriter(t.out.clock);
+    clock.write(0, false, 5000);
+    t.out.handle(reset(0, false));
+    t.out.handle(init());
+    t.ms.fireOpen();
+    t.sb().finish();
+    appendSegment(t, 1, 0, 2);
+    // the placed frame shown while the element waits for the clock measures nothing
+    t.video.presentFrame(OFFSET_S, 3000);
+    // the clock moves: 30 ms past the element when it starts, and play() takes about 15 ms more
+    clock.write(30_000, true, 5000);
+    t.fireTimers();
+    expect(t.video.plays).toBe(1);
+    expect(t.video.playbackRate).toBeCloseTo(1.25, 9);
+    t.video.presentFrame(0.04 + OFFSET_S, 3020); // a frame to report
+    t.fireTimers();
+    const sync = commands(t.posted, 'videoSync');
+    expect(sync.flatMap((c) => c.offsetsUs)).toHaveLength(1); // the waiting frame was not measured
+    expect(sync.at(-1)!.catchUps).toBe(1);
+  });
+
   it('leaves playbackRate alone when the change is under 0.0002', () => {
     const t = opened();
-    new ClockBlockWriter(t.out.clock).write(1_000_000, true, 2000); // running already: the element starts at rate 1
     appendSegment(t, 1, 0, 4);
+    t.video.paused = false; // the element plays
+    new ClockBlockWriter(t.out.clock).write(1_000_000, true, 2000);
     t.video.presentFrame(1.0002 + OFFSET_S, 1000); // 0.2 ms ahead: rate 1 − 0.00005
     expect(t.video.rateWrites).toBe(0);
     expect(t.video.playbackRate).toBe(1);
@@ -589,6 +616,7 @@ describe('ElementVideoOutput', () => {
   it('a frame far from the clock seeks the element to it', () => {
     const t = opened();
     appendSegment(t, 1, 0, 10);
+    t.video.paused = false; // the element plays
     new ClockBlockWriter(t.out.clock).write(5_000_000, true, 2000);
     t.video.presentFrame(1 + OFFSET_S, 1000);
     expect(t.video.currentTime).toBeCloseTo(5 + OFFSET_S, 9);
@@ -599,6 +627,7 @@ describe('ElementVideoOutput', () => {
     const t = opened();
     appendSegment(t, 1, 0, 4);
     expect(t.timers.some((x) => x.ms === 250 && !x.cancelled)).toBe(true);
+    t.video.paused = false; // the element plays
     new ClockBlockWriter(t.out.clock).write(1_000_000, true, 2000);
     t.video.presentFrame(1.02 + OFFSET_S, 1000);
     t.video.presentFrame(1.06 + OFFSET_S, 1040);
@@ -609,7 +638,7 @@ describe('ElementVideoOutput', () => {
     expect(sync[0]!.offsetsUs.map((o) => Math.round(o))).toEqual([-20_000, -20_000]);
     expect(sync[0]!.presented).toBe(10);
     expect(sync[0]!.dropped).toBe(2);
-    expect(sync[0]!.catchUps).toBe(1); // 20 ms ahead just after the start: one catch-up
+    expect(sync[0]!.catchUps).toBe(1); // 20 ms ahead at the start's first frame: one catch-up
     // The timer is armed again.
     expect(t.timers.some((x) => x.ms === 250 && !x.cancelled)).toBe(true);
   });

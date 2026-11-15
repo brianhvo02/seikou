@@ -94,6 +94,8 @@ const SYNC_REPORT_MS = 250;
 const SOURCE_OPEN_TIMEOUT_MS = 5000;
 /** The most video (seconds) ahead of the playhead at which a `waiting` element counts as run dry. */
 const DRY_AHEAD_S = 0.25;
+/** play()'s expected start-up, from a paused element to its first frame shown, measured in Chrome on macOS (9–39 ms). */
+const PLAY_START_LATENCY_US = 15_000;
 /** How often a waiting element looks whether the clock has started moving. */
 const START_POLL_MS = 4;
 /** The smallest playbackRate change written to the element, so it isn't touched every frame. */
@@ -443,7 +445,13 @@ export class ElementVideoOutput {
     // it does not start ahead of the sound.
     if (this.reader.read()?.running === true) {
       this.cancelStart();
-      this.sync.restart(); // a start or resume: the next second may catch up what play()'s start-up leaves
+      // a start or resume: the element is behind by how far the clock already is past it, and play() takes a display
+      // frame or so more to start; it starts at the rate that catches that up, re-planned at its first measured frame
+      const clockUs = this.reader.clockAt(this.deps.epochMs());
+      const lagUs = clockUs === null ? 0 : clockUs - (video.currentTime * 1e6 - ELEMENT_TIME_OFFSET_US) + PLAY_START_LATENCY_US;
+      const start = this.sync.restart(lagUs);
+      if (start.catchUp) this.catchUps++;
+      video.playbackRate = start.rate;
       void video.play().catch(() => undefined);
     } else if (!this.cancelStartTimer) {
       this.cancelStartTimer = this.deps.setTimer(() => {
@@ -511,7 +519,8 @@ export class ElementVideoOutput {
   }
 
   private onFrame(mediaTimeS: number, displayMs: number | null): void {
-    if (this.pendingStart) return;
+    // the placed frame shown while the element waits for the clock to move measures nothing: the element has not started
+    if (this.pendingStart || this.deps.video.paused) return;
     const video = this.deps.video;
     const epoch = displayMs !== null ? this.deps.timeOrigin + displayMs : this.deps.epochMs();
     const clockUs = this.reader.clockAt(epoch);
