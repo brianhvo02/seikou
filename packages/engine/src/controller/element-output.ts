@@ -127,6 +127,8 @@ export class ElementVideoOutput {
   private cancelOpenTimer: (() => void) | null = null;
   /** Whether a videoStalled was posted that no videoResumed has answered yet. */
   private stalled = false;
+  /** The last videoReset's generation, echoed in videoBuffered and videoStalled so the engine can drop reports from before it. */
+  private generation = 0;
   private offsets: number[] = [];
 
   /** Mutes the element, plays it inline, and listens to its stalls and errors. */
@@ -141,7 +143,7 @@ export class ElementVideoOutput {
     video.addEventListener('waiting', () => {
       if (!this.attached || !this.playing || this.pendingStart || video.seeking || this.stalled) return;
       this.stalled = true;
-      deps.post({ type: 'videoStalled' });
+      deps.post({ type: 'videoStalled', generation: this.generation });
     });
     video.addEventListener('playing', () => {
       if (!this.attached || !this.stalled) return;
@@ -162,7 +164,10 @@ export class ElementVideoOutput {
         }
         return true;
       case 'videoReset':
-        if (!this.disposed) this.reset(e.startUs, e.paused);
+        if (!this.disposed) {
+          this.generation = e.generation;
+          this.reset(e.startUs, e.paused);
+        }
         return true;
       case 'videoInit':
         if (!this.disposed && !this.failed) this.init(e.bytes, e.codec);
@@ -365,7 +370,7 @@ export class ElementVideoOutput {
     const t = Math.max(this.deps.video.currentTime, r.start(0));
     for (let i = 0; i < r.length; i++) {
       if (r.start(i) <= t && t <= r.end(i)) {
-        this.deps.post({ type: 'videoBuffered', endUs: Math.round(r.end(i) * 1e6) - ELEMENT_TIME_OFFSET_US });
+        this.deps.post({ type: 'videoBuffered', endUs: Math.round(r.end(i) * 1e6) - ELEMENT_TIME_OFFSET_US, generation: this.generation });
         return;
       }
     }

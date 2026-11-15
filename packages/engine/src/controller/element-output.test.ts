@@ -253,7 +253,7 @@ function setup(opts: { noMediaSource?: boolean; supported?: (t: string) => boole
 const bytes = (n: number): Uint8Array => new Uint8Array([n]);
 const init = (codec = 'avc1.640028'): EngineEvent => ({ type: 'videoInit', bytes: bytes(0), codec, width: 1920, height: 1080 });
 const seg = (n: number, startUs: number, endUs: number): EngineEvent => ({ type: 'videoSegment', bytes: bytes(n), startUs, endUs });
-const reset = (startUs: number, paused = false): EngineEvent => ({ type: 'videoReset', startUs, paused });
+const reset = (startUs: number, paused = false, generation = 1): EngineEvent => ({ type: 'videoReset', startUs, paused, generation });
 
 /** A session opened at `startUs`, its init appended, the buffer ready. */
 function opened(startUs = 0, paused = false) {
@@ -348,7 +348,7 @@ describe('ElementVideoOutput', () => {
     expect(t.video.currentTime).toBeCloseTo(30 + OFFSET_S, 9);
     expect(t.video.plays).toBe(1);
     // A session resumed at 30 s reports the range holding the playhead.
-    expect(commands(t.posted, 'videoBuffered')).toEqual([{ type: 'videoBuffered', endUs: 32_000_000 }]);
+    expect(commands(t.posted, 'videoBuffered')).toEqual([{ type: 'videoBuffered', endUs: 32_000_000, generation: 1 }]);
   });
 
   it('a paused reset leaves the element paused', () => {
@@ -417,6 +417,24 @@ describe('ElementVideoOutput', () => {
     appendSegment(t, 4, 60, 62);
     expect(t.sb().appended).toEqual([bytes(0), bytes(1), bytes(2), bytes(0), bytes(4)]);
     expect(t.video.currentTime).toBeCloseTo(60 + OFFSET_S, 9);
+  });
+
+  it("echoes the last reset's generation in videoBuffered and videoStalled, never an older one after a reset", () => {
+    const t = opened(); // generation 1
+    appendSegment(t, 1, 0, 2);
+    t.out.setPlaying(true);
+    t.video.fire('waiting');
+    expect(commands(t.posted, 'videoBuffered').map((c) => c.generation)).toEqual([1]);
+    expect(commands(t.posted, 'videoStalled').map((c) => c.generation)).toEqual([1]);
+    t.posted.length = 0;
+    t.out.handle(reset(60_000_000, false, 2));
+    t.out.handle(init());
+    t.sb().finish(); // the removal
+    t.sb().finish(); // the init
+    appendSegment(t, 2, 60, 62);
+    t.video.fire('waiting');
+    expect(commands(t.posted, 'videoBuffered').map((c) => c.generation)).toEqual([2]);
+    expect(commands(t.posted, 'videoStalled').map((c) => c.generation)).toEqual([2]);
   });
 
   it('videoEnded ends the stream after the queue drains', () => {

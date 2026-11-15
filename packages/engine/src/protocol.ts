@@ -335,10 +335,14 @@ export type EngineCommand =
   | { readonly type: 'attachVideoElement'; readonly clock: SharedArrayBuffer }
   /** The page's answer to videoElementQuery: whether the video element can play `codec`. Handled at once, not queued. */
   | { readonly type: 'videoElementAnswer'; readonly codec: string; readonly playable: boolean }
-  /** The video element's buffered range now ends at `endUs`, in playlist time in microseconds (the page subtracts ELEMENT_TIME_OFFSET_US from media time). Handled at once. */
-  | { readonly type: 'videoBuffered'; readonly endUs: number }
-  /** The video element stalled for lack of data. Handled at once. */
-  | { readonly type: 'videoStalled' }
+  /**
+   * The video element's buffered range now ends at `endUs`, in playlist time in microseconds (the page subtracts
+   * ELEMENT_TIME_OFFSET_US from media time). `generation` echoes the last videoReset's, so the engine ignores a report
+   * from before its latest reset. Handled at once.
+   */
+  | { readonly type: 'videoBuffered'; readonly endUs: number; readonly generation: number }
+  /** The video element stalled for lack of data; `generation` echoes the last videoReset's (older ones are ignored). Handled at once. */
+  | { readonly type: 'videoStalled'; readonly generation: number }
   /** The video element resumed after a stall. Handled at once. */
   | { readonly type: 'videoResumed' }
   /** The video element or its media source failed (`message` says how); the engine falls back to the canvas. Handled at once. */
@@ -533,8 +537,9 @@ export type EngineEvent =
   /**
    * Drop what the element holds and restart at playlist time `startUs` (microseconds; the element's media time is that
    * plus ELEMENT_TIME_OFFSET_US), paused or playing. Every element session begins with a videoReset, before its first videoInit.
+   * `generation` grows with every reset; the page echoes it in videoBuffered and videoStalled.
    */
-  | { readonly type: 'videoReset'; readonly startUs: number; readonly paused: boolean }
+  | { readonly type: 'videoReset'; readonly startUs: number; readonly paused: boolean; readonly generation: number }
   /** The element's video has ended: no more segments follow. */
   | { readonly type: 'videoEnded' }
   /** The element path stopped (the playlist ended or was replaced, or it fell back to the canvas): the page releases the element. */

@@ -58,6 +58,8 @@ interface Options {
   audio?: boolean;
   /** The video path the page asks for ('element' by default). */
   path?: 'element' | 'canvas' | 'auto';
+  /** The memory profile (desktop by default). */
+  memory?: 'constrained';
 }
 
 async function harness(opts: Options = {}) {
@@ -69,6 +71,8 @@ async function harness(opts: Options = {}) {
   const elementStarts: Array<{ picture: boolean; element?: { width: number; height: number } }> = [];
   let player!: Player;
   const autoBuffered = opts.autoBuffered ?? true;
+  /** The last videoReset's generation, which the fake page echoes. */
+  const page = { generation: 0 };
   player = new Player({
     emit: (e, transfer) => {
       events.push(e);
@@ -78,10 +82,12 @@ async function harness(opts: Options = {}) {
         const playable = opts.playable ?? true;
         queueMicrotask(() => void player.handle({ type: 'videoElementAnswer', codec: e.codec, playable }));
       }
-      if (e.type === 'videoSegment' && opts.reportEndUs) void player.handle({ type: 'videoBuffered', endUs: opts.reportEndUs.value });
+      if (e.type === 'videoReset') page.generation = e.generation;
+      if (e.type === 'videoSegment' && opts.reportEndUs) void player.handle({ type: 'videoBuffered', endUs: opts.reportEndUs.value, generation: page.generation });
       else if (e.type === 'videoSegment' && autoBuffered) {
         const endUs = e.endUs;
-        queueMicrotask(() => void player.handle({ type: 'videoBuffered', endUs }));
+        const generation = page.generation;
+        queueMicrotask(() => void player.handle({ type: 'videoBuffered', endUs, generation }));
       }
     },
     videoCodecApi: fakeApi,
@@ -98,6 +104,7 @@ async function harness(opts: Options = {}) {
   const ring = createRing(48_000, 2);
   const views = ringViews(ring);
   const clockBlock = createClockBlock();
+  if (opts.memory) await player.handle({ type: 'setMemoryProfile', profile: opts.memory });
   if (opts.audio !== false) await player.handle({ type: 'attachAudio', ring });
   await player.handle({ type: 'attachCanvas', canvas: {} as OffscreenCanvas });
   await player.handle({ type: 'setVideoPath', path: opts.path ?? 'element' });
@@ -107,6 +114,10 @@ async function harness(opts: Options = {}) {
   const right = new Float32Array(128);
   return {
     player,
+    page,
+    /** The page reports a buffered end under its current generation. */
+    buffered: (endUs: number) => player.handle({ type: 'videoBuffered', endUs, generation: page.generation }),
+    stalled: () => player.handle({ type: 'videoStalled', generation: page.generation }),
     events,
     transfers,
     drawn,
@@ -159,7 +170,7 @@ describe('Player on the element path', () => {
     expect(query).toBeLessThan(reset);
     expect(reset).toBeLessThan(init);
     expect(ofType(h, 'videoElementQuery')[0]!.codec).toMatch(/^avc1\./);
-    expect(ofType(h, 'videoReset')[0]).toEqual({ type: 'videoReset', startUs: 0, paused: false });
+    expect(ofType(h, 'videoReset')[0]).toEqual({ type: 'videoReset', startUs: 0, paused: false, generation: expect.any(Number) });
     expect(ofType(h, 'videoInit')[0]).toMatchObject({ codec: expect.stringMatching(/^avc1\./), width: expect.any(Number), height: expect.any(Number) });
     const segments = ofType(h, 'videoSegment');
     expect(segments.length).toBeGreaterThan(2);
@@ -223,7 +234,7 @@ describe('Player on the element path', () => {
     await h.player.handle({ type: 'seek', timeUs: 5_000_000 });
     await h.play(100);
     const after = h.events.slice(before);
-    expect(after).toContainEqual({ type: 'videoReset', startUs: 5_000_000, paused: true });
+    expect(after).toContainEqual({ type: 'videoReset', startUs: 5_000_000, paused: true, generation: expect.any(Number) });
     // the reset comes before the new init and the segments from the target's entry
     const reset = after.findIndex((e) => e.type === 'videoReset');
     const init = after.findIndex((e) => e.type === 'videoInit');
@@ -238,19 +249,19 @@ describe('Player on the element path', () => {
     await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
     await h.play(100);
     expect(lastState(h)).toBe('buffering'); // nothing buffered yet: the start-up waits for the element
-    await h.player.handle({ type: 'videoBuffered', endUs: 3_000_000 });
+    await h.buffered(3_000_000);
     await untilState(h, 'playing');
     expect(h.ringPlaying()).toBe(true);
     await h.play(300);
-    await h.player.handle({ type: 'videoStalled' });
+    await h.stalled();
     expect(lastState(h)).toBe('buffering');
     expect(h.ringPlaying()).toBe(false);
     const now = clockNow(h);
-    await h.player.handle({ type: 'videoBuffered', endUs: now + 200_000 });
+    await h.buffered(now + 200_000);
     await h.play(200);
     expect(lastState(h)).toBe('buffering'); // less than half a second ahead
     await h.player.handle({ type: 'videoResumed' });
-    await h.player.handle({ type: 'videoBuffered', endUs: now + 1_000_000 });
+    await h.buffered(now + 1_000_000);
     await untilState(h, 'playing');
     expect(h.ringPlaying()).toBe(true);
   });
@@ -259,7 +270,7 @@ describe('Player on the element path', () => {
     const h = await harness();
     await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
     await untilState(h, 'playing');
-    await h.player.handle({ type: 'videoStalled' });
+    await h.stalled();
     expect(lastState(h)).toBe('buffering');
     await h.player.handle({ type: 'seek', timeUs: 2_000_000 });
     await untilState(h, 'playing');
@@ -278,13 +289,13 @@ describe('Player on the element path', () => {
     expect(ofType(h, 'videoEnded')).toHaveLength(0);
     // a lead under 10 s lets it read on, to the end
     report.value = 9_900_000;
-    await h.player.handle({ type: 'videoBuffered', endUs: report.value });
+    await h.buffered(report.value);
     await vi.waitFor(
       async () => {
-        await h.play(50);
+        await h.play(200);
         expect(ofType(h, 'videoEnded')).toHaveLength(1);
       },
-      { timeout: 5000 },
+      { timeout: 15_000 },
     );
   });
 
@@ -337,4 +348,73 @@ describe('Player on the element path', () => {
     await h.player.handle({ type: 'close' });
     expect(ofType(h, 'videoElementStop')).toHaveLength(1);
   });
+  it('ignores a videoBuffered from before the latest reset (a backward seek inside the old lead)', async () => {
+    const h = await harness({ autoBuffered: false, audio: false, memory: 'constrained' });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await h.play(100);
+    const oldGeneration = h.page.generation;
+    await h.buffered(6_000_000);
+    await untilState(h, 'playing');
+    await h.play(500);
+    const before = h.events.length;
+    await h.player.handle({ type: 'seek', timeUs: 1_000_000 });
+    expect(h.page.generation).toBeGreaterThan(oldGeneration);
+    // posted by the page before it handled the reset: 5 s ahead of the clock, more than the 4 s lead
+    await h.player.handle({ type: 'videoBuffered', endUs: 6_000_000, generation: oldGeneration });
+    await h.play(300);
+    expect(lastState(h)).toBe('buffering'); // nothing of the new generation is buffered yet
+    const after = h.events.slice(before).flatMap((e) => (e.type === 'videoSegment' ? [e.endUs] : []));
+    expect(Math.max(...after)).toBeGreaterThanOrEqual(4_000_000); // the reader went on
+  });
+
+  it('bounds reading by what was sent while the page reports nothing (no audio)', async () => {
+    const h = await harness({ autoBuffered: false, audio: false, memory: 'constrained' });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await h.play(300);
+    const end = Math.max(...ofType(h, 'videoSegment').map((x) => x.endUs));
+    expect(end).toBeGreaterThanOrEqual(4_000_000);
+    expect(end).toBeLessThan(7_500_000); // the lead, give or take the chunk read and the GOP held when it stopped
+    expect(ofType(h, 'videoEnded')).toHaveLength(0);
+    expect(lastState(h)).toBe('buffering');
+  });
+
+  it('at the end of reading, starts only once the page has buffered up to the last segment', async () => {
+    const h = await harness({ autoBuffered: false, audio: false }); // the audio ring would hold the reader 2 s ahead
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00001' }); // 4 s, shorter than the lead
+    await vi.waitFor(
+      async () => {
+        await h.play(200);
+        expect(ofType(h, 'videoEnded')).toHaveLength(1);
+      },
+      { timeout: 15_000 },
+    );
+    await h.play(200);
+    expect(lastState(h)).toBe('buffering'); // segments still on their way to the page
+    await h.buffered(300_000);
+    await h.play(200);
+    expect(lastState(h)).toBe('buffering');
+    const last = Math.max(...ofType(h, 'videoSegment').map((x) => x.endUs));
+    await h.buffered(last - 10_000);
+    await untilState(h, 'playing');
+  }, 20_000);
+
+  it('holds a stall after the end of reading until a fresh videoBuffered', async () => {
+    const h = await harness();
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    await vi.waitFor(
+      async () => {
+        await h.play(200);
+        expect(ofType(h, 'videoEnded')).toHaveLength(1);
+      },
+      { timeout: 15_000 },
+    );
+    await h.stalled();
+    expect(lastState(h)).toBe('buffering');
+    await h.play(300);
+    expect(lastState(h)).toBe('buffering');
+    expect(h.ringPlaying()).toBe(false);
+    await h.buffered(Math.max(...ofType(h, 'videoSegment').map((x) => x.endUs)));
+    await untilState(h, 'playing');
+  }, 20_000);
 });

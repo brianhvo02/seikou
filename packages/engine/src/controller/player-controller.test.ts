@@ -1168,7 +1168,7 @@ describe('element video output', () => {
     const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation((u) => void revoked.push(u));
     try {
       c.attachVideoElement(v);
-      worker.emit({ type: 'videoReset', startUs: 0, paused: true } as EngineEvent);
+      worker.emit({ type: 'videoReset', startUs: 0, paused: true, generation: 1 } as EngineEvent);
       worker.emit({ type: 'videoInit', bytes: new Uint8Array(1), codec: 'avc1.640028', width: 1, height: 1 });
       expect(created).toHaveLength(1);
       c.detachVideoElement(fakeVideo()); // another element: no-op
