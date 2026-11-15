@@ -60,13 +60,13 @@ You need a Samsung account and the TV on the same network as the Mac.
 ## Building and installing the probe
 
 ```sh
-tools/tizen/make-wgt.sh --profile seikou --url https://<branch>.bluray.pages.dev/probe.html
+tools/tizen/make-wgt.sh --profile seikou --url https://<branch>.bluray.pages.dev/probe
 sdb devices                                   # the serial, such as 192.168.1.50:26101
 tizen install -s <serial> -n "Seikou probe.wgt" -- .cache/tizen/SeikouPrb1
 tizen run -s <serial> -p SeikouPrb1.Probe
 ```
 
-`--url` defaults to `https://bluray.pages.dev/probe.html`. A branch's preview (`gh workflow run preview.yml --ref
+`--url` defaults to `https://bluray.pages.dev/probe`. A branch's preview (`gh workflow run preview.yml --ref
 <branch>`) is at `https://<branch>.bluray.pages.dev/`, which the NAS's CORS rule allows like the main site. The URL
 must be HTTPS: a page on plain HTTP is never cross-origin isolated. The wrapper's package id is `SeikouPrb1` and its
 app id `SeikouPrb1.Probe`; `--package`, `--app` and `--name` change them, so a second wrapper (the player itself,

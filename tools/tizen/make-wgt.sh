@@ -7,7 +7,7 @@ set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
-url="https://bluray.pages.dev/probe.html"
+url="https://bluray.pages.dev/probe"
 name="Seikou probe"
 appname="Probe"
 package="SeikouPrb1"
