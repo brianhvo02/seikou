@@ -1115,7 +1115,7 @@ describe('opening at a place', () => {
 
 describe('element video output', () => {
   function fakeVideo(): HTMLVideoElement {
-    return { muted: false, playsInline: false, disableRemotePlayback: false, paused: true, seeking: false, addEventListener: () => undefined } as unknown as HTMLVideoElement;
+    return { muted: false, playsInline: false, disableRemotePlayback: false, paused: true, seeking: false, addEventListener: () => undefined, removeAttribute: () => undefined, load: () => undefined, pause: () => undefined } as unknown as HTMLVideoElement;
   }
 
   it('attachVideoElement posts the clock once per element, and a new element replaces the first', () => {
@@ -1148,5 +1148,44 @@ describe('element video output', () => {
     worker.emit({ type: 'videoInit', bytes: new Uint8Array(), codec: 'avc1.640028', width: 1920, height: 1080 });
     c.closeDisc();
     expect(c.getSnapshot().videoElement).toBe(false);
+  });
+
+  it('detachVideoElement releases the output of the attached element only, and the element can be attached again', () => {
+    const worker = new FakeWorker();
+    const c = new PlayerController(worker, new FakeAudio());
+    const v = fakeVideo();
+    const created: string[] = [];
+    const revoked: string[] = [];
+    class FakeSource {
+      static isTypeSupported(): boolean { return true; }
+      readyState = 'closed';
+      addSourceBuffer(): never { throw new Error('unused'); }
+      endOfStream(): void {}
+      addEventListener(): void {}
+    }
+    vi.stubGlobal('MediaSource', FakeSource);
+    const create = vi.spyOn(URL, 'createObjectURL').mockImplementation(() => (created.push('blob:1'), 'blob:1'));
+    const revoke = vi.spyOn(URL, 'revokeObjectURL').mockImplementation((u) => void revoked.push(u));
+    try {
+      c.attachVideoElement(v);
+      worker.emit({ type: 'videoReset', startUs: 0, paused: true } as EngineEvent);
+      worker.emit({ type: 'videoInit', bytes: new Uint8Array(1), codec: 'avc1.640028', width: 1, height: 1 });
+      expect(created).toHaveLength(1);
+      c.detachVideoElement(fakeVideo()); // another element: no-op
+      expect(revoked).toHaveLength(0);
+      c.detachVideoElement(v);
+      expect(revoked).toEqual(['blob:1']);
+      const before = worker.posted.length;
+      worker.emit({ type: 'videoElementQuery', codec: 'avc1.640028' } as EngineEvent);
+      expect(worker.posted.length).toBe(before); // a disposed output posts nothing
+      c.attachVideoElement(v);
+      expect(worker.posted.filter((m) => (m as { type: string }).type === 'attachVideoElement')).toHaveLength(2);
+      worker.emit({ type: 'videoElementQuery', codec: 'avc1.640028' } as EngineEvent);
+      expect(worker.posted.at(-1)).toMatchObject({ type: 'videoElementAnswer', playable: true });
+    } finally {
+      create.mockRestore();
+      revoke.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 });

@@ -55,6 +55,7 @@ function setup(snapshot: PlayerSnapshot, nasOver: Record<string, unknown> = {}) 
     discOpens: 1,
     attachCanvas: vi.fn(),
     attachVideoElement: vi.fn(),
+    detachVideoElement: vi.fn(),
     setVideoPath: vi.fn(),
     resize: vi.fn(),
     getSnapshot: () => snap,

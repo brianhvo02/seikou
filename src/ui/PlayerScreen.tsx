@@ -475,7 +475,9 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
 
   useEffect(() => {
     const video = videoRef.current;
-    if (video) controller.attachVideoElement(video);
+    if (!video) return;
+    controller.attachVideoElement(video);
+    return () => controller.detachVideoElement(video);
   }, [controller]);
 
   useEffect(() => {

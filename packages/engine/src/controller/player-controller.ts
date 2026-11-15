@@ -396,8 +396,12 @@ export class PlayerController {
     });
     worker.onmessage = (event: MessageEvent<EngineEvent>) => {
       const e = event.data;
-      this.videoOutput?.output.handle(e);
-      if (e.type === 'state') this.videoOutput?.output.setPlaying(e.state === 'playing');
+      try {
+        this.videoOutput?.output.handle(e);
+        if (e.type === 'state') this.videoOutput?.output.setPlaying(e.state === 'playing');
+      } catch (err) {
+        this.reportInternalError(`The video element output failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
       if (e.type === 'soundEffects') audio.loadEffects(e.clips);
       else if (e.type === 'soundEffect') audio.playEffect(e.id);
       else if (e.type === 'remoteTokenNeeded') this.answerTokenRequest();
@@ -521,6 +525,17 @@ export class PlayerController {
     });
     this.videoOutput = { element: video, output };
     this.post({ type: 'attachVideoElement', clock: output.clock });
+  }
+
+  /**
+   * Releases the output of `video` (its media source, timers and listeners' effects) when it is the attached element;
+   * any other element is ignored. The same element can be attached again afterwards.
+   * @example ../../examples/player-controller.browser.ts#detachVideoElement
+   */
+  detachVideoElement(video: HTMLVideoElement): void {
+    if (this.videoOutput?.element !== video) return;
+    this.videoOutput.output.dispose();
+    this.videoOutput = null;
   }
 
   /**
