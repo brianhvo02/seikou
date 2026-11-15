@@ -23,6 +23,12 @@ import type { Chapter } from './nav/timeline';
  */
 export type PlaybackState = 'idle' | 'loading' | 'paused' | 'buffering' | 'playing' | 'ended' | 'error';
 /**
+ * Where a playlist's H.264 or HEVC video is drawn: 'element' (the page's video element, through Media Source Extensions),
+ * 'canvas' (decoded by the engine with WebCodecs), or 'auto' (the engine picks).
+ */
+export type VideoPath = 'auto' | 'element' | 'canvas';
+
+/**
  * What a `notice` event is about; the page decides how to show each.
  * - `no-picture`: the disc's video can't be decoded here and plays without a picture (carried by `unsupported`).
  * - `bdj`: the disc or title uses BD-J, which this player or browser can't run.
@@ -109,6 +115,8 @@ export interface Telemetry {
   readonly bdjPlane: { readonly flushes: number; readonly tapsIgnored: number; readonly hash?: string | null } | null;
   /** While a BD-J title runs, what it holds in memory; only with PlayerDeps.memoryTelemetry (?telemetry=1). */
   readonly bdjMemory?: BdjMemoryTelemetry | null;
+  /** How the playing playlist's video is drawn: on the engine's canvas, or by the page's video element; null with no playlist. */
+  readonly videoPath: 'canvas' | 'element' | null;
 }
 
 /** What BD-J holds in memory, so the budgets of the constrained memory profile can be checked on a device; sizes in bytes. */
@@ -276,7 +284,8 @@ export const ENCODE_PLAYLIST_ID = 'mkv';
 
 /**
  * Everything the page can ask of the engine. Commands are handled in arrival order, one at a time; `remoteToken`,
- * `readPlace`, `cancelBuffer`, `flushSaves` and `visibility` are handled at once and never wait behind a slow open.
+ * `readPlace`, `cancelBuffer`, `flushSaves`, `visibility` and the video element's reports (`videoElementAnswer`,
+ * `videoBuffered`, `videoStalled`, `videoResumed`, `videoElementFailed`, `videoSync`) are handled at once and never wait behind a slow open.
  * A command that cannot apply (no disc, no playlist, a refused user operation) is ignored.
  */
 export type EngineCommand =
@@ -320,6 +329,22 @@ export type EngineCommand =
    * original: the restart plays it when it is playable there, and a disc program's PSR1 is set to it.
    */
   | { readonly type: 'setLevel'; readonly disc: RemoteDiscSpec; readonly audio?: number }
+  /** Which path draws H.264 and HEVC video: the page's video element, the canvas, or the engine's choice. */
+  | { readonly type: 'setVideoPath'; readonly path: VideoPath }
+  /** The clock block (packages/engine/src/element/clock-block.ts) the engine publishes its clock through, for the page's video element. */
+  | { readonly type: 'attachVideoElement'; readonly clock: SharedArrayBuffer }
+  /** The page's answer to videoElementQuery: whether the video element can play `codec`. Handled at once, not queued. */
+  | { readonly type: 'videoElementAnswer'; readonly codec: string; readonly playable: boolean }
+  /** The video element's buffered range now ends at `endUs`, in playlist time in microseconds (the page subtracts ELEMENT_TIME_OFFSET_US from media time). Handled at once. */
+  | { readonly type: 'videoBuffered'; readonly endUs: number }
+  /** The video element stalled for lack of data. Handled at once. */
+  | { readonly type: 'videoStalled' }
+  /** The video element resumed after a stall. Handled at once. */
+  | { readonly type: 'videoResumed' }
+  /** The video element or its media source failed (`message` says how); the engine falls back to the canvas. Handled at once. */
+  | { readonly type: 'videoElementFailed'; readonly message: string }
+  /** Sync measurements from the page: clock minus frame time offsets (microseconds) of frames presented since the last report, with the element's presented and dropped frame counts. Handled at once. */
+  | { readonly type: 'videoSync'; readonly offsetsUs: readonly number[]; readonly presented: number; readonly dropped: number }
   /** A fresh session token for the open NAS disc (a scheduled refresh, or the answer to remoteTokenNeeded). Handled at once, not queued. */
   | { readonly type: 'remoteToken'; readonly token: string }
   /** The page's transferred canvas, which the engine draws video, subtitles and menus on. */
@@ -499,6 +524,21 @@ export type EngineEvent =
   | { readonly type: 'playlistCleared' }
   /** On every shader set change and compile result; `error` explains 'error' and 'unavailable'. */
   | { readonly type: 'shaderStatus'; readonly state: ShaderState; readonly set: string | null; readonly error: string | null }
+  /** Asks the page whether its video element can play `codec`; answered by the videoElementAnswer command. */
+  | { readonly type: 'videoElementQuery'; readonly codec: string }
+  /** The initialization segment of the element's fragmented MP4 (`codec` is its codec string, `width` and `height` the picture's size). */
+  | { readonly type: 'videoInit'; readonly bytes: Uint8Array; readonly codec: string; readonly width: number; readonly height: number }
+  /** A media segment covering playlist time `startUs` to `endUs`, in microseconds (the video element plays at media time = playlist time + ELEMENT_TIME_OFFSET_US; the page converts). */
+  | { readonly type: 'videoSegment'; readonly bytes: Uint8Array; readonly startUs: number; readonly endUs: number }
+  /**
+   * Drop what the element holds and restart at playlist time `startUs` (microseconds; the element's media time is that
+   * plus ELEMENT_TIME_OFFSET_US), paused or playing. Every element session begins with a videoReset, before its first videoInit.
+   */
+  | { readonly type: 'videoReset'; readonly startUs: number; readonly paused: boolean }
+  /** The element's video has ended: no more segments follow. */
+  | { readonly type: 'videoEnded' }
+  /** The element path stopped (the playlist ended or was replaced, or it fell back to the canvas): the page releases the element. */
+  | { readonly type: 'videoElementStop' }
   /** The answer to readPlace. */
   | ({ readonly type: 'placeState' } & PlaceState)
   /**

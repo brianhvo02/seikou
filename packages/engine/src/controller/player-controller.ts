@@ -263,6 +263,13 @@ export function reduceEvent(s: PlayerSnapshot, e: EngineEvent): PlayerSnapshot {
       return s.levelSwitch !== 'switching' ? s : { ...s, levelSwitch: e.ok ? 'idle' : { error: e.message } };
     case 'placeState':
       return s; // answers readPlace
+    case 'videoElementQuery':
+    case 'videoInit':
+    case 'videoSegment':
+    case 'videoReset':
+    case 'videoEnded':
+    case 'videoElementStop':
+      return s; // the element path's events; the page's element handler takes them
     case 'shaderStatus':
       return { ...s, shaders: { state: e.state, set: e.set, error: e.error }, shaderDropWarning: e.state === 'active' ? s.shaderDropWarning : null };
   }

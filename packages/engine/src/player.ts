@@ -594,6 +594,16 @@ export class Player {
       return Promise.resolve();
     }
     // a place is saved as the page hides: reading the registers can't wait in the queue behind an open
+    if (
+      cmd.type === 'videoElementAnswer' ||
+      cmd.type === 'videoBuffered' ||
+      cmd.type === 'videoStalled' ||
+      cmd.type === 'videoResumed' ||
+      cmd.type === 'videoElementFailed' ||
+      cmd.type === 'videoSync'
+    ) {
+      return Promise.resolve(); // the element path's reports: not queued behind a slow open
+    }
     if (cmd.type === 'readPlace') {
       this.deps.emit({ type: 'placeState', ...this.readPlace() });
       return Promise.resolve();
@@ -640,6 +650,12 @@ export class Player {
         case 'flushSaves':
         case 'visibility':
         case 'readPlace':
+        case 'videoElementAnswer':
+        case 'videoBuffered':
+        case 'videoStalled':
+        case 'videoResumed':
+        case 'videoElementFailed':
+        case 'videoSync':
           break; // handled at once
         case 'bufferAhead':
           await this.fill(cmd, false);
@@ -3543,6 +3559,7 @@ export class Player {
         textFile: this.textOn ? this.textTrack?.renderer.fileAt(this.clock.nowUs())?.file ?? null : null,
         ass: this.assStats(),
         shader: this.shaderStage?.stats ?? null,
+        videoPath: s ? 'canvas' : null,
         bdj: this.bdjStartup ? { ...this.bdjStartup, inputLatencyMs: this.bdjLatency?.stats ?? null } : null,
         ...(this.deps.memoryTelemetry ? { bdjMemory: this.bdjMemory() } : {}),
         bdjPlane: this.bdj ? { flushes: this.bdj.plane.flushCount(), tapsIgnored: this.bdjTapsIgnored, ...(this.deps.planeHashTelemetry ? { hash: this.settledPlaneHash(this.bdj.plane) } : {}) } : null,
