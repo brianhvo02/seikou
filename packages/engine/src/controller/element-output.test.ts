@@ -119,10 +119,14 @@ type FrameCb = (now: number, meta: { mediaTime: number; expectedDisplayTime: num
 class FakeVideo implements VideoElementLike {
   muted = false;
   playsInline = false;
+  disableRemotePlayback = false;
   currentTime = 0;
   playbackRate = 1;
   src = '';
   paused = true;
+  seeking = false;
+  /** Writes of disableRemotePlayback and src, in order. */
+  writes: string[] = [];
   plays = 0;
   pauses = 0;
   loads = 0;
@@ -135,6 +139,22 @@ class FakeVideo implements VideoElementLike {
   private listeners: Record<string, Array<() => void>> = {};
   constructor() {
     let rate = 1;
+    let src = '';
+    let remote = false;
+    Object.defineProperty(this, 'src', {
+      get: () => src,
+      set: (v: string) => {
+        src = v;
+        this.writes.push('src');
+      },
+    });
+    Object.defineProperty(this, 'disableRemotePlayback', {
+      get: () => remote,
+      set: (v: boolean) => {
+        remote = v;
+        this.writes.push(`disableRemotePlayback=${v}`);
+      },
+    });
     Object.defineProperty(this, 'playbackRate', {
       get: () => rate,
       set: (v: number) => {
@@ -482,7 +502,7 @@ describe('ElementVideoOutput', () => {
     expect(t.timers.some((x) => x.ms === 250 && !x.cancelled)).toBe(true);
   });
 
-  it('reports stalls and resumes only while playing', () => {
+  it('reports a real stall and its resume once each, only while playing', () => {
     const t = opened(0, true);
     appendSegment(t, 1, 0, 2);
     t.video.fire('waiting');
@@ -490,11 +510,62 @@ describe('ElementVideoOutput', () => {
     t.out.setPlaying(true);
     expect(t.video.plays).toBe(1);
     t.video.fire('waiting');
-    t.video.fire('playing');
+    t.video.fire('waiting');
     expect(commands(t.posted, 'videoStalled')).toHaveLength(1);
+    t.video.fire('playing');
+    t.video.fire('playing');
     expect(commands(t.posted, 'videoResumed')).toHaveLength(1);
     t.out.setPlaying(false);
     expect(t.video.paused).toBe(true);
+  });
+
+  it('waiting while seeking posts nothing', () => {
+    const t = opened(0, false);
+    appendSegment(t, 1, 0, 2);
+    t.video.seeking = true;
+    t.video.fire('waiting');
+    expect(commands(t.posted, 'videoStalled')).toEqual([]);
+  });
+
+  it('waiting before the first segment is placed posts nothing', () => {
+    const t = opened(0, false);
+    t.video.fire('waiting');
+    expect(commands(t.posted, 'videoStalled')).toEqual([]);
+  });
+
+  it('playing without a prior stall posts nothing', () => {
+    const t = opened(0, false);
+    appendSegment(t, 1, 0, 2);
+    t.video.fire('playing');
+    expect(commands(t.posted, 'videoResumed')).toEqual([]);
+  });
+
+  it('turns remote playback off before setting src', () => {
+    const t = setup();
+    t.out.handle(reset(0));
+    t.out.handle(init());
+    expect(t.video.writes).toEqual(['disableRemotePlayback=true', 'src']);
+  });
+
+  it('a source that never opens fails after 5 s and appends nothing', () => {
+    const t = setup();
+    t.out.handle(reset(0));
+    t.out.handle(init());
+    t.out.handle(seg(1, 0, 1_000_000));
+    const open = t.timers.find((x) => x.ms === 5000 && !x.cancelled);
+    expect(open).toBeDefined();
+    open!.fn();
+    const failed = commands(t.posted, 'videoElementFailed');
+    expect(failed).toHaveLength(1);
+    expect(failed[0]!.message).toMatch(/did not open/);
+    expect(t.ms.buffers).toHaveLength(0);
+    expect(t.revoked()).toBe(1);
+    expect(t.video.removedAttrs).toEqual(['src']);
+  });
+
+  it('an opened source cancels the open timeout', () => {
+    const t = opened();
+    expect(t.timers.find((x) => x.ms === 5000)!.cancelled).toBe(true);
   });
 
   it('an element error fails the element', () => {

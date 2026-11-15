@@ -11,10 +11,12 @@ import { ElementSync } from './element-sync';
 export interface VideoElementLike {
   muted: boolean;
   playsInline: boolean;
+  disableRemotePlayback: boolean;
   currentTime: number;
   playbackRate: number;
   src: string;
   readonly paused: boolean;
+  readonly seeking: boolean;
   play(): Promise<void>;
   pause(): void;
   requestVideoFrameCallback(cb: (now: number, meta: { mediaTime: number; expectedDisplayTime: number }) => void): number;
@@ -85,6 +87,8 @@ interface Attached {
 /** Seconds of video kept behind the playhead. */
 const KEEP_BEHIND_S = 10;
 const SYNC_REPORT_MS = 250;
+/** How long a new media source may take to open before the element path fails. */
+const SOURCE_OPEN_TIMEOUT_MS = 5000;
 /** The smallest playbackRate change written to the element, so it isn't touched every frame. */
 const MIN_RATE_CHANGE = 0.0002;
 
@@ -120,6 +124,9 @@ export class ElementVideoOutput {
   private disposed = false;
   private frameId: number | null = null;
   private cancelSyncTimer: (() => void) | null = null;
+  private cancelOpenTimer: (() => void) | null = null;
+  /** Whether a videoStalled was posted that no videoResumed has answered yet. */
+  private stalled = false;
   private offsets: number[] = [];
 
   /** Mutes the element, plays it inline, and listens to its stalls and errors. */
@@ -129,11 +136,17 @@ export class ElementVideoOutput {
     const video = deps.video;
     video.muted = true;
     video.playsInline = true;
+    // `waiting` also fires around every seek (the playhead placement and the sync's own seeks): only a wait while
+    // playing, not seeking, after the first segment is placed is a stall; `playing` answers only a posted stall.
     video.addEventListener('waiting', () => {
-      if (this.attached && this.playing) deps.post({ type: 'videoStalled' });
+      if (!this.attached || !this.playing || this.pendingStart || video.seeking || this.stalled) return;
+      this.stalled = true;
+      deps.post({ type: 'videoStalled' });
     });
     video.addEventListener('playing', () => {
-      if (this.attached && this.playing) deps.post({ type: 'videoResumed' });
+      if (!this.attached || !this.stalled) return;
+      this.stalled = false;
+      deps.post({ type: 'videoResumed' });
     });
     video.addEventListener('error', () => {
       if (this.attached) this.fail('the video element failed');
@@ -191,6 +204,7 @@ export class ElementVideoOutput {
     this.failed = false;
     this.pendingStart = { startUs };
     this.playing = !paused;
+    this.stalled = false;
     this.sync.reset();
     this.offsets = [];
     this.queue = [];
@@ -203,7 +217,7 @@ export class ElementVideoOutput {
       try {
         b.abort();
       } catch {
-        // Nothing was in flight that abort could stop.
+        // abort() throws while a range removal runs; the removal finishes and its updateend is ignored.
       }
     }
     this.inFlight = null;
@@ -221,8 +235,14 @@ export class ElementVideoOutput {
       const a: Attached = { source: made.source, revoke: made.revoke, firstType: mimeType(codec), buffer: null };
       this.attached = a;
       this.bufferCodec = codec;
+      // WebKit's ManagedMediaSource opens only when remote playback is off (or an AirPlay source is given).
+      this.deps.video.disableRemotePlayback = true;
       this.deps.video.src = made.url;
       made.source.addEventListener('sourceopen', () => this.onSourceOpen(a));
+      this.cancelOpenTimer = this.deps.setTimer(() => {
+        this.cancelOpenTimer = null;
+        if (a === this.attached && !a.buffer) this.fail('the media source did not open within 5 s');
+      }, SOURCE_OPEN_TIMEOUT_MS);
       this.startFrames();
       this.armSyncTimer();
     } else if (codec !== this.bufferCodec) {
@@ -236,6 +256,8 @@ export class ElementVideoOutput {
 
   private onSourceOpen(a: Attached): void {
     if (a !== this.attached || a.buffer) return;
+    this.cancelOpenTimer?.();
+    this.cancelOpenTimer = null;
     let b: SourceBufferLike;
     try {
       b = a.source.addSourceBuffer(a.firstType);
@@ -425,6 +447,9 @@ export class ElementVideoOutput {
     this.inFlight = null;
     this.offsets = [];
     this.pendingStart = null;
+    this.stalled = false;
+    this.cancelOpenTimer?.();
+    this.cancelOpenTimer = null;
     this.bufferCodec = null;
     const a = this.attached;
     this.attached = null;
