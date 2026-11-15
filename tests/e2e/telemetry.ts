@@ -14,6 +14,8 @@ export const ASS_OVER_BUDGET_SHARE = Math.min(1, 0.05 * ASS_BUDGET_SCALE);
 export interface TelemetrySample {
   clockUs: number;
   clockMode: string;
+  /** How video is presented: 'element' (a <video> element fed by MSE), 'canvas' (WebCodecs onto the canvas), null with no session. */
+  videoPath?: 'canvas' | 'element' | null;
   avOffsetMeanUs: number | null;
   avOffsetMaxAbsUs: number | null;
   framesInWindow: number;
