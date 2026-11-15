@@ -108,6 +108,7 @@ function Notice({ message, onDismiss, testId }: { message: string; onDismiss(): 
 export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, nas, places, history, playingRoute }: PlayerScreenProps): ReactElement {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [idle, setIdleState] = useState(false);
   /** Whether a hover pointer (moving over a disc menu) hid the controls, rather than the idle timer or a tap: a pause then keeps them hidden, since a real player draws nothing over a menu. */
@@ -471,6 +472,11 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
           active: fansubHere,
         }
       : null;
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (video) controller.attachVideoElement(video);
+  }, [controller]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -855,6 +861,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
         } // a touch on the video shows or hides the controls on its own, after the double-tap window
       }}
     >
+      <video ref={videoRef} className="player-video" data-testid="video-element" muted playsInline hidden={!snapshot.videoElement} />
       <canvas
         ref={canvasRef}
         className={`player-canvas${snapshot.menuActive && snapshot.pointerButton !== null ? ' over-button' : ''}`}

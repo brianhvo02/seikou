@@ -46,6 +46,7 @@ TextFileInfo
 PlaybackState
 NoticeCode
 ErrorCode
+VideoPath
 # bdj-types
 JvmMemoryStats
 # clock/master-clock

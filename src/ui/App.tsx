@@ -41,7 +41,7 @@ function createAppController(): PlayerController {
   // `?telemetry=1` also makes the controller copy telemetry to `window.__blurayTelemetry`, which the E2E tests read.
   const flags = ['bdjfail', 'nonestedworkers', 'nodecoder', 'telemetry'].filter((f) => params.has(f));
   const name = flags.length > 0 ? `bluray-engine:${flags.join(',')}` : 'bluray-engine';
-  return createController({
+  const controller = createController({
     // (the options stay an object literal with a literal type: Vite reads it to bundle the worker as a module)
     worker: () => new Worker(new URL('../engine-worker.ts', import.meta.url), { type: 'module', name }),
     profile: chooseMemoryProfile({
@@ -52,6 +52,10 @@ function createAppController(): PlayerController {
     }),
     exposeTelemetry: params.has('telemetry'),
   });
+  // ?videopath=element|canvas|auto picks how video is presented; set before the first open
+  const videoPath = params.get('videopath');
+  if (videoPath === 'element' || videoPath === 'canvas' || videoPath === 'auto') controller.setVideoPath(videoPath);
+  return controller;
 }
 
 let sharedNas: NasClient | null = null;

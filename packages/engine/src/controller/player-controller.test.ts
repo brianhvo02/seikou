@@ -1112,3 +1112,41 @@ describe('opening at a place', () => {
     expect(c.getSnapshot().startFailed).toBeNull();
   });
 });
+
+describe('element video output', () => {
+  function fakeVideo(): HTMLVideoElement {
+    return { muted: false, playsInline: false, disableRemotePlayback: false, paused: true, seeking: false, addEventListener: () => undefined } as unknown as HTMLVideoElement;
+  }
+
+  it('attachVideoElement posts the clock once per element, and a new element replaces the first', () => {
+    const worker = new FakeWorker();
+    const c = new PlayerController(worker, new FakeAudio());
+    const v = fakeVideo();
+    c.attachVideoElement(v);
+    c.attachVideoElement(v);
+    const posts = worker.posted.filter((m) => (m as { type: string }).type === 'attachVideoElement') as Array<{ clock: unknown }>;
+    expect(posts).toHaveLength(1);
+    expect(posts[0].clock).toBeInstanceOf(SharedArrayBuffer);
+    c.attachVideoElement(fakeVideo());
+    expect(worker.posted.filter((m) => (m as { type: string }).type === 'attachVideoElement')).toHaveLength(2);
+  });
+
+  it('setVideoPath posts the command', () => {
+    const worker = new FakeWorker();
+    new PlayerController(worker, new FakeAudio()).setVideoPath('element');
+    expect(worker.posted).toContainEqual({ type: 'setVideoPath', path: 'element' });
+  });
+
+  it('videoInit sets snapshot.videoElement, videoElementStop and a close clear it', () => {
+    const worker = new FakeWorker();
+    const c = new PlayerController(worker, new FakeAudio());
+    expect(c.getSnapshot().videoElement).toBe(false);
+    worker.emit({ type: 'videoInit', bytes: new Uint8Array(), codec: 'avc1.640028', width: 1920, height: 1080 });
+    expect(c.getSnapshot().videoElement).toBe(true);
+    worker.emit({ type: 'videoElementStop' });
+    expect(c.getSnapshot().videoElement).toBe(false);
+    worker.emit({ type: 'videoInit', bytes: new Uint8Array(), codec: 'avc1.640028', width: 1920, height: 1080 });
+    c.closeDisc();
+    expect(c.getSnapshot().videoElement).toBe(false);
+  });
+});

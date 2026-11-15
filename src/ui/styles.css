@@ -418,6 +418,9 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .player { position: relative; height: 100%; background: #000; overflow: hidden; }
 .player.idle { cursor: auto; }
 @media (hover: hover) { .player.idle:not(.in-menu) { cursor: none; } } /* over a disc menu the cursor stays (ruling R9) */
+.player-video, .player-canvas { position: absolute; inset: 0; }
+.player-video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+.player-video[hidden] { display: none; }
 .player-canvas { width: 100%; height: 100%; display: block; touch-action: manipulation; } /* no double-tap zoom competing with double-tap seek */
 /* a long press over a menu shows the controls (ruling R15): no iOS callout or text selection competing with it */
 .player-canvas { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }

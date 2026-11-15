@@ -4,7 +4,8 @@ import type { PlaylistSummary } from '../disc/open-disc';
 import type { UoOp } from '../hdmv/uo-mask';
 import type { Chapter } from '../nav/timeline';
 import type { MemoryProfileName } from '../memory-profile';
-import type { AudioTrack, BufferRequest, EncodeSpec, EngineCommand, EngineEvent, ErrorCode, MenuKey, PlaceState, PlaybackState, ShaderSetData, ShaderState, StartPoint, SubtitleChoice, Telemetry } from '../protocol';
+import type { AudioTrack, BufferRequest, EncodeSpec, EngineCommand, EngineEvent, ErrorCode, MenuKey, PlaceState, PlaybackState, ShaderSetData, ShaderState, StartPoint, SubtitleChoice, Telemetry, VideoPath } from '../protocol';
+import { ElementVideoOutput, type MediaSourceLike } from './element-output';
 import { trackLabel } from './language';
 import { DROP_WARN_RATE, DropMeter } from './drop-meter';
 
@@ -51,6 +52,8 @@ export interface PlayerSnapshot {
   readonly rtcDisc: boolean;
   /** The id of the encoded episode open (openEncode); null while a disc is open, or nothing. */
   readonly encodeId: string | null;
+  /** Whether the engine plays video through the page's `<video>` element (from `videoInit` until `videoElementStop` or a close) rather than the canvas. */
+  readonly videoElement: boolean;
   /** Clicks on an HDMV menu that hit no button, counted since the page loaded (a touch that missed shows the controls). */
   readonly menuTapMisses: number;
   /** Problems the engine found while opening the disc that did not stop it (for example an unreadable playlist). */
@@ -160,6 +163,7 @@ export const INITIAL_SNAPSHOT: PlayerSnapshot = {
   remoteDisc: false,
   rtcDisc: false,
   encodeId: null,
+  videoElement: false,
   menuTapMisses: 0,
   warnings: [],
   currentPlaylistId: null,
@@ -263,16 +267,25 @@ export function reduceEvent(s: PlayerSnapshot, e: EngineEvent): PlayerSnapshot {
       return s.levelSwitch !== 'switching' ? s : { ...s, levelSwitch: e.ok ? 'idle' : { error: e.message } };
     case 'placeState':
       return s; // answers readPlace
-    case 'videoElementQuery':
     case 'videoInit':
+      return s.videoElement ? s : { ...s, videoElement: true };
+    case 'videoElementStop':
+      return s.videoElement ? { ...s, videoElement: false } : s;
+    case 'videoElementQuery':
     case 'videoSegment':
     case 'videoReset':
     case 'videoEnded':
-    case 'videoElementStop':
       return s; // the element path's events; the page's element handler takes them
     case 'shaderStatus':
       return { ...s, shaders: { state: e.state, set: e.set, error: e.error }, shaderDropWarning: e.state === 'active' ? s.shaderDropWarning : null };
   }
+}
+
+/** The browser's media source class: `MediaSource`, else Safari on iPhone's `ManagedMediaSource`; null when neither exists. */
+function mediaSourceConstructor(): (new () => unknown) & { isTypeSupported(type: string): boolean } | null {
+  const g = globalThis as unknown as { MediaSource?: unknown; ManagedMediaSource?: unknown };
+  type C = (new () => unknown) & { isTypeSupported(type: string): boolean };
+  return ((g.MediaSource ?? g.ManagedMediaSource) as C | undefined) ?? null;
 }
 
 /** The backstop for releasing a replaced NAS disc's fetch port serving, should the engine never report the port closed. */
@@ -347,6 +360,7 @@ export class PlayerController {
   private readonly listeners = new Set<() => void>();
   private audioAttached = false;
   private readonly transferredCanvases = new WeakSet<HTMLCanvasElement>();
+  private videoOutput: { readonly element: HTMLVideoElement; readonly output: ElementVideoOutput } | null = null;
   /** The load whose encoding prompt is open: read again when the user picks one (its bytes were transferred). */
   private pendingSubtitleLoad: readonly File[] | null = null;
 
@@ -382,6 +396,8 @@ export class PlayerController {
     });
     worker.onmessage = (event: MessageEvent<EngineEvent>) => {
       const e = event.data;
+      this.videoOutput?.output.handle(e);
+      if (e.type === 'state') this.videoOutput?.output.setPlaying(e.state === 'playing');
       if (e.type === 'soundEffects') audio.loadEffects(e.clips);
       else if (e.type === 'soundEffect') audio.playEffect(e.id);
       else if (e.type === 'remoteTokenNeeded') this.answerTokenRequest();
@@ -473,6 +489,47 @@ export class PlayerController {
     this.transferredCanvases.add(canvas);
     const offscreen = canvas.transferControlToOffscreen();
     this.post({ type: 'attachCanvas', canvas: offscreen }, [offscreen]);
+  }
+
+  /**
+   * Hands the page's `<video>` element to the engine's element video path: the controller plays the fragmented MP4 the
+   * engine sends in it (through `MediaSource`, or `ManagedMediaSource` where that is all there is), keeps it on the
+   * engine's clock and tells the engine where the clock is. An element is attached once; a different one replaces the
+   * first, which is released.
+   * @example ../../examples/player-controller.browser.ts#attachVideoElement
+   */
+  attachVideoElement(video: HTMLVideoElement): void {
+    if (this.videoOutput?.element === video) return;
+    this.videoOutput?.output.dispose();
+    const Ctor = mediaSourceConstructor();
+    const output = new ElementVideoOutput({
+      video,
+      createMediaSource: () => {
+        if (!Ctor) return null;
+        const source = new Ctor();
+        const url = URL.createObjectURL(source as unknown as MediaSource);
+        return { source: source as unknown as MediaSourceLike, url, revoke: () => URL.revokeObjectURL(url) };
+      },
+      isTypeSupported: (type) => Ctor?.isTypeSupported(type) ?? false,
+      epochMs: () => performance.timeOrigin + performance.now(),
+      timeOrigin: performance.timeOrigin,
+      post: (cmd) => this.post(cmd),
+      setTimer: (fn, ms) => {
+        const id = setTimeout(fn, ms);
+        return () => clearTimeout(id);
+      },
+    });
+    this.videoOutput = { element: video, output };
+    this.post({ type: 'attachVideoElement', clock: output.clock });
+  }
+
+  /**
+   * Chooses how the engine presents video: `element` (the page's `<video>`), `canvas` (decoded frames drawn on the
+   * canvas) or `auto` (the engine picks per disc). Set it before opening a disc.
+   * @example ../../examples/player-controller.browser.ts#setVideoPath
+   */
+  setVideoPath(path: VideoPath): void {
+    this.post({ type: 'setVideoPath', path });
   }
 
   /**

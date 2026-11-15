@@ -84,6 +84,14 @@ async function tour(controller: PlayerController, canvas: HTMLCanvasElement, sen
   controller.attachCanvas(canvas); // from here on only the engine draws on it
   // #endregion
 
+  // #region attachVideoElement
+  controller.attachVideoElement(document.createElement('video')); // normally the one in the player's markup
+  // #endregion
+
+  // #region setVideoPath
+  controller.setVideoPath('auto'); // 'element', 'canvas' or 'auto'; before opening a disc
+  // #endregion
+
   // #region resize
   controller.resize(canvas.width, canvas.height); // again whenever the canvas's box changes size
   // #endregion
