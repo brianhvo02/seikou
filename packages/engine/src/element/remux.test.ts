@@ -7,12 +7,54 @@ import { parseSourcePacket } from '@seikou/bdmv/demux/ts-packet';
 import { describe, expect, it } from 'vitest';
 import { fixtureDiscFiles } from '../../../../tests/helpers/fixture-disc';
 import { VIDEO_PID } from '../../../../tests/helpers/synthetic-disc';
+import { ELEMENT_TIME_OFFSET_US, mediaSegment } from './fmp4';
 import { ElementRemux } from './remux';
 import type { RemuxOutput } from './remux';
 
 interface Unit { data: Uint8Array; ptsUs: number; dtsUs?: number; inRange: boolean }
 
 const toUs = (t: number): number => (t * 100) / 9;
+
+/** Units as the pipeline delivers them: times relative to the first picture's PTS (a play item's IN time). */
+function mapped(disc: string, count: number): Unit[] {
+  const us = units(disc, count);
+  const base = us[0].ptsUs;
+  return us.map((u) => ({ ...u, ptsUs: u.ptsUs - base, dtsUs: u.dtsUs === undefined ? undefined : u.dtsUs - base }));
+}
+
+interface Parsed { tfdt: number; durs: number[]; cts: number[] }
+
+function parseSegment(b: Uint8Array): Parsed {
+  const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const at = (t: string): number => {
+    for (let o = 4; o + 4 <= b.length; o++) if (String.fromCharCode(...b.subarray(o, o + 4)) === t) return o - 4;
+    throw new Error(t);
+  };
+  const td = at('tfdt');
+  const tfdt = v.getUint32(td + 12) * 2 ** 32 + v.getUint32(td + 16);
+  const tr = at('trun');
+  const n = v.getUint32(tr + 12);
+  const durs: number[] = [];
+  const cts: number[] = [];
+  let p = tr + 20;
+  for (let i = 0; i < n; i++) {
+    durs.push(v.getUint32(p));
+    cts.push(v.getInt32(p + 12));
+    p += 16;
+  }
+  return { tfdt, durs, cts };
+}
+
+function segments(out: RemuxOutput[]): Extract<RemuxOutput, { kind: 'segment' }>[] {
+  return out.filter((o) => o.kind === 'segment') as Extract<RemuxOutput, { kind: 'segment' }>[];
+}
+
+function expectAbut(out: RemuxOutput[]): void {
+  const ps = segments(out).map((s) => parseSegment(s.bytes));
+  for (let i = 0; i + 1 < ps.length; i++) {
+    expect(ps[i].tfdt + ps[i].durs.reduce((a, b) => a + b, 0)).toBe(ps[i + 1].tfdt);
+  }
+}
 
 function units(disc: string, count: number): Unit[] {
   const m2ts = fixtureDiscFiles(disc).get('BDMV/STREAM/00001.m2ts')!;
@@ -80,36 +122,65 @@ describe('ElementRemux', () => {
     expect(segs.length).toBe(1);
   });
 
-  it('keeps composition offsets equal to pts - dts for B-frames', () => {
-    const us = units('disc2', 24);
+  it('keeps composition offsets equal to pts - dts for B-frames and bounds the segment by min and max PTS', () => {
+    const us = units('disc2', 48);
     expect(us.some((u) => u.dtsUs !== undefined && u.dtsUs !== u.ptsUs)).toBe(true);
     const out = run(us);
-    const segs = out.filter((o) => o.kind === 'segment') as Extract<RemuxOutput, { kind: 'segment' }>[];
-    expect(segs.length).toBeGreaterThan(0);
-    // trun: version 1, flags with duration, size, flags, cts offset; walk it
-    const offs: number[] = [];
-    for (const s of segs) {
-      const b = s.bytes;
-      const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
-      for (let o = 0; o + 8 <= b.length; o++) {
-        if (b[o + 4] === 0x74 && b[o + 5] === 0x72 && b[o + 6] === 0x75 && b[o + 7] === 0x6e) {
-          const flags = v.getUint32(o + 8) & 0xffffff;
-          const n = v.getUint32(o + 12);
-          let p = o + 16;
-          if (flags & 1) p += 4;
-          if (flags & 4) p += 4;
-          for (let i = 0; i < n; i++) {
-            if (flags & 0x100) p += 4;
-            if (flags & 0x200) p += 4;
-            if (flags & 0x400) p += 4;
-            if (flags & 0x800) { offs.push(v.getInt32(p)); p += 4; }
-          }
-        }
-      }
-    }
+    const segs = segments(out);
+    const parsed = segs.map((x) => parseSegment(x.bytes));
+    const offs = parsed.flatMap((p) => p.cts);
     const expected = us.map((u) => Math.round(u.ptsUs * 0.09) - Math.round((u.dtsUs ?? u.ptsUs) * 0.09));
-    expect(offs.length).toBe(us.length);
     expect(offs).toEqual(expected);
+    const last = parsed[parsed.length - 1];
+    const lastSeg = segs[segs.length - 1];
+    const maxPts = Math.max(...us.slice(us.length - last.cts.length).map((u) => u.ptsUs));
+    expect(lastSeg.endUs).toBeGreaterThan(maxPts);
+    expect(lastSeg.endUs).toBeCloseTo(maxPts + (last.durs[last.durs.length - 1] * 1e6) / 90000, 3);
+    expect(segs[0].startUs).toBe(Math.min(...us.slice(0, parsed[0].cts.length).map((u) => u.ptsUs)));
+    expectAbut(out);
+  });
+
+  it('writes a positive tfdt of dts + offset for playlist-mapped B-frame units', () => {
+    const us = mapped('disc2', 48);
+    expect(us[0].dtsUs!).toBeLessThan(0);
+    const out = run(us);
+    const first = parseSegment(segments(out)[0].bytes);
+    expect(first.tfdt).toBe(Math.round(us[0].dtsUs! * 0.09) + Math.round(ELEMENT_TIME_OFFSET_US * 0.09));
+    expect(first.tfdt).toBeGreaterThan(0);
+    expect(segments(out)[0].startUs).toBe(0);
+    expectAbut(out);
+  });
+
+  it('segments of disc1 abut', () => {
+    expectAbut(run(units('disc1', 48)));
+  });
+
+  it('uses the next IRAP decode time for the last sample of a segment', () => {
+    const us = units('disc1', 1);
+    const a = us[0];
+    const out = run([a, { ...a, ptsUs: a.ptsUs + 125_000, dtsUs: a.ptsUs + 125_000 }]);
+    const segs = segments(out);
+    expect(segs.length).toBe(2);
+    expect(parseSegment(segs[0].bytes).durs).toEqual([11250]);
+    expectAbut(out);
+  });
+
+  it('rejects a negative or fractional base decode time', () => {
+    const s = [{ data: new Uint8Array(4), durationTicks: 1, ctsOffsetTicks: 0, sync: true }];
+    expect(() => mediaSegment(1, -1, s)).toThrow(RangeError);
+    expect(() => mediaSegment(1, 1.5, s)).toThrow(RangeError);
+  });
+
+  it('remuxes HEVC into an hvc1 init and two segments', () => {
+    const us = mapped('disc-hdr', 48);
+    const out: RemuxOutput[] = [];
+    const r = new ElementRemux('hevc', (o) => out.push(o));
+    for (const u of us) r.push(u);
+    r.flush();
+    expect(out[0].kind).toBe('init');
+    expect((out[0] as Extract<RemuxOutput, { kind: 'init' }>).codec).toMatch(/^hvc1\./);
+    expect(segments(out).length).toBe(2);
+    expectAbut(out);
   });
 
   it('reset then the same units gives a second init', () => {

@@ -3,7 +3,7 @@ import { analyzeAvc } from '@seikou/bdmv/codecs/h264';
 import { analyzeHevc } from '@seikou/bdmv/codecs/hevc';
 import { findParameterSets } from '@seikou/bdmv/codecs/param-sets';
 import type { ParameterSets } from '@seikou/bdmv/codecs/param-sets';
-import { initSegment, mediaSegment, TIMESCALE, toLengthPrefixed, videoTrack } from './fmp4';
+import { ELEMENT_TIME_OFFSET_US, initSegment, mediaSegment, TIMESCALE, toLengthPrefixed, videoTrack } from './fmp4';
 import type { Fmp4Sample } from './fmp4';
 
 /**
@@ -26,6 +26,7 @@ interface Held {
 const LONE_SAMPLE_TICKS = 3750;
 
 const ticks = (us: number): number => Math.round(us * 0.09);
+const OFFSET_TICKS = ticks(ELEMENT_TIME_OFFSET_US);
 
 function paramKey(p: ParameterSets): string {
   return [p.vps, p.sps, p.pps].map((list) => list.map((n) => Array.from(n, (b) => b.toString(16).padStart(2, '0')).join('')).join(',')).join('|');
@@ -58,7 +59,7 @@ export class ElementRemux {
     const info = this.coding === 'avc' ? analyzeAvc(unit.data) : analyzeHevc(unit.data);
     const irap = this.coding === 'avc' ? info.idr : info.key;
     if (irap) {
-      this.flush();
+      this.flushSegment(ticks(unit.dtsUs ?? unit.ptsUs));
       const params = findParameterSets(info.data, this.coding);
       if (params.sps.length > 0) {
         const key = paramKey(params);
@@ -80,8 +81,12 @@ export class ElementRemux {
     });
   }
 
-  /** Emits the segment being collected, if any. */
+  /** Emits the segment being collected, if any (the end of the stream: the last sample lasts as long as the one before). */
   flush(): void {
+    this.flushSegment(null);
+  }
+
+  private flushSegment(nextDtsTicks: number | null): void {
     const held = this.held;
     if (held.length === 0) return;
     this.held = [];
@@ -90,12 +95,19 @@ export class ElementRemux {
       const duration = next ? next.dtsTicks - h.dtsTicks : 0;
       return { data: toLengthPrefixed(h.data), durationTicks: duration, ctsOffsetTicks: h.ptsTicks - h.dtsTicks, sync: i === 0 };
     });
-    if (samples.length === 1) samples[0].durationTicks = LONE_SAMPLE_TICKS;
-    else samples[samples.length - 1].durationTicks = samples[samples.length - 2].durationTicks;
-    const last = held[held.length - 1];
-    const startUs = held[0].ptsUs;
-    const endUs = last.ptsUs + (samples[samples.length - 1].durationTicks * 1e6) / TIMESCALE;
-    const bytes = mediaSegment(this.sequence++, held[0].dtsTicks, samples);
+    const lastIdx = samples.length - 1;
+    if (nextDtsTicks !== null) samples[lastIdx].durationTicks = nextDtsTicks - held[lastIdx].dtsTicks;
+    else if (samples.length === 1) samples[0].durationTicks = LONE_SAMPLE_TICKS;
+    else samples[lastIdx].durationTicks = samples[lastIdx - 1].durationTicks;
+    let first = 0;
+    let max = 0;
+    held.forEach((h, i) => {
+      if (h.ptsTicks < held[first].ptsTicks) first = i;
+      if (h.ptsTicks > held[max].ptsTicks) max = i;
+    });
+    const startUs = held[first].ptsUs;
+    const endUs = held[max].ptsUs + (samples[max].durationTicks * 1e6) / TIMESCALE;
+    const bytes = mediaSegment(this.sequence++, held[0].dtsTicks + OFFSET_TICKS, samples);
     this.lastEndUs = endUs;
     this.emit({ kind: 'segment', bytes, startUs, endUs });
   }

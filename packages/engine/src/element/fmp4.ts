@@ -39,6 +39,13 @@ export function videoTrack(coding: 'avc' | 'hevc', params: ParameterSets): Video
 }
 
 /**
+ * Media time on the video element is playlist time plus this offset, so that no MP4 decode time is negative (a play
+ * item's first picture can decode before the item's IN time); the page subtracts it again.
+ * @internal
+ */
+export const ELEMENT_TIME_OFFSET_US = 10_000_000;
+
+/**
  * One coded picture of a media segment.
  * @internal
  */
@@ -170,6 +177,7 @@ export function initSegment(track: VideoTrack): Uint8Array {
  * @internal
  */
 export function mediaSegment(sequence: number, baseDecodeTicks: number, samples: readonly Fmp4Sample[]): Uint8Array {
+  if (!Number.isInteger(baseDecodeTicks) || baseDecodeTicks < 0) throw new RangeError(`bad base decode time ${baseDecodeTicks}`);
   const build = (dataOffset: number): Uint8Array => {
     const entries: number[] = [];
     for (const s of samples) {
