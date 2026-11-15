@@ -1,0 +1,110 @@
+// SPDX-License-Identifier: LGPL-3.0-or-later
+import { analyzeAvc } from '@seikou/bdmv/codecs/h264';
+import { analyzeHevc } from '@seikou/bdmv/codecs/hevc';
+import { findParameterSets } from '@seikou/bdmv/codecs/param-sets';
+import type { ParameterSets } from '@seikou/bdmv/codecs/param-sets';
+import { initSegment, mediaSegment, TIMESCALE, toLengthPrefixed, videoTrack } from './fmp4';
+import type { Fmp4Sample } from './fmp4';
+
+/**
+ * What `ElementRemux` hands out: an init segment (a new one whenever the stream's parameter sets change) or a media
+ * segment from one IRAP unit up to the next, with the playlist time it covers.
+ * @internal
+ */
+export type RemuxOutput =
+  | { kind: 'init'; bytes: Uint8Array; codec: string; width: number; height: number }
+  | { kind: 'segment'; bytes: Uint8Array; startUs: number; endUs: number };
+
+interface Held {
+  data: Uint8Array;
+  ptsTicks: number;
+  dtsTicks: number;
+  ptsUs: number;
+}
+
+/** Duration of a segment's only sample (one frame at 24 fps), the one case with no neighbour to measure against. */
+const LONE_SAMPLE_TICKS = 3750;
+
+const ticks = (us: number): number => Math.round(us * 0.09);
+
+function paramKey(p: ParameterSets): string {
+  return [p.vps, p.sps, p.pps].map((list) => list.map((n) => Array.from(n, (b) => b.toString(16).padStart(2, '0')).join('')).join(',')).join('|');
+}
+
+/**
+ * Turns the pipeline's video units (Annex B access units in playlist time) into fragmented MP4 for a `<video>` element:
+ * an init segment from the first parameter sets and a media segment per group of pictures.
+ * @internal
+ */
+export class ElementRemux {
+  private held: Held[] = [];
+  private key: string | null = null;
+  private sequence = 1;
+  private lastEndUs = -Infinity;
+
+  constructor(
+    private readonly coding: 'avc' | 'hevc',
+    private readonly emit: (out: RemuxOutput) => void,
+  ) {}
+
+  /** The end of the last emitted segment in playlist time; `-Infinity` before the first. */
+  get endUs(): number {
+    return this.lastEndUs;
+  }
+
+  /** Takes one video unit; units outside the play range are dropped. */
+  push(unit: { data: Uint8Array; ptsUs: number; dtsUs?: number; inRange: boolean }): void {
+    if (!unit.inRange) return;
+    const info = this.coding === 'avc' ? analyzeAvc(unit.data) : analyzeHevc(unit.data);
+    const irap = this.coding === 'avc' ? info.idr : info.key;
+    if (irap) {
+      this.flush();
+      const params = findParameterSets(info.data, this.coding);
+      if (params.sps.length > 0) {
+        const key = paramKey(params);
+        if (key !== this.key) {
+          const track = videoTrack(this.coding, params);
+          this.key = key;
+          this.emit({ kind: 'init', bytes: initSegment(track), codec: track.codec, width: track.width, height: track.height });
+        }
+      }
+      if (this.key === null) return;
+    } else if (this.held.length === 0) {
+      return;
+    }
+    this.held.push({
+      data: info.data,
+      ptsTicks: ticks(unit.ptsUs),
+      dtsTicks: ticks(unit.dtsUs ?? unit.ptsUs),
+      ptsUs: unit.ptsUs,
+    });
+  }
+
+  /** Emits the segment being collected, if any. */
+  flush(): void {
+    const held = this.held;
+    if (held.length === 0) return;
+    this.held = [];
+    const samples: Fmp4Sample[] = held.map((h, i) => {
+      const next = held[i + 1];
+      const duration = next ? next.dtsTicks - h.dtsTicks : 0;
+      return { data: toLengthPrefixed(h.data), durationTicks: duration, ctsOffsetTicks: h.ptsTicks - h.dtsTicks, sync: i === 0 };
+    });
+    if (samples.length === 1) samples[0].durationTicks = LONE_SAMPLE_TICKS;
+    else samples[samples.length - 1].durationTicks = samples[samples.length - 2].durationTicks;
+    const last = held[held.length - 1];
+    const startUs = held[0].ptsUs;
+    const endUs = last.ptsUs + (samples[samples.length - 1].durationTicks * 1e6) / TIMESCALE;
+    const bytes = mediaSegment(this.sequence++, held[0].dtsTicks, samples);
+    this.lastEndUs = endUs;
+    this.emit({ kind: 'segment', bytes, startUs, endUs });
+  }
+
+  /** Drops everything held and forgets the parameter sets; the next IRAP unit gives an init segment again. */
+  reset(): void {
+    this.held = [];
+    this.key = null;
+    this.sequence = 1;
+    this.lastEndUs = -Infinity;
+  }
+}
