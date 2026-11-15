@@ -15,16 +15,17 @@ describe('the HDR synthetic disc', () => {
     const video = clpi.programs[0].streams.find((s) => s.pid === VIDEO_PID)!;
     expect(video.codingType).toBe(CodingType.HEVC);
 
-    // The stream entry: PID (2), length (1), coding type (1), format/rate (1), aspect (1), then cr_flag, dynamic range
-    // type (4 bits), colour space (4 bits).
-    let at = -1;
+    // The parser keeps no byte offsets, so find the stream entry by its PID, length (5) and coding type, which must occur
+    // exactly once. After them: format/rate (1), then the aspect byte (aspect, oc_flag, cr_flag), then dynamic_range_type
+    // (high nibble) and color_space (low nibble), as libbluray's _parse_stream_attr reads them.
+    const hits: number[] = [];
     for (let i = 0; i + 3 < clpiBytes.length; i++) {
-      if (clpiBytes[i] === VIDEO_PID >> 8 && clpiBytes[i + 1] === (VIDEO_PID & 0xff) && clpiBytes[i + 2] === 5 && clpiBytes[i + 3] === CodingType.HEVC) at = i;
+      if (clpiBytes[i] === VIDEO_PID >> 8 && clpiBytes[i + 1] === (VIDEO_PID & 0xff) && clpiBytes[i + 2] === 5 && clpiBytes[i + 3] === CodingType.HEVC) hits.push(i);
     }
-    expect(at).toBeGreaterThan(0);
-    const attrs = (clpiBytes[at + 6] << 8) | clpiBytes[at + 7];
-    expect((attrs >> 11) & 0xf).toBe(1);
-    expect((attrs >> 7) & 0xf).toBe(2);
+    expect(hits).toHaveLength(1);
+    const byte2 = clpiBytes[hits[0] + 6];
+    expect(byte2 >> 4).toBe(1);
+    expect(byte2 & 0xf).toBe(2);
 
     const m2ts = files.get('BDMV/STREAM/00001.m2ts')!;
     let first: Uint8Array | null = null;

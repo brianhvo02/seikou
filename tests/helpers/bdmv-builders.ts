@@ -126,8 +126,9 @@ export function writeCodingInfo(
   w.u8(5 + extra).u8(codingType);
   if (isVideoCoding(codingType)) {
     w.bits(4, opts.format ?? 6).bits(4, opts.rate ?? 1).zeros(1);
-    // Two more bytes: cr_flag, dynamic_range_type (4), color_space (4), hdr_plus_flag, reserved (clpi_parse.c, HEVC)
-    if (codingType === CodingType.HEVC) w.bits(1, 0).bits(4, opts.dynamicRange ?? 0).bits(4, opts.colorSpace ?? 0).bits(7, 0);
+    // After the aspect byte (aspect, 2 skipped bits, oc_flag, cr_flag): dynamic_range_type (4) and color_space (4), then
+    // hdr_plus_flag and 7 reserved bits (clpi_parse.c _parse_stream_attr, HEVC)
+    if (codingType === CodingType.HEVC) w.bits(4, opts.dynamicRange ?? 0).bits(4, opts.colorSpace ?? 0).bits(1, 0).bits(7, 0);
     else w.zeros(2);
   } else if (isAudioCoding(codingType)) {
     w.bits(4, opts.format ?? 3).bits(4, opts.rate ?? 1).ascii(opts.lang ?? 'eng');
