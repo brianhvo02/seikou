@@ -89,8 +89,25 @@ const KEEP_BEHIND_S = 10;
 const SYNC_REPORT_MS = 250;
 /** How long a new media source may take to open before the element path fails. */
 const SOURCE_OPEN_TIMEOUT_MS = 5000;
+/** The most video (seconds) ahead of the playhead at which a `waiting` element counts as run dry. */
+const DRY_AHEAD_S = 0.25;
+/** How often a waiting element looks whether the clock has started moving. */
+const START_POLL_MS = 4;
 /** The smallest playbackRate change written to the element, so it isn't touched every frame. */
 const MIN_RATE_CHANGE = 0.0002;
+
+/** How far a frame's expected display time may lie from the callback's own time and still be believed. */
+const DISPLAY_TIME_SLACK_MS = 1000;
+
+/**
+ * When a frame shows, on the page's clock (milliseconds since its time origin): its `expectedDisplayTime`, or the
+ * callback's time when that is missing or not on the page's clock (WebKit gives a time from another origin, about
+ * -1.4e9 ms); null when neither is.
+ */
+function displayTime(now: number, expectedDisplayTime: number): number | null {
+  if (Number.isFinite(expectedDisplayTime) && Number.isFinite(now) && Math.abs(expectedDisplayTime - now) <= DISPLAY_TIME_SLACK_MS) return expectedDisplayTime;
+  return Number.isFinite(now) ? now : null;
+}
 
 function mimeType(codec: string): string {
   return `video/mp4; codecs="${codec}"`;
@@ -125,6 +142,8 @@ export class ElementVideoOutput {
   private frameId: number | null = null;
   private cancelSyncTimer: (() => void) | null = null;
   private cancelOpenTimer: (() => void) | null = null;
+  /** While the element waits to start for the clock to move: the cancel of the next look at the clock. */
+  private cancelStartTimer: (() => void) | null = null;
   /** Whether a videoStalled was posted that no videoResumed has answered yet. */
   private stalled = false;
   /** The last videoReset's generation, echoed in videoBuffered and videoStalled so the engine can drop reports from before it. */
@@ -142,11 +161,14 @@ export class ElementVideoOutput {
     // playing, not seeking, after the first segment is placed is a stall; `playing` answers only a posted stall.
     video.addEventListener('waiting', () => {
       if (!this.attached || !this.playing || this.pendingStart || video.seeking || this.stalled) return;
+      // Chrome also fires `waiting` for a moment when its decoder falls a frame behind, with seconds buffered ahead: only
+      // an element with almost nothing ahead of the playhead has run dry
+      const buffer = this.attached.buffer;
+      if (buffer && this.aheadS(buffer) > DRY_AHEAD_S) return;
       this.stalled = true;
       deps.post({ type: 'videoStalled', generation: this.generation });
       // the engine resumes only on a buffered report made after the stall, and no append may follow (the playlist read
       // to its end, or the reader held at its lead): report what is held now
-      const buffer = this.attached.buffer;
       if (buffer) this.reportBuffered(buffer);
     });
     video.addEventListener('playing', () => {
@@ -214,6 +236,7 @@ export class ElementVideoOutput {
     this.pendingStart = { startUs };
     this.playing = !paused;
     this.stalled = false;
+    this.cancelStart();
     this.sync.reset();
     this.offsets = [];
     this.queue = [];
@@ -367,6 +390,14 @@ export class ElementVideoOutput {
     return start < end ? { k: 'remove', start, end } : null;
   }
 
+  /** Seconds buffered ahead of the playhead in the range holding it; 0 when no range holds it. */
+  private aheadS(b: SourceBufferLike): number {
+    const r = b.buffered;
+    const t = this.deps.video.currentTime;
+    for (let i = 0; i < r.length; i++) if (r.start(i) <= t && t <= r.end(i)) return r.end(i) - t;
+    return 0;
+  }
+
   /** Posts videoBuffered with the end of the range holding max(currentTime, the first range's start), so a session started late reports its data before the playhead moves. */
   private reportBuffered(b: SourceBufferLike): void {
     const r = b.buffered;
@@ -382,27 +413,45 @@ export class ElementVideoOutput {
 
   private applyPlaying(): void {
     const video = this.deps.video;
-    if (this.playing) {
-      if (video.paused) void video.play().catch(() => undefined);
-    } else if (!video.paused) {
-      video.pause();
+    if (!this.playing) {
+      this.cancelStart();
+      if (!video.paused) video.pause();
+      return;
     }
+    if (!video.paused) return;
+    // The engine plays before its clock moves (the audio output's latency): the element waits for the clock to move, so
+    // it does not start ahead of the sound.
+    if (this.reader.read()?.running === true) {
+      this.cancelStart();
+      void video.play().catch(() => undefined);
+    } else if (!this.cancelStartTimer) {
+      this.cancelStartTimer = this.deps.setTimer(() => {
+        this.cancelStartTimer = null;
+        if (this.attached && !this.pendingStart) this.applyPlaying();
+      }, START_POLL_MS);
+    }
+  }
+
+  /** Stops looking whether the clock has started moving. */
+  private cancelStart(): void {
+    this.cancelStartTimer?.();
+    this.cancelStartTimer = null;
   }
 
   private startFrames(): void {
     if (this.frameId !== null) return;
-    this.frameId = this.deps.video.requestVideoFrameCallback((_now, meta) => {
+    this.frameId = this.deps.video.requestVideoFrameCallback((now, meta) => {
       this.frameId = null;
       if (!this.attached) return;
-      this.onFrame(meta.mediaTime, meta.expectedDisplayTime);
+      this.onFrame(meta.mediaTime, displayTime(now, meta.expectedDisplayTime));
       this.startFrames();
     });
   }
 
-  private onFrame(mediaTimeS: number, expectedDisplayTime: number): void {
+  private onFrame(mediaTimeS: number, displayMs: number | null): void {
     if (this.pendingStart) return;
     const video = this.deps.video;
-    const epoch = Number.isFinite(expectedDisplayTime) ? this.deps.timeOrigin + expectedDisplayTime : this.deps.epochMs();
+    const epoch = displayMs !== null ? this.deps.timeOrigin + displayMs : this.deps.epochMs();
     const clockUs = this.reader.clockAt(epoch);
     const action = this.sync.onFrame(mediaTimeS * 1e6 - ELEMENT_TIME_OFFSET_US, clockUs, this.playing);
     // videoSync carries clock minus frame time, as the canvas path measures it.
@@ -452,6 +501,7 @@ export class ElementVideoOutput {
     }
     this.cancelSyncTimer?.();
     this.cancelSyncTimer = null;
+    this.cancelStart();
     this.queue = [];
     this.inFlight = null;
     this.offsets = [];

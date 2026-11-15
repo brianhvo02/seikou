@@ -198,10 +198,10 @@ class FakeVideo implements VideoElementLike {
     this.loads++;
   }
   /** Runs the pending frame callbacks once (playlist-time media, element-relative display time in ms). */
-  presentFrame(mediaTimeS: number, expectedDisplayTime: number): void {
+  presentFrame(mediaTimeS: number, expectedDisplayTime: number, now = expectedDisplayTime): void {
     const cbs = [...this.frames.values()];
     this.frames.clear();
-    for (const cb of cbs) cb(expectedDisplayTime, { mediaTime: mediaTimeS, expectedDisplayTime });
+    for (const cb of cbs) cb(now, { mediaTime: mediaTimeS, expectedDisplayTime });
   }
 }
 
@@ -338,6 +338,7 @@ describe('ElementVideoOutput', () => {
 
   it('places the playhead once the first segment after a reset is appended, and plays', () => {
     const t = setup();
+    new ClockBlockWriter(t.out.clock).write(30_000_000, true, 2000);
     t.out.handle(reset(30_000_000, false));
     t.out.handle(init());
     t.ms.fireOpen();
@@ -349,6 +350,41 @@ describe('ElementVideoOutput', () => {
     expect(t.video.plays).toBe(1);
     // A session resumed at 30 s reports the range holding the playhead.
     expect(commands(t.posted, 'videoBuffered')).toEqual([{ type: 'videoBuffered', endUs: 32_000_000, generation: 1 }]);
+  });
+
+  it('waits to play until the engine publishes its clock as running, so the element does not start ahead of the sound', () => {
+    const t = setup();
+    const clock = new ClockBlockWriter(t.out.clock);
+    clock.write(0, false, 2000); // the engine plays, but its clock holds for the audio output's latency
+    t.out.handle(reset(0, false));
+    t.out.handle(init());
+    t.ms.fireOpen();
+    t.sb().finish();
+    appendSegment(t, 1, 0, 2);
+    expect(t.video.currentTime).toBeCloseTo(OFFSET_S, 9);
+    expect(t.video.plays).toBe(0);
+    t.fireTimers();
+    expect(t.video.plays).toBe(0);
+    clock.write(10_000, true, 2010);
+    t.fireTimers();
+    expect(t.video.plays).toBe(1);
+    expect(t.timers.filter((x) => !x.cancelled && x.ms < 100)).toEqual([]); // no more looks at the clock
+  });
+
+  it('a pause while waiting for the clock never plays the element', () => {
+    const t = setup();
+    const clock = new ClockBlockWriter(t.out.clock);
+    clock.write(0, false, 2000);
+    t.out.handle(reset(0, false));
+    t.out.handle(init());
+    t.ms.fireOpen();
+    t.sb().finish();
+    appendSegment(t, 1, 0, 2);
+    t.out.setPlaying(false);
+    clock.write(10_000, true, 2010);
+    t.fireTimers();
+    expect(t.video.plays).toBe(0);
+    expect(t.video.paused).toBe(true);
   });
 
   it('a paused reset leaves the element paused', () => {
@@ -423,6 +459,7 @@ describe('ElementVideoOutput', () => {
     const t = opened(); // generation 1
     appendSegment(t, 1, 0, 2);
     t.out.setPlaying(true);
+    t.video.currentTime = 1.96 + OFFSET_S; // run dry: one frame left
     t.video.fire('waiting');
     expect(commands(t.posted, 'videoBuffered').map((c) => c.generation)).toEqual([1, 1]); // after the append, and with the stall
     expect(commands(t.posted, 'videoStalled').map((c) => c.generation)).toEqual([1]);
@@ -432,6 +469,7 @@ describe('ElementVideoOutput', () => {
     t.sb().finish(); // the removal
     t.sb().finish(); // the init
     appendSegment(t, 2, 60, 62);
+    t.video.currentTime = 61.96 + OFFSET_S;
     t.video.fire('waiting');
     expect(commands(t.posted, 'videoBuffered').map((c) => c.generation)).toEqual([2, 2]);
     expect(commands(t.posted, 'videoStalled').map((c) => c.generation)).toEqual([2]);
@@ -484,10 +522,21 @@ describe('ElementVideoOutput', () => {
     expect(t.video.frames.size).toBe(1);
   });
 
-  it('leaves playbackRate alone when the change is under 0.0002', () => {
+  it("takes the callback's time when the frame's display time is not on the page's clock (WebKit)", () => {
     const t = opened();
     appendSegment(t, 1, 0, 4);
     new ClockBlockWriter(t.out.clock).write(1_000_000, true, 2000);
+    // WebKit's expectedDisplayTime comes from another time origin; believed, the clock there would be days off and the
+    // element seeked to a negative time
+    t.video.presentFrame(1.05 + OFFSET_S, -1_415_423_273.6, 1000);
+    expect(t.video.currentTime).toBeCloseTo(OFFSET_S, 9); // no seek
+    expect(t.video.playbackRate).toBeCloseTo(0.995, 9);
+  });
+
+  it('leaves playbackRate alone when the change is under 0.0002', () => {
+    const t = opened();
+    new ClockBlockWriter(t.out.clock).write(1_000_000, true, 2000); // running already: the element starts at rate 1
+    appendSegment(t, 1, 0, 4);
     t.video.presentFrame(1.0002 + OFFSET_S, 1000); // 0.2 ms ahead: rate 1 − 0.00005
     expect(t.video.rateWrites).toBe(0);
     expect(t.video.playbackRate).toBe(1);
@@ -525,8 +574,10 @@ describe('ElementVideoOutput', () => {
     appendSegment(t, 1, 0, 2);
     t.video.fire('waiting');
     expect(commands(t.posted, 'videoStalled')).toEqual([]);
+    new ClockBlockWriter(t.out.clock).write(0, true, 2000);
     t.out.setPlaying(true);
     expect(t.video.plays).toBe(1);
+    t.video.currentTime = 1.96 + OFFSET_S;
     t.video.fire('waiting');
     t.video.fire('waiting');
     expect(commands(t.posted, 'videoStalled')).toHaveLength(1);
@@ -541,9 +592,21 @@ describe('ElementVideoOutput', () => {
     const t = opened(0, false, 3);
     appendSegment(t, 1, 0, 2);
     t.posted.length = 0;
+    t.video.currentTime = 1.96 + OFFSET_S;
     t.video.fire('waiting');
     expect(t.posted.map((c) => c.type)).toEqual(['videoStalled', 'videoBuffered']);
     expect(t.posted[1]).toEqual({ type: 'videoBuffered', endUs: 2_000_000, generation: 3 });
+  });
+
+  it('waiting with more than a quarter second buffered ahead is a hiccup, not a stall', () => {
+    const t = opened(0, false);
+    appendSegment(t, 1, 0, 2);
+    t.video.currentTime = 1.7 + OFFSET_S; // 0.3 s ahead
+    t.video.fire('waiting');
+    expect(commands(t.posted, 'videoStalled')).toEqual([]);
+    t.video.currentTime = 1.8 + OFFSET_S; // 0.2 s ahead: run dry
+    t.video.fire('waiting');
+    expect(commands(t.posted, 'videoStalled')).toHaveLength(1);
   });
 
   it('waiting while seeking posts nothing', () => {

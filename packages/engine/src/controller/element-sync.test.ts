@@ -99,6 +99,41 @@ describe('ElementSync', () => {
     expect(maxAbs(offsets.slice(-24 * 60))).toBeLessThan(1000);
   });
 
+  it.each([-25_000, 40_000])('catches up a %s us start in well under a second, then the loop holds it', (startOffsetUs) => {
+    const { offsets, seeks } = simulate({ drift: 1, frames: 24 * 10, startOffsetUs });
+    expect(seeks).toBe(0);
+    // four frames to measure, then at 10% about 6–10 frames to remove the step
+    expect(maxAbs(offsets.slice(16))).toBeLessThanOrEqual(5_000);
+  });
+
+  it('catches up at the rate that removes the averaged offset in about 0.2 s of media, then hands back to the loop', () => {
+    const s = new ElementSync();
+    const frame = 41_667;
+    const rates: number[] = [];
+    for (let i = 0; i < 4; i++) rates.push(s.onFrame(1_000_000 + i * frame - 20_000, 1_000_000 + i * frame, true).rate);
+    expect(rates[3]).toBeCloseTo(1.1, 9); // 20 ms behind: 10% fast
+    // 20 ms at 10% fast is 20 / (1 − 1/1.1) ≈ 220 ms of media, about five frames; then rate 1 less the trim
+    let n = 0;
+    let rate = rates[3]!;
+    while (rate > 1.05 && n < 20) {
+      n++;
+      rate = s.onFrame(1_000_000 + (3 + n) * frame - 20_000, 1_000_000 + (3 + n) * frame, true).rate; // open loop: the offsets seen meanwhile do not count
+    }
+    expect(n).toBe(6);
+    expect(Math.abs(rate - 1)).toBeLessThanOrEqual(0.005);
+  });
+
+  it.each([
+    [12_000, 0.94],
+    [-30_000, 1.15],
+    [60_000, 0.75],
+  ])('sets a catch-up for %s us to remove it in 0.2 s of media, at most 25%', (offsetUs, expected) => {
+    const s = new ElementSync();
+    let rate = 1;
+    for (let i = 0; i < 4; i++) rate = s.onFrame(1_000_000 + i * 41_667 + offsetUs, 1_000_000 + i * 41_667, true).rate;
+    expect(rate).toBeCloseTo(expected, 9);
+  });
+
   it('stays within 10 ms under clock jitter and drift', () => {
     const { offsets, seeks } = simulate({ drift: 1.002, frames: 60 * 120, fps: 60, jitterUs: 5000 });
     expect(seeks).toBe(0);

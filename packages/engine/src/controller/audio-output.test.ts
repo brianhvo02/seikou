@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Control, ringViews } from '../audio/ring';
 import { AudioOutput } from './audio-output';
 
 vi.mock('./pcm-worklet.ts?worker&url', () => ({ default: 'worklet.js' }));
@@ -65,5 +66,39 @@ describe('AudioOutput audio session', () => {
     };
     await expect(setup(throwing).out.ensureStarted()).resolves.toBeDefined();
     vi.useRealTimers();
+  });
+});
+
+describe('AudioOutput latency', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('publishes the latency as unknown while the output reads 0, then what it reads, soon after', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'AudioWorkletNode',
+      class {
+        connect(): { connect: () => undefined } {
+          return { connect: () => undefined };
+        }
+      },
+    );
+    const context = fakeContext([]) as unknown as { outputLatency: number; baseLatency: number; currentTime: number };
+    context.currentTime = 0;
+    context.baseLatency = 0.0213;
+    const ring = await new AudioOutput(() => context as unknown as AudioContext, undefined).ensureStarted();
+    const latency = (): number => ringViews(ring).control[Control.LatencyUs]!;
+    expect(latency()).toBe(-1); // Chrome before the output has rendered: not known
+    context.currentTime = 0.043;
+    context.outputLatency = 0.056;
+    vi.advanceTimersByTime(5);
+    expect(latency()).toBe(77_300);
+    // an output that keeps saying 0 has no latency, once it has rendered for a while
+    context.outputLatency = 0;
+    context.currentTime = 0.3;
+    vi.advanceTimersByTime(50);
+    expect(latency()).toBe(21_300);
   });
 });

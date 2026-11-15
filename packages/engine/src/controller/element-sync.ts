@@ -31,6 +31,14 @@ const SETTLE_FRAMES = 2;
 const SMOOTHING = 0.1;
 const FIRST_FRAME_S = 1 / 24;
 const MAX_FRAME_S = 0.125;
+/** The raw offsets averaged to decide on a catch-up: enough frames to average out a 24 fps film's 3:2 cadence on a 60 Hz display. */
+const CATCH_UP_FRAMES = 4;
+/** An average offset beyond which the element catches up (faster or slower for a moment) rather than through the loop. */
+const CATCH_UP_BEYOND_US = 10_000;
+/** How much media time a catch-up takes to remove its offset: its rate is set by the offset, within the bounds below. */
+const CATCH_UP_MEDIA_S = 0.2;
+/** The most a catch-up moves the rate from 1 (an offset of 50 ms or more); the least is 5%, for an offset just past 10 ms. */
+const CATCH_UP_MAX_DELTA = 0.25;
 
 /**
  * Keeps a muted video element on the audio clock. The raw offset is
@@ -39,8 +47,18 @@ const MAX_FRAME_S = 0.125;
  * smoothed offset (gain and integral gain give critical damping), so a
  * steady drift of the element is learned and the offset settles to zero
  * rather than hunting. A raw offset beyond the seek threshold seeks to the
- * clock instead and clears the smoothing and the trim. Pure logic; all times
- * are µs on one timeline.
+ * clock instead and clears the smoothing and the trim.
+ *
+ * The loop corrects at most half a percent, 5 ms a second, which is right
+ * for drift but too slow for the step an element starts with: `play()`
+ * takes a display frame or two to start, so every start, resume and seek
+ * leaves it 10–40 ms off. When the last four raw offsets average beyond
+ * 10 ms, the element catches up instead: it plays fast or slow, by what
+ * removes the average in about 0.2 s of media (5% to 25%), for just the
+ * media time that removes it (computed from the rate, not measured, so a
+ * late measurement cannot make it overshoot), then the loop takes over
+ * again with fresh smoothing and the trim it had. Pure logic; all
+ * times are µs on one timeline.
  *
  * @internal
  */
@@ -53,6 +71,10 @@ export class ElementSync {
   private trim = 0;
   private smoothed: number | null = null;
   private prevMediaUs: number | null = null;
+  /** The last raw offsets since the loop (re)started, for the catch-up decision. */
+  private recent: number[] = [];
+  /** While catching up: the rate played and the offset still to remove (µs, signed as the offset). */
+  private catchUp: { readonly rate: number; remainingUs: number } | null = null;
 
   /**
    * Creates a controller. Defaults: seek beyond 100 000 µs, rate delta
@@ -81,11 +103,32 @@ export class ElementSync {
     if (Math.abs(offsetUs) > this.seekBeyondUs) {
       this.settling = SETTLE_FRAMES;
       this.trim = 0;
-      this.smoothed = null;
+      this.restartLoop();
       this.prevMediaUs = null;
       return { rate: 1, seekToUs: clockUs, offsetUs };
     }
     const dtS = this.frameSeconds(mediaTimeUs);
+    const catchUp = this.catchUp;
+    if (catchUp) {
+      // the frame advanced dtS of media in dtS / rate of clock time
+      catchUp.remainingUs += dtS * 1e6 * (1 - 1 / catchUp.rate);
+      if (Math.sign(catchUp.remainingUs) === Math.sign(catchUp.rate - 1) || catchUp.remainingUs === 0) {
+        this.restartLoop();
+        return { rate: 1 - this.trim, seekToUs: null, offsetUs };
+      }
+      return { rate: catchUp.rate, seekToUs: null, offsetUs };
+    }
+    this.recent.push(offsetUs);
+    if (this.recent.length > CATCH_UP_FRAMES) this.recent.shift();
+    if (this.recent.length === CATCH_UP_FRAMES) {
+      const mean = this.recent.reduce((a, b) => a + b, 0) / CATCH_UP_FRAMES;
+      if (Math.abs(mean) > CATCH_UP_BEYOND_US) {
+        const delta = Math.min(CATCH_UP_MAX_DELTA, Math.abs(mean) / 1e6 / CATCH_UP_MEDIA_S);
+        const rate = 1 - Math.sign(mean) * delta;
+        this.catchUp = { rate, remainingUs: mean };
+        return { rate, seekToUs: null, offsetUs };
+      }
+    }
     this.smoothed =
       this.smoothed === null ? offsetUs : this.smoothed + SMOOTHING * (offsetUs - this.smoothed);
     const errS = this.smoothed / 1e6;
@@ -97,12 +140,19 @@ export class ElementSync {
     return { rate, seekToUs: null, offsetUs };
   }
 
-  /** Clears the smoothing, the trim and the settle state, as after a playlist change. @internal */
+  /** Clears the smoothing, the trim, a catch-up and the settle state, as after a playlist change. @internal */
   reset(): void {
     this.settling = 0;
     this.trim = 0;
-    this.smoothed = null;
+    this.restartLoop();
     this.prevMediaUs = null;
+  }
+
+  /** Forgets the smoothing, the offsets averaged for a catch-up and any catch-up under way; keeps the trim. */
+  private restartLoop(): void {
+    this.smoothed = null;
+    this.recent = [];
+    this.catchUp = null;
   }
 
   private frameSeconds(mediaTimeUs: number): number {

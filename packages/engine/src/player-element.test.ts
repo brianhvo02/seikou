@@ -60,6 +60,8 @@ interface Options {
   path?: 'element' | 'canvas' | 'auto';
   /** The memory profile (desktop by default). */
   memory?: 'constrained';
+  /** The page attaches its element only when the test does (attach()), as a page that mounts its player late does. */
+  attachLate?: boolean;
 }
 
 async function harness(opts: Options = {}) {
@@ -72,13 +74,14 @@ async function harness(opts: Options = {}) {
   let player!: Player;
   const autoBuffered = opts.autoBuffered ?? true;
   /** The last videoReset's generation, which the fake page echoes. */
-  const page = { generation: 0, appendedEndUs: -Infinity };
+  const page = { generation: 0, appendedEndUs: -Infinity, attached: !opts.attachLate };
   player = new Player({
     emit: (e, transfer) => {
       events.push(e);
       if (transfer) transfers.push(transfer);
       // the fake page: answers the query and reports what it buffered after each append
-      if (e.type === 'videoElementQuery' && opts.playable !== null) {
+      // (as the real page: only an attached element's output answers)
+      if (e.type === 'videoElementQuery' && opts.playable !== null && page.attached) {
         const playable = opts.playable ?? true;
         queueMicrotask(() => void player.handle({ type: 'videoElementAnswer', codec: e.codec, playable }));
       }
@@ -112,13 +115,17 @@ async function harness(opts: Options = {}) {
   if (opts.audio !== false) await player.handle({ type: 'attachAudio', ring });
   await player.handle({ type: 'attachCanvas', canvas: {} as OffscreenCanvas });
   await player.handle({ type: 'setVideoPath', path: opts.path ?? 'element' });
-  await player.handle({ type: 'attachVideoElement', clock: clockBlock });
+  if (!opts.attachLate) await player.handle({ type: 'attachVideoElement', clock: clockBlock });
   await player.handle({ type: 'open', disc: { kind: 'files', entries: discEntries(opts.files ?? fixtureDiscFiles('disc1')) } });
   const left = new Float32Array(128);
   const right = new Float32Array(128);
   return {
     player,
     page,
+    attach: async () => {
+      page.attached = true;
+      await player.handle({ type: 'attachVideoElement', clock: clockBlock });
+    },
     /** The page reports a buffered end under its current generation. */
     buffered: (endUs: number) => player.handle({ type: 'videoBuffered', endUs, generation: page.generation }),
     stalled: () => player.handle({ type: 'videoStalled', generation: page.generation }),
@@ -214,6 +221,21 @@ describe('Player on the element path', () => {
     expect(ofType(h, 'videoInit')).toHaveLength(0);
     expect(decoders.length).toBeGreaterThan(0);
   }, 10_000);
+
+  it('takes the element path when the page attaches its element after the playlist started (a disc that plays on open)', async () => {
+    const h = await harness({ attachLate: true });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await h.play(300); // the first unit comes and the question goes out, to a page with no element yet
+    expect(ofType(h, 'videoElementQuery')).toHaveLength(1);
+    expect(ofType(h, 'videoInit')).toHaveLength(0);
+    await h.attach(); // the question is asked again of the element now attached
+    await untilState(h, 'playing');
+    expect(ofType(h, 'videoElementQuery')).toHaveLength(2);
+    expect(ofType(h, 'videoInit')).toHaveLength(1);
+    expect(decoders.every((d) => d.state !== 'configured')).toBe(true);
+    await h.play(600); // a telemetry window from the element session
+    expect(telemetries(h).at(-1)?.videoPath).toBe('element');
+  });
 
   it('plays on the canvas path with the canvas video path, asking nothing', async () => {
     const h = await harness({ path: 'canvas' });

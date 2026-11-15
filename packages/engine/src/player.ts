@@ -77,7 +77,7 @@ import type { GlyphMeasurer } from '@seikou/ass/measure';
 import { looksLikeAss, parseAss } from '@seikou/ass/parse';
 import { AssRenderer, type AssRendererDeps } from '@seikou/ass/renderer';
 import { MEMORY_PROFILES, type MemoryProfile, type MemoryProfileName } from './memory-profile';
-import { ClockBlockWriter } from './element/clock-block';
+import { ClockBlockWriter, ClockLine } from './element/clock-block';
 import { ElementRemux, elementCodec, type RemuxOutput } from './element/remux';
 import type { Mat3 } from '@seikou/ass/transform';
 import type { AssTrack } from '@seikou/ass/types';
@@ -577,6 +577,8 @@ export class Player {
   private videoPath: VideoPath = 'auto';
   /** The clock block of the page's video element (attachVideoElement), written every tick; null with no element. */
   private clockWriter: ClockBlockWriter | null = null;
+  /** Smooths the stepped audio clock into the line the clock block publishes. */
+  private readonly clockLine = new ClockLine();
   /** The page's answers to videoElementQuery, by codec string, for the page's life. */
   private readonly elementAnswers = new Map<string, boolean>();
   /** Queries sent and not answered yet, by codec string: settled by the answer, or false at the timeout. */
@@ -833,7 +835,7 @@ export class Player {
    * when due.
    */
   tick(): void {
-    this.clockWriter?.write(this.clock.nowUs(), this.state === 'playing' && !this.held, this.elementEpochMs());
+    this.publishClock();
     this.kickFill(false);
     this.navigator?.tick(this.clock.nowUs());
     if (this.bdj) {
@@ -3313,11 +3315,13 @@ export class Player {
   }
 
   /**
-   * The remuxer's coding when the session may take the element path: the element path is asked for, a video element is
-   * attached, and the video is H.264 or HEVC (an encode's AV1 never). Null takes the canvas path.
+   * The remuxer's coding when the session may take the element path: the element path is asked for and the video is
+   * H.264 or HEVC (an encode's AV1 never). Null takes the canvas path. The page's video element may not be attached yet
+   * (a disc that plays on open starts before the player screen is up): the question waits for it (attachVideoElement
+   * asks again), up to ELEMENT_QUERY_TIMEOUT_MS.
    */
   private elementCoding(s: Session): 'avc' | 'hevc' | null {
-    if (this.videoPath !== 'element' || !this.clockWriter || s.encode) return null;
+    if (this.videoPath !== 'element' || s.encode) return null;
     if (s.videoCodingType === CodingType.AVC) return 'avc';
     if (s.videoCodingType === CodingType.HEVC) return 'hevc';
     return null;
@@ -3427,7 +3431,9 @@ export class Player {
   /** attachVideoElement: the engine publishes its clock there; an element session's video starts again at the clock, so the new element gets its init. */
   private async attachVideoElement(clock: SharedArrayBuffer): Promise<void> {
     this.clockWriter = new ClockBlockWriter(clock);
-    this.clockWriter.write(this.clock.nowUs(), this.state === 'playing' && !this.held, this.elementEpochMs());
+    this.publishClock();
+    // questions asked before an element was attached went to no one: the new element's output answers them
+    for (const codec of this.elementQueries.keys()) this.deps.emit({ type: 'videoElementQuery', codec });
     const s = this.session;
     if (s?.element) await this.startAt(this.clock.nowUs(), this.wantPlaying, 'keep');
   }
@@ -3471,6 +3477,15 @@ export class Player {
         this.elementFrames = { presented: cmd.presented, dropped: cmd.dropped };
         return;
     }
+  }
+
+  /** Writes the clock to the clock block (when the page gave one): the line through the audio clock's steps, running once it moves. */
+  private publishClock(): void {
+    const writer = this.clockWriter;
+    if (!writer) return;
+    const epochMs = this.elementEpochMs();
+    const line = this.clockLine.at(this.clock.nowUs(), this.state === 'playing' && !this.held, epochMs);
+    writer.write(line.clockUs, line.running, epochMs);
   }
 
   private elementEpochMs(): number {

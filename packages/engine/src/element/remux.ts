@@ -51,7 +51,8 @@ export function elementCodec(coding: 'avc' | 'hevc', data: Uint8Array): string |
 
 /**
  * Turns the pipeline's video units (Annex B access units in playlist time) into fragmented MP4 for a `<video>` element:
- * an init segment from the first parameter sets and a media segment per group of pictures.
+ * an init segment from the first parameter sets and a media segment per group of pictures, from one random access point
+ * (IDR, or an open GOP's I picture with a recovery point) to the next.
  * @internal
  */
 export class ElementRemux {
@@ -59,6 +60,8 @@ export class ElementRemux {
   private key: string | null = null;
   private sequence = 1;
   private lastEndUs = -Infinity;
+  /** While the session's first segment is collected: the PTS of the open GOP's I picture it starts at, which leading pictures come before. */
+  private leadingBeforeUs: number | null = null;
 
   constructor(
     private readonly coding: 'avc' | 'hevc',
@@ -74,9 +77,13 @@ export class ElementRemux {
   push(unit: { data: Uint8Array; ptsUs: number; dtsUs?: number; inRange: boolean }): void {
     if (!unit.inRange) return;
     const info = this.coding === 'avc' ? analyzeAvc(unit.data) : analyzeHevc(unit.data);
-    const irap = this.coding === 'avc' ? info.idr : info.key;
+    // a random access point: an IDR, or an I picture with a recovery point (an open GOP, where Blu-ray's EP map points too)
+    const irap = info.key;
     if (irap) {
       this.flushSegment(ticks(unit.dtsUs ?? unit.ptsUs));
+      // the first one after a reset starts the session: pictures that follow it in decode order but show before it
+      // (an open GOP's leading pictures) refer to the GOP before, which the element never gets
+      this.leadingBeforeUs = this.lastEndUs === -Infinity ? unit.ptsUs : null;
       const params = findParameterSets(info.data, this.coding);
       if (params.sps.length > 0) {
         const key = paramKey(params);
@@ -88,6 +95,8 @@ export class ElementRemux {
       }
       if (this.key === null) return;
     } else if (this.held.length === 0) {
+      return;
+    } else if (this.leadingBeforeUs !== null && unit.ptsUs < this.leadingBeforeUs) {
       return;
     }
     this.held.push({
@@ -135,5 +144,6 @@ export class ElementRemux {
     this.key = null;
     this.sequence = 1;
     this.lastEndUs = -Infinity;
+    this.leadingBeforeUs = null;
   }
 }

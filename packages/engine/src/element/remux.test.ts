@@ -7,6 +7,7 @@ import { parseSourcePacket } from '@seikou/bdmv/demux/ts-packet';
 import { describe, expect, it } from 'vitest';
 import { fixtureDiscFiles } from '../../../../tests/helpers/fixture-disc';
 import { VIDEO_PID } from '../../../../tests/helpers/synthetic-disc';
+import { analyzeAvc } from '@seikou/bdmv/codecs/h264';
 import { ELEMENT_TIME_OFFSET_US, mediaSegment } from './fmp4';
 import { ElementRemux, elementCodec } from './remux';
 import { PROGRESSIVE_SPS, avcAu } from '../../../../tests/helpers/h264-units';
@@ -209,6 +210,43 @@ describe('ElementRemux', () => {
     const second = kinds.lastIndexOf('init');
     expect(kinds.slice(0, second)).toEqual(['init', 'segment', 'segment']);
     expect(kinds[second + 1]).toBe('segment');
+  });
+});
+
+describe('ElementRemux on open GOPs', () => {
+  const run = (us: Unit[]): RemuxOutput[] => {
+    const out: RemuxOutput[] = [];
+    const r = new ElementRemux('avc', (o) => out.push(o));
+    for (const u of us) r.push(u);
+    r.flush();
+    return out;
+  };
+
+  it("starts a segment at an open GOP's I picture (a recovery point, where the EP map points), not only at IDRs", () => {
+    const all = mapped('disc2', 120);
+    const keys = all.filter((u) => analyzeAvc(u.data).key);
+    expect(keys.some((u) => !analyzeAvc(u.data).idr)).toBe(true); // disc2 has open GOPs
+    const segs = segments(run(all));
+    expect(segs).toHaveLength(keys.length);
+    // in a continuous stream a GOP's leading pictures stay with it, and show just before its I picture
+    segs.forEach((seg, i) => {
+      expect(seg.startUs).toBeLessThanOrEqual(keys[i]!.ptsUs);
+      if (i > 0) expect(seg.startUs).toBeGreaterThan(keys[i - 1]!.ptsUs);
+    });
+    expectAbut(run(all));
+  });
+
+  it("a session started at an open GOP drops that GOP's leading pictures, whose references it never gets", () => {
+    const all = mapped('disc2', 120);
+    const at = all.findIndex((u) => { const i = analyzeAvc(u.data); return i.key && !i.idr; });
+    const from = all.slice(at);
+    const leading = from.slice(1).findIndex((u) => u.ptsUs < from[0]!.ptsUs);
+    expect(leading).toBeGreaterThanOrEqual(0); // the I picture has leading B pictures after it
+    const first = segments(run(from))[0]!;
+    expect(first.startUs).toBe(from[0]!.ptsUs);
+    const nextKey = from.slice(1).findIndex((u) => analyzeAvc(u.data).key) + 1;
+    const kept = from.slice(0, nextKey).filter((u) => u.ptsUs >= from[0]!.ptsUs).length;
+    expect(parseSegment(first.bytes).durs).toHaveLength(kept);
   });
 });
 

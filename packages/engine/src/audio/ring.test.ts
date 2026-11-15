@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Control, RingWriter, createRing, renderQuantum, ringViews } from './ring';
+import { Control, LATENCY_UNKNOWN, RingWriter, createRing, renderQuantum, ringViews } from './ring';
 
 function stereo(frames: number, value: number): Float32Array {
   return new Float32Array(frames * 2).fill(value);
@@ -13,6 +13,15 @@ function quantum(views: ReturnType<typeof ringViews>, frames = 128): { left: Flo
 }
 
 describe('audio ring', () => {
+  it('reads an unknown output latency as Infinity, so the audio clock holds, and a known one as published', () => {
+    const views = ringViews(createRing(48_000, 0.5));
+    const writer = new RingWriter(views);
+    Atomics.store(views.control, Control.LatencyUs, LATENCY_UNKNOWN);
+    expect(writer.latencyUs()).toBe(Infinity);
+    Atomics.store(views.control, Control.LatencyUs, 77_300);
+    expect(writer.latencyUs()).toBe(77_300);
+  });
+
   it('stores capacity and sample rate in the buffer', () => {
     const views = ringViews(createRing(48_000, 0.5));
     expect(views.capacity).toBe(24_000);
