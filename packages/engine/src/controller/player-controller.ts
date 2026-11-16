@@ -393,7 +393,7 @@ export class PlayerController {
   constructor(
     private readonly worker: WorkerLike,
     private readonly audio: AudioOutputLike,
-    private readonly options: { readonly nowMs?: () => number; readonly visibility?: VisibilityLike } = {},
+    private readonly options: { readonly nowMs?: () => number; readonly visibility?: VisibilityLike; readonly failElementAppends?: boolean } = {},
   ) {
     this.visibility = options.visibility ?? documentVisibility();
     audio.onStateChange((state) => this.onAudioState(state));
@@ -532,6 +532,7 @@ export class PlayerController {
           hdr,
           width !== undefined && height !== undefined ? { width, height, ...(frameRate !== undefined ? { frameRate } : {}) } : undefined,
         ),
+      ...(this.options.failElementAppends ? { failAppends: true } : {}),
       epochMs: () => performance.timeOrigin + performance.now(),
       timeOrigin: performance.timeOrigin,
       post: (cmd) => this.post(cmd),

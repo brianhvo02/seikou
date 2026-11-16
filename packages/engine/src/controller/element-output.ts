@@ -73,6 +73,8 @@ export interface ElementOutputDeps {
   post(cmd: EngineCommand): void;
   setTimer(fn: () => void, ms: number): () => void;
   animationFrame?(fn: (now: number) => void): () => void;
+  /** Test-only: every append fails with an error that is not a `QuotaExceededError`, so the element fails at once. */
+  failAppends?: boolean;
 }
 
 type Op =
@@ -412,6 +414,7 @@ export class ElementVideoOutput {
           break;
         case 'append':
           try {
+            if (this.deps.failAppends) throw new Error('appends are made to fail');
             b.appendBuffer(op.bytes);
             this.inFlight = op;
           } catch (e) {

@@ -206,3 +206,32 @@ test('without the flag the canvas path plays', async ({ page }) => {
   await expect(page.getByTestId('video-element')).toBeHidden();
   await expect.poll(async () => (await telemetry(page))?.framesPresented ?? 0, { timeout: 5000 }).toBeGreaterThan(0);
 });
+
+test('an HDR disc whose element fails falls back to the canvas once, with the notice once', async ({ page }) => {
+  await page.addInitScript(() => {
+    (window as unknown as { showDirectoryPicker: () => Promise<never> }).showDirectoryPicker = () => Promise.reject(new DOMException('cancelled', 'AbortError'));
+    const add = AudioWorklet.prototype.addModule;
+    AudioWorklet.prototype.addModule = function (this: AudioWorklet, ...args: Parameters<typeof add>) {
+      return add.apply(this, args).then(() => {
+        (window as unknown as { __audioWorkletReady?: boolean }).__audioWorkletReady = true;
+      });
+    };
+  });
+  await page.goto('/?telemetry=1&videopath=element&elementfail=1');
+  await skipWithoutElementPath(page, HEVC_MAIN10);
+  await startAudioAsOpenFolderDoes(page);
+  await setFolder(page.getByTestId('folder-input'), 'fixtures/synthetic/disc-hdr');
+  const notice = page.locator('.notice', { hasText: "HDR video couldn't play in this browser, so it shows without HDR and its colours may look flat" });
+  await expect(notice).toHaveCount(1, { timeout: 10_000 });
+  await expect.poll(async () => (await telemetry(page))?.elementFailure ?? null, { timeout: 10_000 }).not.toBeNull();
+  expect((await telemetry(page))?.videoPath).toBe('canvas');
+  await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'playing', { timeout: 10_000 });
+  // reopening the playlist stays on the canvas and says nothing again
+  await page.getByTestId('player').hover();
+  await page.getByRole('button', { name: /^(Playlists|Titles)$/ }).click();
+  await page.getByTestId('playlist-00000').click();
+  await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'playing', { timeout: 10_000 });
+  await page.waitForTimeout(1500);
+  await expect(notice).toHaveCount(1);
+  expect((await telemetry(page))?.videoPath).toBe('canvas');
+});

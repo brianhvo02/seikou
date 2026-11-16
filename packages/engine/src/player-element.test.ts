@@ -682,6 +682,23 @@ describe('Player choosing the path', () => {
     expect(telemetries(h).at(-1)).toMatchObject({ videoPath: 'canvas', videoHdr: false });
   });
 
+  it("an HDR session's failure says so in the spec's words, and an SDR session's keeps its own", async () => {
+    const hdr = await harness({ path: 'auto', files: hdrDisc() });
+    await hdr.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(hdr, 'playing');
+    await hdr.player.handle({ type: 'videoElementFailed', message: 'an append failed', generation: hdr.page.generation });
+    expect(ofType(hdr, 'notice').filter((n) => n.code === 'element-failed').map((n) => n.message)).toEqual([
+      "HDR video couldn't play in this browser, so it shows without HDR and its colours may look flat",
+    ]);
+    const sdr = await harness();
+    await sdr.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(sdr, 'playing');
+    await sdr.player.handle({ type: 'videoElementFailed', message: 'an append failed', generation: sdr.page.generation });
+    expect(ofType(sdr, 'notice').filter((n) => n.code === 'element-failed').map((n) => n.message)).toEqual([
+      'The video couldn’t play through the browser’s video player (an append failed), so it plays on the canvas.',
+    ]);
+  });
+
   it('with a shader set on at the start, the HDR disc takes the canvas path and asks nothing', async () => {
     const h = await harness({ path: 'auto', files: hdrDisc(), shaders: true });
     await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });

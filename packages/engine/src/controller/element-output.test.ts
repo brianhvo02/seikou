@@ -214,7 +214,7 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 5; i++) await Promise.resolve();
 };
 
-function setup(opts: { noMediaSource?: boolean; playable?: (query: ElementQuery) => boolean; noAnimationFrame?: boolean } = {}) {
+function setup(opts: { failAppends?: boolean; noMediaSource?: boolean; playable?: (query: ElementQuery) => boolean; noAnimationFrame?: boolean } = {}) {
   const video = new FakeVideo();
   const ms = new FakeMediaSource();
   const posted: EngineCommand[] = [];
@@ -229,6 +229,7 @@ function setup(opts: { noMediaSource?: boolean; playable?: (query: ElementQuery)
       created++;
       return { source: ms, url: 'blob:ms', revoke: () => revoked++ };
     },
+    ...(opts.failAppends ? { failAppends: true } : {}),
     playable: async (query) => (opts.playable ?? (() => true))(query),
     epochMs: () => 5000,
     timeOrigin: 1000,
@@ -482,6 +483,16 @@ describe('ElementVideoOutput', () => {
     t.sb().finish(); // the removal
     expect(t.sb().appended).toEqual([bytes(0), bytes(1), bytes(2)]);
     expect(commands(t.posted, 'videoElementFailed')).toEqual([]);
+  });
+
+  it('failAppends makes every append fail with an error the quota retry leaves alone, and the element fails', () => {
+    const t = setup({ failAppends: true });
+    t.out.handle(reset(0, false, 1));
+    t.out.handle(init());
+    t.ms.fireOpen();
+    expect(t.sb().appended).toEqual([]);
+    expect(commands(t.posted, 'videoElementFailed')).toHaveLength(1);
+    expect(t.revoked()).toBe(1);
   });
 
   it('a second QuotaExceededError fails the element', () => {

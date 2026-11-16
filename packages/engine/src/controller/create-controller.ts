@@ -11,6 +11,8 @@ export interface CreateControllerOptions {
   readonly profile: MemoryProfileName;
   /** Test-only (E2E): keep the latest telemetry on window.__blurayTelemetry. */
   readonly exposeTelemetry?: boolean;
+  /** Test-only (E2E): every append to the video element's source buffer fails, so the element path falls back to the canvas. */
+  readonly failElementAppends?: boolean;
 }
 
 /**
@@ -20,7 +22,7 @@ export interface CreateControllerOptions {
  * @example ../../examples/create-controller.browser.ts
  */
 export function createController(options: CreateControllerOptions): PlayerController {
-  const controller = new PlayerController(options.worker(), new AudioOutput());
+  const controller = new PlayerController(options.worker(), new AudioOutput(), options.failElementAppends ? { failElementAppends: true } : {});
   controller.setMemoryProfile(options.profile);
   // what a BD-J disc saved in its last seconds is stored before the page goes (iOS often skips pagehide: hidden too)
   addEventListener('pagehide', () => controller.flushSaves());

@@ -3443,6 +3443,7 @@ export class Player {
    */
   private async elementFallback(s: Session, message: string): Promise<void> {
     if (this.session !== s || !s.element) return;
+    const hdr = s.elementHdr;
     this.elementOff = true;
     this.elementFailure = message;
     s.element = null;
@@ -3454,7 +3455,12 @@ export class Player {
     this.deps.emit({ type: 'videoElementStop' });
     this.compositor?.startPlaylist?.(true);
     this.elementDirty = true;
-    this.notice('element-failed', `The video couldn’t play through the browser’s video player (${message}), so it plays on the canvas.`);
+    this.notice(
+      'element-failed',
+      hdr
+        ? "HDR video couldn't play in this browser, so it shows without HDR and its colours may look flat"
+        : `The video couldn’t play through the browser’s video player (${message}), so it plays on the canvas.`,
+    );
     await this.startAt(this.clock.nowUs(), this.wantPlaying, 'keep');
   }
 

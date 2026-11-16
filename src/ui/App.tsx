@@ -52,6 +52,8 @@ function createAppController(): PlayerController {
       platform: navigator.platform,
     }),
     exposeTelemetry: params.has('telemetry'),
+    // Test-only (E2E): ?elementfail=1 makes every append to the video element fail, so the element path falls back
+    failElementAppends: params.has('elementfail'),
   });
   // the app has a video element: HDR streams take it (auto), or ?videopath= picks; set before the first open
   controller.setVideoPath(initialVideoPath());
