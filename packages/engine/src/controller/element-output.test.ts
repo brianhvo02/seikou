@@ -230,7 +230,10 @@ function setup(opts: { failAppends?: boolean; noMediaSource?: boolean; playable?
       return { source: ms, url: 'blob:ms', revoke: () => revoked++ };
     },
     ...(opts.failAppends ? { failAppends: true } : {}),
-    playable: async (query) => (opts.playable ?? (() => true))(query),
+    playable: async (query) => {
+      const playable = (opts.playable ?? (() => true))(query);
+      return { playable, check: { mse: playable, decodingInfo: query.hdr ? playable : null } };
+    },
     epochMs: () => 5000,
     timeOrigin: 1000,
     post: (c) => posted.push(c),
@@ -317,8 +320,8 @@ describe('ElementVideoOutput', () => {
       ['avc1.640028', null],
     ]);
     expect(t.posted).toEqual([
-      { type: 'videoElementAnswer', codec: 'hvc1.2.4.L153.B0', hdr: { transfer: 'pq', mastering: true }, width: 3840, height: 2160, playable: true },
-      { type: 'videoElementAnswer', codec: 'avc1.640028', hdr: null, playable: false },
+      { type: 'videoElementAnswer', codec: 'hvc1.2.4.L153.B0', hdr: { transfer: 'pq', mastering: true }, width: 3840, height: 2160, playable: true, check: { mse: true, decodingInfo: true } },
+      { type: 'videoElementAnswer', codec: 'avc1.640028', hdr: null, playable: false, check: { mse: false, decodingInfo: null } },
     ]);
   });
 

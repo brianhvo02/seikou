@@ -26,7 +26,8 @@ export type PlaybackState = 'idle' | 'loading' | 'paused' | 'buffering' | 'playi
  * Where a playlist's H.264 or HEVC video is drawn: 'element' (the page's video element, through Media Source Extensions),
  * 'canvas' (decoded by the engine with WebCodecs), or 'auto' (the engine picks: the element for HDR streams, the canvas
  * for the rest). The engine starts at 'canvas'; a host that attaches a video element sends 'auto' (or 'element') to
- * use it. A shader set that can run here takes the canvas whatever the path.
+ * use it. A shader set that can run here takes the canvas whatever the path, for a stream the engine's own decoder can
+ * configure (one it can't still goes to the element, without the shaders).
  */
 export type VideoPath = 'auto' | 'element' | 'canvas';
 
@@ -50,6 +51,34 @@ export interface ElementQuery {
   readonly width?: number;
   readonly height?: number;
   readonly frameRate?: number;
+}
+
+/**
+ * What the page found when it asked the browser whether its video element plays a stream: `mse` is the media source
+ * class's `isTypeSupported` answer; `decodingInfo` is Media Capabilities' `supported` for an HDR stream, `'missing'`
+ * where the browser has no `decodingInfo`, `'threw'` where it threw, and null when it wasn't asked (an SDR stream, or
+ * one `isTypeSupported` refused).
+ */
+export interface ElementCheck {
+  readonly mse: boolean;
+  readonly decodingInfo: boolean | 'missing' | 'threw' | null;
+}
+
+/**
+ * The playing playlist's latest question to the page about its video element, for telemetry: what was asked (`codec`,
+ * `hdr`, and `size` with the frame rate when known, else null), what the page found (`mse` and `decodingInfo`, null
+ * when the page sent no check, as after a timeout), the `answer` that chose the path (`'timeout'` when the page didn't
+ * answer in time, null while it is awaited) and `colour`, the colour description the engine read from the stream's SPS
+ * (null when the SPS has none).
+ */
+export interface ElementQueryTelemetry {
+  readonly codec: string;
+  readonly hdr: ElementHdr | null;
+  readonly size: { readonly width: number; readonly height: number; readonly frameRate?: number } | null;
+  readonly mse: boolean | null;
+  readonly decodingInfo: ElementCheck['decodingInfo'];
+  readonly answer: boolean | 'timeout' | null;
+  readonly colour: { readonly primaries: number; readonly transfer: number; readonly matrix: number } | null;
 }
 
 /**
@@ -154,6 +183,11 @@ export interface Telemetry {
   readonly elementFailure: string | null;
   /** An HDR stream plays on the element path (between the videoHdr events that say so). */
   readonly videoHdr: boolean;
+  /**
+   * The playing playlist's latest question to the page about its video element and how it was answered, so a stream
+   * that plays on the canvas shows why; null when the playlist asked nothing (or none plays).
+   */
+  readonly elementQuery: ElementQueryTelemetry | null;
 }
 
 /** What BD-J holds in memory, so the budgets of the constrained memory profile can be checked on a device; sizes in bytes. */
@@ -372,10 +406,11 @@ export type EngineCommand =
   /** The clock block (packages/engine/src/element/clock-block.ts) the engine publishes its clock through, for the page's video element. */
   | { readonly type: 'attachVideoElement'; readonly clock: SharedArrayBuffer }
   /**
-   * The page's answer to videoElementQuery, echoing the query's fields: whether the video element can play that stream.
-   * Handled at once, not queued.
+   * The page's answer to videoElementQuery, echoing the query's fields: whether the video element can play that stream,
+   * and `check`, what the browser said when the page asked it (absent when the page's check failed). Handled at once,
+   * not queued.
    */
-  | ({ readonly type: 'videoElementAnswer'; readonly playable: boolean } & ElementQuery)
+  | ({ readonly type: 'videoElementAnswer'; readonly playable: boolean; readonly check?: ElementCheck } & ElementQuery)
   /**
    * The video element's buffered range now ends at `endUs`, in playlist time in microseconds (the page subtracts
    * ELEMENT_TIME_OFFSET_US from media time); when no buffered range holds the playhead (the browser evicted it), `endUs`

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import type { ElementHdr } from '../protocol';
+import type { ElementCheck, ElementHdr } from '../protocol';
 
 /**
- * The browser capabilities {@link elementPlayable} asks: `isTypeSupported` is the media source class's (`MediaSource`
+ * The browser capabilities {@link elementCheck} asks: `isTypeSupported` is the media source class's (`MediaSource`
  * or `ManagedMediaSource`), `decodingInfo` is `navigator.mediaCapabilities.decodingInfo` (missing where the browser
  * has no Media Capabilities API).
  * @internal
@@ -19,22 +19,23 @@ const ASKED_BITRATE = 40_000_000;
 const ASKED_FRAMERATE = 24;
 
 /**
- * Whether the page's video element can play `codec` as fragmented MP4 through Media Source Extensions. SDR streams
- * (`hdr` null) ask `isTypeSupported` alone. An HDR stream must pass it too, then `decodingInfo` with the stream's
- * transfer function, the Rec. 2020 gamut and, with mastering metadata, `smpteSt2086`, at the stream's `size` (its
- * coded size and, when known, frame rate; 1080p at 24 fps when not given); where `decodingInfo` is missing or throws,
- * `isTypeSupported`'s answer stands.
+ * Whether the page's video element can play `codec` as fragmented MP4 through Media Source Extensions, with what the
+ * browser said (`check`). SDR streams (`hdr` null) ask `isTypeSupported` alone. An HDR stream must pass it too, then
+ * `decodingInfo` with the stream's transfer function, the Rec. 2020 gamut and, with mastering metadata, `smpteSt2086`,
+ * at the stream's `size` (its coded size and, when known, frame rate; 1080p at 24 fps when not given); where
+ * `decodingInfo` is missing or throws, `isTypeSupported`'s answer stands.
  * @internal
  */
-export async function elementPlayable(
+export async function elementCheck(
   env: ElementCapsEnv,
   codec: string,
   hdr: ElementHdr | null,
   size: { readonly width: number; readonly height: number; readonly frameRate?: number } = DEFAULT_SIZE,
-): Promise<boolean> {
+): Promise<{ readonly playable: boolean; readonly check: ElementCheck }> {
   const contentType = `video/mp4; codecs="${codec}"`;
-  if (!env.isTypeSupported(contentType)) return false;
-  if (!hdr || !env.decodingInfo) return true;
+  if (!env.isTypeSupported(contentType)) return { playable: false, check: { mse: false, decodingInfo: null } };
+  if (!hdr) return { playable: true, check: { mse: true, decodingInfo: null } };
+  if (!env.decodingInfo) return { playable: true, check: { mse: true, decodingInfo: 'missing' } };
   try {
     const info = await env.decodingInfo({
       type: 'media-source',
@@ -49,8 +50,8 @@ export async function elementPlayable(
         ...(hdr.mastering ? { hdrMetadataType: 'smpteSt2086' } : {}),
       },
     });
-    return info.supported;
+    return { playable: info.supported, check: { mse: true, decodingInfo: info.supported } };
   } catch {
-    return true;
+    return { playable: true, check: { mse: true, decodingInfo: 'threw' } };
   }
 }

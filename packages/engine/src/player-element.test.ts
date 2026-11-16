@@ -8,7 +8,7 @@ import type { VideoCodecApi, VideoDecoderLike } from './decode/video-decoder';
 import { ClockBlockReader, createClockBlock } from './element/clock-block';
 import { Player } from './player';
 import { UNAVAILABLE, type CompiledSet, type ShaderBackend } from './shaders/webgl-backend';
-import type { EngineEvent, PlaybackState, Telemetry } from './protocol';
+import type { ElementCheck, EngineEvent, PlaybackState, Telemetry } from './protocol';
 
 /** WebCodecs decoders the engine created (the canvas path). */
 const decoders: VideoDecoderLike[] = [];
@@ -51,6 +51,8 @@ interface Options {
   files?: Map<string, Uint8Array<ArrayBuffer>>;
   /** The page's answer to videoElementQuery; null never answers. */
   playable?: boolean | null;
+  /** What the page says it found when it asked the browser, sent with its answer. */
+  check?: ElementCheck;
   /** The page reports each segment's end as its buffered end (true by default), as it does after an append. */
   autoBuffered?: boolean;
   /** Instead, the page reports this buffered end after each segment, at once. */
@@ -99,7 +101,7 @@ async function harness(opts: Options = {}) {
       if (e.type === 'videoElementQuery' && opts.playable !== null && page.attached) {
         const playable = opts.playable ?? true;
         const { type: _type, ...query } = e;
-        queueMicrotask(() => void player.handle({ type: 'videoElementAnswer', ...query, playable }));
+        queueMicrotask(() => void player.handle({ type: 'videoElementAnswer', ...query, playable, ...(opts.check ? { check: opts.check } : {}) }));
       }
       if (e.type === 'videoReset') {
         page.generation = e.generation;
@@ -646,6 +648,66 @@ describe('Player choosing the path', () => {
     expect(telemetries(h).at(-1)).toMatchObject({ videoPath: 'element', videoHdr: true });
   });
 
+  describe('telemetry of the element question', () => {
+    /** The disc-hdr fixture's SPS: BT.2020 primaries, PQ, BT.2020 non-constant luminance. */
+    const hdrColour = { primaries: 9, transfer: 16, matrix: 9 };
+
+    it("a refusal shows the question, the page's checks, the answer and the SPS colour", async () => {
+      const h = await harness({ path: 'auto', files: hdrDisc(), playable: false, check: { mse: true, decodingInfo: false } });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilState(h, 'playing');
+      await h.play(600);
+      expect(telemetries(h).at(-1)?.elementQuery).toEqual({
+        codec: expect.stringMatching(/^hvc1\./),
+        hdr: { transfer: 'pq', mastering: true },
+        size: { width: 1920, height: 1080, frameRate: expect.any(Number) },
+        mse: true,
+        decodingInfo: false,
+        answer: false,
+        colour: hdrColour,
+      });
+    });
+
+    it('a decodingInfo that threw shows, with the answer isTypeSupported gave', async () => {
+      const h = await harness({ path: 'auto', files: hdrDisc(), playable: true, check: { mse: true, decodingInfo: 'threw' } });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilState(h, 'playing');
+      await h.play(600);
+      expect(telemetries(h).at(-1)).toMatchObject({ videoPath: 'element', elementQuery: { mse: true, decodingInfo: 'threw', answer: true, colour: hdrColour } });
+    });
+
+    it('a page that does not answer in time shows as a timeout', async () => {
+      const h = await harness({ path: 'auto', files: hdrDisc(), playable: null });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilState(h, 'playing', 6000);
+      await h.play(600);
+      expect(telemetries(h).at(-1)).toMatchObject({ videoPath: 'canvas', elementQuery: { hdr: { transfer: 'pq', mastering: true }, mse: null, decodingInfo: null, answer: 'timeout', colour: hdrColour } });
+    }, 10_000);
+
+    it('a yes shows answer true, and a cached answer for the next session shows again', async () => {
+      const h = await harness({ path: 'auto', files: hdrDisc(), check: { mse: true, decodingInfo: true } });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilState(h, 'playing');
+      await h.play(600);
+      expect(telemetries(h).at(-1)?.elementQuery).toMatchObject({ mse: true, decodingInfo: true, answer: true });
+      await h.player.handle({ type: 'close' });
+      await h.player.handle({ type: 'open', disc: { kind: 'files', entries: discEntries(hdrDisc()) } });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilState(h, 'playing');
+      await h.play(600);
+      expect(ofType(h, 'videoElementQuery')).toHaveLength(1);
+      expect(telemetries(h).at(-1)?.elementQuery).toMatchObject({ mse: true, decodingInfo: true, answer: true });
+    });
+
+    it('is null on a playlist that asked nothing', async () => {
+      const h = await harness({ path: 'auto' });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilState(h, 'playing');
+      await h.play(600);
+      expect(telemetries(h).at(-1)?.elementQuery).toBeNull();
+    });
+  });
+
   it('auto: disc1 (SDR) takes the canvas path and asks nothing', async () => {
     const h = await harness({ path: 'auto' });
     await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
@@ -689,12 +751,27 @@ describe('Player choosing the path', () => {
       expect(decoders.length).toBeGreaterThan(0);
     });
 
-    it('with a shader set on, stays on the canvas without asking', async () => {
+    it('with a shader set on, takes the element path when WebCodecs cannot decode it and the page can play it', async () => {
       const h = await harness({ path: 'auto', files: sdrHevc(), webcodecsHevc: false, playable: true, shaders: true });
       await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
-      await new Promise((r) => setTimeout(r, 50));
+      await untilState(h, 'playing');
+      expect(ofType(h, 'videoElementQuery')).toHaveLength(1);
+      expect(elementSessions(h)).toBe(1);
+      expect(ofType(h, 'error')).toHaveLength(0);
+      expect(decoders.every((d) => d.state !== 'configured')).toBe(true);
+    });
+
+    it('with a shader set on, a stream WebCodecs decodes stays on the canvas, asking nothing, and turning the set off reopens nothing', async () => {
+      const h = await harness({ path: 'auto', files: sdrHevc(), playable: true, shaders: true });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilState(h, 'playing');
       expect(ofType(h, 'videoElementQuery')).toHaveLength(0);
       expect(elementSessions(h)).toBe(0);
+      expect(decoders.some((d) => d.state === 'configured')).toBe(true);
+      const before = h.events.length;
+      await h.player.handle({ type: 'setVideoShaders', set: null });
+      await h.play(300);
+      expect(h.events.slice(before).filter((e) => e.type === 'playlistCleared')).toHaveLength(0);
     });
   });
 
@@ -780,6 +857,26 @@ describe('Player choosing the path', () => {
     expect(ofType(h, 'videoElementQuery')).toHaveLength(0);
     expect(elementSessions(h)).toBe(0);
     expect(decoders.length).toBeGreaterThan(0);
+  });
+
+  it('with a shader set on, the HDR disc WebCodecs cannot decode takes the element path when the page can play it', async () => {
+    const h = await harness({ path: 'auto', files: hdrDisc(), shaders: true, webcodecsHevc: false });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    expect(ofType(h, 'videoElementQuery')).toHaveLength(1);
+    expect(elementSessions(h)).toBe(1);
+    expect(ofType(h, 'videoHdr').map((e) => e.hdr)).toEqual([true]);
+  });
+
+  it('a shader set turned on reopens nothing while the element plays a stream WebCodecs cannot decode', async () => {
+    const h = await harness({ path: 'auto', files: hdrDisc(), webcodecsHevc: false });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    const before = h.events.length;
+    await h.player.handle({ type: 'setVideoShaders', set: SHADER_SET });
+    await h.play(600);
+    expect(h.events.slice(before).filter((e) => e.type === 'playlistCleared')).toHaveLength(0);
+    expect(telemetries(h).at(-1)).toMatchObject({ videoPath: 'element', videoHdr: true });
   });
 
   it('a shader set turned on during an element session reopens the playlist at the same time on the canvas path, once, with no notice', async () => {

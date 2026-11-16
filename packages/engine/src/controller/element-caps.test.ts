@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { elementPlayable, type ElementCapsEnv } from './element-caps';
+import { elementCheck, type ElementCapsEnv } from './element-caps';
+
+/** The `playable` half of elementCheck's answer. */
+const elementPlayable = async (...args: Parameters<typeof elementCheck>): Promise<boolean> => (await elementCheck(...args)).playable;
 
 function env(opts: { supported?: boolean; info?: 'missing' | 'throws' | boolean } = {}) {
   const types: string[] = [];
@@ -20,7 +23,7 @@ function env(opts: { supported?: boolean; info?: 'missing' | 'throws' | boolean 
   return { e, types, configs };
 }
 
-describe('elementPlayable', () => {
+describe('elementCheck: playable', () => {
   it('asks only isTypeSupported for SDR', async () => {
     const t = env({ supported: false });
     expect(await elementPlayable(t.e, 'avc1.640028', null)).toBe(false);
@@ -75,5 +78,24 @@ describe('elementPlayable', () => {
   it('lets isTypeSupported decide when decodingInfo throws or is missing', async () => {
     expect(await elementPlayable(env({ info: 'throws' }).e, 'hvc1.2.4.L153.B0', { transfer: 'pq', mastering: false })).toBe(true);
     expect(await elementPlayable(env({ info: 'missing' }).e, 'hvc1.2.4.L153.B0', { transfer: 'pq', mastering: false })).toBe(true);
+  });
+});
+
+describe('elementCheck', () => {
+  const pq = { transfer: 'pq', mastering: false } as const;
+
+  it('reports each answer the browser gave: isTypeSupported, then decodingInfo for HDR', async () => {
+    expect(await elementCheck(env({ info: false }).e, 'hvc1.2.4.L153.B0', pq)).toEqual({ playable: false, check: { mse: true, decodingInfo: false } });
+    expect(await elementCheck(env({ info: true }).e, 'hvc1.2.4.L153.B0', pq)).toEqual({ playable: true, check: { mse: true, decodingInfo: true } });
+  });
+
+  it('says decodingInfo was not asked for SDR or after an isTypeSupported refusal', async () => {
+    expect(await elementCheck(env().e, 'avc1.640028', null)).toEqual({ playable: true, check: { mse: true, decodingInfo: null } });
+    expect(await elementCheck(env({ supported: false }).e, 'hvc1.2.4.L153.B0', pq)).toEqual({ playable: false, check: { mse: false, decodingInfo: null } });
+  });
+
+  it('says when decodingInfo threw or is missing', async () => {
+    expect(await elementCheck(env({ info: 'throws' }).e, 'hvc1.2.4.L153.B0', pq)).toEqual({ playable: true, check: { mse: true, decodingInfo: 'threw' } });
+    expect(await elementCheck(env({ info: 'missing' }).e, 'hvc1.2.4.L153.B0', pq)).toEqual({ playable: true, check: { mse: true, decodingInfo: 'missing' } });
   });
 });

@@ -81,10 +81,11 @@ import { ClockBlockWriter, ClockLine } from './element/clock-block';
 import { elementStream } from './element/remux';
 import { elementQuery } from './element/element-query';
 import type { Clpi } from '@seikou/bdmv/clpi-parser';
+import type { ColourDescription } from '@seikou/bdmv/codecs/param-sets';
 import { ElementCodecQueries, ElementSession } from './element/element-session';
 import type { Mat3 } from '@seikou/ass/transform';
 import type { AssTrack } from '@seikou/ass/types';
-import { BDJ_STORAGE_MESSAGE, ENCODE_FILE, ENCODE_PLAYLIST_ID, NO_PICTURE_MESSAGE, type AudioTrack, type EncodeSpec, type BufferRequest, type BdjMemoryTelemetry, type EngineCommand, type EngineEvent, type FileData, type MenuKey, type NoticeCode, type PlaceState, type PgTrack, type PlaybackState, type ElementQuery, type ShaderSetData, type StartPoint, type SubtitleChoice, type VideoPath } from './protocol';
+import { BDJ_STORAGE_MESSAGE, ENCODE_FILE, ENCODE_PLAYLIST_ID, NO_PICTURE_MESSAGE, type AudioTrack, type EncodeSpec, type BufferRequest, type BdjMemoryTelemetry, type EngineCommand, type EngineEvent, type FileData, type MenuKey, type NoticeCode, type PlaceState, type PgTrack, type PlaybackState, type ElementQuery, type ElementQueryTelemetry, type ShaderSetData, type StartPoint, type SubtitleChoice, type VideoPath } from './protocol';
 import type { CompositorLike, TextRendererLike } from './render/compositor';
 import { ShaderStage } from './shaders/stage';
 import { UNAVAILABLE, type ShaderBackend } from './shaders/webgl-backend';
@@ -361,6 +362,12 @@ interface RestartPoint {
 /** A video unit waiting for the decoder, or for the choice of path (the element path needs its decode time and range). */
 type HeldVideoUnit = VideoUnit & { readonly dtsUs?: number; readonly inRange?: boolean };
 
+/** A session's question for the page about its video element, with the colour description its SPS gives (null when none). */
+interface ElementQuestion {
+  readonly query: ElementQuery;
+  readonly colour: ColourDescription | null;
+}
+
 interface Session {
   readonly playlistId: string;
   readonly owner: PlaylistCaller;
@@ -385,6 +392,10 @@ interface Session {
   elementHdr: boolean;
   /** The element question the session would have asked, had a shader set not kept it on the canvas: turning the set off asks it. */
   shaderHeldQuery: ElementQuery | null;
+  /** The engine's own decoder can't configure the session's video, so a shader set (which needs it) can't keep it off the element path. */
+  canvasRefused: boolean;
+  /** The session's latest question to the page about its video element and its answer, for telemetry; null when it asked none. */
+  elementQuery: ElementQueryTelemetry | null;
   /** The M2TS reader, or an encoded episode's Matroska reader. */
   readonly pipeline: SessionPipeline;
   /** The video track's CodecPrivate (an encode's av1C record), which its decoder is configured from; null for a disc. */
@@ -1009,7 +1020,7 @@ export class Player {
     const disc = this.disc;
     if (was === on || !s || !disc || s.encode || this.state === 'error') return;
     const held = s.shaderHeldQuery;
-    const reopen = on ? s.element !== null : held !== null && this.videoPath !== 'canvas' && !this.elementOff && this.elementQueries.cached(held) !== false;
+    const reopen = on ? s.element !== null && !s.canvasRefused : held !== null && this.videoPath !== 'canvas' && !this.elementOff && this.elementQueries.cached(held) !== false;
     if (reopen) await this.restart(disc, this.restartPoint(s));
   }
 
@@ -1280,6 +1291,8 @@ export class Player {
       videoRate: 0,
       elementHdr: false,
       shaderHeldQuery: null,
+      canvasRefused: false,
+      elementQuery: null,
     };
     ref.current = session;
     this.wireDecoder(session, decoder);
@@ -2728,6 +2741,8 @@ export class Player {
       videoRate: choice.video.rate,
       elementHdr: false,
       shaderHeldQuery: null,
+      canvasRefused: false,
+      elementQuery: null,
     };
     ref.current = session;
     if (decoder) this.wireDecoder(session, decoder);
@@ -3315,12 +3330,9 @@ export class Player {
         s.videoState = 'configuring';
         s.pendingVideo.push(unit);
         const coding = this.elementCoding(s);
-        const query = coding ? this.elementQueryFor(s, coding, u) : null;
-        if (coding && query && !this.shadersOn) this.choosePath(s, decoder, u, coding, query);
-        else {
-          if (query && (this.videoPath === 'element' || query.hdr)) s.shaderHeldQuery = query; // the canvas only for the shaders: turning them off asks again
-          this.configureDecoder(s, decoder, u);
-        }
+        const found = coding ? this.elementQueryFor(s, coding, u) : null;
+        if (coding && found) this.choosePath(s, decoder, u, coding, found);
+        else this.configureDecoder(s, decoder, u);
       }
     }
   }
@@ -3370,9 +3382,9 @@ export class Player {
    * path may take it to the element: with 'element' every stream the remuxer can read, with 'auto' an HDR one (its clip
    * info or SPS says so) or an SDR one that choosePath finds the engine's own decoder can't configure. Null takes the
    * canvas path without asking; with 'auto', so does a unit the remuxer fails to read, which the canvas path's decoder
-   * judges as before.
+   * judges as before. The colour description the stream's SPS gives comes with it, for telemetry.
    */
-  private elementQueryFor(s: Session, coding: 'avc' | 'hevc', u: PipelineUnit): ElementQuery | null {
+  private elementQueryFor(s: Session, coding: 'avc' | 'hevc', u: PipelineUnit): ElementQuestion | null {
     let stream: ReturnType<typeof elementStream>;
     try {
       stream = elementStream(coding, u.data);
@@ -3382,33 +3394,68 @@ export class Player {
       return null;
     }
     if (!stream) return null;
-    return elementQuery(stream, s.startClips, s.videoRate);
+    return { query: elementQuery(stream, s.startClips, s.videoRate), colour: stream.colour };
   }
 
   /**
    * The session's first unit with parameter sets came: the question about its stream goes to the page, whose answer
-   * (cached per elementQueryKey, false after ELEMENT_QUERY_TIMEOUT_MS) picks the path. The units read meanwhile wait in
-   * pendingVideo.
+   * (cached per elementQueryKey, `'timeout'` after ELEMENT_QUERY_TIMEOUT_MS) picks the path. The engine's own decoder is
+   * asked first when the canvas may keep the stream: an SDR stream under 'auto' stays on the canvas while WebCodecs
+   * decodes it, and a shader set keeps any stream there while WebCodecs decodes it (one it can't decode goes to the page
+   * all the same, since the shaders need decoded frames). The units read meanwhile wait in pendingVideo.
    */
-  private choosePath(s: Session, decoder: WebCodecsVideoDecoder, first: PipelineUnit, coding: 'avc' | 'hevc', query: ElementQuery): void {
-    if (this.videoPath === 'auto' && !query.hdr) {
-      // an SDR stream stays on the canvas while WebCodecs can decode it; only one it can't goes to the page
-      const config = { codingType: s.videoCodingType, firstUnit: first.data, ...(first.key !== undefined ? { key: first.key } : {}), ...(s.videoCodecPrivate ? { codecPrivate: s.videoCodecPrivate } : {}) };
-      void decoder.canConfigure(config).then((canvasPlays) => {
-        if (this.session !== s || s.decoder !== decoder || s.videoState !== 'configuring') return;
-        if (canvasPlays) this.configureDecoder(s, decoder, first);
-        else this.chooseByPage(s, decoder, first, coding, query);
+  private choosePath(s: Session, decoder: WebCodecsVideoDecoder, first: PipelineUnit, coding: 'avc' | 'hevc', found: ElementQuestion): void {
+    const sdrAuto = this.videoPath === 'auto' && !found.query.hdr;
+    const config = { codingType: s.videoCodingType, firstUnit: first.data, ...(first.key !== undefined ? { key: first.key } : {}), ...(s.videoCodecPrivate ? { codecPrivate: s.videoCodecPrivate } : {}) };
+    if (!sdrAuto && !this.shadersOn) {
+      // the page alone decides; whether WebCodecs could decode it too is noted on the side, so a shader set turned on
+      // later doesn't reopen on the canvas a stream that would only come back to the element
+      // (asked of a decoder of its own: the session's is closed if the element path is taken, which answers no)
+      void new WebCodecsVideoDecoder(this.deps.videoCodecApi).canConfigure(config).then((canvasPlays) => {
+        if (!canvasPlays) s.canvasRefused = true;
       });
+      this.chooseByPage(s, decoder, first, coding, found);
       return;
     }
-    this.chooseByPage(s, decoder, first, coding, query);
+    void decoder.canConfigure(config).then((canvasPlays) => {
+      if (this.session !== s || s.decoder !== decoder || s.videoState !== 'configuring') return;
+      if (!canvasPlays) {
+        s.canvasRefused = true;
+        this.chooseByPage(s, decoder, first, coding, found);
+      } else if (sdrAuto) {
+        this.configureDecoder(s, decoder, first);
+      } else if (this.shadersOn) {
+        s.shaderHeldQuery = found.query; // the canvas only for the shaders: turning them off asks again
+        this.configureDecoder(s, decoder, first);
+      } else {
+        this.chooseByPage(s, decoder, first, coding, found); // the set went off meanwhile
+      }
+    });
   }
 
-  /** Asks the page (or its cached answer) whether the element plays the stream, and takes that path or the canvas. */
-  private chooseByPage(s: Session, decoder: WebCodecsVideoDecoder, first: PipelineUnit, coding: 'avc' | 'hevc', query: ElementQuery): void {
-    const decide = (playable: boolean): void => {
+  /**
+   * Asks the page (or its cached answer) whether the element plays the stream, and takes that path or the canvas; the
+   * question and its answer go into the session's telemetry.
+   */
+  private chooseByPage(s: Session, decoder: WebCodecsVideoDecoder, first: PipelineUnit, coding: 'avc' | 'hevc', found: ElementQuestion): void {
+    const { query, colour } = found;
+    const trace: ElementQueryTelemetry = {
+      codec: query.codec,
+      hdr: query.hdr,
+      size: query.width !== undefined && query.height !== undefined ? { width: query.width, height: query.height, ...(query.frameRate !== undefined ? { frameRate: query.frameRate } : {}) } : null,
+      mse: null,
+      decodingInfo: null,
+      answer: null,
+      colour: colour ? { primaries: colour.primaries, transfer: colour.transfer, matrix: colour.matrix } : null,
+    };
+    s.elementQuery = trace;
+    const decide = (answer: boolean | 'timeout'): void => {
+      if (s.elementQuery === trace) {
+        const check = answer === 'timeout' ? null : this.elementQueries.checkOf(query);
+        s.elementQuery = { ...trace, mse: check?.mse ?? null, decodingInfo: check?.decodingInfo ?? null, answer };
+      }
       if (this.session !== s || s.decoder !== decoder || s.videoState !== 'configuring') return;
-      if (playable && this.clockWriter && !this.shadersOn) this.startElement(s, decoder, coding, query.hdr !== null);
+      if (answer === true && this.clockWriter && (!this.shadersOn || s.canvasRefused)) this.startElement(s, decoder, coding, query.hdr !== null);
       else this.configureDecoder(s, decoder, first);
     };
     const cached = this.elementQueries.cached(query);
@@ -3503,7 +3550,7 @@ export class Player {
     const s = this.session;
     switch (cmd.type) {
       case 'videoElementAnswer':
-        this.elementQueries.answer(cmd, cmd.playable);
+        this.elementQueries.answer(cmd, cmd.playable, cmd.check);
         return;
       case 'videoBuffered':
         // a report the page made before the latest reset describes what it has since dropped
@@ -3937,6 +3984,7 @@ export class Player {
         ...(s?.element ? { elementCatchUps: this.elementFrames.catchUps } : {}),
         elementFailure: this.elementFailure,
         videoHdr: this.videoHdr,
+        elementQuery: s?.elementQuery ?? null,
         bdj: this.bdjStartup ? { ...this.bdjStartup, inputLatencyMs: this.bdjLatency?.stats ?? null } : null,
         ...(this.deps.memoryTelemetry ? { bdjMemory: this.bdjMemory() } : {}),
         bdjPlane: this.bdj ? { flushes: this.bdj.plane.flushCount(), tapsIgnored: this.bdjTapsIgnored, ...(this.deps.planeHashTelemetry ? { hash: this.settledPlaneHash(this.bdj.plane) } : {}) } : null,

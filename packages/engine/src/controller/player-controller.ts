@@ -5,7 +5,7 @@ import type { UoOp } from '../hdmv/uo-mask';
 import type { Chapter } from '../nav/timeline';
 import type { MemoryProfileName } from '../memory-profile';
 import type { AudioTrack, BufferRequest, EncodeSpec, EngineCommand, EngineEvent, ErrorCode, MenuKey, PlaceState, PlaybackState, ShaderSetData, ShaderState, StartPoint, SubtitleChoice, Telemetry, VideoPath } from '../protocol';
-import { elementPlayable } from './element-caps';
+import { elementCheck } from './element-caps';
 import { ElementVideoOutput, type MediaSourceLike } from './element-output';
 import { trackLabel } from './language';
 import { DROP_WARN_RATE, DropMeter } from './drop-meter';
@@ -521,7 +521,7 @@ export class PlayerController {
         return { source: source as unknown as MediaSourceLike, url, revoke: () => URL.revokeObjectURL(url) };
       },
       playable: ({ codec, hdr, width, height, frameRate }) =>
-        elementPlayable(
+        elementCheck(
           {
             isTypeSupported: (type) => Ctor?.isTypeSupported(type) ?? false,
             ...(navigator.mediaCapabilities?.decodingInfo

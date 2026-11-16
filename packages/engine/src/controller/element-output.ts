@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import type { ElementQuery, EngineCommand, EngineEvent } from '../protocol';
+import type { ElementCheck, ElementQuery, EngineCommand, EngineEvent } from '../protocol';
 import { elementQueryKey } from '../element/element-query';
 import { ClockBlockReader, createClockBlock } from '../element/clock-block';
 import { ELEMENT_TIME_OFFSET_US } from '../element/fmp4';
@@ -56,7 +56,8 @@ export interface SourceBufferLike {
 
 /**
  * What {@link ElementVideoOutput} needs from the page. `createMediaSource` makes a media source with its object URL
- * (null when the browser has none); `epochMs` is now in epoch milliseconds (`performance.timeOrigin +
+ * (null when the browser has none); `playable` answers whether the element plays a stream, with what the browser said
+ * (`elementCheck`); `epochMs` is now in epoch milliseconds (`performance.timeOrigin +
  * performance.now()`), used for a frame whose display time is unknown; `timeOrigin` is `performance.timeOrigin`,
  * which turns a frame's `expectedDisplayTime` into epoch milliseconds; `post` sends a command to the engine; `setTimer`
  * runs `fn` once after `ms` and returns its cancel; `animationFrame` (`requestAnimationFrame`, optional) runs `fn`
@@ -67,7 +68,7 @@ export interface SourceBufferLike {
 export interface ElementOutputDeps {
   video: VideoElementLike;
   createMediaSource(): { source: MediaSourceLike; url: string; revoke(): void } | null;
-  playable(query: ElementQuery): Promise<boolean>;
+  playable(query: ElementQuery): Promise<{ readonly playable: boolean; readonly check: ElementCheck }>;
   epochMs(): number;
   timeOrigin: number;
   post(cmd: EngineCommand): void;
@@ -152,7 +153,7 @@ export class ElementVideoOutput {
   /** The codec the source buffer has once the queued operations have run. */
   private bufferCodec: string | null = null;
   /** The page's answers to the engine's questions, by codec and HDR facts. */
-  private readonly playableCache = new Map<string, Promise<boolean>>();
+  private readonly playableCache = new Map<string, Promise<{ readonly playable: boolean; readonly check?: ElementCheck }>>();
   private queue: Op[] = [];
   private inFlight: Op | null = null;
   /** Where the next appended segment puts the playhead (playlist µs), and whether it plays then. */
@@ -256,11 +257,11 @@ export class ElementVideoOutput {
     const key = elementQueryKey(query);
     let answer = this.playableCache.get(key);
     if (!answer) {
-      answer = this.deps.playable(query).catch(() => false);
+      answer = this.deps.playable(query).catch(() => ({ playable: false }));
       this.playableCache.set(key, answer);
     }
-    const playable = await answer;
-    if (!this.disposed) this.deps.post({ type: 'videoElementAnswer', ...query, playable });
+    const { playable, check } = await answer;
+    if (!this.disposed) this.deps.post({ type: 'videoElementAnswer', ...query, playable, ...(check ? { check } : {}) });
   }
 
   /** Whether the engine's clock runs: the element plays (once its first segment is placed) or pauses to match. */

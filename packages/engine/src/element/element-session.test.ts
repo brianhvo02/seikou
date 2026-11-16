@@ -118,15 +118,25 @@ describe('ElementCodecQueries', () => {
     expect(q.cached(avc)).toBe(true);
   });
 
-  it('answers false at the timeout, and keeps a later answer for the next session', async () => {
+  it("answers 'timeout' at the timeout, and keeps a later answer for the next session", async () => {
     const { q, fire, delays } = queries();
     const a = q.askElement(hevc);
     expect(delays).toEqual([ELEMENT_QUERY_TIMEOUT_MS]);
     fire();
-    await expect(a).resolves.toBe(false);
+    await expect(a).resolves.toBe('timeout');
     expect(q.cached(hevc)).toBeUndefined();
     q.answer(hevc, true);
     expect(q.cached(hevc)).toBe(true);
+  });
+
+  it("keeps the page's check with its answer", () => {
+    const { q } = queries();
+    void q.askElement(hdr);
+    q.answer(hdr, false, { mse: true, decodingInfo: false });
+    expect(q.checkOf(hdr)).toEqual({ mse: true, decodingInfo: false });
+    q.answer(avc, true);
+    expect(q.checkOf(avc)).toBeNull();
+    expect(q.checkOf(hevc)).toBeNull();
   });
 
   it('asks the open questions again', () => {

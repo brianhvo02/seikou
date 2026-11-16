@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import type { ElementQuery, EngineEvent } from '../protocol';
+import type { ElementCheck, ElementQuery, EngineEvent } from '../protocol';
 import { elementQueryKey } from './element-query';
 import { ElementRemux, type RemuxOutput } from './remux';
 import type { ElementPictureSize } from '../render/compositor';
@@ -169,15 +169,15 @@ export class ElementSession {
 
 /**
  * The page's answers to whether its video element plays a stream, kept for the page's life by the codec with its HDR
- * facts and size (elementQueryKey), and the questions still waiting for one. A question unanswered after
- * ELEMENT_QUERY_TIMEOUT_MS answers false; a later answer is still kept.
+ * facts and size (elementQueryKey) with what the page found asking the browser, and the questions still waiting for
+ * one. A question unanswered after ELEMENT_QUERY_TIMEOUT_MS answers `'timeout'`; a later answer is still kept.
  * @internal
  */
 export class ElementCodecQueries {
-  /** The page's answers to videoElementQuery, by elementQueryKey. */
-  private readonly answers = new Map<string, boolean>();
+  /** The page's answers to videoElementQuery with their checks, by elementQueryKey. */
+  private readonly answers = new Map<string, { readonly playable: boolean; readonly check: ElementCheck | null }>();
   /** Questions sent to the page with no answer yet, by elementQueryKey; each settles at the answer or at its timeout. */
-  private readonly queries = new Map<string, { readonly query: ElementQuery; readonly answer: Promise<boolean>; readonly settle: (playable: boolean) => void }>();
+  private readonly queries = new Map<string, { readonly query: ElementQuery; readonly answer: Promise<boolean | 'timeout'>; readonly settle: (playable: boolean | 'timeout') => void }>();
 
   constructor(
     private readonly emit: (event: EngineEvent) => void,
@@ -186,20 +186,25 @@ export class ElementCodecQueries {
 
   /** The page's earlier answer for `query`, or undefined when it hasn't given one. */
   cached(query: ElementQuery): boolean | undefined {
-    return this.answers.get(elementQueryKey(query));
+    return this.answers.get(elementQueryKey(query))?.playable;
   }
 
-  /** Asks the page about `query` (once while a question is open); false when no answer comes in time. */
-  askElement(query: ElementQuery): Promise<boolean> {
+  /** What the page found asking the browser about `query`, with its answer; null when it sent none or hasn't answered. */
+  checkOf(query: ElementQuery): ElementCheck | null {
+    return this.answers.get(elementQueryKey(query))?.check ?? null;
+  }
+
+  /** Asks the page about `query` (once while a question is open); `'timeout'` when no answer comes in time. */
+  askElement(query: ElementQuery): Promise<boolean | 'timeout'> {
     const key = elementQueryKey(query);
     const asked = this.queries.get(key);
     if (asked) return asked.answer;
-    let settle!: (playable: boolean) => void;
-    const answer = new Promise<boolean>((resolve) => (settle = resolve));
+    let settle!: (playable: boolean | 'timeout') => void;
+    const answer = new Promise<boolean | 'timeout'>((resolve) => (settle = resolve));
     const cancel = this.setTimer(ELEMENT_QUERY_TIMEOUT_MS, () => {
       // no answer in time: this session takes the canvas path; a later answer is still kept for the next
       if (this.queries.get(key)?.answer === answer) this.queries.delete(key);
-      settle(false);
+      settle('timeout');
     });
     this.queries.set(key, {
       query,
@@ -213,10 +218,10 @@ export class ElementCodecQueries {
     return answer;
   }
 
-  /** The page's videoElementAnswer (which echoes its question): kept, and the open question settles with it. */
-  answer(query: ElementQuery, playable: boolean): void {
+  /** The page's videoElementAnswer (which echoes its question), with its check: kept, and the open question settles with it. */
+  answer(query: ElementQuery, playable: boolean, check?: ElementCheck): void {
     const key = elementQueryKey(query);
-    this.answers.set(key, playable);
+    this.answers.set(key, { playable, check: check ?? null });
     const asked = this.queries.get(key);
     this.queries.delete(key);
     asked?.settle(playable);

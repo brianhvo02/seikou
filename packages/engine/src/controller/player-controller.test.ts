@@ -1176,7 +1176,7 @@ describe('element video output', () => {
       c.attachVideoElement(fakeVideo());
       const query = { codec: 'hvc1.2.4.L153.B0', hdr: { transfer: 'pq', mastering: true }, width: 3840, height: 2160, frameRate: 24_000 / 1001 } as const;
       worker.emit({ type: 'videoElementQuery', ...query });
-      await vi.waitFor(() => expect(worker.posted.at(-1)).toEqual({ type: 'videoElementAnswer', ...query, playable: true }));
+      await vi.waitFor(() => expect(worker.posted.at(-1)).toEqual({ type: 'videoElementAnswer', ...query, playable: true, check: { mse: true, decodingInfo: true } }));
       expect(configs[0]?.video).toMatchObject({ width: 3840, height: 2160, framerate: 24_000 / 1001, transferFunction: 'pq' });
     } finally {
       vi.unstubAllGlobals();
