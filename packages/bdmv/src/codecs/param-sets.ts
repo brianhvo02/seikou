@@ -191,27 +191,63 @@ function skipScalingListData(r: Bits): void {
   }
 }
 
-/** Skips st_ref_pic_set(idx) of an SPS (H.265 §7.3.7, where RefRpsIdx is idx - 1) and returns its NumDeltaPocs. */
-function skipShortTermRefPicSet(r: Bits, idx: number, numDeltaPocs: number[]): number {
+/** One short-term reference picture set's picture order differences, before (S0, negative) and after (S1, positive). */
+interface RefPicSet {
+  readonly s0: readonly number[];
+  readonly s1: readonly number[];
+}
+
+/**
+ * Reads st_ref_pic_set(idx) of an SPS (H.265 §7.3.7, where RefRpsIdx is idx - 1) and derives its picture order
+ * differences as §7.4.8 does, since a set predicted from it reads one flag per difference it has plus one. A predicted
+ * difference that comes out 0, or on the wrong side, is dropped, so a set can have fewer than its flags say.
+ */
+function readShortTermRefPicSet(r: Bits, idx: number, sets: readonly RefPicSet[]): RefPicSet {
   if (idx !== 0 && r.u(1)) {
-    r.u(1); // delta_rps_sign
-    r.ue(); // abs_delta_rps_minus1
-    const refCount = numDeltaPocs[idx - 1];
-    let count = 0;
-    for (let j = 0; j <= refCount; j++) {
+    const sign = r.u(1); // delta_rps_sign
+    const deltaRps = (1 - 2 * sign) * (r.ue() + 1); // abs_delta_rps_minus1
+    const ref = sets[idx - 1];
+    const count = ref.s0.length + ref.s1.length;
+    const useDelta: boolean[] = [];
+    for (let j = 0; j <= count; j++) {
       const used = r.u(1);
-      const useDelta = used ? 1 : r.u(1);
-      if (used || useDelta) count++;
+      useDelta.push(used ? true : r.u(1) === 1); // use_delta_flag is 1 when absent
     }
-    return count;
+    const s0: number[] = [];
+    const s1: number[] = [];
+    for (let j = ref.s1.length - 1; j >= 0; j--) {
+      const d = ref.s1[j] + deltaRps;
+      if (d < 0 && useDelta[ref.s0.length + j]) s0.push(d);
+    }
+    if (deltaRps < 0 && useDelta[count]) s0.push(deltaRps);
+    for (let j = 0; j < ref.s0.length; j++) {
+      const d = ref.s0[j] + deltaRps;
+      if (d < 0 && useDelta[j]) s0.push(d);
+    }
+    for (let j = ref.s0.length - 1; j >= 0; j--) {
+      const d = ref.s0[j] + deltaRps;
+      if (d > 0 && useDelta[j]) s1.push(d);
+    }
+    if (deltaRps > 0 && useDelta[count]) s1.push(deltaRps);
+    for (let j = 0; j < ref.s1.length; j++) {
+      const d = ref.s1[j] + deltaRps;
+      if (d > 0 && useDelta[ref.s0.length + j]) s1.push(d);
+    }
+    return { s0, s1 };
   }
   const negative = r.ue();
   const positive = r.ue();
-  for (let i = 0; i < negative + positive; i++) {
-    r.ue(); // delta_poc_s0/s1_minus1
-    r.u(1); // used_by_curr_pic_s0/s1_flag
+  const s0: number[] = [];
+  const s1: number[] = [];
+  for (let i = 0; i < negative; i++) {
+    s0.push((s0.at(-1) ?? 0) - (r.ue() + 1)); // delta_poc_s0_minus1
+    r.u(1); // used_by_curr_pic_s0_flag
   }
-  return negative + positive;
+  for (let i = 0; i < positive; i++) {
+    s1.push((s1.at(-1) ?? 0) + r.ue() + 1); // delta_poc_s1_minus1
+    r.u(1); // used_by_curr_pic_s1_flag
+  }
+  return { s0, s1 };
 }
 
 function skipScalingList(r: Bits, size: number): void {
@@ -300,8 +336,8 @@ function readHevcVui(r: Bits, maxSubLayersMinus1: number): { colour: ColourDescr
       r.u(1); // pcm_loop_filter_disabled_flag
     }
     const numSets = r.ue();
-    const numDeltaPocs: number[] = [];
-    for (let i = 0; i < numSets; i++) numDeltaPocs.push(skipShortTermRefPicSet(r, i, numDeltaPocs));
+    const sets: RefPicSet[] = [];
+    for (let i = 0; i < numSets; i++) sets.push(readShortTermRefPicSet(r, i, sets));
     if (r.u(1)) {
       const numLongTerm = r.ue();
       for (let i = 0; i < numLongTerm; i++) {
