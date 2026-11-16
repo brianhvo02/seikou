@@ -198,6 +198,14 @@ to it by the UI as the canvas is (`attachVideoElement`):
 - A BD-J background still is drawn under the video on the canvas path; on the element path it would cover the video,
   so it is drawn only while no element frame shows. Discs show such stills in menus without video; the edge case is
   noted in `docs/known-issues.md`.
+- **HDR overlays (phase 2, the owner's request after the Windows Chrome check on 2026-11-16):** over HDR video the
+  overlay canvas is an SDR surface, so PG subtitles and BD-J and IG menus show at the system's SDR white (Windows'
+  "SDR content brightness"), dim and greyish beside the video's highlights. As a UHD player maps the disc's SDR graphics
+  into the HDR picture at a fixed reference level, the canvas is drawn in the browser's extended-range mode where there
+  is one (Chrome's HDR canvas) with graphics white at the BT.2408 reference, 203 nits, and only while an HDR stream
+  plays on the element path; where the browser has no such canvas (to be checked in Safari) the overlays stay SDR as now.
+  How the engine's compositor and the BD-J plane get there (a float16 canvas, or WebGPU's extended tone mapping) is the
+  builder's call.
 
 ### 5.7 What the user sees
 
@@ -252,7 +260,7 @@ work:
    watches it on the three setups (Safari on a Mac, on an iPhone or iPad, Chrome on a Mac or Windows) while the sync
    E2E tests measure it, then decides: carry on with A everywhere, A with a per-session fallback for a browser that
    can't hold the bounds, or C.
-2. **Then the rest**, on the approach chosen: the HDR boxes and SEI, the path choice and the CLPI fields, the
+2. **Then the rest**, on the approach chosen: the HDR boxes and SEI, HDR overlays (§5.6), the path choice and the CLPI fields, the
    transparent compositor and overlay placement, seeks, play items and resets, the fallback and its notice, the setting
    and badge, `video-caps.ts`, the remaining tests and the documentation.
 
