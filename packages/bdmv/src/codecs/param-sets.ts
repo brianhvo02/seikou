@@ -42,6 +42,27 @@ export function findParameterSets(au: Uint8Array, coding: 'avc' | 'hevc'): Param
 }
 
 /**
+ * The VUI's colour description: the code points of H.273 for the primaries, transfer characteristics and matrix
+ * coefficients, and whether the sample values use the full range.
+ * @internal
+ */
+export interface ColourDescription {
+  primaries: number;
+  transfer: number;
+  matrix: number;
+  fullRange: boolean;
+}
+
+/**
+ * A sample aspect ratio from the VUI.
+ * @internal
+ */
+export interface SampleAspectRatio {
+  width: number;
+  height: number;
+}
+
+/**
  * What an H.265 SPS says that an `hvcC` box and a `hvc1` sample entry need (H.265 §7.3.2.2 and §7.3.3).
  * @internal
  */
@@ -60,6 +81,10 @@ export interface HevcSpsInfo {
   /** The picture size in luma samples after the conformance window. */
   width: number;
   height: number;
+  /** The VUI's colour description, or null when the SPS has none. */
+  colour: ColourDescription | null;
+  /** The sample aspect ratio from the VUI (1:1 when the SPS has none). */
+  sar: SampleAspectRatio;
 }
 
 /**
@@ -80,6 +105,10 @@ export interface AvcSpsInfo {
   /** The picture size in luma samples after frame cropping. */
   width: number;
   height: number;
+  /** The VUI's colour description, or null when the SPS has none. */
+  colour: ColourDescription | null;
+  /** The sample aspect ratio from the VUI (1:1 when the SPS has none). */
+  sar: SampleAspectRatio;
 }
 
 class Bits {
@@ -111,6 +140,78 @@ class Bits {
     const k = this.ue();
     return k & 1 ? (k + 1) / 2 : -k / 2;
   }
+}
+
+const SAR_TABLE: readonly [number, number][] = [
+  [1, 1], [12, 11], [10, 11], [16, 11], [40, 33], [24, 11], [20, 11], [32, 11],
+  [80, 33], [18, 11], [15, 11], [64, 33], [160, 99], [4, 3], [3, 2], [2, 1],
+];
+
+/**
+ * Reads the start of a VUI (identical in H.264 Annex E and H.265 Annex E): the aspect ratio, overscan and video
+ * signal type, which is as far as the colour description needs. A truncated VUI gives no colour and a 1:1 ratio.
+ */
+function readVui(r: Bits): { colour: ColourDescription | null; sar: SampleAspectRatio } {
+  let colour: ColourDescription | null = null;
+  let sar: SampleAspectRatio = { width: 1, height: 1 };
+  try {
+    if (r.u(1)) {
+      const idc = r.u(8);
+      if (idc === 255) {
+        const width = r.u(16);
+        const height = r.u(16);
+        if (width > 0 && height > 0) sar = { width, height };
+      } else if (idc >= 1 && idc <= 16) {
+        sar = { width: SAR_TABLE[idc - 1][0], height: SAR_TABLE[idc - 1][1] };
+      }
+    }
+    if (r.u(1)) r.u(1); // overscan_appropriate_flag
+    if (r.u(1)) {
+      r.u(3); // video_format
+      const fullRange = r.u(1) === 1;
+      if (r.u(1)) colour = { primaries: r.u(8), transfer: r.u(8), matrix: r.u(8), fullRange };
+    }
+  } catch (e) {
+    if (!(e instanceof ParseError)) throw e;
+  }
+  return { colour, sar };
+}
+
+function skipScalingListData(r: Bits): void {
+  for (let sizeId = 0; sizeId < 4; sizeId++) {
+    for (let matrixId = 0; matrixId < 6; matrixId += sizeId === 3 ? 3 : 1) {
+      if (!r.u(1)) {
+        r.ue(); // scaling_list_pred_matrix_id_delta
+      } else {
+        if (sizeId > 1) r.se(); // scaling_list_dc_coef_minus8
+        const coefNum = Math.min(64, 1 << (4 + (sizeId << 1)));
+        for (let i = 0; i < coefNum; i++) r.se();
+      }
+    }
+  }
+}
+
+/** Skips st_ref_pic_set(idx) of an SPS (H.265 §7.3.7, where RefRpsIdx is idx - 1) and returns its NumDeltaPocs. */
+function skipShortTermRefPicSet(r: Bits, idx: number, numDeltaPocs: number[]): number {
+  if (idx !== 0 && r.u(1)) {
+    r.u(1); // delta_rps_sign
+    r.ue(); // abs_delta_rps_minus1
+    const refCount = numDeltaPocs[idx - 1];
+    let count = 0;
+    for (let j = 0; j <= refCount; j++) {
+      const used = r.u(1);
+      const useDelta = used ? 1 : r.u(1);
+      if (used || useDelta) count++;
+    }
+    return count;
+  }
+  const negative = r.ue();
+  const positive = r.ue();
+  for (let i = 0; i < negative + positive; i++) {
+    r.ue(); // delta_poc_s0/s1_minus1
+    r.u(1); // used_by_curr_pic_s0/s1_flag
+  }
+  return negative + positive;
 }
 
 function skipScalingList(r: Bits, size: number): void {
@@ -170,7 +271,52 @@ export function readHevcSps(sps: Uint8Array): HevcSpsInfo {
   }
   const bitDepthLuma = r.ue() + 8;
   const bitDepthChroma = r.ue() + 8;
-  return { profileSpace, tierFlag, profileIdc, compatFlags, constraintFlags, levelIdc, chromaFormatIdc, bitDepthLuma, bitDepthChroma, width, height };
+  const { colour, sar } = readHevcVui(r, maxSubLayersMinus1);
+  return { profileSpace, tierFlag, profileIdc, compatFlags, constraintFlags, levelIdc, chromaFormatIdc, bitDepthLuma, bitDepthChroma, width, height, colour, sar };
+}
+
+/** Reads an H.265 SPS from log2_max_pic_order_cnt_lsb_minus4 on, as far as the VUI, and returns the VUI's facts. */
+function readHevcVui(r: Bits, maxSubLayersMinus1: number): { colour: ColourDescription | null; sar: SampleAspectRatio } {
+  const none = { colour: null, sar: { width: 1, height: 1 } };
+  try {
+    const log2MaxPocLsb = r.ue() + 4;
+    const orderingInfoPresent = r.u(1);
+    for (let i = orderingInfoPresent ? 0 : maxSubLayersMinus1; i <= maxSubLayersMinus1; i++) {
+      r.ue();
+      r.ue();
+      r.ue();
+    }
+    for (let i = 0; i < 4; i++) r.ue(); // coding and transform block sizes
+    r.ue(); // max_transform_hierarchy_depth_inter
+    r.ue(); // max_transform_hierarchy_depth_intra
+    if (r.u(1) && r.u(1)) skipScalingListData(r);
+    r.u(1); // amp_enabled_flag
+    r.u(1); // sample_adaptive_offset_enabled_flag
+    if (r.u(1)) {
+      r.u(4); // pcm_sample_bit_depth_luma_minus1
+      r.u(4); // pcm_sample_bit_depth_chroma_minus1
+      r.ue(); // log2_min_pcm_luma_coding_block_size_minus3
+      r.ue(); // log2_diff_max_min_pcm_luma_coding_block_size
+      r.u(1); // pcm_loop_filter_disabled_flag
+    }
+    const numSets = r.ue();
+    const numDeltaPocs: number[] = [];
+    for (let i = 0; i < numSets; i++) numDeltaPocs.push(skipShortTermRefPicSet(r, i, numDeltaPocs));
+    if (r.u(1)) {
+      const numLongTerm = r.ue();
+      for (let i = 0; i < numLongTerm; i++) {
+        r.u(log2MaxPocLsb); // lt_ref_pic_poc_lsb_sps
+        r.u(1); // used_by_curr_pic_lt_sps_flag
+      }
+    }
+    r.u(1); // sps_temporal_mvp_enabled_flag
+    r.u(1); // strong_intra_smoothing_enabled_flag
+    if (!r.u(1)) return none; // vui_parameters_present_flag
+    return readVui(r);
+  } catch (e) {
+    if (e instanceof ParseError) return none;
+    throw e;
+  }
 }
 
 const HIGH_PROFILES = new Set([100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135]);
@@ -231,5 +377,11 @@ export function readAvcSps(sps: Uint8Array): AvcSpsInfo {
     width -= (left + right) * unitX;
     height -= (top + bottom) * unitY;
   }
-  return { profileIdc, constraintFlags, levelIdc, chromaFormatIdc: chromaFormat, bitDepthLuma, bitDepthChroma, width, height };
+  let vui: { colour: ColourDescription | null; sar: SampleAspectRatio } = { colour: null, sar: { width: 1, height: 1 } };
+  try {
+    if (r.u(1)) vui = readVui(r); // vui_parameters_present_flag
+  } catch (e) {
+    if (!(e instanceof ParseError)) throw e;
+  }
+  return { profileIdc, constraintFlags, levelIdc, chromaFormatIdc: chromaFormat, bitDepthLuma, bitDepthChroma, width, height, ...vui };
 }
