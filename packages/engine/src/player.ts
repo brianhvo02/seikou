@@ -3456,7 +3456,11 @@ export class Player {
       }
       if (this.session !== s || s.decoder !== decoder || s.videoState !== 'configuring') return;
       if (answer === true && this.clockWriter && (!this.shadersOn || s.canvasRefused)) this.startElement(s, decoder, coding, query.hdr !== null);
-      else this.configureDecoder(s, decoder, first);
+      else {
+        // a set turned on while the page was asked keeps the canvas for the shaders alone: turning it off asks again
+        if (answer === true && this.clockWriter && this.shadersOn) s.shaderHeldQuery = query;
+        this.configureDecoder(s, decoder, first);
+      }
     };
     const cached = this.elementQueries.cached(query);
     if (cached !== undefined) decide(cached);

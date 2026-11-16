@@ -916,6 +916,23 @@ describe('Player choosing the path', () => {
     expect(ofType(h, 'videoHdr').map((e) => e.hdr)).toEqual([true]);
   });
 
+  it('a shader set turned on while the page is still asked keeps the HDR disc on the canvas, and turning it off reopens on the element path', async () => {
+    const h = await harness({ path: 'auto', files: hdrDisc(), attachLate: true });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await vi.waitFor(() => expect(ofType(h, 'videoElementQuery')).toHaveLength(1));
+    await h.player.handle({ type: 'setVideoShaders', set: SHADER_SET });
+    await h.attach();
+    await untilState(h, 'playing');
+    expect(elementSessions(h)).toBe(0);
+    const before = h.events.length;
+    await h.player.handle({ type: 'setVideoShaders', set: null });
+    await untilState(h, 'playing');
+    const after = h.events.slice(before);
+    expect(after.filter((e) => e.type === 'playlistCleared')).toHaveLength(1);
+    expect(after.filter((e) => e.type === 'videoReset')).toHaveLength(1);
+    expect(ofType(h, 'videoHdr').map((e) => e.hdr)).toEqual([true]);
+  });
+
   it('with no setVideoPath (a host without a video element) the HDR disc takes the canvas path at once, asking nothing', async () => {
     const h = await harness({ path: null, files: hdrDisc() });
     await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
