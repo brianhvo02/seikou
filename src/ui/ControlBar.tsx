@@ -144,9 +144,9 @@ interface ControlBarProps {
 
 /**
  * The player's control bar: seek bar with chapter ticks, previous and next chapter, play and pause, time, mute and
- * volume, then the Audio, Quality (`quality`), Subtitles, Chapters (`encode`), Shaders and Settings (`encode`) menus, and the
- * buttons Top Menu and Pop-up (when the disc has them), Remote (HDMV or BD-J), Titles or Playlists (Close for an
- * encode) and Fullscreen (when `onFullscreen` is given). A control the disc's UO mask forbids is disabled with a
+ * volume, then the Audio, Quality (`quality`), Subtitles, Chapters (`encode`), Shaders, Video output (not for an
+ * `encode`, whose AV1 always plays on the canvas) and Settings (`encode`) menus, and the buttons Top Menu and Pop-up
+ * (when the disc has them), Remote (HDMV or BD-J), Titles or Playlists (Close for an encode) and Fullscreen (when `onFullscreen` is given). A control the disc's UO mask forbids is disabled with a
  * tooltip. `visible` false hides the bar with a CSS class and keeps it mounted. Everything is driven by `snapshot` and
  * the `controller`'s commands.
  */
@@ -233,14 +233,16 @@ export function ControlBar({ controller, snapshot, shaderModel, shaderState, vis
         />
         {encode && <ChapterMenu chapters={snapshot.chapters} timeUs={snapshot.timeUs} onSeek={(us) => controller.seek(us)} onOpenChange={onMenuOpenChange} />}
         <ShaderMenu model={shaderModel} state={shaderState} status={snapshot.shaders} dropWarning={snapshot.shaderDropWarning} onOpenChange={onMenuOpenChange} />
-        <VideoOutputMenu
-          value={videoOutput}
-          onPick={(path) => {
-            videoOutputSetting().choose(path);
-            controller.setVideoPath(path);
-          }}
-          onOpenChange={onMenuOpenChange}
-        />
+        {!encode && (
+          <VideoOutputMenu
+            value={videoOutput}
+            onPick={(path) => {
+              videoOutputSetting().choose(path);
+              controller.setVideoPath(path);
+            }}
+            onOpenChange={onMenuOpenChange}
+          />
+        )}
         {encode && <EncodeSettingsMenu countdown={encode.countdown} onCountdown={encode.onCountdown} onOpenChange={onMenuOpenChange} />}
         {snapshot.indexTitles?.hasTopMenu && (
           <button type="button" data-testid="top-menu" disabled={masked('menuCall')} title={tip('menuCall')} onClick={() => onMenuKey('topMenu')}>
