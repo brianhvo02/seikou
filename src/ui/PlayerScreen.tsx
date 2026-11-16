@@ -13,6 +13,7 @@ import { RelayBadge } from './nas/RelayBadge';
 import type { ShaderModel, ShaderModelState } from './shader-model';
 import { collectDroppedFiles, splitPick } from '@seikou/engine/controller/drop-files';
 import { checkCapabilities } from './capabilities';
+import { HdrBadge } from './HdrBadge';
 import { FULLSCREEN_HINT_TEXT, evaluateFullscreenHint, markFullscreenHintDismissed, safeLocalStorage, toggleFullscreen } from './fullscreen';
 import { EncodingPrompt } from './EncodingPrompt';
 import { keyActionUo, keyToAction, keyWakesControls } from './keyboard';
@@ -885,6 +886,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
             {originalUnplayable ? " (this disc's video can't play here as it is)" : ''}
           </span>
         )}
+        <HdrBadge active={snapshot.videoHdr} />
         {levelNotice && (
           <div className="notice" role="status" data-testid="level-notice">
             {levelNotice}
