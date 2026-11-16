@@ -289,6 +289,26 @@ describe('Compositor on the element path', () => {
     expect(calls.map(([n]) => n)).toEqual(['main.clearRect', 'main.drawImage']);
   });
 
+  it('after a fallback to the canvas, draws the still under the video again, over black, once the element had shown a frame', () => {
+    const { calls, compositor } = fake(1920, 1080);
+    const image = { still: true } as unknown as ImageBitmap;
+    const frame = { displayWidth: 1440, displayHeight: 1080, codedWidth: 1440, codedHeight: 1080 } as unknown as VideoFrame;
+    compositor.setBackground({ image, rect: { x: 0, y: 0, width: 1, height: 1 } });
+    compositor.startPlaylist(true, { element: { width: 1920, height: 1080, codedWidth: 1920, codedHeight: 1080 } });
+    compositor.elementFrameShown();
+    compositor.drawVideo(null);
+    expect(calls.map(([n]) => n)).toEqual(['main.clearRect']);
+    // the element failed: the same playlist reopens on the canvas path
+    calls.length = 0;
+    compositor.startPlaylist(true);
+    compositor.drawVideo(frame);
+    expect(calls).toEqual([
+      ['main.fillRect', 0, 0, 1920, 1080],
+      ['main.drawImage', image, 0, 0, 1920, 1080],
+      ['main.drawImage', frame, 240, 0, 1440, 1080],
+    ]);
+  });
+
   it('an element frame shown before the session is in element mode is not carried into it', () => {
     const { calls, compositor } = fake(1920, 1080);
     const image = { still: true } as unknown as ImageBitmap;
