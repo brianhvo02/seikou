@@ -138,12 +138,29 @@ export class AudioOutput implements AudioOutputLike {
       Atomics.store(views.control, Control.LatencyUs, us);
       return !unknown;
     };
+    // both publishers stop when the context closes: a closed output has no latency to publish, and its ring is let go
+    const timers: Array<ReturnType<typeof setInterval>> = [];
+    const stop = (): void => {
+      for (const t of timers) clearInterval(t);
+      timers.length = 0;
+    };
+    const closed = (): boolean => {
+      if (context.state !== 'closed') return false;
+      stop();
+      return true;
+    };
     if (!publishLatency()) {
       const soon = setInterval(() => {
-        if (publishLatency()) clearInterval(soon);
+        if (closed() || publishLatency()) clearInterval(soon);
       }, LATENCY_UNKNOWN_POLL_MS);
+      timers.push(soon);
     }
-    setInterval(publishLatency, LATENCY_PUBLISH_MS);
+    timers.push(
+      setInterval(() => {
+        if (!closed()) publishLatency();
+      }, LATENCY_PUBLISH_MS),
+    );
+    context.addEventListener('statechange', () => void closed());
     return ring;
   }
 

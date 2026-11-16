@@ -73,8 +73,7 @@ const CATCH_UP_MAX_DELTA = 0.25;
  * after a start, resume, seek or reset, two raw offsets averaging beyond
  * 10 ms (once a catch-up has ended, measured afresh) run another, since an
  * element can keep slipping while it starts: it plays fast or slow, by what
- * removes the offset
- * in about 0.12 s of media (8% to 25%), for just the media time that
+ * removes the offset in about 0.12 s of media (8% to 25%), for just the media time that
  * removes it (computed from the rate, not measured, so a late measurement
  * cannot make it overshoot), then the loop takes over again with fresh
  * smoothing and the trim it had. In steady state only a slip (eight raw

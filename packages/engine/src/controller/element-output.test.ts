@@ -57,10 +57,10 @@ class FakeSourceBuffer implements SourceBufferLike {
   changeType(type: string): void {
     this.changed.push(type);
   }
-  addEventListener(type: 'updateend' | 'error', fn: () => void): void {
+  addEventListener(type: 'updateend' | 'error' | 'bufferedchange', fn: () => void): void {
     (this.listeners[type] ??= []).push(fn);
   }
-  fire(type: 'updateend' | 'error'): void {
+  fire(type: 'updateend' | 'error' | 'bufferedchange'): void {
     for (const fn of this.listeners[type] ?? []) fn();
   }
   /** Completes the in-flight operation and fires updateend. */
@@ -128,6 +128,8 @@ class FakeVideo implements VideoElementLike {
   /** Writes of disableRemotePlayback and src, in order. */
   writes: string[] = [];
   plays = 0;
+  /** What the next play() rejects with; null resolves. */
+  playError: Error | null = null;
   pauses = 0;
   loads = 0;
   removedAttrs: string[] = [];
@@ -165,6 +167,9 @@ class FakeVideo implements VideoElementLike {
   }
   play(): Promise<void> {
     this.plays++;
+    const error = this.playError;
+    this.playError = null;
+    if (error) return Promise.reject(error);
     this.paused = false;
     return Promise.resolve();
   }
@@ -369,7 +374,7 @@ describe('ElementVideoOutput', () => {
     expect(t.video.currentTime).toBeCloseTo(30 + OFFSET_S, 9);
     expect(t.video.plays).toBe(1);
     // A session resumed at 30 s reports the range holding the playhead.
-    expect(commands(t.posted, 'videoBuffered')).toEqual([{ type: 'videoBuffered', endUs: 32_000_000, generation: 1 }]);
+    expect(commands(t.posted, 'videoBuffered')).toEqual([{ type: 'videoBuffered', endUs: 32_000_000, segments: 1, generation: 1 }]);
   });
 
   it('waits to play until the engine publishes its clock as running, so the element does not start ahead of the sound', () => {
@@ -669,7 +674,7 @@ describe('ElementVideoOutput', () => {
     t.video.currentTime = 1.96 + OFFSET_S;
     t.video.fire('waiting');
     expect(t.posted.map((c) => c.type)).toEqual(['videoStalled', 'videoBuffered']);
-    expect(t.posted[1]).toEqual({ type: 'videoBuffered', endUs: 2_000_000, generation: 3 });
+    expect(t.posted[1]).toEqual({ type: 'videoBuffered', endUs: 2_000_000, segments: 1, generation: 3 });
   });
 
   it('waiting with more than a quarter second buffered ahead is a hiccup, not a stall', () => {
@@ -743,5 +748,128 @@ describe('ElementVideoOutput', () => {
     t.out.handle(reset(0));
     t.out.handle(init());
     expect(commands(t.posted, 'videoElementFailed')).toHaveLength(1);
+  });
+
+  it('a play() the browser refuses fails the element, with the reason and the generation', async () => {
+    const t = opened(0, false, 4);
+    new ClockBlockWriter(t.out.clock).write(0, true, 2000);
+    const refused = new Error('play() can only be initiated by a user gesture');
+    refused.name = 'NotAllowedError';
+    t.video.playError = refused;
+    appendSegment(t, 1, 0, 2);
+    expect(t.video.plays).toBe(1);
+    await Promise.resolve();
+    await Promise.resolve();
+    const failed = commands(t.posted, 'videoElementFailed');
+    expect(failed).toHaveLength(1);
+    expect(failed[0]!.message).toMatch(/refused to play.*NotAllowedError/);
+    expect(failed[0]!.generation).toBe(4);
+    expect(t.revoked()).toBe(1);
+  });
+
+  it('a play() aborted by a pause is no failure', async () => {
+    const t = opened(0, false);
+    new ClockBlockWriter(t.out.clock).write(0, true, 2000);
+    const aborted = new Error('The play() request was interrupted by a call to pause()');
+    aborted.name = 'AbortError';
+    t.video.playError = aborted;
+    appendSegment(t, 1, 0, 2);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(commands(t.posted, 'videoElementFailed')).toEqual([]);
+  });
+
+  it('a play() refused after the element was released posts nothing more', async () => {
+    const t = opened(0, false);
+    new ClockBlockWriter(t.out.clock).write(0, true, 2000);
+    const refused = new Error('refused');
+    refused.name = 'NotAllowedError';
+    t.video.playError = refused;
+    appendSegment(t, 1, 0, 2);
+    t.out.handle({ type: 'videoElementStop' });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(commands(t.posted, 'videoElementFailed')).toEqual([]);
+  });
+
+  it('a source that never opens, an element error and an append error all report the generation they failed in', () => {
+    const never = setup();
+    never.out.handle(reset(0, false, 7));
+    never.out.handle(init());
+    never.timers.find((x) => x.ms === 5000)!.fn();
+    expect(commands(never.posted, 'videoElementFailed')[0]).toMatchObject({ generation: 7 });
+    const errored = opened(0, false, 8);
+    errored.video.fire('error');
+    expect(commands(errored.posted, 'videoElementFailed')[0]).toMatchObject({ generation: 8 });
+    const append = opened(0, false, 9);
+    append.sb().fire('error');
+    expect(commands(append.posted, 'videoElementFailed')[0]).toMatchObject({ generation: 9 });
+  });
+
+  it('reports the playhead itself when it sits in a gap between buffered ranges', () => {
+    const t = opened(0, false, 2);
+    appendSegment(t, 1, 0, 2);
+    appendSegment(t, 2, 5, 7); // a later range, with nothing between 2 s and 5 s
+    t.posted.length = 0;
+    t.video.currentTime = 3 + OFFSET_S;
+    t.sb().fire('bufferedchange');
+    expect(commands(t.posted, 'videoBuffered')).toEqual([{ type: 'videoBuffered', endUs: 3_000_000, segments: 2, generation: 2 }]);
+  });
+
+  it('after a stall, an eviction below the playhead is reported at once on bufferedchange, with the playhead as the end', () => {
+    const t = opened(0, false, 5);
+    new ClockBlockWriter(t.out.clock).write(0, true, 2000);
+    t.out.setPlaying(true);
+    appendSegment(t, 1, 0, 4);
+    appendSegment(t, 2, 4, 8);
+    t.video.currentTime = 7.9 + OFFSET_S;
+    t.video.fire('waiting'); // ran dry at the end of what it holds
+    expect(commands(t.posted, 'videoStalled')).toHaveLength(1);
+    t.posted.length = 0;
+    // a ManagedMediaSource evicts under memory pressure: what held the playhead is gone, only a range behind it is left
+    t.sb().ranges = [[OFFSET_S, 3 + OFFSET_S]];
+    t.sb().fire('bufferedchange');
+    expect(commands(t.posted, 'videoBuffered')).toEqual([{ type: 'videoBuffered', endUs: 7_900_000, segments: 2, generation: 5 }]);
+  });
+
+  it('reports after a removal too, and nothing while the first segment after a reset is still to be placed', () => {
+    const t = opened(0, false);
+    appendSegment(t, 1, 0, 20);
+    t.video.currentTime = 15 + OFFSET_S;
+    appendSegment(t, 2, 20, 22); // queues the removal of what lies 10 s behind
+    t.posted.length = 0;
+    t.sb().finish(); // the removal
+    expect(commands(t.posted, 'videoBuffered')).toEqual([{ type: 'videoBuffered', endUs: 22_000_000, segments: 2, generation: 1 }]);
+    t.posted.length = 0;
+    t.out.handle(reset(60_000_000, false, 2));
+    t.sb().finish(); // the reset's removal of everything
+    t.sb().fire('bufferedchange');
+    expect(commands(t.posted, 'videoBuffered')).toEqual([]);
+  });
+
+  it('reads the position just before pausing, so a browser that pauses at its last read position pauses where it is', () => {
+    const t = opened(0, false);
+    new ClockBlockWriter(t.out.clock).write(0, true, 2000);
+    t.out.setPlaying(true);
+    appendSegment(t, 1, 0, 2);
+    expect(t.video.paused).toBe(false);
+    const ops: string[] = [];
+    let time = 1 + OFFSET_S;
+    Object.defineProperty(t.video, 'currentTime', {
+      get: () => {
+        ops.push('read');
+        return time;
+      },
+      set: (v: number) => {
+        time = v;
+      },
+    });
+    const pause = t.video.pause.bind(t.video);
+    t.video.pause = () => {
+      ops.push('pause');
+      pause();
+    };
+    t.out.setPlaying(false);
+    expect(ops.slice(-2)).toEqual(['read', 'pause']);
   });
 });

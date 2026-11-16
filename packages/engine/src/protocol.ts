@@ -42,8 +42,9 @@ export type VideoPath = 'auto' | 'element' | 'canvas';
  * - `subtitle-fonts`: fonts for ASS subtitles could not be read or are missing.
  * - `menu-memory`: the disc's menus need more memory than this device allows.
  * - `nas-waiting`: a NAS disc's read is waiting for the NAS drive (cleared by `noticeCleared`).
+ * - `element-failed`: the page's video element failed, so the disc's video plays on the canvas from then on.
  */
-export type NoticeCode = 'no-picture' | 'bdj' | 'bdj-tap-ignored' | 'bdj-failed' | 'bdj-storage' | 'audio-disabled' | 'decoder-recovered' | 'uo-masked' | 'subtitle-file' | 'subtitle-fonts' | 'menu-memory' | 'nas-waiting';
+export type NoticeCode = 'element-failed' | 'no-picture' | 'bdj' | 'bdj-tap-ignored' | 'bdj-failed' | 'bdj-storage' | 'audio-disabled' | 'decoder-recovered' | 'uo-masked' | 'subtitle-file' | 'subtitle-fonts' | 'menu-memory' | 'nas-waiting';
 /** RemoteFailure: a NAS disc changed, the NAS cannot be reached, or this device is no longer paired. */
 export type ErrorCode = DiscErrorCode | RemoteFailure | 'corrupt-disc' | 'decoder-failed' | 'no-video' | 'internal';
 
@@ -122,6 +123,11 @@ export interface Telemetry {
    * speed that remove what a start, resume or seek leaves (or, past 20 ms, a steady-state slip); absent on the canvas path.
    */
   readonly elementCatchUps?: number;
+  /**
+   * Why the page's video element failed on this disc (the browser's refusal or error, as the page reported it), after
+   * which the disc plays on the canvas path; null while it hasn't failed since the disc opened.
+   */
+  readonly elementFailure: string | null;
 }
 
 /** What BD-J holds in memory, so the budgets of the constrained memory profile can be checked on a device; sizes in bytes. */
@@ -342,16 +348,22 @@ export type EngineCommand =
   | { readonly type: 'videoElementAnswer'; readonly codec: string; readonly playable: boolean }
   /**
    * The video element's buffered range now ends at `endUs`, in playlist time in microseconds (the page subtracts
-   * ELEMENT_TIME_OFFSET_US from media time). `generation` echoes the last videoReset's, so the engine ignores a report
-   * from before its latest reset. Handled at once.
+   * ELEMENT_TIME_OFFSET_US from media time); when no buffered range holds the playhead (the browser evicted it), `endUs`
+   * is the playhead itself. `segments` counts the segments appended since the last reset, so the engine can tell video
+   * still on its way from video the element dropped. `generation` echoes the last videoReset's, so the engine ignores a
+   * report from before its latest reset. Handled at once.
    */
-  | { readonly type: 'videoBuffered'; readonly endUs: number; readonly generation: number }
+  | { readonly type: 'videoBuffered'; readonly endUs: number; readonly segments: number; readonly generation: number }
   /** The video element stalled for lack of data; `generation` echoes the last videoReset's (older ones are ignored). Handled at once. */
   | { readonly type: 'videoStalled'; readonly generation: number }
   /** The video element resumed after a stall. Handled at once. */
   | { readonly type: 'videoResumed' }
-  /** The video element or its media source failed (`message` says how); the engine falls back to the canvas. Handled at once. */
-  | { readonly type: 'videoElementFailed'; readonly message: string }
+  /**
+   * The video element or its media source failed (`message` says how; `generation` echoes the last videoReset's, and
+   * older ones are ignored): the engine reopens the playlist at the same time on the canvas path and keeps the canvas
+   * path for the rest of the disc. Handled at once.
+   */
+  | { readonly type: 'videoElementFailed'; readonly message: string; readonly generation: number }
   /**
    * Sync measurements from the page: clock minus frame time offsets (microseconds) of frames presented since the last
    * report, with the element's presented and dropped frame counts and its catch-ups, all three totals since its media

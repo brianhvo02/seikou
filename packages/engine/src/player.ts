@@ -376,6 +376,10 @@ interface Session {
   elementFreshBuffered: boolean;
   /** The generation of the session's last videoReset: reports the page made before it are ignored. */
   elementGeneration: number;
+  /** The generation of the session's first videoReset: a failure the page reports from before it is another session's. */
+  elementFirstGeneration: number;
+  /** On the element path, the media segments sent to the page since the last reset (videoBuffered echoes those appended). */
+  elementSegmentsSent: number;
   /** On the element path, the compositor has gone transparent at the stream's size (the session's first init). */
   elementShown: boolean;
   /** Where presentation last started (startAt's target): an element session chosen later begins its video there. */
@@ -589,6 +593,10 @@ export class Player {
   private elementDirty = false;
   /** The last videoReset's generation (grows with every reset, across sessions). */
   private elementResets = 0;
+  /** The page's video element failed on this disc: its playlists take the canvas path until another disc opens. */
+  private elementOff = false;
+  /** Why the video element failed on this disc (telemetry's elementFailure); null while it hasn't. */
+  private elementFailure: string | null = null;
 
   constructor(private readonly deps: PlayerDeps) {
     this.clock = new MasterClock(deps.nowMs);
@@ -1015,6 +1023,8 @@ export class Player {
   /** `start`: the disc opens there, with no First Play and no BD-J (openAt). */
   private async openDisc(spec: DiscSpec, bufferFirst: BufferRequest | undefined, hold: OpenHold | null, start: StartPoint | null): Promise<void> {
     this.openedAtMs = this.deps.nowMs();
+    this.elementOff = false;
+    this.elementFailure = null;
     this.bdjStartup = null;
     this.bdjLatency = this.deps.bdj?.input.createInputLatency() ?? null;
     this.bdjTapsIgnored = 0;
@@ -1091,6 +1101,8 @@ export class Player {
         return;
       }
       this.openedAtMs = this.deps.nowMs();
+      this.elementOff = false;
+      this.elementFailure = null;
       this.bdjStartup = null;
       this.noPictureNotice = 'unsent';
       this.missingAudioLogged = new Set();
@@ -1245,17 +1257,13 @@ export class Player {
       elementStalled: false,
       elementFreshBuffered: false,
       elementGeneration: 0,
+      elementFirstGeneration: 0,
+      elementSegmentsSent: 0,
       elementShown: false,
       startedAtUs: 0,
     };
     ref.current = session;
-    decoder.onOutput = (frame) => {
-      if (this.session === session) {
-        this.codedWidth = frame.codedWidth;
-        this.presenter.push(frame);
-      } else frame.close();
-    };
-    decoder.onError = (err) => this.onDecoderError(session, err);
+    this.wireDecoder(session, decoder);
     this.session = session;
     this.audioDecodeErrors = 0;
     this.audioCodec = null;
@@ -2691,20 +2699,13 @@ export class Player {
       elementStalled: false,
       elementFreshBuffered: false,
       elementGeneration: 0,
+      elementFirstGeneration: 0,
+      elementSegmentsSent: 0,
       elementShown: false,
       startedAtUs: 0,
     };
     ref.current = session;
-    if (decoder) {
-      decoder.onOutput = (frame) => {
-        if (this.session === session) {
-          this.codedWidth = frame.codedWidth;
-          this.presenter.push(frame);
-        }
-        else frame.close();
-      };
-      decoder.onError = (err) => this.onDecoderError(session, err);
-    }
+    if (decoder) this.wireDecoder(session, decoder);
     this.session = session;
     this.audioDecodeErrors = 0;
     this.audioCodec = null;
@@ -3017,6 +3018,17 @@ export class Player {
     return 0;
   }
 
+  /** The session's decoded frames go to the presenter while it is the playing session; its errors to onDecoderError. */
+  private wireDecoder(session: Session, decoder: WebCodecsVideoDecoder): void {
+    decoder.onOutput = (frame) => {
+      if (this.session === session) {
+        this.codedWidth = frame.codedWidth;
+        this.presenter.push(frame);
+      } else frame.close();
+    };
+    decoder.onError = (err) => this.onDecoderError(session, err);
+  }
+
   private teardownSession(): void {
     const s = this.session;
     if (!s) return;
@@ -3321,7 +3333,7 @@ export class Player {
    * asks again), up to ELEMENT_QUERY_TIMEOUT_MS.
    */
   private elementCoding(s: Session): 'avc' | 'hevc' | null {
-    if (this.videoPath !== 'element' || s.encode) return null;
+    if (this.videoPath !== 'element' || s.encode || this.elementOff) return null;
     if (s.videoCodingType === CodingType.AVC) return 'avc';
     if (s.videoCodingType === CodingType.HEVC) return 'hevc';
     return null;
@@ -3374,6 +3386,7 @@ export class Player {
     const element = new ElementRemux(coding, (out) => this.onRemuxOutput(s, out));
     s.element = element;
     this.resetElement(s, s.startedAtUs, !this.wantPlaying);
+    s.elementFirstGeneration = s.elementGeneration;
     const held = s.pendingVideo;
     s.pendingVideo = [];
     for (const u of held) element.push({ data: u.data, ptsUs: u.ptsUs, ...(u.dtsUs !== undefined ? { dtsUs: u.dtsUs } : {}), inRange: u.inRange ?? true });
@@ -3386,6 +3399,7 @@ export class Player {
     s.elementBufferedEndUs = -Infinity;
     s.elementStalled = false;
     s.elementFreshBuffered = false;
+    s.elementSegmentsSent = 0;
     this.deps.emit({ type: 'videoReset', startUs, paused, generation: s.elementGeneration });
   }
 
@@ -3394,6 +3408,7 @@ export class Player {
     if (this.session !== s) return;
     const transfer = transferOf(out.bytes);
     if (out.kind === 'segment') {
+      s.elementSegmentsSent++;
       this.deps.emit({ type: 'videoSegment', bytes: out.bytes, startUs: out.startUs, endUs: out.endUs }, transfer);
       return;
     }
@@ -3428,6 +3443,40 @@ export class Player {
     return !s.elementStalled && !s.eof && buffered > now;
   }
 
+  /**
+   * Whether the element's report, after a stall, falls short of the resume lead although every segment sent since the
+   * reset has been appended and they reached further than the reported end: the browser dropped video at or after the
+   * playhead that the engine will not send again.
+   */
+  private elementEvicted(s: Session, appended: number): boolean {
+    if (!s.elementStalled || !s.element || appended < s.elementSegmentsSent) return false;
+    const buffered = s.elementBufferedEndUs;
+    return buffered < this.clock.nowUs() + ELEMENT_RESUME_LEAD_US && s.element.endUs > buffered + ELEMENT_END_SLACK_US;
+  }
+
+  /**
+   * The element failed (`message` says how): the playlist reopens at the same time on the canvas path, with a fresh
+   * decoder, the page's element is released, and the disc's later playlists stay on the canvas.
+   */
+  private async elementFallback(s: Session, message: string): Promise<void> {
+    if (this.session !== s || !s.element) return;
+    this.elementOff = true;
+    this.elementFailure = message;
+    s.element = null;
+    s.elementShown = false;
+    s.elementStalled = false;
+    s.elementFreshBuffered = false;
+    s.elementBufferedEndUs = -Infinity;
+    s.decoder = new WebCodecsVideoDecoder(this.deps.videoCodecApi);
+    this.wireDecoder(s, s.decoder);
+    s.videoState = 'unconfigured';
+    this.deps.emit({ type: 'videoElementStop' });
+    this.compositor?.startPlaylist?.(true);
+    this.elementDirty = true;
+    this.notice('element-failed', `The video couldn’t play through the browser’s video player (${message}), so it plays on the canvas.`);
+    await this.startAt(this.clock.nowUs(), this.wantPlaying, 'keep');
+  }
+
   /** attachVideoElement: the engine publishes its clock there; an element session's video starts again at the clock, so the new element gets its init. */
   private async attachVideoElement(clock: SharedArrayBuffer): Promise<void> {
     this.clockWriter = new ClockBlockWriter(clock);
@@ -3454,6 +3503,12 @@ export class Player {
         if (!s?.element || cmd.generation !== s.elementGeneration) return;
         s.elementBufferedEndUs = cmd.endUs;
         s.elementFreshBuffered = true;
+        if (this.elementEvicted(s, cmd.segments)) {
+          // the element dropped video at the playhead that was sent (a ManagedMediaSource evicts under memory pressure):
+          // reading starts again at the clock, so the element gets it again
+          this.deps.log?.('The video element dropped the video at its playhead: reading it again');
+          void this.startAt(this.clock.nowUs(), this.wantPlaying, 'keep');
+        }
         return;
       case 'videoStalled':
         // the element ran dry while playing: the audio (or the wall clock) holds, as for a read stall, until it has data
@@ -3470,6 +3525,8 @@ export class Player {
         return;
       case 'videoElementFailed':
         this.deps.log?.(`The video element failed: ${cmd.message}`);
+        if (!s?.element || cmd.generation < s.elementFirstGeneration) return;
+        void this.elementFallback(s, cmd.message);
         return;
       case 'videoSync':
         if (!s?.element) return;
@@ -3872,6 +3929,7 @@ export class Player {
         shader: this.shaderStage?.stats ?? null,
         videoPath: s ? (s.element ? 'element' : 'canvas') : null,
         ...(s?.element ? { elementCatchUps: this.elementFrames.catchUps } : {}),
+        elementFailure: this.elementFailure,
         bdj: this.bdjStartup ? { ...this.bdjStartup, inputLatencyMs: this.bdjLatency?.stats ?? null } : null,
         ...(this.deps.memoryTelemetry ? { bdjMemory: this.bdjMemory() } : {}),
         bdjPlane: this.bdj ? { flushes: this.bdj.plane.flushCount(), tapsIgnored: this.bdjTapsIgnored, ...(this.deps.planeHashTelemetry ? { hash: this.settledPlaneHash(this.bdj.plane) } : {}) } : null,

@@ -74,7 +74,7 @@ async function harness(opts: Options = {}) {
   let player!: Player;
   const autoBuffered = opts.autoBuffered ?? true;
   /** The last videoReset's generation, which the fake page echoes. */
-  const page = { generation: 0, appendedEndUs: -Infinity, attached: !opts.attachLate };
+  const page = { generation: 0, appendedEndUs: -Infinity, segments: 0, attached: !opts.attachLate };
   player = new Player({
     emit: (e, transfer) => {
       events.push(e);
@@ -88,13 +88,18 @@ async function harness(opts: Options = {}) {
       if (e.type === 'videoReset') {
         page.generation = e.generation;
         page.appendedEndUs = -Infinity;
+        page.segments = 0;
       }
-      if (e.type === 'videoSegment') page.appendedEndUs = Math.max(page.appendedEndUs, e.endUs);
-      if (e.type === 'videoSegment' && opts.reportEndUs) void player.handle({ type: 'videoBuffered', endUs: opts.reportEndUs.value, generation: page.generation });
+      if (e.type === 'videoSegment') {
+        page.appendedEndUs = Math.max(page.appendedEndUs, e.endUs);
+        page.segments++;
+      }
+      if (e.type === 'videoSegment' && opts.reportEndUs) void player.handle({ type: 'videoBuffered', endUs: opts.reportEndUs.value, segments: page.segments, generation: page.generation });
       else if (e.type === 'videoSegment' && autoBuffered) {
         const endUs = e.endUs;
         const generation = page.generation;
-        queueMicrotask(() => void player.handle({ type: 'videoBuffered', endUs, generation }));
+        const segments = page.segments;
+        queueMicrotask(() => void player.handle({ type: 'videoBuffered', endUs, segments, generation }));
       }
     },
     videoCodecApi: fakeApi,
@@ -127,12 +132,12 @@ async function harness(opts: Options = {}) {
       await player.handle({ type: 'attachVideoElement', clock: clockBlock });
     },
     /** The page reports a buffered end under its current generation. */
-    buffered: (endUs: number) => player.handle({ type: 'videoBuffered', endUs, generation: page.generation }),
+    buffered: (endUs: number) => player.handle({ type: 'videoBuffered', endUs, segments: page.segments, generation: page.generation }),
     stalled: () => player.handle({ type: 'videoStalled', generation: page.generation }),
     /** What the page does on a stall (ruling R10): videoStalled, then at once its buffered report, with no append. */
     pageStall: async () => {
       await player.handle({ type: 'videoStalled', generation: page.generation });
-      await player.handle({ type: 'videoBuffered', endUs: page.appendedEndUs, generation: page.generation });
+      await player.handle({ type: 'videoBuffered', endUs: page.appendedEndUs, segments: page.segments, generation: page.generation });
     },
     events,
     transfers,
@@ -391,7 +396,7 @@ describe('Player on the element path', () => {
     await h.player.handle({ type: 'seek', timeUs: 1_000_000 });
     expect(h.page.generation).toBeGreaterThan(oldGeneration);
     // posted by the page before it handled the reset: 5 s ahead of the clock, more than the 4 s lead
-    await h.player.handle({ type: 'videoBuffered', endUs: 6_000_000, generation: oldGeneration });
+    await h.player.handle({ type: 'videoBuffered', endUs: 6_000_000, segments: 0, generation: oldGeneration });
     await h.play(300);
     expect(lastState(h)).toBe('buffering'); // nothing of the new generation is buffered yet
     const after = h.events.slice(before).flatMap((e) => (e.type === 'videoSegment' ? [e.endUs] : []));
@@ -483,4 +488,103 @@ describe('Player on the element path', () => {
     await untilState(h, 'playing');
     expect(ofType(h, 'videoSegment')).toHaveLength(segments); // nothing was appended meanwhile
   });
+
+  it('reads again at the clock when, after a stall, the page holds nothing ahead though it appended every segment sent (an eviction)', async () => {
+    const h = await harness({ audio: false, memory: 'constrained' });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    await h.play(300);
+    expect(ofType(h, 'videoEnded')).toHaveLength(0); // the reader is held at the 4 s lead
+    const generation = h.page.generation;
+    const resets = ofType(h, 'videoReset').length;
+    const before = h.events.length;
+    const playhead = Math.round(clockNow(h));
+    // the element ran dry: the browser evicted what held the playhead, so the page reports the playhead as its end
+    await h.stalled();
+    await h.player.handle({ type: 'videoBuffered', endUs: playhead, segments: h.page.segments, generation });
+    expect(ofType(h, 'videoReset')).toHaveLength(resets + 1);
+    expect(ofType(h, 'videoReset').at(-1)!.startUs).toBeGreaterThanOrEqual(playhead - 50_000);
+    expect(ofType(h, 'videoReset').at(-1)!.startUs).toBeLessThanOrEqual(playhead + 50_000);
+    await untilState(h, 'playing');
+    // the reader went on: the video from the playhead was sent again
+    const resent = h.events.slice(before).flatMap((e) => (e.type === 'videoSegment' ? [e] : []));
+    expect(resent.length).toBeGreaterThan(0);
+    expect(resent[0]!.startUs).toBeLessThanOrEqual(playhead + 50_000);
+  });
+
+  it('does not read again after a stall while segments sent are still on their way to the page', async () => {
+    const h = await harness({ audio: false, memory: 'constrained' });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    await h.play(300);
+    const resets = ofType(h, 'videoReset').length;
+    await h.stalled();
+    await h.player.handle({ type: 'videoBuffered', endUs: Math.round(clockNow(h)), segments: h.page.segments - 1, generation: h.page.generation });
+    expect(ofType(h, 'videoReset')).toHaveLength(resets);
+  });
+
+  it('reopens at the same time on the canvas path when the element fails mid-play, says so, and keeps the canvas for the disc', async () => {
+    const h = await harness();
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    await h.play(1000);
+    const at = clockNow(h);
+    expect(decoders).toHaveLength(0);
+    const drawnBefore = h.drawn.length;
+    await h.player.handle({ type: 'videoElementFailed', message: 'the browser refused to play the video element (NotAllowedError: no)', generation: h.page.generation });
+    expect(ofType(h, 'videoElementStop')).toHaveLength(1);
+    expect(h.elementStarts.at(-1)).toEqual({ picture: true }); // the canvas is opaque again
+    expect(ofType(h, 'notice').filter((n) => n.code === 'element-failed')).toHaveLength(1);
+    await untilState(h, 'playing');
+    await h.play(600);
+    expect(decoders).toHaveLength(1);
+    const frames = h.drawn.slice(drawnBefore).flatMap((d) => (d.startsWith('video:') && d !== 'video:null' ? [Number(d.slice(6))] : []));
+    expect(frames.length).toBeGreaterThan(0);
+    expect(Math.min(...frames)).toBeGreaterThanOrEqual(at - 600_000); // from where it was, not the playlist's start
+    const t = telemetries(h).at(-1)!;
+    expect(t.videoPath).toBe('canvas');
+    expect(t.elementFailure).toMatch(/refused to play/);
+    // the disc's next playlist takes the canvas path without asking the page
+    const queries = ofType(h, 'videoElementQuery').length;
+    const resets = ofType(h, 'videoReset').length;
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00001' });
+    await untilState(h, 'playing');
+    expect(ofType(h, 'videoElementQuery')).toHaveLength(queries);
+    expect(ofType(h, 'videoReset')).toHaveLength(resets);
+    expect(decoders).toHaveLength(2);
+  }, 20_000);
+
+  it('a failure while the element session starts up falls back too, instead of buffering for good', async () => {
+    const h = await harness({ autoBuffered: false });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await h.play(300);
+    expect(lastState(h)).toBe('buffering'); // the page has reported nothing
+    await h.player.handle({ type: 'videoElementFailed', message: 'the media source did not open within 5 s', generation: h.page.generation });
+    await untilState(h, 'playing');
+    expect(decoders).toHaveLength(1);
+  });
+
+  it("ignores a failure the page reported for an earlier session's element, and a new disc clears the failure", async () => {
+    const h = await harness();
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    const old = h.page.generation;
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00001' });
+    await untilState(h, 'playing');
+    expect(h.page.generation).toBeGreaterThan(old);
+    await h.player.handle({ type: 'videoElementFailed', message: 'late', generation: old });
+    await h.play(600);
+    expect(ofType(h, 'notice').filter((n) => n.code === 'element-failed')).toHaveLength(0);
+    expect(telemetries(h).at(-1)).toMatchObject({ videoPath: 'element', elementFailure: null });
+    // a failure of this session falls back; opening a disc again forgets it
+    await h.player.handle({ type: 'videoElementFailed', message: 'an append failed', generation: h.page.generation });
+    await untilState(h, 'playing');
+    await h.play(600);
+    expect(telemetries(h).at(-1)).toMatchObject({ videoPath: 'canvas', elementFailure: 'an append failed' });
+    await h.player.handle({ type: 'open', disc: { kind: 'files', entries: discEntries(fixtureDiscFiles('disc1')) } });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    await h.play(600);
+    expect(telemetries(h).at(-1)).toMatchObject({ videoPath: 'element', elementFailure: null });
+  }, 20_000);
 });

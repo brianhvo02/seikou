@@ -49,7 +49,8 @@ export interface SourceBufferLike {
   remove(start: number, end: number): void;
   abort(): void;
   changeType?(type: string): void;
-  addEventListener(type: 'updateend' | 'error', fn: () => void): void;
+  /** `bufferedchange` fires only on a ManagedMediaSource's buffers, when the browser evicts what they hold. */
+  addEventListener(type: 'updateend' | 'error' | 'bufferedchange', fn: () => void): void;
 }
 
 /**
@@ -161,6 +162,8 @@ export class ElementVideoOutput {
   private cancelStartTimer: (() => void) | null = null;
   /** Whether a videoStalled was posted that no videoResumed has answered yet. */
   private stalled = false;
+  /** Media segments appended since the last reset (videoBuffered reports them, so the engine can tell eviction from data in transit). */
+  private appended = 0;
   /** The last videoReset's generation, echoed in videoBuffered and videoStalled so the engine can drop reports from before it. */
   private generation = 0;
   private offsets: number[] = [];
@@ -255,6 +258,7 @@ export class ElementVideoOutput {
 
   private reset(startUs: number, paused: boolean): void {
     this.failed = false;
+    this.appended = 0;
     this.pendingStart = { startUs };
     this.playing = !paused;
     this.stalled = false;
@@ -324,6 +328,10 @@ export class ElementVideoOutput {
     b.addEventListener('error', () => {
       if (a === this.attached && a.buffer === b) this.fail('an append failed');
     });
+    // a ManagedMediaSource evicts buffered video under memory pressure: the engine hears what is left at once
+    b.addEventListener('bufferedchange', () => {
+      if (a === this.attached && a.buffer === b && !this.failed) this.reportBuffered(b);
+    });
     this.pump();
   }
 
@@ -332,6 +340,7 @@ export class ElementVideoOutput {
     const op = this.inFlight;
     this.inFlight = null;
     if (op?.k === 'append') {
+      if (op.segment) this.appended++;
       if (op.segment && this.pendingStart) {
         const { startUs } = this.pendingStart;
         this.pendingStart = null;
@@ -340,8 +349,9 @@ export class ElementVideoOutput {
       }
       const behind = this.behindRemoval();
       if (behind) this.queue.unshift(behind);
-      this.reportBuffered(b);
     }
+    // after a removal too: what the element holds at the playhead may have changed
+    if (op) this.reportBuffered(b);
     this.pump();
   }
 
@@ -420,24 +430,38 @@ export class ElementVideoOutput {
     return 0;
   }
 
-  /** Posts videoBuffered with the end of the range holding max(currentTime, the first range's start), so a session started late reports its data before the playhead moves. */
+  /**
+   * Posts videoBuffered with the end of the range holding max(currentTime, the first range's start), so a session
+   * started late reports its data before the playhead moves. When no range holds it (the browser evicted the video at
+   * the playhead), the playhead itself: nothing ahead, which the engine reads as a cue to send that video again. Nothing
+   * while the first segment after a reset is still to be placed (the playhead is the previous generation's).
+   */
   private reportBuffered(b: SourceBufferLike): void {
+    if (this.pendingStart) return;
     const r = b.buffered;
-    if (r.length === 0) return;
-    const t = Math.max(this.deps.video.currentTime, r.start(0));
+    const playhead = this.deps.video.currentTime;
+    const t = r.length > 0 ? Math.max(playhead, r.start(0)) : playhead;
+    let end = t;
     for (let i = 0; i < r.length; i++) {
       if (r.start(i) <= t && t <= r.end(i)) {
-        this.deps.post({ type: 'videoBuffered', endUs: Math.round(r.end(i) * 1e6) - ELEMENT_TIME_OFFSET_US, generation: this.generation });
-        return;
+        end = r.end(i);
+        break;
       }
     }
+    this.deps.post({ type: 'videoBuffered', endUs: Math.round(end * 1e6) - ELEMENT_TIME_OFFSET_US, segments: this.appended, generation: this.generation });
   }
 
   private applyPlaying(): void {
     const video = this.deps.video;
     if (!this.playing) {
       this.cancelStart();
-      if (!video.paused) video.pause();
+      if (!video.paused) {
+        // WebKit keeps the position it reports in a cache refreshed when currentTime is read, and a pause fixes the
+        // element at that cached position (measured 13 to 110 ms behind where it played to): reading it first pauses the
+        // element where it is, as other browsers do, so the picture stops where the sound did
+        void video.currentTime;
+        video.pause();
+      }
       return;
     }
     if (!video.paused) return;
@@ -452,7 +476,14 @@ export class ElementVideoOutput {
       const start = this.sync.restart(lagUs);
       if (start.catchUp) this.catchUps++;
       video.playbackRate = start.rate;
-      void video.play().catch(() => undefined);
+      const a = this.attached;
+      video.play().catch((e: unknown) => {
+        // a pause (ours, or a reset's) while play() was pending rejects with AbortError: no failure. Anything else is a
+        // refusal (NotAllowedError: iOS Low Power Mode refuses a muted play started outside a gesture) or an error, and
+        // the element would sit on its placed frame under running sound
+        if ((e as { name?: unknown } | null)?.name === 'AbortError') return;
+        if (a === this.attached) this.fail(`the browser refused to play the video element (${errorMessage(e)})`);
+      });
     } else if (!this.cancelStartTimer) {
       this.cancelStartTimer = this.deps.setTimer(() => {
         this.cancelStartTimer = null;
@@ -562,7 +593,7 @@ export class ElementVideoOutput {
   private fail(message: string): void {
     if (this.failed) return;
     this.failed = true;
-    this.deps.post({ type: 'videoElementFailed', message });
+    this.deps.post({ type: 'videoElementFailed', message, generation: this.generation });
     this.detach();
   }
 
