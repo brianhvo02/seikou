@@ -213,6 +213,36 @@ describe('ElementRemux', () => {
   });
 });
 
+describe('ElementRemux init segments', () => {
+  const inits = (out: RemuxOutput[]): Extract<RemuxOutput, { kind: 'init' }>[] =>
+    out.filter((o) => o.kind === 'init') as Extract<RemuxOutput, { kind: 'init' }>[];
+  const has = (bytes: Uint8Array, type: string): boolean => {
+    for (let o = 0; o + 4 <= bytes.length; o++) if (String.fromCharCode(...bytes.subarray(o, o + 4)) === type) return true;
+    return false;
+  };
+
+  it("carries disc-hdr's colour, mastering display, content light and aspect", () => {
+    const out: RemuxOutput[] = [];
+    const r = new ElementRemux('hevc', (o) => out.push(o));
+    for (const u of mapped('disc-hdr', 24)) r.push(u);
+    const [init] = inits(out);
+    for (const type of ['colr', 'mdcv', 'clli', 'pasp']) expect(has(init.bytes, type), type).toBe(true);
+    expect(init).toMatchObject({ width: 1920, height: 1080 });
+  });
+
+  it('reports the display size of a stream whose samples are 4:3', () => {
+    // a Baseline SPS, 48x16, whose VUI gives a 4:3 sample aspect ratio
+    const head = '01000010' + '00000000' + '00011110' + '1' + '1' + '011' + '010' + '0' + '011' + '1' + '1' + '1' + '0';
+    const ar = '1' + '11111111' + (4).toString(2).padStart(16, '0') + (3).toString(2).padStart(16, '0');
+    const bits = head + '1' + ar + '0' + '0' + '0' + '0' + '0' + '0' + '0' + '0' + '0' + '1';
+    const sps = new Uint8Array(Math.ceil(bits.length / 8) + 1);
+    sps[0] = 0x67;
+    for (let i = 0; i < bits.length; i++) if (bits[i] === '1') sps[1 + (i >> 3)] |= 0x80 >> (i & 7);
+    const [init] = inits(run([{ data: avcAu({ idr: true, spsNal: sps }), ptsUs: 0, inRange: true }]));
+    expect(init).toMatchObject({ width: 64, height: 16 });
+  });
+});
+
 describe('ElementRemux on open GOPs', () => {
   const run = (us: Unit[]): RemuxOutput[] => {
     const out: RemuxOutput[] = [];

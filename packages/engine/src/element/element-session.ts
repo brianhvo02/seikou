@@ -26,7 +26,7 @@ export interface ElementSessionDeps {
   nextGeneration(): number;
   /** Whether this session is still the player's current one: output after teardown goes nowhere. */
   isCurrent(): boolean;
-  /** An init segment went out at the stream's size; `first` for the session's first, which turns the compositor transparent. */
+  /** An init segment went out at the stream's display size; `first` for the session's first, which turns the compositor transparent. */
   shown(width: number, height: number, first: boolean): void;
 }
 

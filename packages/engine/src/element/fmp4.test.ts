@@ -9,7 +9,7 @@ import { findParameterSets } from '@seikou/bdmv/codecs/param-sets';
 import { describe, expect, it } from 'vitest';
 import { fixtureDiscFiles } from '../../../../tests/helpers/fixture-disc';
 import { VIDEO_PID } from '../../../../tests/helpers/synthetic-disc';
-import { initSegment, mediaSegment, toLengthPrefixed, TIMESCALE, videoTrack } from './fmp4';
+import { displaySize, initSegment, mediaSegment, toLengthPrefixed, TIMESCALE, videoTrack } from './fmp4';
 import type { Fmp4Sample } from './fmp4';
 
 interface Box { type: string; start: number; body: number; end: number }
@@ -64,6 +64,64 @@ describe('fragmented MP4 writer', () => {
     expect(new DataView(init.buffer, init.byteOffset).getUint32(mdhd.body + 12)).toBe(TIMESCALE);
   });
 
+  describe('colour, HDR metadata and aspect in the sample entry', () => {
+    const entryBoxes = (init: Uint8Array): { type: string; payload: number[] }[] => {
+      const entry = find(init, ['moov', 'trak', 'mdia', 'minf', 'stbl', 'stsd', 'hvc1'], 0, init.length, { stsd: 8 });
+      return boxes(init, entry.body + 78, entry.end).map((b) => ({ type: b.type, payload: Array.from(init.subarray(b.body, b.end)) }));
+    };
+    const hdrTrack = () => {
+      const aus = accessUnits('disc-hdr', 1);
+      return videoTrack('hevc', findParameterSets(aus[0], 'hevc'), aus[0]);
+    };
+
+    it("reads the colour, aspect and HDR SEI of the stream's first access unit", () => {
+      const track = hdrTrack();
+      expect(track.colour).toEqual({ primaries: 9, transfer: 16, matrix: 9, fullRange: false });
+      expect(track.sar).toEqual({ width: 1, height: 1 });
+      expect(track.mastering).toEqual({
+        primaries: [[13250, 34500], [7500, 3000], [34000, 16000]],
+        whitePoint: [15635, 16450],
+        maxLuminance: 10_000_000,
+        minLuminance: 1,
+      });
+      expect(track.light).toEqual({ maxCll: 1000, maxFall: 400 });
+    });
+
+    it('writes colr, clli, mdcv and pasp after hvcC, in the order ffmpeg writes them', () => {
+      const entry = entryBoxes(initSegment(hdrTrack()));
+      expect(entry.map((b) => b.type)).toEqual(['hvcC', 'colr', 'clli', 'mdcv', 'pasp']);
+      expect(entry[1].payload).toEqual([...'nclx'].map((c) => c.charCodeAt(0)).concat([0, 9, 0, 16, 0, 9, 0]));
+      expect(entry[2].payload).toEqual([0x03, 0xe8, 0x01, 0x90]);
+      // G, B, R, white point, then max and min luminance
+      expect(entry[3].payload).toEqual([
+        0x33, 0xc2, 0x86, 0xc4, 0x1d, 0x4c, 0x0b, 0xb8, 0x84, 0xd0, 0x3e, 0x80, 0x3d, 0x13, 0x40, 0x42,
+        0x00, 0x98, 0x96, 0x80, 0x00, 0x00, 0x00, 0x01,
+      ]);
+      expect(entry[4].payload).toEqual([0, 0, 0, 1, 0, 0, 0, 1]);
+    });
+
+    it('sets the full range bit, and leaves out colr, mdcv and clli when the stream has none', () => {
+      const track = hdrTrack();
+      const full = entryBoxes(initSegment({ ...track, colour: { primaries: 1, transfer: 1, matrix: 1, fullRange: true } }));
+      expect(full.find((b) => b.type === 'colr')!.payload.slice(4)).toEqual([0, 1, 0, 1, 0, 1, 0x80]);
+      const bare = entryBoxes(initSegment({ ...track, colour: null, mastering: null, light: null }));
+      expect(bare.map((b) => b.type)).toEqual(['hvcC', 'pasp']);
+    });
+
+    it('writes the sample aspect ratio in pasp and the display size in tkhd', () => {
+      const init = initSegment({ ...hdrTrack(), sar: { width: 4, height: 3 } });
+      expect(entryBoxes(init).find((b) => b.type === 'pasp')!.payload).toEqual([0, 0, 0, 4, 0, 0, 0, 3]);
+      const tkhd = find(init, ['moov', 'trak', 'tkhd']);
+      const v = new DataView(init.buffer, init.byteOffset);
+      expect([v.getUint32(tkhd.end - 8) / 65536, v.getUint32(tkhd.end - 4) / 65536]).toEqual([2560, 1080]);
+    });
+
+    it('gives the display size: the coded width scaled by the sample aspect ratio', () => {
+      expect(displaySize({ ...hdrTrack(), sar: { width: 4, height: 3 } })).toEqual({ width: 2560, height: 1080 });
+      expect(displaySize(hdrTrack())).toEqual({ width: 1920, height: 1080 });
+    });
+  });
+
   it('writes an H.264 init segment with avcC', () => {
     const aus = accessUnits('disc1', 1);
     const track = videoTrack('avc', findParameterSets(aus[0], 'avc'));
@@ -106,10 +164,10 @@ describe('fragmented MP4 writer', () => {
   });
 
   const ffprobe = spawnSync('ffprobe', ['-version']).status === 0;
-  it.skipIf(!ffprobe)('is read by ffprobe as 48 HEVC frames', () => {
+  it.skipIf(!ffprobe)('is read by ffprobe as 48 HEVC frames in PQ with its mastering display and light level', () => {
     const aus = accessUnits('disc-hdr', 48);
     expect(aus.length).toBe(48);
-    const track = videoTrack('hevc', findParameterSets(aus[0], 'hevc'));
+    const track = videoTrack('hevc', findParameterSets(aus[0], 'hevc'), aus[0]);
     const samples = aus.map((au): Fmp4Sample => ({ data: toLengthPrefixed(au), durationTicks: 3750, ctsOffsetTicks: 0, sync: false }));
     samples[0].sync = true;
     samples[24].sync = true;
@@ -121,9 +179,15 @@ describe('fragmented MP4 writer', () => {
     const dir = mkdtempSync(join(tmpdir(), 'fmp4-'));
     try {
       writeFileSync(join(dir, 'a.mp4'), file);
-      const r = spawnSync('ffprobe', ['-v', 'error', '-count_frames', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name,width,height,pix_fmt,nb_read_frames', '-of', 'json', join(dir, 'a.mp4')], { encoding: 'utf8' });
+      const r = spawnSync('ffprobe', ['-v', 'error', '-count_frames', '-select_streams', 'v:0', '-show_streams', '-of', 'json', join(dir, 'a.mp4')], { encoding: 'utf8' });
       const s = JSON.parse(r.stdout).streams[0];
-      expect(s).toMatchObject({ codec_name: 'hevc', width: 1920, height: 1080, pix_fmt: 'yuv420p10le', nb_read_frames: '48' });
+      expect(s).toMatchObject({
+        codec_name: 'hevc', width: 1920, height: 1080, pix_fmt: 'yuv420p10le', nb_read_frames: '48',
+        color_range: 'tv', color_space: 'bt2020nc', color_transfer: 'smpte2084', color_primaries: 'bt2020', sample_aspect_ratio: '1:1',
+      });
+      const side = (type: string): Record<string, unknown> | undefined => s.side_data_list?.find((d: { side_data_type: string }) => d.side_data_type === type);
+      expect(side('Mastering display metadata')).toMatchObject({ green_x: '13250/50000', red_x: '34000/50000', max_luminance: '10000000/10000', min_luminance: '1/10000' });
+      expect(side('Content light level metadata')).toMatchObject({ max_content: 1000, max_average: 400 });
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

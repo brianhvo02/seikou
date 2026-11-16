@@ -551,7 +551,7 @@ export type EngineEvent =
   | { readonly type: 'shaderStatus'; readonly state: ShaderState; readonly set: string | null; readonly error: string | null }
   /** Asks the page whether its video element can play `codec`; answered by the videoElementAnswer command. */
   | { readonly type: 'videoElementQuery'; readonly codec: string }
-  /** The initialization segment of the element's fragmented MP4 (`codec` is its codec string, `width` and `height` the picture's size). */
+  /** The initialization segment of the element's fragmented MP4 (`codec` is its codec string, `width` and `height` the size the picture shows at: the coded size with the stream's sample aspect ratio applied). */
   | { readonly type: 'videoInit'; readonly bytes: Uint8Array; readonly codec: string; readonly width: number; readonly height: number }
   /** A media segment covering playlist time `startUs` to `endUs`, in microseconds (the video element plays at media time = playlist time + ELEMENT_TIME_OFFSET_US; the page converts). */
   | { readonly type: 'videoSegment'; readonly bytes: Uint8Array; readonly startUs: number; readonly endUs: number }

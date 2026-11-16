@@ -4,12 +4,13 @@ import { analyzeHevc } from '@seikou/bdmv/codecs/hevc';
 import { ParseError } from '@seikou/bdmv/byte-reader';
 import { findParameterSets } from '@seikou/bdmv/codecs/param-sets';
 import type { ParameterSets } from '@seikou/bdmv/codecs/param-sets';
-import { ELEMENT_TIME_OFFSET_US, initSegment, mediaSegment, TIMESCALE, toLengthPrefixed, videoTrack } from './fmp4';
+import { displaySize, ELEMENT_TIME_OFFSET_US, initSegment, mediaSegment, TIMESCALE, toLengthPrefixed, videoTrack } from './fmp4';
 import type { Fmp4Sample } from './fmp4';
 
 /**
  * What `ElementRemux` hands out: an init segment (a new one whenever the stream's parameter sets change) or a media
- * segment from one IRAP unit up to the next, with the playlist time it covers.
+ * segment from one IRAP unit up to the next, with the playlist time it covers. An init's `width` and `height` are the
+ * size the picture shows at (the coded size with the sample aspect ratio applied).
  * @internal
  */
 export type RemuxOutput =
@@ -88,9 +89,10 @@ export class ElementRemux {
       if (params.sps.length > 0) {
         const key = paramKey(params);
         if (key !== this.key) {
-          const track = videoTrack(this.coding, params);
+          const track = videoTrack(this.coding, params, info.data);
+          const display = displaySize(track);
           this.key = key;
-          this.emit({ kind: 'init', bytes: initSegment(track), codec: track.codec, width: track.width, height: track.height });
+          this.emit({ kind: 'init', bytes: initSegment(track), codec: track.codec, width: display.width, height: display.height });
         }
       }
       if (this.key === null) return;
