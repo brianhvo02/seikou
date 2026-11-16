@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import type { SeasonDetail, TitleDetail, TitleKind, TitleSummary } from '@seikou/nas/nas-api';
+import { DynamicRangeBadge } from './DynamicRangeBadge';
 import type { PlayerController } from '@seikou/engine/controller/player-controller';
 import { AdminScreen } from './AdminScreen';
 import { artistIndex, artistNames, groupArtists, searchArtists, type ArtistGroup } from './artist-model';
@@ -138,6 +139,7 @@ const message = (err: unknown): string => (err instanceof Error ? err.message : 
 /** Pseudo-season holding a title's own extras, shown like a season without episodes. */
 const extrasSeason = (d: TitleDetail): SeasonDetail => ({ id: `${d.title.id}#extras`, label: 'Extras', number: null, discs: d.extras, episodes: null, extras: [] });
 
+/** A title card's or row's title and what it opens. */
 interface TitleCardProps {
   readonly nas: NasClient;
   readonly title: TitleSummary;
@@ -146,7 +148,8 @@ interface TitleCardProps {
   readonly jump?: string;
 }
 
-function TitleCard({ nas, title, onOpen, jump }: TitleCardProps): ReactElement {
+/** A title as a poster card of the library grid: its poster, name, native name and HDR badge. */
+export function TitleCard({ nas, title, onOpen, jump }: TitleCardProps): ReactElement {
   const name = displayName(title);
   const native = secondaryName(title);
   return (
@@ -156,6 +159,7 @@ function TitleCard({ nas, title, onOpen, jump }: TitleCardProps): ReactElement {
         <span className="title-card-name" lang={nameLang(name)}>
           {name}
         </span>
+        <DynamicRangeBadge range={title.dynamicRange} />
         {native && (
           <span className="title-muted title-card-native" lang="ja">
             {native}
@@ -166,7 +170,8 @@ function TitleCard({ nas, title, onOpen, jump }: TitleCardProps): ReactElement {
   );
 }
 
-function TitleRow({ nas, title, onOpen, jump }: TitleCardProps): ReactElement {
+/** A title as a row of the library list: its thumbnail, name, native name and HDR badge. */
+export function TitleRow({ nas, title, onOpen, jump }: TitleCardProps): ReactElement {
   const name = displayName(title);
   const native = secondaryName(title);
   return (
@@ -182,6 +187,7 @@ function TitleRow({ nas, title, onOpen, jump }: TitleCardProps): ReactElement {
               {native}
             </span>
           )}
+          <DynamicRangeBadge range={title.dynamicRange} />
         </span>
         <span className="title-chevron" aria-hidden="true">›</span>
       </button>

@@ -1,5 +1,6 @@
 import { useId, useMemo, useState, type ReactElement } from 'react';
 import type { FansubTitleState, TitleDetail } from '@seikou/nas/nas-api';
+import { DynamicRangeBadge } from './DynamicRangeBadge';
 import { FansubEpisodePanel } from './FansubEpisodePanel';
 import { FansubLine } from './FansubLine';
 import type { NasClient } from './nas-client';
@@ -62,6 +63,7 @@ export function SeriesScreen({ nas, detail, onBack, onSeason, onExtras, onTitle,
           {romaji && <span className="title-muted">{romaji}</span>}
           {native && native !== romaji && <span className="title-muted" lang="ja">{native}</span>}
           <span className="series-meta">{titleMeta(detail)}</span>
+          <DynamicRangeBadge range={title.dynamicRange} />
           {movieOwner && (
             <button type="button" className="subtitle-add" data-testid="subtitle-add" aria-expanded={adding} aria-controls={uploadPanel} disabled={uploading} onClick={() => setAdding((a) => !a)}>
               ＋ Subtitles
@@ -128,6 +130,7 @@ export function SeriesScreen({ nas, detail, onBack, onSeason, onExtras, onTitle,
                     {displayName(r)}
                   </span>
                   <span className="title-muted">{[r.kind === 'movie' ? 'Movie' : r.kind === 'music' ? 'Music' : 'Series', r.year].filter((x) => x !== null).join(' · ')}</span>
+                  <DynamicRangeBadge range={r.dynamicRange} />
                 </span>
                 <span className="title-chevron" aria-hidden="true">›</span>
               </button>

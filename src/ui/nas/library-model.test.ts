@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DiscEntry, DiscManifest, FolderEntry } from '@seikou/nas/nas-api';
 import { fakeNas } from '../../../tests/helpers/fake-nas';
 import { fixtureDiscFiles } from '../../../tests/helpers/fixture-disc';
-import { breadcrumbs, discBadges, discFacts, folderMemory, formatSize, mainPlaylist, openFailed, playlistOf, preflightLines, sortRows } from './library-model';
+import { breadcrumbs, discBadges, discFacts, dynamicRangeBadge, folderMemory, formatSize, mainPlaylist, openFailed, playlistOf, preflightLines, sortRows } from './library-model';
 
 const folder = (name: string, path = `media5/${name}`): FolderEntry => ({ name, path, discs: 1 });
 const disc = (name: string, kind: DiscEntry['kind'] = 'folder', sizeBytes = 1): DiscEntry => ({ id: name, name, path: `media5/${name}`, kind, sizeBytes });
@@ -30,6 +30,18 @@ function makeUhd(clpi: Uint8Array): void {
   }
   throw new Error('no video coding info found');
 }
+
+/** After `makeUhd`: the HEVC stream's dynamic_range_type (1 HDR10, 2 Dolby Vision) and hdr_plus_flag. */
+const makeHdr = (dynamicRange: number, hdrPlus = false) => (clpi: Uint8Array): void => {
+  makeUhd(clpi);
+  for (let i = 0; i + 7 < clpi.length; i++) {
+    if (clpi[i] === 0x10 && clpi[i + 1] === 0x11 && clpi[i + 2] === 5 && clpi[i + 3] === 0x24) {
+      clpi[i + 6] = (dynamicRange << 4) | 2;
+      clpi[i + 7] = hdrPlus ? 0x80 : 0;
+      return;
+    }
+  }
+};
 
 describe('breadcrumbs', () => {
   it('names the NAS, then each folder of the path', () => {
@@ -64,8 +76,9 @@ describe('discBadges', () => {
   it('marks ISO images, and UHD once the manifest shows it', () => {
     expect(discBadges(disc('a'), undefined)).toEqual([]);
     expect(discBadges(disc('a', 'iso'), undefined)).toEqual(['ISO']);
-    expect(discBadges(disc('a', 'iso'), true)).toEqual(['ISO', 'UHD']);
-    expect(discBadges(disc('a'), false)).toEqual([]);
+    expect(discBadges(disc('a', 'iso'), { uhd: true, dynamicRange: null })).toEqual(['ISO', 'UHD']);
+    expect(discBadges(disc('a', 'iso'), { uhd: true, dynamicRange: 'hdr10' })).toEqual(['ISO', 'UHD', 'HDR10']);
+    expect(discBadges(disc('a'), { uhd: false, dynamicRange: null })).toEqual([]);
   });
 });
 
@@ -77,10 +90,27 @@ describe('formatSize', () => {
   });
 });
 
+describe('dynamicRangeBadge', () => {
+  it('names each HDR format, and nothing for SDR or a NAS that sends none', () => {
+    expect(dynamicRangeBadge('dv')).toBe('DV');
+    expect(dynamicRangeBadge('hdr10plus')).toBe('HDR10+');
+    expect(dynamicRangeBadge('hdr10')).toBe('HDR10');
+    expect(dynamicRangeBadge(null)).toBeNull();
+    expect(dynamicRangeBadge(undefined)).toBeNull();
+  });
+});
+
 describe('discFacts', () => {
   it("reads the main title's first clip: its peak rate (TS_recording_rate is bytes per second) and whether it is UHD", () => {
-    expect(discFacts(disc1Manifest(setRecordingRate(6_000_000)))).toEqual({ peakMbps: 48, uhd: false });
-    expect(discFacts(disc1Manifest((c) => (setRecordingRate(13_625_000)(c), makeUhd(c))))).toEqual({ peakMbps: 109, uhd: true });
+    expect(discFacts(disc1Manifest(setRecordingRate(6_000_000)))).toEqual({ peakMbps: 48, uhd: false, dynamicRange: null });
+    expect(discFacts(disc1Manifest((c) => (setRecordingRate(13_625_000)(c), makeUhd(c))))).toEqual({ peakMbps: 109, uhd: true, dynamicRange: null });
+  });
+
+  it("reads the main title's dynamic range from its clips' CLPI", () => {
+    expect(discFacts(disc1Manifest(makeHdr(1))).dynamicRange).toBe('hdr10');
+    expect(discFacts(disc1Manifest(makeHdr(1, true))).dynamicRange).toBe('hdr10plus');
+    // the enhancement layer of a later clip makes the title Dolby Vision
+    expect(discFacts(disc1Manifest(makeHdr(1), makeHdr(2))).dynamicRange).toBe('dv');
   });
 
   it("takes the peak rate as the highest of the main title's clips", () => {
@@ -92,7 +122,7 @@ describe('discFacts', () => {
   it('knows nothing of a disc whose playlists it cannot parse', () => {
     const files = [{ path: 'BDMV/PLAYLIST/00000.MPLS', size: 3 }];
     const manifest: DiscManifest = { discId: 'x', name: 'x', files, inline: { 'BDMV/PLAYLIST/00000.MPLS': 'AAAA' } };
-    expect(discFacts(manifest)).toEqual({ peakMbps: null, uhd: false });
+    expect(discFacts(manifest)).toEqual({ peakMbps: null, uhd: false, dynamicRange: null });
   });
 });
 

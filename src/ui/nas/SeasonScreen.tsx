@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactElement, type ReactNode } from 'react';
 import type { DiscRef, DiscSlot, EpisodeRef, FansubTitleState, PlaylistProgress, SeasonDetail, StoredSubtitle } from '@seikou/nas/nas-api';
+import { DynamicRangeBadge } from './DynamicRangeBadge';
 import { FansubEpisodePanel } from './FansubEpisodePanel';
 import { FansubLine } from './FansubLine';
 import { episodeMark, trackChip } from './fansub-model';
@@ -53,6 +54,7 @@ export function DiscList({ season, discs, onOpen, owner }: DiscListProps): React
                   <span className="disc-copy-folder" lang={nameLang(c.folder)}>
                     {c.folder}
                   </span>
+                  <DynamicRangeBadge range={c.dynamicRange} />
                 </button>
               );
               if (!owner) return copy;

@@ -422,7 +422,7 @@ export function Preflight({ nas, controller, disc, playlistId, title, startTimeS
   const busy = busyMessage(levelList);
   const levelPicked = selected.level !== 'original';
   const lines = preflightLines(mbps ?? null, levelPicked ? selected.budgetMbps : (facts?.peakMbps ?? null), levelPicked ? selected.label : undefined);
-  const badges = discBadges(disc, facts?.uhd);
+  const badges = discBadges(disc, facts ?? undefined);
   const size = disc.sizeBytes ?? (manifest ? manifest.files.reduce((sum, f) => sum + f.size, 0) : null);
 
   return (

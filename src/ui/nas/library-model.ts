@@ -1,6 +1,8 @@
 import { parseClpi } from '@seikou/bdmv/clpi-parser';
+import { dynamicRangeOf } from '@seikou/bdmv/dynamic-range';
 import { parseMpls, type Mpls } from '@seikou/bdmv/mpls-parser';
 import { CodingType, isVideoCoding } from '@seikou/bdmv/stream-types';
+import type { DynamicRange } from '@seikou/nas';
 import type { DiscEntry, DiscManifest, FolderEntry } from '@seikou/nas/nas-api';
 import { chooseMainTitle, type MainTitleCandidate } from '@seikou/engine/disc/main-title';
 import { clipInfoPath, streamPath } from '@seikou/engine/disc/open-disc';
@@ -39,12 +41,21 @@ export function sortRows(listing: { readonly folders: readonly FolderEntry[]; re
   ];
 }
 
-/** `ISO` for disc images; `UHD` once the disc's manifest has shown an HEVC 2160p main title (undefined: not known yet). */
-export function discBadges(disc: Pick<DiscEntry, 'kind'>, uhd: boolean | undefined): string[] {
+/** `ISO` for disc images; `UHD` and its HDR badge once the disc's manifest has shown an HEVC 2160p or HDR main title (undefined: not known yet). */
+export function discBadges(disc: Pick<DiscEntry, 'kind'>, facts: Pick<DiscFacts, 'uhd' | 'dynamicRange'> | undefined): string[] {
   const badges: string[] = [];
   if (disc.kind === 'iso') badges.push('ISO');
-  if (uhd) badges.push('UHD');
+  if (facts?.uhd) badges.push('UHD');
+  const range = dynamicRangeBadge(facts?.dynamicRange);
+  if (range) badges.push(range);
   return badges;
+}
+
+const RANGE_BADGES: Readonly<Record<DynamicRange, string>> = { dv: 'DV', hdr10plus: 'HDR10+', hdr10: 'HDR10' };
+
+/** A disc's or title's HDR badge (`DV`, `HDR10+`, `HDR10`); null for SDR, and for a NAS that sends no dynamic range. */
+export function dynamicRangeBadge(range: DynamicRange | null | undefined): string | null {
+  return range ? RANGE_BADGES[range] : null;
 }
 
 /** Decimal units, one decimal place above bytes: '46.1 GB'. */
@@ -65,6 +76,8 @@ export interface DiscFacts {
   readonly peakMbps: number | null;
   /** The main title is HEVC 2160p. */
   readonly uhd: boolean;
+  /** The main title's HDR format from its clips' CLPI, null for SDR or when unknown. */
+  readonly dynamicRange: DynamicRange | null;
 }
 
 /** BD video_format code of 2160p. */
@@ -130,7 +143,7 @@ export function playlistOf(manifest: DiscManifest, id: string): Mpls | null {
 
 /** What the manifest's inlined playlists and clip info say about the main title (mainPlaylist). */
 export function discFacts(manifest: DiscManifest): DiscFacts {
-  const unknown: DiscFacts = { peakMbps: null, uhd: false };
+  const unknown: DiscFacts = { peakMbps: null, uhd: false, dynamicRange: null };
   try {
     const clipIds = [...new Set(mainPlaylist(manifest)?.playItems.map((p) => p.clipId) ?? [])];
     const clips = clipIds.flatMap((id) => {
@@ -145,6 +158,7 @@ export function discFacts(manifest: DiscManifest): DiscFacts {
     return {
       peakMbps: peak > 0 ? (peak * 8) / 1e6 : null,
       uhd: video?.codingType === CodingType.HEVC && video.format === VIDEO_FORMAT_2160P,
+      dynamicRange: dynamicRangeOf(clips),
     };
   } catch {
     return unknown;

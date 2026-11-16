@@ -37,8 +37,8 @@ const storage = (): Storage | undefined => {
 /** The folder the browser showed last, where "Browse by folder instead" opens it. */
 export const rememberedFolder = (): string => folderMemory(storage()).get();
 
-/** Which discs turned out to be UHD (from their manifests), kept for the session so their rows show it. */
-const uhdDiscs = new Map<string, boolean>();
+/** What discs' manifests showed (UHD, HDR format), kept for the session so their rows show it. */
+const discFactsSeen = new Map<string, Pick<DiscFacts, 'uhd' | 'dynamicRange'>>();
 
 /** The NAS's folders and discs: breadcrumbs, folders first, then discs with size and badges; a disc opens its pre-flight. */
 export function LibraryScreen({ nas, controller, history, playingRoute, places, onLaunch, path, onClose }: LibraryScreenProps): ReactElement {
@@ -99,8 +99,9 @@ export function LibraryScreen({ nas, controller, history, playingRoute, places, 
   }, [onPlayRoute]);
 
   const onFacts = useCallback((discId: string, facts: DiscFacts) => {
-    if (uhdDiscs.get(discId) === facts.uhd) return;
-    uhdDiscs.set(discId, facts.uhd);
+    const seen = discFactsSeen.get(discId);
+    if (seen && seen.uhd === facts.uhd && seen.dynamicRange === facts.dynamicRange) return;
+    discFactsSeen.set(discId, { uhd: facts.uhd, dynamicRange: facts.dynamicRange });
     setUhdVersion((v) => v + 1);
   }, []);
 
@@ -197,7 +198,7 @@ export function LibraryScreen({ nas, controller, history, playingRoute, places, 
                     {row.disc.name}
                   </span>
                   <span className="library-meta">
-                    {discBadges(row.disc, uhdDiscs.get(row.disc.id)).map((b) => (
+                    {discBadges(row.disc, discFactsSeen.get(row.disc.id)).map((b) => (
                       <span key={b} className="badge">
                         {b}
                       </span>
