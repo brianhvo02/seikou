@@ -3318,7 +3318,7 @@ export class Player {
         const query = coding ? this.elementQueryFor(s, coding, u) : null;
         if (coding && query && !this.shadersOn) this.choosePath(s, decoder, u, coding, query);
         else {
-          if (query) s.shaderHeldQuery = query; // the canvas only for the shaders: turning them off asks again
+          if (query && (this.videoPath === 'element' || query.hdr)) s.shaderHeldQuery = query; // the canvas only for the shaders: turning them off asks again
           this.configureDecoder(s, decoder, u);
         }
       }
@@ -3367,9 +3367,10 @@ export class Player {
 
   /**
    * The question for the page about the session's stream, read from its first unit with parameter sets, when the video
-   * path takes it to the element: with 'element' every stream the remuxer can read, with 'auto' an HDR one only (its
-   * clip info or SPS says so). Null takes the canvas path without asking; with 'auto', so does a unit the remuxer fails
-   * to read, which the canvas path's decoder judges as before.
+   * path may take it to the element: with 'element' every stream the remuxer can read, with 'auto' an HDR one (its clip
+   * info or SPS says so) or an SDR one that choosePath finds the engine's own decoder can't configure. Null takes the
+   * canvas path without asking; with 'auto', so does a unit the remuxer fails to read, which the canvas path's decoder
+   * judges as before.
    */
   private elementQueryFor(s: Session, coding: 'avc' | 'hevc', u: PipelineUnit): ElementQuery | null {
     let stream: ReturnType<typeof elementStream>;
@@ -3381,8 +3382,7 @@ export class Player {
       return null;
     }
     if (!stream) return null;
-    const query = elementQuery(stream, s.startClips, s.videoRate);
-    return this.videoPath === 'element' || query.hdr ? query : null;
+    return elementQuery(stream, s.startClips, s.videoRate);
   }
 
   /**
@@ -3391,6 +3391,21 @@ export class Player {
    * pendingVideo.
    */
   private choosePath(s: Session, decoder: WebCodecsVideoDecoder, first: PipelineUnit, coding: 'avc' | 'hevc', query: ElementQuery): void {
+    if (this.videoPath === 'auto' && !query.hdr) {
+      // an SDR stream stays on the canvas while WebCodecs can decode it; only one it can't goes to the page
+      const config = { codingType: s.videoCodingType, firstUnit: first.data, ...(first.key !== undefined ? { key: first.key } : {}), ...(s.videoCodecPrivate ? { codecPrivate: s.videoCodecPrivate } : {}) };
+      void decoder.canConfigure(config).then((canvasPlays) => {
+        if (this.session !== s || s.decoder !== decoder || s.videoState !== 'configuring') return;
+        if (canvasPlays) this.configureDecoder(s, decoder, first);
+        else this.chooseByPage(s, decoder, first, coding, query);
+      });
+      return;
+    }
+    this.chooseByPage(s, decoder, first, coding, query);
+  }
+
+  /** Asks the page (or its cached answer) whether the element plays the stream, and takes that path or the canvas. */
+  private chooseByPage(s: Session, decoder: WebCodecsVideoDecoder, first: PipelineUnit, coding: 'avc' | 'hevc', query: ElementQuery): void {
     const decide = (playable: boolean): void => {
       if (this.session !== s || s.decoder !== decoder || s.videoState !== 'configuring') return;
       if (playable && this.clockWriter && !this.shadersOn) this.startElement(s, decoder, coding, query.hdr !== null);

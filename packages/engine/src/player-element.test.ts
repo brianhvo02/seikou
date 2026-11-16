@@ -63,6 +63,8 @@ interface Options {
   memory?: 'constrained';
   /** The page attaches its element only when the test does (attach()), as a page that mounts its player late does. */
   attachLate?: boolean;
+  /** Whether WebCodecs can configure an HEVC decoder (true by default). */
+  webcodecsHevc?: boolean;
   /** A shader set is on before the disc opens. */
   shaders?: boolean;
   /** Whether shaders can run here: a backend (the default), or none (WebGL2 or float targets missing). */
@@ -116,7 +118,9 @@ async function harness(opts: Options = {}) {
         queueMicrotask(() => void player.handle({ type: 'videoBuffered', endUs, segments, generation }));
       }
     },
-    videoCodecApi: fakeApi,
+    videoCodecApi: opts.webcodecsHevc === false
+      ? { ...fakeApi, isConfigSupported: async (config) => ({ supported: !/^hev1|^hvc1/.test(config.codec), config }) }
+      : fakeApi,
     nowMs: () => clock.ms,
     elementEpochMs: () => 1_700_000_000_000 + clock.ms,
     requestFrame: () => undefined,
@@ -650,6 +654,56 @@ describe('Player choosing the path', () => {
     expect(elementSessions(h)).toBe(0);
     expect(decoders.length).toBeGreaterThan(0);
     expect(ofType(h, 'videoHdr')).toHaveLength(0);
+  });
+
+  describe('auto with an SDR HEVC stream', () => {
+    const sdrHevc = (): Map<string, Uint8Array<ArrayBuffer>> => fixtureDiscFiles('disc-hevc-sdr');
+
+    it('takes the element path when WebCodecs cannot decode it and the page can play it', async () => {
+      const h = await harness({ path: 'auto', files: sdrHevc(), webcodecsHevc: false, playable: true });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilState(h, 'playing');
+      const queries = ofType(h, 'videoElementQuery');
+      expect(queries).toHaveLength(1);
+      expect(queries[0]).toMatchObject({ codec: expect.stringMatching(/^hvc1\./), hdr: null, width: 640, height: 360 });
+      expect(elementSessions(h)).toBe(1);
+      expect(ofType(h, 'videoHdr')).toHaveLength(0);
+      expect(decoders.every((d) => d.state !== 'configured')).toBe(true);
+    });
+
+    it('keeps the canvas path when the page cannot play it either', async () => {
+      const h = await harness({ path: 'auto', files: sdrHevc(), webcodecsHevc: false, playable: false });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(ofType(h, 'videoElementQuery')).toHaveLength(1);
+      expect(elementSessions(h)).toBe(0);
+      expect(ofType(h, 'unsupported').length + ofType(h, 'error').length).toBeGreaterThan(0);
+    });
+
+    it('takes the canvas path, asking nothing, when WebCodecs decodes it', async () => {
+      const h = await harness({ path: 'auto', files: sdrHevc(), playable: true });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilState(h, 'playing');
+      expect(ofType(h, 'videoElementQuery')).toHaveLength(0);
+      expect(elementSessions(h)).toBe(0);
+      expect(decoders.length).toBeGreaterThan(0);
+    });
+
+    it('with a shader set on, stays on the canvas without asking', async () => {
+      const h = await harness({ path: 'auto', files: sdrHevc(), webcodecsHevc: false, playable: true, shaders: true });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(ofType(h, 'videoElementQuery')).toHaveLength(0);
+      expect(elementSessions(h)).toBe(0);
+    });
+  });
+
+  it('auto: H.264 that WebCodecs decodes takes the canvas path and asks nothing, even when the page could play it', async () => {
+    const h = await harness({ path: 'auto', playable: true });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    expect(ofType(h, 'videoElementQuery')).toHaveLength(0);
+    expect(elementSessions(h)).toBe(0);
   });
 
   it('element: disc1 asks without HDR facts and takes the element path', async () => {
