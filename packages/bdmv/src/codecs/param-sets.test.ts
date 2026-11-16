@@ -103,7 +103,8 @@ describe('parameter sets', () => {
     expect(readAvcSps(sets.sps[0])).toMatchObject({ profileIdc: 100, chromaFormatIdc: 1, bitDepthLuma: 8, bitDepthChroma: 8, width: 640, height: 360 });
     const info = readAvcSps(sets.sps[0]);
     expect(info.sar).toEqual({ width: 1, height: 1 });
-    expect(info.colour === null || typeof info.colour.transfer === 'number').toBe(true);
+    // libx264 writes no colour description unless asked (ffprobe: unknown primaries, transfer and matrix)
+    expect(info.colour).toBeNull();
   });
 
   it('reads an explicit sample aspect ratio and colour description from an H.264 VUI', () => {

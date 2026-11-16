@@ -108,6 +108,17 @@ describe('fragmented MP4 writer', () => {
       expect(bare.map((b) => b.type)).toEqual(['hvcC', 'pasp']);
     });
 
+    it('writes colr alone for a stream with its colour and no HDR SEI, as a re-encode at a level carries', () => {
+      const entry = entryBoxes(initSegment({ ...hdrTrack(), mastering: null, light: null }));
+      expect(entry.map((b) => b.type)).toEqual(['hvcC', 'colr', 'pasp']);
+      expect(entry[1].payload.slice(4)).toEqual([0, 9, 0, 16, 0, 9, 0]);
+    });
+
+    it('writes clli without mdcv, and mdcv without clli, when the stream has only one', () => {
+      expect(entryBoxes(initSegment({ ...hdrTrack(), mastering: null })).map((b) => b.type)).toEqual(['hvcC', 'colr', 'clli', 'pasp']);
+      expect(entryBoxes(initSegment({ ...hdrTrack(), light: null })).map((b) => b.type)).toEqual(['hvcC', 'colr', 'mdcv', 'pasp']);
+    });
+
     it('writes the sample aspect ratio in pasp and the display size in tkhd', () => {
       const init = initSegment({ ...hdrTrack(), sar: { width: 4, height: 3 } });
       expect(entryBoxes(init).find((b) => b.type === 'pasp')!.payload).toEqual([0, 0, 0, 4, 0, 0, 0, 3]);
