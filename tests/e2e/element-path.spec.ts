@@ -19,12 +19,15 @@ async function mseSupports(page: Page, type: string): Promise<boolean> {
 }
 
 /**
- * Skips the running test where the element path can't play `type` (the browser's MSE says no), and in WebKit on Linux,
- * which can't keep up with real-time playback. Call it with the app loaded.
+ * Skips the running test where the element path can't play `type` (the browser's MSE says no), in WebKit on Linux,
+ * which can't keep up with real-time playback, and in Firefox, which the sync check doesn't cover. Call it with the app loaded.
  */
 async function skipWithoutElementPath(page: Page, type = H264_HIGH): Promise<void> {
   const browser = page.context().browser()?.browserType().name() ?? '';
   test.skip(isLinuxWebKit(browser), LINUX_WEBKIT_REALTIME);
+  // The design's sync check covers Chrome and WebKit, as the canvas path's does Chrome; Firefox on CI has no running
+  // audio output and its HEVC timing there is unmeasured (docs/known-issues.md).
+  test.skip(browser === 'firefox', 'The element path is sync-checked in Chrome and WebKit only');
   test.skip(!(await mseSupports(page, type)), `MSE in this browser does not play ${type}`);
 }
 

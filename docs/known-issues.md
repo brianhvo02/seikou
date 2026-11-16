@@ -106,6 +106,10 @@ what would change that decision.
   that holds mostly those frames averages 8 to 20 ms (measured over 15 runs of `element-path.spec.ts` in Playwright's
   WebKit on macOS, one over 20 ms), and 35 to 43 ms with three tests running at once. *Revisit if* the owner rules on
   the element path's start (a start timed from the audio output's predicted first sound, or a faster start catch-up).
+- **The element path's sync is unchecked in Firefox.** Its E2E tests skip Firefox: on the CI runner Firefox has no
+  running audio output (the clock falls back to the wall clock), and `disc-hdr` there played HEVC Main10 through MSE
+  about 56 ms off the sound. Firefox on a desktop with audio passed all seven tests locally. *Revisit if* Firefox
+  becomes a target for the element path (phase 2's automatic choice).
 
 ## Menus (HDMV)
 
