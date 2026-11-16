@@ -162,7 +162,14 @@ interface MusicCoverRecord {
   readonly cover: FolderCover | null;
 }
 
-const evidenceKey = (e: DiscEvidence): string => createHash('sha256').update(JSON.stringify(e)).digest('hex').slice(0, 32);
+/**
+ * A disc's evidence key: a hash of what matching reads. The dynamic range is left out, so a disc scanned before it was
+ * recorded keeps its key and is not matched again.
+ */
+export function evidenceKey(e: DiscEvidence): string {
+  const { dynamicRange: _, ...matched } = e;
+  return createHash('sha256').update(JSON.stringify(matched)).digest('hex').slice(0, 32);
+}
 const parentOf = (path: string): string => path.slice(0, Math.max(0, path.lastIndexOf('/')));
 const lastSegment = (path: string): string => path.slice(path.lastIndexOf('/') + 1);
 /** A box folder's box family, the folder its box folders share, or null when the group isn't a box folder. */

@@ -322,6 +322,22 @@ describe('Library evidence', () => {
     expect(lib.evidence().map((e) => e.discId).sort()).toEqual(old.map((d) => d.id as string).sort());
   });
 
+  it('reads evidence again for a cache written before dynamic ranges, and keeps a valid one', async () => {
+    const file = join(tmp, 'library.json');
+    await new Library(roots(), file, FAST).scan();
+    const cached = JSON.parse(readFileSync(file, 'utf8')) as { path: string; evidence: Record<string, unknown> }[];
+    const [noField, bad, dv] = cached;
+    delete noField!.evidence.dynamicRange;
+    bad!.evidence = { ...bad!.evidence, dynamicRange: 'hdr' };
+    dv!.evidence = { ...dv!.evidence, dynamicRange: 'dv' };
+    writeFileSync(file, JSON.stringify(cached));
+    const lib = new Library(roots(), file, FAST);
+    const paths = lib.evidence().map((e) => e.path);
+    expect(paths).not.toContain(noField!.path);
+    expect(paths).not.toContain(bad!.path);
+    expect(lib.evidence().find((e) => e.path === dv!.path)?.dynamicRange).toBe('dv');
+  });
+
   it('lists each root with its discs and whether the last scan found it', async () => {
     const file = join(tmp, 'library.json');
     const lib = new Library(roots(), file, FAST);

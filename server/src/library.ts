@@ -477,7 +477,9 @@ function validEvidence(ev: unknown, disc: DiscEntry): ev is DiscEvidence {
     Array.isArray(ev.playlists) &&
     ev.playlists.every(
       (p) => isRecord(p) && typeof p.id === 'string' && Number.isFinite(p.durationS) && Number.isInteger(p.chapters) && isStrings(p.clips),
-    )
+    ) &&
+    // evidence cached before dynamic ranges were recorded lacks the field, and is read again
+    (ev.dynamicRange === null || ev.dynamicRange === 'dv' || ev.dynamicRange === 'hdr10plus' || ev.dynamicRange === 'hdr10')
   );
 }
 

@@ -7,4 +7,6 @@ export interface DiscEvidence {
   readonly segments: readonly string[]; // folder names from below the root down to the disc folder or ISO file name
   readonly catalogueNumbers: readonly string[];
   readonly playlists: readonly { readonly id: string; readonly durationS: number; readonly chapters: number; readonly clips: readonly string[] }[];
+  /** The main title's HDR format from its clips' CLPI (`dv`, `hdr10plus`, `hdr10`), null for SDR or when unread. */
+  readonly dynamicRange: 'dv' | 'hdr10plus' | 'hdr10' | null;
 }

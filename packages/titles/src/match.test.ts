@@ -66,6 +66,7 @@ function ev(path: string, titles: Record<string, string> = {}, fingerprint: stri
     segments: path.split('/'),
     catalogueNumbers: [],
     playlists: [],
+    dynamicRange: null,
   };
 }
 

@@ -13,7 +13,7 @@ export default async function example(): Promise<void> {
     search: async (query) => (query.toLowerCase().includes('starfall wanderer') ? [SHOW] : []),
     entry: async (id) => (id === SHOW.id ? SHOW : null),
   };
-  const disc = (path: string): DiscEvidence => ({ discId: 'id:' + path, path, fingerprint: null, discTitles: [], segments: path.split('/'), catalogueNumbers: [], playlists: [] });
+  const disc = (path: string): DiscEvidence => ({ discId: 'id:' + path, path, fingerprint: null, discTitles: [], segments: path.split('/'), catalogueNumbers: [], playlists: [], dynamicRange: null });
 
   const { matches, entries, aborted } = await matchDiscs(
     [disc('Starfall Wanderer (2021)/Starfall Wanderer Vol.1'), disc('Unknown Folder/Disc')],

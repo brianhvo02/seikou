@@ -36,7 +36,7 @@ function entry(id: string, names: Partial<EntryNames>, more: Partial<Entry> = {}
 function ev(path: string, titles: Record<string, string> = {}, fingerprint: string | null = null): DiscEvidence {
   return {
     discId: `id:${path}`, path, fingerprint, discTitles: Object.entries(titles).map(([lang, name]) => ({ lang, name })),
-    segments: path.split('/').slice(1), catalogueNumbers: [], playlists: [],
+    segments: path.split('/').slice(1), catalogueNumbers: [], playlists: [], dynamicRange: null,
   };
 }
 

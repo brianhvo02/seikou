@@ -39,7 +39,7 @@ const THREE_EPISODES = [pl('00001', 24, ['00001']), pl('00002', 24, ['00002']), 
 const id = (path: string): string => `id:${path}`;
 
 function ev(path: string, more: Partial<DiscEvidence> = {}): DiscEvidence {
-  return { discId: id(path), path, fingerprint: null, discTitles: [], segments: path.split('/').slice(1), catalogueNumbers: [], playlists: [], ...more };
+  return { discId: id(path), path, fingerprint: null, discTitles: [], segments: path.split('/').slice(1), catalogueNumbers: [], playlists: [], dynamicRange: null, ...more };
 }
 
 const filed = (path: string, entryId: string, season: number | null, disc: number | null, bonus = false): DiscMatch =>
