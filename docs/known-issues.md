@@ -137,6 +137,10 @@ what would change that decision.
   SEI of the first access unit after the SPS or PPS changes, so clips that share an SPS but differ in MaxCLL (or
   mastering display) keep the first clip's values for the rest of the session. *Revisit if* a disc's clips carry
   different light levels under one SPS and the difference shows.
+- **Whether a playlist is HDR is judged from the clip it starts in.** The path is chosen from the start play item's
+  clip info and the first SPS, so a playlist that starts in an SDR clip and goes on into HDR ones plays on the canvas,
+  without HDR, to its end. UHD discs keep a playlist's clips in one format as far as seen. *Revisit if* a disc mixes
+  them in one playlist.
 - **Subtitles and menus over HDR video stay as SDR graphics.** Over an HDR stream on the element path the overlay
   canvas is the engine's ordinary 2D canvas, so PG, IG and BD-J graphics are drawn as SDR, at most the display's SDR
   white (on Windows presumably the "SDR content brightness" setting, not yet checked on an HDR display), not at the
