@@ -139,9 +139,9 @@ what would change that decision.
   different light levels under one SPS and the difference shows.
 - **Subtitles and menus over HDR video stay as SDR graphics.** Over an HDR stream on the element path the overlay
   canvas is the engine's ordinary 2D canvas, so PG, IG and BD-J graphics are drawn as SDR, at most the display's SDR
-  white (Windows' "SDR content brightness"), not at the BT.2408 graphics reference of 203 nits. Measured on 2026-11-16
-  in an OffscreenCanvas, page and worker, on a Mac whose display reported no HDR (`(dynamic-range: high)` false).
-  Independent of the display: Chrome 157 rejects `colorSpace: 'rec2100-pq'`, `'rec2100-hlg'` and `'rec2100-linear'`
+  white (on Windows presumably the "SDR content brightness" setting, not yet checked on an HDR display), not at the
+  BT.2408 graphics reference of 203 nits. Measured on 2026-11-16 in an OffscreenCanvas, page and worker, on a Mac
+  whose display reported no HDR (`(dynamic-range: high)` false). Independent of the display: Chrome 157 rejects `colorSpace: 'rec2100-pq'`, `'rec2100-hlg'` and `'rec2100-linear'`
   (a TypeError on the 2D context and on `getImageData`); it ignores `toneMapping: { mode: 'extended' }` on a 2D context
   (the attributes still say `standard`, and even `mode: 'bogus'` doesn't throw); it accepts `colorType: 'float16'`,
   which stores values above 1 (a `color(srgb-linear 2.54 …)` fill reads back as 2.54); and neither `HTMLCanvasElement`

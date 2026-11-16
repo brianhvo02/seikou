@@ -46,7 +46,7 @@ The browser does not give the player WebGL2 render targets. Shaders cannot run o
 The badge shows only while HDR video plays on a display that can show HDR. Turn HDR on in the display's or the system's settings (on Windows, **Use HDR** in the display settings), and keep the window on that display. Firefox doesn't show HDR video; use Chrome or Safari. HDR also goes when a video shader set is on or **Video output** is **Always the canvas**, since the player's canvas has no HDR; see [HDR video](playing-discs.md#hdr-video).
 
 **Subtitles or menus look grey beside HDR video**
-Subtitles and disc menus stay at SDR brightness over HDR video for now. On Windows, raise the **SDR content brightness** slider in the display's HDR settings to make them brighter.
+Subtitles and disc menus stay at SDR brightness over HDR video for now. On Windows, raising the **SDR content brightness** slider in the display's HDR settings should make them brighter; this hasn't been checked on an HDR display yet.
 
 **"HDR video couldn't play in this browser, so it shows without HDR and its colours may look flat"**
 The browser's video player failed on this disc's HDR video, so the disc plays on the player's canvas, without HDR, until you open another disc. Update the browser, or try another one.
