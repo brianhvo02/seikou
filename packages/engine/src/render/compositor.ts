@@ -4,6 +4,19 @@ import type { OverlayPlane } from '@seikou/pg';
 import type { ShaderStage } from '../shaders/stage';
 import type { Rect, TextRenderOptions, TextRendererLike } from '@seikou/ass/host-types';
 
+/**
+ * The picture's sizes on the element path, from its init segment: the size it shows at (`width`, `height`, where
+ * overlays are placed) and its coded size (`codedWidth`, `codedHeight`, ASS's storage size, as a frame's visible
+ * size is on the canvas path).
+ * @internal
+ */
+export interface ElementPictureSize {
+  readonly width: number;
+  readonly height: number;
+  readonly codedWidth: number;
+  readonly codedHeight: number;
+}
+
 export type { Rect, TextRendererLike };
 
 /**
@@ -34,12 +47,12 @@ export interface CompositorLike {
   /**
    * A playlist starts: the last frame's size is forgotten. With `picture` false (video the browser can't decode) text is
    * laid out over the 1920×1080 screen; otherwise none is drawn until the playlist's first frame. With `element` (the
-   * picture's size), the page's video element shows the picture: the canvas is cleared to transparent, no video is
-   * drawn, and text is laid out on that size.
+   * picture's sizes), the page's video element shows the picture: the canvas is cleared to transparent, no video is
+   * drawn, and text is laid out on the display size, with the coded size as ASS's storage size.
    */
-  startPlaylist?(picture: boolean, opts?: { readonly element?: { readonly width: number; readonly height: number } }): void;
-  /** In element mode, the picture's size changed (a new init segment): text is laid out on it from now on. */
-  setElementSize?(width: number, height: number): void;
+  startPlaylist?(picture: boolean, opts?: { readonly element?: ElementPictureSize }): void;
+  /** In element mode, the picture's sizes changed (a new init segment): text is laid out on them from now on. */
+  setElementSize?(size: ElementPictureSize): void;
   /**
    * The BD-J background still drawn under the video from the next drawVideo on (null: none), placed in its screen
    * rectangle of the 1920×1080 menu rectangle. The caller owns the image and closes it after replacing it here.
@@ -187,18 +200,19 @@ export class Compositor implements CompositorLike {
     this.bdj = null;
   }
 
-  startPlaylist(picture: boolean, opts?: { readonly element?: { readonly width: number; readonly height: number } }): void {
+  startPlaylist(picture: boolean, opts?: { readonly element?: ElementPictureSize }): void {
     this.frameSize = null;
     this.storageSize = null;
     this.noPicture = !picture;
     this.element = opts?.element !== undefined;
-    if (opts?.element) this.setElementSize(opts.element.width, opts.element.height);
+    if (opts?.element) this.setElementSize(opts.element);
   }
 
-  setElementSize(width: number, height: number): void {
+  setElementSize(size: ElementPictureSize): void {
     if (!this.element) return;
-    this.frameSize = { width, height };
-    this.storageSize = { width, height };
+    // as drawVideo does for a frame: placement on the display size, ASS's storage size the coded one
+    this.frameSize = { width: size.width, height: size.height };
+    this.storageSize = { width: size.codedWidth, height: size.codedHeight };
   }
 
   drawText(renderer: TextRendererLike, timeUs: number, opts: TextRenderOptions): void {

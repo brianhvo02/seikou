@@ -252,7 +252,7 @@ describe('Compositor on the element path', () => {
 
   it('clears to transparent in element mode and draws no video, laying text out on the element size', () => {
     const { calls, compositor } = fake(1000, 1000);
-    compositor.startPlaylist(true, { element: { width: 1920, height: 1080 } });
+    compositor.startPlaylist(true, { element: { width: 1920, height: 1080, codedWidth: 1920, codedHeight: 1080 } });
     compositor.drawVideo(frame);
     compositor.drawVideo(null);
     expect(calls).toEqual([['main.clearRect', 0, 0, 1000, 1000], ['main.clearRect', 0, 0, 1000, 1000]]);
@@ -261,7 +261,7 @@ describe('Compositor on the element path', () => {
     compositor.drawText(renderer, 0, { offsetUs: 0, scale: 1 });
     expect(text[0]!.slice(2)).toEqual([{ x: 0, y: 218, width: 1000, height: 563 }, { offsetUs: 0, scale: 1, storage: { width: 1920, height: 1080 } }]);
     // a new init with another size moves the text
-    compositor.setElementSize(1440, 1080);
+    compositor.setElementSize({ width: 1440, height: 1080, codedWidth: 1440, codedHeight: 1080 });
     compositor.drawText(renderer, 0, { offsetUs: 0, scale: 1 });
     expect(text[1]!.slice(2)).toEqual([fitRect(1440, 1080, 1000, 1000), { offsetUs: 0, scale: 1, storage: { width: 1440, height: 1080 } }]);
     // the next playlist on the canvas path fills black again
@@ -269,5 +269,24 @@ describe('Compositor on the element path', () => {
     compositor.startPlaylist(true);
     compositor.drawVideo(null);
     expect(calls).toEqual([['main.fillRect', 0, 0, 1000, 1000]]);
+  });
+
+  it('places text on the display size of an anamorphic stream and gives ASS its coded size, as the canvas path does', () => {
+    const text: unknown[][] = [];
+    const renderer = { render: (...args: unknown[]) => { text.push(args); return 0; }, changed: () => false, visible: () => false };
+    // the canvas path: a 1440×1080 frame shown at 1920×1080
+    const canvas = fake(1000, 1000).compositor;
+    canvas.startPlaylist(true);
+    canvas.drawVideo({ displayWidth: 1920, displayHeight: 1080, codedWidth: 1440, codedHeight: 1080 } as unknown as VideoFrame);
+    canvas.drawText(renderer, 0, { offsetUs: 0, scale: 1 });
+    // the element path: the same stream from its init segment
+    const element = fake(1000, 1000).compositor;
+    element.startPlaylist(true, { element: { width: 1920, height: 1080, codedWidth: 1440, codedHeight: 1080 } });
+    element.drawText(renderer, 0, { offsetUs: 0, scale: 1 });
+    expect(text[1]!.slice(2)).toEqual(text[0]!.slice(2));
+    expect(text[1]![3]).toMatchObject({ storage: { width: 1440, height: 1080 } });
+    element.setElementSize({ width: 1920, height: 1080, codedWidth: 1440, codedHeight: 1080 });
+    element.drawText(renderer, 0, { offsetUs: 0, scale: 1 });
+    expect(text[2]!.slice(2)).toEqual(text[0]!.slice(2));
   });
 });

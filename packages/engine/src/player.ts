@@ -3323,11 +3323,11 @@ export class Player {
       emit: (event, transfer) => this.deps.emit(event, transfer),
       nextGeneration: () => ++this.elementResets,
       isCurrent: () => this.session === s,
-      shown: (width, height, first) => {
+      shown: (size, first) => {
         if (!first) {
-          this.compositor?.setElementSize?.(width, height);
+          this.compositor?.setElementSize?.(size);
         } else {
-          this.compositor?.startPlaylist?.(true, { element: { width, height } });
+          this.compositor?.startPlaylist?.(true, { element: size });
           this.elementDirty = true;
         }
       },

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import type { EngineEvent } from '../protocol';
 import { ElementRemux, type RemuxOutput } from './remux';
+import type { ElementPictureSize } from '../render/compositor';
 
 /** How long the page has to say whether its video element plays a codec before the session takes the canvas path. */
 export const ELEMENT_QUERY_TIMEOUT_MS = 2000;
@@ -26,8 +27,8 @@ export interface ElementSessionDeps {
   nextGeneration(): number;
   /** Whether this session is still the player's current one: output after teardown goes nowhere. */
   isCurrent(): boolean;
-  /** An init segment went out at the stream's display size; `first` for the session's first, which turns the compositor transparent. */
-  shown(width: number, height: number, first: boolean): void;
+  /** An init segment went out with the stream's display and coded sizes; `first` for the session's first, which turns the compositor transparent. */
+  shown(size: ElementPictureSize, first: boolean): void;
 }
 
 /**
@@ -161,7 +162,7 @@ export class ElementSession {
     this.deps.emit({ type: 'videoInit', bytes: out.bytes, codec: out.codec, width: out.width, height: out.height }, transfer);
     const first = !this.shownOnce;
     this.shownOnce = true;
-    this.deps.shown(out.width, out.height, first);
+    this.deps.shown({ width: out.width, height: out.height, codedWidth: out.codedWidth, codedHeight: out.codedHeight }, first);
   }
 }
 

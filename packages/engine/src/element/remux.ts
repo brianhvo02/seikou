@@ -10,11 +10,12 @@ import type { Fmp4Sample } from './fmp4';
 /**
  * What `ElementRemux` hands out: an init segment (a new one whenever the stream's parameter sets change) or a media
  * segment from one IRAP unit up to the next, with the playlist time it covers. An init's `width` and `height` are the
- * size the picture shows at (the coded size with the sample aspect ratio applied).
+ * size the picture shows at (the coded size with the sample aspect ratio applied), `codedWidth` and `codedHeight` the
+ * coded size.
  * @internal
  */
 export type RemuxOutput =
-  | { kind: 'init'; bytes: Uint8Array; codec: string; width: number; height: number }
+  | { kind: 'init'; bytes: Uint8Array; codec: string; width: number; height: number; codedWidth: number; codedHeight: number }
   | { kind: 'segment'; bytes: Uint8Array; startUs: number; endUs: number };
 
 interface Held {
@@ -92,7 +93,7 @@ export class ElementRemux {
           const track = videoTrack(this.coding, params, info.data);
           const display = displaySize(track);
           this.key = key;
-          this.emit({ kind: 'init', bytes: initSegment(track), codec: track.codec, width: display.width, height: display.height });
+          this.emit({ kind: 'init', bytes: initSegment(track), codec: track.codec, width: display.width, height: display.height, codedWidth: track.width, codedHeight: track.height });
         }
       }
       if (this.key === null) return;

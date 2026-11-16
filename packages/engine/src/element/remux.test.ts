@@ -239,7 +239,7 @@ describe('ElementRemux init segments', () => {
     sps[0] = 0x67;
     for (let i = 0; i < bits.length; i++) if (bits[i] === '1') sps[1 + (i >> 3)] |= 0x80 >> (i & 7);
     const [init] = inits(run([{ data: avcAu({ idr: true, spsNal: sps }), ptsUs: 0, inRange: true }]));
-    expect(init).toMatchObject({ width: 64, height: 16 });
+    expect(init).toMatchObject({ width: 64, height: 16, codedWidth: 48, codedHeight: 16 });
   });
 });
 
