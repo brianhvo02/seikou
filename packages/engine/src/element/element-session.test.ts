@@ -106,7 +106,7 @@ describe('ElementCodecQueries', () => {
     const a = q.askElement('avc1.640028');
     const b = q.askElement('avc1.640028');
     expect(a).toBe(b);
-    expect(events).toEqual([{ type: 'videoElementQuery', codec: 'avc1.640028' }]);
+    expect(events).toEqual([{ type: 'videoElementQuery', codec: 'avc1.640028', hdr: null }]);
     q.answer('avc1.640028', true);
     await expect(a).resolves.toBe(true);
     expect(q.cached('avc1.640028')).toBe(true);
@@ -132,6 +132,6 @@ describe('ElementCodecQueries', () => {
     q.answer('avc1.640028', false);
     events.length = 0;
     q.askAgain();
-    expect(events).toEqual([{ type: 'videoElementQuery', codec: 'hvc1.1.6.L120.B0' }]);
+    expect(events).toEqual([{ type: 'videoElementQuery', codec: 'hvc1.1.6.L120.B0', hdr: null }]);
   });
 });

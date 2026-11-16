@@ -29,6 +29,15 @@ export type PlaybackState = 'idle' | 'loading' | 'paused' | 'buffering' | 'playi
 export type VideoPath = 'auto' | 'element' | 'canvas';
 
 /**
+ * A stream's HDR facts, which the page needs to tell whether its video element can show it: the transfer function
+ * (`pq` or `hlg`) and whether the stream carries mastering display metadata.
+ */
+export interface ElementHdr {
+  readonly transfer: 'pq' | 'hlg';
+  readonly mastering: boolean;
+}
+
+/**
  * What a `notice` event is about; the page decides how to show each.
  * - `no-picture`: the disc's video can't be decoded here and plays without a picture (carried by `unsupported`).
  * - `bdj`: the disc or title uses BD-J, which this player or browser can't run.
@@ -549,8 +558,8 @@ export type EngineEvent =
   | { readonly type: 'playlistCleared' }
   /** On every shader set change and compile result; `error` explains 'error' and 'unavailable'. */
   | { readonly type: 'shaderStatus'; readonly state: ShaderState; readonly set: string | null; readonly error: string | null }
-  /** Asks the page whether its video element can play `codec`; answered by the videoElementAnswer command. */
-  | { readonly type: 'videoElementQuery'; readonly codec: string }
+  /** Asks the page whether its video element can play `codec` (with `hdr`, the stream's HDR facts, or null for SDR); answered by the videoElementAnswer command. */
+  | { readonly type: 'videoElementQuery'; readonly codec: string; readonly hdr: ElementHdr | null }
   /** The initialization segment of the element's fragmented MP4 (`codec` is its codec string, `width` and `height` the size the picture shows at: the coded size with the stream's sample aspect ratio applied). */
   | { readonly type: 'videoInit'; readonly bytes: Uint8Array; readonly codec: string; readonly width: number; readonly height: number }
   /** A media segment covering playlist time `startUs` to `endUs`, in microseconds (the video element plays at media time = playlist time + ELEMENT_TIME_OFFSET_US; the page converts). */

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import type { EngineCommand, EngineEvent } from '../protocol';
+import type { ElementHdr, EngineCommand, EngineEvent } from '../protocol';
 import { ClockBlockReader, createClockBlock } from '../element/clock-block';
 import { ELEMENT_TIME_OFFSET_US } from '../element/fmp4';
 import { ElementSync } from './element-sync';
@@ -66,7 +66,7 @@ export interface SourceBufferLike {
 export interface ElementOutputDeps {
   video: VideoElementLike;
   createMediaSource(): { source: MediaSourceLike; url: string; revoke(): void } | null;
-  isTypeSupported(type: string): boolean;
+  playable(codec: string, hdr: ElementHdr | null): Promise<boolean>;
   epochMs(): number;
   timeOrigin: number;
   post(cmd: EngineCommand): void;
@@ -148,6 +148,8 @@ export class ElementVideoOutput {
   private attached: Attached | null = null;
   /** The codec the source buffer has once the queued operations have run. */
   private bufferCodec: string | null = null;
+  /** The page's answers to the engine's questions, by codec and HDR facts. */
+  private readonly playableCache = new Map<string, Promise<boolean>>();
   private queue: Op[] = [];
   private inFlight: Op | null = null;
   /** Where the next appended segment puts the playhead (playlist µs), and whether it plays then. */
@@ -211,7 +213,7 @@ export class ElementVideoOutput {
     switch (e.type) {
       case 'videoElementQuery':
         if (!this.disposed) {
-          this.deps.post({ type: 'videoElementAnswer', codec: e.codec, playable: this.deps.isTypeSupported(mimeType(e.codec)) });
+          void this.answerQuery(e.codec, e.hdr);
         }
         return true;
       case 'videoReset':
@@ -241,6 +243,18 @@ export class ElementVideoOutput {
       default:
         return false;
     }
+  }
+
+  /** Answers a query from the page's capability check, asked once per codec and HDR facts for the page's life. */
+  private async answerQuery(codec: string, hdr: ElementHdr | null): Promise<void> {
+    const key = `${codec}|${hdr ? `${hdr.transfer}|${hdr.mastering}` : ''}`;
+    let answer = this.playableCache.get(key);
+    if (!answer) {
+      answer = this.deps.playable(codec, hdr).catch(() => false);
+      this.playableCache.set(key, answer);
+    }
+    const playable = await answer;
+    if (!this.disposed) this.deps.post({ type: 'videoElementAnswer', codec, playable });
   }
 
   /** Whether the engine's clock runs: the element plays (once its first segment is placed) or pauses to match. */

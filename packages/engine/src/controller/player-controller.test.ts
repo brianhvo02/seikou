@@ -1150,7 +1150,7 @@ describe('element video output', () => {
     expect(c.getSnapshot().videoElement).toBe(false);
   });
 
-  it('detachVideoElement releases the output of the attached element only, and the element can be attached again', () => {
+  it('detachVideoElement releases the output of the attached element only, and the element can be attached again', async () => {
     const worker = new FakeWorker();
     const c = new PlayerController(worker, new FakeAudio());
     const v = fakeVideo();
@@ -1176,11 +1176,13 @@ describe('element video output', () => {
       c.detachVideoElement(v);
       expect(revoked).toEqual(['blob:1']);
       const before = worker.posted.length;
-      worker.emit({ type: 'videoElementQuery', codec: 'avc1.640028' } as EngineEvent);
+      worker.emit({ type: 'videoElementQuery', codec: 'avc1.640028', hdr: null } as EngineEvent);
+      await Promise.resolve();
       expect(worker.posted.length).toBe(before); // a disposed output posts nothing
       c.attachVideoElement(v);
       expect(worker.posted.filter((m) => (m as { type: string }).type === 'attachVideoElement')).toHaveLength(2);
-      worker.emit({ type: 'videoElementQuery', codec: 'avc1.640028' } as EngineEvent);
+      worker.emit({ type: 'videoElementQuery', codec: 'avc1.640028', hdr: null } as EngineEvent);
+      for (let i = 0; i < 5; i++) await Promise.resolve();
       expect(worker.posted.at(-1)).toMatchObject({ type: 'videoElementAnswer', playable: true });
     } finally {
       create.mockRestore();

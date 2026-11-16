@@ -205,7 +205,7 @@ export class ElementCodecQueries {
         settle(playable);
       },
     });
-    this.emit({ type: 'videoElementQuery', codec });
+    this.emit({ type: 'videoElementQuery', codec, hdr: null });
     return answer;
   }
 
@@ -219,6 +219,6 @@ export class ElementCodecQueries {
 
   /** Sends the open questions again (questions asked before an element was attached went to no one). */
   askAgain(): void {
-    for (const codec of this.queries.keys()) this.emit({ type: 'videoElementQuery', codec });
+    for (const codec of this.queries.keys()) this.emit({ type: 'videoElementQuery', codec, hdr: null });
   }
 }
