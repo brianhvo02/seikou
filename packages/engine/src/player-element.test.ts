@@ -736,10 +736,9 @@ describe('Player choosing the path', () => {
     it('keeps the canvas path when the page cannot play it either', async () => {
       const h = await harness({ path: 'auto', files: sdrHevc(), webcodecsHevc: false, playable: false });
       await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
-      await new Promise((r) => setTimeout(r, 50));
+      await vi.waitFor(() => expect(ofType(h, 'unsupported').length + ofType(h, 'error').length).toBeGreaterThan(0));
       expect(ofType(h, 'videoElementQuery')).toHaveLength(1);
       expect(elementSessions(h)).toBe(0);
-      expect(ofType(h, 'unsupported').length + ofType(h, 'error').length).toBeGreaterThan(0);
     });
 
     it('takes the canvas path, asking nothing, when WebCodecs decodes it', async () => {
