@@ -144,6 +144,12 @@ describe('the dynamic range of the main title', () => {
     expect({ ...after, dynamicRange: before.dynamicRange }).toEqual(before);
   });
 
+  it('chooses the main title as the app does, among playlists whose clips are on the disc', async () => {
+    // a longer SDR playlist whose clips were left out of a main-movie-only copy
+    put(join(tmp, 'UHD/BDMV/PLAYLIST/00003.mpls'), buildMpls({ playItems: [{ clipId: '00009', inTime: 0, outTime: 45_000 * 3600, video: hevcVideo }] }));
+    expect((await readFolderEvidence(entry, join(tmp, 'UHD'))).dynamicRange).toBe('hdr10');
+  });
+
   it('is null for an H.264 disc', async () => {
     expect((await readFolderEvidence(entry, join(FIXTURES, 'disc1'))).dynamicRange).toBeNull();
   });

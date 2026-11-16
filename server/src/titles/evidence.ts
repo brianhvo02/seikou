@@ -2,7 +2,8 @@ import { readFile, stat } from 'node:fs/promises';
 import { parseClpi, type Clpi } from '@seikou/bdmv/clpi-parser';
 import { dynamicRangeOf } from '@seikou/bdmv/dynamic-range';
 import { MarkType, parseMpls, type Mpls } from '@seikou/bdmv/mpls-parser';
-import { chooseMainTitle, type MainTitleCandidate } from '@seikou/engine/disc/main-title';
+import type { MainTitleCandidate } from '@seikou/engine/disc/main-title';
+import { playableMainTitle } from '@seikou/engine/disc/playable-main-title';
 import { contentHash } from '@seikou/nas/content-hash';
 import { streamsOf } from '@seikou/nas/disc-key';
 import type { DiscEntry } from '@seikou/nas/nas-api';
@@ -83,15 +84,6 @@ function parsedPlaylist(bytes: Uint8Array): Mpls | null {
 }
 
 /**
- * The main title among `playlists` (libbluray's choice, as the player makes it, over the playlists with video), else null.
- */
-function mainTitleOf(playlists: readonly MainTitleCandidate[]): MainTitleCandidate | null {
-  const withVideo = playlists.filter((c) => c.mpls.playItems.length > 0 && c.mpls.playItems[0]!.stn.video.some((v) => !v.subPath));
-  const id = chooseMainTitle(withVideo);
-  return withVideo.find((c) => c.id === id) ?? null;
-}
-
-/**
  * The evidence of a disc whose files (upper-cased disc-relative paths with sizes) are `files`; `read` returns the
  * bytes of those asked for, leaving out any it couldn't read.
  */
@@ -138,7 +130,8 @@ async function mainTitleDynamicRange<F extends { path: string; size: number }>(
   files: readonly F[],
   read: (files: F[]) => Promise<Map<string, Uint8Array>>,
 ): Promise<DiscEvidence['dynamicRange']> {
-  const main = mainTitleOf(playlists);
+  const paths = new Set(files.map((f) => f.path));
+  const main = playableMainTitle(playlists, (path) => paths.has(path));
   if (!main) return null;
   const clips = new Set(main.mpls.playItems.map((item) => item.clipId));
   const wanted = files.filter((f) => f.size <= MAX_READ_BYTES && clips.has(CLIPINF.exec(f.path)?.[1] ?? ''));

@@ -4,8 +4,9 @@ import { parseMpls, type Mpls } from '@seikou/bdmv/mpls-parser';
 import { CodingType, isVideoCoding } from '@seikou/bdmv/stream-types';
 import type { DynamicRange } from '@seikou/nas';
 import type { DiscEntry, DiscManifest, FolderEntry } from '@seikou/nas/nas-api';
-import { chooseMainTitle, type MainTitleCandidate } from '@seikou/engine/disc/main-title';
-import { clipInfoPath, streamPath } from '@seikou/engine/disc/open-disc';
+import type { MainTitleCandidate } from '@seikou/engine/disc/main-title';
+import { playableMainTitle } from '@seikou/engine/disc/playable-main-title';
+import { clipInfoPath } from '@seikou/engine/disc/open-disc';
 
 /**
  * The folder browser and the pre-flight's disc facts, pure: breadcrumbs and row order from a folder listing, and from
@@ -108,23 +109,18 @@ export function mainPlaylistId(manifest: DiscManifest): string | null {
 function mainTitle(manifest: DiscManifest): MainTitleCandidate | null {
   try {
     const files = new Set(manifest.files.map((f) => f.path));
-    const candidates: MainTitleCandidate[] = [];
+    const playlists: MainTitleCandidate[] = [];
     for (const path of Object.keys(manifest.inline).sort()) {
-      const m = /^BDMV\/PLAYLIST\/(\d{5})\.MPLS$/.exec(path);
+      const m = /^BDMV\/PLAYLIST\/([^/]+)\.MPLS$/.exec(path);
       const bytes = m && inlined(manifest, path);
       if (!m || !bytes) continue;
-      let mpls: Mpls;
       try {
-        mpls = parseMpls(bytes);
+        playlists.push({ id: m[1]!, mpls: parseMpls(bytes) });
       } catch {
-        continue;
+        // not a playlist this parser reads
       }
-      const hasVideo = mpls.playItems.length > 0 && mpls.playItems[0]!.stn.video.some((v) => !v.subPath);
-      const complete = mpls.playItems.every((p) => files.has(clipInfoPath(p.clipId)) && files.has(streamPath(p.clipId)));
-      if (hasVideo && complete) candidates.push({ id: m[1]!, mpls });
     }
-    const mainId = chooseMainTitle(candidates);
-    return candidates.find((c) => c.id === mainId) ?? null;
+    return playableMainTitle(playlists, (p) => files.has(p));
   } catch {
     return null;
   }

@@ -54,6 +54,11 @@ export class Library {
   private byId = new Map<string, DiscEntry>();
   /** Evidence of the installed discs, by id. */
   private evidenceById = new Map<string, DiscEvidence>();
+  /**
+   * Discs whose evidence was cached before dynamic ranges were recorded: served as SDR meanwhile, read again at the next
+   * scan that reaches them, and saved without the field until then, so a restart doesn't take the stand-in as read.
+   */
+  private unreadRange = new Set<string>();
   private evidenceList: { readonly from: ReadonlyMap<string, DiscEvidence>; readonly list: readonly DiscEvidence[] } | null = null;
   /** During a scan: the evidence it started with, and what it has gathered so far. */
   private previousEvidence = new Map<string, DiscEvidence>();
@@ -89,6 +94,10 @@ export class Library {
           const { evidence: ev, ...disc } = e as DiscEntry & { evidence?: unknown };
           discs.push(disc);
           if (validEvidence(ev, disc)) evidence.set(disc.id, ev);
+          else if (isRecord(ev) && !('dynamicRange' in ev) && validEvidence({ ...ev, dynamicRange: null }, disc)) {
+            evidence.set(disc.id, { ...(ev as Omit<DiscEvidence, 'dynamicRange'>), dynamicRange: null });
+            this.unreadRange.add(disc.id);
+          }
         }
         this.install(discs, evidence);
       }
@@ -221,7 +230,7 @@ export class Library {
   private async save(discs: readonly DiscEntry[], evidence: ReadonlyMap<string, DiscEvidence>): Promise<void> {
     try {
       const tmp = `${this.cacheFile}.tmp`;
-      await writeFile(tmp, JSON.stringify(discs.map((d) => ({ ...d, evidence: evidence.get(d.id) }))));
+      await writeFile(tmp, JSON.stringify(discs.map((d) => ({ ...d, evidence: savedEvidence(evidence.get(d.id), this.unreadRange.has(d.id)) }))));
       await rename(tmp, this.cacheFile);
     } catch (err) {
       console.error('could not write the library cache', err);
@@ -256,11 +265,14 @@ export class Library {
     this.tellScanned();
   }
 
-  /** Carries a disc's evidence over from the previous scan, if it had any; true if it did. */
+  /**
+   * Carries a disc's evidence over from the previous scan, if it had any; true if it did and it needs no new read (one
+   * cached before dynamic ranges is carried too, so it is kept if the read fails, but answers false).
+   */
   private carryEvidence(id: string): boolean {
     const ev = this.previousEvidence.get(id);
     if (ev) this.nextEvidence.set(id, ev);
-    return ev !== undefined;
+    return ev !== undefined && !this.unreadRange.has(id);
   }
 
   /** Reads a disc's evidence, at the scan's pace; a failed read leaves it out, to be read again by the next scan. */
@@ -268,6 +280,7 @@ export class Library {
     await this.pace();
     try {
       this.nextEvidence.set(disc.id, await read());
+      this.unreadRange.delete(disc.id);
     } catch (err) {
       console.error(`could not read the evidence of ${disc.path}`, err);
     }
@@ -462,6 +475,13 @@ export class Library {
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
 const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.every((s) => typeof s === 'string');
+
+/** A disc's evidence as library.json keeps it: without the dynamic range while that is only the SDR stand-in. */
+function savedEvidence(ev: DiscEvidence | undefined, unread: boolean): unknown {
+  if (!ev || !unread) return ev;
+  const { dynamicRange: _, ...rest } = ev;
+  return rest;
+}
 
 /** Whether a cached `evidence` field has the shape of a disc's evidence (for that disc), down to its elements. */
 function validEvidence(ev: unknown, disc: DiscEntry): ev is DiscEvidence {

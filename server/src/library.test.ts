@@ -322,19 +322,53 @@ describe('Library evidence', () => {
     expect(lib.evidence().map((e) => e.discId).sort()).toEqual(old.map((d) => d.id as string).sort());
   });
 
-  it('reads evidence again for a cache written before dynamic ranges, and keeps a valid one', async () => {
+  /** Writes a library.json as a NAS from before dynamic ranges wrote it: every disc's evidence without the field. */
+  const writeLegacyCache = async (file: string): Promise<{ path: string }[]> => {
+    await new Library(roots(), file, FAST).scan();
+    const cached = JSON.parse(readFileSync(file, 'utf8')) as { path: string; evidence: Record<string, unknown> }[];
+    for (const d of cached) delete d.evidence.dynamicRange;
+    writeFileSync(file, JSON.stringify(cached));
+    return cached;
+  };
+
+  it('serves a cache written before dynamic ranges at once, as SDR, and reads each disc again at the next scan', async () => {
+    const file = join(tmp, 'library.json');
+    const cached = await writeLegacyCache(file);
+    writeFileSync(join(single(), 'META/DL/bdmt_eng.xml'), bdmt.replace('Single One', 'Changed'));
+    const lib = new Library(roots(), file, FAST);
+    expect(lib.evidence().map((e) => e.path).sort()).toEqual(cached.map((d) => d.path).sort());
+    expect(lib.evidence().every((e) => e.dynamicRange === null)).toBe(true);
+    const title = (): string | undefined => lib.evidence().find((e) => e.path === 'mediaA/[BDMV] Single #1 100%')?.discTitles[0]?.name;
+    expect(title()).toBe('Single One');
+    await lib.scan();
+    expect(title()).toBe('Changed');
+  });
+
+  it("keeps an old disc's evidence, still marked for a read, through a scan its drive is away for", async () => {
+    const file = join(tmp, 'library.json');
+    await writeLegacyCache(file);
+    const bDir = join(tmp, 'b');
+    cpSync(bDir, join(tmp, 'b-away'), { recursive: true });
+    rmSync(bDir, { recursive: true });
+    mkdirSync(bDir);
+    const lib = new Library(roots(), file, FAST);
+    await lib.scan();
+    expect(lib.evidence().some((e) => e.path.startsWith('mediaB/'))).toBe(true);
+    // still marked for a read: a restart keeps it, and does not take the SDR stand-in as read
+    const saved = JSON.parse(readFileSync(file, 'utf8')) as { path: string; evidence: Record<string, unknown> }[];
+    expect(saved.filter((d) => d.path.startsWith('mediaB/')).every((d) => d.evidence && !('dynamicRange' in d.evidence))).toBe(true);
+  });
+
+  it('drops cached evidence with an unknown dynamic range, and keeps a known one', async () => {
     const file = join(tmp, 'library.json');
     await new Library(roots(), file, FAST).scan();
     const cached = JSON.parse(readFileSync(file, 'utf8')) as { path: string; evidence: Record<string, unknown> }[];
-    const [noField, bad, dv] = cached;
-    delete noField!.evidence.dynamicRange;
+    const [bad, dv] = cached;
     bad!.evidence = { ...bad!.evidence, dynamicRange: 'hdr' };
     dv!.evidence = { ...dv!.evidence, dynamicRange: 'dv' };
     writeFileSync(file, JSON.stringify(cached));
     const lib = new Library(roots(), file, FAST);
-    const paths = lib.evidence().map((e) => e.path);
-    expect(paths).not.toContain(noField!.path);
-    expect(paths).not.toContain(bad!.path);
+    expect(lib.evidence().map((e) => e.path)).not.toContain(bad!.path);
     expect(lib.evidence().find((e) => e.path === dv!.path)?.dynamicRange).toBe('dv');
   });
 
