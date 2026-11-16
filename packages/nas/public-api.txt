@@ -46,6 +46,9 @@ ParsedDiscKey
 contentHash
 # place-rules
 isShortPlace
+# dynamic-range
+bestDynamicRange
+DynamicRange
 # place-key
 parsePlaceKey
 ParsedPlaceKey

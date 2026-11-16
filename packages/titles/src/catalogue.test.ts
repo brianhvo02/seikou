@@ -113,7 +113,43 @@ describe('buildCatalogue', () => {
       [2, 'Ember Blade Season 2', id('media5/Ember Blade/S2D1')],
       [3, 'Hinokiri no Ken: Kanketsu-hen', id('media5/Ember Blade/S3D1')],
     ]);
-    expect(detail.seasons[0]!.discs[0]).toEqual({ number: 1, label: 'Disc 1', copies: [{ discId: id('media5/Ember Blade/S1D1'), root: 'media5', folder: 'Ember Blade/S1D1', displayName: null }] });
+    expect(detail.seasons[0]!.discs[0]).toEqual({ number: 1, label: 'Disc 1', copies: [{ discId: id('media5/Ember Blade/S1D1'), root: 'media5', folder: 'Ember Blade/S1D1', displayName: null, dynamicRange: null }] });
+  });
+
+  it('gives each disc its dynamic range and a title the best of its discs', () => {
+    const cat = build({
+      entries: [S3, FILM, S1, S2],
+      evidence: [
+        ev('media5/Ember Blade/S1D1 UHD', { dynamicRange: 'hdr10' }),
+        ev('media5/Ember Blade/S1D1 BD'),
+        ev('media5/Ember Blade/S2D1', { dynamicRange: 'hdr10plus' }),
+        ev('media5/Ember Blade/S3 Extras', { dynamicRange: 'dv' }),
+        ev('media5/Ashfall/BD'),
+      ],
+      matches: [
+        filed('media5/Ember Blade/S1D1 UHD', 'anilist:300', 1, 1),
+        filed('media5/Ember Blade/S1D1 BD', 'anilist:300', 1, 1),
+        filed('media5/Ember Blade/S2D1', 'anilist:120', 2, 1),
+        filed('media5/Ember Blade/S3 Extras', 'anilist:450', 3, null, true),
+        filed('media5/Ashfall/BD', 'anilist:500', null, null),
+      ],
+    });
+    const copies = cat.detail('anilist:300')!.seasons[0]!.discs[0]!.copies;
+    expect(Object.fromEntries(copies.map((c) => [c.folder, c.dynamicRange]))).toEqual({ 'Ember Blade/S1D1 UHD': 'hdr10', 'Ember Blade/S1D1 BD': null });
+    // an extra counts toward the title
+    expect(cat.titles.find((t) => t.id === 'anilist:300')?.dynamicRange).toBe('dv');
+    expect(cat.titles.find((t) => t.id === 'anilist:500')?.dynamicRange).toBeNull();
+    // a related title the library holds through its own discs, and an entry's summary with none
+    expect(cat.detail('anilist:300')!.related.find((t) => t.id === 'anilist:500')?.dynamicRange ?? null).toBeNull();
+  });
+
+  it('carries the dynamic range on a hidden disc', () => {
+    const cat = build({
+      evidence: [ev('media5/Loose/UHD', { dynamicRange: 'dv' })],
+      matches: [{ discId: id('media5/Loose/UHD'), status: 'unsorted', reason: 'no-title', suggestions: [] }],
+      owner: owner({ [id('media5/Loose/UHD')]: { kind: 'hidden' } }),
+    });
+    expect(cat.hidden[0]?.dynamicRange).toBe('dv');
   });
 
   it('lists a related film under the series and on its own (ruling T7e)', () => {
@@ -400,7 +436,7 @@ describe('buildCatalogue', () => {
       owner: owner({ [id('media2/Harbor Line S1/D2')]: { kind: 'hidden' } }, [], { [id('media2/Harbor Line S1/D2')]: 'Sample disc' }),
     });
     expect(cat.detail('tmdb-tv:7')!.seasons[0]!.discs.map((d) => d.number)).toEqual([1]);
-    expect(cat.hidden).toEqual([{ discId: id('media2/Harbor Line S1/D2'), root: 'media2', folder: 'Harbor Line S1/D2', displayName: 'Sample disc' }]);
+    expect(cat.hidden).toEqual([{ discId: id('media2/Harbor Line S1/D2'), root: 'media2', folder: 'Harbor Line S1/D2', displayName: 'Sample disc', dynamicRange: null }]);
     expect(cat.unsorted).toEqual([]);
   });
 
@@ -413,7 +449,7 @@ describe('buildCatalogue', () => {
     });
     expect(cat.titles).toEqual([{
       id: 'own:5f0c', kind: 'movie', names: { english: null, romaji: null, native: null, synonyms: [], display: 'Garden Tapes' },
-      poster: null, year: null, seasons: 0, discs: 1, addedAt: 0, own: true,
+      poster: null, year: null, seasons: 0, discs: 1, addedAt: 0, own: true, dynamicRange: null,
     }]);
     expect(cat.detail('own:5f0c')!.seasons[0]!.discs[0]!.copies[0]!.discId).toBe(id('media0/Home/Garden'));
     expect(cat.unsorted).toEqual([]);

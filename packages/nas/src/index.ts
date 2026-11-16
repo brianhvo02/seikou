@@ -43,6 +43,7 @@ export { discKeyOf, parseDiscKey, type ParsedDiscKey } from './disc-key';
 export { contentHash } from './content-hash';
 // Rules for saved places the server and the app share.
 export { isShortPlace } from './place-rules';
+export { bestDynamicRange, type DynamicRange } from './dynamic-range';
 // Place keys of either library.
 export { parsePlaceKey, type ParsedPlaceKey } from './place-key';
 // The title an encoded episode belongs to, read from and written to its tags.
