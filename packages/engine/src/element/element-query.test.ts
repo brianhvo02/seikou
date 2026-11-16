@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { buildClpi } from '../../../../tests/helpers/bdmv-builders';
 import { parseClpi, type Clpi } from '@seikou/bdmv/clpi-parser';
 import { CodingType } from '@seikou/bdmv/stream-types';
-import { elementQuery, elementQueryKey, frameRateOf, streamIsHdr } from './element-query';
+import { elementQuery, frameRateOf, streamIsHdr } from './element-query';
+import { elementQueryKey } from './query-key';
 
 type StreamOpts = { pid: number; codingType: number; dynamicRange?: number };
 

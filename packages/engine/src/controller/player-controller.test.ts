@@ -1183,6 +1183,33 @@ describe('element video output', () => {
     }
   });
 
+  it('asks the browser about a stream once for the page, even after the element is attached again', async () => {
+    const worker = new FakeWorker();
+    const c = new PlayerController(worker, new FakeAudio());
+    let asked = 0;
+    class FakeSource {
+      static isTypeSupported(): boolean { return true; }
+    }
+    vi.stubGlobal('MediaSource', FakeSource);
+    vi.stubGlobal('navigator', { mediaCapabilities: { decodingInfo: async () => (asked++, { supported: true }) } });
+    try {
+      const query = { codec: 'hvc1.2.4.L153.B0', hdr: { transfer: 'pq', mastering: true }, width: 3840, height: 2160 } as const;
+      const answers = () => worker.posted.filter((m) => (m as { type: string }).type === 'videoElementAnswer');
+      const v = fakeVideo();
+      c.attachVideoElement(v);
+      worker.emit({ type: 'videoElementQuery', ...query });
+      await vi.waitFor(() => expect(answers()).toHaveLength(1));
+      c.detachVideoElement(v);
+      c.attachVideoElement(fakeVideo());
+      worker.emit({ type: 'videoElementQuery', ...query });
+      await vi.waitFor(() => expect(answers()).toHaveLength(2));
+      expect(answers()[1]).toEqual({ type: 'videoElementAnswer', ...query, playable: true, check: { mse: true, decodingInfo: true } });
+      expect(asked).toBe(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('detachVideoElement releases the output of the attached element only, and the element can be attached again', async () => {
     const worker = new FakeWorker();
     const c = new PlayerController(worker, new FakeAudio());

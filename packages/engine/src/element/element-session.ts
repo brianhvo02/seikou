@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import type { ElementCheck, ElementQuery, EngineEvent } from '../protocol';
-import { elementQueryKey } from './element-query';
+import { elementQueryKey } from './query-key';
 import { ElementRemux, type RemuxOutput } from './remux';
 import type { ElementPictureSize } from '../render/compositor';
 

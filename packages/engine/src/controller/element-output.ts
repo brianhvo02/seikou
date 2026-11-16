@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import type { ElementCheck, ElementQuery, EngineCommand, EngineEvent } from '../protocol';
-import { elementQueryKey } from '../element/element-query';
+import { elementQueryKey } from '../element/query-key';
 import { ClockBlockReader, createClockBlock } from '../element/clock-block';
 import { ELEMENT_TIME_OFFSET_US } from '../element/fmp4';
 import { ElementSync } from './element-sync';
@@ -74,6 +74,11 @@ export interface ElementOutputDeps {
   post(cmd: EngineCommand): void;
   setTimer(fn: () => void, ms: number): () => void;
   animationFrame?(fn: (now: number) => void): () => void;
+  /**
+   * Where answers to the capability check are kept, by elementQueryKey. The controller passes one map to every output it
+   * makes, so a new element doesn't ask the browser again; without it the output keeps its own.
+   */
+  answers?: Map<string, Promise<ElementAnswer>>;
   /** Test-only: every append fails with an error that is not a `QuotaExceededError`, so the element fails at once. */
   failAppends?: boolean;
 }
@@ -133,6 +138,12 @@ function mimeType(codec: string): string {
   return `video/mp4; codecs="${codec}"`;
 }
 
+/**
+ * What the capability check answered for one question: playable, with what the browser said (none when the check failed).
+ * @internal
+ */
+export type ElementAnswer = { readonly playable: boolean; readonly check?: ElementCheck };
+
 function errorMessage(e: unknown): string {
   return e instanceof Error ? `${e.name}: ${e.message}` : String(e);
 }
@@ -153,7 +164,7 @@ export class ElementVideoOutput {
   /** The codec the source buffer has once the queued operations have run. */
   private bufferCodec: string | null = null;
   /** The page's answers to the engine's questions, by codec and HDR facts. */
-  private readonly playableCache = new Map<string, Promise<{ readonly playable: boolean; readonly check?: ElementCheck }>>();
+  private readonly playableCache: Map<string, Promise<ElementAnswer>>;
   private queue: Op[] = [];
   private inFlight: Op | null = null;
   /** Where the next appended segment puts the playhead (playlist µs), and whether it plays then. */
@@ -187,6 +198,7 @@ export class ElementVideoOutput {
   constructor(private readonly deps: ElementOutputDeps) {
     this.clock = createClockBlock();
     this.reader = new ClockBlockReader(this.clock);
+    this.playableCache = deps.answers ?? new Map();
     const video = deps.video;
     video.muted = true;
     video.playsInline = true;

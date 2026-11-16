@@ -6,7 +6,7 @@ import type { Chapter } from '../nav/timeline';
 import type { MemoryProfileName } from '../memory-profile';
 import type { AudioTrack, BufferRequest, EncodeSpec, EngineCommand, EngineEvent, ErrorCode, MenuKey, PlaceState, PlaybackState, ShaderSetData, ShaderState, StartPoint, SubtitleChoice, Telemetry, VideoPath } from '../protocol';
 import { elementCheck } from './element-caps';
-import { ElementVideoOutput, type MediaSourceLike } from './element-output';
+import { type ElementAnswer, ElementVideoOutput, type MediaSourceLike } from './element-output';
 import { trackLabel } from './language';
 import { DROP_WARN_RATE, DropMeter } from './drop-meter';
 
@@ -367,6 +367,8 @@ export class PlayerController {
   private audioAttached = false;
   private readonly transferredCanvases = new WeakSet<HTMLCanvasElement>();
   private videoOutput: { readonly element: HTMLVideoElement; readonly output: ElementVideoOutput } | null = null;
+  /** The capability check's answers by elementQueryKey, kept for the page's life across the elements attached. */
+  private readonly elementAnswers = new Map<string, Promise<ElementAnswer>>();
   /** The load whose encoding prompt is open: read again when the user picks one (its bytes were transferred). */
   private pendingSubtitleLoad: readonly File[] | null = null;
 
@@ -532,6 +534,7 @@ export class PlayerController {
           hdr,
           width !== undefined && height !== undefined ? { width, height, ...(frameRate !== undefined ? { frameRate } : {}) } : undefined,
         ),
+      answers: this.elementAnswers,
       ...(this.options.failElementAppends ? { failAppends: true } : {}),
       epochMs: () => performance.timeOrigin + performance.now(),
       timeOrigin: performance.timeOrigin,
