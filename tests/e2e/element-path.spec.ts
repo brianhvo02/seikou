@@ -19,23 +19,34 @@ async function mseSupports(page: Page, type: string): Promise<boolean> {
 }
 
 /**
- * Skips the running test where the element path can't play `type` (the browser's MSE says no), in WebKit on Linux,
- * which can't keep up with real-time playback, and in Firefox, which the sync check doesn't cover. Call it with the app loaded.
+ * Skips the running test where the element path can't play `type` (the browser's MSE says no) and in WebKit on Linux,
+ * which can't keep up with real-time playback. A test that checks A/V sync (`sync`) also skips in Firefox, which the
+ * sync check doesn't cover. Call it with the app loaded.
  */
-async function skipWithoutElementPath(page: Page, type = H264_HIGH): Promise<void> {
+async function skipWithoutElementPath(page: Page, type = H264_HIGH, { sync = false }: { sync?: boolean } = {}): Promise<void> {
   const browser = page.context().browser()?.browserType().name() ?? '';
   test.skip(isLinuxWebKit(browser), LINUX_WEBKIT_REALTIME);
   // The design's sync check covers Chrome and WebKit, as the canvas path's does Chrome; Firefox on CI has no running
   // audio output and its HEVC timing there is unmeasured (docs/known-issues.md).
-  test.skip(browser === 'firefox', 'The element path is sync-checked in Chrome and WebKit only');
+  test.skip(sync && browser === 'firefox', 'The element path is sync-checked in Chrome and WebKit only');
   test.skip(!(await mseSupports(page, type)), `MSE in this browser does not play ${type}`);
+}
+
+/** Skips the running test where WebCodecs can't decode HEVC Main10, so disc-hdr can't play on the canvas. */
+async function skipWithoutCanvasHevc(page: Page): Promise<void> {
+  const supported = await page.evaluate(() =>
+    typeof VideoDecoder === 'undefined'
+      ? false
+      : VideoDecoder.isConfigSupported({ codec: 'hvc1.2.4.L120.90' }).then((s) => s.supported === true).catch(() => false),
+  );
+  test.skip(!supported, 'WebCodecs in this browser does not decode HEVC Main10, so the canvas cannot play disc-hdr');
 }
 
 async function openDisc(page: Page, folder = 'fixtures/synthetic/disc1', query = '?telemetry=1&videopath=element'): Promise<void> {
   await page.goto(`/${query}`);
   await setFolder(page.getByTestId('folder-input'), folder);
   await expect(page.getByTestId('playlist-00000')).toBeVisible();
-  if (query.includes('videopath=element')) await skipWithoutElementPath(page);
+  if (query.includes('videopath=element')) await skipWithoutElementPath(page, H264_HIGH, { sync: true });
 }
 
 async function startPlaylist(page: Page, id = '00000'): Promise<void> {
@@ -89,11 +100,12 @@ async function emulateHdrDisplay(page: Page, hdr: boolean): Promise<void> {
 }
 
 /**
- * Opens disc-hdr at `query` and waits until it plays, skipping where MSE can't play HEVC Main10. It has one playlist, which
+ * Opens disc-hdr at `query` and waits until it plays, skipping where MSE can't play HEVC Main10 (and, for a test that
+ * checks sync, `sync`, where skipWithoutElementPath says so). It has one playlist, which
  * it plays from First Play as it opens with no list to pick from, so the audio output must be up before the open, as it is
  * for a person, whose click on Open folder starts it before the folder is chosen.
  */
-async function openHdrDisc(page: Page, query: string): Promise<void> {
+async function openHdrDisc(page: Page, query: string, { sync = false }: { sync?: boolean } = {}): Promise<void> {
   await page.addInitScript(() => {
     // Chrome's Open folder: the person cancels the picker, and the click has started the audio output meanwhile
     (window as unknown as { showDirectoryPicker: () => Promise<never> }).showDirectoryPicker = () => Promise.reject(new DOMException('cancelled', 'AbortError'));
@@ -105,7 +117,7 @@ async function openHdrDisc(page: Page, query: string): Promise<void> {
     };
   });
   await page.goto(`/${query}`);
-  await skipWithoutElementPath(page, HEVC_MAIN10);
+  await skipWithoutElementPath(page, HEVC_MAIN10, { sync });
   await startAudioAsOpenFolderDoes(page);
   await setFolder(page.getByTestId('folder-input'), 'fixtures/synthetic/disc-hdr');
   await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'playing', { timeout: 10_000 });
@@ -212,7 +224,7 @@ test('a B-frame disc plays on the element path in sync', async ({ page }) => {
 });
 
 test('without any flag the HDR disc plays on the element path where MSE plays HEVC Main10', async ({ page }) => {
-  await openHdrDisc(page, '?telemetry=1');
+  await openHdrDisc(page, '?telemetry=1', { sync: true });
   await expect(page.getByTestId('video-element')).toBeVisible();
   const windows = await collectWindows(page, 3_000_000);
   console.log(`element: ${JSON.stringify(await elementState(page))}`);
@@ -295,6 +307,7 @@ test.describe('with shaders on a GPU', () => {
 
   test('turning a shader set on during HDR video reopens it on the canvas, and off returns it to the element', async ({ page }) => {
     await openHdrDisc(page, '?telemetry=1');
+    await skipWithoutCanvasHevc(page);
     await expect.poll(async () => (await telemetry(page))?.videoPath ?? null, { timeout: 5000 }).toBe('element');
     await expect.poll(async () => (await telemetry(page))?.clockUs ?? 0, { timeout: 5000 }).toBeGreaterThan(1_000_000);
     await page.getByTestId('player').hover();
@@ -323,6 +336,7 @@ test('an HDR disc whose element fails falls back to the canvas once, with the no
   });
   await page.goto('/?telemetry=1&videopath=element&elementfail=1');
   await skipWithoutElementPath(page, HEVC_MAIN10);
+  await skipWithoutCanvasHevc(page);
   await startAudioAsOpenFolderDoes(page);
   await setFolder(page.getByTestId('folder-input'), 'fixtures/synthetic/disc-hdr');
   const notice = page.locator('.notice', { hasText: "HDR video couldn't play in this browser, so it shows without HDR and its colours may look flat" });
