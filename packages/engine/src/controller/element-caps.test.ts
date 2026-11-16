@@ -48,6 +48,12 @@ describe('elementPlayable', () => {
     ]);
   });
 
+  it("asks about the stream's frame rate when it is given", async () => {
+    const t = env();
+    await elementPlayable(t.e, 'hvc1.2.4.L153.B0', { transfer: 'pq', mastering: false }, { width: 1920, height: 1080, frameRate: 50 });
+    expect((t.configs[0] as { video: Record<string, unknown> }).video).toMatchObject({ width: 1920, height: 1080, framerate: 50 });
+  });
+
   it('leaves hdrMetadataType out without mastering metadata, and asks for hlg', async () => {
     const t = env();
     await elementPlayable(t.e, 'hvc1.2.4.L153.B0', { transfer: 'hlg', mastering: false });

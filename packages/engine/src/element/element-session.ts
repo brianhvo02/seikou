@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import type { EngineEvent } from '../protocol';
+import type { ElementQuery, EngineEvent } from '../protocol';
+import { elementQueryKey } from './element-query';
 import { ElementRemux, type RemuxOutput } from './remux';
 import type { ElementPictureSize } from '../render/compositor';
 
@@ -167,58 +168,62 @@ export class ElementSession {
 }
 
 /**
- * The page's answers to whether its video element plays a codec, kept for the page's life, and the questions still
- * waiting for one. A question unanswered after ELEMENT_QUERY_TIMEOUT_MS answers false; a later answer is still kept.
+ * The page's answers to whether its video element plays a stream, kept for the page's life by the codec with its HDR
+ * facts and size (elementQueryKey), and the questions still waiting for one. A question unanswered after
+ * ELEMENT_QUERY_TIMEOUT_MS answers false; a later answer is still kept.
  * @internal
  */
 export class ElementCodecQueries {
-  /** The page's answers to videoElementQuery, by codec string. */
+  /** The page's answers to videoElementQuery, by elementQueryKey. */
   private readonly answers = new Map<string, boolean>();
-  /** Questions sent to the page with no answer yet, by codec string; each settles at the answer or at its timeout. */
-  private readonly queries = new Map<string, { readonly answer: Promise<boolean>; readonly settle: (playable: boolean) => void }>();
+  /** Questions sent to the page with no answer yet, by elementQueryKey; each settles at the answer or at its timeout. */
+  private readonly queries = new Map<string, { readonly query: ElementQuery; readonly answer: Promise<boolean>; readonly settle: (playable: boolean) => void }>();
 
   constructor(
     private readonly emit: (event: EngineEvent) => void,
     private readonly setTimer: (ms: number, fn: () => void) => () => void,
   ) {}
 
-  /** The page's earlier answer for `codec`, or undefined when it hasn't given one. */
-  cached(codec: string): boolean | undefined {
-    return this.answers.get(codec);
+  /** The page's earlier answer for `query`, or undefined when it hasn't given one. */
+  cached(query: ElementQuery): boolean | undefined {
+    return this.answers.get(elementQueryKey(query));
   }
 
-  /** Asks the page about `codec` (once while a question is open); false when no answer comes in time. */
-  askElement(codec: string): Promise<boolean> {
-    const asked = this.queries.get(codec);
+  /** Asks the page about `query` (once while a question is open); false when no answer comes in time. */
+  askElement(query: ElementQuery): Promise<boolean> {
+    const key = elementQueryKey(query);
+    const asked = this.queries.get(key);
     if (asked) return asked.answer;
     let settle!: (playable: boolean) => void;
     const answer = new Promise<boolean>((resolve) => (settle = resolve));
     const cancel = this.setTimer(ELEMENT_QUERY_TIMEOUT_MS, () => {
       // no answer in time: this session takes the canvas path; a later answer is still kept for the next
-      if (this.queries.get(codec)?.answer === answer) this.queries.delete(codec);
+      if (this.queries.get(key)?.answer === answer) this.queries.delete(key);
       settle(false);
     });
-    this.queries.set(codec, {
+    this.queries.set(key, {
+      query,
       answer,
       settle: (playable) => {
         cancel();
         settle(playable);
       },
     });
-    this.emit({ type: 'videoElementQuery', codec, hdr: null });
+    this.emit({ type: 'videoElementQuery', ...query });
     return answer;
   }
 
-  /** The page's videoElementAnswer: kept, and the open question about `codec` settles with it. */
-  answer(codec: string, playable: boolean): void {
-    this.answers.set(codec, playable);
-    const asked = this.queries.get(codec);
-    this.queries.delete(codec);
+  /** The page's videoElementAnswer (which echoes its question): kept, and the open question settles with it. */
+  answer(query: ElementQuery, playable: boolean): void {
+    const key = elementQueryKey(query);
+    this.answers.set(key, playable);
+    const asked = this.queries.get(key);
+    this.queries.delete(key);
     asked?.settle(playable);
   }
 
   /** Sends the open questions again (questions asked before an element was attached went to no one). */
   askAgain(): void {
-    for (const codec of this.queries.keys()) this.emit({ type: 'videoElementQuery', codec, hdr: null });
+    for (const { query } of this.queries.values()) this.emit({ type: 'videoElementQuery', ...query });
   }
 }

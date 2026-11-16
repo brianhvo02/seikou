@@ -24,7 +24,8 @@ import type { Chapter } from './nav/timeline';
 export type PlaybackState = 'idle' | 'loading' | 'paused' | 'buffering' | 'playing' | 'ended' | 'error';
 /**
  * Where a playlist's H.264 or HEVC video is drawn: 'element' (the page's video element, through Media Source Extensions),
- * 'canvas' (decoded by the engine with WebCodecs), or 'auto' (the engine picks).
+ * 'canvas' (decoded by the engine with WebCodecs), or 'auto' (the engine picks: the element for HDR streams, the canvas
+ * for the rest). A shader set that is on takes the canvas whatever the path.
  */
 export type VideoPath = 'auto' | 'element' | 'canvas';
 
@@ -35,6 +36,19 @@ export type VideoPath = 'auto' | 'element' | 'canvas';
 export interface ElementHdr {
   readonly transfer: 'pq' | 'hlg';
   readonly mastering: boolean;
+}
+
+/**
+ * What the engine asks the page about a stream before it takes the element path: the codec string, the HDR facts (null
+ * for SDR) and, when the engine knows them, the coded picture size and the frame rate (frames per second), so the page
+ * can ask the browser about the stream as it is. The page's answer echoes these fields.
+ */
+export interface ElementQuery {
+  readonly codec: string;
+  readonly hdr: ElementHdr | null;
+  readonly width?: number;
+  readonly height?: number;
+  readonly frameRate?: number;
 }
 
 /**
@@ -137,6 +151,8 @@ export interface Telemetry {
    * which the disc plays on the canvas path; null while it hasn't failed since the disc opened.
    */
   readonly elementFailure: string | null;
+  /** An HDR stream plays on the element path (between the videoHdr events that say so). */
+  readonly videoHdr: boolean;
 }
 
 /** What BD-J holds in memory, so the budgets of the constrained memory profile can be checked on a device; sizes in bytes. */
@@ -353,8 +369,11 @@ export type EngineCommand =
   | { readonly type: 'setVideoPath'; readonly path: VideoPath }
   /** The clock block (packages/engine/src/element/clock-block.ts) the engine publishes its clock through, for the page's video element. */
   | { readonly type: 'attachVideoElement'; readonly clock: SharedArrayBuffer }
-  /** The page's answer to videoElementQuery: whether the video element can play `codec`. Handled at once, not queued. */
-  | { readonly type: 'videoElementAnswer'; readonly codec: string; readonly playable: boolean }
+  /**
+   * The page's answer to videoElementQuery, echoing the query's fields: whether the video element can play that stream.
+   * Handled at once, not queued.
+   */
+  | ({ readonly type: 'videoElementAnswer'; readonly playable: boolean } & ElementQuery)
   /**
    * The video element's buffered range now ends at `endUs`, in playlist time in microseconds (the page subtracts
    * ELEMENT_TIME_OFFSET_US from media time); when no buffered range holds the playhead (the browser evicted it), `endUs`
@@ -558,8 +577,8 @@ export type EngineEvent =
   | { readonly type: 'playlistCleared' }
   /** On every shader set change and compile result; `error` explains 'error' and 'unavailable'. */
   | { readonly type: 'shaderStatus'; readonly state: ShaderState; readonly set: string | null; readonly error: string | null }
-  /** Asks the page whether its video element can play `codec` (with `hdr`, the stream's HDR facts, or null for SDR); answered by the videoElementAnswer command. */
-  | { readonly type: 'videoElementQuery'; readonly codec: string; readonly hdr: ElementHdr | null }
+  /** Asks the page whether its video element can play a stream (its codec, HDR facts, and size and frame rate when known); answered by the videoElementAnswer command. */
+  | ({ readonly type: 'videoElementQuery' } & ElementQuery)
   /** The initialization segment of the element's fragmented MP4 (`codec` is its codec string, `width` and `height` the size the picture shows at: the coded size with the stream's sample aspect ratio applied). */
   | { readonly type: 'videoInit'; readonly bytes: Uint8Array; readonly codec: string; readonly width: number; readonly height: number }
   /** A media segment covering playlist time `startUs` to `endUs`, in microseconds (the video element plays at media time = playlist time + ELEMENT_TIME_OFFSET_US; the page converts). */
@@ -574,6 +593,8 @@ export type EngineEvent =
   | { readonly type: 'videoEnded' }
   /** The element path stopped (the playlist ended or was replaced, or it fell back to the canvas): the page releases the element. */
   | { readonly type: 'videoElementStop' }
+  /** An HDR stream started playing on the element path (`hdr` true), or that stopped: the session ended or fell back to the canvas (`hdr` false). */
+  | { readonly type: 'videoHdr'; readonly hdr: boolean }
   /** The answer to readPlace. */
   | ({ readonly type: 'placeState' } & PlaceState)
   /**

@@ -5,7 +5,7 @@ import { ParseError } from '@seikou/bdmv/byte-reader';
 import { findParameterSets } from '@seikou/bdmv/codecs/param-sets';
 import type { ParameterSets } from '@seikou/bdmv/codecs/param-sets';
 import { displaySize, ELEMENT_TIME_OFFSET_US, initSegment, mediaSegment, TIMESCALE, toLengthPrefixed, videoTrack } from './fmp4';
-import type { Fmp4Sample } from './fmp4';
+import type { Fmp4Sample, VideoTrack } from './fmp4';
 
 /**
  * What `ElementRemux` hands out: an init segment (a new one whenever the stream's parameter sets change) or a media
@@ -36,15 +36,16 @@ function paramKey(p: ParameterSets): string {
 }
 
 /**
- * The codec string the element's init segment would carry for a unit holding the stream's parameter sets (what the page
- * is asked about before an element session starts); null when the unit has no SPS, or one this can't read.
+ * The stream the element's init segment would describe for a unit holding the stream's parameter sets (what the page
+ * is asked about before an element session starts: its codec string, size, colour and HDR metadata); null when the
+ * unit has no SPS, or one this can't read.
  * @internal
  */
-export function elementCodec(coding: 'avc' | 'hevc', data: Uint8Array): string | null {
+export function elementStream(coding: 'avc' | 'hevc', data: Uint8Array): VideoTrack | null {
   try {
     const info = coding === 'avc' ? analyzeAvc(data) : analyzeHevc(data);
     const params = findParameterSets(info.data, coding);
-    return params.sps.length > 0 ? videoTrack(coding, params).codec : null;
+    return params.sps.length > 0 ? videoTrack(coding, params, info.data) : null;
   } catch (err) {
     if (err instanceof ParseError) return null; // the canvas path's decoder judges such a stream
     throw err;

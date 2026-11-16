@@ -55,6 +55,8 @@ export interface PlayerSnapshot {
   readonly encodeId: string | null;
   /** Whether the engine plays video through the page's `<video>` element (from `videoInit` until `videoElementStop` or a close) rather than the canvas. */
   readonly videoElement: boolean;
+  /** Whether an HDR stream plays on the element path (the engine's `videoHdr` event; false after a close). */
+  readonly videoHdr: boolean;
   /** Clicks on an HDMV menu that hit no button, counted since the page loaded (a touch that missed shows the controls). */
   readonly menuTapMisses: number;
   /** Problems the engine found while opening the disc that did not stop it (for example an unreadable playlist). */
@@ -165,6 +167,7 @@ export const INITIAL_SNAPSHOT: PlayerSnapshot = {
   rtcDisc: false,
   encodeId: null,
   videoElement: false,
+  videoHdr: false,
   menuTapMisses: 0,
   warnings: [],
   currentPlaylistId: null,
@@ -272,6 +275,8 @@ export function reduceEvent(s: PlayerSnapshot, e: EngineEvent): PlayerSnapshot {
       return s.videoElement ? s : { ...s, videoElement: true };
     case 'videoElementStop':
       return s.videoElement ? { ...s, videoElement: false } : s;
+    case 'videoHdr':
+      return s.videoHdr === e.hdr ? s : { ...s, videoHdr: e.hdr };
     case 'videoElementQuery':
     case 'videoSegment':
     case 'videoReset':
@@ -515,7 +520,7 @@ export class PlayerController {
         const url = URL.createObjectURL(source as unknown as MediaSource);
         return { source: source as unknown as MediaSourceLike, url, revoke: () => URL.revokeObjectURL(url) };
       },
-      playable: (codec, hdr) =>
+      playable: ({ codec, hdr, width, height, frameRate }) =>
         elementPlayable(
           {
             isTypeSupported: (type) => Ctor?.isTypeSupported(type) ?? false,
@@ -525,6 +530,7 @@ export class PlayerController {
           },
           codec,
           hdr,
+          width !== undefined && height !== undefined ? { width, height, ...(frameRate !== undefined ? { frameRate } : {}) } : undefined,
         ),
       epochMs: () => performance.timeOrigin + performance.now(),
       timeOrigin: performance.timeOrigin,

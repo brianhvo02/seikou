@@ -12,23 +12,25 @@ export interface ElementCapsEnv {
   decodingInfo?(config: unknown): Promise<{ readonly supported: boolean }>;
 }
 
-/** The picture size, bit rate and frame rate asked about when the caller gives no size: a 1080p Blu-ray stream. */
+/** The picture size asked about when the caller gives none, and the bit rate always asked about: a 1080p Blu-ray stream. */
 const DEFAULT_SIZE = { width: 1920, height: 1080 };
 const ASKED_BITRATE = 40_000_000;
+/** The frame rate asked about when the caller gives none. */
 const ASKED_FRAMERATE = 24;
 
 /**
  * Whether the page's video element can play `codec` as fragmented MP4 through Media Source Extensions. SDR streams
  * (`hdr` null) ask `isTypeSupported` alone. An HDR stream must pass it too, then `decodingInfo` with the stream's
- * transfer function, the Rec. 2020 gamut and, with mastering metadata, `smpteSt2086`; where `decodingInfo` is missing
- * or throws, `isTypeSupported`'s answer stands.
+ * transfer function, the Rec. 2020 gamut and, with mastering metadata, `smpteSt2086`, at the stream's `size` (its
+ * coded size and, when known, frame rate; 1080p at 24 fps when not given); where `decodingInfo` is missing or throws,
+ * `isTypeSupported`'s answer stands.
  * @internal
  */
 export async function elementPlayable(
   env: ElementCapsEnv,
   codec: string,
   hdr: ElementHdr | null,
-  size: { readonly width: number; readonly height: number } = DEFAULT_SIZE,
+  size: { readonly width: number; readonly height: number; readonly frameRate?: number } = DEFAULT_SIZE,
 ): Promise<boolean> {
   const contentType = `video/mp4; codecs="${codec}"`;
   if (!env.isTypeSupported(contentType)) return false;
@@ -41,7 +43,7 @@ export async function elementPlayable(
         width: size.width,
         height: size.height,
         bitrate: ASKED_BITRATE,
-        framerate: ASKED_FRAMERATE,
+        framerate: size.frameRate ?? ASKED_FRAMERATE,
         transferFunction: hdr.transfer,
         colorGamut: 'rec2020',
         ...(hdr.mastering ? { hdrMetadataType: 'smpteSt2086' } : {}),

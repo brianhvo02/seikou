@@ -20,6 +20,8 @@ export interface TelemetrySample {
   elementCatchUps?: number;
   /** Why the video element failed on this disc (the disc then plays on the canvas); null while it hasn't. */
   elementFailure?: string | null;
+  /** An HDR stream plays on the element path. */
+  videoHdr?: boolean;
   avOffsetMeanUs: number | null;
   avOffsetMaxAbsUs: number | null;
   framesInWindow: number;

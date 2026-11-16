@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import type { ElementHdr, EngineCommand, EngineEvent } from '../protocol';
+import type { ElementQuery, EngineCommand, EngineEvent } from '../protocol';
+import { elementQueryKey } from '../element/element-query';
 import { ClockBlockReader, createClockBlock } from '../element/clock-block';
 import { ELEMENT_TIME_OFFSET_US } from '../element/fmp4';
 import { ElementSync } from './element-sync';
@@ -66,7 +67,7 @@ export interface SourceBufferLike {
 export interface ElementOutputDeps {
   video: VideoElementLike;
   createMediaSource(): { source: MediaSourceLike; url: string; revoke(): void } | null;
-  playable(codec: string, hdr: ElementHdr | null): Promise<boolean>;
+  playable(query: ElementQuery): Promise<boolean>;
   epochMs(): number;
   timeOrigin: number;
   post(cmd: EngineCommand): void;
@@ -213,7 +214,8 @@ export class ElementVideoOutput {
     switch (e.type) {
       case 'videoElementQuery':
         if (!this.disposed) {
-          void this.answerQuery(e.codec, e.hdr);
+          const { type: _type, ...query } = e;
+          void this.answerQuery(query);
         }
         return true;
       case 'videoReset':
@@ -245,16 +247,16 @@ export class ElementVideoOutput {
     }
   }
 
-  /** Answers a query from the page's capability check, asked once per codec and HDR facts for the page's life. */
-  private async answerQuery(codec: string, hdr: ElementHdr | null): Promise<void> {
-    const key = `${codec}|${hdr ? `${hdr.transfer}|${hdr.mastering}` : ''}`;
+  /** Answers a query from the page's capability check (echoing it), asked once per elementQueryKey for the page's life. */
+  private async answerQuery(query: ElementQuery): Promise<void> {
+    const key = elementQueryKey(query);
     let answer = this.playableCache.get(key);
     if (!answer) {
-      answer = this.deps.playable(codec, hdr).catch(() => false);
+      answer = this.deps.playable(query).catch(() => false);
       this.playableCache.set(key, answer);
     }
     const playable = await answer;
-    if (!this.disposed) this.deps.post({ type: 'videoElementAnswer', codec, playable });
+    if (!this.disposed) this.deps.post({ type: 'videoElementAnswer', ...query, playable });
   }
 
   /** Whether the engine's clock runs: the element plays (once its first segment is placed) or pauses to match. */

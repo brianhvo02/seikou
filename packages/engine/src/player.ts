@@ -78,11 +78,13 @@ import { looksLikeAss, parseAss } from '@seikou/ass/parse';
 import { AssRenderer, type AssRendererDeps } from '@seikou/ass/renderer';
 import { MEMORY_PROFILES, type MemoryProfile, type MemoryProfileName } from './memory-profile';
 import { ClockBlockWriter, ClockLine } from './element/clock-block';
-import { elementCodec } from './element/remux';
+import { elementStream } from './element/remux';
+import { elementQuery } from './element/element-query';
+import type { Clpi } from '@seikou/bdmv/clpi-parser';
 import { ElementCodecQueries, ElementSession } from './element/element-session';
 import type { Mat3 } from '@seikou/ass/transform';
 import type { AssTrack } from '@seikou/ass/types';
-import { BDJ_STORAGE_MESSAGE, ENCODE_FILE, ENCODE_PLAYLIST_ID, NO_PICTURE_MESSAGE, type AudioTrack, type EncodeSpec, type BufferRequest, type BdjMemoryTelemetry, type EngineCommand, type EngineEvent, type FileData, type MenuKey, type NoticeCode, type PlaceState, type PgTrack, type PlaybackState, type ShaderSetData, type StartPoint, type SubtitleChoice, type VideoPath } from './protocol';
+import { BDJ_STORAGE_MESSAGE, ENCODE_FILE, ENCODE_PLAYLIST_ID, NO_PICTURE_MESSAGE, type AudioTrack, type EncodeSpec, type BufferRequest, type BdjMemoryTelemetry, type EngineCommand, type EngineEvent, type FileData, type MenuKey, type NoticeCode, type PlaceState, type PgTrack, type PlaybackState, type ElementQuery, type ShaderSetData, type StartPoint, type SubtitleChoice, type VideoPath } from './protocol';
 import type { CompositorLike, TextRendererLike } from './render/compositor';
 import { ShaderStage } from './shaders/stage';
 import { UNAVAILABLE, type ShaderBackend } from './shaders/webgl-backend';
@@ -346,6 +348,16 @@ interface BdjTitle {
   memory: Extract<FromBdj, { type: 'memory' }> | null;
 }
 
+/** Where a playlist opened again goes on (Player.restartPoint). */
+interface RestartPoint {
+  readonly playlistId: string;
+  readonly owner: PlaylistCaller;
+  readonly timeUs: number;
+  readonly autoplay: boolean;
+  readonly audio: number | null;
+  readonly endReported: number | null;
+}
+
 /** A video unit waiting for the decoder, or for the choice of path (the element path needs its decode time and range). */
 type HeldVideoUnit = VideoUnit & { readonly dtsUs?: number; readonly inRange?: boolean };
 
@@ -365,6 +377,14 @@ interface Session {
   element: ElementSession | null;
   /** Where presentation last started (startAt's target): an element session chosen later begins its video there. */
   startedAtUs: number;
+  /** The clip info of the play item the session started in, whose stream attributes say whether its video is HDR; empty for an encode. */
+  readonly startClips: readonly Clpi[];
+  /** The STN's video frame-rate code (libbluray `bd_video_rate_e`); 0 when unknown. */
+  readonly videoRate: number;
+  /** The session's video is HDR and plays on the element path (videoHdr). */
+  elementHdr: boolean;
+  /** The element question the session would have asked, had a shader set not kept it on the canvas: turning the set off asks it. */
+  shaderHeldQuery: ElementQuery | null;
   /** The M2TS reader, or an encoded episode's Matroska reader. */
   readonly pipeline: SessionPipeline;
   /** The video track's CodecPrivate (an encode's av1C record), which its decoder is configured from; null for a disc. */
@@ -552,7 +572,7 @@ export class Player {
   private readonly background: BackgroundStillLike | null;
   /** The background still changed: the next paint redraws the video over it. */
   private backgroundDirty = false;
-  /** Which path H.264 and HEVC video takes (setVideoPath); in this phase only 'element' takes the element path. */
+  /** Which path H.264 and HEVC video takes (setVideoPath): 'element' every stream the page plays, 'auto' HDR streams only, 'canvas' none. */
   private videoPath: VideoPath = 'auto';
   /** The clock block of the page's video element (attachVideoElement), written every tick; null with no element. */
   private clockWriter: ClockBlockWriter | null = null;
@@ -570,6 +590,10 @@ export class Player {
   private elementOff = false;
   /** Why the video element failed on this disc (telemetry's elementFailure); null while it hasn't. */
   private elementFailure: string | null = null;
+  /** An HDR stream plays on the element path, as the last videoHdr event said. */
+  private videoHdr = false;
+  /** A shader set is chosen (setVideoShaders): sessions take the canvas path, where the shaders run. */
+  private shadersOn = false;
 
   constructor(private readonly deps: PlayerDeps) {
     this.clock = new MasterClock(deps.nowMs);
@@ -756,6 +780,7 @@ export class Player {
           break;
         case 'setVideoShaders':
           this.setVideoShaders(cmd.set);
+          await this.followShaders(cmd.set !== null);
           break;
         case 'seek':
           if (!this.bdj && this.refused('timeSearch')) break;
@@ -963,6 +988,23 @@ export class Player {
       this.compositor?.setShaderStage?.(this.shaderStage);
     }
     this.shaderStage.setSet(set);
+  }
+
+  /**
+   * A shader set turned on or off: shaders run on the canvas path only, so a playlist playing on the element path opens
+   * again at the same time on the canvas, and one kept on the canvas for the shaders alone opens again on the element
+   * path (unless the page has already said it can't play the stream). Either reopen is the one a quality level switch
+   * makes, and shows no notice.
+   */
+  private async followShaders(on: boolean): Promise<void> {
+    const was = this.shadersOn;
+    this.shadersOn = on;
+    const s = this.session;
+    const disc = this.disc;
+    if (was === on || !s || !disc || s.encode || this.state === 'error') return;
+    const held = s.shaderHeldQuery;
+    const reopen = on ? s.element !== null : held !== null && this.videoPath !== 'canvas' && !this.elementOff && this.elementQueries.cached(held) !== false;
+    if (reopen) await this.restart(disc, this.restartPoint(s));
   }
 
   private startRenderLoop(): void {
@@ -1228,6 +1270,10 @@ export class Player {
       audioRecoveryQueued: false,
       element: null,
       startedAtUs: 0,
+      startClips: [],
+      videoRate: 0,
+      elementHdr: false,
+      shaderHeldQuery: null,
     };
     ref.current = session;
     this.wireDecoder(session, decoder);
@@ -1580,20 +1626,7 @@ export class Player {
     if (open.kind !== 'remote' || !this.remote || !this.disc) return refuse('No disc from the NAS is open.');
     if (next.manifest.discId !== open.manifest.discId) return refuse('Another disc is open.');
     const s = this.session;
-    const resume = s
-      ? {
-          playlistId: s.playlistId,
-          owner: s.owner,
-          timeUs: Math.min(Math.max(0, this.clock.nowUs()), Math.max(0, s.timeline.durationUs - 1)),
-          autoplay: this.wantPlaying,
-          // the track heard at the level, when given; else with a program its PSR1 decides (playPlaylist), and without one
-          // the track that plays, when the version has it
-          audio: audio ?? (this.programRegs ? null : s.audioStream),
-          // the end of a still item reported stays reported; a BD-J still the switch lets go (teardownSession) is met
-          // again at the same place, with no report to Java
-          endReported: this.bdjStill ? null : this.navEndReported,
-        }
-      : null;
+    const resume = s ? this.restartPoint(s, audio) : null;
     const refill = this.fillArgs;
     const generation = this.openGeneration;
     this.levelVersion++;
@@ -1632,13 +1665,7 @@ export class Player {
       const superseded = generation !== this.openGeneration;
       release(); // before the restart, which opens the playlist like any other
       if (resume && !superseded) {
-        const mpls = disc.playlists.get(resume.playlistId);
-        if (!mpls || mpls.playItems.length === 0) throw new DiscError('missing-file', `Playlist ${resume.playlistId} is not available.`, [playlistPath(resume.playlistId)]);
-        const { item, clipTime45 } = new Timeline(mpls.playItems, mpls.marks).locate(resume.timeUs);
-        const started = await this.playPlaylist(resume.playlistId, { item: item.index, clipTime45 }, resume.owner, resume.audio, {
-          autoplay: resume.autoplay,
-          endReported: resume.endReported,
-        });
+        const started = await this.restart(disc, resume);
         if (!started) throw new Error(`Playlist ${resume.playlistId} could not be started on this version of the disc.`);
         // the program keeps the track the viewer heard, as an Audio menu pick would leave it
         const regs = this.programRegs;
@@ -1655,6 +1682,34 @@ export class Player {
       return;
     }
     this.deps.emit({ type: 'levelChanged', ok: true });
+  }
+
+  /**
+   * Where the playing playlist `s` goes on when it opens again (another version of the disc, or another video path): its
+   * caller, the current time, whether it plays, the audio stream (`audio` when given; else with a program its PSR1
+   * decides in playPlaylist, and without one the track that plays) and the end of a still item already reported (which
+   * stays reported; a BD-J still the reopen lets go in teardownSession is met again at the same place, with no report to Java).
+   */
+  private restartPoint(s: Session, audio?: number): RestartPoint {
+    return {
+      playlistId: s.playlistId,
+      owner: s.owner,
+      timeUs: Math.min(Math.max(0, this.clock.nowUs()), Math.max(0, s.timeline.durationUs - 1)),
+      autoplay: this.wantPlaying,
+      audio: audio ?? (this.programRegs ? null : s.audioStream),
+      endReported: this.bdjStill ? null : this.navEndReported,
+    };
+  }
+
+  /**
+   * Opens the playlist of `point` again on `disc` at its time, through playPlaylist (streams, picture, decoder or video
+   * element and compositor chosen anew; the program is not told of a start). False when it could not start.
+   */
+  private async restart(disc: DiscModel, point: RestartPoint): Promise<boolean> {
+    const mpls = disc.playlists.get(point.playlistId);
+    if (!mpls || mpls.playItems.length === 0) throw new DiscError('missing-file', `Playlist ${point.playlistId} is not available.`, [playlistPath(point.playlistId)]);
+    const { item, clipTime45 } = new Timeline(mpls.playItems, mpls.marks).locate(point.timeUs);
+    return this.playPlaylist(point.playlistId, { item: item.index, clipTime45 }, point.owner, point.audio, { autoplay: point.autoplay, endReported: point.endReported });
   }
 
   /** How a new BD-J worker reads the disc: on the port route, through a fetch port relayed to the engine's own. */
@@ -2663,6 +2718,10 @@ export class Player {
       audioRecoveryQueued: false,
       element: null,
       startedAtUs: 0,
+      startClips: [clips.get(mpls.playItems[startItem]!.clipId)].filter((c): c is Clpi => c !== undefined),
+      videoRate: choice.video.rate,
+      elementHdr: false,
+      shaderHeldQuery: null,
     };
     ref.current = session;
     if (decoder) this.wireDecoder(session, decoder);
@@ -3006,6 +3065,7 @@ export class Player {
       this.deps.emit({ type: 'videoElementStop' });
       this.compositor?.startPlaylist?.(true);
     }
+    if (s.elementHdr) this.setVideoHdr(false);
     for (const d of s.audioDecoders.values()) d.close();
     s.audioDecoders.clear();
     this.presenter.clear();
@@ -3249,9 +3309,12 @@ export class Player {
         s.videoState = 'configuring';
         s.pendingVideo.push(unit);
         const coding = this.elementCoding(s);
-        const codec = coding ? elementCodec(coding, u.data) : null;
-        if (coding && codec) this.choosePath(s, decoder, u, coding, codec);
-        else this.configureDecoder(s, decoder, u);
+        const query = coding ? this.elementQueryFor(s, coding, u) : null;
+        if (coding && query && !this.shadersOn) this.choosePath(s, decoder, u, coding, query);
+        else {
+          if (query) s.shaderHeldQuery = query; // the canvas only for the shaders: turning them off asks again
+          this.configureDecoder(s, decoder, u);
+        }
       }
     }
   }
@@ -3284,41 +3347,64 @@ export class Player {
   }
 
   /**
-   * The remuxer's coding when the session may take the element path: the element path is asked for and the video is
-   * H.264 or HEVC (an encode's AV1 never). Null takes the canvas path. The page's video element may not be attached yet
-   * (a disc that plays on open starts before the player screen is up): the question waits for it (attachVideoElement
-   * asks again), up to ELEMENT_QUERY_TIMEOUT_MS.
+   * The remuxer's coding when the session may take the element path: the canvas path isn't asked for, the disc's element
+   * hasn't failed, and the video is H.264 or HEVC (an encode's AV1 never). Null takes the canvas path. The page's video
+   * element may not be attached yet (a disc that plays on open starts before the player screen is up): the question
+   * waits for it (attachVideoElement asks again), up to ELEMENT_QUERY_TIMEOUT_MS.
    */
   private elementCoding(s: Session): 'avc' | 'hevc' | null {
-    if (this.videoPath !== 'element' || s.encode || this.elementOff) return null;
+    if (this.videoPath === 'canvas' || s.encode || this.elementOff) return null;
     if (s.videoCodingType === CodingType.AVC) return 'avc';
     if (s.videoCodingType === CodingType.HEVC) return 'hevc';
     return null;
   }
 
   /**
-   * The session's first unit with parameter sets came: its codec string goes to the page, whose answer (cached per codec,
-   * false after ELEMENT_QUERY_TIMEOUT_MS) picks the path. The units read meanwhile wait in pendingVideo.
+   * The question for the page about the session's stream, read from its first unit with parameter sets, when the video
+   * path takes it to the element: with 'element' every stream the remuxer can read, with 'auto' an HDR one only (its
+   * clip info or SPS says so). Null takes the canvas path without asking; with 'auto', so does a unit the remuxer fails
+   * to read, which the canvas path's decoder judges as before.
    */
-  private choosePath(s: Session, decoder: WebCodecsVideoDecoder, first: PipelineUnit, coding: 'avc' | 'hevc', codec: string): void {
+  private elementQueryFor(s: Session, coding: 'avc' | 'hevc', u: PipelineUnit): ElementQuery | null {
+    let stream: ReturnType<typeof elementStream>;
+    try {
+      stream = elementStream(coding, u.data);
+    } catch (err) {
+      if (this.videoPath === 'element') throw err;
+      this.deps.log?.(`The video's parameter sets could not be read for the video element: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    }
+    if (!stream) return null;
+    const query = elementQuery(stream, s.startClips, s.videoRate);
+    return this.videoPath === 'element' || query.hdr ? query : null;
+  }
+
+  /**
+   * The session's first unit with parameter sets came: the question about its stream goes to the page, whose answer
+   * (cached per elementQueryKey, false after ELEMENT_QUERY_TIMEOUT_MS) picks the path. The units read meanwhile wait in
+   * pendingVideo.
+   */
+  private choosePath(s: Session, decoder: WebCodecsVideoDecoder, first: PipelineUnit, coding: 'avc' | 'hevc', query: ElementQuery): void {
     const decide = (playable: boolean): void => {
       if (this.session !== s || s.decoder !== decoder || s.videoState !== 'configuring') return;
-      if (playable && this.clockWriter) this.startElement(s, decoder, coding);
+      if (playable && this.clockWriter && !this.shadersOn) this.startElement(s, decoder, coding, query.hdr !== null);
       else this.configureDecoder(s, decoder, first);
     };
-    const cached = this.elementQueries.cached(codec);
+    const cached = this.elementQueries.cached(query);
     if (cached !== undefined) decide(cached);
-    else void this.elementQueries.askElement(codec).then(decide);
+    else void this.elementQueries.askElement(query).then(decide);
   }
 
   /**
    * The session takes the element path: its decoder goes unused, the element starts at the session's start time
-   * (videoReset before the first init), and the units held so far go to the remuxer.
+   * (videoReset before the first init), and the units held so far go to the remuxer. `hdr`: the stream is HDR (videoHdr).
    */
-  private startElement(s: Session, decoder: WebCodecsVideoDecoder, coding: 'avc' | 'hevc'): void {
+  private startElement(s: Session, decoder: WebCodecsVideoDecoder, coding: 'avc' | 'hevc', hdr: boolean): void {
     decoder.close(); // never configured: no WebCodecs decoder was made
     s.decoder = null;
     s.videoState = 'configured';
+    s.elementHdr = hdr;
+    if (hdr) this.setVideoHdr(true);
     const element = new ElementSession(coding, {
       emit: (event, transfer) => this.deps.emit(event, transfer),
       nextGeneration: () => ++this.elementResets,
@@ -3356,6 +3442,8 @@ export class Player {
     this.elementOff = true;
     this.elementFailure = message;
     s.element = null;
+    s.elementHdr = false;
+    this.setVideoHdr(false);
     s.decoder = new WebCodecsVideoDecoder(this.deps.videoCodecApi);
     this.wireDecoder(s, s.decoder);
     s.videoState = 'unconfigured';
@@ -3364,6 +3452,13 @@ export class Player {
     this.elementDirty = true;
     this.notice('element-failed', `The video couldn’t play through the browser’s video player (${message}), so it plays on the canvas.`);
     await this.startAt(this.clock.nowUs(), this.wantPlaying, 'keep');
+  }
+
+  /** Tells the page whether an HDR stream plays on the element path (videoHdr), when that changes. */
+  private setVideoHdr(on: boolean): void {
+    if (this.videoHdr === on) return;
+    this.videoHdr = on;
+    this.deps.emit({ type: 'videoHdr', hdr: on });
   }
 
   /** attachVideoElement: the engine publishes its clock there; an element session's video starts again at the clock, so the new element gets its init. */
@@ -3381,7 +3476,7 @@ export class Player {
     const s = this.session;
     switch (cmd.type) {
       case 'videoElementAnswer':
-        this.elementQueries.answer(cmd.codec, cmd.playable);
+        this.elementQueries.answer(cmd, cmd.playable);
         return;
       case 'videoBuffered':
         // a report the page made before the latest reset describes what it has since dropped
@@ -3808,6 +3903,7 @@ export class Player {
         videoPath: s ? (s.element ? 'element' : 'canvas') : null,
         ...(s?.element ? { elementCatchUps: this.elementFrames.catchUps } : {}),
         elementFailure: this.elementFailure,
+        videoHdr: this.videoHdr,
         bdj: this.bdjStartup ? { ...this.bdjStartup, inputLatencyMs: this.bdjLatency?.stats ?? null } : null,
         ...(this.deps.memoryTelemetry ? { bdjMemory: this.bdjMemory() } : {}),
         bdjPlane: this.bdj ? { flushes: this.bdj.plane.flushCount(), tapsIgnored: this.bdjTapsIgnored, ...(this.deps.planeHashTelemetry ? { hash: this.settledPlaneHash(this.bdj.plane) } : {}) } : null,

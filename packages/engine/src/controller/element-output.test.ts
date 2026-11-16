@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import type { ElementHdr, EngineCommand, EngineEvent } from '../protocol';
+import type { ElementHdr, ElementQuery, EngineCommand, EngineEvent } from '../protocol';
 import { ClockBlockWriter } from '../element/clock-block';
 import { ELEMENT_TIME_OFFSET_US } from '../element/fmp4';
 import {
@@ -214,7 +214,7 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 5; i++) await Promise.resolve();
 };
 
-function setup(opts: { noMediaSource?: boolean; playable?: (codec: string, hdr: ElementHdr | null) => boolean; noAnimationFrame?: boolean } = {}) {
+function setup(opts: { noMediaSource?: boolean; playable?: (query: ElementQuery) => boolean; noAnimationFrame?: boolean } = {}) {
   const video = new FakeVideo();
   const ms = new FakeMediaSource();
   const posted: EngineCommand[] = [];
@@ -229,7 +229,7 @@ function setup(opts: { noMediaSource?: boolean; playable?: (codec: string, hdr: 
       created++;
       return { source: ms, url: 'blob:ms', revoke: () => revoked++ };
     },
-    playable: async (codec, hdr) => (opts.playable ?? (() => true))(codec, hdr),
+    playable: async (query) => (opts.playable ?? (() => true))(query),
     epochMs: () => 5000,
     timeOrigin: 1000,
     post: (c) => posted.push(c),
@@ -307,8 +307,8 @@ function commands<T extends EngineCommand['type']>(posted: EngineCommand[], type
 describe('ElementVideoOutput', () => {
   it('answers a query through the page capability check', async () => {
     const seen: Array<[string, ElementHdr | null]> = [];
-    const t = setup({ playable: (codec, hdr) => (seen.push([codec, hdr]), codec.includes('hvc1')) });
-    expect(t.out.handle({ type: 'videoElementQuery', codec: 'hvc1.2.4.L153.B0', hdr: { transfer: 'pq', mastering: true } })).toBe(true);
+    const t = setup({ playable: ({ codec, hdr }) => (seen.push([codec, hdr]), codec.includes('hvc1')) });
+    expect(t.out.handle({ type: 'videoElementQuery', codec: 'hvc1.2.4.L153.B0', hdr: { transfer: 'pq', mastering: true }, width: 3840, height: 2160 })).toBe(true);
     expect(t.out.handle({ type: 'videoElementQuery', codec: 'avc1.640028', hdr: null })).toBe(true);
     await flush();
     expect(seen).toEqual([
@@ -316,23 +316,24 @@ describe('ElementVideoOutput', () => {
       ['avc1.640028', null],
     ]);
     expect(t.posted).toEqual([
-      { type: 'videoElementAnswer', codec: 'hvc1.2.4.L153.B0', playable: true },
-      { type: 'videoElementAnswer', codec: 'avc1.640028', playable: false },
+      { type: 'videoElementAnswer', codec: 'hvc1.2.4.L153.B0', hdr: { transfer: 'pq', mastering: true }, width: 3840, height: 2160, playable: true },
+      { type: 'videoElementAnswer', codec: 'avc1.640028', hdr: null, playable: false },
     ]);
   });
 
-  it('asks the capability check once per codec and HDR facts', async () => {
+  it('asks the capability check once per codec, HDR facts and size', async () => {
     const seen: string[] = [];
-    const t = setup({ playable: (codec) => (seen.push(codec), true) });
+    const t = setup({ playable: ({ codec }) => (seen.push(codec), true) });
     const q = (hdr: ElementHdr | null): EngineEvent => ({ type: 'videoElementQuery', codec: 'hvc1.2.4.L153.B0', hdr });
     t.out.handle(q(null));
     t.out.handle(q(null));
     t.out.handle(q({ transfer: 'pq', mastering: false }));
     t.out.handle(q({ transfer: 'pq', mastering: false }));
     t.out.handle(q({ transfer: 'hlg', mastering: false }));
+    t.out.handle({ type: 'videoElementQuery', codec: 'hvc1.2.4.L153.B0', hdr: null, width: 3840, height: 2160 });
     await flush();
-    expect(seen).toHaveLength(3);
-    expect(t.posted).toHaveLength(5);
+    expect(seen).toHaveLength(4);
+    expect(t.posted).toHaveLength(6);
   });
 
   it('posts nothing for a query answered after dispose', async () => {

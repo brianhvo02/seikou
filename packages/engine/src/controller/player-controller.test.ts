@@ -1150,6 +1150,39 @@ describe('element video output', () => {
     expect(c.getSnapshot().videoElement).toBe(false);
   });
 
+  it('videoHdr sets snapshot.videoHdr, and a close clears it', () => {
+    const worker = new FakeWorker();
+    const c = new PlayerController(worker, new FakeAudio());
+    expect(c.getSnapshot().videoHdr).toBe(false);
+    worker.emit({ type: 'videoHdr', hdr: true });
+    expect(c.getSnapshot().videoHdr).toBe(true);
+    worker.emit({ type: 'videoHdr', hdr: false });
+    expect(c.getSnapshot().videoHdr).toBe(false);
+    worker.emit({ type: 'videoHdr', hdr: true });
+    c.closeDisc();
+    expect(c.getSnapshot().videoHdr).toBe(false);
+  });
+
+  it("asks the browser about the stream's size and frame rate, and the answer echoes the question", async () => {
+    const worker = new FakeWorker();
+    const c = new PlayerController(worker, new FakeAudio());
+    const configs: Array<{ video: Record<string, unknown> }> = [];
+    class FakeSource {
+      static isTypeSupported(): boolean { return true; }
+    }
+    vi.stubGlobal('MediaSource', FakeSource);
+    vi.stubGlobal('navigator', { mediaCapabilities: { decodingInfo: async (config: { video: Record<string, unknown> }) => (configs.push(config), { supported: true }) } });
+    try {
+      c.attachVideoElement(fakeVideo());
+      const query = { codec: 'hvc1.2.4.L153.B0', hdr: { transfer: 'pq', mastering: true }, width: 3840, height: 2160, frameRate: 24_000 / 1001 } as const;
+      worker.emit({ type: 'videoElementQuery', ...query });
+      await vi.waitFor(() => expect(worker.posted.at(-1)).toEqual({ type: 'videoElementAnswer', ...query, playable: true }));
+      expect(configs[0]?.video).toMatchObject({ width: 3840, height: 2160, framerate: 24_000 / 1001, transferFunction: 'pq' });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('detachVideoElement releases the output of the attached element only, and the element can be attached again', async () => {
     const worker = new FakeWorker();
     const c = new PlayerController(worker, new FakeAudio());

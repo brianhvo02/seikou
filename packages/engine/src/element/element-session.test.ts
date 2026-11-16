@@ -101,37 +101,60 @@ describe('ElementCodecQueries', () => {
     return { q, events, delays, fire: () => timers.splice(0).forEach((fn) => fn()) };
   }
 
+  const avc = { codec: 'avc1.640028', hdr: null };
+  const hevc = { codec: 'hvc1.2.4.L153.B0', hdr: null };
+  const hdr = { codec: 'hvc1.2.4.L153.B0', hdr: { transfer: 'pq', mastering: true }, width: 3840, height: 2160, frameRate: 24 } as const;
+
   it('asks once per open question and keeps the answer', async () => {
     const { q, events, fire } = queries();
-    const a = q.askElement('avc1.640028');
-    const b = q.askElement('avc1.640028');
+    const a = q.askElement(avc);
+    const b = q.askElement(avc);
     expect(a).toBe(b);
     expect(events).toEqual([{ type: 'videoElementQuery', codec: 'avc1.640028', hdr: null }]);
-    q.answer('avc1.640028', true);
+    q.answer(avc, true);
     await expect(a).resolves.toBe(true);
-    expect(q.cached('avc1.640028')).toBe(true);
+    expect(q.cached(avc)).toBe(true);
     fire(); // the timer was cancelled
-    expect(q.cached('avc1.640028')).toBe(true);
+    expect(q.cached(avc)).toBe(true);
   });
 
   it('answers false at the timeout, and keeps a later answer for the next session', async () => {
     const { q, fire, delays } = queries();
-    const a = q.askElement('hvc1.2.4.L153.B0');
+    const a = q.askElement(hevc);
     expect(delays).toEqual([ELEMENT_QUERY_TIMEOUT_MS]);
     fire();
     await expect(a).resolves.toBe(false);
-    expect(q.cached('hvc1.2.4.L153.B0')).toBeUndefined();
-    q.answer('hvc1.2.4.L153.B0', true);
-    expect(q.cached('hvc1.2.4.L153.B0')).toBe(true);
+    expect(q.cached(hevc)).toBeUndefined();
+    q.answer(hevc, true);
+    expect(q.cached(hevc)).toBe(true);
   });
 
   it('asks the open questions again', () => {
     const { q, events } = queries();
-    void q.askElement('avc1.640028');
-    void q.askElement('hvc1.1.6.L120.B0');
-    q.answer('avc1.640028', false);
+    void q.askElement(avc);
+    void q.askElement(hdr);
+    q.answer(avc, false);
     events.length = 0;
     q.askAgain();
-    expect(events).toEqual([{ type: 'videoElementQuery', codec: 'hvc1.1.6.L120.B0', hdr: null }]);
+    expect(events).toEqual([{ type: 'videoElementQuery', ...hdr }]);
+  });
+
+  it('keys questions and answers by the codec with its HDR facts and size: an SDR answer settles no HDR question', async () => {
+    const { q, events } = queries();
+    const sdr = q.askElement(hevc);
+    const withHdr = q.askElement(hdr);
+    expect(sdr).not.toBe(withHdr);
+    expect(events).toEqual([
+      { type: 'videoElementQuery', codec: 'hvc1.2.4.L153.B0', hdr: null },
+      { type: 'videoElementQuery', ...hdr },
+    ]);
+    q.answer(hevc, true);
+    await expect(sdr).resolves.toBe(true);
+    expect(q.cached(hdr)).toBeUndefined();
+    q.answer({ ...hdr, hdr: { mastering: true, transfer: 'pq' } }, false);
+    await expect(withHdr).resolves.toBe(false);
+    expect(q.cached(hevc)).toBe(true);
+    expect(q.cached(hdr)).toBe(false);
+    expect(q.cached({ ...hdr, width: 1920, height: 1080 })).toBeUndefined();
   });
 });

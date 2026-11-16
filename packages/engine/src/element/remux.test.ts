@@ -9,7 +9,7 @@ import { fixtureDiscFiles } from '../../../../tests/helpers/fixture-disc';
 import { VIDEO_PID } from '../../../../tests/helpers/synthetic-disc';
 import { analyzeAvc } from '@seikou/bdmv/codecs/h264';
 import { ELEMENT_TIME_OFFSET_US, mediaSegment } from './fmp4';
-import { ElementRemux, elementCodec } from './remux';
+import { ElementRemux, elementStream } from './remux';
 import { PROGRESSIVE_SPS, avcAu } from '../../../../tests/helpers/h264-units';
 import type { RemuxOutput } from './remux';
 
@@ -280,10 +280,16 @@ describe('ElementRemux on open GOPs', () => {
   });
 });
 
-describe('elementCodec', () => {
+describe('elementStream', () => {
   it("gives the init segment's codec string for a unit with an SPS, and null for none or one it can't read", () => {
-    expect(elementCodec('avc', avcAu({ idr: true, spsNal: PROGRESSIVE_SPS }))).toMatch(/^avc1\.640029$/i);
-    expect(elementCodec('avc', avcAu({ fill: 10 }))).toBeNull();
-    expect(elementCodec('avc', avcAu({ idr: true }))).toBeNull(); // TEST_SPS is cut short
+    expect(elementStream('avc', avcAu({ idr: true, spsNal: PROGRESSIVE_SPS }))?.codec).toMatch(/^avc1\.640029$/i);
+    expect(elementStream('avc', avcAu({ fill: 10 }))).toBeNull();
+    expect(elementStream('avc', avcAu({ idr: true }))).toBeNull(); // TEST_SPS is cut short
+  });
+
+  it("gives an HDR stream's colour and mastering display from its first unit", () => {
+    const stream = elementStream('hevc', units('disc-hdr', 1)[0]!.data);
+    expect(stream).toMatchObject({ codec: expect.stringMatching(/^hvc1\./), width: 1920, height: 1080, colour: { transfer: 16 } });
+    expect(stream?.mastering).not.toBeNull();
   });
 });
