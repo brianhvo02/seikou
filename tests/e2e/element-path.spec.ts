@@ -1,17 +1,38 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { expect, test, type Page } from '@playwright/test';
-import { CHROME_ONLY, setFolder, skipWithoutH264 } from './support';
+import { LINUX_WEBKIT_REALTIME, isLinuxWebKit, setFolder, skipWithoutH264 } from './support';
 import { collectWindows, expectInSync, pausedClockUs, recordTelemetrySamples, telemetry, telemetrySamples, type TelemetrySample } from './telemetry';
 
 /** The element plays at media time = playlist time + this (ELEMENT_TIME_OFFSET_US in the engine's element/fmp4.ts). */
 const ELEMENT_TIME_OFFSET_S = 10;
 
 const HEVC_MAIN10 = 'video/mp4; codecs="hvc1.2.4.L120.90"';
+/** H.264 High profile, what the synthetic discs carry. */
+const H264_HIGH = 'video/mp4; codecs="avc1.640028"';
+
+/** Whether this browser's Media Source Extensions (ManagedMediaSource where there is one, as the player picks) take `type`. */
+async function mseSupports(page: Page, type: string): Promise<boolean> {
+  return page.evaluate((t) => {
+    const mse = (globalThis as { ManagedMediaSource?: typeof MediaSource }).ManagedMediaSource ?? globalThis.MediaSource;
+    return mse?.isTypeSupported(t) ?? false;
+  }, type);
+}
+
+/**
+ * Skips the running test where the element path can't play `type` (the browser's MSE says no), and in WebKit on Linux,
+ * which can't keep up with real-time playback. Call it with the app loaded.
+ */
+async function skipWithoutElementPath(page: Page, type = H264_HIGH): Promise<void> {
+  const browser = page.context().browser()?.browserType().name() ?? '';
+  test.skip(isLinuxWebKit(browser), LINUX_WEBKIT_REALTIME);
+  test.skip(!(await mseSupports(page, type)), `MSE in this browser does not play ${type}`);
+}
 
 async function openDisc(page: Page, folder = 'fixtures/synthetic/disc1', query = '?telemetry=1&videopath=element'): Promise<void> {
   await page.goto(`/${query}`);
   await setFolder(page.getByTestId('folder-input'), folder);
   await expect(page.getByTestId('playlist-00000')).toBeVisible();
+  if (query.includes('videopath=element')) await skipWithoutElementPath(page);
 }
 
 async function startPlaylist(page: Page, id = '00000'): Promise<void> {
@@ -53,16 +74,16 @@ function expectElementWindows(windows: TelemetrySample[]): void {
   // each window's mean and max (ms), for reading a failure; and the catch-ups run so far
   console.log(`element windows: ${windows.map((w) => `${Math.round((w.avOffsetMeanUs ?? NaN) / 1000)}/${Math.round((w.avOffsetMaxAbsUs ?? NaN) / 1000)}`).join(' ')} catch-ups=${windows.at(-1)?.elementCatchUps ?? w0?.elementCatchUps}`);
   for (const w of windows) {
+    // a failed element says why (and the disc fell back to the canvas)
+    expect(w.elementFailure ?? null).toBeNull();
     expect(w.videoPath).toBe('element');
     // 'wall' here means the browser has no running audio output (run headed or use a machine with audio).
     expect(w.clockMode).toBe('audio');
   }
 }
 
-test('disc1 plays on the element path in sync across the play-item boundary to the end', async ({ page, browserName, isMobile }) => {
-  test.skip(browserName !== 'chromium' || isMobile, CHROME_ONLY);
+test('disc1 plays on the element path in sync across the play-item boundary to the end', async ({ page }) => {
   await openDisc(page);
-  await skipWithoutH264(page);
   await startPlaylist(page);
   await expect(page.getByTestId('video-element')).toBeVisible();
   const windows = await collectWindows(page, 7_000_000);
@@ -73,8 +94,7 @@ test('disc1 plays on the element path in sync across the play-item boundary to t
   await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'ended', { timeout: 10_000 });
 });
 
-test('skips to the next chapter and is back in sync within a second', async ({ page, browserName, isMobile }) => {
-  test.skip(browserName !== 'chromium' || isMobile, CHROME_ONLY);
+test('skips to the next chapter and is back in sync within a second', async ({ page }) => {
   await openDisc(page);
   await startPlaylist(page);
   const before = await telemetry(page);
@@ -91,8 +111,7 @@ test('skips to the next chapter and is back in sync within a second', async ({ p
   expectInSync(windows);
 });
 
-test('pauses and resumes in sync', async ({ page, browserName, isMobile }) => {
-  test.skip(browserName !== 'chromium' || isMobile, CHROME_ONLY);
+test('pauses and resumes in sync', async ({ page }) => {
   await recordTelemetrySamples(page);
   await openDisc(page);
   await startPlaylist(page);
@@ -105,6 +124,7 @@ test('pauses and resumes in sync', async ({ page, browserName, isMobile }) => {
   expect(Math.abs(((await telemetry(page)) as TelemetrySample).clockUs - paused)).toBeLessThan(50_000);
   const video = await elementState(page);
   expect(video.paused).toBe(true);
+  console.log(`paused: element minus clock ${Math.round((((video.currentTime as number) - ELEMENT_TIME_OFFSET_S) * 1e6 - paused) / 100) / 10} ms`);
   // the picture stopped where the sound did
   expect(Math.abs((video.currentTime as number) - ELEMENT_TIME_OFFSET_S - paused / 1e6)).toBeLessThan(0.05);
   await page.keyboard.press('Space');
@@ -118,8 +138,7 @@ test('pauses and resumes in sync', async ({ page, browserName, isMobile }) => {
   expectInSync(after);
 });
 
-test('paused seek shows the target frame', async ({ page, browserName, isMobile }) => {
-  test.skip(browserName !== 'chromium' || isMobile, CHROME_ONLY);
+test('paused seek shows the target frame', async ({ page }) => {
   await openDisc(page);
   await startPlaylist(page);
   await expect.poll(async () => (await telemetry(page))?.clockUs ?? 0, { timeout: 5000 }).toBeGreaterThan(500_000);
@@ -140,8 +159,7 @@ test('paused seek shows the target frame', async ({ page, browserName, isMobile 
   await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'paused');
 });
 
-test('a B-frame disc plays on the element path in sync', async ({ page, browserName, isMobile }) => {
-  test.skip(browserName !== 'chromium' || isMobile, CHROME_ONLY);
+test('a B-frame disc plays on the element path in sync', async ({ page }) => {
   await openDisc(page, 'fixtures/synthetic/disc2');
   await startPlaylist(page);
   const windows = await collectWindows(page, 3_500_000);
@@ -151,8 +169,7 @@ test('a B-frame disc plays on the element path in sync', async ({ page, browserN
   expectInSync(windows);
 });
 
-test('the HDR disc plays on the element path where MSE plays HEVC Main10', async ({ page, browserName, isMobile }) => {
-  test.skip(browserName !== 'chromium' || isMobile, CHROME_ONLY);
+test('the HDR disc plays on the element path where MSE plays HEVC Main10', async ({ page }) => {
   await page.addInitScript(() => {
     // Chrome's Open folder: the person cancels the picker, and the click has started the audio output meanwhile
     (window as unknown as { showDirectoryPicker: () => Promise<never> }).showDirectoryPicker = () => Promise.reject(new DOMException('cancelled', 'AbortError'));
@@ -164,11 +181,7 @@ test('the HDR disc plays on the element path where MSE plays HEVC Main10', async
     };
   });
   await page.goto('/?telemetry=1&videopath=element');
-  const supported = await page.evaluate((type) => {
-    const mse = (globalThis as { ManagedMediaSource?: typeof MediaSource }).ManagedMediaSource ?? globalThis.MediaSource;
-    return mse?.isTypeSupported(type) ?? false;
-  }, HEVC_MAIN10);
-  test.skip(!supported, `MSE in this browser does not play HEVC Main10 (${HEVC_MAIN10})`);
+  await skipWithoutElementPath(page, HEVC_MAIN10);
   // One playlist: the disc plays it from First Play as it opens, with no list to pick from, so the audio output must be up
   // before the open, as it is for a person, whose click on Open folder starts it before the folder is chosen.
   await startAudioAsOpenFolderDoes(page);

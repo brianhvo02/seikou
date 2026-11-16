@@ -18,6 +18,8 @@ export interface TelemetrySample {
   videoPath?: 'canvas' | 'element' | null;
   /** On the element path, the catch-ups the page has run since its media source opened. */
   elementCatchUps?: number;
+  /** Why the video element failed on this disc (the disc then plays on the canvas); null while it hasn't. */
+  elementFailure?: string | null;
   avOffsetMeanUs: number | null;
   avOffsetMaxAbsUs: number | null;
   framesInWindow: number;

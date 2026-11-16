@@ -100,6 +100,12 @@ what would change that decision.
   by the difference, and the element is kept that much behind the sound while `avOffsetMeanUs` reads in sync. Judge
   lip sync in Safari by eye as well as by telemetry. *Revisit if* WebKit's `expectedDisplayTime` comes onto the page's
   clock.
+- **On the element path in WebKit, every start begins about 33 ms behind the sound.** WebKit's audio clock first moves
+  in one step of about 17 ms, so the page sees it running that far in, and `play()` takes about another display refresh
+  to show its first frame; the start's catch-up, capped at 25% fast, removes that in about 0.15 s. A telemetry window
+  that holds mostly those frames averages 8 to 20 ms (measured over 15 runs of `element-path.spec.ts` in Playwright's
+  WebKit on macOS, one over 20 ms), and 35 to 43 ms with three tests running at once. *Revisit if* the owner rules on
+  the element path's start (a start timed from the audio output's predicted first sound, or a faster start catch-up).
 
 ## Menus (HDMV)
 
