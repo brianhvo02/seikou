@@ -52,6 +52,23 @@ The **Shaders** menu applies an mpv-style video shader to make the picture sharp
 - You can add your own shader files with **Add shaders…** (a folder), **Add files…**, or an mpv `input.conf`. **Manage…** lists and removes what you added. If a file you added has the same name as a built-in one, yours is used.
 - Shaders need WebGL2 in the browser. Without it the menu says "Not available on this device".
 - A shader is heavy on the graphics chip. If frames are dropped, the menu shows a warning and suggests a Fast mode.
+- Shaders run on the player's own canvas, so HDR video loses its HDR while a set is on (see HDR video below). Turning a set on during HDR video reopens it on the canvas at the same moment, and turning it off brings the HDR back.
+
+## HDR video
+
+HDR10 and HLG discs play through the browser's own video player, which shows HDR on a display that can show it. While HDR video plays on such a display, an **HDR** badge shows over the picture. Other discs play on the player's canvas as before.
+
+- **Video output** in the control bar chooses how video is shown:
+  - **Auto (HDR through the browser's video player)**, the default: HDR video goes through the browser's video player, the rest through the canvas. A disc whose video the browser can play only in its video player (HEVC in some browsers) goes there too.
+  - **Always the video player**: every disc's video the browser's video player can play goes there.
+  - **Always the canvas**: nothing does, and HDR video shows without its HDR.
+
+  A change applies from the next playlist, not the one playing, and stays on this device until you change it again.
+- A video shader set that can run here sends the video to the canvas, whatever Video output says.
+- Subtitles and disc menus stay at SDR brightness over HDR video for now, so beside bright highlights they can look grey. On Windows the **SDR content brightness** slider in the display's HDR settings sets how bright they look.
+- If the browser's video player can't play a disc's HDR video, the player says "HDR video couldn't play in this browser, so it shows without HDR and its colours may look flat" and plays the rest of the disc on the canvas.
+- A Dolby Vision disc plays its HDR10 picture. HDR10+ discs play as HDR10.
+- Firefox doesn't show HDR video; use Chrome or Safari for HDR.
 
 ## Controls
 

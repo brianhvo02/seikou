@@ -72,6 +72,45 @@ async function startAudioAsOpenFolderDoes(page: Page): Promise<void> {
   await expect.poll(() => page.evaluate(() => (window as unknown as { __audioWorkletReady?: boolean }).__audioWorkletReady === true)).toBe(true);
 }
 
+/**
+ * Makes the page's `matchMedia('(dynamic-range: high)')` answer `hdr`, as a display that can (or can't) show HDR would:
+ * Playwright's `emulateMedia` has no dynamic-range feature, so the page's own query is replaced for that one feature.
+ * Call it before the page loads.
+ */
+async function emulateHdrDisplay(page: Page, hdr: boolean): Promise<void> {
+  await page.addInitScript((matches: boolean) => {
+    const real = window.matchMedia.bind(window);
+    window.matchMedia = (q: string): MediaQueryList => {
+      if (q.replace(/\s/g, '') !== '(dynamic-range:high)') return real(q);
+      const none = (): void => {};
+      return { matches, media: q, onchange: null, addEventListener: none, removeEventListener: none, addListener: none, removeListener: none, dispatchEvent: () => false } as MediaQueryList;
+    };
+  }, hdr);
+}
+
+/**
+ * Opens disc-hdr at `query` and waits until it plays, skipping where MSE can't play HEVC Main10. It has one playlist, which
+ * it plays from First Play as it opens with no list to pick from, so the audio output must be up before the open, as it is
+ * for a person, whose click on Open folder starts it before the folder is chosen.
+ */
+async function openHdrDisc(page: Page, query: string): Promise<void> {
+  await page.addInitScript(() => {
+    // Chrome's Open folder: the person cancels the picker, and the click has started the audio output meanwhile
+    (window as unknown as { showDirectoryPicker: () => Promise<never> }).showDirectoryPicker = () => Promise.reject(new DOMException('cancelled', 'AbortError'));
+    const add = AudioWorklet.prototype.addModule;
+    AudioWorklet.prototype.addModule = function (this: AudioWorklet, ...args: Parameters<typeof add>) {
+      return add.apply(this, args).then(() => {
+        (window as unknown as { __audioWorkletReady?: boolean }).__audioWorkletReady = true;
+      });
+    };
+  });
+  await page.goto(`/${query}`);
+  await skipWithoutElementPath(page, HEVC_MAIN10);
+  await startAudioAsOpenFolderDoes(page);
+  await setFolder(page.getByTestId('folder-input'), 'fixtures/synthetic/disc-hdr');
+  await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'playing', { timeout: 10_000 });
+}
+
 function expectElementWindows(windows: TelemetrySample[]): void {
   const w0 = windows[0];
   // each window's mean and max (ms), for reading a failure; and the catch-ups run so far
@@ -172,30 +211,29 @@ test('a B-frame disc plays on the element path in sync', async ({ page }) => {
   expectInSync(windows);
 });
 
-test('the HDR disc plays on the element path where MSE plays HEVC Main10', async ({ page }) => {
-  await page.addInitScript(() => {
-    // Chrome's Open folder: the person cancels the picker, and the click has started the audio output meanwhile
-    (window as unknown as { showDirectoryPicker: () => Promise<never> }).showDirectoryPicker = () => Promise.reject(new DOMException('cancelled', 'AbortError'));
-    const add = AudioWorklet.prototype.addModule;
-    AudioWorklet.prototype.addModule = function (this: AudioWorklet, ...args: Parameters<typeof add>) {
-      return add.apply(this, args).then(() => {
-        (window as unknown as { __audioWorkletReady?: boolean }).__audioWorkletReady = true;
-      });
-    };
-  });
-  await page.goto('/?telemetry=1&videopath=element');
-  await skipWithoutElementPath(page, HEVC_MAIN10);
-  // One playlist: the disc plays it from First Play as it opens, with no list to pick from, so the audio output must be up
-  // before the open, as it is for a person, whose click on Open folder starts it before the folder is chosen.
-  await startAudioAsOpenFolderDoes(page);
-  await setFolder(page.getByTestId('folder-input'), 'fixtures/synthetic/disc-hdr');
-  await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'playing', { timeout: 10_000 });
+test('without any flag the HDR disc plays on the element path where MSE plays HEVC Main10', async ({ page }) => {
+  await openHdrDisc(page, '?telemetry=1');
   await expect(page.getByTestId('video-element')).toBeVisible();
   const windows = await collectWindows(page, 3_000_000);
   console.log(`element: ${JSON.stringify(await elementState(page))}`);
   expect(windows.length).toBeGreaterThan(2);
   expectElementWindows(windows);
   expectInSync(windows);
+});
+
+test('the HDR badge shows over HDR video only when the display can show HDR', async ({ page }) => {
+  await emulateHdrDisplay(page, true);
+  await openHdrDisc(page, '?telemetry=1');
+  await expect.poll(async () => (await telemetry(page))?.videoPath ?? null, { timeout: 5000 }).toBe('element');
+  await expect(page.getByTestId('hdr-badge')).toHaveText('HDR');
+});
+
+test('no HDR badge over HDR video on a display without HDR', async ({ page }) => {
+  await emulateHdrDisplay(page, false);
+  await openHdrDisc(page, '?telemetry=1');
+  await expect.poll(async () => (await telemetry(page))?.videoPath ?? null, { timeout: 5000 }).toBe('element');
+  await expect.poll(async () => (await telemetry(page))?.clockUs ?? 0, { timeout: 5000 }).toBeGreaterThan(1_000_000);
+  await expect(page.getByTestId('hdr-badge')).toHaveCount(0);
 });
 
 test('without the flag the canvas path plays', async ({ page }) => {
@@ -205,6 +243,72 @@ test('without the flag the canvas path plays', async ({ page }) => {
   await expect.poll(async () => (await telemetry(page))?.videoPath ?? null, { timeout: 5000 }).toBe('canvas');
   await expect(page.getByTestId('video-element')).toBeHidden();
   await expect.poll(async () => (await telemetry(page))?.framesPresented ?? 0, { timeout: 5000 }).toBeGreaterThan(0);
+});
+
+test('without any flag an SDR disc WebCodecs cannot configure plays on the element path', async ({ page }) => {
+  // ?nodecoder=1: WebCodecs supports no video decoder configuration, so under Auto disc1's H.264 goes to the element
+  await openDisc(page, 'fixtures/synthetic/disc1', '?telemetry=1&nodecoder=1');
+  await skipWithoutElementPath(page);
+  await startPlaylist(page);
+  await expect.poll(async () => (await telemetry(page))?.videoPath ?? null, { timeout: 5000 }).toBe('element');
+  await expect(page.getByTestId('video-element')).toBeVisible();
+  await expect(page.getByTestId('picker-error')).toHaveCount(0);
+});
+
+test('no HDR badge over an SDR disc on a display that can show HDR', async ({ page }) => {
+  await emulateHdrDisplay(page, true);
+  await openDisc(page, 'fixtures/synthetic/disc1', '?telemetry=1');
+  await skipWithoutH264(page);
+  await startPlaylist(page);
+  await expect.poll(async () => (await telemetry(page))?.framesPresented ?? 0, { timeout: 5000 }).toBeGreaterThan(0);
+  await expect(page.getByTestId('hdr-badge')).toHaveCount(0);
+});
+
+test('Video output switches an SDR disc to the video element from the next playlist, and is kept', async ({ page }) => {
+  await openDisc(page, 'fixtures/synthetic/disc1', '?telemetry=1');
+  await skipWithoutH264(page);
+  await skipWithoutElementPath(page);
+  await startPlaylist(page);
+  await expect.poll(async () => (await telemetry(page))?.videoPath ?? null, { timeout: 5000 }).toBe('canvas');
+  await page.getByTestId('player').hover();
+  await page.getByTestId('video-output-menu').click();
+  await expect(page.locator('[role="menuitemradio"][data-path="auto"]')).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByText('A change applies from the next playlist.')).toBeVisible();
+  await page.locator('[role="menuitemradio"][data-path="element"]').click();
+  // the playlist playing keeps its path
+  await page.waitForTimeout(1000);
+  expect((await telemetry(page))?.videoPath).toBe('canvas');
+  await expect(page.getByTestId('video-element')).toBeHidden();
+  // the next one takes the element
+  await page.getByTestId('player').hover();
+  await page.getByRole('button', { name: /^(Playlists|Titles)$/ }).click();
+  await page.getByTestId('playlist-00000').click();
+  await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'playing', { timeout: 10_000 });
+  await expect.poll(async () => (await telemetry(page))?.videoPath ?? null, { timeout: 5000 }).toBe('element');
+  await expect(page.getByTestId('video-element')).toBeVisible();
+  // the choice is saved for the next visit
+  expect(await page.evaluate(() => localStorage.getItem('bluray-web:video-output'))).toBe('element');
+});
+
+test.describe('with shaders on a GPU', () => {
+  test.skip(process.env.SHADERS_GPU !== '1', 'set SHADERS_GPU=1 to run the shader tests that need a GPU');
+
+  test('turning a shader set on during HDR video reopens it on the canvas, and off returns it to the element', async ({ page }) => {
+    await openHdrDisc(page, '?telemetry=1');
+    await expect.poll(async () => (await telemetry(page))?.videoPath ?? null, { timeout: 5000 }).toBe('element');
+    await expect.poll(async () => (await telemetry(page))?.clockUs ?? 0, { timeout: 5000 }).toBeGreaterThan(1_000_000);
+    await page.getByTestId('player').hover();
+    await page.getByTestId('shader-menu').click();
+    await page.getByTestId('shader-set-Anime4K: Mode A (Fast)').click();
+    await expect.poll(async () => (await telemetry(page))?.videoPath ?? null, { timeout: 10_000 }).toBe('canvas');
+    await expect.poll(async () => ((await telemetry(page)) as { shader?: { set: string } | null } | null)?.shader?.set ?? null, { timeout: 15_000 }).toBe('Anime4K: Mode A (Fast)');
+    await expect(page.getByTestId('video-element')).toBeHidden();
+    await page.getByTestId('player').hover();
+    await page.getByTestId('shader-menu').click();
+    await page.getByTestId('shader-set-off').click();
+    await expect.poll(async () => (await telemetry(page))?.videoPath ?? null, { timeout: 10_000 }).toBe('element');
+    await expect(page.getByTestId('video-element')).toBeVisible();
+  });
 });
 
 test('an HDR disc whose element fails falls back to the canvas once, with the notice once', async ({ page }) => {

@@ -104,18 +104,39 @@ what would change that decision.
   in one step of about 17 ms, so the page sees it running that far in, and `play()` takes about another display refresh
   to show its first frame; the start's catch-up, capped at 25% fast, removes that in about 0.15 s. A telemetry window
   that holds mostly those frames averages 8 to 20 ms (measured over 15 runs of `element-path.spec.ts` in Playwright's
-  WebKit on macOS, one over 20 ms), and 35 to 43 ms with three tests running at once. *Revisit if* the owner rules on
-  the element path's start (a start timed from the audio output's predicted first sound, or a faster start catch-up).
+  WebKit on macOS, one over 20 ms), and 35 to 43 ms with three tests running at once. `disc-hdr`, which starts as it
+  opens (First Play, 1080p HEVC), averaged 28 to 43 ms in its first window in 10 of 11 runs on 2026-11-16 (31 to 33
+  ms alone), so its sync test usually fails in WebKit on macOS, as it did with `?videopath=element` before the
+  automatic choice. *Revisit if*
+  the owner rules on the element path's start (a start timed from the audio output's predicted first sound, or a
+  faster start catch-up).
 - **The element path's sync is unchecked in Firefox.** Its E2E tests skip Firefox: on the CI runner Firefox has no
   running audio output (the clock falls back to the wall clock), and `disc-hdr` there played HEVC Main10 through MSE
-  about 56 ms off the sound. Firefox on a desktop with audio passed all seven tests locally. *Revisit if* Firefox
-  becomes a target for the element path (phase 2's automatic choice).
+  about 56 ms off the sound. Firefox on a desktop with audio passed all seven tests locally. Under Auto, Firefox takes
+  the element path only for an HDR stream its MSE plays, or an SDR one its WebCodecs can't configure. *Revisit if*
+  Firefox lip sync on the element path is reported, or its CI runner gains an audio output.
 - **On the element path a BD-J background still shows only until the video element shows a frame.** On the canvas
   path the still is drawn under the video; over the element it would cover the picture, so the canvas draws it from
   the start of each element session until the page reports the element's first frame (`videoFrameShown`), and not
   again in that session. Discs show such stills in menus without video, where no frame ever comes, so they look as on
   the canvas path; a disc that shows a still beside a playing video smaller than the screen loses the still's visible
   part once the video starts. *Revisit if* a disc needs that.
+- **HDR on the canvas path stays flat.** The canvas path (Video output Always the canvas, a shader set on, a browser
+  whose video element can't play the stream, or the fallback after the element failed) draws HDR video through
+  WebCodecs into an SDR 2D canvas, so PQ and HLG pictures lose their HDR and look dim or washed out, however the
+  browser converts the frame. *Revisit if* a canvas gains an HDR mode, or tone mapping on the canvas is wanted (the
+  roadmap's HDR-on-SDR item).
+- **A Dolby Vision disc plays its HDR10 base layer.** The engine reads the main video PID only; a UHD disc's Dolby
+  Vision enhancement layer (its second video stream, which carries the Dolby Vision metadata) is never read, and the
+  element is given the base layer as HDR10 (Auto takes it as HDR from the CLPI's dynamic range type). *Revisit if* a
+  browser plays dual-layer Dolby Vision through MSE.
+- **HDR10+ metadata isn't passed on.** The fragmented MP4 carries the stream's static HDR metadata only (`colr`,
+  `mdcv`, `clli`), so a browser shows an HDR10+ disc as HDR10, tone mapped by its static metadata. *Revisit if* a
+  browser reads HDR10+ dynamic metadata from MP4 (an `hdr10plus`-style box or the SEI messages) and acts on it.
+- **HDR SEI metadata is read once per change of parameter sets.** The `mdcv` and `clli` boxes come from the prefix
+  SEI of the first access unit after the SPS or PPS changes, so clips that share an SPS but differ in MaxCLL (or
+  mastering display) keep the first clip's values for the rest of the session. *Revisit if* a disc's clips carry
+  different light levels under one SPS and the difference shows.
 - **Subtitles and menus over HDR video stay as SDR graphics.** Over an HDR stream on the element path the overlay
   canvas is the engine's ordinary 2D canvas, so PG, IG and BD-J graphics are drawn as SDR, at most the display's SDR
   white (Windows' "SDR content brightness"), not at the BT.2408 graphics reference of 203 nits. Measured on 2026-11-16
@@ -229,6 +250,10 @@ what would change that decision.
 - **No in-memory fallback when IndexedDB is unavailable:** the menu opens but sets cannot be chosen that session
   (errors are logged). Chrome's private windows still provide IndexedDB, so this is rare. *Revisit if* users with
   blocked site storage need shaders.
+- **`ShaderStage.available` is fixed when the stage is built.** A shader set forces the canvas path only where shaders
+  can run, and the engine judges that once, when it builds the stage; a WebGL context lost later still counts as
+  available, so a set then keeps video on the canvas though no shader runs. *Revisit if* context loss is seen (read
+  the stage's state at each choice of path).
 - **`unavailable` is discovered only when a set is first chosen:** the engine creates the WebGL2 backend lazily, so
   until then the menu lists sets as usual, and only after the first choice does it show the unavailable message.
   *Revisit if* users on such browsers find the late message confusing (probe at startup).
@@ -612,8 +637,12 @@ what would change that decision.
   paths alike, though the telemetry reads in sync: the sound reaches the ear later than Safari reports (wired
   headphones: 1 ms reported, `getOutputTimestamp` agrees), by an amount no browser API shows. The flash and beep of
   `scripts/make-sync-disc.ts` look together, so the gap is small; AirPods add more (160 ms reported, more heard).
-  Chrome on the same Mac is in sync. Owner's check, 2026-11-16. *Revisit if* an audio delay setting (per device, set
-  by eye) is taken up; the owner tabled it.
+  Chrome on the same Mac is in sync. Owner's check, 2026-11-16. It didn't reproduce later the same day: real sessions
+  measured the picture 8 to 19 ms behind the clock. Two WebKit findings from that investigation: WebKit under-reports
+  its output delay by about 10 ms, and its delay can ratchet up after page-process stalls (on a test page, 301 ms,
+  until a reload; suspending and resuming the `AudioContext` doesn't clear it). The owner deferred both a stall
+  counter and rebuilding the `AudioContext` after a stall until it recurs. *Revisit if* it recurs, or an audio delay
+  setting (per device, set by eye) is taken up; the owner tabled it.
 
 ## Browsers and devices
 
