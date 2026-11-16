@@ -1,4 +1,5 @@
 /** Types shared by the NAS server and the app. No runtime code. */
+import type { DynamicRange } from './dynamic-range';
 import type { EncodeTitle } from './encode-title';
 
 /**
@@ -203,6 +204,8 @@ export interface TitleSummary {
   readonly own: boolean;
   /** Present on a music title only. */
   readonly music?: TitleMusic;
+  /** The best HDR format among the title's discs (Dolby Vision over HDR10+ over HDR10), null when none; absent from a NAS older than it. */
+  readonly dynamicRange?: DynamicRange | null;
 }
 /** One copy of a disc in a title (server to app). */
 export interface DiscRef {
@@ -213,6 +216,8 @@ export interface DiscRef {
   readonly folder: string;
   /** A name the owner gave the disc, else null. */
   readonly displayName: string | null;
+  /** The disc's main title's HDR format from its CLPI, null for SDR; absent from a NAS older than it. */
+  readonly dynamicRange?: DynamicRange | null;
 }
 /** One disc of a season: the copies of it the library holds. */
 export interface DiscSlot {

@@ -27,6 +27,8 @@ When paired, the first screen shows who you are paired as, with **Open from NAS*
 
 The NAS files each disc under a title by itself. A series has seasons, each with an **Episodes** tab and a **Discs** tab, plus **Extras**. A watched mark shows how far you are in each episode.
 
+HDR discs carry a badge: **DV** (Dolby Vision), **HDR10+** or **HDR10**, as the disc itself records it. A title shows the best of its discs, so a film you have on UHD and on Blu-ray shows the UHD's badge, and each disc in its list shows its own. The folder browser and the screen before playing show the same badges beside **UHD** and **ISO**.
+
 If the owner has not opened the library to everyone, you see the folders only. Owners also see an **Unsorted** shelf (discs the NAS could not file) and a settings button.
 
 When a drive isn't there at a scan (unplugged, or not mounted yet), the NAS keeps listing the discs it had, so a drive that is briefly away doesn't empty the library. If a drive is gone for good, an owner opens **NAS settings**, finds it under **Drives** marked "Not found at the last scan", and picks **Forget its discs**. If the drive comes back later, the next scan lists its discs again.

@@ -1,5 +1,9 @@
 import { readFile, stat } from 'node:fs/promises';
-import { MarkType, parseMpls } from '@seikou/bdmv/mpls-parser';
+import { parseClpi, type Clpi } from '@seikou/bdmv/clpi-parser';
+import { dynamicRangeOf } from '@seikou/bdmv/dynamic-range';
+import { MarkType, parseMpls, type Mpls } from '@seikou/bdmv/mpls-parser';
+import type { MainTitleCandidate } from '@seikou/engine/disc/main-title';
+import { playableMainTitle } from '@seikou/engine/disc/playable-main-title';
 import { contentHash } from '@seikou/nas/content-hash';
 import { streamsOf } from '@seikou/nas/disc-key';
 import type { DiscEntry } from '@seikou/nas/nas-api';
@@ -14,6 +18,7 @@ export type { DiscEvidence };
 const STREAM = /^BDMV\/STREAM\/([^/]+\.M2TS)$/;
 const PLAYLIST = /^BDMV\/PLAYLIST\/([^/]+)\.MPLS$/;
 const BDMT = /^BDMV\/META\/DL\/BDMT_([A-Z]{3})\.XML$/;
+const CLIPINF = /^BDMV\/CLIPINF\/([^/]+)\.CLPI$/;
 /** Larger metadata or playlist files than this are not read. */
 const MAX_READ_BYTES = 1024 * 1024;
 
@@ -59,18 +64,22 @@ function bdmtName(xml: string): string | null {
 }
 
 /** A playlist's duration (sum of its play items) in seconds, to the millisecond, its entry marks and its clips. */
-function playlistOf(id: string, bytes: Uint8Array): DiscEvidence['playlists'][number] | null {
+function playlistOf(id: string, mpls: Mpls): DiscEvidence['playlists'][number] {
+  const ticks = mpls.playItems.reduce((sum, item) => sum + Math.max(0, item.outTime - item.inTime), 0);
+  return {
+    id,
+    durationS: Math.round(ticks / 45) / 1000,
+    chapters: mpls.marks.filter((m) => m.type === MarkType.ENTRY).length,
+    clips: mpls.playItems.map((item) => item.clipId),
+  };
+}
+
+/** A playlist file's parse, or null when this parser can't read it (it is then left out). */
+function parsedPlaylist(bytes: Uint8Array): Mpls | null {
   try {
-    const mpls = parseMpls(bytes);
-    const ticks = mpls.playItems.reduce((sum, item) => sum + Math.max(0, item.outTime - item.inTime), 0);
-    return {
-      id,
-      durationS: Math.round(ticks / 45) / 1000,
-      chapters: mpls.marks.filter((m) => m.type === MarkType.ENTRY).length,
-      clips: mpls.playItems.map((item) => item.clipId),
-    };
+    return parseMpls(bytes);
   } catch {
-    return null; // Not a playlist this parser reads: left out.
+    return null;
   }
 }
 
@@ -87,6 +96,7 @@ async function evidenceOf<F extends { path: string; size: number }>(
   const bytes = await read(wanted);
   const discTitles: { lang: string; name: string }[] = [];
   const playlists: DiscEvidence['playlists'][number][] = [];
+  const parsed: MainTitleCandidate[] = [];
   for (const f of wanted) {
     const b = bytes.get(f.path);
     if (!b) continue;
@@ -96,15 +106,45 @@ async function evidenceOf<F extends { path: string; size: number }>(
       const name = bdmtName(new TextDecoder().decode(b));
       if (name) discTitles.push({ lang: bdmt[1]!.toLowerCase(), name });
     } else if (pl) {
-      const playlist = playlistOf(pl[1]!, b);
-      if (playlist) playlists.push(playlist);
+      const mpls = parsedPlaylist(b);
+      if (mpls) {
+        playlists.push(playlistOf(pl[1]!, mpls));
+        parsed.push({ id: pl[1]!, mpls });
+      }
     }
   }
   discTitles.sort((a, b) => (a.lang < b.lang ? -1 : a.lang > b.lang ? 1 : 0));
   playlists.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const segments = entry.path.split('/').slice(1);
   const catalogue = new Set([...segments, ...discTitles.map((t) => t.name)].flatMap(catalogueNumbers));
-  return { discId: entry.id, path: entry.path, fingerprint: contentHash(streamsOf(files)), discTitles, segments, catalogueNumbers: [...catalogue], playlists };
+  const dynamicRange = await mainTitleDynamicRange(parsed, files, read);
+  return { discId: entry.id, path: entry.path, fingerprint: contentHash(streamsOf(files)), discTitles, segments, catalogueNumbers: [...catalogue], playlists, dynamicRange };
+}
+
+/**
+ * The HDR format of the main title among `playlists`, from the CLPI of each of its clips; a clip whose CLPI is missing,
+ * too large or unreadable is skipped, so a disc that can't be read is SDR (null), never a failed scan.
+ */
+async function mainTitleDynamicRange<F extends { path: string; size: number }>(
+  playlists: readonly MainTitleCandidate[],
+  files: readonly F[],
+  read: (files: F[]) => Promise<Map<string, Uint8Array>>,
+): Promise<DiscEvidence['dynamicRange']> {
+  const paths = new Set(files.map((f) => f.path));
+  const main = playableMainTitle(playlists, (path) => paths.has(path));
+  if (!main) return null;
+  const clips = new Set(main.mpls.playItems.map((item) => item.clipId));
+  const wanted = files.filter((f) => f.size <= MAX_READ_BYTES && clips.has(CLIPINF.exec(f.path)?.[1] ?? ''));
+  const bytes = await read(wanted);
+  const parsed: Clpi[] = [];
+  for (const b of bytes.values()) {
+    try {
+      parsed.push(parseClpi(b));
+    } catch {
+      // Not a clip this parser reads: skipped.
+    }
+  }
+  return dynamicRangeOf(parsed);
 }
 
 /**
@@ -114,7 +154,7 @@ async function evidenceOf<F extends { path: string; size: number }>(
 export async function readFolderEvidence(entry: DiscEntry, dir: string, list?: ListDir): Promise<DiscEvidence> {
   const files: { path: string; abs: string; size: number }[] = [];
   for (const f of await listFiles(dir, list)) {
-    if (!STREAM.test(f.path) && !PLAYLIST.test(f.path) && !BDMT.test(f.path)) continue;
+    if (!STREAM.test(f.path) && !PLAYLIST.test(f.path) && !BDMT.test(f.path) && !CLIPINF.test(f.path)) continue;
     try {
       files.push({ ...f, size: (await stat(f.abs)).size });
     } catch {

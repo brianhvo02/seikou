@@ -8,6 +8,7 @@ import type {
   DiscRef, DiscSlot, EpisodeRef, OwnerChoice, OwnTitle, SeasonDetail, TitleDetail, TitleKind, TitleMusic, TitleNames, TitleSummary, UnsortedItem, UnsortedReason,
   UnsortedSuggestion,
 } from '@seikou/nas/nas-api';
+import { bestDynamicRange } from '@seikou/nas/dynamic-range';
 import type { DiscDbHit } from './discdb';
 import { guessEpisodes } from './episodes';
 import type { DiscEvidence } from './disc-evidence';
@@ -461,6 +462,7 @@ export function buildCatalogue(input: CatalogueInput): Catalogue {
       root: cut < 0 ? e.path : e.path.slice(0, cut),
       folder: cut < 0 ? '' : e.path.slice(cut + 1),
       displayName: owner.displayNames.get(e.discId) ?? null,
+      dynamicRange: e.dynamicRange,
     };
   };
 
@@ -596,6 +598,7 @@ export function buildCatalogue(input: CatalogueInput): Catalogue {
       discs: seasons.reduce((n, s) => n + s.discs.length + s.extras.length, extras.length),
       addedAt: placed.reduce((max, p) => Math.max(max, input.addedAt.get(p.e.discId) ?? 0), 0),
       own: b.own,
+      dynamicRange: bestDynamicRange(placed.map((p) => p.e.dynamicRange)),
       ...(release ? { music: release.music } : {}),
     };
     summaries.set(b.id, summary);

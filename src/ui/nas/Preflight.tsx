@@ -6,6 +6,7 @@ import type { BufferRequest, StartPoint } from '@seikou/engine/protocol';
 import type { PlayerController } from '@seikou/engine/controller/player-controller';
 import { BUFFER_FAILED_COPY, bufferPlan, playlistFacts, readAheadCacheBytes, storageRoom, tooBigCopy, waitCopy, watchBufferFailure, type BufferPlan } from './buffer-model';
 import { discBadges, discFacts, formatSize, mainPlaylist, mainPlaylistId, openFailed, playlistOf, preflightLines, type DiscFacts } from './library-model';
+import { audioStarted } from './encode-launch';
 import { nasDiscSpec } from './disc-spec';
 import { videoCaps, type VideoCaps } from '../video-caps';
 import { ORIGINAL_ONLY, busyMessage, levelAudio, levelRows, placeAudioHint, preflightLevelState } from './level-model';
@@ -324,7 +325,7 @@ export function Preflight({ nas, controller, disc, playlistId, title, startTimeS
   const play = (launchWith: Launch, bufferFirst?: BufferRequest, hold = true): void => {
     if (!manifest || discKey === null) return;
     const { start } = launchWith;
-    controller.startAudio(); // inside the click gesture
+    const audio = audioStarted(controller); // inside the click gesture, waited for before the disc opens
     setOpening('starting');
     setError(null);
     launched.current = true;
@@ -333,7 +334,7 @@ export function Preflight({ nas, controller, disc, playlistId, title, startTimeS
     const fromPath = from ? nasRoutePath(from) : null;
     if (!pushRoute) playingRoute.start(discKey, { discName: disc.name, title: title ?? null });
     const id = ++launch.current;
-    Promise.all([nas.discBase(disc.id), nas.session(), nas.pairing()]).then(
+    Promise.all([nas.discBase(disc.id), nas.session(), nas.pairing(), audio]).then(
       async ([base, session, pairing]) => {
         if (id !== launch.current) return;
         // The engine asks again only after the NAS refused the token it has, so that one is never handed back.
@@ -422,7 +423,7 @@ export function Preflight({ nas, controller, disc, playlistId, title, startTimeS
   const busy = busyMessage(levelList);
   const levelPicked = selected.level !== 'original';
   const lines = preflightLines(mbps ?? null, levelPicked ? selected.budgetMbps : (facts?.peakMbps ?? null), levelPicked ? selected.label : undefined);
-  const badges = discBadges(disc, facts?.uhd);
+  const badges = discBadges(disc, facts ?? undefined);
   const size = disc.sizeBytes ?? (manifest ? manifest.files.reduce((sum, f) => sum + f.size, 0) : null);
 
   return (

@@ -1,9 +1,12 @@
 import { parseClpi } from '@seikou/bdmv/clpi-parser';
+import { dynamicRangeOf } from '@seikou/bdmv/dynamic-range';
 import { parseMpls, type Mpls } from '@seikou/bdmv/mpls-parser';
 import { CodingType, isVideoCoding } from '@seikou/bdmv/stream-types';
+import type { DynamicRange } from '@seikou/nas';
 import type { DiscEntry, DiscManifest, FolderEntry } from '@seikou/nas/nas-api';
-import { chooseMainTitle, type MainTitleCandidate } from '@seikou/engine/disc/main-title';
-import { clipInfoPath, streamPath } from '@seikou/engine/disc/open-disc';
+import type { MainTitleCandidate } from '@seikou/engine/disc/main-title';
+import { playableMainTitle } from '@seikou/engine/disc/playable-main-title';
+import { clipInfoPath } from '@seikou/engine/disc/open-disc';
 
 /**
  * The folder browser and the pre-flight's disc facts, pure: breadcrumbs and row order from a folder listing, and from
@@ -39,12 +42,21 @@ export function sortRows(listing: { readonly folders: readonly FolderEntry[]; re
   ];
 }
 
-/** `ISO` for disc images; `UHD` once the disc's manifest has shown an HEVC 2160p main title (undefined: not known yet). */
-export function discBadges(disc: Pick<DiscEntry, 'kind'>, uhd: boolean | undefined): string[] {
+/** `ISO` for disc images; `UHD` and its HDR badge once the disc's manifest has shown an HEVC 2160p or HDR main title (undefined: not known yet). */
+export function discBadges(disc: Pick<DiscEntry, 'kind'>, facts: Pick<DiscFacts, 'uhd' | 'dynamicRange'> | undefined): string[] {
   const badges: string[] = [];
   if (disc.kind === 'iso') badges.push('ISO');
-  if (uhd) badges.push('UHD');
+  if (facts?.uhd) badges.push('UHD');
+  const range = dynamicRangeBadge(facts?.dynamicRange);
+  if (range) badges.push(range);
   return badges;
+}
+
+const RANGE_BADGES: Readonly<Record<DynamicRange, string>> = { dv: 'DV', hdr10plus: 'HDR10+', hdr10: 'HDR10' };
+
+/** A disc's or title's HDR badge (`DV`, `HDR10+`, `HDR10`); null for SDR, and for a NAS that sends no dynamic range. */
+export function dynamicRangeBadge(range: DynamicRange | null | undefined): string | null {
+  return range ? RANGE_BADGES[range] : null;
 }
 
 /** Decimal units, one decimal place above bytes: '46.1 GB'. */
@@ -65,6 +77,8 @@ export interface DiscFacts {
   readonly peakMbps: number | null;
   /** The main title is HEVC 2160p. */
   readonly uhd: boolean;
+  /** The main title's HDR format from its clips' CLPI, null for SDR or when unknown. */
+  readonly dynamicRange: DynamicRange | null;
 }
 
 /** BD video_format code of 2160p. */
@@ -95,23 +109,18 @@ export function mainPlaylistId(manifest: DiscManifest): string | null {
 function mainTitle(manifest: DiscManifest): MainTitleCandidate | null {
   try {
     const files = new Set(manifest.files.map((f) => f.path));
-    const candidates: MainTitleCandidate[] = [];
+    const playlists: MainTitleCandidate[] = [];
     for (const path of Object.keys(manifest.inline).sort()) {
-      const m = /^BDMV\/PLAYLIST\/(\d{5})\.MPLS$/.exec(path);
+      const m = /^BDMV\/PLAYLIST\/([^/]+)\.MPLS$/.exec(path);
       const bytes = m && inlined(manifest, path);
       if (!m || !bytes) continue;
-      let mpls: Mpls;
       try {
-        mpls = parseMpls(bytes);
+        playlists.push({ id: m[1]!, mpls: parseMpls(bytes) });
       } catch {
-        continue;
+        // not a playlist this parser reads
       }
-      const hasVideo = mpls.playItems.length > 0 && mpls.playItems[0]!.stn.video.some((v) => !v.subPath);
-      const complete = mpls.playItems.every((p) => files.has(clipInfoPath(p.clipId)) && files.has(streamPath(p.clipId)));
-      if (hasVideo && complete) candidates.push({ id: m[1]!, mpls });
     }
-    const mainId = chooseMainTitle(candidates);
-    return candidates.find((c) => c.id === mainId) ?? null;
+    return playableMainTitle(playlists, (p) => files.has(p));
   } catch {
     return null;
   }
@@ -130,7 +139,7 @@ export function playlistOf(manifest: DiscManifest, id: string): Mpls | null {
 
 /** What the manifest's inlined playlists and clip info say about the main title (mainPlaylist). */
 export function discFacts(manifest: DiscManifest): DiscFacts {
-  const unknown: DiscFacts = { peakMbps: null, uhd: false };
+  const unknown: DiscFacts = { peakMbps: null, uhd: false, dynamicRange: null };
   try {
     const clipIds = [...new Set(mainPlaylist(manifest)?.playItems.map((p) => p.clipId) ?? [])];
     const clips = clipIds.flatMap((id) => {
@@ -145,6 +154,7 @@ export function discFacts(manifest: DiscManifest): DiscFacts {
     return {
       peakMbps: peak > 0 ? (peak * 8) / 1e6 : null,
       uhd: video?.codingType === CodingType.HEVC && video.format === VIDEO_FORMAT_2160P,
+      dynamicRange: dynamicRangeOf(clips),
     };
   } catch {
     return unknown;

@@ -563,8 +563,8 @@ describe('the plan holds what an interval keeps', () => {
         spnProgramSequenceStart: 0,
         programMapPid: 0x100,
         streams: [
-          { pid: VIDEO, codingType: 0x1b, format: 6, rate: 1, lang: '', aspect: 3 },
-          ...Array.from({ length: pg }, (_, i) => ({ pid: 0x1200 + i, codingType: 0x90, format: 0, rate: 0, lang: 'eng', aspect: 0 })),
+          { pid: VIDEO, codingType: 0x1b, format: 6, rate: 1, lang: '', aspect: 3, dynamicRange: 0, hdrPlus: false },
+          ...Array.from({ length: pg }, (_, i) => ({ pid: 0x1200 + i, codingType: 0x90, format: 0, rate: 0, lang: 'eng', aspect: 0, dynamicRange: 0, hdrPlus: false })),
         ],
       },
     ],

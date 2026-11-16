@@ -13,7 +13,7 @@ function library(): ReturnType<typeof buildCatalogue> {
   const pl = (id: string, minutes: number, clips: string[]): DiscEvidence['playlists'][number] => ({ id, durationS: minutes * 60, chapters: 6, clips });
   const evidence: DiscEvidence = {
     discId: 'disc-a', path: 'Starfall Wanderer/Disc 1', fingerprint: null, discTitles: [], segments: ['Starfall Wanderer', 'Disc 1'], catalogueNumbers: [],
-    playlists: [pl('00001', 24, ['00001']), pl('00002', 24, ['00002']), pl('00003', 24, ['00003']), pl('00004', 72, ['00001', '00002', '00003'])],
+    playlists: [pl('00001', 24, ['00001']), pl('00002', 24, ['00002']), pl('00003', 24, ['00003']), pl('00004', 72, ['00001', '00002', '00003'])], dynamicRange: null,
   };
   return buildCatalogue({
     matches: [{ discId: 'disc-a', status: 'filed', entryId: show.id, season: 1, disc: 1, bonus: false, via: ['folder'] }],

@@ -9,7 +9,7 @@ import { OwnerStore } from '@seikou/titles/owner-store';
 import { MATCH_RULES_VERSION } from '@seikou/titles/match';
 import type { FolderCover } from '@seikou/titles/catalogue';
 import type { MusicRelease, MusicSource } from '@seikou/titles/music-sources';
-import { downloadRootNames, fixtureSources, loadDiscDbOrNone, releaseFolderOf, TitleService } from './service';
+import { downloadRootNames, evidenceKey, fixtureSources, loadDiscDbOrNone, releaseFolderOf, TitleService } from './service';
 import { SourceUnavailable } from '@seikou/titles/sources';
 import type { Entry, EntryNames, MetadataSource } from '@seikou/titles/sources';
 import type { EncodeTitle } from '@seikou/nas/encode-title';
@@ -76,6 +76,7 @@ function ev(path: string, titles: Record<string, string> = {}, fingerprint: stri
     segments: path.split('/').slice(1),
     catalogueNumbers: [],
     playlists: [],
+    dynamicRange: null,
   };
 }
 
@@ -928,6 +929,15 @@ describe('TitleService final review', () => {
     clock += 60_000;
     await s.runNow();
     expect(s.catalogue().titles).toHaveLength(8);
+  });
+});
+
+describe('evidenceKey', () => {
+  it('leaves the dynamic range out, so adding it re-matches nothing', () => {
+    const ev: DiscEvidence = { discId: 'd1', path: 'm/A', fingerprint: null, discTitles: [], segments: ['A'], catalogueNumbers: [], playlists: [], dynamicRange: 'dv' };
+    const { dynamicRange: _, ...before } = ev;
+    expect(evidenceKey(ev)).toBe(evidenceKey(before as DiscEvidence));
+    expect(evidenceKey(ev)).not.toBe(evidenceKey({ ...ev, segments: ['B'] }));
   });
 });
 

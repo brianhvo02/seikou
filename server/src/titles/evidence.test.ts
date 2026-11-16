@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { DiscEntry } from '@seikou/nas/nas-api';
-import { buildIndex, buildMpls } from '../../../tests/helpers/bdmv-builders';
+import { CodingType } from '@seikou/bdmv/stream-types';
+import { buildClpi, buildIndex, buildMpls } from '../../../tests/helpers/bdmv-builders';
 import { IsoTrees } from '../iso';
 import { catalogueNumbers, readFolderEvidence, readIsoEvidence } from './evidence';
 
@@ -94,7 +95,63 @@ describe('readFolderEvidence', () => {
   it('copes with a disc that has no playlists, streams or metadata', async () => {
     put(join(tmp, 'Bare/BDMV/index.bdmv'), 'x');
     const ev = await readFolderEvidence({ ...entry, path: 'media0/Bare' }, join(tmp, 'Bare'));
-    expect(ev).toEqual({ discId: 'disc-3', path: 'media0/Bare', fingerprint: null, discTitles: [], segments: ['Bare'], catalogueNumbers: [], playlists: [] });
+    expect(ev).toEqual({ discId: 'disc-3', path: 'media0/Bare', fingerprint: null, discTitles: [], segments: ['Bare'], catalogueNumbers: [], playlists: [], dynamicRange: null });
+  });
+});
+
+describe('the dynamic range of the main title', () => {
+  const entry: DiscEntry = { id: 'uhd-1', name: 'UHD', path: 'media0/UHD', kind: 'folder', sizeBytes: 0 };
+  const hevcVideo = [{ pid: 0x1011, codingType: CodingType.HEVC, format: 8 }];
+  const clpi = (dynamicRange: number): Uint8Array =>
+    buildClpi({
+      numSourcePackets: 10,
+      streams: [{ pid: 0x1011, codingType: CodingType.HEVC, format: 8, dynamicRange, colorSpace: 2 }],
+      presentationStart: 0,
+      presentationEnd: 45_000 * 60,
+      epMaps: [{ pid: 0x1011, entries: [{ pts: 0, spn: 0 }] }],
+    });
+
+  beforeEach(() => {
+    const bdmv = join(tmp, 'UHD/BDMV');
+    put(join(bdmv, 'index.bdmv'), buildIndex({ firstPlay: { kind: 'hdmv', movieObjectId: 0 }, topMenu: { kind: 'hdmv', movieObjectId: 0 }, titles: [] }));
+    // 00001 is the feature (two clips, the second the longer), 00002 a short SDR trailer
+    put(
+      join(bdmv, 'PLAYLIST/00001.mpls'),
+      buildMpls({
+        playItems: [
+          { clipId: '00001', inTime: 0, outTime: 45_000 * 600, video: hevcVideo },
+          { clipId: '00002', inTime: 0, outTime: 45_000 * 1200, video: hevcVideo },
+        ],
+      }),
+    );
+    put(join(bdmv, 'PLAYLIST/00002.mpls'), buildMpls({ playItems: [{ clipId: '00003', inTime: 0, outTime: 45_000 * 60, video: hevcVideo }] }));
+    for (const id of ['00001', '00002', '00003']) put(join(bdmv, `STREAM/${id}.m2ts`), new Uint8Array(4));
+    put(join(bdmv, 'CLIPINF/00001.clpi'), clpi(1));
+    put(join(bdmv, 'CLIPINF/00002.clpi'), clpi(1));
+    put(join(bdmv, 'CLIPINF/00003.clpi'), clpi(0));
+  });
+
+  it("is the main title's, from its clips' CLPI", async () => {
+    expect((await readFolderEvidence(entry, join(tmp, 'UHD'))).dynamicRange).toBe('hdr10');
+  });
+
+  it("is null when the main title's CLPI can't be read, and the rest of the evidence is unchanged", async () => {
+    const before = await readFolderEvidence(entry, join(tmp, 'UHD'));
+    put(join(tmp, 'UHD/BDMV/CLIPINF/00001.clpi'), 'not a clip');
+    put(join(tmp, 'UHD/BDMV/CLIPINF/00002.clpi'), 'not a clip');
+    const after = await readFolderEvidence(entry, join(tmp, 'UHD'));
+    expect(after.dynamicRange).toBeNull();
+    expect({ ...after, dynamicRange: before.dynamicRange }).toEqual(before);
+  });
+
+  it('chooses the main title as the app does, among playlists whose clips are on the disc', async () => {
+    // a longer SDR playlist whose clips were left out of a main-movie-only copy
+    put(join(tmp, 'UHD/BDMV/PLAYLIST/00003.mpls'), buildMpls({ playItems: [{ clipId: '00009', inTime: 0, outTime: 45_000 * 3600, video: hevcVideo }] }));
+    expect((await readFolderEvidence(entry, join(tmp, 'UHD'))).dynamicRange).toBe('hdr10');
+  });
+
+  it('is null for an H.264 disc', async () => {
+    expect((await readFolderEvidence(entry, join(FIXTURES, 'disc1'))).dynamicRange).toBeNull();
   });
 });
 

@@ -31,6 +31,24 @@ describe('parseClpi', () => {
     ]);
   });
 
+  it('parses dynamic_range_type and hdr_plus_flag of an HEVC stream', () => {
+    const clpi = parseClpi(
+      buildClpi({
+        numSourcePackets: 1000,
+        streams: [
+          { pid: 0x1011, codingType: CodingType.HEVC, format: 8, dynamicRange: 1, colorSpace: 2, hdrPlus: true },
+          { pid: 0x1012, codingType: CodingType.AVC },
+        ],
+        presentationStart: BASE,
+        presentationEnd: BASE + 450_000,
+        epMaps: [{ pid: 0x1011, entries: [{ pts: BASE, spn: 0 }] }],
+      }),
+    );
+    const [hevc, avc] = clpi.programs[0].streams;
+    expect(hevc).toMatchObject({ format: 8, dynamicRange: 1, hdrPlus: true });
+    expect(avc).toMatchObject({ dynamicRange: 0, hdrPlus: false });
+  });
+
   it('reconstructs EP entries from coarse/fine tables, including SPN carries past 0x20000', () => {
     const entries = [
       { pts: BASE, spn: 0 },
