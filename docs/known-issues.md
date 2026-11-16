@@ -116,20 +116,22 @@ what would change that decision.
   again in that session. Discs show such stills in menus without video, where no frame ever comes, so they look as on
   the canvas path; a disc that shows a still beside a playing video smaller than the screen loses the still's visible
   part once the video starts. *Revisit if* a disc needs that.
-- **Subtitles and menus over HDR video stay at the system's SDR white.** Over an HDR stream on the element path the
-  overlay canvas is an SDR 2D canvas, so PG, IG and BD-J graphics show at the display's SDR white (Windows' "SDR
-  content brightness"), not at the BT.2408 graphics reference of 203 nits. Measured on 2026-11-16 by reading pixels
-  back in an OffscreenCanvas 2D context, page and worker: Chrome 157 rejects `colorSpace: 'rec2100-pq'`,
-  `'rec2100-hlg'` and `'rec2100-linear'` (a TypeError on the context and on `getImageData`); it accepts
-  `colorType: 'float16'` and keeps values above 1 (a `color(srgb-linear 2.54 …)` fill reads back as 2.54), but it
-  ignores `toneMapping: { mode: 'extended' }` on a 2D context (the attributes still say `standard`), so the canvas never
-  shows above SDR white; and a PQ `VideoFrame` drawn into it is tone mapped to SDR (100 nits reads 0.25 linear,
-  203 nits 0.50, 1000 nits 1.0). `HTMLCanvasElement` and `OffscreenCanvas` have no `configureHighDynamicRange`.
-  Playwright's WebKit (macOS) rejects the `rec2100-*` colour spaces and ignores `colorType` (reads stay 8-bit). The one
-  HDR canvas Chrome has is WebGPU's: an `rgba16float` context configured with `toneMapping: { mode: 'extended' }`
-  keeps the mode, in a worker too, where 1.0 is the display's SDR white; reaching 203 nits there needs the SDR white
-  level in nits, which no web API gives, and the overlays would have to be presented through WebGPU. *Revisit if* a 2D
-  canvas gains an HDR mode, or the owner picks the WebGPU route and a white level.
+- **Subtitles and menus over HDR video stay as SDR graphics.** Over an HDR stream on the element path the overlay
+  canvas is the engine's ordinary 2D canvas, so PG, IG and BD-J graphics are drawn as SDR, at most the display's SDR
+  white (Windows' "SDR content brightness"), not at the BT.2408 graphics reference of 203 nits. Measured on 2026-11-16
+  in an OffscreenCanvas, page and worker, on a Mac whose display reported no HDR (`(dynamic-range: high)` false).
+  Independent of the display: Chrome 157 rejects `colorSpace: 'rec2100-pq'`, `'rec2100-hlg'` and `'rec2100-linear'`
+  (a TypeError on the 2D context and on `getImageData`); it ignores `toneMapping: { mode: 'extended' }` on a 2D context
+  (the attributes still say `standard`, and even `mode: 'bogus'` doesn't throw); it accepts `colorType: 'float16'`,
+  which stores values above 1 (a `color(srgb-linear 2.54 …)` fill reads back as 2.54); and neither `HTMLCanvasElement`
+  nor `OffscreenCanvas` has `configureHighDynamicRange`. A WebGPU `rgba16float` context configured with
+  `toneMapping: { mode: 'extended' }` keeps that mode, in a worker too. Playwright's WebKit (macOS) rejects the
+  `rec2100-*` colour spaces and ignores `colorType` (reads stay 8-bit). Unconfirmed, because that display had no HDR:
+  whether a `float16` 2D canvas, or the WebGPU canvas in extended mode, shows values above 1 brighter than SDR white
+  on a real HDR display (the owner can check in Chrome on Windows with HDR on). If WebGPU does, its 1.0 is the
+  display's SDR white, so reaching 203 nits needs the SDR white level in nits, which no web API gives, and the overlays
+  would have to be presented through WebGPU. *Revisit if* a 2D canvas gains an HDR mode, or the owner picks the WebGPU
+  route and a white level.
 
 ## Menus (HDMV)
 
