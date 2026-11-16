@@ -1019,7 +1019,8 @@ export class Player {
    * changes nothing about the path): shaders run on the canvas path only, so a playlist playing on the element path opens
    * again at the same time on the canvas, and one kept on the canvas for the shaders alone opens again on the element
    * path (unless the page has already said it can't play the stream). Either reopen is the one a quality level switch
-   * makes, and shows no notice.
+   * makes, and shows no notice. As at any playlist start, the picture is gone until the new path's first frame, so a
+   * BD-J background still shows in that moment.
    */
   private async followShaders(on: boolean): Promise<void> {
     const was = this.shadersOn;
