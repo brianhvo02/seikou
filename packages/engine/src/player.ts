@@ -78,7 +78,8 @@ import { looksLikeAss, parseAss } from '@seikou/ass/parse';
 import { AssRenderer, type AssRendererDeps } from '@seikou/ass/renderer';
 import { MEMORY_PROFILES, type MemoryProfile, type MemoryProfileName } from './memory-profile';
 import { ClockBlockWriter, ClockLine } from './element/clock-block';
-import { ElementRemux, elementCodec, type RemuxOutput } from './element/remux';
+import { elementCodec } from './element/remux';
+import { ElementCodecQueries, ElementSession } from './element/element-session';
 import type { Mat3 } from '@seikou/ass/transform';
 import type { AssTrack } from '@seikou/ass/types';
 import { BDJ_STORAGE_MESSAGE, ENCODE_FILE, ENCODE_PLAYLIST_ID, NO_PICTURE_MESSAGE, type AudioTrack, type EncodeSpec, type BufferRequest, type BdjMemoryTelemetry, type EngineCommand, type EngineEvent, type FileData, type MenuKey, type NoticeCode, type PlaceState, type PgTrack, type PlaybackState, type ShaderSetData, type StartPoint, type SubtitleChoice, type VideoPath } from './protocol';
@@ -277,12 +278,6 @@ const TIME_EVENT_INTERVAL_US = 250_000;
 const TELEMETRY_INTERVAL_MS = 500;
 const HEARTBEAT_TIMEOUT_MS = 500;
 const MAX_AUDIO_ERRORS_IN_ROW = 50;
-/** How long the page has to say whether its video element plays a codec before the session takes the canvas path. */
-const ELEMENT_QUERY_TIMEOUT_MS = 2000;
-/** After an element stall (and at the end of reading), playback resumes once the element holds this much video ahead of the clock. */
-const ELEMENT_RESUME_LEAD_US = 500_000;
-/** At the end of reading, a buffered end this close to the last segment's end (about a frame) counts as all of it. */
-const ELEMENT_END_SLACK_US = 42_000;
 /** Frames up to this far before a seek target are still shown (EP pts are truncated by up to ~5.7 ms). */
 const SEEK_TOLERANCE_US = 1_000;
 const NEXT_CHAPTER_GUARD_US = 500_000;
@@ -367,21 +362,7 @@ interface Session {
    */
   decoder: WebCodecsVideoDecoder | null;
   /** The element path: the video is remuxed for the page's video element instead of decoded here; null on the canvas path. */
-  element: ElementRemux | null;
-  /** On the element path, the end of what the element has buffered (videoBuffered), in playlist time; -Infinity after a reset. */
-  elementBufferedEndUs: number;
-  /** On the element path, the element ran dry while playing (videoStalled): the start-up waits for ELEMENT_RESUME_LEAD_US. */
-  elementStalled: boolean;
-  /** A videoBuffered of the current generation came since the last videoStalled (a stall resumes only on a fresh report). */
-  elementFreshBuffered: boolean;
-  /** The generation of the session's last videoReset: reports the page made before it are ignored. */
-  elementGeneration: number;
-  /** The generation of the session's first videoReset: a failure the page reports from before it is another session's. */
-  elementFirstGeneration: number;
-  /** On the element path, the media segments sent to the page since the last reset (videoBuffered echoes those appended). */
-  elementSegmentsSent: number;
-  /** On the element path, the compositor has gone transparent at the stream's size (the session's first init). */
-  elementShown: boolean;
+  element: ElementSession | null;
   /** Where presentation last started (startAt's target): an element session chosen later begins its video there. */
   startedAtUs: number;
   /** The M2TS reader, or an encoded episode's Matroska reader. */
@@ -428,12 +409,6 @@ interface Session {
 /** A coding type's name for notices and telemetry: Opus (an encode's) or a disc's. */
 function audioCodingName(codingType: number): string {
   return codingType === CODING_OPUS ? OPUS_NAME : codingName(codingType);
-}
-
-/** The buffer to transfer with `bytes` when the view covers all of it (the remuxer's output does), else none. */
-function transferOf(bytes: Uint8Array): Transferable[] | undefined {
-  const buffer = bytes.buffer;
-  return buffer instanceof ArrayBuffer && bytes.byteOffset === 0 && bytes.byteLength === buffer.byteLength ? [buffer] : undefined;
 }
 
 function isMediaError(err: unknown): boolean {
@@ -583,10 +558,8 @@ export class Player {
   private clockWriter: ClockBlockWriter | null = null;
   /** Smooths the stepped audio clock into the line the clock block publishes. */
   private readonly clockLine = new ClockLine();
-  /** The page's answers to videoElementQuery, by codec string, for the page's life. */
-  private readonly elementAnswers = new Map<string, boolean>();
-  /** Queries sent and not answered yet, by codec string: settled by the answer, or false at the timeout. */
-  private readonly elementQueries = new Map<string, { readonly answer: Promise<boolean>; readonly settle: (playable: boolean) => void }>();
+  /** The page's answers to whether its video element plays a codec, for the page's life, and the questions still open. */
+  private readonly elementQueries: ElementCodecQueries;
   /** The element's presented and dropped frames, totals since its source opened (videoSync); telemetry on the element path. */
   private elementFrames = { presented: 0, dropped: 0, catchUps: 0 };
   /** The compositor went transparent for the element: the next paint clears the canvas even when nothing else changed. */
@@ -600,6 +573,7 @@ export class Player {
 
   constructor(private readonly deps: PlayerDeps) {
     this.clock = new MasterClock(deps.nowMs);
+    this.elementQueries = new ElementCodecQueries((event) => deps.emit(event), (ms, fn) => (deps.setTimer ?? defaultSetTimer)(ms, fn));
     const bdj = deps.bdj;
     this.bdjLatency = bdj?.input.createInputLatency() ?? null;
     this.background = bdj
@@ -1253,13 +1227,6 @@ export class Player {
       audioStalledBeat: null,
       audioRecoveryQueued: false,
       element: null,
-      elementBufferedEndUs: -Infinity,
-      elementStalled: false,
-      elementFreshBuffered: false,
-      elementGeneration: 0,
-      elementFirstGeneration: 0,
-      elementSegmentsSent: 0,
-      elementShown: false,
       startedAtUs: 0,
     };
     ref.current = session;
@@ -2695,13 +2662,6 @@ export class Player {
       audioStalledBeat: null,
       audioRecoveryQueued: false,
       element: null,
-      elementBufferedEndUs: -Infinity,
-      elementStalled: false,
-      elementFreshBuffered: false,
-      elementGeneration: 0,
-      elementFirstGeneration: 0,
-      elementSegmentsSent: 0,
-      elementShown: false,
       startedAtUs: 0,
     };
     ref.current = session;
@@ -3129,11 +3089,8 @@ export class Player {
     this.encodeSubs?.pgs?.control.seek();
     if (s.videoState === 'configured') s.decoder?.reset();
     s.startedAtUs = t;
-    if (s.element) {
-      // the element drops what it holds and starts again at the target; a pending stall goes with it
-      s.element.reset();
-      this.resetElement(s, t, !autoplay);
-    }
+    // the element drops what it holds and starts again at the target; a pending stall goes with it
+    s.element?.reset(t, !autoplay);
     s.pendingVideo = [];
     s.audioReadUs = -Infinity;
     s.videoReadUs = -Infinity;
@@ -3349,30 +3306,9 @@ export class Player {
       if (playable && this.clockWriter) this.startElement(s, decoder, coding);
       else this.configureDecoder(s, decoder, first);
     };
-    const cached = this.elementAnswers.get(codec);
+    const cached = this.elementQueries.cached(codec);
     if (cached !== undefined) decide(cached);
-    else void this.askElement(codec).then(decide);
-  }
-
-  private askElement(codec: string): Promise<boolean> {
-    const asked = this.elementQueries.get(codec);
-    if (asked) return asked.answer;
-    let settle!: (playable: boolean) => void;
-    const answer = new Promise<boolean>((resolve) => (settle = resolve));
-    const cancel = (this.deps.setTimer ?? defaultSetTimer)(ELEMENT_QUERY_TIMEOUT_MS, () => {
-      // no answer in time: this session takes the canvas path; a later answer is still kept for the next
-      if (this.elementQueries.get(codec)?.answer === answer) this.elementQueries.delete(codec);
-      settle(false);
-    });
-    this.elementQueries.set(codec, {
-      answer,
-      settle: (playable) => {
-        cancel();
-        settle(playable);
-      },
-    });
-    this.deps.emit({ type: 'videoElementQuery', codec });
-    return answer;
+    else void this.elementQueries.askElement(codec).then(decide);
   }
 
   /**
@@ -3383,43 +3319,25 @@ export class Player {
     decoder.close(); // never configured: no WebCodecs decoder was made
     s.decoder = null;
     s.videoState = 'configured';
-    const element = new ElementRemux(coding, (out) => this.onRemuxOutput(s, out));
+    const element = new ElementSession(coding, {
+      emit: (event, transfer) => this.deps.emit(event, transfer),
+      nextGeneration: () => ++this.elementResets,
+      isCurrent: () => this.session === s,
+      shown: (width, height, first) => {
+        if (!first) {
+          this.compositor?.setElementSize?.(width, height);
+        } else {
+          this.compositor?.startPlaylist?.(true, { element: { width, height } });
+          this.elementDirty = true;
+        }
+      },
+    });
     s.element = element;
-    this.resetElement(s, s.startedAtUs, !this.wantPlaying);
-    s.elementFirstGeneration = s.elementGeneration;
+    element.begin(s.startedAtUs, !this.wantPlaying);
     const held = s.pendingVideo;
     s.pendingVideo = [];
     for (const u of held) element.push({ data: u.data, ptsUs: u.ptsUs, ...(u.dtsUs !== undefined ? { dtsUs: u.dtsUs } : {}), inRange: u.inRange ?? true });
     if (s.eof) this.endElement(s);
-  }
-
-  /** The page's element starts again at `startUs` under a new generation; what it reported before is forgotten, a stall with it. */
-  private resetElement(s: Session, startUs: number, paused: boolean): void {
-    s.elementGeneration = ++this.elementResets;
-    s.elementBufferedEndUs = -Infinity;
-    s.elementStalled = false;
-    s.elementFreshBuffered = false;
-    s.elementSegmentsSent = 0;
-    this.deps.emit({ type: 'videoReset', startUs, paused, generation: s.elementGeneration });
-  }
-
-  /** The remuxer's output goes to the page, its bytes transferred; the first init turns the compositor transparent. */
-  private onRemuxOutput(s: Session, out: RemuxOutput): void {
-    if (this.session !== s) return;
-    const transfer = transferOf(out.bytes);
-    if (out.kind === 'segment') {
-      s.elementSegmentsSent++;
-      this.deps.emit({ type: 'videoSegment', bytes: out.bytes, startUs: out.startUs, endUs: out.endUs }, transfer);
-      return;
-    }
-    this.deps.emit({ type: 'videoInit', bytes: out.bytes, codec: out.codec, width: out.width, height: out.height }, transfer);
-    if (s.elementShown) {
-      this.compositor?.setElementSize?.(out.width, out.height);
-    } else {
-      s.elementShown = true;
-      this.compositor?.startPlaylist?.(true, { element: { width: out.width, height: out.height } });
-      this.elementDirty = true;
-    }
   }
 
   /** The element path's end of input: the last segment goes out, then videoEnded. */
@@ -3427,31 +3345,6 @@ export class Player {
     s.element?.flush();
     s.flushed = true;
     if (this.session === s) this.deps.emit({ type: 'videoEnded' });
-  }
-
-  /**
-   * Whether an element session can start, or resume after a stall: the element holds video past the clock (after a stall,
-   * ELEMENT_RESUME_LEAD_US of it, reported since the stall). Once reading is done the segments may still be on their way
-   * to the page, so it also waits there: until the element holds the last segment's end, or that lead.
-   */
-  private elementReady(s: Session): boolean {
-    if (s.elementStalled && !s.elementFreshBuffered) return false;
-    const now = this.clock.nowUs();
-    const buffered = s.elementBufferedEndUs;
-    if (buffered >= now + ELEMENT_RESUME_LEAD_US) return true;
-    if (s.eof && buffered >= (s.element?.endUs ?? -Infinity) - ELEMENT_END_SLACK_US) return true;
-    return !s.elementStalled && !s.eof && buffered > now;
-  }
-
-  /**
-   * Whether the element's report, after a stall, falls short of the resume lead although every segment sent since the
-   * reset has been appended and they reached further than the reported end: the browser dropped video at or after the
-   * playhead that the engine will not send again.
-   */
-  private elementEvicted(s: Session, appended: number): boolean {
-    if (!s.elementStalled || !s.element || appended < s.elementSegmentsSent) return false;
-    const buffered = s.elementBufferedEndUs;
-    return buffered < this.clock.nowUs() + ELEMENT_RESUME_LEAD_US && s.element.endUs > buffered + ELEMENT_END_SLACK_US;
   }
 
   /**
@@ -3463,10 +3356,6 @@ export class Player {
     this.elementOff = true;
     this.elementFailure = message;
     s.element = null;
-    s.elementShown = false;
-    s.elementStalled = false;
-    s.elementFreshBuffered = false;
-    s.elementBufferedEndUs = -Infinity;
     s.decoder = new WebCodecsVideoDecoder(this.deps.videoCodecApi);
     this.wireDecoder(s, s.decoder);
     s.videoState = 'unconfigured';
@@ -3482,7 +3371,7 @@ export class Player {
     this.clockWriter = new ClockBlockWriter(clock);
     this.publishClock();
     // questions asked before an element was attached went to no one: the new element's output answers them
-    for (const codec of this.elementQueries.keys()) this.deps.emit({ type: 'videoElementQuery', codec });
+    this.elementQueries.askAgain();
     const s = this.session;
     if (s?.element) await this.startAt(this.clock.nowUs(), this.wantPlaying, 'keep');
   }
@@ -3491,19 +3380,13 @@ export class Player {
   private elementReport(cmd: Extract<EngineCommand, { type: 'videoElementAnswer' | 'videoBuffered' | 'videoStalled' | 'videoResumed' | 'videoElementFailed' | 'videoSync' }>): void {
     const s = this.session;
     switch (cmd.type) {
-      case 'videoElementAnswer': {
-        this.elementAnswers.set(cmd.codec, cmd.playable);
-        const asked = this.elementQueries.get(cmd.codec);
-        this.elementQueries.delete(cmd.codec);
-        asked?.settle(cmd.playable);
+      case 'videoElementAnswer':
+        this.elementQueries.answer(cmd.codec, cmd.playable);
         return;
-      }
       case 'videoBuffered':
         // a report the page made before the latest reset describes what it has since dropped
-        if (!s?.element || cmd.generation !== s.elementGeneration) return;
-        s.elementBufferedEndUs = cmd.endUs;
-        s.elementFreshBuffered = true;
-        if (this.elementEvicted(s, cmd.segments)) {
+        if (!s?.element) return;
+        if (s.element.buffered(cmd.generation, cmd.endUs, cmd.segments, this.clock.nowUs()) === 'evicted') {
           // the element dropped video at the playhead that was sent (a ManagedMediaSource evicts under memory pressure):
           // reading starts again at the clock, so the element gets it again
           this.deps.log?.('The video element dropped the video at its playhead: reading it again');
@@ -3512,9 +3395,8 @@ export class Player {
         return;
       case 'videoStalled':
         // the element ran dry while playing: the audio (or the wall clock) holds, as for a read stall, until it has data
-        if (!s?.element || cmd.generation !== s.elementGeneration || this.state !== 'playing' || this.held) return;
-        s.elementStalled = true;
-        s.elementFreshBuffered = false;
+        if (!s?.element || cmd.generation !== s.element.generation || this.state !== 'playing' || this.held) return;
+        s.element.stall(cmd.generation);
         if (s.audioActive && this.ring) this.ring.setPlaying(false);
         else this.clock.setRunning(false);
         this.setState('buffering');
@@ -3525,7 +3407,7 @@ export class Player {
         return;
       case 'videoElementFailed':
         this.deps.log?.(`The video element failed: ${cmd.message}`);
-        if (!s?.element || cmd.generation < s.elementFirstGeneration) return;
+        if (!s?.element || cmd.generation < s.element.firstGeneration) return;
         void this.elementFallback(s, cmd.message);
         return;
       case 'videoSync':
@@ -3742,11 +3624,7 @@ export class Player {
     if (!this.hasPicture(s)) return Math.max(s.audioReadUs, s.pipeline.readUs ?? -Infinity) - this.clock.nowUs() >= MAX_ENCODED_VIDEO_US;
     // on the element path, the lead the element holds over the clock (what it reported buffered), and what was sent but
     // not reported yet (the page's media source may still be opening, or its appends behind)
-    if (s.element) {
-      const now = this.clock.nowUs();
-      const lead = this.memory.elementLeadUs;
-      return s.elementBufferedEndUs - now >= lead || s.element.endUs - Math.max(now, s.elementBufferedEndUs) >= lead;
-    }
+    if (s.element) return s.element.readerBlocked(this.clock.nowUs(), this.memory.elementLeadUs);
     const pending = s.pendingVideo;
     if (pending.length === 0) return false;
     let min = Infinity;
@@ -3822,10 +3700,10 @@ export class Player {
         (this.audioWriter?.queuedChunks ?? 0) > 0 ||
         (ring.buffered() * 1e6) / ring.sampleRate >= AUDIO_PREBUFFER_US;
       const videoReady = s.element
-        ? this.elementReady(s)
+        ? s.element.elementReady(this.clock.nowUs(), s.eof)
         : s.decoder === null || this.presenter.size > 0 || this.presenter.current !== null || s.eof || s.videoState === 'failed';
       if (!audioReady || !videoReady || !this.remoteReadAhead(s)) return;
-      s.elementStalled = false;
+      if (s.element) s.element.stalled = false;
       if (ring) {
         ring.setPlaying(true);
         this.lastHeartbeat = ring.heartbeat();
