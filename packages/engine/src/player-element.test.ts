@@ -82,6 +82,8 @@ async function harness(opts: Options = {}) {
   const clock = { ms: 1000 };
   const drawn: Array<string> = [];
   const elementStarts: Array<{ picture: boolean; element?: { width: number; height: number } }> = [];
+  /** How many times the compositor was told an element frame shows. */
+  const framesShown = { count: 0 };
   let player!: Player;
   const autoBuffered = opts.autoBuffered ?? true;
   /** The last videoReset's generation, which the fake page echoes. */
@@ -124,6 +126,7 @@ async function harness(opts: Options = {}) {
       resize: () => undefined,
       drawVideo: (f) => drawn.push(`video:${f?.timestamp ?? null}`),
       startPlaylist: (picture, o) => elementStarts.push({ picture, ...(o?.element ? { element: o.element } : {}) }),
+      elementFrameShown: () => framesShown.count++,
     }),
   });
   const ring = createRing(48_000, 2);
@@ -157,6 +160,7 @@ async function harness(opts: Options = {}) {
     transfers,
     drawn,
     elementStarts,
+    framesShown,
     clock,
     clockReader: new ClockBlockReader(clockBlock),
     epochMs: () => 1_700_000_000_000 + clock.ms,
@@ -577,6 +581,22 @@ describe('Player on the element path', () => {
     await untilState(h, 'playing');
     expect(decoders).toHaveLength(1);
   });
+
+  it("tells the compositor when the page shows the session's first element frame, and repaints; an earlier session's report is ignored", async () => {
+    const h = await harness();
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    const old = h.page.generation;
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00001' });
+    await untilState(h, 'playing');
+    await h.player.handle({ type: 'videoFrameShown', generation: old });
+    expect(h.framesShown.count).toBe(0);
+    const drawn = h.drawn.length;
+    await h.player.handle({ type: 'videoFrameShown', generation: h.page.generation });
+    expect(h.framesShown.count).toBe(1);
+    await h.play(100);
+    expect(h.drawn.length).toBeGreaterThan(drawn);
+  }, 20_000);
 
   it("ignores a failure the page reported for an earlier session's element, and a new disc clears the failure", async () => {
     const h = await harness();

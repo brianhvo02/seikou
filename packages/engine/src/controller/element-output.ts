@@ -172,6 +172,8 @@ export class ElementVideoOutput {
   /** The last videoReset's generation, echoed in videoBuffered and videoStalled so the engine can drop reports from before it. */
   private generation = 0;
   private offsets: number[] = [];
+  /** The generation whose first placed frame was reported (videoFrameShown), so each reset reports one. */
+  private shownGeneration: number | null = null;
   /** Catch-ups run since the media source opened (videoSync reports the total). */
   private catchUps = 0;
   /**
@@ -522,6 +524,11 @@ export class ElementVideoOutput {
     this.frameId = this.deps.video.requestVideoFrameCallback((now, meta) => {
       this.frameId = null;
       if (!this.attached) return;
+      // a frame shown before the first segment after a reset is placed is the previous generation's
+      if (!this.pendingStart && this.shownGeneration !== this.generation) {
+        this.shownGeneration = this.generation;
+        this.deps.post({ type: 'videoFrameShown', generation: this.generation });
+      }
       this.onFrame(meta.mediaTime, this.displayTime(now, meta.expectedDisplayTime));
       this.startFrames();
     });

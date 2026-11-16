@@ -41,7 +41,8 @@ export interface CompositorLike {
   resize(width: number, height: number): void;
   /**
    * Clears to black, draws the background still (if any), then the frame. In element mode (startPlaylist's `element`)
-   * it clears to transparent and draws nothing: the page's video element shows the picture under the canvas.
+   * it clears to transparent and draws no video: the page's video element shows the picture under the canvas; the
+   * background still is drawn only until the element shows a frame (elementFrameShown).
    */
   drawVideo(frame: VideoFrame | null): void;
   /**
@@ -51,6 +52,11 @@ export interface CompositorLike {
    * drawn, and text is laid out on the display size, with the coded size as ASS's storage size.
    */
   startPlaylist?(picture: boolean, opts?: { readonly element?: ElementPictureSize }): void;
+  /**
+   * In element mode, the page's video element shows the playlist's first frame: the BD-J background still, drawn until
+   * then (it would cover the picture under the canvas), is not drawn again until the next startPlaylist.
+   */
+  elementFrameShown?(): void;
   /** In element mode, the picture's sizes changed (a new init segment): text is laid out on them from now on. */
   setElementSize?(size: ElementPictureSize): void;
   /**
@@ -108,6 +114,8 @@ export class Compositor implements CompositorLike {
   private background: ShownStill | null = null;
   /** The page's video element shows the picture (startPlaylist with `element`): clear to transparent, draw no video. */
   private element = false;
+  /** In element mode, the page's video element shows a frame of this playlist: the background still is not drawn. */
+  private elementShown = false;
 
   constructor(
     private readonly canvas: OffscreenCanvas,
@@ -136,28 +144,38 @@ export class Compositor implements CompositorLike {
     const { width, height } = this.canvas;
     if (this.element) {
       this.ctx.clearRect(0, 0, width, height);
+      // over the element the still would cover the picture: only until the element shows one
+      if (!this.elementShown) this.drawBackground(null);
       return;
     }
     this.ctx.fillStyle = '#000';
     this.ctx.fillRect(0, 0, width, height);
     const r = frame ? fitRect(frame.displayWidth, frame.displayHeight, width, height) : null;
-    const bg = this.background;
-    if (bg && bg.rect.width > 0 && bg.rect.height > 0) {
-      const screen = fitRect(PLANE_WIDTH, PLANE_HEIGHT, width, height);
-      const x = screen.x + bg.rect.x * screen.width;
-      const y = screen.y + bg.rect.y * screen.height;
-      const w = bg.rect.width * screen.width;
-      const h = bg.rect.height * screen.height;
-      // an opaque frame that covers the still hides it: no full-screen draw under every frame of a feature
-      const hidden = r !== null && r.x <= x && r.y <= y && r.x + r.width >= x + w && r.y + r.height >= y + h;
-      if (!hidden) this.ctx.drawImage(bg.image, x, y, w, h);
-    }
+    this.drawBackground(r);
     if (!frame || !r) return;
     this.frameSize = { width: frame.displayWidth, height: frame.displayHeight };
     this.storageSize = { width: frame.visibleRect?.width ?? frame.codedWidth, height: frame.visibleRect?.height ?? frame.codedHeight };
     // the shaded image is already at the fitted size (shaders see it as OUTPUT)
     const image = r.width > 0 && r.height > 0 ? this.stage?.process(frame, { width: r.width, height: r.height }) : null;
     this.ctx.drawImage(image ?? frame, r.x, r.y, r.width, r.height);
+  }
+
+  elementFrameShown(): void {
+    if (this.element) this.elementShown = true;
+  }
+
+  /** The background still in its part of the screen rectangle, unless the frame drawn at `frame` covers it. */
+  private drawBackground(frame: Rect | null): void {
+    const bg = this.background;
+    if (!bg || bg.rect.width <= 0 || bg.rect.height <= 0) return;
+    const screen = fitRect(PLANE_WIDTH, PLANE_HEIGHT, this.canvas.width, this.canvas.height);
+    const x = screen.x + bg.rect.x * screen.width;
+    const y = screen.y + bg.rect.y * screen.height;
+    const w = bg.rect.width * screen.width;
+    const h = bg.rect.height * screen.height;
+    // an opaque frame that covers the still hides it: no full-screen draw under every frame of a feature
+    const hidden = frame !== null && frame.x <= x && frame.y <= y && frame.x + frame.width >= x + w && frame.y + frame.height >= y + h;
+    if (!hidden) this.ctx.drawImage(bg.image, x, y, w, h);
   }
 
   drawPg(plane: OverlayPlane): void {
@@ -205,6 +223,7 @@ export class Compositor implements CompositorLike {
     this.storageSize = null;
     this.noPicture = !picture;
     this.element = opts?.element !== undefined;
+    this.elementShown = false;
     if (opts?.element) this.setElementSize(opts.element);
   }
 

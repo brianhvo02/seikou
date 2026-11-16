@@ -271,6 +271,34 @@ describe('Compositor on the element path', () => {
     expect(calls).toEqual([['main.fillRect', 0, 0, 1000, 1000]]);
   });
 
+  it('draws the BD-J background still while no element frame shows, and stops once one does', () => {
+    const { calls, compositor } = fake(1920, 1080);
+    const image = { still: true } as unknown as ImageBitmap;
+    compositor.setBackground({ image, rect: { x: 0, y: 0, width: 1, height: 1 } });
+    compositor.startPlaylist(true, { element: { width: 1920, height: 1080, codedWidth: 1920, codedHeight: 1080 } });
+    compositor.drawVideo(null);
+    expect(calls).toEqual([['main.clearRect', 0, 0, 1920, 1080], ['main.drawImage', image, 0, 0, 1920, 1080]]);
+    calls.length = 0;
+    compositor.elementFrameShown();
+    compositor.drawVideo(null);
+    expect(calls).toEqual([['main.clearRect', 0, 0, 1920, 1080]]);
+    // the next element session has shown nothing yet: the still is back until its first frame
+    calls.length = 0;
+    compositor.startPlaylist(true, { element: { width: 1920, height: 1080, codedWidth: 1920, codedHeight: 1080 } });
+    compositor.drawVideo(null);
+    expect(calls.map(([n]) => n)).toEqual(['main.clearRect', 'main.drawImage']);
+  });
+
+  it('an element frame shown before the session is in element mode is not carried into it', () => {
+    const { calls, compositor } = fake(1920, 1080);
+    const image = { still: true } as unknown as ImageBitmap;
+    compositor.setBackground({ image, rect: { x: 0, y: 0, width: 1, height: 1 } });
+    compositor.elementFrameShown();
+    compositor.startPlaylist(true, { element: { width: 1920, height: 1080, codedWidth: 1920, codedHeight: 1080 } });
+    compositor.drawVideo(null);
+    expect(calls.map(([n]) => n)).toEqual(['main.clearRect', 'main.drawImage']);
+  });
+
   it('places text on the display size of an anamorphic stream and gives ASS its coded size, as the canvas path does', () => {
     const text: unknown[][] = [];
     const renderer = { render: (...args: unknown[]) => { text.push(args); return 0; }, changed: () => false, visible: () => false };

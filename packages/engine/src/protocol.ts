@@ -322,7 +322,8 @@ export const ENCODE_PLAYLIST_ID = 'mkv';
 /**
  * Everything the page can ask of the engine. Commands are handled in arrival order, one at a time; `remoteToken`,
  * `readPlace`, `cancelBuffer`, `flushSaves`, `visibility` and the video element's reports (`videoElementAnswer`,
- * `videoBuffered`, `videoStalled`, `videoResumed`, `videoElementFailed`, `videoSync`) are handled at once and never wait behind a slow open.
+ * `videoBuffered`, `videoStalled`, `videoResumed`, `videoFrameShown`, `videoElementFailed`, `videoSync`) are handled at
+ * once and never wait behind a slow open.
  * A command that cannot apply (no disc, no playlist, a refused user operation) is ignored.
  */
 export type EngineCommand =
@@ -387,6 +388,11 @@ export type EngineCommand =
   | { readonly type: 'videoStalled'; readonly generation: number }
   /** The video element resumed after a stall. Handled at once. */
   | { readonly type: 'videoResumed' }
+  /**
+   * The video element shows its first frame placed since the reset of `generation` (posted once per reset, paused or
+   * playing): from the session's first one on, the BD-J background still is no longer drawn over it. Handled at once.
+   */
+  | { readonly type: 'videoFrameShown'; readonly generation: number }
   /**
    * The video element or its media source failed (`message` says how; `generation` echoes the last videoReset's, and
    * older ones are ignored): the engine reopens the playlist at the same time on the canvas path and keeps the canvas

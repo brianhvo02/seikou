@@ -662,6 +662,7 @@ export class Player {
       cmd.type === 'videoBuffered' ||
       cmd.type === 'videoStalled' ||
       cmd.type === 'videoResumed' ||
+      cmd.type === 'videoFrameShown' ||
       cmd.type === 'videoElementFailed' ||
       cmd.type === 'videoSync'
     ) {
@@ -719,6 +720,7 @@ export class Player {
         case 'videoBuffered':
         case 'videoStalled':
         case 'videoResumed':
+        case 'videoFrameShown':
         case 'videoElementFailed':
         case 'videoSync':
           break; // handled at once
@@ -3482,7 +3484,7 @@ export class Player {
   }
 
   /** The video element's reports, handled at once. */
-  private elementReport(cmd: Extract<EngineCommand, { type: 'videoElementAnswer' | 'videoBuffered' | 'videoStalled' | 'videoResumed' | 'videoElementFailed' | 'videoSync' }>): void {
+  private elementReport(cmd: Extract<EngineCommand, { type: 'videoElementAnswer' | 'videoBuffered' | 'videoStalled' | 'videoResumed' | 'videoFrameShown' | 'videoElementFailed' | 'videoSync' }>): void {
     const s = this.session;
     switch (cmd.type) {
       case 'videoElementAnswer':
@@ -3505,6 +3507,12 @@ export class Player {
         if (s.audioActive && this.ring) this.ring.setPlaying(false);
         else this.clock.setRunning(false);
         this.setState('buffering');
+        return;
+      case 'videoFrameShown':
+        // the session's first element frame: the background still stops covering it
+        if (!s?.element || cmd.generation < s.element.firstGeneration) return;
+        this.compositor?.elementFrameShown?.();
+        this.elementDirty = true;
         return;
       case 'videoResumed':
         // nothing to do: while the engine buffers, the page pauses the element, so the resume is decided by the buffered

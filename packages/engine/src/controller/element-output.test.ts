@@ -578,6 +578,23 @@ describe('ElementVideoOutput', () => {
     expect(t.timers.every((x) => x.cancelled)).toBe(true);
   });
 
+  it("says once per reset when the element first shows a frame placed after it, paused or playing", () => {
+    const t = opened(0, true, 3);
+    // a frame shown before the first segment is placed is the previous generation's
+    t.video.presentFrame(0.5 + OFFSET_S, 1000);
+    expect(commands(t.posted, 'videoFrameShown')).toEqual([]);
+    appendSegment(t, 1, 0, 4);
+    t.video.presentFrame(OFFSET_S, 1000);
+    t.video.presentFrame(0.04 + OFFSET_S, 1040);
+    expect(commands(t.posted, 'videoFrameShown')).toEqual([{ type: 'videoFrameShown', generation: 3 }]);
+    // a seek resets under a new generation: its first placed frame is reported too
+    t.out.handle(reset(2_000_000, true, 4));
+    t.sb().finish(); // the removal
+    appendSegment(t, 2, 2, 4);
+    t.video.presentFrame(2 + OFFSET_S, 1100);
+    expect(commands(t.posted, 'videoFrameShown')).toEqual([{ type: 'videoFrameShown', generation: 3 }, { type: 'videoFrameShown', generation: 4 }]);
+  });
+
   it("the first frame measured, 50 ms ahead of the clock, starts a catch-up at 25% slow", () => {
     const t = opened();
     appendSegment(t, 1, 0, 4);
