@@ -42,7 +42,7 @@ export interface AtcSequence {
 
 /**
  * One elementary stream of a clip's program, libbluray `CLPI_PROG_STREAM` (`clpi_data.h`), read by
- * `_parse_stream_attr` in `clpi_parse.c`. The HDR fields, `oc_flag`, `char_code` and `isrc` are not kept.
+ * `_parse_stream_attr` in `clpi_parse.c`. `oc_flag`, `cr_flag`, `color_space`, `char_code` and `isrc` are not kept.
  */
 export interface ProgramStream {
   /** `pid`: the transport stream PID of the stream. */
@@ -57,6 +57,10 @@ export interface ProgramStream {
   readonly lang: string;
   /** `aspect`: the video aspect ratio code; 0 for other streams. */
   readonly aspect: number;
+  /** `dynamic_range_type` of an HEVC stream (0 SDR, 1 HDR10, 2 Dolby Vision, libbluray `bd_dynamic_range_type_e`); 0 otherwise. */
+  readonly dynamicRange: number;
+  /** `hdr_plus_flag` of an HEVC stream: it carries HDR10+ metadata. False otherwise. */
+  readonly hdrPlus: boolean;
 }
 
 /**
@@ -195,10 +199,18 @@ function readProgramInfo(r: ByteReader, start: number): ProgramInfo[] {
       let rate = 0;
       let lang = '';
       let aspect = 0;
+      let dynamicRange = 0;
+      let hdrPlus = false;
       if (isVideoCoding(codingType)) {
         format = r.bits(4);
         rate = r.bits(4);
         aspect = r.bits(4);
+        if (codingType === CodingType.HEVC) {
+          r.skipBits(4); // 2 reserved bits, oc_flag, cr_flag
+          dynamicRange = r.bits(4);
+          r.skipBits(4); // color_space
+          hdrPlus = r.bits(1) === 1;
+        }
       } else if (isAudioCoding(codingType)) {
         format = r.bits(4);
         rate = r.bits(4);
@@ -211,7 +223,7 @@ function readProgramInfo(r: ByteReader, start: number): ProgramInfo[] {
         lang = r.ascii(3);
       }
       r.seek(attrStart + length);
-      streams.push({ pid, codingType, format, rate, lang, aspect });
+      streams.push({ pid, codingType, format, rate, lang, aspect, dynamicRange, hdrPlus });
     }
     programs.push({ spnProgramSequenceStart, programMapPid, streams });
   }

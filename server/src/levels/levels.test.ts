@@ -9,7 +9,7 @@ import { BUDGET_VERSION, LEVELS, MIN_INTERVAL_45, coreCoding, graphicsRoom, kept
 const FIXTURES = join(import.meta.dirname, '../../../fixtures/synthetic');
 
 function clip(entries: Array<{ pts: number; spn: number }>, presentationEnd: number, numSourcePackets = 10_000, graphics: { pg?: number; ig?: number } = {}): Clpi {
-  const stream = (pid: number, codingType: number) => ({ pid, codingType, format: 0, rate: 0, lang: 'eng', aspect: 0 });
+  const stream = (pid: number, codingType: number) => ({ pid, codingType, format: 0, rate: 0, lang: 'eng', aspect: 0, dynamicRange: 0, hdrPlus: false });
   return {
     version: '0200',
     numSourcePackets,
@@ -20,7 +20,7 @@ function clip(entries: Array<{ pts: number; spn: number }>, presentationEnd: num
         spnProgramSequenceStart: 0,
         programMapPid: 0x100,
         streams: [
-          { pid: 0x1011, codingType: 0x1b, format: 6, rate: 1, lang: '', aspect: 3 },
+          { pid: 0x1011, codingType: 0x1b, format: 6, rate: 1, lang: '', aspect: 3, dynamicRange: 0, hdrPlus: false },
           ...Array.from({ length: graphics.pg ?? 0 }, (_, i) => stream(0x1200 + i, 0x90)),
           ...Array.from({ length: graphics.ig ?? 0 }, (_, i) => stream(0x1400 + i, 0x91)),
         ],

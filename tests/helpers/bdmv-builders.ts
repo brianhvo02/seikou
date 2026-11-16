@@ -56,6 +56,10 @@ export interface StreamSpec {
   subClipId?: number;
   /** Extra zero bytes after the attributes, to test length-based skipping. */
   extraAttrBytes?: number;
+  /** HEVC only: CLPI `dynamic_range_type` (1 HDR10, 2 Dolby Vision), `color_space` (2 BT.2020) and `hdr_plus_flag`. */
+  dynamicRange?: number;
+  colorSpace?: number;
+  hdrPlus?: boolean;
 }
 
 export interface SubPlayItemSpec {
@@ -117,12 +121,16 @@ export interface MplsSpec {
 export function writeCodingInfo(
   w: ByteWriter,
   codingType: number,
-  opts: { format?: number; rate?: number; lang?: string; extraBytes?: number } = {},
+  opts: { format?: number; rate?: number; lang?: string; extraBytes?: number; dynamicRange?: number; colorSpace?: number; hdrPlus?: boolean } = {},
 ): void {
   const extra = opts.extraBytes ?? 0;
   w.u8(5 + extra).u8(codingType);
   if (isVideoCoding(codingType)) {
-    w.bits(4, opts.format ?? 6).bits(4, opts.rate ?? 1).zeros(3);
+    w.bits(4, opts.format ?? 6).bits(4, opts.rate ?? 1).zeros(1);
+    // After the aspect byte (aspect, 2 skipped bits, oc_flag, cr_flag): dynamic_range_type (4) and color_space (4), then
+    // hdr_plus_flag and 7 reserved bits (clpi_parse.c _parse_stream_attr, HEVC)
+    if (codingType === CodingType.HEVC) w.bits(4, opts.dynamicRange ?? 0).bits(4, opts.colorSpace ?? 0).bits(1, opts.hdrPlus ? 1 : 0).bits(7, 0);
+    else w.zeros(2);
   } else if (isAudioCoding(codingType)) {
     w.bits(4, opts.format ?? 3).bits(4, opts.rate ?? 1).ascii(opts.lang ?? 'eng');
   } else if (codingType === CodingType.TEXT_SUBTITLE) {
@@ -139,7 +147,7 @@ function writeStream(w: ByteWriter, s: StreamSpec): void {
   if (streamType === 1) w.u16(s.pid).zeros(6);
   else if (streamType === 2) w.u8(s.subPathId ?? 0).u8(s.subClipId ?? 0).u16(s.pid).zeros(4);
   else w.u8(s.subPathId ?? 0).u16(s.pid).zeros(5);
-  writeCodingInfo(w, s.codingType, { format: s.format, rate: s.rate, lang: s.lang, extraBytes: s.extraAttrBytes });
+  writeCodingInfo(w, s.codingType, { format: s.format, rate: s.rate, lang: s.lang, extraBytes: s.extraAttrBytes, dynamicRange: s.dynamicRange, colorSpace: s.colorSpace, hdrPlus: s.hdrPlus });
 }
 
 /** A reference list: count, reserved byte, the ids, and a padding byte when the count is odd. */
@@ -233,7 +241,7 @@ export function buildMpls(spec: MplsSpec): Uint8Array<ArrayBuffer> {
 
 export interface ClpiSpec {
   numSourcePackets: number;
-  streams: Array<{ pid: number; codingType: number; format?: number; rate?: number }>;
+  streams: Array<{ pid: number; codingType: number; format?: number; rate?: number; dynamicRange?: number; colorSpace?: number; hdrPlus?: boolean }>;
   /** 45 kHz. */
   presentationStart: number;
   /** 45 kHz. */
@@ -287,7 +295,7 @@ export function buildClpi(spec: ClpiSpec): Uint8Array<ArrayBuffer> {
   w.u32(0).u16(0x0100).u8(spec.streams.length).u8(0);
   for (const s of spec.streams) {
     w.u16(s.pid);
-    writeCodingInfo(w, s.codingType, { format: s.format, rate: s.rate });
+    writeCodingInfo(w, s.codingType, { format: s.format, rate: s.rate, dynamicRange: s.dynamicRange, colorSpace: s.colorSpace, hdrPlus: s.hdrPlus });
   }
   w.patchU32(progStart, w.position - progStart - 4);
 
