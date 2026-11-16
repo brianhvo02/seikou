@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useState, useSyncExternalStore,
 import { createController } from '@seikou/engine/controller/create-controller';
 import type { PlayerController } from '@seikou/engine/controller/player-controller';
 import { PlatformSession } from '@seikou/engine/controller/platform-session';
+import { initialVideoPath } from './video-path';
 import { parseHelpPath } from './help/help-pages';
 import { HelpLoadBoundary } from './help/HelpLoadBoundary';
 import { LandingScreen } from './LandingScreen';
@@ -52,9 +53,8 @@ function createAppController(): PlayerController {
     }),
     exposeTelemetry: params.has('telemetry'),
   });
-  // ?videopath=element|canvas|auto picks how video is presented; set before the first open
-  const videoPath = params.get('videopath');
-  if (videoPath === 'element' || videoPath === 'canvas' || videoPath === 'auto') controller.setVideoPath(videoPath);
+  // the app has a video element: HDR streams take it (auto), or ?videopath= picks; set before the first open
+  controller.setVideoPath(initialVideoPath(params));
   return controller;
 }
 

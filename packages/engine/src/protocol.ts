@@ -25,7 +25,8 @@ export type PlaybackState = 'idle' | 'loading' | 'paused' | 'buffering' | 'playi
 /**
  * Where a playlist's H.264 or HEVC video is drawn: 'element' (the page's video element, through Media Source Extensions),
  * 'canvas' (decoded by the engine with WebCodecs), or 'auto' (the engine picks: the element for HDR streams, the canvas
- * for the rest). A shader set that is on takes the canvas whatever the path.
+ * for the rest). The engine starts at 'canvas'; a host that attaches a video element sends 'auto' (or 'element') to
+ * use it. A shader set that can run here takes the canvas whatever the path.
  */
 export type VideoPath = 'auto' | 'element' | 'canvas';
 

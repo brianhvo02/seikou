@@ -572,8 +572,11 @@ export class Player {
   private readonly background: BackgroundStillLike | null;
   /** The background still changed: the next paint redraws the video over it. */
   private backgroundDirty = false;
-  /** Which path H.264 and HEVC video takes (setVideoPath): 'element' every stream the page plays, 'auto' HDR streams only, 'canvas' none. */
-  private videoPath: VideoPath = 'auto';
+  /**
+   * Which path H.264 and HEVC video takes (setVideoPath): 'element' every stream the page plays, 'auto' HDR streams
+   * only, 'canvas' none. The canvas until the host says otherwise: a host with no video element never answers a question.
+   */
+  private videoPath: VideoPath = 'canvas';
   /** The clock block of the page's video element (attachVideoElement), written every tick; null with no element. */
   private clockWriter: ClockBlockWriter | null = null;
   /** Smooths the stepped audio clock into the line the clock block publishes. */
@@ -592,7 +595,7 @@ export class Player {
   private elementFailure: string | null = null;
   /** An HDR stream plays on the element path, as the last videoHdr event said. */
   private videoHdr = false;
-  /** A shader set is chosen (setVideoShaders): sessions take the canvas path, where the shaders run. */
+  /** A shader set is chosen and shaders can run here (setVideoShaders): sessions take the canvas path, where the shaders run. */
   private shadersOn = false;
 
   constructor(private readonly deps: PlayerDeps) {
@@ -780,7 +783,7 @@ export class Player {
           break;
         case 'setVideoShaders':
           this.setVideoShaders(cmd.set);
-          await this.followShaders(cmd.set !== null);
+          await this.followShaders(cmd.set !== null && this.shaderStage?.available === true);
           break;
         case 'seek':
           if (!this.bdj && this.refused('timeSearch')) break;
@@ -991,7 +994,8 @@ export class Player {
   }
 
   /**
-   * A shader set turned on or off: shaders run on the canvas path only, so a playlist playing on the element path opens
+   * A shader set turned on or off (`on`: a set is chosen and the stage can run it; where shaders are unavailable a set
+   * changes nothing about the path): shaders run on the canvas path only, so a playlist playing on the element path opens
    * again at the same time on the canvas, and one kept on the canvas for the shaders alone opens again on the element
    * path (unless the page has already said it can't play the stream). Either reopen is the one a quality level switch
    * makes, and shows no notice.

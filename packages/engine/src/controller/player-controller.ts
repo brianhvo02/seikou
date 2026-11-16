@@ -560,8 +560,9 @@ export class PlayerController {
   }
 
   /**
-   * Chooses how the engine presents video: `element` (the page's `<video>`), `canvas` (decoded frames drawn on the
-   * canvas) or `auto` (the engine picks per disc). Set it before opening a disc.
+   * Chooses how the engine presents video: `element` (the page's `<video>`, attached with `attachVideoElement`),
+   * `canvas` (decoded frames drawn on the canvas, the default) or `auto` (HDR streams through the `<video>`, the rest on
+   * the canvas). A host with a `<video>` element sends `auto` to show HDR. Set it before opening a disc.
    * @example ../../examples/player-controller.browser.ts#setVideoPath
    */
   setVideoPath(path: VideoPath): void {

@@ -7,6 +7,7 @@ import { createAudioDecoderFactory } from './decode/audio-decoder';
 import type { VideoCodecApi, VideoDecoderLike } from './decode/video-decoder';
 import { ClockBlockReader, createClockBlock } from './element/clock-block';
 import { Player } from './player';
+import { UNAVAILABLE, type CompiledSet, type ShaderBackend } from './shaders/webgl-backend';
 import type { EngineEvent, PlaybackState, Telemetry } from './protocol';
 
 /** WebCodecs decoders the engine created (the canvas path). */
@@ -56,17 +57,22 @@ interface Options {
   reportEndUs?: { value: number };
   /** Attach an audio ring (true by default); without it the clock is the wall clock. */
   audio?: boolean;
-  /** The video path the page asks for ('element' by default). */
-  path?: 'element' | 'canvas' | 'auto';
+  /** The video path the page asks for ('element' by default); null sends no setVideoPath (the engine's default). */
+  path?: 'element' | 'canvas' | 'auto' | null;
   /** The memory profile (desktop by default). */
   memory?: 'constrained';
   /** The page attaches its element only when the test does (attach()), as a page that mounts its player late does. */
   attachLate?: boolean;
   /** A shader set is on before the disc opens. */
   shaders?: boolean;
+  /** Whether shaders can run here: a backend (the default), or none (WebGL2 or float targets missing). */
+  shaderBackend?: 'available' | 'unavailable';
 }
 
-/** A shader set to turn on (the unit tests have no shader backend: it reports unavailable, and is still on). */
+/** A shader backend that compiles nothing (a set stays compiling): enough for the stage to count as available. */
+const fakeShaderBackend: ShaderBackend = { compile: () => new Promise<CompiledSet>(() => undefined), render: () => { throw new Error('unused'); } };
+
+/** A shader set to turn on. */
 const SHADER_SET = { name: 'Test set', files: [] };
 
 async function harness(opts: Options = {}) {
@@ -113,6 +119,7 @@ async function harness(opts: Options = {}) {
     elementEpochMs: () => 1_700_000_000_000 + clock.ms,
     requestFrame: () => undefined,
     createAudioDecoder: noWasm,
+    createShaderBackend: () => ((opts.shaderBackend ?? 'available') === 'available' ? fakeShaderBackend : UNAVAILABLE),
     createCompositor: () => ({
       resize: () => undefined,
       drawVideo: (f) => drawn.push(`video:${f?.timestamp ?? null}`),
@@ -125,7 +132,7 @@ async function harness(opts: Options = {}) {
   if (opts.memory) await player.handle({ type: 'setMemoryProfile', profile: opts.memory });
   if (opts.audio !== false) await player.handle({ type: 'attachAudio', ring });
   await player.handle({ type: 'attachCanvas', canvas: {} as OffscreenCanvas });
-  await player.handle({ type: 'setVideoPath', path: opts.path ?? 'element' });
+  if (opts.path !== null) await player.handle({ type: 'setVideoPath', path: opts.path ?? 'element' });
   if (opts.shaders) await player.handle({ type: 'setVideoShaders', set: SHADER_SET });
   if (!opts.attachLate) await player.handle({ type: 'attachVideoElement', clock: clockBlock });
   await player.handle({ type: 'open', disc: { kind: 'files', entries: discEntries(opts.files ?? fixtureDiscFiles('disc1')) } });
@@ -719,6 +726,36 @@ describe('Player choosing the path', () => {
     expect(reset?.startUs).toBeGreaterThan(at - 300_000);
     expect(after.filter((e) => e.type === 'notice')).toHaveLength(0);
     expect(ofType(h, 'videoHdr').map((e) => e.hdr)).toEqual([true]);
+  });
+
+  it('with no setVideoPath (a host without a video element) the HDR disc takes the canvas path at once, asking nothing', async () => {
+    const h = await harness({ path: null, files: hdrDisc() });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing', 1500);
+    expect(ofType(h, 'videoElementQuery')).toHaveLength(0);
+    expect(elementSessions(h)).toBe(0);
+    expect(decoders.some((d) => d.state === 'configured')).toBe(true);
+  });
+
+  it('where shaders cannot run, a set turned on keeps the HDR element session, with no reopen', async () => {
+    const h = await harness({ path: 'auto', files: hdrDisc(), shaderBackend: 'unavailable' });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    const before = h.events.length;
+    await h.player.handle({ type: 'setVideoShaders', set: SHADER_SET });
+    await h.play(600);
+    const after = h.events.slice(before);
+    expect(after.filter((e) => e.type === 'playlistCleared')).toHaveLength(0);
+    expect(after.filter((e) => e.type === 'videoElementStop')).toHaveLength(0);
+    expect(ofType(h, 'shaderStatus').at(-1)?.state).toBe('unavailable');
+    expect(telemetries(h).at(-1)).toMatchObject({ videoPath: 'element', videoHdr: true });
+  });
+
+  it('where shaders cannot run, a set on at the start leaves the HDR disc on the element path', async () => {
+    const h = await harness({ path: 'auto', files: hdrDisc(), shaders: true, shaderBackend: 'unavailable' });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    expect(elementSessions(h)).toBe(1);
   });
 
   it('a shader set changed on the canvas path of an SDR disc reopens nothing', async () => {

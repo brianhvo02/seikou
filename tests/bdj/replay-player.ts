@@ -354,8 +354,6 @@ export async function replayPlayerBdj(
     if (opts.memoryProfile) await player.handle({ type: 'setMemoryProfile', profile: opts.memoryProfile });
     await player.handle({ type: 'attachAudio', ring });
     await player.handle({ type: 'attachCanvas', canvas: {} as OffscreenCanvas });
-    // no page and no video element here (and no timers, so an element question would never time out): the canvas path
-    await player.handle({ type: 'setVideoPath', path: 'canvas' });
     const start = clock.ms;
     t0 = performance.now();
     stepFrom = { events: 0, flushes: 0, at: t0 };
