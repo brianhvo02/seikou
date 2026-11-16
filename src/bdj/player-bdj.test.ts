@@ -8,6 +8,7 @@ import { VirtualClock, storedZip } from '../../tests/helpers/jvm-asm';
 import { asm, buildMovieObjects, imm, psr, reg } from '../../tests/helpers/hdmv-builders';
 import { buildSyntheticDisc, discEntries, lpcmStream, syntheticClip, type SyntheticDiscSpec } from '../../tests/helpers/synthetic-disc';
 import { createRing, renderQuantum, ringViews } from '@seikou/engine/audio/ring';
+import { createClockBlock } from '@seikou/engine/element/clock-block';
 import { runBdjWorker } from './bdj-worker';
 import { ZipArchive } from './jvm/zip';
 import { BdjEvent, type ClassLibrarySource } from './runtime';
@@ -86,6 +87,8 @@ afterEach(async () => {
 
 interface HarnessOptions {
   readonly classes?: ClassLibrarySource;
+  /** The page has a video element that plays every stream (Video output Always the video player), and shows its frames. */
+  readonly element?: boolean;
   /** A worker the test drives by hand instead of the in-process one. */
   readonly worker?: WorkerLike;
   readonly setTimer?: (ms: number, fn: () => void) => () => void;
@@ -130,8 +133,32 @@ async function harness(files: Map<string, Uint8Array<ArrayBuffer>>, opts: Harnes
     servedPorts.push(port1);
     spec = { ...nas.spec, fetchPort: port2 };
   }
-  const player = new Player({
-    emit: (e) => events.push(e),
+  const page = { generation: 0, segments: 0, shown: -1 };
+  const player: Player = new Player({
+    emit: (e) => {
+      events.push(e);
+      if (!opts.element) return;
+      if (e.type === 'videoElementQuery') {
+        const { type: _type, ...query } = e;
+        queueMicrotask(() => void player.handle({ type: 'videoElementAnswer', ...query, playable: true }));
+      }
+      if (e.type === 'videoReset') {
+        page.generation = e.generation;
+        page.segments = 0;
+      }
+      if (e.type === 'videoSegment') {
+        const { endUs } = e;
+        const { generation } = page;
+        const segments = ++page.segments;
+        queueMicrotask(() => {
+          void player.handle({ type: 'videoBuffered', endUs, segments, generation });
+          if (page.shown !== generation) {
+            page.shown = generation;
+            void player.handle({ type: 'videoFrameShown', generation });
+          }
+        });
+      }
+    },
     videoCodecApi: fakeVideoCodecApi,
     nowMs: () => clock.ms,
     requestFrame: () => undefined,
@@ -180,6 +207,10 @@ async function harness(files: Map<string, Uint8Array<ArrayBuffer>>, opts: Harnes
   if (opts.memoryProfile) await player.handle({ type: 'setMemoryProfile', profile: opts.memoryProfile });
   await player.handle({ type: 'attachAudio', ring });
   await player.handle({ type: 'attachCanvas', canvas: {} as OffscreenCanvas });
+  if (opts.element) {
+    await player.handle({ type: 'setVideoPath', path: 'element' });
+    await player.handle({ type: 'attachVideoElement', clock: createClockBlock() });
+  }
   await player.handle({ type: 'open', disc: spec ?? { kind: 'files', entries: discEntries(files) }, ...(opts.start ? { start: opts.start } : {}) });
   const left = new Float32Array(128);
   const right = new Float32Array(128);
@@ -419,6 +450,13 @@ describe('Player with BD-J titles (in-process BD-J worker)', () => {
     const titles = types.indexOf('titles');
     expect(types.indexOf('bdjActive', titles)).toBeLessThan(types.indexOf('state:idle', titles));
   });
+
+  it("reports the first frame on the video element path, from the page's first shown frame", async () => {
+    const h = await harness(fixtureDiscFiles('disc-bdj'), { element: true }); // real H.264, which the element is asked about
+    await until(h, () => lastTelemetry(h)?.videoPath === 'element' && (lastTelemetry(h)?.bdj?.firstFrameMs ?? null) !== null, 20_000);
+    const bdj = lastTelemetry(h)!.bdj!;
+    expect(bdj.firstFrameMs).toBeGreaterThanOrEqual(bdj.firstPlaylistMs!);
+  }, 90_000);
 
   it('reads the place of a BD-J title: its registers, with no title and no GPRs', async () => {
     const h = await harness(bdjDisc(), { worker: handWorker().worker });

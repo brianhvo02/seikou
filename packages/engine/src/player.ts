@@ -885,8 +885,7 @@ export class Player {
       s.blankComposited = true;
       this.bdjDirty = true; // paint composites it now, whether or not a plane changed
     }
-    const startup = this.bdjStartup;
-    if ((frame || blank) && s.owner === 'bdj' && startup && startup.firstPlaylistMs !== null && startup.firstFrameMs === null) startup.firstFrameMs = this.sinceOpenMs();
+    if (frame || blank) this.noteBdjFirstFrame(s);
     this.pg?.tick(now);
     this.encodeSubs?.pgs?.control.tick(now);
     this.paint(frame, now);
@@ -980,6 +979,15 @@ export class Player {
       // flushes on the BD-J worker's thread (a copy that waited for the writer took nothing, and answers nothing)
       if (bdj.copiedVersion() !== copied) this.bdjLatency?.presented(this.deps.nowMs(), bdj.copiedVersion());
     }
+  }
+
+  /**
+   * A frame of the session was presented (by the canvas, or by the video element as the page reports its first): under a
+   * BD-J title, the first one after Java's first playlist is the start-up's first frame.
+   */
+  private noteBdjFirstFrame(s: Session): void {
+    const startup = this.bdjStartup;
+    if (s.owner === 'bdj' && startup && startup.firstPlaylistMs !== null && startup.firstFrameMs === null) startup.firstFrameMs = this.sinceOpenMs();
   }
 
   private setVideoShaders(set: ShaderSetData | null): void {
@@ -3577,6 +3585,7 @@ export class Player {
       case 'videoFrameShown':
         // the session's first element frame: the background still stops covering it
         if (!s?.element || cmd.generation < s.element.firstGeneration) return;
+        this.noteBdjFirstFrame(s);
         this.compositor?.elementFrameShown?.();
         this.elementDirty = true;
         return;
