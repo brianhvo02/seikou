@@ -1,6 +1,6 @@
 # HDR video through the browser's video element: design
 
-Status: design, for review. Background: `2026-11-15-tv-platforms-and-hdr-research.md` §4.
+Status: phase 1 built (branch `hdr-video`); the owner's sync check passed on 2026-11-16 (Windows Chrome with HDR, iPhone, and Safari on a Mac, which keeps sync as its canvas path does) and the owner chose **approach A** everywhere, with the failure fallback already built. Phase 2 is next. Background: `2026-11-15-tv-platforms-and-hdr-research.md` §4.
 
 ## 1. Intent
 

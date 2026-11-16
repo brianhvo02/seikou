@@ -586,6 +586,12 @@ what would change that decision.
 - **The last E-AC-3 access unit before the end of input is not played** (32 ms), because a group is emitted when
   the next one starts.
 - **AC-3 at 44.1 or 32 kHz is ignored** (treated as no sync). Blu-ray AC-3 is always 48 kHz.
+- **In Safari on a Mac, real discs look slightly ahead of their sound** (the picture first), on the canvas and element
+  paths alike, though the telemetry reads in sync: the sound reaches the ear later than Safari reports (wired
+  headphones: 1 ms reported, `getOutputTimestamp` agrees), by an amount no browser API shows. The flash and beep of
+  `scripts/make-sync-disc.ts` look together, so the gap is small; AirPods add more (160 ms reported, more heard).
+  Chrome on the same Mac is in sync. Owner's check, 2026-11-16. *Revisit if* an audio delay setting (per device, set
+  by eye) is taken up; the owner tabled it.
 
 ## Browsers and devices
 
