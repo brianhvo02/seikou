@@ -106,7 +106,7 @@ function browserMemoryProfile(): MemoryProfileName {
 }
 
 /** The page's media source class's `isTypeSupported`, `ManagedMediaSource` first; undefined without either. */
-function browserIsTypeSupported(): ((type: string) => boolean) | undefined {
+export function browserIsTypeSupported(): ((type: string) => boolean) | undefined {
   const g = globalThis as { ManagedMediaSource?: { isTypeSupported(t: string): boolean }; MediaSource?: { isTypeSupported(t: string): boolean } };
   const source = g.ManagedMediaSource ?? g.MediaSource;
   return source && typeof source.isTypeSupported === 'function' ? (t) => source.isTypeSupported(t) : undefined;

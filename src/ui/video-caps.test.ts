@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { detectAv1, detectVideoCaps, loadVideoCaps, noAv1Flag, type VideoCapsEnv } from './video-caps';
+import { describe, expect, it, vi } from 'vitest';
+import { browserIsTypeSupported, detectAv1, detectVideoCaps, loadVideoCaps, noAv1Flag, type VideoCapsEnv } from './video-caps';
 
 function env(over: Partial<VideoCapsEnv> = {}): VideoCapsEnv {
   return {
@@ -141,5 +141,35 @@ describe('detectVideoCaps through the browser video player', () => {
   it('treats a throwing media source as no', async () => {
     const caps = await detectVideoCaps(env({ isConfigSupported: no, isTypeSupported: () => { throw new Error('x'); } }));
     expect(caps.hevc).toBe(false);
+  });
+});
+
+describe('browserIsTypeSupported', () => {
+  const source = (answer: boolean, asked: string[]) => ({ isTypeSupported: (t: string) => (asked.push(t), answer) });
+
+  it("asks ManagedMediaSource where there is one, else MediaSource", () => {
+    const asked: string[] = [];
+    vi.stubGlobal('ManagedMediaSource', source(true, asked));
+    vi.stubGlobal('MediaSource', source(false, []));
+    try {
+      expect(browserIsTypeSupported()?.('video/mp4; codecs="hvc1.2.4.L153.B0"')).toBe(true);
+      expect(asked).toEqual(['video/mp4; codecs="hvc1.2.4.L153.B0"']);
+      vi.stubGlobal('ManagedMediaSource', undefined);
+      expect(browserIsTypeSupported()?.('video/mp4; codecs="avc1.640028"')).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('is undefined without a media source, or with one that has no isTypeSupported', () => {
+    vi.stubGlobal('ManagedMediaSource', undefined);
+    vi.stubGlobal('MediaSource', undefined);
+    try {
+      expect(browserIsTypeSupported()).toBeUndefined();
+      vi.stubGlobal('MediaSource', {});
+      expect(browserIsTypeSupported()).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });
