@@ -547,6 +547,23 @@ test('opens disc-menu from the NAS into its menu', async ({ page, browserName })
   await expect(playerState(page)).toHaveAttribute('data-menu-active', 'true', { timeout: 15_000 });
 });
 
+test('a disc that plays at once has sound when the audio output is slow to start, as in Safari on a Mac', async ({ page, browserName }) => {
+  test.skip(browserName !== 'chromium', 'needs a running audio output');
+  // The worklet loads 1.5 s late: Play must wait for it, or the playlist the disc starts at once plays without sound.
+  await page.addInitScript(() => {
+    const add = AudioWorklet.prototype.addModule;
+    AudioWorklet.prototype.addModule = function (this: AudioWorklet, ...args: Parameters<typeof add>) {
+      return new Promise<void>((resolve) => setTimeout(resolve, 1500)).then(() => add.apply(this, args));
+    };
+  });
+  await openLibrary(page, browserName);
+  await skipWithoutH264(page, { realtime: false });
+  await playFromNas(page, 'disc-menu');
+  await expect(playerState(page)).toHaveAttribute('data-menu-active', 'true', { timeout: 15_000 });
+  await expect.poll(async () => (await telemetry(page))?.clockMode, { timeout: 10_000 }).toBe('audio');
+  await expect(page.getByText('Audio output is not available')).toHaveCount(0);
+});
+
 test('plays the playlist the Java of disc-bdj selects, from the NAS', async ({ page, browserName }) => {
   await openLibrary(page, browserName);
   await skipWithoutH264(page);

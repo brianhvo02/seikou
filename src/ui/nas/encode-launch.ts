@@ -27,6 +27,15 @@ export const ENCODES_HELP_PATH = '/help/nas#encodes';
  */
 export const AUDIO_START_WAIT_MS = 3000;
 
+/**
+ * Starts the audio (call it inside the click) and resolves once it has reached the engine, or after
+ * AUDIO_START_WAIT_MS: what opens a disc or an encode waits on it, since a playlist that starts before the audio ring
+ * arrives plays without sound (Safari on a Mac loads the worklet slowly enough for a disc that plays at once).
+ */
+export function audioStarted(controller: Pick<PlayerController, 'startAudio'>): Promise<void> {
+  return atMost(controller.startAudio(), AUDIO_START_WAIT_MS);
+}
+
 /** `p`, or nothing once `ms` have passed. */
 function atMost(p: Promise<unknown>, ms: number): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -66,7 +75,7 @@ export async function launchEncode(
   // Inside the gesture, before anything is awaited; and waited for (it never rejects), since an encode opens in moments
   // and one that starts before the audio ring reaches the engine plays without sound. Never for longer than
   // AUDIO_START_WAIT_MS: with no gesture (Next episode's countdown) the start may never come.
-  const audio = atMost(controller.startAudio(), AUDIO_START_WAIT_MS);
+  const audio = audioStarted(controller);
   const [base, session, pairing, manifest] = await Promise.all([nas.encodeBase(encodeId), nas.session(), nas.pairing(), nas.encodeManifest(encodeId), audio]);
   if (opts.stillWanted && !opts.stillWanted()) return false;
   // The engine asks again only after the NAS refused the token it has, so that one is never handed back.
