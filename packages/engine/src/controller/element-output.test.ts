@@ -447,6 +447,37 @@ describe('ElementVideoOutput', () => {
     expect(t.video.paused).toBe(true);
   });
 
+  it('pauses the element at the held clock while the engine plays but its clock stops, and starts it again once the clock moves', () => {
+    const t = setup();
+    const clock = new ClockBlockWriter(t.out.clock);
+    clock.write(0, false, 5000);
+    t.out.handle(reset(0, false));
+    t.out.handle(init());
+    t.ms.fireOpen();
+    t.sb().finish();
+    appendSegment(t, 1, 0, 8);
+    clock.write(10_000, true, 5000);
+    t.fireTimers();
+    expect(t.video.plays).toBe(1);
+    // the clock holds at 2.97 s (a still at a play item's end) while the element has played on a little
+    clock.write(2_970_000, false, 6000);
+    t.video.presentFrame(3.05 + OFFSET_S, 3000);
+    expect(t.video.paused).toBe(true);
+    expect(t.video.currentTime).toBeCloseTo(2.97 + OFFSET_S, 6);
+    const catchUps = (): number => commands(t.posted, 'videoSync').at(-1)?.catchUps ?? 0;
+    t.fireTimers();
+    const held = catchUps();
+    // frames shown while held measure nothing and start no catch-up
+    t.video.presentFrame(2.97 + OFFSET_S, 3100);
+    t.fireTimers();
+    expect(catchUps()).toBe(held);
+    expect(t.video.plays).toBe(1);
+    // the clock moves on: the element plays again
+    clock.write(2_980_000, true, 6500);
+    t.fireTimers();
+    expect(t.video.plays).toBe(2);
+  });
+
   it('a paused reset leaves the element paused', () => {
     const t = opened(0, true);
     appendSegment(t, 1, 0, 2);

@@ -592,6 +592,16 @@ export class ElementVideoOutput {
     // the placed frame shown while the element waits for the clock to move measures nothing: the element has not started
     if (this.pendingStart || this.deps.video.paused) return;
     const video = this.deps.video;
+    const published = this.reader.read();
+    if (this.playing && published && !published.running) {
+      // the engine plays but its clock holds (a still at a play item's end): the element stops on the held clock's
+      // frame instead of playing on and being pulled back, and starts again, as at a start, once the clock moves
+      void video.currentTime;
+      video.pause();
+      video.currentTime = (published.clockUs + ELEMENT_TIME_OFFSET_US) / 1e6;
+      this.applyPlaying();
+      return;
+    }
     const epoch = displayMs !== null ? this.deps.timeOrigin + displayMs : this.deps.epochMs();
     const clockUs = this.reader.clockAt(epoch);
     const action = this.sync.onFrame(mediaTimeS * 1e6 - ELEMENT_TIME_OFFSET_US, clockUs, this.playing);

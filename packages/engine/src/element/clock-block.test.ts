@@ -93,4 +93,23 @@ describe('clock line', () => {
     for (let t = 0; t < 200; t += 16) line.at(t * 1000, true, t);
     expect(line.at(4_000_000, true, 208)).toEqual({ clockUs: 4_000_000, running: true });
   });
+
+  it('stops running when the playing clock holds longer than a step (a held still), and runs again once it moves', () => {
+    const line = new ClockLine();
+    // steps every 43 ms until 2.97 s, then holds (the end of a held play item: no more sound), then moves on at 5 s
+    const clockAt = (t: number): number => (t < 3970 ? stepped(t, 1000) : t < 6000 ? stepped(3970, 1000) : stepped(3970, 1000) + stepped(t, 6000));
+    let lastRunningAt = 0;
+    let stopped: { clockUs: number; running: boolean } | null = null;
+    for (let t = 1000; t < 5900; t += 1000 / 60) {
+      const published = line.at(clockAt(t), true, t);
+      if (published.running) lastRunningAt = t;
+      else if (t > 2000) stopped = published;
+    }
+    // published as stopped within a few steps of the hold, at the held clock: nothing to extrapolate past it
+    expect(lastRunningAt).toBeLessThan(3970 + 200);
+    expect(stopped).toEqual({ clockUs: stepped(3970, 1000), running: false });
+    let movedAgain = false;
+    for (let t = 6000; t < 6300; t += 1000 / 60) movedAgain ||= line.at(clockAt(t), true, t).running;
+    expect(movedAgain).toBe(true);
+  });
 });
