@@ -156,6 +156,8 @@ export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
   private readonly fieldFlags = new Map<number, FieldFlags>();
   /** Delivers field inputs one after another, so their order is the output order. */
   private fieldChain: Promise<void> = Promise.resolve();
+  /** Bumped by reset(), close() and open(): a field input queued before one of them is dropped, never delivered. */
+  private generation = 0;
 
   constructor(private readonly api: VideoCodecApi = browserVideoCodecApi) {}
 
@@ -297,6 +299,7 @@ export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
   }
 
   reset(): void {
+    this.generation++;
     this.pending.clear();
     this.fieldFlags.clear();
     this.needKey = true;
@@ -317,6 +320,7 @@ export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
   }
 
   close(): void {
+    this.generation++;
     this.closed = true;
     if (this.decoder && this.decoder.state !== 'closed') this.decoder.close();
     this.decoder = null;
@@ -361,6 +365,7 @@ export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
     const config = this.config;
     if (!config) return;
     if (this.decoder && this.decoder.state !== 'closed') this.decoder.close();
+    this.generation++;
     const decoder = this.api.create({
       output: (frame) => this.handleFrame(decoder, frame),
       error: (err) => this.handleError(decoder, err),
@@ -406,12 +411,13 @@ export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
     const matrix = this.timing?.matrixCoefficients ?? null;
     const timestampUs = frame.timestamp;
     const durationUs = frame.duration ?? 0;
+    const generation = this.generation;
     this.fieldChain = this.fieldChain.then(async () => {
       try {
         const planes = await framePlanes(frame, matrix);
-        if (source === this.decoder) sink({ planes, timestampUs, durationUs, flags });
+        if (source === this.decoder && generation === this.generation) sink({ planes, timestampUs, durationUs, flags });
       } catch (err) {
-        if (source === this.decoder) this.handleError(source, toDomException(err));
+        if (source === this.decoder && generation === this.generation) this.handleError(source, toDomException(err));
       } finally {
         frame.close();
       }

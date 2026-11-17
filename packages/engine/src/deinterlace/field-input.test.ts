@@ -151,6 +151,22 @@ describe('WebCodecsVideoDecoder field input', () => {
     expect(frames.every((f) => f.closed)).toBe(true);
   });
 
+  it('drops and closes frames still waiting for delivery when reset() runs', async () => {
+    const units = clipUnits('00003').slice(0, 3);
+    const { api, frames, flushOut } = setup();
+    const dec = new WebCodecsVideoDecoder(api);
+    const got: FieldInput[] = [];
+    dec.onFieldInput = (i) => got.push(i);
+    await dec.configure({ codingType: CodingType.AVC, firstUnit: units[0] });
+    units.forEach((data, i) => dec.decode({ data, ptsUs: (i + 1) * 1000, discard: false }));
+    flushOut(); // outputs are in the chain, not yet delivered
+    dec.reset();
+    await dec.flush();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(got).toEqual([]);
+    expect(frames.every((f) => f.closed)).toBe(true);
+  });
+
   it('keeps onOutput for a stream with no field sink', async () => {
     const units = clipUnits('00003').slice(0, 2);
     const { api, flushOut } = setup();
