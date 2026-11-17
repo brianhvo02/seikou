@@ -347,6 +347,34 @@ describe('CadenceDetector', () => {
     expectIncreasingTimes(pictures);
   });
 
+  it('leaves film for progressive when moving 30p frames follow (no 3:2 pair for two cycles), dropping none of them', () => {
+    const film = telecine(0, 40);
+    const moving = progressiveFrames(0, 40);
+    const frames = [...film, ...moving];
+    const { detector, pictures, modes } = run(frames);
+    expect(modes[film.length - 1]).toBe('film');
+    // Within about two cycles (and the lookahead) of the 30p start it is progressive, and stays so.
+    const settled = film.length + 2 * 5 + LOOKAHEAD;
+    expect(modes.slice(settled).every((m) => m === 'progressive')).toBe(true);
+    expect(detector.breaks).toBe(1);
+    // From there every 30p frame is shown once, woven, at its own time: none dropped or retimed to the film grid.
+    const counts = countsPerFrame(pictures, frames.length);
+    expect(counts.slice(settled)).toEqual(new Array<number>(frames.length - settled).fill(1));
+    const late = pictures.filter((p) => p.frame - FIRST_SEQ >= settled);
+    for (const p of late) expect(p.op).toEqual({ kind: 'weave' });
+    const ts = evenTimestamps(frames.length);
+    for (const p of late) expect(p.timestampUs).toBe(ts[p.frame - FIRST_SEQ]);
+    expectIncreasingTimes(pictures);
+  });
+
+  it('keeps the film lock through a long static hold after it (no motion, so no evidence either way)', () => {
+    const film = telecine(0, 40);
+    const hold = Array.from({ length: 40 }, (): SimFrame => ({ first: 'hold', second: 'hold' }));
+    const { detector, modes } = run([...film, ...hold]);
+    expect(modes.slice(LOCK_CYCLES * 5 + LOOKAHEAD).every((m) => m === 'film')).toBe(true);
+    expect(detector.breaks).toBe(0);
+  });
+
   it('detects bottom field first', () => {
     const frames = videoFrames(0, 20);
     const { detector, pictures } = run(frames, { order: 'bff', flags: () => orderFlags(null) });

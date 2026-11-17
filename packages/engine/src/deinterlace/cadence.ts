@@ -2,7 +2,9 @@
 // The cadence detector: our own design (not derived from any field-matching or decimation filter's code). Each
 // frame's measurements say whether it weaves clean, whether one of its fields pairs clean with a neighbouring frame's
 // field (3:2 film), or whether it combs whatever is paired (field-rate video). A run of consistent 3:2 cycles locks
-// film: each cycle's duplicate frame is dropped and the four kept pictures are retimed to the film grid.
+// film: each cycle's duplicate frame is dropped and the four kept pictures are retimed to the film grid. The lock ends
+// when frames comb whatever is paired, or when frames move for two cycles with no 3:2 evidence (progressive content
+// after the film); a static scene keeps it.
 
 import type { FieldFlags } from './field-input';
 
@@ -74,6 +76,18 @@ export const UNLOCK_FRAMES = 4;
 export const LOOKAHEAD = 5;
 /** Consecutive frames that weave clean before video is taken for progressive. */
 export const PROGRESSIVE_FRAMES = 4;
+/**
+ * Frames (two whole cycles) with no matched frame after which a film lock is left, if most of them moved
+ * (`MOTION_FLOOR`): moving film shows matched frames every cycle (a cut between films too, until its new phase
+ * breaks the lock), so clean frames that move with none are progressive content (30p after the film). A static scene
+ * shows none either, and keeps the lock.
+ */
+export const UNCONFIRMED_FRAMES = 10;
+/**
+ * A `diffPrev` above this is motion (a mean difference of about 2.5 levels in 8-bit luma), above coding noise on a
+ * still picture.
+ */
+export const MOTION_FLOOR = 0.01;
 /**
  * A comb value at or below this is clean whatever the others are. Measured on the whole 1080i frames of the
  * interlaced fixture disc with the CPU reference (`metrics-cpu.ts`), clean pairings read at most 0.004 (coding noise
@@ -187,6 +201,8 @@ export class CadenceDetector {
   private dropIndex = -1;
   private grid: { anchorUs: number; k: number } | null = null;
   private recentFields: number[] = [];
+  /** Whether each of the latest `UNCONFIRMED_FRAMES` frames moved and whether it matched, the newest last. */
+  private recentMotion: Array<{ readonly moved: boolean; readonly matched: boolean }> = [];
   private lastTimeUs = -Infinity;
   private lockCount = 0;
   private breakCount = 0;
@@ -277,6 +293,7 @@ export class CadenceDetector {
     this.dropIndex = -1;
     this.grid = null;
     this.recentFields = [];
+    this.recentMotion = [];
     this.lastTimeUs = -Infinity;
   }
 
@@ -325,6 +342,8 @@ export class CadenceDetector {
     const pairStart = f.cls !== 'matched' && c1 === 'matched' && c2 === 'matched' && c3 !== 'matched' ? i - 2 : null;
     this.combedRun = f.cls === 'combed' ? this.combedRun + 1 : 0;
     this.wovenRun = f.cls === 'woven' ? this.wovenRun + 1 : 0;
+    this.recentMotion.push({ moved: f.metrics.diffPrev > MOTION_FLOOR, matched: f.cls === 'matched' });
+    if (this.recentMotion.length > UNCONFIRMED_FRAMES) this.recentMotion.shift();
 
     switch (this.state.kind) {
       case 'video':
@@ -345,7 +364,18 @@ export class CadenceDetector {
           this.leaveFilm(i);
           break;
         }
-        if (pairStart === null) break;
+        if (pairStart === null) {
+          if (this.movingWithoutPulldown()) {
+            // Two cycles of moving frames with no 3:2 evidence: the film has ended (30p after it), and the frames
+            // still waiting are planned as what they are, never decimated.
+            this.leaveFilm(i, this.earliestPending());
+            if (this.wovenRun >= PROGRESSIVE_FRAMES) {
+              this.state = PROGRESSIVE;
+              this.apply(PROGRESSIVE, i - this.wovenRun + 1);
+            }
+          }
+          break;
+        }
         if (mod(pairStart - this.state.phase, CYCLE) === 0) {
           this.lastConfirm = i;
           break;
@@ -393,11 +423,19 @@ export class CadenceDetector {
     this.apply(seg, from);
   }
 
-  private leaveFilm(i: number): void {
+  /** Leaves film for video, the frames still waiting from `from` on (by default the combed run that ended it). */
+  private leaveFilm(i: number, from = Math.max(this.earliestPending(), i - UNLOCK_FRAMES + 1)): void {
     this.breakCount++;
     this.candidate = null;
     this.state = VIDEO;
-    this.apply(VIDEO, Math.max(this.earliestPending(), i - UNLOCK_FRAMES + 1));
+    this.apply(VIDEO, from);
+  }
+
+  /** The latest `UNCONFIRMED_FRAMES` frames have no matched frame, and most of them moved. */
+  private movingWithoutPulldown(): boolean {
+    const recent = this.recentMotion;
+    if (recent.length < UNCONFIRMED_FRAMES || recent.some((r) => r.matched)) return false;
+    return recent.filter((r) => r.moved).length * 2 > UNCONFIRMED_FRAMES;
   }
 
   private updateSoft(i: number): void {

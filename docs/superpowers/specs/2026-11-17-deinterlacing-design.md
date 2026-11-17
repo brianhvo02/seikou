@@ -90,8 +90,9 @@ frames of an interlaced session go to it instead of the presenter:
 3. **Cadence detector.** Pure TypeScript, fed the numbers, decides for each frame: woven as is (progressive), matched
    (film: which neighbouring field completes it), or deinterlaced (video), and which matched frames are the duplicates
    to drop. It works over a cycle of 5 frames with hysteresis: it locks onto 3:2 after a run of consistent cycles,
-   keeps the lock through scene cuts and fades where the metrics are ambiguous, and leaves it only when combing appears
-   that matching can't remove. It is the unit-tested heart of the feature.
+   keeps the lock through scene cuts, fades and static scenes where the metrics are ambiguous, and leaves it when
+   combing appears that matching can't remove, or when the picture moves for two cycles with no 3:2 evidence (30p
+   progressive content after the film). It is the unit-tested heart of the feature.
 4. **Pictures.** The detector's decisions become output pictures queued in the presenter in place of frames: each
    names its source textures, the operation (weave, match with a neighbour's field, or motion-adaptive interpolation of
    one field) and its timestamp. Video mode makes two pictures per frame, half a frame apart; film mode makes 4 per
