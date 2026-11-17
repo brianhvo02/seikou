@@ -7,6 +7,7 @@ import type { DrawnPicture } from '../render/compositor';
 import type { DeinterlaceBackend, DeinterlaceStats, Picture } from './deinterlacer';
 import { Deinterlacer } from './deinterlacer';
 import type { FieldInput } from './field-input';
+import { PacingMonitor, type PacingObservation } from './pacing-monitor';
 
 /** The device's deinterlacing setting: `auto` deinterlaces interlaced streams, `off` draws their frames woven. */
 export type DeinterlaceSetting = 'auto' | 'off';
@@ -54,6 +55,7 @@ export class InterlacedVideo {
   /** Pictures of this deinterlacer handed out and not yet known closed (WeakSet: a dropped picture is forgotten). */
   private readonly ours = new WeakSet<Picture>();
   private drawn: Drawn | null = null;
+  private readonly pacing = new PacingMonitor();
   private failure: Error | null = null;
 
   constructor(deps: InterlacedVideoDeps) {
@@ -196,13 +198,26 @@ export class InterlacedVideo {
     });
   }
 
-  /** Reports one picture's pacing to the deinterlacer (see `Deinterlacer.notePacing`); nothing without a session. */
-  notePacing(late: boolean): void {
-    this.deinterlacer?.notePacing(late);
+  /**
+   * Reports one display tick to the pacing check (`PacingMonitor` judges it, the deinterlacer's window counts it);
+   * nothing without a session.
+   */
+  observePacing(o: PacingObservation): void {
+    const d = this.deinterlacer;
+    if (!d) return;
+    const verdict = this.pacing.observe(o);
+    if (verdict === 'restart') d.restartPacing();
+    else if (verdict !== 'skip') d.notePacing(verdict === 'late');
+  }
+
+  /** Playback starts or resumes, or the page is shown again: pacing isn't judged for the next second. */
+  settlePacing(): void {
+    this.pacing.settle();
   }
 
   /** A seek: the frames and the cadence are forgotten; pictures handed out before draw nothing new. */
   reset(): void {
+    this.pacing.settle();
     for (const p of this.parked) if (p.kind === 'flush') p.resolve();
     this.parked = [];
     this.drawn = null;

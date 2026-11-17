@@ -233,6 +233,12 @@ export class Deinterlacer {
     if (this.pacingCount >= PACING_WINDOW && this.pacingLate >= PACING_LATE_SHARE * PACING_WINDOW) this.fallback = true;
   }
 
+  /** Empties the pacing window (playback started, resumed or seeked): what came before says nothing of what follows. The fall-back stays. */
+  restartPacing(): void {
+    this.pacingCount = 0;
+    this.pacingLate = 0;
+  }
+
   /** Why the deinterlacer stopped (a measurement failed, as on a lost WebGL context), or null while it works. */
   get error(): Error | null {
     return this.failure;
@@ -331,8 +337,7 @@ export class Deinterlacer {
    */
   reset(): void {
     this.generation++;
-    this.pacingCount = 0;
-    this.pacingLate = 0;
+    this.restartPacing();
     for (const p of this.pictures) p.orphan();
     this.pictures.clear();
     const abandoned = this.deferred;

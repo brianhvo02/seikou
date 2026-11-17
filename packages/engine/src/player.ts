@@ -708,6 +708,7 @@ export class Player {
     // a hidden page pauses the BD-J start-up timeout at once, whatever the queue holds: the timeout counts only the time the page is visible
     if (cmd.type === 'visibility') {
       this.pageHidden = cmd.hidden;
+      this.interlacedVideo?.settlePacing();
       this.bdj?.session.setHidden(cmd.hidden);
       return Promise.resolve();
     }
@@ -964,17 +965,23 @@ export class Player {
   }
 
   /**
-   * Tells an interlaced session's deinterlacer how its pictures are keeping up: a picture is late when it is
-   * presented more than half its duration past its own time, and each picture the presenter dropped without showing
-   * since the last tick counts as late too. Progressive and woven sessions report nothing.
+   * Tells an interlaced session's pacing check what this tick did: the selected picture's lateness and the pictures
+   * the presenter dropped since the last tick (`PacingMonitor` has the rule). Progressive and woven sessions report
+   * nothing.
    */
   private notePicturePacing(s: Session, frame: VideoFrame | Picture | null, nowUs: number): void {
     const dropped = this.presenter.dropped - this.pacingDropped;
     this.pacingDropped = this.presenter.dropped;
     const video = s.deinterlace?.video;
-    if (!video || this.state !== 'playing') return;
-    for (let i = 0; i < dropped; i++) video.notePacing(true);
-    if (frame && video.owns(frame)) video.notePacing(nowUs - frame.timestamp > frame.duration / 2);
+    if (!video) return;
+    const picture = frame && video.owns(frame) ? frame : null;
+    video.observePacing({
+      nowMs: this.deps.nowMs(),
+      playing: this.state === 'playing' && !this.held,
+      shownLateUs: picture ? nowUs - picture.timestamp : null,
+      durationUs: picture?.duration ?? 16_683,
+      dropped,
+    });
   }
 
   /** Redraws the current picture at once: the video and every plane over it. */
