@@ -20,6 +20,19 @@ export interface ElementPictureSize {
 export type { Rect, TextRendererLike };
 
 /**
+ * A picture the deinterlacer drew: its canvas (at the stream's visible size, valid until the next picture is drawn),
+ * the size it shows at, and what it holds, so a shader set's result is reused while the same picture shows.
+ * @internal
+ */
+export interface DrawnPicture {
+  readonly image: OffscreenCanvas;
+  readonly displayWidth: number;
+  readonly displayHeight: number;
+  /** Changes whenever the canvas holds another picture (or the same one drawn otherwise). */
+  readonly key: object;
+}
+
+/**
  * The largest rectangle of the source's aspect ratio that fits inside the destination, centred and rounded to whole
  * pixels. Any non-positive size gives an empty rectangle at the origin.
  */
@@ -42,9 +55,10 @@ export interface CompositorLike {
   /**
    * Clears to black, draws the background still (if any), then the frame. In element mode (startPlaylist's `element`)
    * it clears to transparent and draws no video: the page's video element shows the picture under the canvas; the
-   * background still is drawn only until the element shows a frame (elementFrameShown).
+   * background still is drawn only until the element shows a frame (elementFrameShown). The frame is a decoded one, or
+   * a picture the deinterlacer drew.
    */
-  drawVideo(frame: VideoFrame | null): void;
+  drawVideo(frame: VideoFrame | DrawnPicture | null): void;
   /**
    * A playlist starts: the last frame's size is forgotten. With `picture` false (video the browser can't decode) text is
    * laid out over the 1920×1080 screen; otherwise none is drawn until the playlist's first frame. With `element` (the
@@ -140,7 +154,7 @@ export class Compositor implements CompositorLike {
     this.background = still;
   }
 
-  drawVideo(frame: VideoFrame | null): void {
+  drawVideo(frame: VideoFrame | DrawnPicture | null): void {
     const { width, height } = this.canvas;
     if (this.element) {
       this.ctx.clearRect(0, 0, width, height);
@@ -154,9 +168,17 @@ export class Compositor implements CompositorLike {
     this.drawBackground(r);
     if (!frame || !r) return;
     this.frameSize = { width: frame.displayWidth, height: frame.displayHeight };
-    this.storageSize = { width: frame.visibleRect?.width ?? frame.codedWidth, height: frame.visibleRect?.height ?? frame.codedHeight };
     // the shaded image is already at the fitted size (shaders see it as OUTPUT)
-    const image = r.width > 0 && r.height > 0 ? this.stage?.process(frame, { width: r.width, height: r.height }) : null;
+    const output = r.width > 0 && r.height > 0 ? { width: r.width, height: r.height } : null;
+    if ('image' in frame) {
+      // a deinterlaced picture: its canvas is at the stream's visible size, which is the storage size
+      this.storageSize = { width: frame.image.width, height: frame.image.height };
+      const image = output ? this.stage?.process(frame.image, output, frame.key) : null;
+      this.ctx.drawImage(image ?? frame.image, r.x, r.y, r.width, r.height);
+      return;
+    }
+    this.storageSize = { width: frame.visibleRect?.width ?? frame.codedWidth, height: frame.visibleRect?.height ?? frame.codedHeight };
+    const image = output ? this.stage?.process(frame, output) : null;
     this.ctx.drawImage(image ?? frame, r.x, r.y, r.width, r.height);
   }
 

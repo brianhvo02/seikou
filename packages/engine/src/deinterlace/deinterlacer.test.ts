@@ -54,7 +54,7 @@ function planes(tag: number): YuvPlanes {
 }
 
 function input(i: number, flags: FieldFlags = TFF): FieldInput {
-  return { planes: planes(i), timestampUs: i * FRAME_US, durationUs: FRAME_US, flags };
+  return { planes: planes(i), timestampUs: i * FRAME_US, durationUs: FRAME_US, flags, displayWidth: 8, displayHeight: 8 };
 }
 
 function setup(opts: { deferred?: boolean; metrics?: FrameMetrics; ringSize?: number } = {}) {

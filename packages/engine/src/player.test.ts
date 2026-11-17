@@ -29,6 +29,10 @@ import type { BdjPlaybackListener } from './bdj-types';
 import { Player, type PlayerDeps } from './player';
 import { NO_PICTURE_MESSAGE, type EngineEvent, type PlaybackState, type ShaderSetData, type Telemetry } from './protocol';
 import { ShaderStage } from './shaders/stage';
+import type { DrawnPicture } from './render/compositor';
+import type { FrameMetrics, PictureOp } from './deinterlace/cadence';
+import { Deinterlacer, type DeinterlaceBackend, type Picture } from './deinterlace/deinterlacer';
+import { WOVEN_NO_WEBGL2, WOVEN_OFF } from './deinterlace/interlaced-video';
 import { UNAVAILABLE, type CompiledSet, type ShaderBackend } from './shaders/webgl-backend';
 
 const decoders: FakeDecoder[] = [];
@@ -69,6 +73,8 @@ interface Harness {
   player: Player;
   events: EngineEvent[];
   drawn: number[];
+  /** Deinterlaced pictures handed to drawVideo. */
+  drawnPictures: DrawnPicture[];
   /** The IG planes handed to drawIg, one entry per call. */
   igDraws: OverlayPlane[];
   /** The PG planes handed to drawPg, one entry per call. */
@@ -121,12 +127,14 @@ function fakeAudioFactory(log: FakeAudioLog = { decoded: [], resets: 0, failNext
   };
 }
 
-async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?: number; videoCodingType?: number; throwOnDraw?: boolean; audioMuxLag90k?: number; frameBytes?: number; playlists?: SyntheticPlaylistSpec[]; audioStreams?: SyntheticAudioStream[]; secondClipAudioStreams?: SyntheticAudioStream[]; createAudioDecoder?: AudioDecoderFactory; movieObjects?: Uint8Array<ArrayBuffer>; dropFiles?: string[]; extraFiles?: Record<string, Uint8Array<ArrayBuffer>>; igUnits?: Array<{ pts: number; payload: Uint8Array }>; subPathIg?: SyntheticSubPathIg; pgStreams?: SyntheticPgStream[]; createAssDeps?: NonNullable<PlayerDeps['createAssDeps']>; createShaderBackend?: PlayerDeps['createShaderBackend']; index?: SyntheticDiscSpec['index']; playerSettings?: PlayerDeps['playerSettings']; remote?: FakeNas | ((files: Map<string, Uint8Array<ArrayBuffer>>) => FakeNas); remoteLimits?: PlayerDeps['remoteLimits']; clipSeconds?: number; noOpen?: boolean; cacheRoot?: MemoryDirectory; segmentBytes?: number; mutateFiles?: (files: Map<string, Uint8Array<ArrayBuffer>>) => void; videoCodecApi?: VideoCodecApi; log?: PlayerDeps['log'] } = {},
+async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?: number; videoCodingType?: number; throwOnDraw?: boolean; audioMuxLag90k?: number; frameBytes?: number; playlists?: SyntheticPlaylistSpec[]; audioStreams?: SyntheticAudioStream[]; secondClipAudioStreams?: SyntheticAudioStream[]; createAudioDecoder?: AudioDecoderFactory; movieObjects?: Uint8Array<ArrayBuffer>; dropFiles?: string[]; extraFiles?: Record<string, Uint8Array<ArrayBuffer>>; igUnits?: Array<{ pts: number; payload: Uint8Array }>; subPathIg?: SyntheticSubPathIg; pgStreams?: SyntheticPgStream[]; createAssDeps?: NonNullable<PlayerDeps['createAssDeps']>; createShaderBackend?: PlayerDeps['createShaderBackend']; index?: SyntheticDiscSpec['index']; playerSettings?: PlayerDeps['playerSettings']; remote?: FakeNas | ((files: Map<string, Uint8Array<ArrayBuffer>>) => FakeNas); remoteLimits?: PlayerDeps['remoteLimits']; clipSeconds?: number; noOpen?: boolean; cacheRoot?: MemoryDirectory; segmentBytes?: number; mutateFiles?: (files: Map<string, Uint8Array<ArrayBuffer>>) => void; videoCodecApi?: VideoCodecApi; log?: PlayerDeps['log']; videoFormat?: number; createDeinterlaceBackend?: PlayerDeps['createDeinterlaceBackend'] } = {},
   memory?: 'constrained',
 ): Promise<Harness> {
   decoders.length = 0;
   const files = buildSyntheticDisc({
-    clips: [syntheticClip('00001', opts.clipSeconds ?? 4, { audio, corruptAudioPesIndex: opts.corruptAudioPesIndex, frameBytes: opts.frameBytes, audioStreams: opts.audioStreams, igUnits: opts.igUnits, pgStreams: opts.pgStreams }), syntheticClip('00002', 4, { audio, audioMuxLag90k: opts.audioMuxLag90k, frameBytes: opts.frameBytes, audioStreams: opts.secondClipAudioStreams ?? opts.audioStreams })],
+    clips: [syntheticClip('00001', opts.clipSeconds ?? 4, { audio, corruptAudioPesIndex: opts.corruptAudioPesIndex, frameBytes: opts.frameBytes, audioStreams: opts.audioStreams, igUnits: opts.igUnits, pgStreams: opts.pgStreams }), syntheticClip('00002', 4, { audio, audioMuxLag90k: opts.audioMuxLag90k, frameBytes: opts.frameBytes, audioStreams: opts.secondClipAudioStreams ?? opts.audioStreams })].map((c) =>
+      opts.videoFormat !== undefined ? { ...c, videoFormat: opts.videoFormat } : c,
+    ),
     playlists: opts.playlists ?? [{ id: '00000', clipIds: ['00001', '00002'], chapterEverySeconds: 2, videoCodingType: opts.videoCodingType }],
     movieObjects: opts.movieObjects,
     index: opts.index,
@@ -138,6 +146,7 @@ async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?:
   const remote = typeof opts.remote === 'function' ? opts.remote(files) : opts.remote;
   const events: EngineEvent[] = [];
   const drawn: number[] = [];
+  const drawnPictures: DrawnPicture[] = [];
   const igDraws: OverlayPlane[] = [];
   const pgDraws: OverlayPlane[] = [];
   const frames: Array<() => void> = [];
@@ -153,6 +162,8 @@ async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?:
     createAudioDecoder: opts.createAudioDecoder ?? noWasmFactory,
     createAssDeps: opts.createAssDeps ?? fakeAssDeps(),
     createShaderBackend: opts.createShaderBackend,
+    // no WebGL2 in Node: unless a test passes a fake, interlaced video is drawn woven
+    createDeinterlaceBackend: opts.createDeinterlaceBackend ?? (() => null),
     ...(opts.playerSettings ? { playerSettings: opts.playerSettings } : {}),
     ...(opts.log ? { log: opts.log } : {}),
     ...(remote ? { fetch: remote.fetch } : {}),
@@ -163,6 +174,13 @@ async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?:
       resize: () => undefined,
       drawVideo: (f) => {
         if (f && opts.throwOnDraw) throw new Error('draw exploded');
+        if (f && 'image' in f) {
+          // a deinterlaced picture
+          order.push('video:picture');
+          stage?.process(f.image, { width: 320, height: 180 }, f.key);
+          drawnPictures.push(f);
+          return;
+        }
         order.push(`video:${f?.timestamp ?? null}`);
         if (f) stage?.process(f, { width: 320, height: 180 });
         if (f) drawn.push(f.timestamp);
@@ -197,6 +215,7 @@ async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?:
     player,
     events,
     drawn,
+    drawnPictures,
     igDraws,
     pgDraws,
     frames,
@@ -3509,5 +3528,246 @@ describe("Player switching a NAS disc's quality level (setLevel)", () => {
     expect(h.events.slice(before).filter((e) => e.type === 'tracks' || e.type === 'error')).toEqual([]);
     expect(lastState(h)).toBe('playing');
     expect(lines.filter((l) => l.includes('audio stream 3'))).toHaveLength(1);
+  }, 30_000);
+});
+
+describe('Player with interlaced video (deinterlacing)', () => {
+  const COMBED: FrameMetrics = { combWoven: 0.2, combMatchPrev: 0.2, combMatchNext: 0.2, diffPrev: 0.1, motionTff: 0, motionBff: 0 };
+  const W = 64;
+  const H = 36;
+  /** Units the interlaced decoders were given. */
+  const decoded = { count: 0 };
+
+  /** WebCodecs whose frames have I420 planes (as an interlaced stream's are copied out), output at once on decode. */
+  const interlacedApi: VideoCodecApi = {
+    create: (init) => {
+      const dec: VideoDecoderLike = {
+        state: 'unconfigured',
+        decodeQueueSize: 0,
+        configure() {
+          (dec as { state: CodecState }).state = 'configured';
+        },
+        decode(chunk) {
+          const { timestamp } = chunk as unknown as EncodedVideoChunkInit;
+          decoded.count++;
+          const size = W * H * 1.5;
+          init.output({
+            timestamp,
+            duration: 41_708,
+            format: 'I420',
+            codedWidth: W,
+            codedHeight: H,
+            displayWidth: W,
+            displayHeight: H,
+            visibleRect: { width: W, height: H },
+            colorSpace: { matrix: 'bt709' },
+            allocationSize: () => size,
+            copyTo: async (buf: Uint8Array) => {
+              buf.fill(timestamp % 251, 0, size);
+              return [{ offset: 0, stride: W }, { offset: W * H, stride: W / 2 }, { offset: W * H * 1.25, stride: W / 2 }];
+            },
+            close: () => undefined,
+          } as unknown as VideoFrame);
+        },
+        async flush() {},
+        reset() {
+          (dec as { state: CodecState }).state = 'unconfigured';
+        },
+        close() {
+          (dec as { state: CodecState }).state = 'closed';
+        },
+      };
+      return dec;
+    },
+    isConfigSupported: async (config) => ({ supported: true, config }),
+    makeChunk: (init) => init as unknown as EncodedVideoChunk,
+  };
+
+  /** A deinterlace backend that records uploads and the ops it draws; measurements answer at once unless `deferred`. */
+  function fakeDeinterlace(opts: { deferred?: boolean; failRenderAfter?: number } = {}) {
+    const made: Array<{ width: number; height: number; ringSize: number }> = [];
+    const uploads: number[] = [];
+    const ops: PictureOp[] = [];
+    const canvas = { width: W, height: H } as unknown as OffscreenCanvas;
+    const backend: DeinterlaceBackend = {
+      upload: (slot) => {
+        uploads.push(slot);
+      },
+      measure: () => new Promise<FrameMetrics>((resolve) => {
+        if (!opts.deferred) resolve(COMBED);
+      }),
+      render: (op) => {
+        if (opts.failRenderAfter !== undefined && ops.length >= opts.failRenderAfter) throw new Error('context lost');
+        ops.push(op);
+        return canvas;
+      },
+      gpuMs: null,
+      dispose: () => undefined,
+    };
+    const factory: NonNullable<PlayerDeps['createDeinterlaceBackend']> = (width, height, ringSize) => {
+      made.push({ width, height, ringSize });
+      return backend;
+    };
+    return { factory, made, uploads, ops };
+  }
+
+  const presenterSize = (h: Harness): number => (h.player as unknown as { presenter: { size: number } }).presenter.size;
+
+  it("an interlaced playlist's frames go to the deinterlacer, a progressive one's to the presenter", async () => {
+    const fake = fakeDeinterlace();
+    const h = await harness(CodingType.LPCM, { videoFormat: 4, videoCodecApi: interlacedApi, createDeinterlaceBackend: fake.factory });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await h.play(500);
+    expect(fake.uploads.length).toBeGreaterThan(10);
+    expect(h.drawnPictures.length).toBeGreaterThan(10);
+    expect(h.drawn).toEqual([]);
+    expect(h.player.deinterlaceState.woven).toBeNull();
+    expect(h.player.deinterlaceState.stats?.mode).toBe('video');
+
+    const progressive = fakeDeinterlace();
+    const p = await harness(CodingType.LPCM, { videoCodecApi: interlacedApi, createDeinterlaceBackend: progressive.factory });
+    await p.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(p);
+    await p.play(500);
+    expect(progressive.made).toEqual([]);
+    expect(p.drawnPictures).toEqual([]);
+    expect(p.drawn.length).toBeGreaterThan(10);
+  });
+
+  it('decode-ahead waits for free ring slots', async () => {
+    // measurements never come back: the ring fills with frames waiting for them and nothing frees a slot
+    const fake = fakeDeinterlace({ deferred: true });
+    const h = await harness(CodingType.LPCM, { videoFormat: 4, videoCodecApi: interlacedApi, createDeinterlaceBackend: fake.factory });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    decoded.count = 0;
+    await h.play(500);
+    expect(fake.uploads).toHaveLength(12);
+    await h.play(500);
+    expect(fake.uploads).toHaveLength(12);
+    // no frame was decoded beyond what the ring holds (none waits parked for a slot)
+    expect(decoded.count).toBe(12);
+    expect(h.events.filter((e) => e.type === 'error')).toEqual([]);
+    expect(h.player.deinterlaceState.woven).toBeNull();
+  });
+
+  it('a seek restarts the detector', async () => {
+    const rendered: number[] = [];
+    const original = Deinterlacer.prototype.render;
+    const resetSpy = vi.spyOn(Deinterlacer.prototype, 'reset');
+    const drawSpy = vi.spyOn(Deinterlacer.prototype, 'render').mockImplementation(function (this: Deinterlacer, picture: Picture, still?: boolean) {
+      rendered.push(picture.timestamp);
+      return original.call(this, picture, still);
+    });
+    try {
+      const fake = fakeDeinterlace();
+      const h = await harness(CodingType.LPCM, { videoFormat: 4, videoCodecApi: interlacedApi, createDeinterlaceBackend: fake.factory });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilPlaying(h);
+      await h.play(300);
+      expect(rendered.some((t) => t < 1_000_000)).toBe(true);
+      const resets = resetSpy.mock.calls.length;
+      rendered.length = 0;
+      await h.player.handle({ type: 'seek', timeUs: 3_000_000 });
+      expect(resetSpy.mock.calls.length).toBeGreaterThan(resets);
+      await untilPlaying(h);
+      await h.play(300);
+      expect(rendered.length).toBeGreaterThan(5);
+      expect(rendered.every((t) => t >= 3_000_000 - 1_000)).toBe(true);
+    } finally {
+      resetSpy.mockRestore();
+      drawSpy.mockRestore();
+    }
+  });
+
+  it('pause shows a woven-or-matched picture', async () => {
+    const fake = fakeDeinterlace();
+    const h = await harness(CodingType.LPCM, { videoFormat: 4, videoCodecApi: interlacedApi, createDeinterlaceBackend: fake.factory });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await h.play(500);
+    expect(h.player.deinterlaceState.stats?.mode).toBe('video');
+    expect(fake.ops.some((op) => op.kind === 'interpolate')).toBe(true);
+    await h.player.handle({ type: 'pause' });
+    const before = fake.ops.length;
+    await h.play(200);
+    expect(fake.ops.length).toBeGreaterThan(before); // the picture on screen was drawn again as a still
+    expect(['weave', 'match']).toContain(fake.ops.at(-1)!.kind);
+    const shownBefore = h.drawnPictures.length;
+    await h.play(200);
+    expect(h.drawnPictures.length).toBe(shownBefore); // and stays as it is
+  });
+
+  it('constrained profile keeps 2 pictures queued', async () => {
+    const fake = fakeDeinterlace();
+    const h = await harness(CodingType.LPCM, { videoFormat: 4, videoCodecApi: interlacedApi, createDeinterlaceBackend: fake.factory }, 'constrained');
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    expect(fake.made.every((m) => m.ringSize === 10)).toBe(true);
+    await h.play(200);
+    expect(h.player.deinterlaceState.stats?.mode).toBe('video');
+    let least = Infinity;
+    for (let i = 0; i < 150; i++) {
+      await h.play(STEP_MS);
+      least = Math.min(least, presenterSize(h));
+    }
+    expect(lastState(h)).toBe('playing');
+    expect(least).toBeGreaterThanOrEqual(2);
+  });
+
+  it('setting off draws woven frames', async () => {
+    const fake = fakeDeinterlace();
+    const h = await harness(CodingType.LPCM, { videoFormat: 4, videoCodecApi: interlacedApi, createDeinterlaceBackend: fake.factory });
+    await h.player.setDeinterlace('off');
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await h.play(500);
+    expect(fake.made).toEqual([]);
+    expect(h.drawnPictures).toEqual([]);
+    expect(h.drawn.length).toBeGreaterThan(10);
+    expect(h.player.deinterlaceState.woven).toBe(WOVEN_OFF);
+  });
+
+  it('no WebGL2: woven frames and telemetry says why', async () => {
+    const h = await harness(CodingType.LPCM, { videoFormat: 4, videoCodecApi: interlacedApi, createDeinterlaceBackend: () => null });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await h.play(500);
+    expect(h.drawnPictures).toEqual([]);
+    expect(h.drawn.length).toBeGreaterThan(10);
+    expect(h.player.deinterlaceState).toMatchObject({ woven: WOVEN_NO_WEBGL2, stats: null });
+  });
+
+  it('a GPU that fails mid-playlist falls back to woven frames for the rest of it', async () => {
+    const fake = fakeDeinterlace({ failRenderAfter: 10 });
+    const h = await harness(CodingType.LPCM, { videoFormat: 4, videoCodecApi: interlacedApi, createDeinterlaceBackend: fake.factory });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await h.play(1000);
+    expect(fake.ops).toHaveLength(10);
+    expect(h.player.deinterlaceState.woven).toContain('context lost');
+    await untilPlaying(h);
+    const drawn = h.drawn.length;
+    await h.play(500);
+    expect(h.drawn.length).toBeGreaterThan(drawn + 5);
+    expect(h.events.filter((e) => e.type === 'error')).toEqual([]);
+  });
+
+  it('a new play item ends the stream before it, and the end of the playlist flushes the deinterlacer', async () => {
+    const flushSpy = vi.spyOn(Deinterlacer.prototype, 'flush');
+    try {
+      const fake = fakeDeinterlace();
+      const h = await harness(CodingType.LPCM, { videoFormat: 4, videoCodecApi: interlacedApi, createDeinterlaceBackend: fake.factory });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilPlaying(h);
+      await vi.waitFor(async () => {
+        await h.play(200);
+        expect(lastState(h)).toBe('ended');
+      }, { timeout: 20_000 });
+      // one flush at the second play item's first frame, one at the end
+      expect(flushSpy.mock.calls.length).toBe(2);
+    } finally {
+      flushSpy.mockRestore();
+    }
   }, 30_000);
 });

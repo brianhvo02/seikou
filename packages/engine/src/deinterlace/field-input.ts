@@ -39,6 +39,14 @@ export interface FieldInput {
   /** The frame's duration in microseconds as the decoder reports it, 0 when unknown. */
   readonly durationUs: number;
   readonly flags: FieldFlags;
+  /** The size the picture shows at (its sample aspect applied), as the frame reported it. */
+  readonly displayWidth: number;
+  readonly displayHeight: number;
+}
+
+/** Whether a CLPI or STN video `format` code is interlaced: 1 (480i), 2 (576i) or 4 (1080i). */
+export function isInterlacedFormat(format: number): boolean {
+  return format === 1 || format === 2 || format === 4;
 }
 
 const NO_FLAGS: FieldFlags = { fieldOrder: null, progressive: null, repeatFirstField: false };

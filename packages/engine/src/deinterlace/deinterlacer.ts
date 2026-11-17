@@ -310,8 +310,12 @@ export class Deinterlacer {
     for (const d of abandoned) if (d.kind === 'flush') d.resolve();
   }
 
-  /** Draws the picture into the backend's canvas (the same canvas every call, valid until the next render). */
-  render(picture: Picture): OffscreenCanvas {
+  /**
+   * Draws the picture into the backend's canvas (the same canvas every call, valid until the next render). With `still`
+   * (paused, or a held still) a picture that interpolates one field is drawn as its whole frame woven instead, so a
+   * picture that stays on screen is a full one, never a single field.
+   */
+  render(picture: Picture, still = false): OffscreenCanvas {
     if (!(picture instanceof RingPicture)) throw new Error('deinterlacer: not a picture of this deinterlacer');
     if (!picture.live || picture.generation !== this.generation) {
       // A closed picture, or one from before a reset: its slots may hold other frames now, so the canvas stays as is.
@@ -319,7 +323,8 @@ export class Deinterlacer {
       throw new Error('deinterlacer: the picture is closed or from before a reset');
     }
     try {
-      this.lastImage = this.backend.render(picture.op, picture.slots, picture.fieldOrder, picture.matrix);
+      const op: PictureOp = still && picture.op.kind === 'interpolate' ? { kind: 'weave' } : picture.op;
+      this.lastImage = this.backend.render(op, picture.slots, picture.fieldOrder, picture.matrix);
     } catch (err) {
       this.fail(err);
       throw err;

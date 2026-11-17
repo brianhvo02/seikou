@@ -158,12 +158,18 @@ export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
   private fieldChain: Promise<void> = Promise.resolve();
   /** Bumped by reset(), close() and open(): a field input queued before one of them is dropped, never delivered. */
   private generation = 0;
+  private fieldsPending = 0;
 
   constructor(private readonly api: VideoCodecApi = browserVideoCodecApi) {}
 
   /** Chunks waiting in the underlying decoder; 0 before configure(). */
   get queueSize(): number {
     return this.decoder?.decodeQueueSize ?? 0;
+  }
+
+  /** Frames out of the decoder whose planes are still being copied for `onFieldInput` (not yet delivered or dropped). */
+  get fieldInputsPending(): number {
+    return this.fieldsPending;
   }
 
   /** Decode sequences started on a non-IDR random access point, and the leading pictures skipped after them. */
@@ -412,13 +418,17 @@ export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
     const timestampUs = frame.timestamp;
     const durationUs = frame.duration ?? 0;
     const generation = this.generation;
+    this.fieldsPending++;
     this.fieldChain = this.fieldChain.then(async () => {
       try {
         const planes = await framePlanes(frame, matrix);
-        if (source === this.decoder && generation === this.generation) sink({ planes, timestampUs, durationUs, flags });
+        const displayWidth = frame.displayWidth || planes.width;
+        const displayHeight = frame.displayHeight || planes.height;
+        if (source === this.decoder && generation === this.generation) sink({ planes, timestampUs, durationUs, flags, displayWidth, displayHeight });
       } catch (err) {
         if (source === this.decoder && generation === this.generation) this.handleError(source, toDomException(err));
       } finally {
+        this.fieldsPending--;
         frame.close();
       }
     });

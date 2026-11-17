@@ -80,14 +80,18 @@ import { AssRenderer, type AssRendererDeps } from '@seikou/ass/renderer';
 import { MEMORY_PROFILES, type MemoryProfile, type MemoryProfileName } from './memory-profile';
 import { ClockBlockWriter, ClockLine } from './element/clock-block';
 import { elementStream } from './element/remux';
-import { elementQuery } from './element/element-query';
+import { elementQuery, frameRateOf } from './element/element-query';
+import { createGlDeinterlaceBackend } from './deinterlace/gl-backend';
+import { InterlacedVideo, WOVEN_NO_WEBGL2, WOVEN_OFF, type DeinterlaceBackendFactory, type DeinterlaceSetting } from './deinterlace/interlaced-video';
+import type { DeinterlaceStats, Picture } from './deinterlace/deinterlacer';
+import { isInterlacedFormat, type FieldInput } from './deinterlace/field-input';
 import type { Clpi } from '@seikou/bdmv/clpi-parser';
 import type { ColourDescription } from '@seikou/bdmv/codecs/param-sets';
 import { ElementCodecQueries, ElementSession } from './element/element-session';
 import type { Mat3 } from '@seikou/ass/transform';
 import type { AssTrack } from '@seikou/ass/types';
 import { BDJ_STORAGE_MESSAGE, ENCODE_FILE, ENCODE_PLAYLIST_ID, NO_PICTURE_MESSAGE, type AudioTrack, type EncodeSpec, type BufferRequest, type BdjMemoryTelemetry, type EngineCommand, type EngineEvent, type FileData, type MenuKey, type NoticeCode, type PlaceState, type PgTrack, type PlaybackState, type ElementQuery, type ElementQueryTelemetry, type ShaderSetData, type StartPoint, type SubtitleChoice, type VideoPath } from './protocol';
-import type { CompositorLike, TextRendererLike } from './render/compositor';
+import type { CompositorLike, DrawnPicture, TextRendererLike } from './render/compositor';
 import { ShaderStage } from './shaders/stage';
 import { UNAVAILABLE, type ShaderBackend } from './shaders/webgl-backend';
 import { decodeText, parseSrt } from './subs/srt';
@@ -139,6 +143,8 @@ export interface PlayerDeps {
   readonly createAssDeps?: () => Promise<AssDeps>;
   /** The GPU backend for video shaders, or why there is none; created once, when the first set is chosen. */
   readonly createShaderBackend?: (events: { lost(): void; restored(): void }) => ShaderBackend | string;
+  /** The deinterlacer's GPU backend for interlaced video, or null where there is none; WebGL2 (`createGlDeinterlaceBackend`) by default. */
+  readonly createDeinterlaceBackend?: DeinterlaceBackendFactory;
   /**
    * BD-J (bdj-provider.ts): its worker, class library, host and session. Without it, BD-J discs and titles open to the
    * picker with a notice naming the missing BD-J runtime, as when the provider says the browser lacks something.
@@ -372,6 +378,20 @@ interface ElementQuestion {
   readonly colour: ColourDescription | null;
 }
 
+/** An interlaced session's way through the deinterlacer. */
+interface SessionDeinterlace {
+  readonly video: InterlacedVideo;
+  /** The stream's frame duration in microseconds. */
+  readonly frameDurationUs: number;
+  /** The play item of the last frame pushed (-1 since the last seek): a frame of another item ends the stream before it. */
+  item: number;
+  /** The first frame's size has been checked against the backend's. */
+  sized: boolean;
+}
+
+/** The size of a CLPI video format's frames, for the deinterlacer's backend until the first frame says otherwise. */
+const INTERLACED_SIZE: Readonly<Record<number, readonly [number, number]>> = { 1: [720, 480], 2: [720, 576], 4: [1920, 1080] };
+
 interface Session {
   readonly playlistId: string;
   readonly owner: PlaylistCaller;
@@ -400,6 +420,12 @@ interface Session {
   canvasRefused: boolean;
   /** The session's latest question to the page about its video element and its answer, for telemetry; null when it asked none. */
   elementQuery: ElementQueryTelemetry | null;
+  /** The STN's video format code (libbluray `bd_video_format_e`); 0 when unknown. */
+  readonly videoFormat: number;
+  /** The video is interlaced (its CLPI format is 480i, 576i or 1080i) and has a picture. */
+  readonly interlaced: boolean;
+  /** Its frames go through the deinterlacer; null for progressive video, and for interlaced video drawn woven. */
+  deinterlace: SessionDeinterlace | null;
   /** The M2TS reader, or an encoded episode's Matroska reader. */
   readonly pipeline: SessionPipeline;
   /** The video track's CodecPrivate (an encode's av1C record), which its decoder is configured from; null for a disc. */
@@ -461,7 +487,15 @@ export class Player {
   private ring: RingWriter | null = null;
   private audioWriter: AudioWriter | null = null;
   private compositor: CompositorLike | null = null;
-  private readonly presenter = new VideoPresenter<VideoFrame>();
+  private readonly presenter = new VideoPresenter<VideoFrame | Picture>();
+  /** The device's deinterlacing setting (setDeinterlace). */
+  private deinterlaceSetting: DeinterlaceSetting = 'auto';
+  /** The deinterlacer, kept across interlaced sessions (its GPU backend with it); null before the first. */
+  private interlacedVideo: InterlacedVideo | null = null;
+  /** Why the playing session's interlaced frames are drawn woven; null when they are deinterlaced, or the video is progressive. */
+  private deinterlaceWoven: string | null = null;
+  /** The last deinterlaced picture was drawn as a still (paused or held): one of one field is drawn whole. */
+  private drawnStill = false;
   /** Limits for this device; desktop (libbluray's) until the UI says otherwise. */
   private memory: MemoryProfile = MEMORY_PROFILES.desktop;
   private memoryName: MemoryProfileName = 'desktop';
@@ -925,7 +959,7 @@ export class Player {
 
   /** Redraws the current picture at once: the video and every plane over it. */
   private repaint(): void {
-    this.compositor?.drawVideo(this.presenter.current);
+    this.compositor?.drawVideo(this.drawable(this.presenter.current));
     const pg = this.pgPlane();
     if (pg) this.compositor?.drawPg?.(pg);
     const text = this.activeText();
@@ -951,7 +985,7 @@ export class Player {
    * video and everything over it (an overlay replaces pixels, it does not blend with what it covered). The BD-J plane
    * changes only when Java flushes (or opens or closes it), so a half-drawn menu never shows.
    */
-  private paint(frame: VideoFrame | null, nowUs: number): void {
+  private paint(frame: VideoFrame | Picture | null, nowUs: number): void {
     const nav = this.navigator;
     const pg = this.pgPlane();
     const ig = nav?.igPlane ?? null;
@@ -964,12 +998,15 @@ export class Player {
     const igChanged = ig !== null && ig.dirty() !== null;
     const textChanged = this.subtitlesDirty || (text !== null && text.changed(nowUs, textOpts));
     this.subtitlesDirty = false;
-    const changed = pgChanged || igChanged || textChanged || bdjChanged || this.shadersDirty || this.backgroundDirty || this.elementDirty;
+    // a deinterlaced picture on screen is drawn again when playback stops or starts (a still shows a whole frame)
+    const current = this.presenter.current;
+    const stillChanged = current !== null && this.interlacedVideo?.owns(current) === true && this.stillPicture() !== this.drawnStill;
+    const changed = pgChanged || igChanged || textChanged || bdjChanged || this.shadersDirty || this.backgroundDirty || this.elementDirty || stillChanged;
     this.shadersDirty = false;
     this.backgroundDirty = false;
     this.elementDirty = false;
-    if (frame) this.compositor?.drawVideo(frame);
-    else if (changed) this.compositor?.drawVideo(this.presenter.current);
+    if (frame) this.compositor?.drawVideo(this.drawable(frame));
+    else if (changed) this.compositor?.drawVideo(this.drawable(current));
     if (!(frame || changed)) return;
     // an empty plane needs no per-frame draw
     if (pg && (pg.hasContent || pgChanged)) {
@@ -989,6 +1026,124 @@ export class Player {
       // flushes on the BD-J worker's thread (a copy that waited for the writer took nothing, and answers nothing)
       if (bdj.copiedVersion() !== copied) this.bdjLatency?.presented(this.deps.nowMs(), bdj.copiedVersion());
     }
+  }
+
+  /**
+   * What the compositor draws for a presented frame: a decoded frame as it is, a deinterlaced picture drawn by the
+   * deinterlacer (whole, as a still, while paused or held). Null when the deinterlacer's GPU fails: the session goes on
+   * with woven frames.
+   */
+  private drawable(frame: VideoFrame | Picture | null): VideoFrame | DrawnPicture | null {
+    const video = this.interlacedVideo;
+    if (!frame || !video?.owns(frame)) return frame as VideoFrame | null;
+    this.drawnStill = this.stillPicture();
+    const drawn = video.render(frame, this.drawnStill);
+    if (!drawn && this.session?.deinterlace?.video === video) this.deinterlaceFailed(this.session);
+    return drawn;
+  }
+
+  /** A picture on screen stays there (paused, or a still held at a play item's end). */
+  private stillPicture(): boolean {
+    return this.state !== 'playing' || this.held;
+  }
+
+  /**
+   * The device's deinterlacing setting: `auto` deinterlaces interlaced video, `off` draws its frames woven. Applied at
+   * once: an interlaced playlist playing on the canvas opens again at the same time the other way.
+   */
+  async setDeinterlace(setting: DeinterlaceSetting): Promise<void> {
+    if (setting === this.deinterlaceSetting) return;
+    this.deinterlaceSetting = setting;
+    const s = this.session;
+    const disc = this.disc;
+    if (!s || !disc || !s.interlaced || !s.decoder || this.state === 'error') return;
+    await this.restart(disc, this.restartPoint(s));
+  }
+
+  /** The deinterlacing state: the setting, why the playing interlaced video is drawn woven (null when it isn't), and the deinterlacer's stats while it runs. */
+  get deinterlaceState(): { readonly setting: DeinterlaceSetting; readonly woven: string | null; readonly stats: DeinterlaceStats | null } {
+    const d = this.session?.deinterlace;
+    return { setting: this.deinterlaceSetting, woven: this.deinterlaceWoven, stats: d ? d.video.stats : null };
+  }
+
+  /**
+   * An interlaced session starts: its frames go to the deinterlacer, unless the setting is off or there is no GPU
+   * backend (no WebGL2), when they are drawn woven and `deinterlaceWoven` says why.
+   */
+  private startDeinterlace(s: Session): SessionDeinterlace | null {
+    if (this.deinterlaceSetting === 'off') {
+      this.deinterlaceWoven = WOVEN_OFF;
+      return null;
+    }
+    let video = this.interlacedVideo;
+    if (video && video.ringSize !== this.memory.deinterlaceRing) {
+      video.dispose(); // the memory profile changed
+      video = null;
+    }
+    if (!video) {
+      video = new InterlacedVideo({
+        createBackend: this.deps.createDeinterlaceBackend ?? createGlDeinterlaceBackend,
+        ringSize: this.memory.deinterlaceRing,
+        onPictures: (pictures) => this.onPictures(pictures),
+      });
+      this.interlacedVideo = video;
+    }
+    const [width, height] = INTERLACED_SIZE[s.videoFormat] ?? [1920, 1080];
+    const frameDurationUs = 1e6 / (frameRateOf(s.videoRate) ?? 30_000 / 1001);
+    if (!video.start(width, height, frameDurationUs)) {
+      this.deinterlaceWoven = WOVEN_NO_WEBGL2;
+      return null;
+    }
+    return { video, frameDurationUs, item: -1, sized: false };
+  }
+
+  /** The deinterlacer's pictures go to the presenter while their session plays. */
+  private onPictures(pictures: readonly Picture[]): void {
+    const current = this.session?.deinterlace?.video === this.interlacedVideo;
+    for (const p of pictures) {
+      if (current) this.presenter.push(p);
+      else p.close();
+    }
+  }
+
+  /** A decoded interlaced frame of the session goes to the deinterlacer; a frame of a new play item starts a new stream. */
+  private onFieldInput(s: Session, input: FieldInput): void {
+    const d = s.deinterlace;
+    if (this.session !== s || !d) return;
+    this.codedWidth = input.planes.width;
+    if (!d.sized) {
+      d.sized = true;
+      const size = d.video.frameSize;
+      // the stream's frames are another size than its format's (1440x1080): the backend is made again for them
+      if ((size?.width !== input.planes.width || size?.height !== input.planes.height) && !d.video.start(input.planes.width, input.planes.height, d.frameDurationUs)) {
+        this.deinterlaceFailed(s, WOVEN_NO_WEBGL2);
+        return;
+      }
+    }
+    const item = s.timeline.locate(input.timestampUs).item.index;
+    if (d.item >= 0 && item !== d.item) {
+      // a new play item: the frames before it become pictures, and the detector starts over (a failure shows at the push)
+      d.video.flush().catch(() => undefined);
+    }
+    d.item = item;
+    if (!d.video.push(input)) this.deinterlaceFailed(s);
+  }
+
+  /**
+   * The deinterlacer can't go on (its GPU failed, or none could be made for the stream's size): the session's frames are
+   * drawn woven from now on, reread from the current time, and `deinterlaceWoven` says why.
+   */
+  private deinterlaceFailed(s: Session, reason?: string): void {
+    const d = s.deinterlace;
+    if (!d) return;
+    this.deinterlaceWoven = reason ?? `The deinterlacer stopped: ${d.video.error?.message ?? 'unknown error'}`;
+    this.deps.log?.(`Deinterlacing off for this playlist: ${this.deinterlaceWoven}`);
+    s.deinterlace = null;
+    d.video.reset();
+    if (s.decoder) s.decoder.onFieldInput = null;
+    this.enqueue(async () => {
+      if (this.session === s && this.state !== 'error') await this.startAt(this.clock.nowUs(), this.wantPlaying, 'keep');
+    });
   }
 
   /**
@@ -1312,8 +1467,12 @@ export class Player {
       shaderHeldQuery: null,
       canvasRefused: false,
       elementQuery: null,
+      videoFormat: 0,
+      interlaced: false,
+      deinterlace: null,
     };
     ref.current = session;
+    this.deinterlaceWoven = null;
     this.wireDecoder(session, decoder);
     this.session = session;
     this.audioDecodeErrors = 0;
@@ -2775,8 +2934,13 @@ export class Player {
       shaderHeldQuery: null,
       canvasRefused: false,
       elementQuery: null,
+      videoFormat: choice.video.format,
+      interlaced: decoder !== null && isInterlacedFormat(choice.video.format),
+      deinterlace: null,
     };
     ref.current = session;
+    this.deinterlaceWoven = null;
+    if (session.interlaced) session.deinterlace = this.startDeinterlace(session);
     if (decoder) this.wireDecoder(session, decoder);
     this.session = session;
     this.audioDecodeErrors = 0;
@@ -3098,6 +3262,7 @@ export class Player {
         this.presenter.push(frame);
       } else frame.close();
     };
+    decoder.onFieldInput = session.deinterlace ? (input) => this.onFieldInput(session, input) : null;
     decoder.onError = (err) => this.onDecoderError(session, err);
   }
 
@@ -3113,6 +3278,7 @@ export class Player {
     this.pg?.seek();
     this.encodeSubs?.pgs?.control.seek();
     s.decoder?.close();
+    s.deinterlace?.video.reset();
     if (s.element) {
       // the page releases the element, and the canvas is opaque again until the next playlist says otherwise
       this.deps.emit({ type: 'videoElementStop' });
@@ -3201,6 +3367,11 @@ export class Player {
     this.pg?.seek(); // GC_CTRL_PG_RESET in _seek_internal: the subtitle on screen goes
     this.encodeSubs?.pgs?.control.seek();
     if (s.videoState === 'configured') s.decoder?.reset();
+    if (s.deinterlace) {
+      // the ring is cleared and the detector starts over at the target
+      s.deinterlace.video.reset();
+      s.deinterlace.item = -1;
+    }
     s.startedAtUs = t;
     // the element drops what it holds and starts again at the target; a pending stall goes with it
     s.element?.reset(t, !autoplay);
@@ -3301,6 +3472,9 @@ export class Player {
     this.resetTextSubtitles();
     this.emitSubtitles();
     this.dropRemote();
+    // the deinterlacer's GPU backend (its ring of plane textures) goes with the disc
+    this.interlacedVideo?.dispose();
+    this.interlacedVideo = null;
     this.source = null;
     this.disc = null;
     this.setState('idle');
@@ -3506,6 +3680,10 @@ export class Player {
   private startElement(s: Session, decoder: WebCodecsVideoDecoder, coding: 'avc' | 'hevc', hdr: boolean): void {
     decoder.close(); // never configured: no WebCodecs decoder was made
     s.decoder = null;
+    // the page's video element shows interlaced video as the browser does
+    s.deinterlace?.video.reset();
+    s.deinterlace = null;
+    this.deinterlaceWoven = null;
     s.videoState = 'configured';
     s.elementHdr = hdr;
     if (hdr) this.setVideoHdr(true);
@@ -3550,6 +3728,7 @@ export class Player {
     s.elementHdr = false;
     this.setVideoHdr(false);
     s.decoder = new WebCodecsVideoDecoder(this.deps.videoCodecApi);
+    if (s.interlaced) s.deinterlace = this.startDeinterlace(s);
     this.wireDecoder(s, s.decoder);
     s.videoState = 'unconfigured';
     this.deps.emit({ type: 'videoElementStop' });
@@ -3819,8 +3998,18 @@ export class Player {
   private feedDecoder(s: Session): void {
     const decoder = s.decoder;
     if (s.videoState !== 'configured' || !decoder) return;
+    const d = s.deinterlace;
+    if (d && !d.video.pump()) {
+      this.deinterlaceFailed(s);
+      return;
+    }
+    // an interlaced stream's decode-ahead waits for the deinterlacer's ring (its pictures hold their frames' slots):
+    // a slot for every frame the decoder still owes
+    const room = d
+      ? (): boolean => d.video.freeSlots() > decoder.queueSize + decoder.fieldInputsPending
+      : (): boolean => this.presenter.size < this.memory.maxQueuedFrames(this.codedWidth);
     let fed = 0;
-    while (fed < s.pendingVideo.length && this.presenter.size < this.memory.maxQueuedFrames(this.codedWidth) && decoder.queueSize < MAX_DECODE_QUEUE) {
+    while (fed < s.pendingVideo.length && room() && decoder.queueSize < MAX_DECODE_QUEUE) {
       decoder.decode(s.pendingVideo[fed]);
       fed++;
     }
@@ -3872,7 +4061,17 @@ export class Player {
     s.flushStarted = true;
     const gen = this.seekGeneration;
     if (!s.decoder) return;
-    void s.decoder.flush().then(() => {
+    void s.decoder.flush().then(async () => {
+      const d = s.deinterlace;
+      if (d && this.session === s && this.seekGeneration === gen) {
+        // the deinterlacer's last frames become pictures before the end counts
+        try {
+          await d.video.flush();
+        } catch {
+          this.deinterlaceFailed(s);
+          return;
+        }
+      }
       if (this.session === s && this.seekGeneration === gen) s.flushed = true;
     });
   }
