@@ -28,6 +28,8 @@ export type PacingVerdict = 'late' | 'ok' | 'skip' | 'restart';
 export const PACING_SETTLE_MS = 1000;
 /** A gap between ticks longer than this is a stall of the page or the worker, not pacing: it settles like a start. */
 export const PACING_GAP_MS = 250;
+/** The slowest display interval taken as one (30 Hz, which a phone in Low Power Mode shows at); slower ticks are the device falling behind. */
+export const PACING_MAX_TICK_MS = 1000 / 30;
 /** Spacings kept to measure the display's tick interval from. */
 const SPACINGS = 60;
 /** Spacings needed before pacing is judged. */
@@ -35,15 +37,16 @@ const MIN_SPACINGS = 12;
 
 /**
  * Judges frame pacing one display tick at a time. The display's tick interval is the lower fifth of the latest
- * spacings between ticks (stalls only lengthen a spacing). A tick is late when its picture was shown more than one
+ * spacings between ticks (stalls only lengthen a spacing). The estimate is capped at 30 Hz's interval, so a device whose ticks are all slower is judged against it and falls back. A tick is late when its picture was shown more than one
  * picture and one and a half ticks after its time (a picture that came to the screen far behind), or when a tick
- * came more than one and a half intervals after the last one with pictures dropped at it, or when it dropped more
+ * came more than one and a quarter intervals after the last one with pictures dropped at it, or when it dropped more
  * pictures than the display's rate alone makes it (a tick interval longer than a picture's duration drops some, as a
  * 50 Hz display does at 59.94 pictures a second). At most one late tick comes of each tick, however many pictures it dropped.
  */
 export class PacingMonitor {
   private readonly spacings: number[] = [];
   private lastMs: number | null = null;
+  private lastGap: number | null = null;
   private settling = true;
   private settleUntilMs = 0;
 
@@ -57,9 +60,11 @@ export class PacingMonitor {
     const last = this.lastMs;
     this.lastMs = o.nowMs;
     const gap = last === null ? null : o.nowMs - last;
-    if (gap !== null && gap > PACING_GAP_MS) {
-      this.settling = true;
-    } else if (gap !== null && gap > 0) {
+    if (gap !== null && gap > 0) {
+      // one long gap after fast ticks is a stall of the page or worker (a tab hidden): it settles; ticks that are all
+      // slow are the device falling behind, and are judged
+      if (gap > PACING_GAP_MS && (this.lastGap === null || this.lastGap <= PACING_GAP_MS)) this.settling = true;
+      this.lastGap = gap;
       this.spacings.push(gap);
       if (this.spacings.length > SPACINGS) this.spacings.shift();
     }
@@ -74,15 +79,15 @@ export class PacingMonitor {
     const tickMs = this.tickMs();
     const durationMs = o.durationUs / 1000;
     if (o.shownLateUs !== null && o.shownLateUs / 1000 > durationMs + 1.5 * tickMs) return 'late';
-    if (o.dropped > 0 && gap > 1.5 * tickMs) return 'late';
+    if (o.dropped > 0 && gap > 1.25 * tickMs) return 'late';
     // pictures the display's own rate can leave unshown in one tick: more than one tick interval of them
-    const allowed = Math.max(0, Math.ceil((1.5 * tickMs) / durationMs) - 1);
+    const allowed = Math.max(0, Math.ceil((1.25 * tickMs) / durationMs) - 1);
     return o.dropped > allowed ? 'late' : 'ok';
   }
 
-  /** The display's tick interval in milliseconds: the lower fifth of the recent spacings. */
+  /** The display's tick interval in milliseconds: the lower fifth of the recent spacings, at most `PACING_MAX_TICK_MS`. */
   private tickMs(): number {
     const sorted = [...this.spacings].sort((a, b) => a - b);
-    return sorted[Math.floor(sorted.length / 5)]!;
+    return Math.min(sorted[Math.floor(sorted.length / 5)]!, PACING_MAX_TICK_MS);
   }
 }

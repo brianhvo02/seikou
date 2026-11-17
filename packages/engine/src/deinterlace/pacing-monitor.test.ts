@@ -111,6 +111,17 @@ describe('PacingMonitor against the deinterlacer\'s window', () => {
     expect(r.fellBack).toBe(true);
   });
 
+  it('falls back on a device whose every tick is slow, whatever the slowness', () => {
+    for (const [tickMs, seconds] of [[50, 20], [100, 30], [300, 60]] as const) {
+      const r = simulate(judgeUnderTest(), { tickMs, seconds });
+      expect(r.fellBack, `${tickMs} ms ticks`).toBe(true);
+    }
+  });
+
+  it('never falls back on a 30 Hz display (Low Power Mode) showing 59.94 pictures a second', () => {
+    expect(simulate(judgeUnderTest(), { tickMs: 1000 / 30, seconds: 60, jitterMs: 1.5 }).fellBack).toBe(false);
+  });
+
   it('counts at most one late per tick, and nothing while settling after a resume', () => {
     const m = new PacingMonitor();
     let now = 0;
