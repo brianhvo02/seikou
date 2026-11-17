@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { runChecks, type ProbeEnv, type ProbeFile, type WorkerInput, type WorkerProbe } from './checks';
+import { runChecks, type DecodeRateReply, type DecodeRateRequest, type ProbeEnv, type ProbeFile, type WorkerInput, type WorkerProbe } from './checks';
+import type { DecodeRate } from './decode-rate';
 
 const GIB = 2 ** 30;
 
@@ -36,8 +37,11 @@ const okWorker: WorkerProbe = {
   webgl: { float: true, half: true },
 };
 
+const okRate: DecodeRate = { clip: '00001', codec: 'avc1.640029', frameRate: 24000 / 1001, units: 240, decodeFps: 80, drawFps: 45, width: 1920, height: 1080 };
+
 function env(over: Partial<ProbeEnv> & { files?: File[]; rate?: number } = {}): ProbeEnv {
   return {
+    decodeRate: over.decodeRate ?? (async ({ coding }: DecodeRateRequest): Promise<DecodeRateReply> => ({ rate: coding === 'h264' ? okRate : null })),
     openDisc: over.openDisc ?? (async () => ({ route: 'folder', files: over.files ?? [fakeBigFile('00001.m2ts', 5 * GIB, false)] })),
     createAudioContext: () => ({ sampleRate: over.rate ?? 48000 }) as unknown as BaseAudioContext,
     worker: over.worker ?? (async () => okWorker),
@@ -155,5 +159,45 @@ describe('runChecks', () => {
     await vi.advanceTimersByTimeAsync(60_000);
     const r = (await run).find((x) => x.name === 'blob-slice-over-4gib');
     expect(r).toEqual({ name: 'blob-slice-over-4gib', ok: false, detail: 'timed out' });
+  });
+
+  it('cross-origin-isolated passes only with isolation and SharedArrayBuffer', async () => {
+    expect(await find(env({ globals: { crossOriginIsolated: true, SharedArrayBuffer } }), 'cross-origin-isolated')).toEqual({
+      name: 'cross-origin-isolated',
+      ok: true,
+      detail: 'crossOriginIsolated true, SharedArrayBuffer present',
+    });
+    expect((await find(env({ globals: { crossOriginIsolated: false, SharedArrayBuffer } }), 'cross-origin-isolated'))?.ok).toBe(false);
+    expect((await find(env({ globals: { crossOriginIsolated: true } }), 'cross-origin-isolated'))?.detail).toBe('crossOriginIsolated true, SharedArrayBuffer missing');
+  });
+
+  it('device always passes and names what the device reports', async () => {
+    const globals = { navigator: { hardwareConcurrency: 4, deviceMemory: 2 }, screen: { width: 1920, height: 1080 }, devicePixelRatio: 1, tizen: {} };
+    expect(await find(env({ globals }), 'device')).toEqual({ name: 'device', ok: true, detail: 'cores 4, memory 2 GB, screen 1920×1080 @1, tizen yes, webapis no' });
+  });
+
+  it('decode-rate passes at 1.25 times real time drawn, and reports both rates', async () => {
+    expect(await find(env(), 'decode-rate-h264')).toEqual({
+      name: 'decode-rate-h264',
+      ok: true,
+      detail: '00001 1920×1080 avc1.640029: decode 80.0 fps, decode+draw 45.0 fps (needs 30.0)',
+    });
+    const slow = async (): Promise<DecodeRateReply> => ({ rate: { ...okRate, drawFps: 28 } });
+    expect((await find(env({ decodeRate: slow }), 'decode-rate-h264'))?.ok).toBe(false);
+  });
+
+  it('decode-rate fails on a decoder error, a worker error, and a disc without the coding', async () => {
+    const broken = async (): Promise<DecodeRateReply> => ({ rate: { ...okRate, error: 'only 12 of 240 frames came out' } });
+    expect(await find(env({ decodeRate: broken }), 'decode-rate-h264')).toMatchObject({ ok: false, detail: expect.stringContaining('; only 12 of 240 frames came out') as string });
+    expect(await find(env({ decodeRate: async () => ({ error: 'timed out' }) }), 'decode-rate-h264')).toEqual({ name: 'decode-rate-h264', ok: false, detail: 'error: timed out' });
+    expect(await find(env(), 'decode-rate-hevc')).toEqual({ name: 'decode-rate-hevc', ok: false, detail: 'untested: no HEVC clip in the folder' });
+  });
+
+  it('decode-rate asks the worker for each coding with the same disc input as the other worker', async () => {
+    const asked: DecodeRateRequest[] = [];
+    let seen: WorkerInput | null = null;
+    await runChecks(env({ worker: async (input) => { seen = input; return okWorker; }, decodeRate: async (r) => { asked.push(r); return { rate: null }; } }));
+    expect(asked.map((r) => r.coding)).toEqual(['h264', 'hevc']);
+    expect(asked[0].input).toBe(seen);
   });
 });

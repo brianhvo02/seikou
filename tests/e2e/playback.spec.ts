@@ -149,9 +149,11 @@ test('a local disc remembers its place on this device', async ({ page }) => {
   await expect(page.getByTestId('playlist-00000')).toBeVisible();
   await startPlaylist(page, '00000');
   await expect.poll(async () => (await telemetry(page))?.clockUs ?? 0, { timeout: 10_000 }).toBeGreaterThan(3_000_000);
+  const beforePause = (await telemetrySamples(page)).length;
   await page.keyboard.press('Space'); // a pause saves at once
   await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'paused');
-  const stoppedAt = await pausedClockUs(page, 0);
+  // From the pause on: two samples at 0 during a slow start would otherwise count as paused at 0.
+  const stoppedAt = await pausedClockUs(page, beforePause);
   expect(stoppedAt).toBeGreaterThanOrEqual(3_000_000);
   // the save is in IndexedDB before the page goes
   await page.waitForTimeout(500);

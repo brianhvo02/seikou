@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactElement } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from 'react';
 import type { UoOp } from '@seikou/engine/hdmv/uo-mask';
 import type { Chapter } from '@seikou/engine/nav/timeline';
 import type { PlayerController, PlayerSnapshot } from '@seikou/engine/controller/player-controller';
@@ -8,6 +8,8 @@ import type { LevelId } from '@seikou/nas/nas-api';
 import type { LevelState } from './nas/level-session';
 import { QualityMenu } from './QualityMenu';
 import { ShaderMenu } from './ShaderMenu';
+import { VideoOutputMenu } from './VideoOutputMenu';
+import { videoOutputSetting } from './video-output';
 import type { ShaderModel, ShaderModelState } from './shader-model';
 import { SubtitleMenu, type StoredSubtitles } from './SubtitleMenu';
 import type { ToshoSearch } from './ToshoSearch';
@@ -142,13 +144,14 @@ interface ControlBarProps {
 
 /**
  * The player's control bar: seek bar with chapter ticks, previous and next chapter, play and pause, time, mute and
- * volume, then the Audio, Quality (`quality`), Subtitles, Chapters (`encode`), Shaders and Settings (`encode`) menus, and the
- * buttons Top Menu and Pop-up (when the disc has them), Remote (HDMV or BD-J), Titles or Playlists (Close for an
- * encode) and Fullscreen (when `onFullscreen` is given). A control the disc's UO mask forbids is disabled with a
+ * volume, then the Audio, Quality (`quality`), Subtitles, Chapters (`encode`), Shaders, Video output (not for an
+ * `encode`, whose AV1 always plays on the canvas) and Settings (`encode`) menus, and the buttons Top Menu and Pop-up
+ * (when the disc has them), Remote (HDMV or BD-J), Titles or Playlists (Close for an encode) and Fullscreen (when `onFullscreen` is given). A control the disc's UO mask forbids is disabled with a
  * tooltip. `visible` false hides the bar with a CSS class and keeps it mounted. Everything is driven by `snapshot` and
  * the `controller`'s commands.
  */
 export function ControlBar({ controller, snapshot, shaderModel, shaderState, visible, onOpenPlaylists, onFullscreen, onMenuKey, remoteOpen, onToggleRemote, onMenuOpenChange, onSubtitleFiles, storedSubtitles = null, toshoSearch = null, quality = null, encode = null }: ControlBarProps): ReactElement {
+  const videoOutput = useSyncExternalStore(videoOutputSetting().subscribe, videoOutputSetting().get);
   const playing = snapshot.engineState === 'playing' || snapshot.engineState === 'buffering';
   const silent = snapshot.muted || snapshot.volume === 0;
   const masked = (op: UoOp): boolean => snapshot.uoMask.includes(op);
@@ -230,6 +233,16 @@ export function ControlBar({ controller, snapshot, shaderModel, shaderState, vis
         />
         {encode && <ChapterMenu chapters={snapshot.chapters} timeUs={snapshot.timeUs} onSeek={(us) => controller.seek(us)} onOpenChange={onMenuOpenChange} />}
         <ShaderMenu model={shaderModel} state={shaderState} status={snapshot.shaders} dropWarning={snapshot.shaderDropWarning} onOpenChange={onMenuOpenChange} />
+        {!encode && (
+          <VideoOutputMenu
+            value={videoOutput}
+            onPick={(path) => {
+              videoOutputSetting().choose(path);
+              controller.setVideoPath(path);
+            }}
+            onOpenChange={onMenuOpenChange}
+          />
+        )}
         {encode && <EncodeSettingsMenu countdown={encode.countdown} onCountdown={encode.onCountdown} onOpenChange={onMenuOpenChange} />}
         {snapshot.indexTitles?.hasTopMenu && (
           <button type="button" data-testid="top-menu" disabled={masked('menuCall')} title={tip('menuCall')} onClick={() => onMenuKey('topMenu')}>

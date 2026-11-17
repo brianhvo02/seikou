@@ -23,6 +23,65 @@ import type { Chapter } from './nav/timeline';
  */
 export type PlaybackState = 'idle' | 'loading' | 'paused' | 'buffering' | 'playing' | 'ended' | 'error';
 /**
+ * Where a playlist's H.264 or HEVC video is drawn: 'element' (the page's video element, through Media Source Extensions),
+ * 'canvas' (decoded by the engine with WebCodecs), or 'auto' (the engine picks: the element for HDR streams, the canvas
+ * for the rest). The engine starts at 'canvas'; a host that attaches a video element sends 'auto' (or 'element') to
+ * use it. A shader set that can run here takes the canvas whatever the path, for a stream the engine's own decoder can
+ * configure (one it can't still goes to the element, without the shaders).
+ */
+export type VideoPath = 'auto' | 'element' | 'canvas';
+
+/**
+ * A stream's HDR facts, which the page needs to tell whether its video element can show it: the transfer function
+ * (`pq` or `hlg`) and whether the stream carries mastering display metadata.
+ */
+export interface ElementHdr {
+  readonly transfer: 'pq' | 'hlg';
+  readonly mastering: boolean;
+}
+
+/**
+ * What the engine asks the page about a stream before it takes the element path: the codec string, the HDR facts (null
+ * for SDR) and, when the engine knows them, the coded picture size and the frame rate (frames per second), so the page
+ * can ask the browser about the stream as it is. The page's answer echoes these fields.
+ */
+export interface ElementQuery {
+  readonly codec: string;
+  readonly hdr: ElementHdr | null;
+  readonly width?: number;
+  readonly height?: number;
+  readonly frameRate?: number;
+}
+
+/**
+ * What the page found when it asked the browser whether its video element plays a stream: `mse` is the media source
+ * class's `isTypeSupported` answer; `decodingInfo` is Media Capabilities' `supported` for an HDR stream, `'missing'`
+ * where the browser has no `decodingInfo`, `'threw'` where it threw, and null when it wasn't asked (an SDR stream, or
+ * one `isTypeSupported` refused).
+ */
+export interface ElementCheck {
+  readonly mse: boolean;
+  readonly decodingInfo: boolean | 'missing' | 'threw' | null;
+}
+
+/**
+ * The playing playlist's latest question to the page about its video element, for telemetry: what was asked (`codec`,
+ * `hdr`, and `size` with the frame rate when known, else null), what the page found (`mse` and `decodingInfo`, null
+ * when the page sent no check, as after a timeout), the `answer` that chose the path (`'timeout'` when the page didn't
+ * answer in time, null while it is awaited) and `colour`, the colour description the engine read from the stream's SPS
+ * (null when the SPS has none).
+ */
+export interface ElementQueryTelemetry {
+  readonly codec: string;
+  readonly hdr: ElementHdr | null;
+  readonly size: { readonly width: number; readonly height: number; readonly frameRate?: number } | null;
+  readonly mse: boolean | null;
+  readonly decodingInfo: ElementCheck['decodingInfo'];
+  readonly answer: boolean | 'timeout' | null;
+  readonly colour: { readonly primaries: number; readonly transfer: number; readonly matrix: number } | null;
+}
+
+/**
  * What a `notice` event is about; the page decides how to show each.
  * - `no-picture`: the disc's video can't be decoded here and plays without a picture (carried by `unsupported`).
  * - `bdj`: the disc or title uses BD-J, which this player or browser can't run.
@@ -36,8 +95,9 @@ export type PlaybackState = 'idle' | 'loading' | 'paused' | 'buffering' | 'playi
  * - `subtitle-fonts`: fonts for ASS subtitles could not be read or are missing.
  * - `menu-memory`: the disc's menus need more memory than this device allows.
  * - `nas-waiting`: a NAS disc's read is waiting for the NAS drive (cleared by `noticeCleared`).
+ * - `element-failed`: the page's video element failed, so the disc's video plays on the canvas from then on.
  */
-export type NoticeCode = 'no-picture' | 'bdj' | 'bdj-tap-ignored' | 'bdj-failed' | 'bdj-storage' | 'audio-disabled' | 'decoder-recovered' | 'uo-masked' | 'subtitle-file' | 'subtitle-fonts' | 'menu-memory' | 'nas-waiting';
+export type NoticeCode = 'element-failed' | 'no-picture' | 'bdj' | 'bdj-tap-ignored' | 'bdj-failed' | 'bdj-storage' | 'audio-disabled' | 'decoder-recovered' | 'uo-masked' | 'subtitle-file' | 'subtitle-fonts' | 'menu-memory' | 'nas-waiting';
 /** RemoteFailure: a NAS disc changed, the NAS cannot be reached, or this device is no longer paired. */
 export type ErrorCode = DiscErrorCode | RemoteFailure | 'corrupt-disc' | 'decoder-failed' | 'no-video' | 'internal';
 
@@ -109,6 +169,25 @@ export interface Telemetry {
   readonly bdjPlane: { readonly flushes: number; readonly tapsIgnored: number; readonly hash?: string | null } | null;
   /** While a BD-J title runs, what it holds in memory; only with PlayerDeps.memoryTelemetry (?telemetry=1). */
   readonly bdjMemory?: BdjMemoryTelemetry | null;
+  /** How the playing playlist's video is drawn: on the engine's canvas, or by the page's video element; null with no playlist. */
+  readonly videoPath: 'canvas' | 'element' | null;
+  /**
+   * On the element path, how many catch-ups the page has run since its media source opened: moments at 8% to 25% off
+   * speed that remove what a start, resume or seek leaves (or, past 20 ms, a steady-state slip); absent on the canvas path.
+   */
+  readonly elementCatchUps?: number;
+  /**
+   * Why the page's video element failed on this disc (the browser's refusal or error, as the page reported it), after
+   * which the disc plays on the canvas path; null while it hasn't failed since the disc opened.
+   */
+  readonly elementFailure: string | null;
+  /** An HDR stream plays on the element path (between the videoHdr events that say so). */
+  readonly videoHdr: boolean;
+  /**
+   * The playing playlist's latest question to the page about its video element and how it was answered, so a stream
+   * that plays on the canvas shows why; null when the playlist asked nothing (or none plays).
+   */
+  readonly elementQuery: ElementQueryTelemetry | null;
 }
 
 /** What BD-J holds in memory, so the budgets of the constrained memory profile can be checked on a device; sizes in bytes. */
@@ -276,7 +355,9 @@ export const ENCODE_PLAYLIST_ID = 'mkv';
 
 /**
  * Everything the page can ask of the engine. Commands are handled in arrival order, one at a time; `remoteToken`,
- * `readPlace`, `cancelBuffer`, `flushSaves` and `visibility` are handled at once and never wait behind a slow open.
+ * `readPlace`, `cancelBuffer`, `flushSaves`, `visibility` and the video element's reports (`videoElementAnswer`,
+ * `videoBuffered`, `videoStalled`, `videoResumed`, `videoFrameShown`, `videoElementFailed`, `videoSync`) are handled at
+ * once and never wait behind a slow open.
  * A command that cannot apply (no disc, no playlist, a refused user operation) is ignored.
  */
 export type EngineCommand =
@@ -320,6 +401,45 @@ export type EngineCommand =
    * original: the restart plays it when it is playable there, and a disc program's PSR1 is set to it.
    */
   | { readonly type: 'setLevel'; readonly disc: RemoteDiscSpec; readonly audio?: number }
+  /** Which path draws H.264 and HEVC video: the page's video element, the canvas, or the engine's choice. */
+  | { readonly type: 'setVideoPath'; readonly path: VideoPath }
+  /** The clock block (packages/engine/src/element/clock-block.ts) the engine publishes its clock through, for the page's video element. */
+  | { readonly type: 'attachVideoElement'; readonly clock: SharedArrayBuffer }
+  /**
+   * The page's answer to videoElementQuery, echoing the query's fields: whether the video element can play that stream,
+   * and `check`, what the browser said when the page asked it (absent when the page's check failed). Handled at once,
+   * not queued.
+   */
+  | ({ readonly type: 'videoElementAnswer'; readonly playable: boolean; readonly check?: ElementCheck } & ElementQuery)
+  /**
+   * The video element's buffered range now ends at `endUs`, in playlist time in microseconds (the page subtracts
+   * ELEMENT_TIME_OFFSET_US from media time); when no buffered range holds the playhead (the browser evicted it), `endUs`
+   * is the playhead itself. `segments` counts the segments appended since the last reset, so the engine can tell video
+   * still on its way from video the element dropped. `generation` echoes the last videoReset's, so the engine ignores a
+   * report from before its latest reset. Handled at once.
+   */
+  | { readonly type: 'videoBuffered'; readonly endUs: number; readonly segments: number; readonly generation: number }
+  /** The video element stalled for lack of data; `generation` echoes the last videoReset's (older ones are ignored). Handled at once. */
+  | { readonly type: 'videoStalled'; readonly generation: number }
+  /** The video element resumed after a stall. Handled at once. */
+  | { readonly type: 'videoResumed' }
+  /**
+   * The video element shows its first frame placed since the reset of `generation` (posted once per reset, paused or
+   * playing): from the session's first one on, the BD-J background still is no longer drawn over it. Handled at once.
+   */
+  | { readonly type: 'videoFrameShown'; readonly generation: number }
+  /**
+   * The video element or its media source failed (`message` says how; `generation` echoes the last videoReset's, and
+   * older ones are ignored): the engine reopens the playlist at the same time on the canvas path and keeps the canvas
+   * path for the rest of the disc. Handled at once.
+   */
+  | { readonly type: 'videoElementFailed'; readonly message: string; readonly generation: number }
+  /**
+   * Sync measurements from the page: clock minus frame time offsets (microseconds) of frames presented since the last
+   * report, with the element's presented and dropped frame counts and its catch-ups, all three totals since its media
+   * source opened. Handled at once.
+   */
+  | { readonly type: 'videoSync'; readonly offsetsUs: readonly number[]; readonly presented: number; readonly dropped: number; readonly catchUps: number }
   /** A fresh session token for the open NAS disc (a scheduled refresh, or the answer to remoteTokenNeeded). Handled at once, not queued. */
   | { readonly type: 'remoteToken'; readonly token: string }
   /** The page's transferred canvas, which the engine draws video, subtitles and menus on. */
@@ -499,6 +619,24 @@ export type EngineEvent =
   | { readonly type: 'playlistCleared' }
   /** On every shader set change and compile result; `error` explains 'error' and 'unavailable'. */
   | { readonly type: 'shaderStatus'; readonly state: ShaderState; readonly set: string | null; readonly error: string | null }
+  /** Asks the page whether its video element can play a stream (its codec, HDR facts, and size and frame rate when known); answered by the videoElementAnswer command. */
+  | ({ readonly type: 'videoElementQuery' } & ElementQuery)
+  /** The initialization segment of the element's fragmented MP4 (`codec` is its codec string, `width` and `height` the size the picture shows at: the coded size with the stream's sample aspect ratio applied). */
+  | { readonly type: 'videoInit'; readonly bytes: Uint8Array; readonly codec: string; readonly width: number; readonly height: number }
+  /** A media segment covering playlist time `startUs` to `endUs`, in microseconds (the video element plays at media time = playlist time + ELEMENT_TIME_OFFSET_US; the page converts). */
+  | { readonly type: 'videoSegment'; readonly bytes: Uint8Array; readonly startUs: number; readonly endUs: number }
+  /**
+   * Drop what the element holds and restart at playlist time `startUs` (microseconds; the element's media time is that
+   * plus ELEMENT_TIME_OFFSET_US), paused or playing. Every element session begins with a videoReset, before its first videoInit.
+   * `generation` grows with every reset; the page echoes it in videoBuffered and videoStalled.
+   */
+  | { readonly type: 'videoReset'; readonly startUs: number; readonly paused: boolean; readonly generation: number }
+  /** The element's video has ended: no more segments follow. */
+  | { readonly type: 'videoEnded' }
+  /** The element path stopped (the playlist ended or was replaced, or it fell back to the canvas): the page releases the element. */
+  | { readonly type: 'videoElementStop' }
+  /** An HDR stream started playing on the element path (`hdr` true), or that stopped: the session ended or fell back to the canvas (`hdr` false). */
+  | { readonly type: 'videoHdr'; readonly hdr: boolean }
   /** The answer to readPlace. */
   | ({ readonly type: 'placeState' } & PlaceState)
   /**

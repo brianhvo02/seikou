@@ -1,13 +1,21 @@
-import { Control, OUTPUT_SAMPLE_RATE, createRing, ringViews } from '../audio/ring';
+import { Control, LATENCY_UNKNOWN, OUTPUT_SAMPLE_RATE, createRing, ringViews } from '../audio/ring';
 import type { AudioOutputLike } from './player-controller';
 import workletUrl from './pcm-worklet.ts?worker&url';
 
 const RING_SECONDS = 2;
+/** How often the output latency is published to the engine. */
+const LATENCY_PUBLISH_MS = 50;
+/** How often it is published while the output has not said it yet. */
+const LATENCY_UNKNOWN_POLL_MS = 5;
+/** How long (seconds of rendered output) an output may say 0 before 0 is taken as its latency. */
+const LATENCY_WAIT_S = 0.2;
 
 /**
  * A 48 kHz stereo `AudioContext` that plays the shared PCM ring (`../audio/ring`) through an AudioWorklet and a gain node.
  * It lives on the main thread; the engine worker writes the ring and the worklet thread reads it. It also publishes the
- * output latency into the ring's control block every 500 ms so the engine can read it.
+ * output latency into the ring's control block every 50 ms so the engine can read it, and that it is not known yet while
+ * the output has not said it: the context is made on the gesture that starts playback, and an audio clock started on
+ * the 0 Chrome reads until then runs about 56 ms early, then steps back during playback.
  */
 export class AudioOutput implements AudioOutputLike {
   private started: { context: AudioContext; ready: Promise<SharedArrayBuffer> } | null = null;
@@ -120,12 +128,39 @@ export class AudioOutput implements AudioOutputLike {
     this.gain = gain;
     this.applyGain();
     const views = ringViews(ring);
-    const publishLatency = (): void => {
-      const seconds = (context.outputLatency || 0) + context.baseLatency;
-      Atomics.store(views.control, Control.LatencyUs, Math.round(seconds * 1e6));
+    const publishLatency = (): boolean => {
+      const output = context.outputLatency;
+      // Chrome reads 0 until the output has rendered a few callbacks (about 40 ms), then its real latency (about 56 ms
+      // on macOS): until then the latency is unknown, and the audio clock holds rather than run that much early. An
+      // output that still says 0 after LATENCY_WAIT_S of rendering, or has no outputLatency (older Safari), has none.
+      const unknown = output === 0 && context.currentTime < LATENCY_WAIT_S;
+      const us = unknown ? LATENCY_UNKNOWN : Math.round(((output || 0) + context.baseLatency) * 1e6);
+      Atomics.store(views.control, Control.LatencyUs, us);
+      return !unknown;
     };
-    publishLatency();
-    setInterval(publishLatency, 500);
+    // both publishers stop when the context closes: a closed output has no latency to publish, and its ring is let go
+    const timers: Array<ReturnType<typeof setInterval>> = [];
+    const stop = (): void => {
+      for (const t of timers) clearInterval(t);
+      timers.length = 0;
+    };
+    const closed = (): boolean => {
+      if (context.state !== 'closed') return false;
+      stop();
+      return true;
+    };
+    if (!publishLatency()) {
+      const soon = setInterval(() => {
+        if (closed() || publishLatency()) clearInterval(soon);
+      }, LATENCY_UNKNOWN_POLL_MS);
+      timers.push(soon);
+    }
+    timers.push(
+      setInterval(() => {
+        if (!closed()) publishLatency();
+      }, LATENCY_PUBLISH_MS),
+    );
+    context.addEventListener('statechange', () => void closed());
     return ring;
   }
 

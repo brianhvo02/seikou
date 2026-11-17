@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { detectAv1, detectVideoCaps, loadVideoCaps, noAv1Flag, type VideoCapsEnv } from './video-caps';
+import { describe, expect, it, vi } from 'vitest';
+import { browserIsTypeSupported, detectAv1, detectVideoCaps, loadVideoCaps, noAv1Flag, type VideoCapsEnv } from './video-caps';
 
 function env(over: Partial<VideoCapsEnv> = {}): VideoCapsEnv {
   return {
@@ -104,5 +104,72 @@ describe('noAv1Flag', () => {
     expect(noAv1Flag('?telemetry=1&noav1=1')).toBe(true);
     expect(noAv1Flag('?telemetry=1')).toBe(false);
     expect(noAv1Flag('')).toBe(false);
+  });
+});
+
+describe('detectVideoCaps through the browser video player', () => {
+  const no = async () => ({ supported: false });
+  it('counts HEVC as playable when WebCodecs says no and the media source says yes', async () => {
+    const asked: string[] = [];
+    const caps = await detectVideoCaps(env({
+      isConfigSupported: no,
+      isTypeSupported: (t) => { asked.push(t); return true; },
+    }));
+    expect(caps.hevc).toBe(true);
+    expect(caps.hevc10).toBe(true);
+    expect(asked).toContain('video/mp4; codecs="hvc1.1.6.L120.90"');
+    expect(asked).toContain('video/mp4; codecs="hvc1.2.4.L120.90"');
+  });
+  it('keeps the two profiles apart', async () => {
+    const caps = await detectVideoCaps(env({
+      isConfigSupported: no,
+      isTypeSupported: (t) => t.includes('hvc1.1.6'),
+    }));
+    expect(caps.hevc).toBe(true);
+    expect(caps.hevc10).toBe(false);
+  });
+  it('is false when both say no', async () => {
+    const caps = await detectVideoCaps(env({ isConfigSupported: no, isTypeSupported: () => false }));
+    expect(caps.hevc).toBe(false);
+    expect(caps.hevc10).toBe(false);
+  });
+  it('uses WebCodecs alone without a media source', async () => {
+    const caps = await detectVideoCaps(env({ isConfigSupported: async () => ({ supported: true }), isTypeSupported: undefined }));
+    expect(caps.hevc).toBe(true);
+    expect((await detectVideoCaps(env({ isConfigSupported: no, isTypeSupported: undefined }))).hevc).toBe(false);
+  });
+  it('treats a throwing media source as no', async () => {
+    const caps = await detectVideoCaps(env({ isConfigSupported: no, isTypeSupported: () => { throw new Error('x'); } }));
+    expect(caps.hevc).toBe(false);
+  });
+});
+
+describe('browserIsTypeSupported', () => {
+  const source = (answer: boolean, asked: string[]) => ({ isTypeSupported: (t: string) => (asked.push(t), answer) });
+
+  it("asks ManagedMediaSource where there is one, else MediaSource", () => {
+    const asked: string[] = [];
+    vi.stubGlobal('ManagedMediaSource', source(true, asked));
+    vi.stubGlobal('MediaSource', source(false, []));
+    try {
+      expect(browserIsTypeSupported()?.('video/mp4; codecs="hvc1.2.4.L153.B0"')).toBe(true);
+      expect(asked).toEqual(['video/mp4; codecs="hvc1.2.4.L153.B0"']);
+      vi.stubGlobal('ManagedMediaSource', undefined);
+      expect(browserIsTypeSupported()?.('video/mp4; codecs="avc1.640028"')).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('is undefined without a media source, or with one that has no isTypeSupported', () => {
+    vi.stubGlobal('ManagedMediaSource', undefined);
+    vi.stubGlobal('MediaSource', undefined);
+    try {
+      expect(browserIsTypeSupported()).toBeUndefined();
+      vi.stubGlobal('MediaSource', {});
+      expect(browserIsTypeSupported()).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

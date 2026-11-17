@@ -54,6 +54,9 @@ function setup(snapshot: PlayerSnapshot, nasOver: Record<string, unknown> = {}) 
   const controller = {
     discOpens: 1,
     attachCanvas: vi.fn(),
+    attachVideoElement: vi.fn(),
+    detachVideoElement: vi.fn(),
+    setVideoPath: vi.fn(),
     resize: vi.fn(),
     getSnapshot: () => snap,
     subscribe: (l: () => void) => (engineListeners.add(l), () => void engineListeners.delete(l)),

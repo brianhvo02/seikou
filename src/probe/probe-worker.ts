@@ -2,10 +2,9 @@
 import { parseClpi } from '@seikou/bdmv/clpi-parser';
 import { CodingType } from '@seikou/bdmv/stream-types';
 import { analyzeHevc, hevcCodecString } from '@seikou/bdmv/codecs/hevc';
-import type { ByteSource } from '@seikou/bdmv/byte-source';
-import { createByteSource } from '@seikou/engine/disc/disc-spec';
 import { M2tsReader } from '@seikou/bdmv/demux/m2ts-reader';
 import type { WorkerInput, WorkerProbe } from './checks';
+import { openProbeSource } from './probe-source';
 
 const scope = self as unknown as DedicatedWorkerGlobalScope & { requestAnimationFrame?: (cb: (t: number) => void) => number };
 
@@ -43,16 +42,8 @@ async function supported(codec: string): Promise<boolean> {
   }
 }
 
-/** The HEVC check reads one GOP in order: a little read-ahead keeps it from fetching each chunk once per small read. */
-const PROBE_READ_AHEAD_BYTES = 16 * 1024 * 1024;
-
-async function openSource(input: WorkerInput): Promise<ByteSource> {
-  const disc = 'server' in input ? input.server : { kind: 'files' as const, entries: input.entries };
-  return createByteSource(disc, { fetch: (url, init) => fetch(url, init), readAheadBytes: PROBE_READ_AHEAD_BYTES, onWaiting: () => undefined });
-}
-
 async function hevc(input: WorkerInput): Promise<WorkerProbe['hevc']> {
-  const source = await openSource(input);
+  const source = openProbeSource(input);
   let target: { clip: string; pid: number } | null = null;
   for (const name of source.list('BDMV/CLIPINF')) {
     if (!name.endsWith('.CLPI')) continue;

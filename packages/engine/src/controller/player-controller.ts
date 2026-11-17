@@ -4,7 +4,9 @@ import type { PlaylistSummary } from '../disc/open-disc';
 import type { UoOp } from '../hdmv/uo-mask';
 import type { Chapter } from '../nav/timeline';
 import type { MemoryProfileName } from '../memory-profile';
-import type { AudioTrack, BufferRequest, EncodeSpec, EngineCommand, EngineEvent, ErrorCode, MenuKey, PlaceState, PlaybackState, ShaderSetData, ShaderState, StartPoint, SubtitleChoice, Telemetry } from '../protocol';
+import type { AudioTrack, BufferRequest, EncodeSpec, EngineCommand, EngineEvent, ErrorCode, MenuKey, PlaceState, PlaybackState, ShaderSetData, ShaderState, StartPoint, SubtitleChoice, Telemetry, VideoPath } from '../protocol';
+import { elementCheck } from './element-caps';
+import { type ElementAnswer, ElementVideoOutput, type MediaSourceLike } from './element-output';
 import { trackLabel } from './language';
 import { DROP_WARN_RATE, DropMeter } from './drop-meter';
 
@@ -51,6 +53,10 @@ export interface PlayerSnapshot {
   readonly rtcDisc: boolean;
   /** The id of the encoded episode open (openEncode); null while a disc is open, or nothing. */
   readonly encodeId: string | null;
+  /** Whether the engine plays video through the page's `<video>` element (from `videoInit` until `videoElementStop` or a close) rather than the canvas. */
+  readonly videoElement: boolean;
+  /** Whether an HDR stream plays on the element path (the engine's `videoHdr` event; false after a close). */
+  readonly videoHdr: boolean;
   /** Clicks on an HDMV menu that hit no button, counted since the page loaded (a touch that missed shows the controls). */
   readonly menuTapMisses: number;
   /** Problems the engine found while opening the disc that did not stop it (for example an unreadable playlist). */
@@ -160,6 +166,8 @@ export const INITIAL_SNAPSHOT: PlayerSnapshot = {
   remoteDisc: false,
   rtcDisc: false,
   encodeId: null,
+  videoElement: false,
+  videoHdr: false,
   menuTapMisses: 0,
   warnings: [],
   currentPlaylistId: null,
@@ -263,9 +271,27 @@ export function reduceEvent(s: PlayerSnapshot, e: EngineEvent): PlayerSnapshot {
       return s.levelSwitch !== 'switching' ? s : { ...s, levelSwitch: e.ok ? 'idle' : { error: e.message } };
     case 'placeState':
       return s; // answers readPlace
+    case 'videoInit':
+      return s.videoElement ? s : { ...s, videoElement: true };
+    case 'videoElementStop':
+      return s.videoElement ? { ...s, videoElement: false } : s;
+    case 'videoHdr':
+      return s.videoHdr === e.hdr ? s : { ...s, videoHdr: e.hdr };
+    case 'videoElementQuery':
+    case 'videoSegment':
+    case 'videoReset':
+    case 'videoEnded':
+      return s; // the element path's events; the page's element handler takes them
     case 'shaderStatus':
       return { ...s, shaders: { state: e.state, set: e.set, error: e.error }, shaderDropWarning: e.state === 'active' ? s.shaderDropWarning : null };
   }
+}
+
+/** The browser's media source class: `MediaSource`, else Safari on iPhone's `ManagedMediaSource`; null when neither exists. */
+function mediaSourceConstructor(): (new () => unknown) & { isTypeSupported(type: string): boolean } | null {
+  const g = globalThis as unknown as { MediaSource?: unknown; ManagedMediaSource?: unknown };
+  type C = (new () => unknown) & { isTypeSupported(type: string): boolean };
+  return ((g.MediaSource ?? g.ManagedMediaSource) as C | undefined) ?? null;
 }
 
 /** The backstop for releasing a replaced NAS disc's fetch port serving, should the engine never report the port closed. */
@@ -340,6 +366,9 @@ export class PlayerController {
   private readonly listeners = new Set<() => void>();
   private audioAttached = false;
   private readonly transferredCanvases = new WeakSet<HTMLCanvasElement>();
+  private videoOutput: { readonly element: HTMLVideoElement; readonly output: ElementVideoOutput } | null = null;
+  /** The capability check's answers by elementQueryKey, kept for the page's life across the elements attached. */
+  private readonly elementAnswers = new Map<string, Promise<ElementAnswer>>();
   /** The load whose encoding prompt is open: read again when the user picks one (its bytes were transferred). */
   private pendingSubtitleLoad: readonly File[] | null = null;
 
@@ -366,7 +395,7 @@ export class PlayerController {
   constructor(
     private readonly worker: WorkerLike,
     private readonly audio: AudioOutputLike,
-    private readonly options: { readonly nowMs?: () => number; readonly visibility?: VisibilityLike } = {},
+    private readonly options: { readonly nowMs?: () => number; readonly visibility?: VisibilityLike; readonly failElementAppends?: boolean } = {},
   ) {
     this.visibility = options.visibility ?? documentVisibility();
     audio.onStateChange((state) => this.onAudioState(state));
@@ -375,6 +404,12 @@ export class PlayerController {
     });
     worker.onmessage = (event: MessageEvent<EngineEvent>) => {
       const e = event.data;
+      try {
+        this.videoOutput?.output.handle(e);
+        if (e.type === 'state') this.videoOutput?.output.setPlaying(e.state === 'playing');
+      } catch (err) {
+        this.reportInternalError(`The video element output failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
       if (e.type === 'soundEffects') audio.loadEffects(e.clips);
       else if (e.type === 'soundEffect') audio.playEffect(e.id);
       else if (e.type === 'remoteTokenNeeded') this.answerTokenRequest();
@@ -466,6 +501,76 @@ export class PlayerController {
     this.transferredCanvases.add(canvas);
     const offscreen = canvas.transferControlToOffscreen();
     this.post({ type: 'attachCanvas', canvas: offscreen }, [offscreen]);
+  }
+
+  /**
+   * Hands the page's `<video>` element to the engine's element video path: the controller plays the fragmented MP4 the
+   * engine sends in it (through `MediaSource`, or `ManagedMediaSource` where that is all there is), keeps it on the
+   * engine's clock and tells the engine where the clock is. An element is attached once; a different one replaces the
+   * first, which is released.
+   * @example ../../examples/player-controller.browser.ts#attachVideoElement
+   */
+  attachVideoElement(video: HTMLVideoElement): void {
+    if (this.videoOutput?.element === video) return;
+    this.videoOutput?.output.dispose();
+    const Ctor = mediaSourceConstructor();
+    const output = new ElementVideoOutput({
+      video,
+      createMediaSource: () => {
+        if (!Ctor) return null;
+        const source = new Ctor();
+        const url = URL.createObjectURL(source as unknown as MediaSource);
+        return { source: source as unknown as MediaSourceLike, url, revoke: () => URL.revokeObjectURL(url) };
+      },
+      playable: ({ codec, hdr, width, height, frameRate }) =>
+        elementCheck(
+          {
+            isTypeSupported: (type) => Ctor?.isTypeSupported(type) ?? false,
+            ...(navigator.mediaCapabilities?.decodingInfo
+              ? { decodingInfo: (config) => navigator.mediaCapabilities.decodingInfo(config as MediaDecodingConfiguration) }
+              : {}),
+          },
+          codec,
+          hdr,
+          width !== undefined && height !== undefined ? { width, height, ...(frameRate !== undefined ? { frameRate } : {}) } : undefined,
+        ),
+      answers: this.elementAnswers,
+      ...(this.options.failElementAppends ? { failAppends: true } : {}),
+      epochMs: () => performance.timeOrigin + performance.now(),
+      timeOrigin: performance.timeOrigin,
+      post: (cmd) => this.post(cmd),
+      setTimer: (fn, ms) => {
+        const id = setTimeout(fn, ms);
+        return () => clearTimeout(id);
+      },
+      animationFrame: (fn) => {
+        const id = requestAnimationFrame(fn);
+        return () => cancelAnimationFrame(id);
+      },
+    });
+    this.videoOutput = { element: video, output };
+    this.post({ type: 'attachVideoElement', clock: output.clock });
+  }
+
+  /**
+   * Releases the output of `video` (its media source, timers and listeners' effects) when it is the attached element;
+   * any other element is ignored. The same element can be attached again afterwards.
+   * @example ../../examples/player-controller.browser.ts#detachVideoElement
+   */
+  detachVideoElement(video: HTMLVideoElement): void {
+    if (this.videoOutput?.element !== video) return;
+    this.videoOutput.output.dispose();
+    this.videoOutput = null;
+  }
+
+  /**
+   * Chooses how the engine presents video: `element` (the page's `<video>`, attached with `attachVideoElement`),
+   * `canvas` (decoded frames drawn on the canvas, the default) or `auto` (HDR streams through the `<video>`, the rest on
+   * the canvas). A host with a `<video>` element sends `auto` to show HDR. Set it before opening a disc.
+   * @example ../../examples/player-controller.browser.ts#setVideoPath
+   */
+  setVideoPath(path: VideoPath): void {
+    this.post({ type: 'setVideoPath', path });
   }
 
   /**

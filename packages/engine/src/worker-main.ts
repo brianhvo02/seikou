@@ -25,8 +25,8 @@ import { createWebGlBackend } from './shaders/webgl-backend';
 
 /** The part of a worker's global scope the engine's messaging and frame pacing use; tests pass a stand-in. */
 export interface WorkerScope {
-  /** Sends an event to the page. */
-  postMessage(message: EngineEvent): void;
+  /** Sends an event to the page, transferring `transfer` when given. */
+  postMessage(message: EngineEvent, transfer?: Transferable[]): void;
   /** Receives the page's commands. */
   onmessage: ((event: MessageEvent<EngineCommand>) => void) | null;
   /** Paces frames when the worker has one (a worker spawned by a visible page does). */
@@ -78,7 +78,7 @@ export function startEngineWorker(options: EngineWorkerOptions): Player {
   const scope = options.scope ?? (self as unknown as WorkerScope);
   const testFlags = engineWorkerTestFlags();
   const player = new Player({
-    emit: (event) => scope.postMessage(event),
+    emit: (event, transfer) => (transfer ? scope.postMessage(event, transfer) : scope.postMessage(event)),
     videoCodecApi: testFlags.has('nodecoder') ? { ...browserVideoCodecApi, isConfigSupported: async (config) => ({ supported: false, config }) } : browserVideoCodecApi,
     nowMs: () => performance.now(),
     requestFrame: (callback) => {

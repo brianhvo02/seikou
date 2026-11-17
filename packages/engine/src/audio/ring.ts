@@ -10,7 +10,10 @@ export const Control = {
   Playing: 0,
   /** The engine sets 1 to drop everything buffered; the worklet moves the read head to the write head and clears it. */
   DiscardRequest: 1,
-  /** The main thread's estimate of the output latency (context output plus base latency), in microseconds. */
+  /**
+   * The main thread's estimate of the output latency (context output plus base latency), in microseconds, or
+   * LATENCY_UNKNOWN while the output has not said it yet.
+   */
   LatencyUs: 2,
   /** The worklet adds 1 every render quantum, so the engine can tell whether it is running. */
   Heartbeat: 3,
@@ -23,6 +26,12 @@ export const Control = {
   /** 1 once the engine has written all of the stream's audio: running dry then is its end, not an underrun. */
   Draining: 7,
 } as const;
+
+/**
+ * What the main thread publishes as the latency while the output has not said it yet; the audio clock holds meanwhile.
+ * @internal
+ */
+export const LATENCY_UNKNOWN = -1;
 
 const CONTROL_SLOTS = 8;
 const COUNTER_WRITTEN = 0;
@@ -128,9 +137,13 @@ export class RingWriter {
     return Math.max(0, this.writtenFrames() - this.readFrames());
   }
 
-  /** The output latency the main thread last published, in microseconds; never negative. */
+  /**
+   * The output latency the main thread last published, in microseconds; Infinity while it is not known yet
+   * ({@link LATENCY_UNKNOWN}), which holds the audio clock at its start.
+   */
   latencyUs(): number {
-    return Math.max(0, Atomics.load(this.views.control, Control.LatencyUs));
+    const us = Atomics.load(this.views.control, Control.LatencyUs);
+    return us === LATENCY_UNKNOWN ? Infinity : Math.max(0, us);
   }
 
   /** How many render quanta the worklet has run; unchanged between two reads means it is not running. */

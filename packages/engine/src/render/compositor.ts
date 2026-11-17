@@ -4,6 +4,19 @@ import type { OverlayPlane } from '@seikou/pg';
 import type { ShaderStage } from '../shaders/stage';
 import type { Rect, TextRenderOptions, TextRendererLike } from '@seikou/ass/host-types';
 
+/**
+ * The picture's sizes on the element path, from its init segment: the size it shows at (`width`, `height`, where
+ * overlays are placed) and its coded size (`codedWidth`, `codedHeight`, ASS's storage size, as a frame's visible
+ * size is on the canvas path).
+ * @internal
+ */
+export interface ElementPictureSize {
+  readonly width: number;
+  readonly height: number;
+  readonly codedWidth: number;
+  readonly codedHeight: number;
+}
+
 export type { Rect, TextRendererLike };
 
 /**
@@ -26,13 +39,26 @@ export function fitRect(srcW: number, srcH: number, dstW: number, dstH: number):
 export interface CompositorLike {
   /** Sets the canvas size in device pixels (at least 1×1). */
   resize(width: number, height: number): void;
-  /** Clears to black, draws the background still (if any), then the frame. */
+  /**
+   * Clears to black, draws the background still (if any), then the frame. In element mode (startPlaylist's `element`)
+   * it clears to transparent and draws no video: the page's video element shows the picture under the canvas; the
+   * background still is drawn only until the element shows a frame (elementFrameShown).
+   */
   drawVideo(frame: VideoFrame | null): void;
   /**
    * A playlist starts: the last frame's size is forgotten. With `picture` false (video the browser can't decode) text is
-   * laid out over the 1920×1080 screen; otherwise none is drawn until the playlist's first frame.
+   * laid out over the 1920×1080 screen; otherwise none is drawn until the playlist's first frame. With `element` (the
+   * picture's sizes), the page's video element shows the picture: the canvas is cleared to transparent, no video is
+   * drawn, and text is laid out on the display size, with the coded size as ASS's storage size.
    */
-  startPlaylist?(picture: boolean): void;
+  startPlaylist?(picture: boolean, opts?: { readonly element?: ElementPictureSize }): void;
+  /**
+   * In element mode, the page's video element shows the playlist's first frame: the BD-J background still, drawn until
+   * then (it would cover the picture under the canvas), is not drawn again until the next startPlaylist.
+   */
+  elementFrameShown?(): void;
+  /** In element mode, the picture's sizes changed (a new init segment): text is laid out on them from now on. */
+  setElementSize?(size: ElementPictureSize): void;
   /**
    * The BD-J background still drawn under the video from the next drawVideo on (null: none), placed in its screen
    * rectangle of the 1920×1080 menu rectangle. The caller owns the image and closes it after replacing it here.
@@ -86,12 +112,17 @@ export class Compositor implements CompositorLike {
   private storageSize: { readonly width: number; readonly height: number } | null = null;
   private stage: ShaderStage | null = null;
   private background: ShownStill | null = null;
+  /** The page's video element shows the picture (startPlaylist with `element`): clear to transparent, draw no video. */
+  private element = false;
+  /** In element mode, the page's video element shows a frame of this playlist: the background still is not drawn. */
+  private elementShown = false;
 
   constructor(
     private readonly canvas: OffscreenCanvas,
     private readonly createCanvas: (width: number, height: number) => OffscreenCanvas = (w, h) => new OffscreenCanvas(w, h),
   ) {
-    const ctx = canvas.getContext('2d', { alpha: false });
+    // with alpha, so the element path can clear to transparent; the canvas path fills opaque black under every frame
+    const ctx = canvas.getContext('2d', { alpha: true });
     if (!ctx) throw new Error('2D canvas context is unavailable');
     this.ctx = ctx;
   }
@@ -111,26 +142,40 @@ export class Compositor implements CompositorLike {
 
   drawVideo(frame: VideoFrame | null): void {
     const { width, height } = this.canvas;
+    if (this.element) {
+      this.ctx.clearRect(0, 0, width, height);
+      // over the element the still would cover the picture: only until the element shows one
+      if (!this.elementShown) this.drawBackground(null);
+      return;
+    }
     this.ctx.fillStyle = '#000';
     this.ctx.fillRect(0, 0, width, height);
     const r = frame ? fitRect(frame.displayWidth, frame.displayHeight, width, height) : null;
-    const bg = this.background;
-    if (bg && bg.rect.width > 0 && bg.rect.height > 0) {
-      const screen = fitRect(PLANE_WIDTH, PLANE_HEIGHT, width, height);
-      const x = screen.x + bg.rect.x * screen.width;
-      const y = screen.y + bg.rect.y * screen.height;
-      const w = bg.rect.width * screen.width;
-      const h = bg.rect.height * screen.height;
-      // an opaque frame that covers the still hides it: no full-screen draw under every frame of a feature
-      const hidden = r !== null && r.x <= x && r.y <= y && r.x + r.width >= x + w && r.y + r.height >= y + h;
-      if (!hidden) this.ctx.drawImage(bg.image, x, y, w, h);
-    }
+    this.drawBackground(r);
     if (!frame || !r) return;
     this.frameSize = { width: frame.displayWidth, height: frame.displayHeight };
     this.storageSize = { width: frame.visibleRect?.width ?? frame.codedWidth, height: frame.visibleRect?.height ?? frame.codedHeight };
     // the shaded image is already at the fitted size (shaders see it as OUTPUT)
     const image = r.width > 0 && r.height > 0 ? this.stage?.process(frame, { width: r.width, height: r.height }) : null;
     this.ctx.drawImage(image ?? frame, r.x, r.y, r.width, r.height);
+  }
+
+  elementFrameShown(): void {
+    if (this.element) this.elementShown = true;
+  }
+
+  /** The background still in its part of the screen rectangle, unless the frame drawn at `frame` covers it. */
+  private drawBackground(frame: Rect | null): void {
+    const bg = this.background;
+    if (!bg || bg.rect.width <= 0 || bg.rect.height <= 0) return;
+    const screen = fitRect(PLANE_WIDTH, PLANE_HEIGHT, this.canvas.width, this.canvas.height);
+    const x = screen.x + bg.rect.x * screen.width;
+    const y = screen.y + bg.rect.y * screen.height;
+    const w = bg.rect.width * screen.width;
+    const h = bg.rect.height * screen.height;
+    // an opaque frame that covers the still hides it: no full-screen draw under every frame of a feature
+    const hidden = frame !== null && frame.x <= x && frame.y <= y && frame.x + frame.width >= x + w && frame.y + frame.height >= y + h;
+    if (!hidden) this.ctx.drawImage(bg.image, x, y, w, h);
   }
 
   drawPg(plane: OverlayPlane): void {
@@ -173,10 +218,20 @@ export class Compositor implements CompositorLike {
     this.bdj = null;
   }
 
-  startPlaylist(picture: boolean): void {
+  startPlaylist(picture: boolean, opts?: { readonly element?: ElementPictureSize }): void {
     this.frameSize = null;
     this.storageSize = null;
     this.noPicture = !picture;
+    this.element = opts?.element !== undefined;
+    this.elementShown = false;
+    if (opts?.element) this.setElementSize(opts.element);
+  }
+
+  setElementSize(size: ElementPictureSize): void {
+    if (!this.element) return;
+    // as drawVideo does for a frame: placement on the display size, ASS's storage size the coded one
+    this.frameSize = { width: size.width, height: size.height };
+    this.storageSize = { width: size.codedWidth, height: size.codedHeight };
   }
 
   drawText(renderer: TextRendererLike, timeUs: number, opts: TextRenderOptions): void {

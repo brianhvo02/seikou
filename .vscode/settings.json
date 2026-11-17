@@ -10,5 +10,6 @@
     "**/.cache/**",
     "**/.worktrees/**",
     "**/.claude/**"
-  ]
+  ],
+  "tizen.v2.working.project": "/Users/takeakisoba/seikou/fixtures/local/BDJ_DISC_A/BDMV/JAR/00001"
 }

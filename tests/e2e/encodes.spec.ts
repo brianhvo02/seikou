@@ -195,6 +195,7 @@ async function jumpToChapter(page: Page, name: string): Promise<void> {
   await page.mouse.move(200, 200);
   await page.mouse.move(400, 500);
   await page.getByTestId('chapter-menu').click();
+  await expect(page.getByTestId('video-output-menu')).toHaveCount(0);
   await page.getByRole('menuitemradio', { name: new RegExp(`^${name} · `) }).click();
 }
 

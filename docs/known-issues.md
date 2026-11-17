@@ -93,6 +93,70 @@ what would change that decision.
   notice, not an error. `UnsupportedCodecError` is left for a decoder that fails to configure. On a NAS disc the
   quality levels (cross-browser step 4) play them with a picture, re-encoded on the NAS; a local folder still plays
   them without one. *Revisit if* the browsers gain MPEG-2 or VC-1 decoding.
+- **On the element path in WebKit, the sync telemetry can't see the last part of the display delay.** WebKit's
+  `requestVideoFrameCallback` gives an `expectedDisplayTime` from another time origin (about -1.4e9 ms), so the page
+  takes the callback's time plus one display refresh, measured from animation frames, as the time the frame shows. A
+  frame that shows later than one refresh after its callback (a compositor that holds frames longer) is measured early
+  by the difference, and the element is kept that much behind the sound while `avOffsetMeanUs` reads in sync. Judge
+  lip sync in Safari by eye as well as by telemetry. *Revisit if* WebKit's `expectedDisplayTime` comes onto the page's
+  clock.
+- **On the element path in WebKit, every start begins about 33 ms behind the sound.** WebKit's audio clock first moves
+  in one step of about 17 ms, so the page sees it running that far in, and `play()` takes about another display refresh
+  to show its first frame; the start's catch-up, capped at 25% fast, removes that in about 0.15 s. A telemetry window
+  that holds mostly those frames averages 8 to 20 ms (measured over 15 runs of `element-path.spec.ts` in Playwright's
+  WebKit on macOS, one over 20 ms), and 35 to 43 ms with three tests running at once. `disc-hdr`, which starts as it
+  opens (First Play, 1080p HEVC), averaged 28 to 43 ms in its first window in 10 of 11 runs on 2026-11-16 (31 to 33
+  ms alone), so its sync test usually fails in WebKit on macOS, as it did with `?videopath=element` before the
+  automatic choice. *Revisit if*
+  the owner rules on the element path's start (a start timed from the audio output's predicted first sound, or a
+  faster start catch-up).
+- **The element path's sync is unchecked in Firefox.** Its E2E tests skip Firefox: on the CI runner Firefox has no
+  running audio output (the clock falls back to the wall clock), and `disc-hdr` there played HEVC Main10 through MSE
+  about 56 ms off the sound. Firefox on a desktop with audio passed all seven tests locally. Under Auto, Firefox takes
+  the element path only for an HDR stream its MSE plays, or an SDR one its WebCodecs can't configure. *Revisit if*
+  Firefox lip sync on the element path is reported, or its CI runner gains an audio output.
+- **On the element path a BD-J background still shows only until the video element shows a frame.** On the canvas
+  path the still is drawn under the video; over the element it would cover the picture, so the canvas draws it from
+  the start of each element session until the page reports the element's first frame (`videoFrameShown`), and not
+  again in that session. Discs show such stills in menus without video, where no frame ever comes, so they look as on
+  the canvas path; a disc that shows a still beside a playing video smaller than the screen loses the still's visible
+  part once the video starts. *Revisit if* a disc needs that.
+- **HDR on the canvas path stays flat.** The canvas path (Video output Always the canvas, a shader set on, a browser
+  whose video element can't play the stream, or the fallback after the element failed) draws HDR video through
+  WebCodecs into an SDR 2D canvas, so PQ and HLG pictures lose their HDR and look dim or washed out, however the
+  browser converts the frame. *Revisit if* a canvas gains an HDR mode, or tone mapping on the canvas is wanted (the
+  roadmap's HDR-on-SDR item).
+- **A Dolby Vision disc plays its HDR10 base layer.** The engine reads the main video PID only; a UHD disc's Dolby
+  Vision enhancement layer (its second video stream, which carries the Dolby Vision metadata) is never read, and the
+  element is given the base layer as HDR10 (Auto takes it as HDR from the CLPI's dynamic range type). *Revisit if* a
+  browser plays dual-layer Dolby Vision through MSE.
+- **HDR10+ metadata isn't passed on.** The fragmented MP4 carries the stream's static HDR metadata only (`colr`,
+  `mdcv`, `clli`), so a browser shows an HDR10+ disc as HDR10, tone mapped by its static metadata. *Revisit if* a
+  browser reads HDR10+ dynamic metadata from MP4 (an `hdr10plus`-style box or the SEI messages) and acts on it.
+- **HDR SEI metadata is read once per change of parameter sets.** The `mdcv` and `clli` boxes come from the prefix
+  SEI of the first access unit after the SPS or PPS changes, so clips that share an SPS but differ in MaxCLL (or
+  mastering display) keep the first clip's values for the rest of the session. *Revisit if* a disc's clips carry
+  different light levels under one SPS and the difference shows.
+- **Whether a playlist is HDR is judged from the clip it starts in.** The path is chosen from the start play item's
+  clip info and the first SPS, so a playlist that starts in an SDR clip and goes on into HDR ones plays on the canvas,
+  without HDR, to its end. UHD discs keep a playlist's clips in one format as far as seen. *Revisit if* a disc mixes
+  them in one playlist.
+- **Subtitles and menus over HDR video stay as SDR graphics.** Over an HDR stream on the element path the overlay
+  canvas is the engine's ordinary 2D canvas, so PG, IG and BD-J graphics are drawn as SDR, at most the display's SDR
+  white (on Windows presumably the "SDR content brightness" setting, not yet checked on an HDR display), not at the
+  BT.2408 graphics reference of 203 nits. Measured on 2026-11-16 in an OffscreenCanvas, page and worker, on a Mac
+  whose display reported no HDR (`(dynamic-range: high)` false). Independent of the display: Chrome 157 rejects `colorSpace: 'rec2100-pq'`, `'rec2100-hlg'` and `'rec2100-linear'`
+  (a TypeError on the 2D context and on `getImageData`); it ignores `toneMapping: { mode: 'extended' }` on a 2D context
+  (the attributes still say `standard`, and even `mode: 'bogus'` doesn't throw); it accepts `colorType: 'float16'`,
+  which stores values above 1 (a `color(srgb-linear 2.54 …)` fill reads back as 2.54); and neither `HTMLCanvasElement`
+  nor `OffscreenCanvas` has `configureHighDynamicRange`. A WebGPU `rgba16float` context configured with
+  `toneMapping: { mode: 'extended' }` keeps that mode, in a worker too. Playwright's WebKit (macOS) rejects the
+  `rec2100-*` colour spaces and ignores `colorType` (reads stay 8-bit). Unconfirmed, because that display had no HDR:
+  whether a `float16` 2D canvas, or the WebGPU canvas in extended mode, shows values above 1 brighter than SDR white
+  on a real HDR display (the owner can check in Chrome on Windows with HDR on). If WebGPU does, its 1.0 is the
+  display's SDR white, so reaching 203 nits needs the SDR white level in nits, which no web API gives, and the overlays
+  would have to be presented through WebGPU. *Revisit if* a 2D canvas gains an HDR mode, or the owner picks the WebGPU
+  route and a white level.
 
 ## Menus (HDMV)
 
@@ -190,6 +254,10 @@ what would change that decision.
 - **No in-memory fallback when IndexedDB is unavailable:** the menu opens but sets cannot be chosen that session
   (errors are logged). Chrome's private windows still provide IndexedDB, so this is rare. *Revisit if* users with
   blocked site storage need shaders.
+- **`ShaderStage.available` is fixed when the stage is built.** A shader set forces the canvas path only where shaders
+  can run, and the engine judges that once, when it builds the stage; a WebGL context lost later still counts as
+  available, so a set then keeps video on the canvas though no shader runs. *Revisit if* context loss is seen (read
+  the stage's state at each choice of path).
 - **`unavailable` is discovered only when a set is first chosen:** the engine creates the WebGL2 backend lazily, so
   until then the menu lists sets as usual, and only after the first choice does it show the unavailable message.
   *Revisit if* users on such browsers find the late message confusing (probe at startup).
@@ -272,6 +340,15 @@ what would change that decision.
 - **Disc directory listings are sorted (5c).** `listBdFilesN` (and the VFS's other directory listings, `vfs.ts`)
   return names in sorted order, where libbluray returns readdir order. A folder the browser hands over has no
   canonical readdir order, so sorted is the one order that is the same on every run and machine.
+- **A BD-J mark just after the start point is reported, where libbluray skips it.** libbluray's
+  `_find_next_playmark` takes the first mark whose packet lies after the read position, and a mark's packet is the EP
+  entry at or before it, so after opening or seeking a playlist a mark later than the start but inside the same EP
+  interval (under about a second away) is never reported. A disc's top menu waited for exactly such a mark: it opens
+  its background loop at one mark and draws the menu on the next, 0.25 s later, so Top Menu showed the loop with no
+  menu, in libbluray too. Under BD-J the player takes a mark later than the start as the next one whatever its packet,
+  as a player that reports marks by time does (`nextMarkAt` in `player.ts`). HDMV keeps libbluray's rule, because its
+  marks only update the chapter PSR, which libbluray reads from the packet, and vm-trace compares those. *Revisit if* a
+  BD-J disc's library check diverges from libbluray on a mark in the first second after a playlist starts.
 - **BD-J input (5d).** Keys, clicks and taps reach Java as libbluray sends them (`bd_user_input`,
   `bd_mouse_select`), and 5c's "menu isn't shown yet" notice is gone. While the BD-J plane shows anything, a tap or
   click on the video goes to the disc; on an empty plane it shows or hides the controls (desktop: play/pause). A tap
@@ -569,6 +646,16 @@ what would change that decision.
 - **The last E-AC-3 access unit before the end of input is not played** (32 ms), because a group is emitted when
   the next one starts.
 - **AC-3 at 44.1 or 32 kHz is ignored** (treated as no sync). Blu-ray AC-3 is always 48 kHz.
+- **In Safari on a Mac, real discs look slightly ahead of their sound** (the picture first), on the canvas and element
+  paths alike, though the telemetry reads in sync: the sound reaches the ear later than Safari reports (wired
+  headphones: 1 ms reported, `getOutputTimestamp` agrees), by an amount no browser API shows. The flash and beep of
+  `scripts/make-sync-disc.ts` look together, so the gap is small; AirPods add more (160 ms reported, more heard).
+  Chrome on the same Mac is in sync. Owner's check, 2026-11-16. It didn't reproduce later the same day: real sessions
+  measured the picture 8 to 19 ms behind the clock. Two WebKit findings from that investigation: WebKit under-reports
+  its output delay by about 10 ms, and its delay can ratchet up after page-process stalls (on a test page, 301 ms,
+  until a reload; suspending and resuming the `AudioContext` doesn't clear it). The owner deferred both a stall
+  counter and rebuilding the `AudioContext` after a stall until it recurs. *Revisit if* it recurs, or an audio delay
+  setting (per device, set by eye) is taken up; the owner tabled it.
 
 ## Browsers and devices
 

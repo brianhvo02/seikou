@@ -1614,6 +1614,33 @@ describe('Player with HDMV navigation', () => {
     expect(marks.filter((m) => m > 0)).toEqual([1]); // the mark at 1 s, reported once it is reached
   });
 
+  it('reports a BD-J mark after the start point that shares its EP entry, which libbluray never reports', async () => {
+    // EP entries every second; marks at 0, 1, 1.25 and 3 s. Java opens at mark 1: the mark at 1.25 s lies in the same
+    // EP interval, so libbluray's packet test (_find_next_playmark: pos > s_pos) skips it and reports 3 next. A disc
+    // that waits for it (a top menu drawn on the mark just after its loop's start) would wait forever.
+    const in45 = 900_000 / 2;
+    const h = await nav([{ cmds: [asm.playPl(imm(0))] }, idle, idle], {
+      playlists: [{ id: '00000', clipIds: ['00001'], marks: [0, 45_000, 56_250, 135_000].map((t) => ({ playItemRef: 0, time: in45 + t })) }, shortPlaylists[1]!],
+    });
+    await untilPlaying(h);
+    const marks: number[] = [];
+    const listener: BdjPlaybackListener = {
+      playlistStarted: () => undefined,
+      playItemChanged: () => undefined,
+      marksReached: (m) => marks.push(...m),
+      position: () => undefined,
+      seeked: () => undefined,
+      playlistEnded: () => undefined,
+    };
+    type BdjInternals = { bdjListener: BdjPlaybackListener | null; playPlaylist(id: string, at: object, caller: 'bdj'): Promise<boolean> };
+    const me = h.player as unknown as BdjInternals;
+    me.bdjListener = listener;
+    await me.playPlaylist('00000', { mark: 1 }, 'bdj');
+    await h.player.handle({ type: 'play' }); // as Java's selectRate(START)
+    await h.play(600);
+    expect(marks).toEqual([2]); // the mark at 1.25 s, a quarter second in; mark 1 is where it started
+  });
+
   const twoLanguages = [lpcmStream(0x1100, 4, { lang: 'jpn' }), lpcmStream(0x1101, 4, { lang: 'eng' })];
 
   it('routes a user audio change through PSR1', async () => {

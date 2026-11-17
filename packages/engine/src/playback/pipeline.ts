@@ -305,7 +305,7 @@ export class PlaybackPipeline implements SessionPipeline {
           if (gen !== this.generation) return;
           if (pes.pts === undefined) continue;
           const { us, inRange } = timeline.toPlaylistUs(i, pes.pts);
-          if (readVideo && pes.pid === videoPid) this.sinks.video({ data: pes.payload, ptsUs: us, inRange });
+          if (readVideo && pes.pid === videoPid) this.sinks.video({ data: pes.payload, ptsUs: us, dtsUs: pes.dts === undefined ? undefined : timeline.toPlaylistUs(i, pes.dts).us, inRange });
           else if (igEntry && pes.pid === igEntry.pid) this.sinks.ig?.({ data: pes.payload, ptsUs: us, dtsUs: pes.dts === undefined ? undefined : timeline.toPlaylistUs(i, pes.dts).us, inRange });
           else if (pgPid !== null && pes.pid === pgPid) this.sinks.pg?.({ data: pes.payload, ptsUs: us, dtsUs: pes.dts === undefined ? undefined : timeline.toPlaylistUs(i, pes.dts).us, inRange });
           else if (audioEntry && pes.pid === audioEntry.pid) {

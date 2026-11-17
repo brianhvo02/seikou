@@ -161,6 +161,43 @@ export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
     return this.config?.codec ?? null;
   }
 
+  /**
+   * Whether the browser could decode the stream whose first unit this is: the check configure() makes, with no decoder
+   * opened. False for a codec the engine doesn't decode or a unit with no parameter set.
+   */
+  async canConfigure(config: StreamConfig): Promise<boolean> {
+    const ops = CODECS.get(config.codingType);
+    if (!ops || !config.firstUnit) return false;
+    try {
+      let params: Uint8Array;
+      if (ops.fromCodecPrivate) {
+        if (!config.codecPrivate) return false;
+        params = config.codecPrivate;
+      } else {
+        const info = ops.analyze(config.firstUnit);
+        if (!info.sps) return false;
+        params = info.sps;
+      }
+      return (await this.supportedConfig(ops, params)) !== null;
+    } catch {
+      return false;
+    }
+  }
+
+  /** The first candidate decoder configuration for the stream's parameter set that the browser supports (software decoding for an interlaced stream), or null. */
+  private async supportedConfig(ops: CodecOps, params: Uint8Array): Promise<VideoDecoderConfig | null> {
+    const software = ops.needsSoftware?.(params) === true;
+    for (const codec of ops.codecStrings(params)) {
+      const candidate: VideoDecoderConfig = { codec };
+      if (software) candidate.hardwareAcceleration = 'prefer-software';
+      // a rejection (e.g. a codec string the browser can't parse) counts as unsupported
+      const support = await this.api.isConfigSupported(candidate).catch(() => ({ supported: false }));
+      if (this.closed) return null;
+      if (support.supported) return candidate;
+    }
+    return null;
+  }
+
   /** Picks the first codec string the browser supports (software decoding for an interlaced stream) and opens the decoder. Rejects with UnsupportedCodecError when none is supported. */
   async configure(config: StreamConfig): Promise<void> {
     const ops = CODECS.get(config.codingType);
@@ -175,20 +212,9 @@ export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
       if (!info.sps) throw new Error('first video access unit has no SPS');
       params = info.sps;
     }
-    const software = ops.needsSoftware?.(params) === true;
     this.closed = false;
-    let vdc: VideoDecoderConfig | null = null;
-    for (const codec of ops.codecStrings(params)) {
-      const candidate: VideoDecoderConfig = { codec };
-      if (software) candidate.hardwareAcceleration = 'prefer-software';
-      // a rejection (e.g. a codec string the browser can't parse) counts as unsupported
-      const support = await this.api.isConfigSupported(candidate).catch(() => ({ supported: false }));
-      if (this.closed) return; // closed while support was being checked: don't open a decoder nobody owns
-      if (support.supported) {
-        vdc = candidate;
-        break;
-      }
-    }
+    const vdc = await this.supportedConfig(ops, params);
+    if (this.closed) return; // closed while support was being checked: don't open a decoder nobody owns
     if (!vdc) {
       const message =
         ops.unsupportedMessage ??

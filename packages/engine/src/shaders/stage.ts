@@ -95,6 +95,11 @@ export class ShaderStage {
     this.unavailable = typeof backend === 'string' ? backend : null;
   }
 
+  /** Whether shaders can run here: false when the backend is unavailable (no WebGL2, or no float colour targets). */
+  get available(): boolean {
+    return this.unavailable === null;
+  }
+
   /** The last shaded frame's cost; null while no set shades frames (off, compiling with none active, context lost). */
   get stats(): ShaderStats | null {
     return this.active && !this.lost ? this.lastStats : null;

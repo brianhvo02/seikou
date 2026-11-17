@@ -418,6 +418,10 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .player { position: relative; height: 100%; background: #000; overflow: hidden; }
 .player.idle { cursor: auto; }
 @media (hover: hover) { .player.idle:not(.in-menu) { cursor: none; } } /* over a disc menu the cursor stays (ruling R9) */
+/* the element path's video sits behind the in-flow canvas: negative z-index inside a stacking context of its own (only while it shows), so the canvas path's paint order is untouched */
+.player:has(> .player-video:not([hidden])) { isolation: isolate; }
+.player-video { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; object-fit: contain; background: #000; pointer-events: none; }
+.player-video[hidden] { display: none; }
 .player-canvas { width: 100%; height: 100%; display: block; touch-action: manipulation; } /* no double-tap zoom competing with double-tap seek */
 /* a long press over a menu shows the controls (ruling R15): no iOS callout or text selection competing with it */
 .player-canvas { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
@@ -463,6 +467,7 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .audio-menu-list button:hover:not(:disabled) { background: var(--deep-2); border-color: transparent; }
 .audio-menu-list button[aria-checked='true'] { color: var(--laser-strong); font-weight: 600; }
 .audio-menu-list button[aria-checked='true']::before { content: '✓ '; }
+.audio-menu-list .audio-menu-hint { padding: 6px 10px 4px; font-size: 0.8em; opacity: 0.7; white-space: nowrap; }
 .audio-menu-list button:disabled { opacity: 0.45; cursor: not-allowed; }
 .picker h3 { margin: 14px 0 6px; font-size: 0.95rem; font-weight: 600; color: var(--mist); }
 .remote-pad { position: absolute; z-index: 15; right: 16px; bottom: 96px; display: flex; flex-direction: column; gap: 8px; padding: 12px; background: var(--veil); border: 1px solid var(--rim); border-radius: var(--r-l); }

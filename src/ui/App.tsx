@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useState, useSyncExternalStore,
 import { createController } from '@seikou/engine/controller/create-controller';
 import type { PlayerController } from '@seikou/engine/controller/player-controller';
 import { PlatformSession } from '@seikou/engine/controller/platform-session';
+import { initialVideoPath } from './video-output';
 import { parseHelpPath } from './help/help-pages';
 import { HelpLoadBoundary } from './help/HelpLoadBoundary';
 import { LandingScreen } from './LandingScreen';
@@ -41,7 +42,7 @@ function createAppController(): PlayerController {
   // `?telemetry=1` also makes the controller copy telemetry to `window.__blurayTelemetry`, which the E2E tests read.
   const flags = ['bdjfail', 'nonestedworkers', 'nodecoder', 'telemetry'].filter((f) => params.has(f));
   const name = flags.length > 0 ? `bluray-engine:${flags.join(',')}` : 'bluray-engine';
-  return createController({
+  const controller = createController({
     // (the options stay an object literal with a literal type: Vite reads it to bundle the worker as a module)
     worker: () => new Worker(new URL('../engine-worker.ts', import.meta.url), { type: 'module', name }),
     profile: chooseMemoryProfile({
@@ -51,7 +52,12 @@ function createAppController(): PlayerController {
       platform: navigator.platform,
     }),
     exposeTelemetry: params.has('telemetry'),
+    // Test-only (E2E): ?elementfail=1 makes every append to the video element fail, so the element path falls back
+    failElementAppends: params.has('elementfail'),
   });
+  // the app has a video element: HDR streams take it (auto), or ?videopath= picks; set before the first open
+  controller.setVideoPath(initialVideoPath());
+  return controller;
 }
 
 let sharedNas: NasClient | null = null;

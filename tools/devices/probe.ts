@@ -68,7 +68,8 @@ async function main(): Promise<void> {
   const url = `${o.server}/probe.html?disc=${encodeURIComponent(disc)}&token=${encodeURIComponent(o.token)}`;
   const report = await withDevice(o.device, async (session) => {
     await session.open(url);
-    await session.until('window.__probeResults', 90_000); // fails at once on a reload (memory kill) or a lost device
+    // the decode-rate checks may take minutes on a slow device; fails at once on a reload (memory kill) or a lost device
+    await session.until('window.__probeResults', 480_000);
     if (o.screenshot) await session.screenshot(o.screenshot);
     const probe = await session.evaluate<{ userAgent: string; results?: ProbeResult[]; error?: string }>('window.__probeResults');
     return { device: session.target.simulator ? `Simulator: ${session.target.name}` : 'real device', route: 'server', disc: o.disc, date: new Date().toISOString(), ...probe };

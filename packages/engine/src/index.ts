@@ -52,6 +52,7 @@ export type {
   PlaybackState,
   NoticeCode,
   ErrorCode,
+  VideoPath,
 } from './protocol';
 // BD-J memory figures that telemetry reports.
 export type { JvmMemoryStats } from './bdj-types';

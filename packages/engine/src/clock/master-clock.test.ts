@@ -85,4 +85,16 @@ describe('MasterClock', () => {
     now = 9_000;
     expect(clock.nowUs()).toBe(2_000_000);
   });
+
+  it('holds at its start while the output latency is not known (Infinity), then plays from the known latency', () => {
+    const audio = new FakeAudio();
+    const clock = new MasterClock(() => 0);
+    audio.latency = Infinity;
+    clock.useAudio(audio, 3_000_000);
+    audio.frames = 4_800; // 100 ms played
+    expect(clock.nowUs()).toBe(3_000_000);
+    audio.latency = 56_000;
+    audio.frames = 4_848; // one more ms played
+    expect(clock.nowUs()).toBe(3_045_000);
+  });
 });

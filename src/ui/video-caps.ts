@@ -3,9 +3,9 @@ import { chooseMemoryProfile } from './memory-profile';
 
 /** What this device can play and show, used to pick and enable quality levels. */
 export interface VideoCaps {
-  /** WebCodecs decodes HEVC Main (8-bit) at 1080p. */
+  /** WebCodecs decodes HEVC Main (8-bit) at 1080p, or the browser's video player plays it through Media Source Extensions. */
   hevc: boolean;
-  /** WebCodecs decodes HEVC Main 10. */
+  /** WebCodecs decodes HEVC Main 10, or the browser's video player plays it through Media Source Extensions. */
   hevc10: boolean;
   /** The display reports `(dynamic-range: high)`. */
   hdrDisplay: boolean;
@@ -17,6 +17,8 @@ export interface VideoCaps {
 export interface VideoCapsEnv {
   /** `VideoDecoder.isConfigSupported`; absent when WebCodecs is. */
   isConfigSupported?: (c: { codec: string; codedWidth: number; codedHeight: number }) => Promise<{ supported?: boolean }>;
+  /** The media source class's `isTypeSupported` (`ManagedMediaSource` where there is one, else `MediaSource`); absent without Media Source Extensions. */
+  isTypeSupported?: (type: string) => boolean;
   matchMedia: (q: string) => { matches: boolean };
   /** The screen size in CSS px. */
   screen: { width: number; height: number };
@@ -70,9 +72,21 @@ async function probe(env: Pick<VideoCapsEnv, 'isConfigSupported'>, codec: string
   }
 }
 
-/** Probes the device once: HEVC Main and Main 10 through `isConfigSupported` (false for a probe that throws or is missing), the display's dynamic range and the phone test. */
+/** Whether the media source class plays `codec` as fragmented MP4; false when it is missing or throws. */
+function mseProbe(env: Pick<VideoCapsEnv, 'isTypeSupported'>, codec: string): boolean {
+  if (!env.isTypeSupported) return false;
+  try {
+    return env.isTypeSupported(`video/mp4; codecs="${codec}"`) === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Probes the device once: HEVC Main and Main 10 through `isConfigSupported` or the media source's `isTypeSupported` (false for a probe that throws or is missing), the display's dynamic range and the phone test. */
 export async function detectVideoCaps(env: VideoCapsEnv): Promise<VideoCaps> {
-  const [hevc, hevc10] = await Promise.all([probe(env, HEVC_MAIN), probe(env, HEVC_MAIN10)]);
+  const [codecs, codecs10] = await Promise.all([probe(env, HEVC_MAIN), probe(env, HEVC_MAIN10)]);
+  const hevc = codecs || mseProbe(env, HEVC_MAIN);
+  const hevc10 = codecs10 || mseProbe(env, HEVC_MAIN10);
   return {
     hevc,
     hevc10,
@@ -91,12 +105,20 @@ function browserMemoryProfile(): MemoryProfileName {
   });
 }
 
+/** The page's media source class's `isTypeSupported`, `ManagedMediaSource` first; undefined without either. */
+export function browserIsTypeSupported(): ((type: string) => boolean) | undefined {
+  const g = globalThis as { ManagedMediaSource?: { isTypeSupported(t: string): boolean }; MediaSource?: { isTypeSupported(t: string): boolean } };
+  const source = g.ManagedMediaSource ?? g.MediaSource;
+  return source && typeof source.isTypeSupported === 'function' ? (t) => source.isTypeSupported(t) : undefined;
+}
+
 /** The real browser's `VideoCapsEnv`. */
 export function browserVideoCapsEnv(): VideoCapsEnv {
   return {
     isConfigSupported: typeof VideoDecoder !== 'undefined' && typeof VideoDecoder.isConfigSupported === 'function'
       ? (c) => VideoDecoder.isConfigSupported(c)
       : undefined,
+    isTypeSupported: browserIsTypeSupported(),
     matchMedia: (q) => window.matchMedia(q),
     screen: { width: window.screen.width, height: window.screen.height },
     memoryProfile: browserMemoryProfile(),

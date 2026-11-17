@@ -10,6 +10,13 @@
       td, th { border: 1px solid #888; padding: 4px 8px; text-align: left; }
       .ok { color: #070; }
       .fail { color: #b00; }
+      button, input { font: inherit; margin: 4px 8px 4px 0; padding: 6px 12px; }
+      :focus { outline: 4px solid #39f; outline-offset: 2px; }
+      .pick-list { display: flex; flex-direction: column; align-items: flex-start; }
+      .results { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+      .qr { width: 360px; height: 360px; display: block; margin: 12px 0; }
+      /* a TV's page is 1920 CSS pixels wide, read from across the room */
+      @media (min-width: 1600px) { body { font-size: 24px; } .qr { width: 480px; height: 480px; } }
     </style>
   </head>
   <body>
