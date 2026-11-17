@@ -107,15 +107,22 @@ export class InterlacedVideo {
       this.backend = backend;
       this.size = { width, height };
     }
-    this.deinterlacer = new Deinterlacer({
+    const deinterlacer: Deinterlacer = new Deinterlacer({
       backend: this.backend,
       ringSize: this.deps.ringSize,
       frameDurationUs,
       onPictures: (pictures) => {
+        // a replaced deinterlacer's late pictures (its measurements came back after the session ended) never reach
+        // the next session's presenter
+        if (this.deinterlacer !== deinterlacer) {
+          for (const p of pictures) p.close();
+          return;
+        }
         for (const p of pictures) this.ours.add(p);
         this.deps.onPictures(pictures);
       },
     });
+    this.deinterlacer = deinterlacer;
     return true;
   }
 
