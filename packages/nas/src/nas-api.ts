@@ -851,12 +851,13 @@ export interface PlayerSettings {
 }
 
 /**
- * The body of `PUT me/player-settings`: without `discPreferences` (an older app) the stored ones are kept.
+ * The body of `PUT me/player-settings`: one setting or both; the one left out keeps its stored value, so the
+ * countdown and the disc preferences are saved each on its own.
  * @internal
  */
 export interface PlayerSettingsBody {
   /** The next episode starts by itself after a 10 s countdown. */
-  readonly nextEpisodeCountdown: boolean;
-  /** The person's disc preferences, when the app sends them. */
+  readonly nextEpisodeCountdown?: boolean;
+  /** The person's disc preferences. */
   readonly discPreferences?: DiscPreferences;
 }

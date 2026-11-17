@@ -9,9 +9,9 @@ import { requestDevice } from './titles';
 const ROUTE = '/api/me/player-settings';
 
 /**
- * `GET` and `PUT /api/me/player-settings`: the token's own person's `PlayerSettings`. A `PUT` takes the countdown and,
- * optionally, complete disc preferences (400 for anything else, 413 past 4 KiB; without disc preferences the stored ones
- * stay) and answers what it stored. Behind `requireToken`.
+ * `GET` and `PUT /api/me/player-settings`: the token's own person's `PlayerSettings`. A `PUT` takes the countdown,
+ * complete disc preferences, or both (400 for anything else, 413 past 4 KiB; the one left out stays as stored) and
+ * answers what it stored. Behind `requireToken`.
  */
 export function playerSettingsRoutes(auth: Auth, store: PlayerSettingsStore): Handler {
   return async (req, url) => {

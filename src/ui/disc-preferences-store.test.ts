@@ -13,7 +13,7 @@ function memoryStorage(init: Record<string, unknown> = {}): Pick<Storage, 'getIt
   return { data, getItem: (k) => data.get(k) ?? null, setItem: (k, v) => void data.set(k, v) };
 }
 
-function setup(opts: { storage?: DiscPreferencesDeps['storage']; scope?: string; get?: () => Promise<PlayerSettings>; put?: (b: unknown) => Promise<PlayerSettings>; nas?: boolean } = {}) {
+function setup(opts: { storage?: DiscPreferencesDeps['storage']; scope?: string; get?: () => Promise<PlayerSettings>; put?: (b: unknown) => Promise<PlayerSettings>; nas?: boolean; person?: string | null } = {}) {
   let scope = opts.scope ?? 'nas#mika';
   const sent: EngineSettings[] = [];
   const get = vi.fn(opts.get ?? (() => new Promise<PlayerSettings>(() => undefined)));
@@ -25,7 +25,7 @@ function setup(opts: { storage?: DiscPreferencesDeps['storage']; scope?: string;
     nas: () => (opts.nas === false ? null : { get, put }),
     send: (s) => sent.push(s),
     locale: () => 'en-US',
-    countdown: () => false,
+    person: async () => (opts.person === undefined ? 'mika' : opts.person),
   });
   return { store, sent, get, put, storage, setScope: (s: string) => (scope = s) };
 }
@@ -34,33 +34,33 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe('DiscPreferencesStore', () => {
   it('sends the device copy at once, before the NAS answers', async () => {
-    const t = setup({ storage: memoryStorage({ [KEY('nas#mika')]: { prefs: jpn, pending: false } }) });
+    const t = setup({ storage: memoryStorage({ [KEY('nas#mika')]: { prefs: jpn, pending: false, personId: 'mika' } }) });
     void t.store.load();
     expect(t.sent).toHaveLength(1);
     expect(t.sent[0]).toMatchObject({ audioLanguage: 'jpn' });
   });
 
   it("the NAS's copy wins when nothing is pending", async () => {
-    const t = setup({ storage: memoryStorage({ [KEY('nas#mika')]: { prefs: jpn, pending: false } }), get: async () => ({ nextEpisodeCountdown: false, discPreferences: eng }) });
+    const t = setup({ storage: memoryStorage({ [KEY('nas#mika')]: { prefs: jpn, pending: false, personId: 'mika' } }), get: async () => ({ nextEpisodeCountdown: false, discPreferences: eng }) });
     await t.store.load();
     expect(t.store.current().audioLanguage).toBe('eng');
     expect(t.sent.at(-1)).toMatchObject({ audioLanguage: 'eng' });
-    expect(JSON.parse(t.storage.getItem(KEY('nas#mika'))!)).toEqual({ prefs: eng, pending: false });
+    expect(JSON.parse(t.storage.getItem(KEY('nas#mika'))!)).toEqual({ prefs: eng, pending: false, personId: 'mika' });
     expect(t.store.state()).toBe('synced');
   });
 
   it('a pending edit wins over the NAS and is put again', async () => {
-    const t = setup({ storage: memoryStorage({ [KEY('nas#mika')]: { prefs: jpn, pending: true } }), get: async () => ({ nextEpisodeCountdown: true, discPreferences: eng }) });
+    const t = setup({ storage: memoryStorage({ [KEY('nas#mika')]: { prefs: jpn, pending: true, personId: 'mika' } }), get: async () => ({ nextEpisodeCountdown: true, discPreferences: eng }) });
     await t.store.load();
-    expect(t.put).toHaveBeenCalledWith({ nextEpisodeCountdown: true, discPreferences: jpn });
+    expect(t.put).toHaveBeenCalledWith({ discPreferences: jpn });
     expect(t.store.current().audioLanguage).toBe('jpn');
-    expect(JSON.parse(t.storage.getItem(KEY('nas#mika'))!)).toEqual({ prefs: jpn, pending: false });
+    expect(JSON.parse(t.storage.getItem(KEY('nas#mika'))!)).toEqual({ prefs: jpn, pending: false, personId: 'mika' });
   });
 
   it('a NAS that never saved any gets the device copy', async () => {
-    const t = setup({ storage: memoryStorage({ [KEY('nas#mika')]: { prefs: jpn, pending: false } }), get: async () => ({ nextEpisodeCountdown: false, discPreferences: null }) });
+    const t = setup({ storage: memoryStorage({ [KEY('nas#mika')]: { prefs: jpn, pending: false, personId: 'mika' } }), get: async () => ({ nextEpisodeCountdown: false, discPreferences: null }) });
     await t.store.load();
-    expect(t.put).toHaveBeenCalledWith({ nextEpisodeCountdown: false, discPreferences: jpn });
+    expect(t.put).toHaveBeenCalledWith({ discPreferences: jpn });
   });
 
   it('an older NAS keeps them on the device', async () => {
@@ -78,12 +78,12 @@ describe('DiscPreferencesStore', () => {
     await t.store.load();
     await t.store.set(jpn);
     await flush();
-    expect(JSON.parse(t.storage.getItem(KEY('nas#mika'))!)).toEqual({ prefs: jpn, pending: true });
+    expect(JSON.parse(t.storage.getItem(KEY('nas#mika'))!)).toEqual({ prefs: jpn, pending: true, personId: 'mika' });
     expect(t.store.state()).toBe('pending');
   });
 
   it("another person on the device never gets the first's pins", async () => {
-    const t = setup({ storage: memoryStorage({ [KEY('nas#mika')]: { prefs: jpn, pending: false } }) });
+    const t = setup({ storage: memoryStorage({ [KEY('nas#mika')]: { prefs: jpn, pending: false, personId: 'mika' } }) });
     void t.store.load();
     t.setScope('nas#sora');
     void t.store.rescope();
@@ -92,7 +92,7 @@ describe('DiscPreferencesStore', () => {
   });
 
   it('a newly paired person starts from the unpaired copy', async () => {
-    const t = setup({ storage: memoryStorage({ [KEY('local')]: { prefs: jpn, pending: false } }) });
+    const t = setup({ storage: memoryStorage({ [KEY('local')]: { prefs: jpn, pending: false, personId: 'mika' } }) });
     void t.store.load();
     expect(t.store.current()).toEqual(jpn);
   });
@@ -120,4 +120,35 @@ describe('DiscPreferencesStore', () => {
     await t.store.set(jpn);
     expect(fn).toHaveBeenCalled();
   });
+
+  it('never sends the countdown, so one turned on elsewhere stays on', async () => {
+    const t = setup({ get: async () => ({ nextEpisodeCountdown: true, discPreferences: AUTO_DISC_PREFERENCES }) });
+    await t.store.load();
+    await t.store.set(jpn);
+    expect(t.put).toHaveBeenCalledWith({ discPreferences: jpn });
+  });
+
+  it('an edit before the NAS has answered waits for its answer, and goes out then', async () => {
+    let answer: (s: PlayerSettings) => void = () => undefined;
+    const t = setup({ get: () => new Promise<PlayerSettings>((r) => (answer = r)) });
+    const loading = t.store.load();
+    await flush();
+    await t.store.set(jpn);
+    expect(t.put).not.toHaveBeenCalled();
+    answer({ nextEpisodeCountdown: true, discPreferences: AUTO_DISC_PREFERENCES });
+    await loading;
+    expect(t.put).toHaveBeenCalledWith({ discPreferences: jpn });
+  });
+
+  it("a copy saved as another person is never put into this person's record, and is dropped", async () => {
+    const t = setup({
+      storage: memoryStorage({ [KEY('nas#mika')]: { prefs: jpn, pending: true, personId: 'mika' } }),
+      person: 'sora',
+      get: async () => ({ nextEpisodeCountdown: false, discPreferences: null }),
+    });
+    await t.store.load();
+    expect(t.put).not.toHaveBeenCalledWith({ discPreferences: jpn });
+    expect(t.store.current()).toEqual(AUTO_DISC_PREFERENCES);
+  });
 });
+

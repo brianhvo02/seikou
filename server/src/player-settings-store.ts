@@ -19,14 +19,15 @@ export const PLAYER_SETTINGS_LIMIT_BYTES = 4096;
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /**
- * Whether `v` is a `PUT` body: `nextEpisodeCountdown`, and optionally complete and valid `discPreferences`; no other
- * field. A body with the countdown alone (an app from before disc preferences) keeps the stored ones.
+ * Whether `v` is a `PUT` body: `nextEpisodeCountdown`, valid and complete `discPreferences`, or both; no other field.
+ * A field left out keeps its stored value (an app from before disc preferences sends the countdown alone).
  */
 export function isPlayerSettingsBody(v: unknown): v is PlayerSettingsBody {
-  if (!isObject(v) || typeof v.nextEpisodeCountdown !== 'boolean') return false;
+  if (!isObject(v)) return false;
   const keys = Object.keys(v);
-  if (keys.length === 1) return true;
-  return keys.length === 2 && 'discPreferences' in v && isDiscPreferences(v.discPreferences);
+  if (keys.length === 0 || keys.some((k) => k !== 'nextEpisodeCountdown' && k !== 'discPreferences')) return false;
+  if ('nextEpisodeCountdown' in v && typeof v.nextEpisodeCountdown !== 'boolean') return false;
+  return !('discPreferences' in v) || isDiscPreferences(v.discPreferences);
 }
 
 /**
@@ -58,11 +59,13 @@ export class PlayerSettingsStore {
     };
   }
 
-  /** Replaces the person's settings; a body without disc preferences keeps the stored ones. */
+  /** Stores the settings the body carries; one it leaves out keeps its stored value. */
   put(personId: string, body: PlayerSettingsBody): void {
     const file = this.file(personId);
-    const discPreferences = body.discPreferences ?? this.get(personId).discPreferences;
+    const stored = this.get(personId);
+    const nextEpisodeCountdown = body.nextEpisodeCountdown ?? stored.nextEpisodeCountdown;
+    const discPreferences = body.discPreferences ?? stored.discPreferences;
     mkdirSync(join(this.dataDir, 'users', personId), { recursive: true });
-    replaceAtomically(file, JSON.stringify({ nextEpisodeCountdown: body.nextEpisodeCountdown, ...(discPreferences ? { discPreferences } : {}) }));
+    replaceAtomically(file, JSON.stringify({ nextEpisodeCountdown, ...(discPreferences ? { discPreferences } : {}) }));
   }
 }

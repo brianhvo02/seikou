@@ -44,6 +44,14 @@ describe('PlayerSettingsStore', () => {
     expect(store.get('mika')).toEqual({ nextEpisodeCountdown: false, discPreferences: pinned });
   });
 
+  it('a body with only disc preferences keeps the stored countdown', () => {
+    const store = new PlayerSettingsStore(tmp);
+    store.put('mika', { nextEpisodeCountdown: true });
+    store.put('mika', { discPreferences: pinned });
+    expect(store.get('mika')).toEqual({ nextEpisodeCountdown: true, discPreferences: pinned });
+    expect(isPlayerSettingsBody({ discPreferences: pinned })).toBe(true);
+  });
+
   it('reads a stored preference of the wrong kind as auto', () => {
     const store = new PlayerSettingsStore(tmp);
     mkdirSync(join(tmp, 'users', 'mika'), { recursive: true });

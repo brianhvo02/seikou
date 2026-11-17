@@ -98,7 +98,7 @@ export function getDiscPreferences(): DiscPreferencesStore {
     nas: () => (paired ? { get: () => nas.playerSettings(), put: (body) => nas.putPlayerSettings(body) } : null),
     send: (settings) => controller.setDiscPreferences(settings),
     locale: () => navigator.language,
-    countdown: () => false,
+    person: async () => (paired ? (await nas.me()).personId ?? null : null),
   });
   return sharedPreferences;
 }
