@@ -180,9 +180,14 @@ what would change that decision.
   this was caught the playlist never started). Other browsers give I420 (Chrome) or NV12 (Safari). *Revisit if*
   Firefox on macOS matters for interlaced discs: the stage could take RGB frames, or the in-browser decoder could
   decode for it.
-- **Safari's interlaced frames carry frame-sited chroma.** Its decoder's 4:2:0 chroma of a 1080i frame doesn't keep
-  the two fields apart, so colour lags or leads luma by a field on fast-moving coloured edges (the bar of
-  `disc-interlaced` shows a 15 px tint at its edge). Luma is exact. *Revisit if* it shows on a real disc.
+- **Safari's decoder blends the fields' chroma of an interlaced frame.** Measured on Mac Safari (WebKit) with
+  `disc-interlaced` 00000: the planes its WebCodecs `VideoFrame.copyTo` gives for frame 60 (NV12) have luma identical
+  to ffmpeg's decode of the same frame, but chroma differs on 9% of samples (up to 154 levels): where a chroma sample
+  equals the rows above and below it, WebKit's matches (all but 0.06%); where it doesn't, 82% differ, and a least-squares
+  fit puts about a third of the next row (the other field's) into each row. Chrome's I420 planes match ffmpeg's exactly.
+  The deinterlacer's own chroma handling is checked exact against a CPU reference in I420 and NV12 with field-distinct
+  chroma (`tests/e2e/deinterlace-gpu.ts`), so the tint on fast-moving coloured edges in Safari (15 px on the fixture's
+  bar) comes from the frames it is given. *Revisit if* it shows on a real disc, or if WebKit's decoder changes.
 - **At a playlist's end the telemetry's mode reads video early.** The end-of-playlist flush starts the detector over
   about 0.4 s before the last pictures show; the pictures themselves keep their mode.
 

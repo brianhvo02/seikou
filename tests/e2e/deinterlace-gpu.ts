@@ -62,20 +62,44 @@ function upload(backend: DeinterlaceBackend, slot: number, plane: Plane): void {
   });
 }
 
+/** A frame's chroma: U and V planes at half size, as the deinterlacer gets them from a 4:2:0 frame. */
+interface Chroma {
+  readonly u: Plane;
+  readonly v: Plane;
+}
+
 /**
- * The plane with chroma made from it (the luma's even rows and columns, and its inverse), as I420 or as NV12: the
- * same picture either way, for checking that both chroma layouts draw alike.
+ * Chroma made from a luma plane with each chroma row taken from its own field: row j (the top field's when j is even,
+ * the bottom field's when odd, as in an interlaced 4:2:0 frame) from luma row 2j + (j & 1), so the two fields' chroma
+ * differs wherever the picture moves and a field parity mixed up in a pass shows. Kept within 96-159 (U) and 96-160
+ * (V) so little of the picture clips in RGB.
  */
-function uploadWithChroma(backend: DeinterlaceBackend, slot: number, plane: Plane, format: 'I420' | 'NV12'): void {
-  const { width, height } = plane;
+function fieldChroma(luma: Plane): Chroma {
+  const cw = luma.width / 2;
+  const ch = luma.height / 2;
+  const u = new Uint8Array(cw * ch);
+  const v = new Uint8Array(cw * ch);
+  for (let j = 0; j < ch; j++) {
+    const row = 2 * j + (j & 1);
+    for (let i = 0; i < cw; i++) {
+      u[j * cw + i] = 96 + (luma.data[row * luma.stride + 2 * i]! >> 2);
+      v[j * cw + i] = 160 - (luma.data[row * luma.stride + 2 * i + 1]! >> 2);
+    }
+  }
+  return { u: { width: cw, height: ch, stride: cw, data: u }, v: { width: cw, height: ch, stride: cw, data: v } };
+}
+
+/** Uploads luma and chroma as I420 or as NV12 (Safari's frames are NV12, Chrome's I420). */
+function uploadYuv(backend: DeinterlaceBackend, slot: number, luma: Plane, chroma: Chroma, format: 'I420' | 'NV12'): void {
+  const { width, height } = luma;
   const cw = width / 2;
   const ch = height / 2;
   const data = new Uint8Array(width * height + 2 * cw * ch);
-  data.set(plane.data.subarray(0, width * height));
+  data.set(luma.data.subarray(0, width * height));
   for (let j = 0; j < ch; j++) {
     for (let i = 0; i < cw; i++) {
-      const u = plane.data[2 * j * plane.stride + 2 * i]!;
-      const v = 255 - u;
+      const u = chroma.u.data[j * cw + i]!;
+      const v = chroma.v.data[j * cw + i]!;
       if (format === 'I420') {
         data[width * height + j * cw + i] = u;
         data[width * height + cw * ch + j * cw + i] = v;
@@ -92,13 +116,57 @@ function uploadWithChroma(backend: DeinterlaceBackend, slot: number, plane: Plan
   backend.upload(slot, { format, width, height, data, layout, matrix: 'bt709' });
 }
 
+/**
+ * The CPU reference of the colour pass (written from its definition, not from the shader): luma row y from frame A when
+ * y is even and B when odd, chroma row j from A when j is even and B when odd (an interlaced frame's chroma rows
+ * alternate fields as its luma rows do), chroma upsampled bilinearly with sample (i, j) at luma column 2i and row
+ * 2j + 0.5, limited-range BT.709 to RGB, clipped and rounded. RGBA, top row first.
+ */
+function cpuColour(yA: Plane, yB: Plane, cA: Chroma, cB: Chroma): Uint8Array {
+  const { width, height } = yA;
+  const cw = cA.u.width;
+  const ch = cA.u.height;
+  const kr = 0.2126;
+  const kb = 0.0722;
+  const out = new Uint8Array(width * height * 4);
+  const chromaAt = (i: number, j: number): [number, number] => {
+    const ci = Math.min(Math.max(i, 0), cw - 1);
+    const cj = Math.min(Math.max(j, 0), ch - 1);
+    const c = (cj & 1) === 0 ? cA : cB;
+    return [c.u.data[cj * c.u.stride + ci]!, c.v.data[cj * c.v.stride + ci]!];
+  };
+  const mix = (a: [number, number], b: [number, number], t: number): [number, number] => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+  for (let y = 0; y < height; y++) {
+    const l = (y & 1) === 0 ? yA : yB;
+    const cy = (y - 0.5) * 0.5;
+    const j = Math.floor(cy);
+    const fy = cy - j;
+    for (let x = 0; x < width; x++) {
+      const i = x >> 1;
+      const fx = (x & 1) === 0 ? 0 : 0.5;
+      const [cb, cr] = mix(mix(chromaAt(i, j), chromaAt(i + 1, j), fx), mix(chromaAt(i, j + 1), chromaAt(i + 1, j + 1), fx), fy).map((c) => (c - 128) / 224) as [number, number];
+      const yy = (l.data[y * l.stride + x]! - 16) / 219;
+      const r = yy + 2 * (1 - kr) * cr;
+      const b = yy + 2 * (1 - kb) * cb;
+      const g = (yy - kr * r - kb * b) / (1 - kr - kb);
+      const o = (y * width + x) * 4;
+      [r, g, b].forEach((c, k) => (out[o + k] = Math.round(Math.min(1, Math.max(0, c)) * 255)));
+      out[o + 3] = 255;
+    }
+  }
+  return out;
+}
+
 /** Every channel of the backend's canvas, top row first. */
 function readRgba(canvas: OffscreenCanvas): Uint8Array {
   const gl = canvas.getContext('webgl2') as WebGL2RenderingContext;
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   const rgba = new Uint8Array(canvas.width * canvas.height * 4);
   gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
-  return rgba;
+  const rowBytes = canvas.width * 4;
+  const out = new Uint8Array(rgba.length);
+  for (let y = 0; y < canvas.height; y++) out.set(rgba.subarray((canvas.height - 1 - y) * rowBytes, (canvas.height - y) * rowBytes), y * rowBytes);
+  return out;
 }
 
 /** The red channel of the backend's canvas, top row first (the default framebuffer, read straight from WebGL). */
@@ -147,6 +215,22 @@ function compare(name: string, actual: Uint8Array, expected: Uint8Array): GpuChe
     maxDiff = Math.max(maxDiff, d);
   }
   return { name, ok: maxDiff === 0, detail: `maxDiff ${maxDiff}, ${differing} of ${expected.length} pixels differ` };
+}
+
+/**
+ * A drawn picture against the CPU colour pass: the GPU's float arithmetic may round a value lying on .5 the other
+ * way, so a pixel may be one level off, on at most 0.1% of the channels; anything more is a fault.
+ */
+function compareColour(name: string, actual: Uint8Array, expected: Uint8Array): GpuCheck {
+  let maxDiff = 0;
+  let offByOne = 0;
+  for (let i = 0; i < expected.length; i++) {
+    const d = Math.abs(actual[i]! - expected[i]!);
+    if (d === 1) offByOne++;
+    maxDiff = Math.max(maxDiff, d);
+  }
+  const ok = maxDiff <= 1 && offByOne <= expected.length * 0.001;
+  return { name, ok, detail: `maxDiff ${maxDiff}, ${offByOne} of ${expected.length} channel values one level off` };
 }
 
 function compareMetrics(name: string, gpu: FrameMetrics, cpu: FrameMetrics): GpuCheck {
@@ -198,20 +282,43 @@ function pictureChecks(planes: Plane[]): GpuCheck[] {
     }
     draw("bwdif's first field of a stream (no previous frame)", { kind: 'interpolate', field: 'top' }, { prev: null, cur: 1, next: 2 }, 'tff', false, bwdifIntraField(cur, 0));
 
-    // chroma: NV12 (Safari's frames) draws exactly as I420 (Chrome's) does, in every op
-    const ops: Array<[string, Parameters<DeinterlaceBackend['render']>[0]]> = [
-      ['weave', { kind: 'weave' }],
-      ['match with the previous frame', { kind: 'match', with: 'prev' }],
-      ['bwdif top field', { kind: 'interpolate', field: 'top' }],
-      ['bwdif bottom field', { kind: 'interpolate', field: 'bottom' }],
+    // chroma: every op in I420 and NV12 against the CPU colour pass, with chroma that differs between the fields
+    const chroma = [prev, cur, next].map(fieldChroma) as [Chroma, Chroma, Chroma];
+    const [cp, cc, cn] = chroma;
+    const each = (f: (p: Plane) => Plane): Chroma => ({ u: f(cc.u), v: f(cc.v) });
+    const bwdifChroma = (parity: 0 | 1, tff: boolean): Chroma => ({ u: bwdifField(cp.u, cc.u, cn.u, parity, tff), v: bwdifField(cp.v, cc.v, cn.v, parity, tff) });
+    type Op = Parameters<DeinterlaceBackend['render']>[0];
+    const cases: Array<{ name: string; op: Op; order: 'tff' | 'bff'; cheap?: boolean; slots?: { prev: number | null; cur: number; next: number | null }; expected: () => Uint8Array }> = [
+      { name: 'weave', op: { kind: 'weave' }, order: 'tff', expected: () => cpuColour(cur, cur, cc, cc) },
     ];
-    const drawn = (format: 'I420' | 'NV12'): Uint8Array[] => {
-      [prev, cur, next].forEach((p, i) => uploadWithChroma(backend, i, p, format));
-      return ops.map(([, op]) => readRgba(backend.render(op, all, 'tff', 'bt709', false)));
-    };
-    const i420 = drawn('I420');
-    const nv12 = drawn('NV12');
-    ops.forEach(([name], k) => checks.push(compare(`NV12 chroma draws as I420's: ${name}`, nv12[k]!, i420[k]!)));
+    for (const order of ['tff', 'bff'] as const) {
+      const tff = order === 'tff';
+      // a match is cur's first field with the previous frame's second, or the next frame's first field with cur's second
+      const firstSecond = (first: [Plane, Chroma], second: [Plane, Chroma]): Uint8Array =>
+        tff ? cpuColour(first[0], second[0], first[1], second[1]) : cpuColour(second[0], first[0], second[1], first[1]);
+      cases.push(
+        { name: `match with the previous frame, ${order}`, op: { kind: 'match', with: 'prev' }, order, expected: () => firstSecond([cur, cc], [prev, cp]) },
+        { name: `match with the next frame, ${order}`, op: { kind: 'match', with: 'next' }, order, expected: () => firstSecond([next, cn], [cur, cc]) },
+      );
+      for (const field of ['top', 'bottom'] as const) {
+        const parity = field === 'top' ? 0 : 1;
+        cases.push(
+          { name: `bwdif ${field} field, ${order}`, op: { kind: 'interpolate', field }, order, expected: () => { const l = bwdifField(prev, cur, next, parity, tff); const c = bwdifChroma(parity, tff); return cpuColour(l, l, c, c); } },
+          { name: `fall-back ${field} field, ${order}`, op: { kind: 'interpolate', field }, order, cheap: true, expected: () => { const l = lineAveraged(cur, parity); const c = each((p) => lineAveraged(p, parity)); return cpuColour(l, l, c, c); } },
+        );
+      }
+    }
+    cases.push({
+      name: "bwdif's first field of a stream",
+      op: { kind: 'interpolate', field: 'top' },
+      order: 'tff',
+      slots: { prev: null, cur: 1, next: 2 },
+      expected: () => { const l = bwdifIntraField(cur, 0); const c = each((p) => bwdifIntraField(p, 0)); return cpuColour(l, l, c, c); },
+    });
+    for (const format of ['I420', 'NV12'] as const) {
+      [prev, cur, next].forEach((p, i) => uploadYuv(backend, i, p, chroma[i]!, format));
+      for (const c of cases) checks.push(compareColour(`colour ${format}: ${c.name}`, readRgba(backend.render(c.op, c.slots ?? all, c.order, 'bt709', c.cheap ?? false)), c.expected()));
+    }
     return checks;
   } finally {
     backend.dispose();
