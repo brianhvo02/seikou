@@ -285,7 +285,7 @@ test('Video output switches an SDR disc to the video element from the next playl
   await page.getByTestId('player').hover();
   await page.getByTestId('video-output-menu').click();
   await expect(page.locator('[role="menuitemradio"][data-path="auto"]')).toHaveAttribute('aria-checked', 'true');
-  await expect(page.getByText('A change applies from the next playlist.')).toBeVisible();
+  await expect(page.getByText('A Video output change applies from the next playlist.')).toBeVisible();
   await page.locator('[role="menuitemradio"][data-path="element"]').click();
   // the playlist playing keeps its path
   await page.waitForTimeout(1000);
