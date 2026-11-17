@@ -24,6 +24,16 @@ A disc may block something at a given moment. The player then says "The disc doe
 - **Audio** menu: pick a track. Supported: LPCM, AC-3, E-AC-3, the AC-3 core of Dolby TrueHD, and the DTS core of DTS and DTS-HD. A track the player cannot play is greyed out with its codec named. Press `A` to go to the next track.
 - **Subtitles** menu: Off, each subtitle track on the disc, and any file you add. Press `S` to cycle. Forced captions show even with subtitles off.
 
+### Disc preferences
+
+**Disc preferences** (on the start screen, and in the player's **Settings** menu) sets what discs start with: audio language, subtitle language, menu language, country and region. Each is **Auto** until you choose:
+
+- **Audio** and **subtitles** on Auto leave it to the disc, which usually starts in its original language. Choose a language to have discs start in it where they have it, for example Japanese audio with English subtitles.
+- **Menu language** and **country** on Auto follow your browser's language.
+- **Region** (A, B or C) on Auto follows the country. A disc locked to another region may refuse to play or show a region screen; set the region it was made for.
+
+A change applies from the next disc you open; the Audio and Subtitles menus still switch tracks while one plays. Encoded episodes start on a chosen audio or subtitle language too, unless you are resuming one. With a NAS paired, your preferences follow you to every device paired as you.
+
 ### Your own subtitle files
 
 Add `.srt`, `.ass` or `.ssa` files from the Subtitles menu (**Load subtitle files…**), or drop them on the player.

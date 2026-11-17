@@ -683,3 +683,11 @@ code { font-family: var(--mono); font-size: 0.9em; }
 @media (max-width: 600px) {
   .fansub-open { flex-basis: 100%; justify-content: flex-start; padding-left: calc(2.4em + 14px); }
 }
+
+/* Disc preferences: over the player, and over the landing screen (fixed there) */
+.disc-prefs-backdrop { position: fixed; z-index: 40; }
+.disc-prefs { min-width: min(420px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 12px; }
+.disc-prefs .pref-row { display: grid; grid-template-columns: 9em 1fr; gap: 12px; align-items: center; }
+.disc-prefs .pref-row select { min-width: 0; }
+@media (max-width: 480px) { .disc-prefs .pref-row { grid-template-columns: 1fr; gap: 4px; } }
+.prefs-link { background: none; border: none; font: inherit; cursor: pointer; }

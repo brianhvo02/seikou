@@ -1660,6 +1660,18 @@ describe('Player with HDMV navigation', () => {
 
   const twoLanguages = [lpcmStream(0x1100, 4, { lang: 'jpn' }), lpcmStream(0x1101, 4, { lang: 'eng' })];
 
+  it('a disc without a program starts on the audio stream in the preferred language, as libbluray picks by PSR16', async () => {
+    const selected = (h: Harness) => h.events.flatMap((e) => (e.type === 'tracks' ? [e.selectedAudio] : [])).at(-1);
+    const auto = await harness(CodingType.LPCM, { audioStreams: twoLanguages, playlists: [{ id: '00000', clipIds: ['00001'] }] });
+    await auto.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(auto);
+    expect(selected(auto)).toBe(1);
+    const eng = await harness(CodingType.LPCM, { audioStreams: twoLanguages, playlists: [{ id: '00000', clipIds: ['00001'] }], playerSettings: { audioLanguage: 'eng' } });
+    await eng.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(eng);
+    expect(selected(eng)).toBe(2);
+  });
+
   it('routes a user audio change through PSR1', async () => {
     const h = await nav([{ cmds: [asm.playPl(imm(0))] }, idle, idle], { audioStreams: twoLanguages });
     await untilPlaying(h);

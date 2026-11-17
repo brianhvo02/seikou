@@ -61,6 +61,7 @@ import { ReadAheadCache, SEGMENT_BYTES } from './disc/read-ahead-cache';
 import { RemoteSource } from './disc/remote-source';
 import { BdVk } from './graphics/graphics-controller';
 import { PSR, RegisterFile, SETTING_PSRS, type PsrEvent } from './hdmv/registers';
+import { langToUint32 } from './nav/stream-psrs';
 import type { UoOp } from './hdmv/uo-mask';
 import { Navigator, type IgUnit, type NavigatorEvent, type PlaybackPort, type PlayAt } from './nav/navigator';
 import { itemPackets, lookupSpn, markTitlePkt, nextPlaymark } from './nav/packets';
@@ -2544,6 +2545,18 @@ export class Player {
     return next;
   }
 
+  /**
+   * Without a disc program, the stream _update_clip_psrs would choose for the preferred audio language (PSR16 of the
+   * private registers, the person's disc preference): the first playable audio stream of `item` in that language, or
+   * null for no preference or none in it (the first playable stream then plays).
+   */
+  private preferredAudio(item: PlayItem): number | null {
+    const lang = this.pgRegs?.psrRead(PSR.AUDIO_LANG) ?? 0xffffff;
+    if (lang === 0xffffff) return null;
+    const i = item.stn.audio.findIndex((a) => PLAYABLE_AUDIO.has(a.codingType) && langToUint32(a.lang) === lang);
+    return i >= 0 ? i + 1 : null;
+  }
+
   /** s_pos after _seek_internal to playlist time `timeUs`: the title packet of the EP map entry at or before it. */
   private titlePktAt(timeline: Timeline, playItems: readonly PlayItem[], timeUs: number): number {
     const clips = this.disc?.clips;
@@ -2670,7 +2683,7 @@ export class Player {
         if (later.unsupportedAudio.length > 0) break;
       }
     }
-    const wanted = (audio ?? this.programRegs?.psrRead(PSR.PRIMARY_AUDIO_ID) ?? 0) & 0xfff;
+    const wanted = (audio ?? this.programRegs?.psrRead(PSR.PRIMARY_AUDIO_ID) ?? this.preferredAudio(mpls.playItems[startItem]!) ?? 0) & 0xfff;
     const wantedEntry = wanted > 0 ? audioEntryFor(mpls.playItems[startItem], wanted) : null;
     if (wantedEntry && PLAYABLE_AUDIO.has(wantedEntry.codingType)) {
       audioIndex = wanted;

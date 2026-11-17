@@ -140,6 +140,8 @@ interface ControlBarProps {
    * `countdown` is the person's Next episode countdown, null until the NAS has said.
    */
   readonly encode?: { readonly countdown: boolean | null; onCountdown(on: boolean): void; onClose(): void } | null;
+  /** Opens Disc preferences from the Settings menu; without it a disc has no Settings menu. */
+  readonly onPreferences?: () => void;
 }
 
 /**
@@ -150,7 +152,7 @@ interface ControlBarProps {
  * tooltip. `visible` false hides the bar with a CSS class and keeps it mounted. Everything is driven by `snapshot` and
  * the `controller`'s commands.
  */
-export function ControlBar({ controller, snapshot, shaderModel, shaderState, visible, onOpenPlaylists, onFullscreen, onMenuKey, remoteOpen, onToggleRemote, onMenuOpenChange, onSubtitleFiles, storedSubtitles = null, toshoSearch = null, quality = null, encode = null }: ControlBarProps): ReactElement {
+export function ControlBar({ controller, snapshot, shaderModel, shaderState, visible, onOpenPlaylists, onFullscreen, onMenuKey, remoteOpen, onToggleRemote, onMenuOpenChange, onSubtitleFiles, storedSubtitles = null, toshoSearch = null, quality = null, encode = null, onPreferences }: ControlBarProps): ReactElement {
   const videoOutput = useSyncExternalStore(videoOutputSetting().subscribe, videoOutputSetting().get);
   const playing = snapshot.engineState === 'playing' || snapshot.engineState === 'buffering';
   const silent = snapshot.muted || snapshot.volume === 0;
@@ -243,7 +245,11 @@ export function ControlBar({ controller, snapshot, shaderModel, shaderState, vis
             onOpenChange={onMenuOpenChange}
           />
         )}
-        {encode && <EncodeSettingsMenu countdown={encode.countdown} onCountdown={encode.onCountdown} onOpenChange={onMenuOpenChange} />}
+        {encode ? (
+          <EncodeSettingsMenu countdown={encode.countdown} onCountdown={encode.onCountdown} onPreferences={onPreferences ?? (() => undefined)} onOpenChange={onMenuOpenChange} />
+        ) : (
+          onPreferences && <EncodeSettingsMenu onPreferences={onPreferences} onOpenChange={onMenuOpenChange} />
+        )}
         {snapshot.indexTitles?.hasTopMenu && (
           <button type="button" data-testid="top-menu" disabled={masked('menuCall')} title={tip('menuCall')} onClick={() => onMenuKey('topMenu')}>
             Top Menu

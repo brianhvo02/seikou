@@ -8,6 +8,7 @@ import type { NasHistory } from './nas/nas-history';
 import type { NasRoute } from './nas/nas-route';
 import type { PlaceSaver } from './place-saver';
 import type { DiscPreferencesStore } from './disc-preferences-store';
+import { DiscPreferencesDialog } from './DiscPreferencesDialog';
 import { LaunchSettingsApplier } from './place-apply';
 import type { PlayingRoute } from './nas/playing-route';
 import { RelayBadge } from './nas/RelayBadge';
@@ -271,6 +272,8 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
   }, [nas, encodeId, discOpens]);
   const encodeSources = encodeId !== null && encodeSubs?.encodeId === encodeId ? encodeSubs.sources : null;
   const [countdown, setCountdown] = useState<boolean | null>(null);
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
+  const closePreferences = useCallback(() => setPreferencesOpen(false), []);
   const encodeOpen = encodeId !== null;
   useEffect(() => {
     if (!nas || !encodeOpen) return;
@@ -514,6 +517,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
       if (target instanceof HTMLTextAreaElement) return;
       if (target instanceof Element && target.closest('.audio-menu-list, .shader-dialog')) return; // an open audio or subtitle menu handles its own keys
       if (controller.getSnapshot().encodingPrompt) return; // the encoding dialog is modal
+      if (document.querySelector('.disc-prefs-backdrop')) return; // so is Disc preferences: its own keys only
       if (target instanceof HTMLInputElement) {
         if (target.type !== 'range') return;
         // Only the volume slider keeps its native arrow-key stepping; on the seek bar arrows seek by 10 s.
@@ -951,6 +955,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
         </div>
       )}
       {snapshot.encodingPrompt && <EncodingPrompt fileName={snapshot.encodingPrompt.names.join(', ')} onAnswer={answerEncoding} />}
+      {preferences && preferencesOpen && <DiscPreferencesDialog source={preferences} kind={encodeId !== null ? 'encode' : 'disc'} locale={navigator.language} onClose={closePreferences} />}
       <ControlBar
         controller={controller}
         snapshot={snapshot}
@@ -974,6 +979,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
         toshoSearch={toshoSearch}
         quality={quality}
         encode={encodeId !== null ? { countdown, onCountdown: setCountdownSetting, onClose: closeDisc } : null}
+        {...(preferences ? { onPreferences: () => setPreferencesOpen(true) } : {})}
       />
     </div>
   );

@@ -120,18 +120,39 @@ export function ChapterMenu({ chapters, timeUs, onSeek, onOpenChange }: ChapterM
 }
 
 interface EncodeSettingsMenuProps {
-  /** The person's Next episode countdown; null until the NAS has said (the item is disabled meanwhile). */
-  readonly countdown: boolean | null;
-  onCountdown(on: boolean): void;
+  /**
+   * The person's Next episode countdown on an encode; null until the NAS has said (the item is disabled meanwhile);
+   * absent on a disc, which has no countdown.
+   */
+  readonly countdown?: boolean | null;
+  onCountdown?(on: boolean): void;
+  /** Opens Disc preferences. */
+  onPreferences(): void;
   onOpenChange(open: boolean): void;
 }
 
-/** Settings: the person's Next episode countdown, on or off (it follows them across devices). */
-export function EncodeSettingsMenu({ countdown, onCountdown, onOpenChange }: EncodeSettingsMenuProps): ReactElement {
+/**
+ * Settings, on discs and encodes: Disc preferences (opens their dialog), and on an encode the person's Next episode
+ * countdown, on or off (both follow the person across devices).
+ */
+export function EncodeSettingsMenu({ countdown, onCountdown, onPreferences, onOpenChange }: EncodeSettingsMenuProps): ReactElement {
   const popup = usePopup(onOpenChange);
   return (
     <MenuShell popup={popup} label="Settings" testId="player-settings-menu">
       <li role="none">
+        <button
+          type="button"
+          role="menuitem"
+          data-testid="disc-preferences-item"
+          onClick={() => {
+            popup.close(true);
+            onPreferences();
+          }}
+        >
+          Disc preferences…
+        </button>
+      </li>
+      {countdown !== undefined && <li role="none">
         <button
           type="button"
           role="menuitemcheckbox"
@@ -140,13 +161,13 @@ export function EncodeSettingsMenu({ countdown, onCountdown, onOpenChange }: Enc
           disabled={countdown === null}
           data-testid="countdown-setting"
           onClick={() => {
-            if (countdown !== null) onCountdown(!countdown);
+            if (countdown !== null) onCountdown?.(!countdown);
           }}
         >
           <span>Next episode countdown</span>
           <span className="menu-switch-state">{countdown ? 'On' : 'Off'}</span>
         </button>
-      </li>
+      </li>}
     </MenuShell>
   );
 }

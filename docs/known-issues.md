@@ -164,8 +164,9 @@ what would change that decision.
   has one. *Revisit when* a disc with menu sounds is available.
 - **`composition_timeout_pts` and `selection_timeout_pts` are not implemented**, as in libbluray (it only logs them).
   The user timeout is. *Revisit if* a disc relies on them.
-- **Initial PSRs are libbluray's `bd_psr_init` defaults**, including region B and profile 2, so traces match
-  libbluray. *Revisit if* a disc's program branches on region or profile in a way that matters.
+- **Initial PSRs are libbluray's `bd_psr_init` defaults**, including profile 2, so traces match libbluray; the
+  region (PSR20) and the languages and country (PSR16-19) come from the person's disc preferences (below). *Revisit
+  if* a disc's program branches on profile in a way that matters.
 - **Menu keys are not checked against UO masks at libbluray's default restriction level (RELAXED)** inside the
   navigator, as in libbluray; the player refuses masked keys and controls one layer up with a notice.
 - **IG in sub-paths is read whole when its playlist opens** (`_preload_ig_subpath`), which reads the whole sub-path
@@ -319,15 +320,19 @@ what would change that decision.
   `DSMCCObject.getSigners` is unimplemented. We run the same code, so the same holds here. There is no bytecode
   verifier and there are no access checks: no `IllegalAccessError`, no `IncompatibleClassChangeError` for
   `invokevirtual` on a static method, no check that a final method is not overridden.
-- **Player settings come from the browser's locale, on discs that use BD-J (5c ruling R9, narrowed in 5e).** The
-  engine worker derives `bd_set_player_setting_str`'s audio, PG and menu languages and the country from
-  `navigator.language` (`playerSettingsForLocale`): the language as ISO 639-2/B (`fre`, `ger`, `chi`, the codes discs
-  label streams with), the region in lowercase (`us`); anything it cannot map stays unset. They are written to the
-  program's registers when a disc whose index names a BD-J object opens, as libbluray writes them at `bd_open`, so a
-  mixed disc's HDMV First Play and HDMV titles read them too (one disc's First Play copies the menu language into a GPR
-  that its BD-J menu reads to pick its language). Until 5e they were written only on BD-J entry. Discs without BD-J keep
-  the registers' defaults (PSR16-19) and their first stream choice is unchanged; libbluray applies the settings for
-  every disc. There is no settings UI yet.
+- **Disc preferences are per person, and Auto leaves audio and subtitles to the disc.** Each person sets audio,
+  subtitle and menu language, country and region (Disc preferences, spec
+  `docs/superpowers/specs/2026-11-16-disc-preferences-design.md`), kept on the NAS with their player settings and in a
+  copy per pairing on each device. The page resolves them (`src/ui/disc-preferences.ts`) and the engine writes them to
+  every disc's registers as it opens, as libbluray's `bd_set_player_setting(_str)` does at `bd_open`. Auto audio and
+  subtitles send no preference (PSR16/17 keep libbluray's "none"), so a disc starts as its makers set it, usually in
+  its original language, where libbluray's examples pass the system language: an anime disc with an English dub would
+  otherwise start dubbed in an English browser (owner's choice, 2026-11-16). Auto menu language and country come from
+  `navigator.language`, and Auto region from the country through a fixed table (A: the Americas, Japan, Korea, Taiwan,
+  Hong Kong, Southeast Asia; C: China, Russia, Central and South Asia, Mongolia; B otherwise). A disc without a program
+  starts on the first playable audio stream in the preferred language, as libbluray's `_update_clip_psrs` would choose
+  it. A change applies from the next disc opened. A NAS from before disc preferences keeps them on each device only.
+  The BD-J replay and the library check still pass the libbluray harness's fixed settings (`HARNESS_SETTINGS`).
 - **Open on purpose in 5c.** A new BD-J worker and JVM start for every BD-J entry, where libbluray keeps one JVM
   across HDMV and BD-J handoffs (deviation 5). The HDMV Navigator is dropped, not suspended, while BD-J runs, so
   libbluray's resume of a suspended object across a BD-J title is lost on mixed discs (deviation 6). The mixed

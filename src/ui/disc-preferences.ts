@@ -72,10 +72,22 @@ export interface AutoLabels {
   readonly region: 'A' | 'B' | 'C';
 }
 
+const namers = new Map<string, Intl.DisplayNames | null>();
+
 /** Names a language code or a country code in `displayLocale`, the code itself when the browser can't. */
 function displayName(type: 'language' | 'region', code: string, displayLocale: string): string {
+  const key = `${type}:${displayLocale}`;
+  let namer = namers.get(key);
+  if (namer === undefined) {
+    try {
+      namer = new Intl.DisplayNames([displayLocale], { type, fallback: 'code' });
+    } catch {
+      namer = null;
+    }
+    namers.set(key, namer);
+  }
   try {
-    return new Intl.DisplayNames([displayLocale], { type }).of(code) ?? code;
+    return namer?.of(code) ?? code;
   } catch {
     return code;
   }

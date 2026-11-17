@@ -29,13 +29,25 @@ describe('the encode menus', () => {
 
   it('switches the Next episode countdown, and waits for the NAS to say what it is', () => {
     const onCountdown = vi.fn();
-    const { rerender } = render(<EncodeSettingsMenu countdown={null} onCountdown={onCountdown} onOpenChange={() => {}} />);
+    const { rerender } = render(<EncodeSettingsMenu countdown={null} onCountdown={onCountdown} onPreferences={() => {}} onOpenChange={() => {}} />);
     fireEvent.click(screen.getByTestId('player-settings-menu'));
     const item = screen.getByRole('menuitemcheckbox', { name: /Next episode countdown/ });
     expect((item as HTMLButtonElement).disabled).toBe(true);
-    rerender(<EncodeSettingsMenu countdown={false} onCountdown={onCountdown} onOpenChange={() => {}} />);
+    rerender(<EncodeSettingsMenu countdown={false} onCountdown={onCountdown} onPreferences={() => {}} onOpenChange={() => {}} />);
     expect(item.getAttribute('aria-checked')).toBe('false');
     fireEvent.click(item);
     expect(onCountdown).toHaveBeenCalledWith(true);
+  });
+
+  it('Settings opens Disc preferences, and shows the countdown only on an encode', () => {
+    const onPreferences = vi.fn();
+    const { rerender } = render(<EncodeSettingsMenu onPreferences={onPreferences} onOpenChange={() => {}} />);
+    fireEvent.click(screen.getByTestId('player-settings-menu'));
+    expect(screen.queryByRole('menuitemcheckbox', { name: /Next episode countdown/ })).toBeNull();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Disc preferences…' }));
+    expect(onPreferences).toHaveBeenCalledTimes(1);
+    rerender(<EncodeSettingsMenu countdown={true} onCountdown={() => {}} onPreferences={onPreferences} onOpenChange={() => {}} />);
+    fireEvent.click(screen.getByTestId('player-settings-menu'));
+    expect(screen.getByRole('menuitemcheckbox', { name: /Next episode countdown/ })).toBeTruthy();
   });
 });

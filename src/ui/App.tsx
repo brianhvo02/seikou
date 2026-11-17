@@ -279,7 +279,7 @@ export function App(): ReactElement {
           </Suspense>
         </HelpLoadBoundary>
       ) : !discOpen ? (
-        <LandingScreen controller={controller} theme={theme} snapshot={snapshot} nas={nas} places={places} history={history} playingRoute={playingRoute} pairLink={pairLink} onPairLinkSpent={spendPairLink} />
+        <LandingScreen controller={controller} theme={theme} snapshot={snapshot} nas={nas} places={places} history={history} playingRoute={playingRoute} pairLink={pairLink} onPairLinkSpent={spendPairLink} preferences={preferences} />
       ) : (
         <PlayerScreen
           controller={controller}

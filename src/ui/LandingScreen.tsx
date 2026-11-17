@@ -31,6 +31,7 @@ import type { DiscEntry } from '@seikou/nas/nas-api';
 import { listRecentDiscs, reopenRecentDisc, saveRecentDisc, type RecentDisc } from './recent-discs';
 import type { ThemeController } from './theme';
 import { ThemeSwitch } from './ThemeSwitch';
+import { DiscPreferencesDialog, type DiscPreferencesSource } from './DiscPreferencesDialog';
 
 const LIBRARY: NasRoute = { kind: 'library', shelf: null, q: '' };
 
@@ -120,6 +121,8 @@ function PlayLink({ nas, places, controller, history, playingRoute, route, onLib
 }
 
 interface LandingScreenProps {
+  /** The person's disc preferences, set from the app bar; no button without them. */
+  readonly preferences?: DiscPreferencesSource;
   readonly controller: PlayerController;
   readonly theme: ThemeController;
   readonly snapshot: PlayerSnapshot;
@@ -143,7 +146,9 @@ interface LandingScreenProps {
  * unfinished place. Discs of a development disc server named by the address (`?disc=` or `?token=`) are offered too.
  * `pairLink` opens the pair screen with a code filled in, and `onPairLinkSpent` reports it used.
  */
-export function LandingScreen({ controller, theme, snapshot, nas, places, history, playingRoute, pairLink, onPairLinkSpent }: LandingScreenProps): ReactElement {
+export function LandingScreen({ controller, theme, snapshot, nas, places, history, playingRoute, pairLink, onPairLinkSpent, preferences }: LandingScreenProps): ReactElement {
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
+  const closePreferences = useCallback(() => setPreferencesOpen(false), []);
   const route = useNasRoute(history);
   /**
    * The screen a pre-flight launched its disc from, while the play route its Play pushed is shown: that screen stays
@@ -535,12 +540,18 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
         </div>
         <div className="app-tools">
           <ThemeSwitch theme={theme} />
+          {preferences && (
+            <button type="button" className="help-link prefs-link" data-testid="disc-preferences-button" onClick={() => setPreferencesOpen(true)}>
+              Disc preferences
+            </button>
+          )}
           <AppLink history={history} to="/help" className="help-link" testId="help-link">
             Help
           </AppLink>
         </div>
         {narrowBar && tabs}
       </header>
+      {preferences && preferencesOpen && <DiscPreferencesDialog source={preferences} kind="disc" locale={navigator.language} onClose={closePreferences} />}
       {!capabilities.core.ok && (
         <div className="error-banner" role="alert">
           This browser is missing: {capabilities.core.missing.join(', ')}. Use Chrome, Safari or Firefox on a computer, or Chrome on Android.
