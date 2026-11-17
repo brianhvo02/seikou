@@ -62,8 +62,16 @@ Anime4K (https://github.com/bloc97/Anime4K, commit 7684e95), MIT License
 
 FFmpeg (https://ffmpeg.org), LGPL-2.1-or-later
   Copyright (c) 2009, 2013 Christian Schmidt (libavcodec/pcm-bluray.c)
-  Derived file:
+  Copyright (C) 2016 Thomas Mundt <loudmax@yahoo.de> (libavfilter/bwdifdsp.c, vf_bwdif.c)
+  Copyright (C) 2006-2011 Michael Niedermayer <michaelni@gmx.at> and 2010 James Darnley
+    <james.darnley@gmail.com> (YADIF, which bwdif is based on)
+  Copyright (C) 2012 British Broadcasting Corporation (Weston 3 Field Deinterlacing algorithm, in bwdif)
+  Derived files:
     decode/lpcm.ts        channel layout table, from libavcodec/pcm-bluray.c
+    deinterlace/bwdif-cpu.ts from libavfilter/bwdifdsp.c (ff_bwdif_filter_intra_c, ff_bwdif_filter_line_c,
+                          ff_bwdif_filter_edge_c) and libavfilter/vf_bwdif.c (filter_slice), FFmpeg n9.0.2
+  The rest of deinterlace/ (the cadence detector and the field measurements) is original code; it contains no
+  FFmpeg code.
 
 FFmpeg decoders (wasm/audio/), LGPL-2.1-or-later
   audio.wasm is built from FFmpeg n9.0.2 (ac3, eac3, dca decoders) and wasm/audio/shim.c.

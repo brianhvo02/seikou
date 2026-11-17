@@ -58,8 +58,12 @@ export const UNLOCK_FRAMES = 4;
 export const LOOKAHEAD = 5;
 /** Consecutive frames that weave clean before video is taken for progressive. */
 export const PROGRESSIVE_FRAMES = 4;
-/** A comb value at or below this is clean whatever the others are. */
-export const COMB_CLEAN = 0.02;
+/**
+ * A comb value at or below this is clean whatever the others are. Measured on the whole 1080i frames of the
+ * interlaced fixture disc with the CPU reference (`metrics-cpu.ts`), clean pairings sit at 0.001 to 0.002 (coding
+ * noise) and field-rate video combs at about 0.02 under every pairing, so the line sits between them.
+ */
+export const COMB_CLEAN = 0.005;
 /** A pairing explains the combing when its comb value is at most this share of the worst pairing's. */
 export const MATCH_RATIO = 0.5;
 /** A pairing is as good as the best when its comb value is at most this many times the best's. */

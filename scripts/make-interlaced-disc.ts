@@ -3,6 +3,8 @@ import { CodingType } from '@seikou/bdmv/stream-types';
 import { CLIP_START_PTS, buildSyntheticDisc, type SyntheticClipSpec } from '../tests/helpers/synthetic-disc';
 import { writeFixture } from './fixture-dir';
 import { execFileSync } from 'node:child_process';
+import { dirname, join } from 'node:path';
+import { gzipSync } from 'node:zlib';
 import { analyzeAvc, avcPicStruct, avcTiming } from '@seikou/bdmv/codecs/h264';
 import { encodeTestVideo, splitAccessUnits } from './x264';
 
@@ -98,3 +100,60 @@ const files = buildSyntheticDisc({
 
 writeFixture(outDir, files);
 console.log(`wrote ${files.size} files to ${outDir}`);
+
+// The deinterlacing references beside the disc (fixtures/synthetic/deinterlace-ref): cropped 8-bit luma, frames one
+// after another, gzipped, for the CPU references' tests. Frames are decoded from the access units above with ffmpeg and
+// kept as yuv420p until the luma is taken, so no conversion touches the values; the crop keeps even rows on top.
+//   video.y.gz         playlist 00000's frames 0-5 (top field first video, its bar crossing the crop)
+//   video-bwdif.y.gz   ffmpeg bwdif=mode=send_field:parity=tff:deint=all over those frames (cropped first): the
+//                      pictures of frames 0-4, top field's then bottom field's for each (frame 0's top field is
+//                      the stream's first, which has no previous frame)
+//   telecine.y.gz      playlist 00002's frames 0-10 (hard 3:2, two cycles and the frame after)
+//   telecine-film.y.gz the 24p film frames 0-7 that 00002 telecines (its first two cycles), before encoding
+// refs.json gives each file's size and frame count.
+const VIDEO_CROP = { width: 1920, height: 320, x: 0, y: 160 };
+const TELECINE_CROP = { width: 512, height: 256, x: 0, y: 256 };
+
+/** The luma of each yuv420p frame ffmpeg writes for `args` (input options first), `width` x `height` a frame. */
+function lumaFrames(args: string[], width: number, height: number, frames: number, input?: Uint8Array): Uint8Array {
+  const raw = execFileSync('ffmpeg', ['-v', 'error', ...args, '-frames:v', String(frames), '-pix_fmt', 'yuv420p', '-f', 'rawvideo', '-'], {
+    input,
+    maxBuffer: 1 << 30,
+  });
+  const frameBytes = (width * height * 3) / 2;
+  if (raw.length !== frames * frameBytes) throw new Error(`expected ${frames} frames of ${width}x${height}, got ${raw.length} bytes`);
+  const out = new Uint8Array(frames * width * height);
+  for (let i = 0; i < frames; i++) out.set(raw.subarray(i * frameBytes, i * frameBytes + width * height), i * width * height);
+  return out;
+}
+
+const elementary = (aus: readonly Uint8Array[]): Uint8Array => Buffer.concat(aus);
+const cropOf = (c: typeof VIDEO_CROP): string => `crop=${c.width}:${c.height}:${c.x}:${c.y}`;
+const fromH264 = ['-f', 'h264', '-i', '-'];
+const BWDIF = 'bwdif=mode=send_field:parity=tff:deint=all';
+const v = VIDEO_CROP;
+const t = TELECINE_CROP;
+const videoFrames = lumaFrames([...fromH264, '-vf', cropOf(v)], v.width, v.height, 6, elementary(tff.slice(0, 7)));
+const bwdif = lumaFrames([...fromH264, '-vf', `${cropOf(v)},${BWDIF}`], v.width, v.height, 10, elementary(tff.slice(0, 7)));
+const telecineFrames = lumaFrames([...fromH264, '-vf', cropOf(t)], t.width, t.height, 11, elementary(hard.slice(0, 12)));
+const film = lumaFrames(
+  ['-f', 'lavfi', '-i', `testsrc2=size=${SIZE}:rate=${FILM_RATE}`, ...graph(700, cropOf(t))],
+  t.width,
+  t.height,
+  8,
+);
+const refs = {
+  video: { file: 'video.y.gz', playlist: '00000', ...v, frames: 6 },
+  videoBwdif: { file: 'video-bwdif.y.gz', playlist: '00000', ...v, frames: 10, of: 'frames 0-4, top field then bottom field' },
+  telecine: { file: 'telecine.y.gz', playlist: '00002', ...t, frames: 11 },
+  telecineFilm: { file: 'telecine-film.y.gz', playlist: '00002', ...t, frames: 8 },
+};
+const refDir = join(dirname(outDir), 'deinterlace-ref');
+writeFixture(refDir, new Map([
+  ['refs.json', new TextEncoder().encode(`${JSON.stringify(refs, null, 2)}\n`)],
+  ['video.y.gz', gzipSync(videoFrames, { level: 9 })],
+  ['video-bwdif.y.gz', gzipSync(bwdif, { level: 9 })],
+  ['telecine.y.gz', gzipSync(telecineFrames, { level: 9 })],
+  ['telecine-film.y.gz', gzipSync(film, { level: 9 })],
+]));
+console.log(`wrote the deinterlacing references to ${refDir}`);

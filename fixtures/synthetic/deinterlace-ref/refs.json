@@ -1,0 +1,39 @@
+{
+  "video": {
+    "file": "video.y.gz",
+    "playlist": "00000",
+    "width": 1920,
+    "height": 320,
+    "x": 0,
+    "y": 160,
+    "frames": 6
+  },
+  "videoBwdif": {
+    "file": "video-bwdif.y.gz",
+    "playlist": "00000",
+    "width": 1920,
+    "height": 320,
+    "x": 0,
+    "y": 160,
+    "frames": 10,
+    "of": "frames 0-4, top field then bottom field"
+  },
+  "telecine": {
+    "file": "telecine.y.gz",
+    "playlist": "00002",
+    "width": 512,
+    "height": 256,
+    "x": 0,
+    "y": 256,
+    "frames": 11
+  },
+  "telecineFilm": {
+    "file": "telecine-film.y.gz",
+    "playlist": "00002",
+    "width": 512,
+    "height": 256,
+    "x": 0,
+    "y": 256,
+    "frames": 8
+  }
+}
