@@ -1,0 +1,70 @@
+{
+  "video": {
+    "file": "video.y.gz",
+    "playlist": "00000",
+    "width": 1920,
+    "height": 320,
+    "x": 0,
+    "y": 160,
+    "frames": 6
+  },
+  "videoBwdif": {
+    "file": "video-bwdif.y.gz",
+    "playlist": "00000",
+    "width": 1920,
+    "height": 320,
+    "x": 0,
+    "y": 160,
+    "frames": 10,
+    "of": "frames 0-4, top field then bottom field"
+  },
+  "telecine": {
+    "file": "telecine.y.gz",
+    "playlist": "00002",
+    "width": 512,
+    "height": 256,
+    "x": 0,
+    "y": 256,
+    "frames": 11
+  },
+  "telecineFilm": {
+    "file": "telecine-film.y.gz",
+    "playlist": "00002",
+    "width": 512,
+    "height": 256,
+    "x": 0,
+    "y": 256,
+    "frames": 8
+  },
+  "smallMover": {
+    "file": "small-mover.y.gz",
+    "playlist": null,
+    "width": 1920,
+    "height": 1080,
+    "x": 0,
+    "y": 0,
+    "frames": 8
+  },
+  "video2s": {
+    "file": "video-2s.png",
+    "playlist": "00000",
+    "width": 640,
+    "height": 256,
+    "x": 1280,
+    "y": 288,
+    "pictures": 4,
+    "of": "bwdif fields 120-123",
+    "firstField": 120
+  },
+  "film2s": {
+    "file": "film-2s.png",
+    "playlist": "00002 and 00003",
+    "width": 640,
+    "height": 256,
+    "x": 1280,
+    "y": 288,
+    "pictures": 6,
+    "of": "film frames 46-51",
+    "firstFilmFrame": 46
+  }
+}

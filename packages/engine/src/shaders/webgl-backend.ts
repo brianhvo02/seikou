@@ -65,11 +65,11 @@ export interface ShaderBackend {
    */
   compile(passes: readonly ShaderPass[]): Promise<CompiledSet>;
   /**
-   * Runs the set on `frame` and draws the result at `output` size into the returned canvas (the same canvas every call).
+   * Runs the set on `frame` (a decoded frame, or a canvas such as the deinterlacer's picture) and draws the result at `output` size into the returned canvas (the same canvas every call).
    * Throws ShaderContextLostError while the context is lost; throws ShaderSetStaleError for a set that was disposed or
    * compiled on an earlier (lost) context, and passes through errors from the upload of `frame` (a closed VideoFrame).
    */
-  render(set: CompiledSet, frame: VideoFrame, output: Size): RenderResult;
+  render(set: CompiledSet, frame: VideoFrame | OffscreenCanvas | ImageBitmap, output: Size): RenderResult;
 }
 
 /** The reason shown when WebGL2, or a float colour target, is missing. */
@@ -308,7 +308,7 @@ class WebGlBackend implements ShaderBackend {
     return set;
   }
 
-  render(set: CompiledSet, frame: VideoFrame, output: Size): RenderResult {
+  render(set: CompiledSet, frame: VideoFrame | OffscreenCanvas | ImageBitmap, output: Size): RenderResult {
     const gl = this.gl;
     if (!(set instanceof WebGlSet) || set.generation !== this.generation || !this.sets.has(set)) {
       if (this.gl.isContextLost()) throw new ShaderContextLostError();
@@ -330,10 +330,10 @@ class WebGlBackend implements ShaderBackend {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, frame);
 
       // texImage2D uploads the visible rectangle, so MAIN is the visible size (an anamorphic 1440×1080 frame stays 1440×1080 and the final scale stretches it).
-      const source: Size = {
-        width: frame.visibleRect?.width ?? frame.codedWidth,
-        height: frame.visibleRect?.height ?? frame.codedHeight,
-      };
+      const source: Size =
+        'codedWidth' in frame
+          ? { width: frame.visibleRect?.width ?? frame.codedWidth, height: frame.visibleRect?.height ?? frame.codedHeight }
+          : { width: frame.width, height: frame.height };
       const plan = planFrame(set.passes, source, output, this.maxTextureSize);
       passesRun = plan.passes.length;
 

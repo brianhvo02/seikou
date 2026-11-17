@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useState, useSyncExternalStore,
 import { createController } from '@seikou/engine/controller/create-controller';
 import type { PlayerController } from '@seikou/engine/controller/player-controller';
 import { PlatformSession } from '@seikou/engine/controller/platform-session';
-import { initialVideoPath } from './video-output';
+import { deinterlaceSetting, initialVideoPath } from './video-output';
 import { parseHelpPath } from './help/help-pages';
 import { HelpLoadBoundary } from './help/HelpLoadBoundary';
 import { LandingScreen } from './LandingScreen';
@@ -58,6 +58,7 @@ function createAppController(): PlayerController {
   });
   // the app has a video element: HDR streams take it (auto), or ?videopath= picks; set before the first open
   controller.setVideoPath(initialVideoPath());
+  controller.setDeinterlace(deinterlaceSetting().get());
   return controller;
 }
 

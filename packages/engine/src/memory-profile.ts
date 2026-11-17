@@ -54,6 +54,12 @@ export interface MemoryProfile {
    * microseconds (a SourceBuffer holds 100–300 MB, and UHD runs at up to about 100 Mb/s).
    */
   readonly elementLeadUs: number;
+  /**
+   * Frames the deinterlacer's ring of plane slots holds (about 3 MB each at 1080): the detector's lookahead, the
+   * neighbours, and the frames of every picture queued for presentation. Decode-ahead of an interlaced stream waits
+   * for a free slot.
+   */
+  readonly deinterlaceRing: number;
 }
 
 /**
@@ -76,6 +82,7 @@ export const MEMORY_PROFILES: Readonly<Record<MemoryProfileName, MemoryProfile>>
     remoteReadAheadBytes: 128 * MB,
     bdjRemoteReadAheadBytes: 16 * MB,
     elementLeadUs: 10_000_000,
+    deinterlaceRing: 12,
   },
   constrained: {
     igPreloadLimitBytes: 64 * MB,
@@ -92,5 +99,8 @@ export const MEMORY_PROFILES: Readonly<Record<MemoryProfileName, MemoryProfile>>
     remoteReadAheadBytes: 48 * MB,
     bdjRemoteReadAheadBytes: 8 * MB,
     elementLeadUs: 4_000_000,
+    // the deinterlacer itself holds about 7 (lookahead, the frame awaiting its next, the previous neighbour): 8 would
+    // leave about one frame of pictures queued
+    deinterlaceRing: 10,
   },
 };

@@ -17,6 +17,7 @@ Short tasks that unblock or protect what is already deployed.
 
 | Item | Size | Notes |
 | --- | --- | --- |
+| **MPEG-2 and VC-1 pictures in the browser** through an in-browser decoder (a WASM build of FFmpeg's decoders), for local folders and every browser; it feeds the deinterlacer, since much MPEG-2 is interlaced. NAS discs already get a picture through quality levels. A speed test on 2026-11-17 found it viable single-threaded on an M5 Max and an iPhone 17 Pro over HTTPS. | L | next |
 | **Open a local `.iso`** from the landing screen. The UDF reader (`packages/bdmv/src/udf.ts`) already serves NAS ISOs; this is the local half of cross-browser spec §4, deferred in the nas-server spec §10. | M | |
 | **Subtitles from picked `.mkv` files.** Extract ASS and SRT tracks and attached fonts from an `.mkv` the viewer picks or drops (the Encodes library's own MKVs already load theirs), deferred since M4b. This pairs with episode subtitle sets and the subtitle store. | M | |
 | **HDMV TextST and sub-path PG** decoding. | M | needs a disc |
@@ -29,8 +30,6 @@ Short tasks that unblock or protect what is already deployed.
 | Item | Size | Notes |
 | --- | --- | --- |
 | **BD-J JIT** (stage 2 of 5c §4.7). This is the start-up lever: iPhone and iPad miss the 10 s cold-start target by 0.8 to 1.6 s, and desktop has little margin on its 5 s bar. A compact constant-pool form is the matching memory lever. | L | owner's call (deferred by choice) |
-| **MPEG-2 and VC-1 pictures for local folders** through a WASM decoder. NAS discs already get a picture through quality levels. | L | |
-| **Deinterlacing** for 1080i discs, perhaps as a built-in shader. They show combing today. | M | |
 | **Hold the first GOP** on H.264 streams that redefine the PPS, so a playlist start loses no frames. | M | |
 | **Lossless and multichannel audio:** full TrueHD and DTS-HD instead of their cores, and output beyond a stereo downmix (multichannel PCM where the browser offers it; no Atmos or DTS:X height channels, since a page can't pass a stream through). | L | deferred by the owner (2026-11-16) |
 | **Encoders beyond Intel QSV** (NVENC, AMD VAAPI) for self-hosters. The self-hosting spec puts this last, after everything else. | L | |

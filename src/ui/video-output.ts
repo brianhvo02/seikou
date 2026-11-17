@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import type { VideoPath } from '@seikou/engine/protocol';
+import type { DeinterlaceMode, VideoPath } from '@seikou/engine/protocol';
 
 /** `localStorage` key (a kept `bluray-web` name) of the device's Video output choice. */
 export const VIDEO_OUTPUT_KEY = 'bluray-web:video-output';
@@ -88,4 +88,79 @@ export function videoOutputSetting(): VideoOutputSetting {
 /** The video path the app asks the engine for as it loads: the setting's. The engine's own default is the canvas, for hosts with no video element. */
 export function initialVideoPath(setting: VideoOutputSetting = videoOutputSetting()): VideoPath {
   return setting.get();
+}
+
+/** `localStorage` key (a kept `bluray-web` name) of the device's Deinterlacing choice. */
+export const DEINTERLACE_KEY = 'bluray-web:deinterlace';
+
+/** The Deinterlacing options with the words the menu shows. */
+export const DEINTERLACE_OPTIONS: readonly { readonly mode: DeinterlaceMode; readonly label: string }[] = [
+  { mode: 'auto', label: 'Auto' },
+  { mode: 'off', label: 'Off' },
+];
+
+function isDeinterlaceMode(v: string | null | undefined): v is DeinterlaceMode {
+  return v === 'auto' || v === 'off';
+}
+
+/** What `DeinterlaceSetting` reads from the page, injectable for tests. */
+export interface DeinterlaceDeps {
+  /** `localStorage`, or null when it is unavailable (it can throw in some privacy modes). */
+  readonly storage: () => Storage | null;
+}
+
+/** The device's Deinterlacing choice as a small store (for `useSyncExternalStore`): the saved choice, else `auto`. */
+export class DeinterlaceSetting {
+  private value: DeinterlaceMode;
+  private readonly listeners = new Set<() => void>();
+
+  /** Reads the saved choice. */
+  constructor(private readonly deps: DeinterlaceDeps) {
+    this.value = this.saved();
+  }
+
+  /** The choice in force. */
+  get = (): DeinterlaceMode => this.value;
+
+  /** Makes `mode` the choice and saves it; a storage that fails still lets it hold for this page. */
+  choose(mode: DeinterlaceMode): void {
+    this.value = mode;
+    try {
+      this.deps.storage()?.setItem(DEINTERLACE_KEY, mode);
+    } catch {
+      // not saved: the choice holds until the page closes
+    }
+    for (const l of [...this.listeners]) l();
+  }
+
+  /** Calls `listener` after each `choose`; returns the function that stops it. */
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => void this.listeners.delete(listener);
+  };
+
+  private saved(): DeinterlaceMode {
+    try {
+      const v = this.deps.storage()?.getItem(DEINTERLACE_KEY);
+      return isDeinterlaceMode(v) ? v : 'auto';
+    } catch {
+      return 'auto';
+    }
+  }
+}
+
+let sharedDeinterlace: DeinterlaceSetting | null = null;
+
+/** The page's one deinterlacing setting, read from `localStorage` the first time it is asked for. */
+export function deinterlaceSetting(): DeinterlaceSetting {
+  sharedDeinterlace ??= new DeinterlaceSetting({
+    storage: () => {
+      try {
+        return window.localStorage;
+      } catch {
+        return null;
+      }
+    },
+  });
+  return sharedDeinterlace;
 }

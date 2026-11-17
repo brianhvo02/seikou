@@ -1,21 +1,25 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from 'react';
-import type { VideoPath } from '@seikou/engine/protocol';
-import { VIDEO_OUTPUT_OPTIONS } from './video-output';
+import type { DeinterlaceMode, VideoPath } from '@seikou/engine/protocol';
+import { DEINTERLACE_OPTIONS, VIDEO_OUTPUT_OPTIONS } from './video-output';
 
 interface VideoOutputMenuProps {
   /** The choice in force. */
   readonly value: VideoPath;
   onPick(path: VideoPath): void;
+  /** The deinterlacing choice in force. */
+  readonly deinterlace: DeinterlaceMode;
+  onDeinterlace(mode: DeinterlaceMode): void;
   /** While open, the player keeps its controls up. */
   onOpenChange(open: boolean): void;
 }
 
 /**
  * The control bar's Video output button and its radio list: Auto (HDR through the browser's video player), Always the
- * video player, Always the canvas, with `value` checked. A line under the list says a pick applies from the next
+ * video player, Always the canvas, with `value` checked, then a Deinterlacing group (Auto, Off, `deinterlace` checked,
+ * applied at once through `onDeinterlace`). A line under the list says a Video output pick applies from the next
  * playlist. `onPick` takes the choice; `onOpenChange` tells the player to keep its controls up while the list is open.
  */
-export function VideoOutputMenu({ value, onPick, onOpenChange }: VideoOutputMenuProps): ReactElement {
+export function VideoOutputMenu({ value, onPick, deinterlace, onDeinterlace, onOpenChange }: VideoOutputMenuProps): ReactElement {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -85,8 +89,28 @@ export function VideoOutputMenu({ value, onPick, onOpenChange }: VideoOutputMenu
             </li>
           ))}
           <li role="none" className="audio-menu-hint">
-            A change applies from the next playlist.
+            A Video output change applies from the next playlist.
           </li>
+          <li role="presentation" className="audio-menu-hint" id="deinterlace-label">
+            Deinterlacing
+          </li>
+          {DEINTERLACE_OPTIONS.map((o) => (
+            <li key={o.mode} role="none">
+              <button
+                type="button"
+                role="menuitemradio"
+                aria-checked={o.mode === deinterlace}
+                data-deinterlace={o.mode}
+                data-testid={`deinterlace-${o.mode}`}
+                onClick={() => {
+                  close(true);
+                  if (o.mode !== deinterlace) onDeinterlace(o.mode);
+                }}
+              >
+                {o.label}
+              </button>
+            </li>
+          ))}
         </ul>
       )}
     </div>

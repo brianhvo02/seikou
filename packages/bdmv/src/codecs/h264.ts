@@ -30,6 +30,7 @@ const NAL_PPS = 8;
  * dependent view of a 3D disc, which a 2D decoder must not see.
  */
 const MVC_TYPES = new Set([14, 15, 20]);
+const SEI_PIC_TIMING = 1;
 const SEI_RECOVERY_POINT = 6;
 /** profile_idc values whose SPS carries chroma_format_idc, bit depths and scaling matrices (H.264 7.3.2.1.1). */
 const HIGH_PROFILES = new Set([100, 110, 122, 244, 44, 83, 86, 118, 128, 138, 139, 134, 135]);
@@ -55,40 +56,154 @@ export function avcCodecString(sps: Uint8Array): string {
 export function avcIsInterlaced(sps: Uint8Array): boolean {
   const r = new ExpGolomb(unescapeRbsp(sps.subarray(1)));
   try {
-    const profile = r.u(8);
-    r.u(16); // constraint flags, level_idc
-    r.ue(); // seq_parameter_set_id
-    if (HIGH_PROFILES.has(profile)) {
-      const chromaFormat = r.ue();
-      if (chromaFormat === 3) r.u(1); // separate_colour_plane_flag
-      r.ue(); // bit_depth_luma_minus8
-      r.ue(); // bit_depth_chroma_minus8
-      r.u(1); // qpprime_y_zero_transform_bypass_flag
-      if (r.u(1)) {
-        // seq_scaling_matrix_present_flag
-        for (let i = 0; i < (chromaFormat !== 3 ? 8 : 12); i++) if (r.u(1)) skipScalingList(r, i < 6 ? 16 : 64);
-      }
-    }
-    r.ue(); // log2_max_frame_num_minus4
-    const pocType = r.ue();
-    if (pocType === 0) {
-      r.ue(); // log2_max_pic_order_cnt_lsb_minus4
-    } else if (pocType === 1) {
-      r.u(1); // delta_pic_order_always_zero_flag
-      r.se(); // offset_for_non_ref_pic
-      r.se(); // offset_for_top_to_bottom_field
-      const cycle = r.ue();
-      for (let i = 0; i < cycle; i++) r.se();
-    }
-    r.ue(); // max_num_ref_frames
-    r.u(1); // gaps_in_frame_num_value_allowed_flag
-    r.ue(); // pic_width_in_mbs_minus1
-    r.ue(); // pic_height_in_map_units_minus1
-    return r.u(1) === 0;
+    return readSpsToFrameMbsOnly(r) === 0;
   } catch (err) {
     if (err instanceof ParseError) return false;
     throw err;
   }
+}
+
+/** Reads an SPS (after its NAL header) up to and including frame_mbs_only_flag, which it returns (H.264 §7.3.2.1.1). */
+function readSpsToFrameMbsOnly(r: ExpGolomb): number {
+  const profile = r.u(8);
+  r.u(16); // constraint flags, level_idc
+  r.ue(); // seq_parameter_set_id
+  if (HIGH_PROFILES.has(profile)) {
+    const chromaFormat = r.ue();
+    if (chromaFormat === 3) r.u(1); // separate_colour_plane_flag
+    r.ue(); // bit_depth_luma_minus8
+    r.ue(); // bit_depth_chroma_minus8
+    r.u(1); // qpprime_y_zero_transform_bypass_flag
+    if (r.u(1)) {
+      // seq_scaling_matrix_present_flag
+      for (let i = 0; i < (chromaFormat !== 3 ? 8 : 12); i++) if (r.u(1)) skipScalingList(r, i < 6 ? 16 : 64);
+    }
+  }
+  r.ue(); // log2_max_frame_num_minus4
+  const pocType = r.ue();
+  if (pocType === 0) {
+    r.ue(); // log2_max_pic_order_cnt_lsb_minus4
+  } else if (pocType === 1) {
+    r.u(1); // delta_pic_order_always_zero_flag
+    r.se(); // offset_for_non_ref_pic
+    r.se(); // offset_for_top_to_bottom_field
+    const cycle = r.ue();
+    for (let i = 0; i < cycle; i++) r.se();
+  }
+  r.ue(); // max_num_ref_frames
+  r.u(1); // gaps_in_frame_num_value_allowed_flag
+  r.ue(); // pic_width_in_mbs_minus1
+  r.ue(); // pic_height_in_map_units_minus1
+  return r.u(1);
+}
+
+/**
+ * What an SPS's VUI says about picture timing SEI (H.264 §E.1.1): whether pic_struct is present, and the lengths of
+ * the delay fields that come before it when HRD parameters are present.
+ * @internal
+ */
+export interface AvcTiming {
+  /** pic_struct_present_flag: picture timing SEI carries pic_struct. */
+  readonly picStructPresent: boolean;
+  /** cpb_removal_delay_length_minus1 + 1 of the HRD parameters (24 without them). */
+  readonly cpbRemovalDelayBits: number;
+  /** dpb_output_delay_length_minus1 + 1 of the HRD parameters (24 without them). */
+  readonly dpbOutputDelayBits: number;
+  /** NAL or VCL HRD parameters are present, so picture timing SEI starts with the two delays. */
+  readonly hrdPresent: boolean;
+  /** matrix_coefficients of the VUI's colour description (H.264 Table E-5), or null when it has none. */
+  readonly matrixCoefficients: number | null;
+}
+
+/**
+ * Reads an SPS NAL unit's (with its header) VUI for the picture timing facts: pic_struct_present_flag and the HRD
+ * delay lengths (H.264 §E.1.1, §E.1.2). An SPS with no VUI, or too short to reach it, has no pic_struct.
+ * @internal
+ */
+export function avcTiming(sps: Uint8Array): AvcTiming {
+  const none: AvcTiming = { picStructPresent: false, cpbRemovalDelayBits: 24, dpbOutputDelayBits: 24, hrdPresent: false, matrixCoefficients: null };
+  const r = new ExpGolomb(unescapeRbsp(sps.subarray(1)));
+  try {
+    if (readSpsToFrameMbsOnly(r) === 0) r.u(1); // mb_adaptive_frame_field_flag
+    r.u(1); // direct_8x8_inference_flag
+    if (r.u(1)) for (let i = 0; i < 4; i++) r.ue(); // frame_cropping_flag: four offsets
+    if (!r.u(1)) return none; // vui_parameters_present_flag
+    if (r.u(1) && r.u(8) === 255) r.u(32); // aspect_ratio_info_present_flag; Extended_SAR
+    if (r.u(1)) r.u(1); // overscan_info_present_flag, overscan_appropriate_flag
+    let matrixCoefficients: number | null = null;
+    if (r.u(1)) {
+      // video_signal_type_present_flag
+      r.u(4); // video_format, video_full_range_flag
+      if (r.u(1)) {
+        // colour_description_present_flag
+        r.u(16); // colour_primaries, transfer_characteristics
+        matrixCoefficients = r.u(8);
+      }
+    }
+    if (r.u(1)) {
+      // chroma_loc_info_present_flag
+      r.ue();
+      r.ue();
+    }
+    if (r.u(1)) {
+      // timing_info_present_flag
+      r.u(32);
+      r.u(32);
+      r.u(1);
+    }
+    let cpb = 24;
+    let dpb = 24;
+    let hrd = false;
+    for (let k = 0; k < 2; k++) {
+      // nal_hrd_parameters, then vcl_hrd_parameters (§E.1.2)
+      if (!r.u(1)) continue;
+      const cnt = r.ue() + 1;
+      r.u(8); // bit_rate_scale, cpb_size_scale
+      for (let i = 0; i < cnt; i++) {
+        r.ue(); // bit_rate_value_minus1
+        r.ue(); // cpb_size_value_minus1
+        r.u(1); // cbr_flag
+      }
+      r.u(5); // initial_cpb_removal_delay_length_minus1
+      if (!hrd) {
+        cpb = r.u(5) + 1;
+        dpb = r.u(5) + 1;
+      } else {
+        r.u(10);
+      }
+      r.u(5); // time_offset_length
+      hrd = true;
+    }
+    if (hrd) r.u(1); // low_delay_hrd_flag
+    const picStructPresent = r.u(1) === 1;
+    return { picStructPresent, cpbRemovalDelayBits: cpb, dpbOutputDelayBits: dpb, hrdPresent: hrd, matrixCoefficients };
+  } catch (err) {
+    if (err instanceof ParseError) return none;
+    throw err;
+  }
+}
+
+/**
+ * The pic_struct (0 to 8, H.264 Table D-1) of an access unit's picture timing SEI, read with the SPS's `timing`; null
+ * when `timing` says pic_struct is absent or the access unit has no picture timing SEI.
+ * @internal
+ */
+export function avcPicStruct(au: Uint8Array, timing: AvcTiming): number | null {
+  if (!timing.picStructPresent) return null;
+  for (const nal of splitAnnexB(au)) {
+    if ((nal[0] & 0x1f) !== NAL_SEI) continue;
+    const payload = seiPayload(nal, SEI_PIC_TIMING);
+    if (!payload) continue;
+    try {
+      const r = new ExpGolomb(payload);
+      if (timing.hrdPresent) r.u(timing.cpbRemovalDelayBits + timing.dpbOutputDelayBits);
+      return r.u(4);
+    } catch (err) {
+      if (err instanceof ParseError) return null;
+      throw err;
+    }
+  }
+  return null;
 }
 
 /**
@@ -172,6 +287,11 @@ export function analyzeAvc(data: Uint8Array): AccessUnitInfo {
 }
 
 function seiHasRecoveryPoint(nal: Uint8Array): boolean {
+  return seiPayload(nal, SEI_RECOVERY_POINT) !== null;
+}
+
+/** The first payload of `wanted` type in an SEI NAL unit (with its header), emulation prevention removed; null when none. */
+function seiPayload(nal: Uint8Array, wanted: number): Uint8Array | null {
   const rbsp = unescapeRbsp(nal.subarray(1));
   let i = 0;
   while (i < rbsp.length && rbsp[i] !== 0x80) {
@@ -187,8 +307,8 @@ function seiHasRecoveryPoint(nal: Uint8Array): boolean {
       i++;
     }
     size += rbsp[i++];
-    if (type === SEI_RECOVERY_POINT) return true;
+    if (type === wanted) return rbsp.subarray(i, i + size);
     i += size;
   }
-  return false;
+  return null;
 }

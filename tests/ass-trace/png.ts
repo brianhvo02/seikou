@@ -1,4 +1,4 @@
-/** The PNGs the ASS harness writes and the pixel tests read: 8-bit RGBA, not interlaced. */
+/** The PNGs the ASS harness writes and the pixel tests read: 8-bit RGBA, not interlaced (and 8-bit RGB or grayscale to read). */
 import { crc32, deflateSync, inflateSync } from 'node:zlib';
 
 const SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
@@ -44,8 +44,8 @@ export function decodePng(bytes: Uint8Array): { width: number; height: number; r
     if (type === 'IHDR') {
       width = data.readUInt32BE(0);
       height = data.readUInt32BE(4);
-      if (data[8] !== 8 || (data[9] !== 6 && data[9] !== 2) || data[12] !== 0) throw new Error('only 8-bit RGB or RGBA, non-interlaced PNGs are supported');
-      bpp = data[9] === 6 ? 4 : 3;
+      if (data[8] !== 8 || (data[9] !== 6 && data[9] !== 2 && data[9] !== 0) || data[12] !== 0) throw new Error('only 8-bit RGB, RGBA or grayscale, non-interlaced PNGs are supported');
+      bpp = data[9] === 6 ? 4 : data[9] === 2 ? 3 : 1;
     } else if (type === 'IDAT') idat.push(data);
     at += 12 + length;
   }
@@ -66,10 +66,10 @@ export function decodePng(bytes: Uint8Array): { width: number; height: number; r
   }
   if (bpp === 4) return { width, height, rgba: pixels };
   const rgba = new Uint8Array(width * height * 4);
-  for (let i = 0, j = 0; i < pixels.length; i += 3, j += 4) {
+  for (let i = 0, j = 0; i < pixels.length; i += bpp, j += 4) {
     rgba[j] = pixels[i]!;
-    rgba[j + 1] = pixels[i + 1]!;
-    rgba[j + 2] = pixels[i + 2]!;
+    rgba[j + 1] = pixels[i + (bpp === 3 ? 1 : 0)]!;
+    rgba[j + 2] = pixels[i + (bpp === 3 ? 2 : 0)]!;
     rgba[j + 3] = 255;
   }
   return { width, height, rgba };

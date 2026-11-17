@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OverlayPlane } from '@seikou/pg';
 import type { ShaderStage } from '../shaders/stage';
-import { Compositor, fitRect } from './compositor';
+import { Compositor, fitRect, type DrawnPicture } from './compositor';
 
 describe('fitRect', () => {
   it('letterboxes wide video into a square', () => {
@@ -165,6 +165,37 @@ describe('Compositor.drawVideo with a shader stage', () => {
     compositor.setShaderStage(null);
     compositor.drawVideo(frame);
     expect(calls.filter(([n]) => n === 'main.drawImage')).toEqual([['main.drawImage', frame, 0, 218, 1000, 563], ['main.drawImage', frame, 0, 218, 1000, 563]]);
+  });
+});
+
+describe('Compositor.drawVideo with a deinterlaced picture', () => {
+  function fake() {
+    const calls: Array<[string, ...unknown[]]> = [];
+    const mainCtx = new Proxy({}, { get: (_t, prop: string) => (...args: unknown[]) => calls.push([`main.${prop}`, ...args]) });
+    const main = { width: 1000, height: 1000, getContext: () => mainCtx } as unknown as OffscreenCanvas;
+    return { calls, compositor: new Compositor(main, () => ({}) as OffscreenCanvas) };
+  }
+  const image = { width: 1440, height: 1080 } as unknown as ImageBitmap;
+  const key = {};
+  const picture: DrawnPicture = { image, displayWidth: 1920, displayHeight: 1080, key };
+
+  it('draws the picture canvas at its display size, with the canvas size as the storage size', () => {
+    const { calls, compositor } = fake();
+    compositor.drawVideo(picture);
+    expect(calls.filter(([n]) => n === 'main.drawImage')).toEqual([['main.drawImage', image, 0, 218, 1000, 563]]);
+    const text: unknown[][] = [];
+    compositor.drawText({ render: (...args: unknown[]) => { text.push(args); return 0; }, changed: () => false, visible: () => false }, 0, { offsetUs: 0, scale: 1 });
+    expect(text[0]!.slice(2)).toEqual([{ x: 0, y: 218, width: 1000, height: 563 }, { offsetUs: 0, scale: 1, storage: { width: 1440, height: 1080 } }]);
+  });
+
+  it('hands the shader stage the picture canvas with its key', () => {
+    const { calls, compositor } = fake();
+    const shaded = { shaded: true } as unknown as OffscreenCanvas;
+    const asked: unknown[][] = [];
+    compositor.setShaderStage({ process: (...args: unknown[]) => { asked.push(args); return shaded; } } as unknown as ShaderStage);
+    compositor.drawVideo(picture);
+    expect(asked).toEqual([[image, { width: 1000, height: 563 }, key]]);
+    expect(calls.filter(([n]) => n === 'main.drawImage')).toEqual([['main.drawImage', shaded, 0, 218, 1000, 563]]);
   });
 });
 

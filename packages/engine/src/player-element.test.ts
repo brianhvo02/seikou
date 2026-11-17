@@ -130,7 +130,7 @@ async function harness(opts: Options = {}) {
     createShaderBackend: () => ((opts.shaderBackend ?? 'available') === 'available' ? fakeShaderBackend : UNAVAILABLE),
     createCompositor: () => ({
       resize: () => undefined,
-      drawVideo: (f) => drawn.push(`video:${f?.timestamp ?? null}`),
+      drawVideo: (f) => drawn.push(`video:${(f as VideoFrame | null)?.timestamp ?? null}`),
       startPlaylist: (picture, o) => elementStarts.push({ picture, ...(o?.element ? { element: o.element } : {}) }),
       elementFrameShown: () => framesShown.count++,
     }),

@@ -47,6 +47,10 @@ PlaybackState
 NoticeCode
 ErrorCode
 VideoPath
+DeinterlaceMode
+DeinterlaceTelemetry
+# deinterlace/deinterlacer
+DeinterlaceStats
 # bdj-types
 JvmMemoryStats
 # clock/master-clock

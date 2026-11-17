@@ -238,7 +238,7 @@ async function harness(opts: HarnessOptions = {}) {
     createAssDeps: fakeAssDeps(),
     createCompositor: () => ({
       resize: () => undefined,
-      drawVideo: (f) => f && drawn.push(f.timestamp),
+      drawVideo: (f) => f && drawn.push((f as VideoFrame).timestamp), // an encode is never interlaced
       drawPg: (plane: OverlayPlane) => {
         pgDraws.push(plane.hasContent);
         plane.takeDirty();

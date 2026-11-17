@@ -45,7 +45,8 @@ interface Entry extends Choice {
 
 interface LastOutput {
   readonly entry: Entry;
-  readonly frame: VideoFrame;
+  /** What the output was made for: the frame, or the caller's key for a canvas source. */
+  readonly key: object;
   readonly width: number;
   readonly height: number;
   readonly image: OffscreenCanvas;
@@ -144,19 +145,28 @@ export class ShaderStage {
     this.compile(this.selected);
   }
 
-  /** The shaded image for this frame at this output size, or null to draw the raw frame. Reuses the last result for the same frame and size. */
-  process(frame: VideoFrame, output: Size): OffscreenCanvas | null {
+  /**
+   * The shaded image for this source at this output size, or null to draw the source unshaded. The source is a decoded
+   * frame or a canvas (the deinterlacer's picture). The last result is reused for the same frame and size; a canvas
+   * keeps one identity while its pixels change, so its result is reused only when the caller names what it holds with
+   * `key` (a canvas without a key is shaded every call).
+   */
+  process(source: VideoFrame | OffscreenCanvas | ImageBitmap, output: Size, key?: object): OffscreenCanvas | null {
     const entry = this.active;
     const backend = this.backend;
     if (!entry?.compiled || !backend || this.lost) {
       this.lastStats = null;
       return null;
     }
+    const isCanvas =
+      (typeof OffscreenCanvas !== 'undefined' && source instanceof OffscreenCanvas) ||
+      (typeof ImageBitmap !== 'undefined' && source instanceof ImageBitmap);
+    const reuseKey: object | null = key ?? (isCanvas ? null : source);
     const last = this.last;
-    if (last && last.entry === entry && last.frame === frame && last.width === output.width && last.height === output.height) return last.image;
+    if (last && reuseKey !== null && last.entry === entry && last.key === reuseKey && last.width === output.width && last.height === output.height) return last.image;
     try {
-      const result = backend.render(entry.compiled, frame, output);
-      this.last = { entry, frame, width: output.width, height: output.height, image: result.image };
+      const result = backend.render(entry.compiled, source, output);
+      this.last = reuseKey === null ? null : { entry, key: reuseKey, width: output.width, height: output.height, image: result.image };
       this.lastStats = { set: entry.name, passesRun: result.passesRun, gpuMs: result.gpuMs };
       return result.image;
     } catch (err) {

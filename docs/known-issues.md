@@ -74,10 +74,10 @@ what would change that decision.
 
 ## Video
 
-- **Interlaced H.264 (1080i) is decoded in software and shown without deinterlacing.** Chrome's hardware decoders
-  fail on streams with `frame_mbs_only_flag` 0 ("Decoding error"; HDMV_DISC_A's 1080i logo is MBAFF), so those streams
-  are configured with `prefer-software`. Frames come out as woven fields, so motion shows combing. *Revisit if* a
-  disc has long interlaced content (a deinterlacing shader in the compositor would fix it).
+- **Interlaced H.264 (1080i) is decoded in software.** Chrome's hardware decoders fail on streams with
+  `frame_mbs_only_flag` 0 ("Decoding error"; HDMV_DISC_A's 1080i logo is MBAFF), so those streams are configured with
+  `prefer-software`. The decoded fields are then deinterlaced (see Deinterlacing below). *Revisit if* software decoding
+  can't keep up with a disc's 1080i on a device.
 - **H.264 that redefines a PPS id switches to software decoding, dropping up to one GOP once.** Some encoders resend
   PPS 0 with other content on nearly every picture. Chrome's hardware decoder on macOS fails on such a stream every
   few seconds ("Decoding error", then frames lost to the next keyframe); ffmpeg and Chrome's software decoder decode
@@ -157,6 +157,45 @@ what would change that decision.
   display's SDR white, so reaching 203 nits needs the SDR white level in nits, which no web API gives, and the overlays
   would have to be presented through WebGPU. *Revisit if* a 2D canvas gains an HDR mode, or the owner picks the WebGPU
   route and a white level.
+
+## Deinterlacing
+
+- **How it decides.** Interlaced video (480i, 576i and 1080i by the CLPI's format) goes through a WebGL2 deinterlacer
+  on the canvas path. Live footage is deinterlaced to the field rate (bwdif); 3:2 film, hard or soft pulldown, is
+  reassembled to 23.976; a cadence detector chooses per scene and falls back to video when the pattern breaks.
+  *Revisit if* a disc is misjudged (telemetry's `deinterlace` shows the mode, locks and breaks).
+- **After a seek, film is recognised late.** The detector needs about three 5-frame cycles (about 0.5 s) to lock, and
+  shows field-rate pictures until then. Left, because a wrong early lock would be worse than half a second of video mode.
+- **Faint combing under 3 px isn't counted.** Sharp near-vertical edges moving 1 to 2 px a field don't pass the
+  detector's combing measure, so a nearly still scene may be woven, with faint jaggies. *Revisit if* it is noticed on a
+  real disc.
+- **A play item change flushes the deinterlacer.** The item's last frames are kept, and the detector locks again
+  after the change, so film is field-rate for about half a second at the start of each item.
+- **A lost WebGL context falls back to woven frames for the session.** The playlist is reread from the current time
+  and its frames are drawn as the decoder gives them; telemetry's `deinterlace.woven` says why.
+- **MPEG-2 and VC-1 aren't deinterlaced yet.** The browser has no decoder for them; the in-browser decoder on the
+  roadmap will feed the same stage.
+- **A software WebGL renderer isn't used for deinterlacing.** Where WebGL draws in software (SwiftShader in Chrome
+  without a GPU, Mesa's llvmpipe, Microsoft's Basic Render Driver; read from the `WEBGL_debug_renderer_info` renderer
+  name once, at the first interlaced playlist), interlaced frames are drawn woven, as without WebGL2, and telemetry's
+  `deinterlace.woven` names the renderer. Measured with SwiftShader on a Mac, 1080i deinterlacing ran about 400 ms
+  behind the audio even after the fall-back to field interpolation. So virtual machines and machines without a GPU
+  show combing. *Revisit if* a cheaper deinterlacer (CPU line doubling, or fewer GPU passes) is worth having there.
+- **Firefox on macOS isn't deinterlaced.** Its WebCodecs decoder gives H.264 frames as BGRX (RGB), not YUV planes, and
+  the deinterlacer reads planes, so those frames are drawn woven and telemetry's `deinterlace.woven` says why (before
+  this was caught the playlist never started). Other browsers give I420 (Chrome) or NV12 (Safari). *Revisit if*
+  Firefox on macOS matters for interlaced discs: the stage could take RGB frames, or the in-browser decoder could
+  decode for it.
+- **Safari's decoder blends the fields' chroma of an interlaced frame.** Measured on Mac Safari (WebKit) with
+  `disc-interlaced` 00000: the planes its WebCodecs `VideoFrame.copyTo` gives for frame 60 (NV12) have luma identical
+  to ffmpeg's decode of the same frame, but chroma differs on 9% of samples (up to 154 levels): where a chroma sample
+  equals the rows above and below it, WebKit's matches (all but 0.06%); where it doesn't, 82% differ, and a least-squares
+  fit puts about a third of the next row (the other field's) into each row. Chrome's I420 planes match ffmpeg's exactly.
+  The deinterlacer's own chroma handling is checked exact against a CPU reference in I420 and NV12 with field-distinct
+  chroma (`tests/e2e/deinterlace-gpu.ts`), so the tint on fast-moving coloured edges in Safari (15 px on the fixture's
+  bar) comes from the frames it is given. *Revisit if* it shows on a real disc, or if WebKit's decoder changes.
+- **At a playlist's end the telemetry's mode reads video early.** The end-of-playlist flush starts the detector over
+  about 0.4 s before the last pictures show; the pictures themselves keep their mode.
 
 ## Menus (HDMV)
 
