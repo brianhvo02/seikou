@@ -121,24 +121,24 @@ function scored(label: string, shot: Captured, pictures: Uint8Array[], index: nu
 
 /**
  * Opens a playlist of the disc and waits for its first picture; skips the running test where this browser has no
- * deinterlacer (skipWithoutDeinterlacer). Answers whether WebGL here is a software renderer (softwareGl).
+ * deinterlacer (skipWithoutDeinterlacer).
  */
-async function openPlaylist(page: Page, id: string, { realtime = true }: { realtime?: boolean } = {}): Promise<{ softwareGl: boolean }> {
+async function openPlaylist(page: Page, id: string, { realtime = true }: { realtime?: boolean } = {}): Promise<void> {
   await page.goto('/?telemetry=1&videopath=canvas');
   await skipWithoutH264(page, { realtime });
   await setFolder(page.getByTestId('folder-input'), DISC);
   await page.getByTestId(`playlist-${id}`).click();
   await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'playing', { timeout: 10_000 });
   await skipWithoutDeinterlacer(page);
-  return { softwareGl: await softwareGl(page) };
 }
 
 /** Why the player draws frames woven though deinterlacing is on, where that is the browser's doing and not a fault. */
-const NO_DEINTERLACER = /^(The browser decodes to |WebGL2 is unavailable)/;
+const NO_DEINTERLACER = /^(The browser decodes to |WebGL2 is unavailable|A software WebGL renderer )/;
 
 /**
- * Skips the running test where the player can't deinterlace in this browser: it decodes to RGB (Firefox on macOS gives
- * BGRX frames, and the deinterlacer reads YUV planes) or has no WebGL2. The player then draws the frames woven and
+ * Skips the running test where the player doesn't deinterlace in this browser: it decodes to RGB (Firefox on macOS gives
+ * BGRX frames, and the deinterlacer reads YUV planes), has no WebGL2, or draws WebGL in software (SwiftShader, llvmpipe:
+ * CI's machines without a GPU), which can't keep up in real time. The player then draws the frames woven and
  * telemetry says why; the playlist still plays, which interlaced-decode.spec.ts checks. A deinterlacer that stopped
  * on a fault is not skipped.
  */
@@ -155,33 +155,6 @@ async function skipWithoutDeinterlacer(page: Page): Promise<void> {
   test.skip(NO_DEINTERLACER.test(woven), woven);
 }
 
-/**
- * Whether this browser's WebGL draws in software (SwiftShader, llvmpipe and the like, as CI's machines without a GPU
- * do). There the deinterlacer may fall behind and fall back to plain field interpolation, as it should on a device
- * that can't keep up, so the tests don't require `fallback: false` and don't compare a video-mode picture with bwdif.
- */
-async function softwareGl(page: Page): Promise<boolean> {
-  const renderer = await page.evaluate(() => {
-    const gl = new OffscreenCanvas(1, 1).getContext('webgl2');
-    if (!gl) return '';
-    const info = gl.getExtension('WEBGL_debug_renderer_info');
-    return String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
-  });
-  const soft = /swiftshader|llvmpipe|softpipe|software|basic render/i.test(renderer);
-  if (soft) console.log(`software WebGL (${renderer}): the fall-back is allowed`);
-  return soft;
-}
-
-/**
- * Why real-time checks (A/V sync, pictures a second, film staying locked) skip under software WebGL: measured with
- * Chrome's SwiftShader on a Mac, the 1080i deinterlacer falls far behind (A/V offsets near 400 ms) even after it falls
- * back, as on CI's machines without a GPU. The pictures, modes and the GPU passes are still checked there.
- */
-const SOFTWARE_GL_REALTIME = "software WebGL (no GPU, as on CI) can't deinterlace 1080i in real time; checked on a GPU";
-
-/** The stats every deinterlacing sample must show: no fall-back, unless WebGL draws in software. */
-const steady = (soft: boolean): { fallback?: false } => (soft ? {} : { fallback: false });
-
 /** Sets the seek bar as a user would by dragging it (see subtitles.spec.ts). */
 async function seekTo(page: Page, us: number): Promise<void> {
   await page.getByTestId('seek').evaluate((el, value) => {
@@ -196,11 +169,11 @@ async function seekTo(page: Page, us: number): Promise<void> {
  * are decoded (the samples between FILM_LOCKED_US and FILM_UNTIL_US). After that the telemetry shows the detector of
  * the stream the end-of-playlist flush starts, not the pictures still showing.
  */
-function expectFilmThroughout(samples: DeinterlaceSample[], soft: boolean): void {
+function expectFilmThroughout(samples: DeinterlaceSample[]): void {
   const middle = samples.filter((t) => t.clockUs >= FILM_LOCKED_US && t.clockUs <= FILM_UNTIL_US);
   console.log(`modes: ${samples.map((t) => `${(t.clockUs / 1e6).toFixed(2)} s ${t.deinterlace?.stats?.mode ?? '-'}`).join(', ')}`);
   expect(middle.length).toBeGreaterThanOrEqual(3);
-  for (const t of middle) expect(t.deinterlace?.stats, `at ${t.clockUs} us`).toMatchObject({ mode: 'film', breaks: 0, ...steady(soft) });
+  for (const t of middle) expect(t.deinterlace?.stats, `at ${t.clockUs} us`).toMatchObject({ mode: 'film', breaks: 0, fallback: false });
 }
 
 /** Skips the A/V sync checks in Firefox, as the element path's do: Firefox on CI has no running audio output. */
@@ -209,27 +182,24 @@ function skipSyncInFirefox(browserName: string): void {
 }
 
 test('true interlaced video (00000) is deinterlaced at field rate, its pictures as bwdif draws them', async ({ page }) => {
-  const { softwareGl: soft } = await openPlaylist(page, '00000');
+  await openPlaylist(page, '00000');
   await expect.poll(async () => (await deinterlaceOf(page))?.stats?.mode, { timeout: 10_000 }).toBe('video');
   const shot = await capture(page, PICTURE_AT_US, refs.video2s);
   expect(shot.deinterlaced).toBe(true);
   const d = await deinterlaceOf(page);
-  expect(d).toMatchObject({ setting: 'auto', woven: null, stats: { mode: 'video', fieldOrder: 'tff', ...steady(soft) } });
-  // software WebGL that fell back draws plain field interpolation, which bwdif's picture isn't the reference of
-  test.skip(d?.stats?.fallback === true, 'software WebGL fell back to plain field interpolation, so the picture is not bwdif');
+  expect(d).toMatchObject({ setting: 'auto', woven: null, stats: { mode: 'video', fieldOrder: 'tff', fallback: false } });
   const db = scored('00000 auto', shot, refPictures(refs.video2s), Math.round(shot.timestampUs / FIELD_US) - refs.video2s.firstField);
   expect(db).toBeGreaterThanOrEqual(VIDEO_PSNR_DB);
 });
 
 test('video mode plays in sync (00000)', async ({ page, browserName }) => {
   skipSyncInFirefox(browserName);
-  const { softwareGl: soft } = await openPlaylist(page, '00000');
-  test.skip(soft, SOFTWARE_GL_REALTIME);
+  await openPlaylist(page, '00000');
   const windows = await collectWindows(page, 3_800_000);
   expect(windows.length).toBeGreaterThan(3);
   for (const w of windows) expect(w.clockMode).toBe('audio');
   expectInSync(windows);
-  expect((await deinterlaceOf(page))?.stats).toMatchObject({ mode: 'video', ...steady(soft) });
+  expect((await deinterlaceOf(page))?.stats).toMatchObject({ mode: 'video', fallback: false });
 });
 
 test('bottom field first video (00001) is found to be bottom field first', async ({ page }) => {
@@ -245,16 +215,12 @@ for (const { id, what } of [
 ]) {
   test(`film through ${what} (${id}) plays as its 24 frames a second, each picture the source film frame`, async ({ page }) => {
     await recordTelemetrySamples(page);
-    const { softwareGl: soft } = await openPlaylist(page, id);
+    await openPlaylist(page, id);
     await expect.poll(async () => (await deinterlaceOf(page))?.stats?.mode, { timeout: 10_000 }).toBe('film');
     const shot = await capture(page, PICTURE_AT_US, refs.film2s);
     expect(shot.deinterlaced).toBe(true);
     const db = scored(`${id} film`, shot, refPictures(refs.film2s), Math.round(shot.timestampUs / FILM_FRAME_US) - refs.film2s.firstFilmFrame);
     expect(db).toBeGreaterThanOrEqual(FILM_PSNR_DB);
-    if (soft) {
-      test.info().annotations.push({ type: 'skipped part', description: `pictures a second and film staying locked: ${SOFTWARE_GL_REALTIME}` });
-      return;
-    }
 
     // pictures presented over 3 s of playlist time once film is locked (the lock takes a few cycles from the start)
     await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'ended', { timeout: 15_000 });
@@ -266,19 +232,18 @@ for (const { id, what } of [
     console.log(`${id}: ${to!.framesPresented! - from!.framesPresented!} pictures from ${from!.clockUs} to ${to!.clockUs} us, ${per3s.toFixed(1)} per 3 s`);
     expect(per3s).toBeGreaterThanOrEqual(70);
     expect(per3s).toBeLessThanOrEqual(74);
-    expectFilmThroughout(samples as DeinterlaceSample[], soft);
+    expectFilmThroughout(samples as DeinterlaceSample[]);
   });
 }
 
 test('film mode plays in sync (00002)', async ({ page, browserName }) => {
   skipSyncInFirefox(browserName);
-  const { softwareGl: soft } = await openPlaylist(page, '00002');
-  test.skip(soft, SOFTWARE_GL_REALTIME);
+  await openPlaylist(page, '00002');
   const windows = await collectWindows(page, 3_800_000);
   expect(windows.length).toBeGreaterThan(3);
   for (const w of windows) expect(w.clockMode).toBe('audio');
   expectInSync(windows);
-  expectFilmThroughout(windows as DeinterlaceSample[], soft);
+  expectFilmThroughout(windows as DeinterlaceSample[]);
 });
 
 test('Off draws the woven frames at once, combed where the picture moves', async ({ page }) => {
@@ -296,13 +261,6 @@ test('Off draws the woven frames at once, combed where the picture moves', async
 
   await seekTo(page, 1_000_000);
   await expect.poll(async () => (await telemetry(page))?.clockUs ?? Infinity, { timeout: 5_000 }).toBeLessThan(PICTURE_AT_US);
-  // where the switch took long enough for the 4 s playlist to end, the seek leaves it stopped: play it again
-  const state = await page.getByTestId('player').getAttribute('data-state');
-  console.log(`after the seek: ${state}`);
-  if (state === 'ended' || state === 'paused') {
-    await page.getByTestId('player').hover();
-    await page.getByTestId('play-toggle').click();
-  }
   await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'playing', { timeout: 5_000 });
   const off = await capture(page, PICTURE_AT_US, refs.video2s);
   expect(off.deinterlaced).toBe(false);

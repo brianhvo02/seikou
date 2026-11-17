@@ -275,6 +275,34 @@ interface PendingMeasure {
 }
 
 /**
+ * Whether a WebGL renderer's name (WEBGL_debug_renderer_info's unmasked renderer, else RENDERER) is a software
+ * renderer: SwiftShader (Chrome without a GPU), llvmpipe and softpipe (Mesa), Microsoft's Basic Render Driver, or one
+ * that calls itself software. Measured with SwiftShader, 1080i deinterlacing falls about 400 ms behind the audio even
+ * after the fall-back, so the player draws woven frames there.
+ */
+export function isSoftwareRenderer(renderer: string): boolean {
+  return /swiftshader|llvmpipe|softpipe|basic render|software/i.test(renderer);
+}
+
+/**
+ * The WebGL2 renderer's name when it draws in software (isSoftwareRenderer), else null: also null without OffscreenCanvas
+ * or WebGL2 (createGlDeinterlaceBackend then answers null itself). Makes a 1x1 context to ask, and frees it.
+ */
+export function webglSoftwareRenderer(): string | null {
+  if (typeof OffscreenCanvas === 'undefined') return null;
+  try {
+    const gl = new OffscreenCanvas(1, 1).getContext('webgl2') as WebGL2RenderingContext | null;
+    if (!gl) return null;
+    const info = gl.getExtension('WEBGL_debug_renderer_info');
+    const renderer = String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER) ?? '');
+    gl.getExtension('WEBGL_lose_context')?.loseContext();
+    return isSoftwareRenderer(renderer) ? renderer : null;
+  } catch {
+    return null; // a renderer that can't be asked is taken for a GPU; the backend reports its own failures
+  }
+}
+
+/**
  * The deinterlacer's WebGL2 backend for frames of `width` x `height` (the visible size), with `ringSize` slots, drawing
  * into its own OffscreenCanvas. Null without OffscreenCanvas or WebGL2, or when a program fails to build. A lost
  * context isn't restored: measurements reject and `render` throws from then on, and the caller draws woven frames.

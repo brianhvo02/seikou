@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { createGlDeinterlaceBackend, metricsFromCounts } from './gl-backend';
+import { createGlDeinterlaceBackend, isSoftwareRenderer, metricsFromCounts, webglSoftwareRenderer } from './gl-backend';
 import { COMB_CELL, combShare, frameMetrics, meanDifference, type Plane } from './metrics-cpu';
 
 const SIZE = COMB_CELL;
@@ -68,5 +68,23 @@ describe('metricsFromCounts', () => {
 describe('createGlDeinterlaceBackend', () => {
   it('is null without WebGL2 (here, without OffscreenCanvas)', () => {
     expect(createGlDeinterlaceBackend(1920, 1080, 12)).toBeNull();
+  });
+});
+
+describe('isSoftwareRenderer', () => {
+  it('knows the software renderers by name, and not a GPU', () => {
+    for (const name of [
+      'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (LLVM 10.0.0) (0x0000C0DE)), SwiftShader driver)',
+      'Google SwiftShader',
+      'llvmpipe (LLVM 15.0.7, 256 bits)',
+      'Mesa softpipe',
+      'ANGLE (Microsoft, Microsoft Basic Render Driver Direct3D11 vs_5_0 ps_5_0)',
+    ]) expect(isSoftwareRenderer(name), name).toBe(true);
+    for (const name of ['ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)', 'Apple GPU', 'Mesa Intel(R) UHD Graphics 620 (KBL GT2)', 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 Direct3D11 vs_5_0 ps_5_0, D3D11)'])
+      expect(isSoftwareRenderer(name), name).toBe(false);
+  });
+
+  it('webglSoftwareRenderer is null without OffscreenCanvas (Node)', () => {
+    expect(webglSoftwareRenderer()).toBeNull();
   });
 });

@@ -175,6 +175,12 @@ what would change that decision.
   and its frames are drawn as the decoder gives them; telemetry's `deinterlace.woven` says why.
 - **MPEG-2 and VC-1 aren't deinterlaced yet.** The browser has no decoder for them; the in-browser decoder on the
   roadmap will feed the same stage.
+- **A software WebGL renderer isn't used for deinterlacing.** Where WebGL draws in software (SwiftShader in Chrome
+  without a GPU, Mesa's llvmpipe, Microsoft's Basic Render Driver; read from the `WEBGL_debug_renderer_info` renderer
+  name once, at the first interlaced playlist), interlaced frames are drawn woven, as without WebGL2, and telemetry's
+  `deinterlace.woven` names the renderer. Measured with SwiftShader on a Mac, 1080i deinterlacing ran about 400 ms
+  behind the audio even after the fall-back to field interpolation. So virtual machines and machines without a GPU
+  show combing. *Revisit if* a cheaper deinterlacer (CPU line doubling, or fewer GPU passes) is worth having there.
 - **Firefox on macOS isn't deinterlaced.** Its WebCodecs decoder gives H.264 frames as BGRX (RGB), not YUV planes, and
   the deinterlacer reads planes, so those frames are drawn woven and telemetry's `deinterlace.woven` says why (before
   this was caught the playlist never started). Other browsers give I420 (Chrome) or NV12 (Safari). *Revisit if*

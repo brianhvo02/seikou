@@ -85,7 +85,7 @@ HDR10 and HLG discs play through the browser's own video player, which shows HDR
 Many older discs, and most live concerts and TV shows, are interlaced (480i, 576i and 1080i): each frame holds two moments, and moving edges show combing if the frames are drawn as they are. The player removes it by itself. Live footage plays at the field rate (59.94 pictures a second for a 29.97 frame disc), so motion stays smooth. Film and anime, which discs often store as 24 pictures a second spread over interlaced frames (3:2 pulldown, hard in the video or soft in its flags), are put back together as 23.976 whole pictures a second. The player decides this by itself, scene by scene.
 
 - **Deinterlacing** in the Video output menu has **Auto** (the default) and **Off**. Off draws the frames as the decoder gives them. A change applies at once, reopening the playlist at the same time, and stays on this device until you change it again.
-- It works on the canvas path, and where the browser has WebGL2. Without WebGL2, or if the graphics chip fails during a disc, the frames are drawn as they are. Firefox on a Mac draws them as they are too, because its decoder gives the frames in a form the deinterlacer can't read.
+- It works on the canvas path, and where the browser has WebGL2. Without WebGL2, on a computer that draws WebGL in software (no graphics chip, as in many virtual machines), or if the graphics chip fails during a disc, the frames are drawn as they are. Firefox on a Mac draws them as they are too, because its decoder gives the frames in a form the deinterlacer can't read.
 - HDR discs are never affected: UHD discs are progressive.
 
 ## Controls

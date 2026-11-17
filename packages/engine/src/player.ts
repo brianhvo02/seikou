@@ -81,8 +81,8 @@ import { MEMORY_PROFILES, type MemoryProfile, type MemoryProfileName } from './m
 import { ClockBlockWriter, ClockLine } from './element/clock-block';
 import { elementStream } from './element/remux';
 import { elementQuery, frameRateOf } from './element/element-query';
-import { createGlDeinterlaceBackend } from './deinterlace/gl-backend';
-import { InterlacedVideo, WOVEN_NO_WEBGL2, WOVEN_OFF, wovenFrameFormat, type DeinterlaceBackendFactory, type DeinterlaceSetting } from './deinterlace/interlaced-video';
+import { createGlDeinterlaceBackend, webglSoftwareRenderer } from './deinterlace/gl-backend';
+import { InterlacedVideo, WOVEN_NO_WEBGL2, WOVEN_OFF, wovenFrameFormat, wovenSoftwareRenderer, type DeinterlaceBackendFactory, type DeinterlaceSetting } from './deinterlace/interlaced-video';
 import type { DeinterlaceStats, Picture } from './deinterlace/deinterlacer';
 import { isInterlacedFormat, type FieldInput } from './deinterlace/field-input';
 import type { Clpi } from '@seikou/bdmv/clpi-parser';
@@ -145,6 +145,12 @@ export interface PlayerDeps {
   readonly createShaderBackend?: (events: { lost(): void; restored(): void }) => ShaderBackend | string;
   /** The deinterlacer's GPU backend for interlaced video, or null where there is none; WebGL2 (`createGlDeinterlaceBackend`) by default. */
   readonly createDeinterlaceBackend?: DeinterlaceBackendFactory;
+  /**
+   * The WebGL renderer's name when it draws in software (SwiftShader, llvmpipe and the like), else null; asked once,
+   * at the first interlaced session. On a software renderer interlaced frames are drawn woven (webglSoftwareRenderer in
+   * gl-backend.ts by default).
+   */
+  readonly webglSoftwareRenderer?: () => string | null;
   /**
    * BD-J (bdj-provider.ts): its worker, class library, host and session. Without it, BD-J discs and titles open to the
    * picker with a notice naming the missing BD-J runtime, as when the provider says the browser lacks something.
@@ -497,6 +503,8 @@ export class Player {
   private pacingDropped = 0;
   /** The playlist time a captureVideo (test-only) waits to read the picture at, or null. */
   private captureAtUs: number | null = null;
+  /** The software WebGL renderer's name, null on a GPU; undefined until the first interlaced session asks (webglSoftwareRenderer). */
+  private softwareRenderer: string | null | undefined = undefined;
   /** The device's deinterlacing setting (setDeinterlace). */
   private deinterlaceSetting: DeinterlaceSetting = 'auto';
   /** The deinterlacer, kept across interlaced sessions (its GPU backend with it); null before the first. */
@@ -1131,12 +1139,18 @@ export class Player {
   }
 
   /**
-   * An interlaced session starts: its frames go to the deinterlacer, unless the setting is off or there is no GPU
-   * backend (no WebGL2), when they are drawn woven and `deinterlaceWoven` says why.
+   * An interlaced session starts: its frames go to the deinterlacer, unless the setting is off, WebGL draws in software
+   * or there is no GPU backend (no WebGL2), when they are drawn woven and `deinterlaceWoven` says why.
    */
   private startDeinterlace(s: Session): SessionDeinterlace | null {
     if (this.deinterlaceSetting === 'off') {
       this.deinterlaceWoven = WOVEN_OFF;
+      return null;
+    }
+    // a software renderer can't keep up (about 400 ms behind the audio, measured): woven frames, as without WebGL2
+    if (this.softwareRenderer === undefined) this.softwareRenderer = (this.deps.webglSoftwareRenderer ?? webglSoftwareRenderer)();
+    if (this.softwareRenderer !== null) {
+      this.deinterlaceWoven = wovenSoftwareRenderer(this.softwareRenderer);
       return null;
     }
     let video = this.interlacedVideo;

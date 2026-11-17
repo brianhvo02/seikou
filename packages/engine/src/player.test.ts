@@ -32,7 +32,7 @@ import { ShaderStage } from './shaders/stage';
 import type { DrawnPicture } from './render/compositor';
 import type { FrameMetrics, PictureOp } from './deinterlace/cadence';
 import { Deinterlacer, type DeinterlaceBackend, type Picture } from './deinterlace/deinterlacer';
-import { WOVEN_NO_WEBGL2, WOVEN_OFF, wovenFrameFormat } from './deinterlace/interlaced-video';
+import { WOVEN_NO_WEBGL2, WOVEN_OFF, wovenFrameFormat, wovenSoftwareRenderer } from './deinterlace/interlaced-video';
 import { SIM_COMB_CLEAN, SIM_COMB_HIGH, SIM_DIFF_HIGH, completeFilmFrames, telecine } from './deinterlace/metric-sequences';
 import { VideoPresenter, type PresentableFrame } from './render/video-presenter';
 
@@ -131,7 +131,7 @@ function fakeAudioFactory(log: FakeAudioLog = { decoded: [], resets: 0, failNext
   };
 }
 
-async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?: number; videoCodingType?: number; throwOnDraw?: boolean; audioMuxLag90k?: number; frameBytes?: number; playlists?: SyntheticPlaylistSpec[]; audioStreams?: SyntheticAudioStream[]; secondClipAudioStreams?: SyntheticAudioStream[]; createAudioDecoder?: AudioDecoderFactory; movieObjects?: Uint8Array<ArrayBuffer>; dropFiles?: string[]; extraFiles?: Record<string, Uint8Array<ArrayBuffer>>; igUnits?: Array<{ pts: number; payload: Uint8Array }>; subPathIg?: SyntheticSubPathIg; pgStreams?: SyntheticPgStream[]; createAssDeps?: NonNullable<PlayerDeps['createAssDeps']>; createShaderBackend?: PlayerDeps['createShaderBackend']; index?: SyntheticDiscSpec['index']; playerSettings?: PlayerDeps['playerSettings']; remote?: FakeNas | ((files: Map<string, Uint8Array<ArrayBuffer>>) => FakeNas); remoteLimits?: PlayerDeps['remoteLimits']; clipSeconds?: number; noOpen?: boolean; cacheRoot?: MemoryDirectory; segmentBytes?: number; mutateFiles?: (files: Map<string, Uint8Array<ArrayBuffer>>) => void; videoCodecApi?: VideoCodecApi; log?: PlayerDeps['log']; videoFormat?: number; clipExtra?: Partial<Pick<SyntheticClipSpec, 'frameTicks' | 'videoRate'>>; createDeinterlaceBackend?: PlayerDeps['createDeinterlaceBackend']; videoCapture?: boolean } = {},
+async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?: number; videoCodingType?: number; throwOnDraw?: boolean; audioMuxLag90k?: number; frameBytes?: number; playlists?: SyntheticPlaylistSpec[]; audioStreams?: SyntheticAudioStream[]; secondClipAudioStreams?: SyntheticAudioStream[]; createAudioDecoder?: AudioDecoderFactory; movieObjects?: Uint8Array<ArrayBuffer>; dropFiles?: string[]; extraFiles?: Record<string, Uint8Array<ArrayBuffer>>; igUnits?: Array<{ pts: number; payload: Uint8Array }>; subPathIg?: SyntheticSubPathIg; pgStreams?: SyntheticPgStream[]; createAssDeps?: NonNullable<PlayerDeps['createAssDeps']>; createShaderBackend?: PlayerDeps['createShaderBackend']; index?: SyntheticDiscSpec['index']; playerSettings?: PlayerDeps['playerSettings']; remote?: FakeNas | ((files: Map<string, Uint8Array<ArrayBuffer>>) => FakeNas); remoteLimits?: PlayerDeps['remoteLimits']; clipSeconds?: number; noOpen?: boolean; cacheRoot?: MemoryDirectory; segmentBytes?: number; mutateFiles?: (files: Map<string, Uint8Array<ArrayBuffer>>) => void; videoCodecApi?: VideoCodecApi; log?: PlayerDeps['log']; videoFormat?: number; clipExtra?: Partial<Pick<SyntheticClipSpec, 'frameTicks' | 'videoRate'>>; createDeinterlaceBackend?: PlayerDeps['createDeinterlaceBackend']; videoCapture?: boolean; webglSoftwareRenderer?: PlayerDeps['webglSoftwareRenderer'] } = {},
   memory?: 'constrained',
 ): Promise<Harness> {
   decoders.length = 0;
@@ -175,6 +175,8 @@ async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?:
     ...(opts.cacheRoot ? { readAheadCacheRoot: async () => opts.cacheRoot!.asHandle() } : {}),
     ...(opts.segmentBytes ? { readAheadSegmentBytes: opts.segmentBytes } : {}),
     ...(opts.videoCapture ? { videoCapture: true } : {}),
+    // a GPU renderer unless a test says otherwise
+    webglSoftwareRenderer: opts.webglSoftwareRenderer ?? (() => null),
     createCompositor: () => ({
       resize: () => undefined,
       drawVideo: (f) => {
@@ -3840,6 +3842,29 @@ describe('Player with interlaced video (deinterlacing)', () => {
     expect(h.player.deinterlaceState).toMatchObject({ woven: wovenFrameFormat('BGRX'), stats: null });
     expect(lastTelemetry(h)?.decoderErrors).toBe(0);
     expect(h.events.filter((e) => e.type === 'error')).toEqual([]);
+  });
+
+  it('a software WebGL renderer: woven frames, the deinterlacer never made, and telemetry says why', async () => {
+    const fake = fakeDeinterlace();
+    let asked = 0;
+    const h = await harness(CodingType.LPCM, {
+      videoFormat: 4,
+      videoCodecApi: interlacedApi,
+      createDeinterlaceBackend: fake.factory,
+      webglSoftwareRenderer: () => (asked++, 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device), SwiftShader driver)'),
+    });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await h.play(500);
+    expect(fake.made).toEqual([]);
+    expect(h.drawnPictures).toEqual([]);
+    expect(h.drawn.length).toBeGreaterThan(10);
+    expect(h.player.deinterlaceState).toMatchObject({ woven: wovenSoftwareRenderer('ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device), SwiftShader driver)'), stats: null });
+    // decided once: a seek starts no new check
+    await h.player.handle({ type: 'seek', timeUs: 1_000_000 });
+    await untilPlaying(h);
+    await h.play(300);
+    expect(asked).toBe(1);
   });
 
   it('no WebGL2: woven frames and telemetry says why', async () => {
