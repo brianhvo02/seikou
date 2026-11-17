@@ -488,6 +488,8 @@ export class Player {
   private audioWriter: AudioWriter | null = null;
   private compositor: CompositorLike | null = null;
   private readonly presenter = new VideoPresenter<VideoFrame | Picture>();
+  /** The presenter's `dropped` count at the last pacing report. */
+  private pacingDropped = 0;
   /** The device's deinterlacing setting (setDeinterlace). */
   private deinterlaceSetting: DeinterlaceSetting = 'auto';
   /** The deinterlacer, kept across interlaced sessions (its GPU backend with it); null before the first. */
@@ -926,6 +928,7 @@ export class Player {
     const now = this.clock.nowUs();
     const frame = this.presenter.select(now);
     if (frame && this.state === 'playing') this.offsets.push(now - frame.timestamp);
+    this.notePicturePacing(s, frame, now);
     // without a picture the first frame is the black one with the planes over it, composited once the playlist plays
     const blank = !this.hasPicture(s) && this.state === 'playing' && !s.blankComposited;
     if (blank) {
@@ -958,6 +961,20 @@ export class Player {
     if (this.session !== s) return; // the navigator replaced the session
     this.emitTime(Math.min(now, s.timeline.durationUs), false);
     this.maybeEmitTelemetry(s);
+  }
+
+  /**
+   * Tells an interlaced session's deinterlacer how its pictures are keeping up: a picture is late when it is
+   * presented more than half its duration past its own time, and each picture the presenter dropped without showing
+   * since the last tick counts as late too. Progressive and woven sessions report nothing.
+   */
+  private notePicturePacing(s: Session, frame: VideoFrame | Picture | null, nowUs: number): void {
+    const dropped = this.presenter.dropped - this.pacingDropped;
+    this.pacingDropped = this.presenter.dropped;
+    const video = s.deinterlace?.video;
+    if (!video || this.state !== 'playing') return;
+    for (let i = 0; i < dropped; i++) video.notePacing(true);
+    if (frame && video.owns(frame)) video.notePacing(nowUs - frame.timestamp > frame.duration / 2);
   }
 
   /** Redraws the current picture at once: the video and every plane over it. */

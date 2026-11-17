@@ -29,7 +29,8 @@ export type BwdifPlane = 'luma' | 'i420' | 'nv12';
  * The fragment shader of one bwdif picture of a plane. Uniforms: `p0`, `c0`, `n0` the previous, current and next
  * frame's texture of the plane (`p1`, `c1`, `n1` the V plane's for `i420`), `u_size` the plane's size, `u_parity` the
  * kept field (0 top, 1 bottom: its rows are copied, the others interpolated), `u_dspParity` that parity xor top field
- * first (vf_bwdif.c's `parity ^ tff`), and `u_intra` for a stream's first field (spatial interpolation only).
+ * first (vf_bwdif.c's `parity ^ tff`), `u_intra` for a stream's first field (spatial interpolation only), and `u_cheap` for plain line averaging of the kept
+ * field in place of bwdif (the fall-back for a device that can't keep up).
  * The output row is the plane row (`gl_FragCoord.y`, rows from the top), drawn at the plane's size.
  */
 export function bwdifFragment(plane: BwdifPlane): string {
@@ -50,6 +51,7 @@ uniform ivec2 u_size;
 uniform int u_parity;
 uniform int u_dspParity;
 uniform bool u_intra;
+uniform bool u_cheap;
 out uvec4 o;
 
 /*
@@ -127,6 +129,8 @@ int filterLine(int c, int x, int y, int prefs, int mrefs, int prefs2, int mrefs2
 int pixel(int c, int x, int y) {
   int h = u_size.y;
   if (((y ^ u_parity) & 1) == 0) return C(c, x, y);
+  // the fall-back: plain field interpolation, the average of the kept field's rows above and below
+  if (u_cheap) return (C(c, x, y + (y > 0 ? -1 : 1)) + C(c, x, y + (y + 1 < h ? 1 : -1))) >> 1;
   if (u_intra) return filterIntra(c, x, y, y + 1 < h ? 1 : -1, y > 0 ? -1 : 1, y + 3 < h ? 3 : -1, y > 2 ? -3 : 1);
   if (y < 4 || y + 5 > h) return filterLine(c, x, y, y + 1 < h ? 1 : -1, y > 0 ? -1 : 1, 2, -2, 0, 0, 0, 0, (y < 2 || y + 3 > h) ? 2 : 1);
   return filterLine(c, x, y, 1, -1, 2, -2, 3, -3, 4, -4, 0);

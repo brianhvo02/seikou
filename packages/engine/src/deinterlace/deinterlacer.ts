@@ -20,12 +20,15 @@ export interface DeinterlaceBackend {
    * Draws the picture `op` makes of the frame in slot `slots.cur`, with its neighbours (null where the stream has
    * none), as RGB with `matrix`, into the backend's canvas (the same canvas every call, valid until the next).
    * `fieldOrder` is the parity the match pairings are taken by, and for an interpolated field the frame's own order.
+   * With `cheap`, an interpolated field is drawn by plain field interpolation (line averaging of the one field shown)
+   * in bwdif's place; matches and weaves are drawn as they are.
    */
   render(
     op: PictureOp,
     slots: { readonly prev: number | null; readonly cur: number; readonly next: number | null },
     fieldOrder: 'tff' | 'bff',
     matrix: YuvPlanes['matrix'],
+    cheap: boolean,
   ): OffscreenCanvas;
   /** GPU time in ms of the latest picture whose timer query has finished, or null without timer queries. */
   readonly gpuMs: number | null;
@@ -71,6 +74,11 @@ export interface DeinterlacerDeps {
 }
 
 const FILM_FRAME_US = 1_001_000 / 24;
+
+/** Pictures the frame-pacing check looks at: the latest this many that were presented or dropped. */
+export const PACING_WINDOW = 120;
+/** The share of late pictures in a full window at which the deinterlacer falls back to plain field interpolation. */
+export const PACING_LATE_SHARE = 0.1;
 
 /** A flush waiting to end its stream, with the promise `flush` returned for it. */
 interface FlushMarker {
@@ -176,6 +184,12 @@ export class Deinterlacer {
   private flushPromise: Promise<void> | null = null;
   private lastImage: OffscreenCanvas | null = null;
   private failure: Error | null = null;
+  /** The latest pictures' lateness (1 late), a ring of `PACING_WINDOW` entries once full. */
+  private readonly pacing = new Uint8Array(PACING_WINDOW);
+  private pacingCount = 0;
+  private pacingLate = 0;
+  /** Set for good once pacing fell short: interpolated fields are drawn cheaply. */
+  private fallback = false;
 
   constructor(deps: DeinterlacerDeps) {
     if (!Number.isInteger(deps.ringSize) || deps.ringSize < 1) throw new Error('deinterlacer: the ring needs at least one slot');
@@ -198,8 +212,25 @@ export class Deinterlacer {
       breaks: d.breaks,
       ringSize: this.ringSize,
       gpuMs: this.backend.gpuMs,
-      fallback: false,
+      fallback: this.fallback,
     };
+  }
+
+  /**
+   * Reports one picture's pacing, from where pictures are presented: `late` is true for a picture presented more than
+   * half its duration past its time, or dropped without being shown. Once a full window of `PACING_WINDOW` pictures
+   * holds at least `PACING_LATE_SHARE` late ones, `stats.fallback` turns true and interpolated fields are drawn by
+   * plain field interpolation for the rest of the session (field matching and film decimation go on). A seek or new
+   * play item (`reset`) empties the window, but the fall-back stays.
+   */
+  notePacing(late: boolean): void {
+    if (this.fallback) return;
+    const i = this.pacingCount % PACING_WINDOW;
+    if (this.pacingCount >= PACING_WINDOW) this.pacingLate -= this.pacing[i]!;
+    this.pacing[i] = late ? 1 : 0;
+    this.pacingLate += this.pacing[i]!;
+    this.pacingCount++;
+    if (this.pacingCount >= PACING_WINDOW && this.pacingLate >= PACING_LATE_SHARE * PACING_WINDOW) this.fallback = true;
   }
 
   /** Why the deinterlacer stopped (a measurement failed, as on a lost WebGL context), or null while it works. */
@@ -300,6 +331,8 @@ export class Deinterlacer {
    */
   reset(): void {
     this.generation++;
+    this.pacingCount = 0;
+    this.pacingLate = 0;
     for (const p of this.pictures) p.orphan();
     this.pictures.clear();
     const abandoned = this.deferred;
@@ -324,7 +357,7 @@ export class Deinterlacer {
     }
     try {
       const op: PictureOp = still && picture.op.kind === 'interpolate' ? { kind: 'weave' } : picture.op;
-      this.lastImage = this.backend.render(op, picture.slots, picture.fieldOrder, picture.matrix);
+      this.lastImage = this.backend.render(op, picture.slots, picture.fieldOrder, picture.matrix, this.fallback);
     } catch (err) {
       this.fail(err);
       throw err;

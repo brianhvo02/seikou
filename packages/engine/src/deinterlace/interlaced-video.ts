@@ -196,6 +196,11 @@ export class InterlacedVideo {
     });
   }
 
+  /** Reports one picture's pacing to the deinterlacer (see `Deinterlacer.notePacing`); nothing without a session. */
+  notePacing(late: boolean): void {
+    this.deinterlacer?.notePacing(late);
+  }
+
   /** A seek: the frames and the cadence are forgotten; pictures handed out before draw nothing new. */
   reset(): void {
     for (const p of this.parked) if (p.kind === 'flush') p.resolve();

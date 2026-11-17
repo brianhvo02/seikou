@@ -433,6 +433,7 @@ class GlDeinterlaceBackend implements DeinterlaceBackend {
     slots: { readonly prev: number | null; readonly cur: number; readonly next: number | null },
     fieldOrder: 'tff' | 'bff',
     matrix: YuvPlanes['matrix'],
+    cheap = false,
   ): OffscreenCanvas {
     this.check();
     const gl = this.gl;
@@ -460,7 +461,7 @@ class GlDeinterlaceBackend implements DeinterlaceBackend {
           b = curGivesTop ? other : cur;
         }
       } else if (op.kind === 'interpolate') {
-        this.bwdif(op.field === 'top' ? 0 : 1, fieldOrder, prev, cur, next);
+        this.bwdif(op.field === 'top' ? 0 : 1, fieldOrder, prev, cur, next, cheap);
         this.convert(this.lumaTarget.texture, this.lumaTarget.texture, null, matrix);
         return this.canvas;
       }
@@ -496,7 +497,7 @@ class GlDeinterlaceBackend implements DeinterlaceBackend {
   }
 
   /** bwdif of each plane into the picture targets: field `parity` kept, the other interpolated. */
-  private bwdif(parity: 0 | 1, fieldOrder: 'tff' | 'bff', prev: Slot | null, cur: Slot, next: Slot | null): void {
+  private bwdif(parity: 0 | 1, fieldOrder: 'tff' | 'bff', prev: Slot | null, cur: Slot, next: Slot | null, cheap: boolean): void {
     const gl = this.gl;
     const tff = fieldOrder === 'tff';
     // A stream's first field has nothing before it (filter_intra); its second field takes its own frame as the
@@ -523,6 +524,7 @@ class GlDeinterlaceBackend implements DeinterlaceBackend {
       gl.uniform1i(this.loc(prog, 'u_parity'), parity);
       gl.uniform1i(this.loc(prog, 'u_dspParity'), parity ^ (tff ? 1 : 0));
       gl.uniform1i(this.loc(prog, 'u_intra'), intra ? 1 : 0);
+      gl.uniform1i(this.loc(prog, 'u_cheap'), cheap ? 1 : 0);
       this.draw();
     }
   }

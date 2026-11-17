@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import { LOOKAHEAD, type FrameMetrics, type PictureOp } from './cadence';
-import { Deinterlacer, type DeinterlaceBackend, type Picture } from './deinterlacer';
+import { Deinterlacer, PACING_WINDOW, type DeinterlaceBackend, type Picture } from './deinterlacer';
 import type { FieldFlags, FieldInput, YuvPlanes } from './field-input';
 
 const FRAME_US = 1_001_000 / 30;
@@ -24,7 +24,7 @@ interface Measure extends Slots {
 function fakeBackend(opts: { deferred?: boolean; metrics?: FrameMetrics } = {}) {
   const uploads: Array<{ slot: number; planes: YuvPlanes }> = [];
   const measures: Measure[] = [];
-  const renders: Array<{ op: PictureOp; slots: Slots; fieldOrder: 'tff' | 'bff'; matrix: YuvPlanes['matrix'] }> = [];
+  const renders: Array<{ op: PictureOp; slots: Slots; fieldOrder: 'tff' | 'bff'; matrix: YuvPlanes['matrix']; cheap: boolean }> = [];
   const canvas = { sentinel: 'canvas' } as unknown as OffscreenCanvas;
   let disposed = false;
   const backend: DeinterlaceBackend = {
@@ -37,8 +37,8 @@ function fakeBackend(opts: { deferred?: boolean; metrics?: FrameMetrics } = {}) 
         if (!opts.deferred) resolve(opts.metrics ?? COMBED);
       });
     },
-    render(op, slots, fieldOrder, matrix) {
-      renders.push({ op, slots: { ...slots }, fieldOrder, matrix });
+    render(op, slots, fieldOrder, matrix, cheap) {
+      renders.push({ op, slots: { ...slots }, fieldOrder, matrix, cheap });
       return canvas;
     },
     gpuMs: 0.5,
@@ -126,7 +126,7 @@ describe('Deinterlacer', () => {
     const slotOf = (i: number): number => t.uploads[i]!.slot;
     const [first, second, third] = t.pictures;
     expect(t.d.render(first!)).toBe(t.canvas);
-    expect(t.renders.at(-1)).toEqual({ op: { kind: 'interpolate', field: 'top' }, slots: { prev: null, cur: slotOf(0), next: slotOf(1) }, fieldOrder: 'tff', matrix: 'bt709' });
+    expect(t.renders.at(-1)).toEqual({ op: { kind: 'interpolate', field: 'top' }, slots: { prev: null, cur: slotOf(0), next: slotOf(1) }, fieldOrder: 'tff', matrix: 'bt709', cheap: false });
     t.d.render(second!);
     expect(t.renders.at(-1)!.op).toEqual({ kind: 'interpolate', field: 'bottom' });
     t.d.render(third!);
@@ -366,5 +366,32 @@ describe('Deinterlacer', () => {
     const t = setup();
     t.d.dispose();
     expect(t.disposed()).toBe(true);
+  });
+
+  it('falls back after a window of late pictures, and only then', async () => {
+    const run = async (late: number, onTime: number) => {
+      const t = setup({ ringSize: 30 });
+      for (let i = 0; i < 12; i++) t.d.push(input(i));
+      await settle();
+      const interpolated = t.pictures.find((p) => (t.d.render(p), t.renders.at(-1)!.op.kind === 'interpolate'))!;
+      expect(t.renders.at(-1)!.cheap).toBe(false);
+      for (let i = 0; i < onTime; i++) t.d.notePacing(false);
+      for (let i = 0; i < late; i++) t.d.notePacing(true);
+      t.d.render(interpolated);
+      return { fallback: t.d.stats.fallback, cheap: t.renders.at(-1)!.cheap };
+    };
+    expect(await run(12, 119)).toEqual({ fallback: true, cheap: true });
+    expect(await run(11, 109)).toEqual({ fallback: false, cheap: false });
+    // 11 late in a window of 120, then more on time: still no fall-back
+    expect((await run(11, 119)).fallback).toBe(false);
+  });
+
+  it('keeps the fall-back for the session, even across a reset and a clean run', async () => {
+    const t = setup();
+    for (let i = 0; i < PACING_WINDOW; i++) t.d.notePacing(true);
+    expect(t.d.stats.fallback).toBe(true);
+    t.d.reset();
+    for (let i = 0; i < 2 * PACING_WINDOW; i++) t.d.notePacing(false);
+    expect(t.d.stats.fallback).toBe(true);
   });
 });
