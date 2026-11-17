@@ -69,7 +69,7 @@ export interface ShaderBackend {
    * Throws ShaderContextLostError while the context is lost; throws ShaderSetStaleError for a set that was disposed or
    * compiled on an earlier (lost) context, and passes through errors from the upload of `frame` (a closed VideoFrame).
    */
-  render(set: CompiledSet, frame: VideoFrame | OffscreenCanvas, output: Size): RenderResult;
+  render(set: CompiledSet, frame: VideoFrame | OffscreenCanvas | ImageBitmap, output: Size): RenderResult;
 }
 
 /** The reason shown when WebGL2, or a float colour target, is missing. */
@@ -308,7 +308,7 @@ class WebGlBackend implements ShaderBackend {
     return set;
   }
 
-  render(set: CompiledSet, frame: VideoFrame | OffscreenCanvas, output: Size): RenderResult {
+  render(set: CompiledSet, frame: VideoFrame | OffscreenCanvas | ImageBitmap, output: Size): RenderResult {
     const gl = this.gl;
     if (!(set instanceof WebGlSet) || set.generation !== this.generation || !this.sets.has(set)) {
       if (this.gl.isContextLost()) throw new ShaderContextLostError();

@@ -20,7 +20,7 @@ interface PendingCompile {
 
 function fakeBackend() {
   const compiles: PendingCompile[] = [];
-  const renders: Array<{ set: FakeSet; frame: VideoFrame | OffscreenCanvas; output: { width: number; height: number } }> = [];
+  const renders: Array<{ set: FakeSet; frame: VideoFrame | OffscreenCanvas | ImageBitmap; output: { width: number; height: number } }> = [];
   const images = new Map<number, OffscreenCanvas>();
   const state = { renderError: null as Error | null };
   const imageOf = (set: FakeSet): OffscreenCanvas => {

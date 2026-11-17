@@ -1095,7 +1095,7 @@ export class Player {
   }
 
   /** Answers a waiting captureVideo (test-only) with this picture when it is the first drawn at or after the asked time. */
-  private capture(image: VideoFrame | OffscreenCanvas, timestampUs: number, deinterlaced: boolean): void {
+  private capture(image: VideoFrame | ImageBitmap, timestampUs: number, deinterlaced: boolean): void {
     if (this.captureAtUs === null || timestampUs < this.captureAtUs) return;
     this.captureAtUs = null;
     const width = 'displayWidth' in image ? image.displayWidth : image.width;

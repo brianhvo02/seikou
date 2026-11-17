@@ -175,7 +175,7 @@ describe('Compositor.drawVideo with a deinterlaced picture', () => {
     const main = { width: 1000, height: 1000, getContext: () => mainCtx } as unknown as OffscreenCanvas;
     return { calls, compositor: new Compositor(main, () => ({}) as OffscreenCanvas) };
   }
-  const image = { width: 1440, height: 1080 } as unknown as OffscreenCanvas;
+  const image = { width: 1440, height: 1080 } as unknown as ImageBitmap;
   const key = {};
   const picture: DrawnPicture = { image, displayWidth: 1920, displayHeight: 1080, key };
 

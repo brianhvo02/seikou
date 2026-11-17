@@ -13,7 +13,16 @@ function setup(opts: { ringSize?: number; noBackend?: boolean } = {}) {
   const uploads: number[] = [];
   const ops: PictureOp[] = [];
   let disposed = 0;
-  const canvas = { width: 8, height: 8 } as unknown as OffscreenCanvas;
+  const bitmaps: Array<{ closed: boolean }> = [];
+  const canvas = {
+    width: 8,
+    height: 8,
+    transferToImageBitmap: () => {
+      const b = { width: 8, height: 8, closed: false, close: () => void (b.closed = true) };
+      bitmaps.push(b);
+      return b;
+    },
+  } as unknown as OffscreenCanvas;
   const backend: DeinterlaceBackend = {
     upload: (_slot, planes) => {
       uploads.push(planes.data[0]!);
@@ -37,7 +46,7 @@ function setup(opts: { ringSize?: number; noBackend?: boolean } = {}) {
     ringSize: opts.ringSize ?? 12,
     onPictures: (p) => pictures.push(...p),
   });
-  return { video, made, uploads, ops, pictures, disposed: () => disposed };
+  return { video, made, uploads, ops, pictures, bitmaps, disposed: () => disposed };
 }
 
 /** A frame whose planes buffer is shared, as the decoder's is: the video must copy what it keeps. */
@@ -113,7 +122,7 @@ describe('InterlacedVideo', () => {
     expect(t.uploads).toEqual([7, 8]);
   });
 
-  it('draws a still as a whole frame and reuses the canvas for the same picture', async () => {
+  it('draws a still as a whole frame and reuses the image for the same picture', async () => {
     const t = setup();
     t.video.start(8, 8, FRAME_US);
     for (let i = 0; i < 4; i++) t.video.push(input(i));
@@ -127,5 +136,23 @@ describe('InterlacedVideo', () => {
     const still = t.video.render(p, true)!;
     expect(t.ops.at(-1)!.kind).toBe('weave');
     expect(still.key).not.toBe(moving.key);
+  });
+
+  it('hands the compositor each drawn picture as an ImageBitmap, closing the one before when the next is drawn', async () => {
+    // WebKit copies a WebGL canvas drawn into a 2D canvas at ~15 ms a 1080 picture (iPhone 17 Pro); a bitmap avoids it
+    const t = setup();
+    t.video.start(8, 8, FRAME_US);
+    for (let i = 0; i < 4; i++) t.video.push(input(i));
+    await t.video.flush();
+    const [a, b] = t.pictures.filter((x) => t.video.owns(x));
+    const first = t.video.render(a!, false)!;
+    expect(first.image).toBe(t.bitmaps[0]);
+    expect(t.video.render(a!, false)!.image).toBe(t.bitmaps[0]);
+    expect(t.bitmaps).toHaveLength(1);
+    const second = t.video.render(b!, false)!;
+    expect(second.image).toBe(t.bitmaps[1]);
+    expect(t.bitmaps.map((x) => x.closed)).toEqual([true, false]);
+    t.video.dispose();
+    expect(t.bitmaps.map((x) => x.closed)).toEqual([true, true]);
   });
 });

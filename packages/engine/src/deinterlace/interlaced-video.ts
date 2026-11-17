@@ -39,7 +39,7 @@ export interface InterlacedVideoDeps {
 /** A frame waiting for a free slot (its planes copied), or the end of a stream asked after it. */
 type Parked = { readonly kind: 'frame'; readonly input: FieldInput } | { readonly kind: 'flush'; readonly resolve: () => void; readonly reject: (err: Error) => void };
 
-/** The last picture drawn, so drawing the same one again reuses the canvas as it is. */
+/** The last picture drawn, so drawing the same one again reuses its image as it is. */
 interface Drawn {
   readonly picture: Picture;
   readonly still: boolean;
@@ -62,6 +62,8 @@ export class InterlacedVideo {
   /** Pictures of this deinterlacer handed out and not yet known closed (WeakSet: a dropped picture is forgotten). */
   private readonly ours = new WeakSet<Picture>();
   private drawn: Drawn | null = null;
+  /** The image of the last picture handed out, closed when the next replaces it (the compositor may redraw it until then). */
+  private bitmap: ImageBitmap | null = null;
   private readonly pacing = new PacingMonitor();
   private failure: Error | null = null;
 
@@ -233,16 +235,18 @@ export class InterlacedVideo {
 
   /**
    * Draws the picture for the compositor. `still` (paused, or a held still) draws a picture of one field as its whole
-   * frame woven. The same picture drawn the same way again reuses the canvas. Null when the GPU fails (`error`).
+   * frame woven. The same picture drawn the same way again reuses its image. Null when the GPU fails (`error`).
    */
   render(picture: Picture, still: boolean): DrawnPicture | null {
     const d = this.deinterlacer;
     if (!d || this.error) return null;
     const last = this.drawn;
     if (last && last.picture === picture && last.still === still) return last.result;
-    let image: OffscreenCanvas;
+    let image: ImageBitmap;
     try {
-      image = d.render(picture, still);
+      // WebKit copies a WebGL canvas drawn into a 2D canvas at about 15 ms a 1080 picture on an iPhone 17 Pro, which
+      // can't keep up with film; the canvas's image moved out as an ImageBitmap draws without that copy.
+      image = d.render(picture, still).transferToImageBitmap();
     } catch (err) {
       this.failure ??= err instanceof Error ? err : new Error(String(err));
       return null;
@@ -254,6 +258,8 @@ export class InterlacedVideo {
       displayHeight: this.display.height || size.height,
       key: {},
     };
+    this.bitmap?.close();
+    this.bitmap = image;
     this.drawn = { picture, still, result };
     return result;
   }
@@ -261,6 +267,8 @@ export class InterlacedVideo {
   /** Frees the GPU resources; the next `start` makes a new backend. */
   dispose(): void {
     this.reset();
+    this.bitmap?.close();
+    this.bitmap = null;
     this.deinterlacer = null;
     this.backend?.dispose();
     this.backend = null;

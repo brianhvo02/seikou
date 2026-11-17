@@ -20,12 +20,12 @@ export interface ElementPictureSize {
 export type { Rect, TextRendererLike };
 
 /**
- * A picture the deinterlacer drew: its canvas (at the stream's visible size, valid until the next picture is drawn),
+ * A picture the deinterlacer drew: its image (at the stream's visible size, valid until the next picture is drawn),
  * the size it shows at, and what it holds, so a shader set's result is reused while the same picture shows.
  * @internal
  */
 export interface DrawnPicture {
-  readonly image: OffscreenCanvas;
+  readonly image: ImageBitmap;
   readonly displayWidth: number;
   readonly displayHeight: number;
   /** Changes whenever the canvas holds another picture (or the same one drawn otherwise). */
@@ -171,7 +171,7 @@ export class Compositor implements CompositorLike {
     // the shaded image is already at the fitted size (shaders see it as OUTPUT)
     const output = r.width > 0 && r.height > 0 ? { width: r.width, height: r.height } : null;
     if ('image' in frame) {
-      // a deinterlaced picture: its canvas is at the stream's visible size, which is the storage size
+      // a deinterlaced picture: its image is at the stream's visible size, which is the storage size
       this.storageSize = { width: frame.image.width, height: frame.image.height };
       const image = output ? this.stage?.process(frame.image, output, frame.key) : null;
       this.ctx.drawImage(image ?? frame.image, r.x, r.y, r.width, r.height);

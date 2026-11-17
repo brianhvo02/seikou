@@ -3606,7 +3606,7 @@ describe('Player with interlaced video (deinterlacing)', () => {
     /** Each draw: the op and the timestamps of the frames it reads. */
     const draws: Array<{ op: PictureOp; cur: number; prev: number | null; next: number | null }> = [];
     const pending: Array<(m: FrameMetrics) => void> = [];
-    const canvas = { width: W, height: H } as unknown as OffscreenCanvas;
+    const canvas = { width: W, height: H, transferToImageBitmap: () => ({ width: W, height: H, close: () => undefined }) } as unknown as OffscreenCanvas;
     const ts = (slot: number | null): number | null => (slot === null ? null : slotTs[slot]!);
     const backend: DeinterlaceBackend = {
       upload: (slot, planes) => {

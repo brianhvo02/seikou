@@ -151,14 +151,16 @@ export class ShaderStage {
    * keeps one identity while its pixels change, so its result is reused only when the caller names what it holds with
    * `key` (a canvas without a key is shaded every call).
    */
-  process(source: VideoFrame | OffscreenCanvas, output: Size, key?: object): OffscreenCanvas | null {
+  process(source: VideoFrame | OffscreenCanvas | ImageBitmap, output: Size, key?: object): OffscreenCanvas | null {
     const entry = this.active;
     const backend = this.backend;
     if (!entry?.compiled || !backend || this.lost) {
       this.lastStats = null;
       return null;
     }
-    const isCanvas = typeof OffscreenCanvas !== 'undefined' && source instanceof OffscreenCanvas;
+    const isCanvas =
+      (typeof OffscreenCanvas !== 'undefined' && source instanceof OffscreenCanvas) ||
+      (typeof ImageBitmap !== 'undefined' && source instanceof ImageBitmap);
     const reuseKey: object | null = key ?? (isCanvas ? null : source);
     const last = this.last;
     if (last && reuseKey !== null && last.entry === entry && last.key === reuseKey && last.width === output.width && last.height === output.height) return last.image;
