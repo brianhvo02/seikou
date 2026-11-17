@@ -55,11 +55,20 @@ describe('player settings route', () => {
     const mika = await tokenFor('Mika');
     const sora = await tokenFor('Sora');
     expect((await call('GET', null)).status).toBe(401);
-    expect(await (await call('GET', mika)).json()).toEqual({ nextEpisodeCountdown: false });
+    expect(await (await call('GET', mika)).json()).toEqual({ nextEpisodeCountdown: false, discPreferences: null });
     const put = await call('PUT', mika, JSON.stringify({ nextEpisodeCountdown: true }));
-    expect([put.status, await put.json()]).toEqual([200, { nextEpisodeCountdown: true }]);
-    expect(await (await call('GET', mika)).json()).toEqual({ nextEpisodeCountdown: true });
-    expect(await (await call('GET', sora)).json()).toEqual({ nextEpisodeCountdown: false });
+    expect([put.status, await put.json()]).toEqual([200, { nextEpisodeCountdown: true, discPreferences: null }]);
+    expect(await (await call('GET', mika)).json()).toEqual({ nextEpisodeCountdown: true, discPreferences: null });
+    expect(await (await call('GET', sora)).json()).toEqual({ nextEpisodeCountdown: false, discPreferences: null });
+  });
+
+  it('stores disc preferences, and a body from an older app keeps them', async () => {
+    const mika = await tokenFor('Mika');
+    const prefs = { audioLanguage: 'jpn', subtitleLanguage: 'eng', menuLanguage: 'auto', country: 'us', region: 'A' };
+    const put = await call('PUT', mika, JSON.stringify({ nextEpisodeCountdown: false, discPreferences: prefs }));
+    expect([put.status, await put.json()]).toEqual([200, { nextEpisodeCountdown: false, discPreferences: prefs }]);
+    const old = await call('PUT', mika, JSON.stringify({ nextEpisodeCountdown: true }));
+    expect([old.status, await old.json()]).toEqual([200, { nextEpisodeCountdown: true, discPreferences: prefs }]);
   });
 
   it('answers 400 for any other body, 413 over the limit and 405 for other methods', async () => {
@@ -67,6 +76,7 @@ describe('player settings route', () => {
     for (const body of ['{', '{}', '[]', 'null', '{"nextEpisodeCountdown":1}', '{"nextEpisodeCountdown":true,"x":1}']) expect((await call('PUT', mika, body)).status).toBe(400);
     expect((await call('PUT', mika, JSON.stringify({ nextEpisodeCountdown: true, pad: 'x'.repeat(8192) }))).status).toBe(413);
     expect((await call('POST', mika, '{}')).status).toBe(405);
-    expect(await (await call('GET', mika)).json()).toEqual({ nextEpisodeCountdown: false });
+    expect((await call('PUT', mika, JSON.stringify({ nextEpisodeCountdown: true, discPreferences: { audioLanguage: 'english' } }))).status).toBe(400);
+    expect(await (await call('GET', mika)).json()).toEqual({ nextEpisodeCountdown: false, discPreferences: null });
   });
 });

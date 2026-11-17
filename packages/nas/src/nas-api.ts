@@ -761,10 +761,102 @@ export interface EncodeDetail {
 }
 
 /**
- * `GET`/`PUT me/player-settings`: one person's player settings, the same on each of their devices.
+ * A language preference: `auto` (the disc decides, or the browser's language for menus) or ISO 639-2/B letters (`jpn`).
+ * @internal
+ */
+export type LanguagePref = 'auto' | string;
+
+/**
+ * A country preference: `auto` (the browser's region) or ISO 3166-1 alpha-2 letters in lower case (`us`).
+ * @internal
+ */
+export type CountryPref = 'auto' | string;
+
+/**
+ * A Blu-ray region preference: `auto` (from the country) or a region letter.
+ * @internal
+ */
+export type RegionPref = 'auto' | 'A' | 'B' | 'C';
+
+/**
+ * What a person wants discs to start with: written to the player's registers (PSR16-20) as a disc opens.
+ * @internal
+ */
+export interface DiscPreferences {
+  /** Preferred audio language (PSR16). */
+  readonly audioLanguage: LanguagePref;
+  /** Preferred subtitle language (PSR17). */
+  readonly subtitleLanguage: LanguagePref;
+  /** Preferred menu language (PSR18). */
+  readonly menuLanguage: LanguagePref;
+  /** Country (PSR19). */
+  readonly country: CountryPref;
+  /** Blu-ray region (PSR20). */
+  readonly region: RegionPref;
+}
+
+/**
+ * Every disc preference left to Auto.
+ * @internal
+ */
+export const AUTO_DISC_PREFERENCES: DiscPreferences = { audioLanguage: 'auto', subtitleLanguage: 'auto', menuLanguage: 'auto', country: 'auto', region: 'auto' };
+
+const DISC_PREFERENCE_KEYS = ['audioLanguage', 'subtitleLanguage', 'menuLanguage', 'country', 'region'] as const;
+
+const isLanguagePref = (v: unknown): v is LanguagePref => v === 'auto' || (typeof v === 'string' && /^[a-z]{3}$/.test(v));
+const isCountryPref = (v: unknown): v is CountryPref => v === 'auto' || (typeof v === 'string' && /^[a-z]{2}$/.test(v));
+const isRegionPref = (v: unknown): v is RegionPref => v === 'auto' || v === 'A' || v === 'B' || v === 'C';
+
+/**
+ * Reads stored or received disc preferences: null unless `v` is an object; each field that is missing or not valid is
+ * Auto, and unknown fields are dropped.
+ * @internal
+ */
+export function parseDiscPreferences(v: unknown): DiscPreferences | null {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return null;
+  const o = v as Record<string, unknown>;
+  return {
+    audioLanguage: isLanguagePref(o.audioLanguage) ? o.audioLanguage : 'auto',
+    subtitleLanguage: isLanguagePref(o.subtitleLanguage) ? o.subtitleLanguage : 'auto',
+    menuLanguage: isLanguagePref(o.menuLanguage) ? o.menuLanguage : 'auto',
+    country: isCountryPref(o.country) ? o.country : 'auto',
+    region: isRegionPref(o.region) ? o.region : 'auto',
+  };
+}
+
+/**
+ * Whether `v` is exactly a `DiscPreferences`: every field present and valid, and no other field.
+ * @internal
+ */
+export function isDiscPreferences(v: unknown): v is DiscPreferences {
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
+  const o = v as Record<string, unknown>;
+  return (
+    Object.keys(o).length === DISC_PREFERENCE_KEYS.length &&
+    isLanguagePref(o.audioLanguage) && isLanguagePref(o.subtitleLanguage) && isLanguagePref(o.menuLanguage) &&
+    isCountryPref(o.country) && isRegionPref(o.region)
+  );
+}
+
+/**
+ * `GET`/`PUT me/player-settings`: one person's player settings, the same on each of their devices. A server from
+ * before disc preferences answers without `discPreferences`.
  * @internal
  */
 export interface PlayerSettings {
   /** The next episode starts by itself after a 10 s countdown. */
   readonly nextEpisodeCountdown: boolean;
+  /** The person's disc preferences; null while they have never saved any. */
+  readonly discPreferences: DiscPreferences | null;
+}
+
+/**
+ * The body of `PUT me/player-settings`: without `discPreferences` (an older app) the stored ones are kept.
+ * @internal
+ */
+export interface PlayerSettingsBody {
+  /** The next episode starts by itself after a 10 s countdown. */
+  readonly nextEpisodeCountdown: boolean;
+  /** The person's disc preferences, when the app sends them. */
+  readonly discPreferences?: DiscPreferences;
 }

@@ -1,4 +1,4 @@
-import type { CodeLookup, ContinueItem, DiscEntry, DiscManifest, DiscPlaces, DiscRef, EncodeDetail, EncodeShow, EncodeShowList, EncodesStatus, EncodingNow, FansubPick, FansubPickRequest, FansubTitleState, FolderEntry, LevelAt, LevelInfo, NasDrive, OwnerChoice, OwnTitle, PlaybackPlace, PlayerSettings, PlaylistProgress, StoredSubtitle, SubtitleCreate, SubtitlePatch, TitleDetail, TitleKind, TitleSummary, ToshoReleaseFiles, ToshoSearchResult, UnsortedItem } from '@seikou/nas/nas-api';
+import type { CodeLookup, ContinueItem, DiscEntry, DiscManifest, DiscPlaces, DiscRef, EncodeDetail, EncodeShow, EncodeShowList, EncodesStatus, EncodingNow, FansubPick, FansubPickRequest, FansubTitleState, FolderEntry, LevelAt, LevelInfo, NasDrive, OwnerChoice, OwnTitle, PlaybackPlace, PlayerSettings, PlayerSettingsBody, PlaylistProgress, StoredSubtitle, SubtitleCreate, SubtitlePatch, TitleDetail, TitleKind, TitleSummary, ToshoReleaseFiles, ToshoSearchResult, UnsortedItem } from '@seikou/nas/nas-api';
 import { PAIRING_CODE_LENGTH, formatCode, normalizeCode } from '@seikou/nas/pairing-code';
 import type { NasPairing, NasStore } from './nas-store';
 import { codeHashOf, isNasId, turnProofMessage } from '../../../rendezvous/src/protocol';
@@ -792,13 +792,16 @@ export class NasClient {
     return `${await this.apiBase(pairing)}encodes/${encodeURIComponent(id)}/`;
   }
 
-  /** This person's player settings, the same on each of their devices. */
+  /**
+   * This person's player settings, the same on each of their devices. A NAS from before disc preferences answers
+   * without `discPreferences` (undefined, not null).
+   */
   async playerSettings(): Promise<PlayerSettings> {
     return (await this.json('me/player-settings')) as PlayerSettings;
   }
 
-  /** Stores this person's player settings; answers what the NAS stored. */
-  async putPlayerSettings(settings: PlayerSettings): Promise<PlayerSettings> {
+  /** Stores this person's player settings (without disc preferences the NAS keeps its own); answers what it stored. */
+  async putPlayerSettings(settings: PlayerSettingsBody): Promise<PlayerSettings> {
     return (await this.json('me/player-settings', jsonBody('PUT', settings))) as PlayerSettings;
   }
 

@@ -3,30 +3,36 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { isCode, replaceAtomically } from '@seikou/titles/atomic-json';
 import { PERSON_RE } from './bdj-store';
+import { isDiscPreferences, parseDiscPreferences, type PlayerSettings as WirePlayerSettings, type PlayerSettingsBody } from '@seikou/nas/nas-api';
 
-/** One person's player settings, the same on each of their devices. */
-export interface PlayerSettings {
-  /** Whether the next episode starts by itself after a countdown when one ends. */
-  readonly nextEpisodeCountdown: boolean;
-}
+export type { PlayerSettingsBody };
 
-/** What a person has before they change anything. */
-export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = { nextEpisodeCountdown: false };
+/** One person's player settings, the same on each of their devices (the wire type of `GET me/player-settings`). */
+export type PlayerSettings = WirePlayerSettings;
+
+/** What a person has before they change anything: the countdown off and no disc preferences saved. */
+export const DEFAULT_PLAYER_SETTINGS: PlayerSettings = { nextEpisodeCountdown: false, discPreferences: null };
 
 /** The largest body a `PUT` of the settings is accepted in. */
 export const PLAYER_SETTINGS_LIMIT_BYTES = 4096;
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** Whether `v` is exactly a `PlayerSettings`: every field present and of its type, and no other field. */
-export function isPlayerSettings(v: unknown): v is PlayerSettings {
-  return isObject(v) && Object.keys(v).length === 1 && typeof v.nextEpisodeCountdown === 'boolean';
+/**
+ * Whether `v` is a `PUT` body: `nextEpisodeCountdown`, and optionally complete and valid `discPreferences`; no other
+ * field. A body with the countdown alone (an app from before disc preferences) keeps the stored ones.
+ */
+export function isPlayerSettingsBody(v: unknown): v is PlayerSettingsBody {
+  if (!isObject(v) || typeof v.nextEpisodeCountdown !== 'boolean') return false;
+  const keys = Object.keys(v);
+  if (keys.length === 1) return true;
+  return keys.length === 2 && 'discPreferences' in v && isDiscPreferences(v.discPreferences);
 }
 
 /**
  * Each person's player settings in `users/<personId>/player-settings.json`, replaced atomically. A missing or broken
- * file reads as the defaults, a field that is missing or of the wrong type as its default, and a field this server
- * doesn't know is ignored.
+ * file reads as the defaults, a field that is missing or of the wrong type as its default (a disc preference as Auto),
+ * and a field this server doesn't know is ignored.
  */
 export class PlayerSettingsStore {
   constructor(private readonly dataDir: string) {}
@@ -48,13 +54,15 @@ export class PlayerSettingsStore {
     if (!isObject(parsed)) return DEFAULT_PLAYER_SETTINGS;
     return {
       nextEpisodeCountdown: typeof parsed.nextEpisodeCountdown === 'boolean' ? parsed.nextEpisodeCountdown : DEFAULT_PLAYER_SETTINGS.nextEpisodeCountdown,
+      discPreferences: parseDiscPreferences(parsed.discPreferences),
     };
   }
 
-  /** Replaces the person's settings. */
-  put(personId: string, settings: PlayerSettings): void {
+  /** Replaces the person's settings; a body without disc preferences keeps the stored ones. */
+  put(personId: string, body: PlayerSettingsBody): void {
     const file = this.file(personId);
+    const discPreferences = body.discPreferences ?? this.get(personId).discPreferences;
     mkdirSync(join(this.dataDir, 'users', personId), { recursive: true });
-    replaceAtomically(file, JSON.stringify({ nextEpisodeCountdown: settings.nextEpisodeCountdown }));
+    replaceAtomically(file, JSON.stringify({ nextEpisodeCountdown: body.nextEpisodeCountdown, ...(discPreferences ? { discPreferences } : {}) }));
   }
 }

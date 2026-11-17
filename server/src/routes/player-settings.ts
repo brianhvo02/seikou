@@ -2,15 +2,16 @@
 import type { Auth } from '../auth';
 import { json, readBody } from '../http';
 import type { Handler } from '../http';
-import { isPlayerSettings, PLAYER_SETTINGS_LIMIT_BYTES } from '../player-settings-store';
+import { isPlayerSettingsBody, PLAYER_SETTINGS_LIMIT_BYTES } from '../player-settings-store';
 import type { PlayerSettingsStore } from '../player-settings-store';
 import { requestDevice } from './titles';
 
 const ROUTE = '/api/me/player-settings';
 
 /**
- * `GET` and `PUT /api/me/player-settings`: the token's own person's `PlayerSettings`. A `PUT` takes exactly the
- * settings' fields (400 for anything else, 413 past 4 KiB) and answers what it stored. Behind `requireToken`.
+ * `GET` and `PUT /api/me/player-settings`: the token's own person's `PlayerSettings`. A `PUT` takes the countdown and,
+ * optionally, complete disc preferences (400 for anything else, 413 past 4 KiB; without disc preferences the stored ones
+ * stay) and answers what it stored. Behind `requireToken`.
  */
 export function playerSettingsRoutes(auth: Auth, store: PlayerSettingsStore): Handler {
   return async (req, url) => {
@@ -28,7 +29,7 @@ export function playerSettingsRoutes(auth: Auth, store: PlayerSettingsStore): Ha
     } catch {
       return json(400, { error: 'bad request' });
     }
-    if (!isPlayerSettings(body)) return json(400, { error: 'bad-settings' });
+    if (!isPlayerSettingsBody(body)) return json(400, { error: 'bad-settings' });
     store.put(device.personId, body);
     return json(200, store.get(device.personId));
   };
