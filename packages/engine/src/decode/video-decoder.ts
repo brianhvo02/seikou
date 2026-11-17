@@ -124,6 +124,11 @@ export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
    * and other codecs keep `onOutput`.
    */
   onFieldInput: ((input: FieldInput) => void) | null = null;
+  /**
+   * Called when a frame meant for `onFieldInput` comes in a format that has no YUV planes to read (`format`, e.g. BGRX
+   * from Firefox on macOS). That frame goes to `onOutput`, as every later one does once `onFieldInput` is cleared.
+   */
+  onFieldsUnreadable: ((format: string) => void) | null = null;
   onError: (err: DecoderError) => void = () => undefined;
 
   private decoder: VideoDecoderLike | null = null;
@@ -405,7 +410,9 @@ export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
     }
     this.prunePending(frame.timestamp);
     const sink = this.onFieldInput;
-    if (sink && flags) {
+    if (sink && flags && frame.format !== 'I420' && frame.format !== 'NV12') {
+      this.onFieldsUnreadable?.(String(frame.format));
+    } else if (sink && flags) {
       this.deliverFields(source, frame, flags, sink);
       return;
     }

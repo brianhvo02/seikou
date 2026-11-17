@@ -82,7 +82,7 @@ import { ClockBlockWriter, ClockLine } from './element/clock-block';
 import { elementStream } from './element/remux';
 import { elementQuery, frameRateOf } from './element/element-query';
 import { createGlDeinterlaceBackend } from './deinterlace/gl-backend';
-import { InterlacedVideo, WOVEN_NO_WEBGL2, WOVEN_OFF, type DeinterlaceBackendFactory, type DeinterlaceSetting } from './deinterlace/interlaced-video';
+import { InterlacedVideo, WOVEN_NO_WEBGL2, WOVEN_OFF, wovenFrameFormat, type DeinterlaceBackendFactory, type DeinterlaceSetting } from './deinterlace/interlaced-video';
 import type { DeinterlaceStats, Picture } from './deinterlace/deinterlacer';
 import { isInterlacedFormat, type FieldInput } from './deinterlace/field-input';
 import type { Clpi } from '@seikou/bdmv/clpi-parser';
@@ -170,6 +170,11 @@ export interface PlayerDeps {
   readonly planeHashTelemetry?: boolean;
   /** Test-only (?telemetry=1): telemetry carries BD-J's memory (bdjMemory), which the BD-J worker reports every 5 s. */
   readonly memoryTelemetry?: boolean;
+  /**
+   * Test-only (?telemetry=1): the captureVideo command is answered with the picture drawn at the asked time, so a browser
+   * test can compare the deinterlacer's output with references at its own pixels.
+   */
+  readonly videoCapture?: boolean;
   /** Reads a NAS disc's files (HttpTransport); the global fetch by default. */
   readonly fetch?: typeof fetch;
   /** A NAS disc's range request size (REMOTE_CHUNK_BYTES) and read-ahead budget (the memory profile's) when set. */
@@ -490,6 +495,8 @@ export class Player {
   private readonly presenter = new VideoPresenter<VideoFrame | Picture>();
   /** The presenter's `dropped` count at the last pacing report. */
   private pacingDropped = 0;
+  /** The playlist time a captureVideo (test-only) waits to read the picture at, or null. */
+  private captureAtUs: number | null = null;
   /** The device's deinterlacing setting (setDeinterlace). */
   private deinterlaceSetting: DeinterlaceSetting = 'auto';
   /** The deinterlacer, kept across interlaced sessions (its GPU backend with it); null before the first. */
@@ -729,6 +736,11 @@ export class Player {
       this.deps.emit({ type: 'placeState', ...this.readPlace() });
       return Promise.resolve();
     }
+    // test-only: the capture is taken as the asked picture is drawn, whatever the queue holds
+    if (cmd.type === 'captureVideo') {
+      if (this.deps.videoCapture) this.captureAtUs = cmd.atUs;
+      return Promise.resolve();
+    }
     // a bufferFirst open waits for its fill: cancelling can't wait in the queue behind it
     if (cmd.type === 'cancelBuffer') {
       const hold = this.openHold;
@@ -771,6 +783,7 @@ export class Player {
         case 'flushSaves':
         case 'visibility':
         case 'readPlace':
+        case 'captureVideo':
         case 'videoElementAnswer':
         case 'videoBuffered':
         case 'videoStalled':
@@ -1062,11 +1075,28 @@ export class Player {
    */
   private drawable(frame: VideoFrame | Picture | null): VideoFrame | DrawnPicture | null {
     const video = this.interlacedVideo;
-    if (!frame || !video?.owns(frame)) return frame as VideoFrame | null;
+    if (!frame || !video?.owns(frame)) {
+      if (frame) this.capture(frame as VideoFrame, frame.timestamp, false);
+      return frame as VideoFrame | null;
+    }
     this.drawnStill = this.stillPicture();
     const drawn = video.render(frame, this.drawnStill);
     if (!drawn && this.session?.deinterlace?.video === video) this.deinterlaceFailed(this.session);
+    if (drawn) this.capture(drawn.image, frame.timestamp, true);
     return drawn;
+  }
+
+  /** Answers a waiting captureVideo (test-only) with this picture when it is the first drawn at or after the asked time. */
+  private capture(image: VideoFrame | OffscreenCanvas, timestampUs: number, deinterlaced: boolean): void {
+    if (this.captureAtUs === null || timestampUs < this.captureAtUs) return;
+    this.captureAtUs = null;
+    const width = 'displayWidth' in image ? image.displayWidth : image.width;
+    const height = 'displayWidth' in image ? image.displayHeight : image.height;
+    const ctx = new OffscreenCanvas(width, height).getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
+    ctx.drawImage(image, 0, 0, width, height);
+    const rgba = ctx.getImageData(0, 0, width, height).data;
+    this.deps.emit({ type: 'videoCapture', timestampUs, width, height, rgba, deinterlaced }, [rgba.buffer]);
   }
 
   /** A picture on screen stays there (paused, or a still held at a play item's end). */
@@ -1164,8 +1194,9 @@ export class Player {
   }
 
   /**
-   * The deinterlacer can't go on (its GPU failed, or none could be made for the stream's size): the session's frames are
-   * drawn woven from now on, reread from the current time, and `deinterlaceWoven` says why.
+   * The deinterlacer can't go on (its GPU failed, none could be made for the stream's size, or the browser decodes to
+   * RGB, which has no planes to read): the session's frames are drawn woven from now on, reread from the current time,
+   * and `deinterlaceWoven` says why.
    */
   private deinterlaceFailed(s: Session, reason?: string): void {
     const d = s.deinterlace;
@@ -3297,6 +3328,7 @@ export class Player {
       } else frame.close();
     };
     decoder.onFieldInput = session.deinterlace ? (input) => this.onFieldInput(session, input) : null;
+    decoder.onFieldsUnreadable = (format) => this.deinterlaceFailed(session, wovenFrameFormat(format));
     decoder.onError = (err) => this.onDecoderError(session, err);
   }
 

@@ -157,12 +157,72 @@ const smallMover = lumaFrames(
   SMALL.height,
   8,
 );
+// The browser test's expected pictures (tests/e2e/deinterlace.spec.ts), 8-bit grayscale PNGs of one crop around where
+// the bar is at 2 s, the pictures stacked top to bottom:
+//   video-2s.png  ffmpeg bwdif (send_field, top field first) over playlist 00000's decoded frames, then cropped: the
+//                 pictures of fields 120-123 (frames 60 and 61; field i shows at i x 1001/60 ms)
+//   film-2s.png   the 24p film frames 46-51 that 00002 telecines and 00003 carries with soft pulldown, before encoding
+//                 (film frame k shows at k x 1001/24 ms)
+// Each is the luma as the player shows the picture: its YUV drawn as RGB the way the deinterlacer's colour pass draws
+// it (BT.709, as the player takes a high-definition stream with no colour description, limited range, clipped to
+// 0-255), then BT.709 luma back from that RGB, which is what the test reads from the picture the engine captures.
+// testsrc2's colours were made YUV with BT.601, so most of the crop's backgrounds clip when drawn as BT.709: luma read
+// from the shown RGB is what can be compared, not the stream's own luma.
+const PICTURE_CROP = { width: 640, height: 256, x: 1280, y: 288 };
+const VIDEO_FIELDS = { first: 120, count: 4 };
+const FILM_FRAMES_2S = { first: 46, count: 6 };
+/** Limited-range BT.709 YUV to full-range RGB, as the deinterlacer's colour pass draws it. */
+const AS_SHOWN = 'scale=in_color_matrix=bt709:in_range=limited:out_range=full:flags=accurate_rnd+full_chroma_int+bitexact,format=rgb24';
+
+/** The luma of each frame ffmpeg writes for `args` (ending with AS_SHOWN) as RGB: BT.709 weights, back to limited range, as the test reads it. */
+function shownLuma(args: string[], width: number, height: number, frames: number, input?: Uint8Array): Uint8Array {
+  const rgb = execFileSync('ffmpeg', ['-v', 'error', ...args, '-frames:v', String(frames), '-pix_fmt', 'rgb24', '-f', 'rawvideo', '-'], {
+    input,
+    maxBuffer: 1 << 30,
+  });
+  if (rgb.length !== frames * width * height * 3) throw new Error(`expected ${frames} RGB frames of ${width}x${height}, got ${rgb.length} bytes`);
+  const out = new Uint8Array(frames * width * height);
+  for (let i = 0; i < out.length; i++) {
+    const yy = 0.2126 * rgb[i * 3]! + 0.7152 * rgb[i * 3 + 1]! + 0.0722 * rgb[i * 3 + 2]!;
+    out[i] = Math.round(16 + (yy * 219) / 255);
+  }
+  return out;
+}
+
+/** An 8-bit grayscale PNG of `luma` (`width` columns), written by ffmpeg with no conversion. */
+function grayPng(luma: Uint8Array, width: number): Uint8Array {
+  const height = luma.length / width;
+  return new Uint8Array(execFileSync('ffmpeg', [
+    '-v', 'error', '-f', 'rawvideo', '-pix_fmt', 'gray', '-s', `${width}x${height}`, '-i', '-',
+    '-frames:v', '1', '-c:v', 'png', '-pix_fmt', 'gray', '-compression_level', '9', '-f', 'image2pipe', '-',
+  ], { input: luma, maxBuffer: 1 << 30 }));
+}
+
+const pc = PICTURE_CROP;
+const pictureBytes = pc.width * pc.height;
+const videoPictures = shownLuma(
+  [...fromH264, '-vf', `${BWDIF},${cropOf(pc)},${AS_SHOWN}`],
+  pc.width,
+  pc.height,
+  VIDEO_FIELDS.first + VIDEO_FIELDS.count,
+  elementary(tff.slice(0, (VIDEO_FIELDS.first + VIDEO_FIELDS.count) / 2 + 1)),
+).subarray(VIDEO_FIELDS.first * pictureBytes);
+// through yuv420p first, as the frames were on their way to the encoder
+const filmPictures = shownLuma(
+  ['-f', 'lavfi', '-i', `testsrc2=size=${SIZE}:rate=${FILM_RATE}`, ...graph(700, `format=yuv420p,${cropOf(pc)},${AS_SHOWN}`)],
+  pc.width,
+  pc.height,
+  FILM_FRAMES_2S.first + FILM_FRAMES_2S.count,
+).subarray(FILM_FRAMES_2S.first * pictureBytes);
+
 const refs = {
   video: { file: 'video.y.gz', playlist: '00000', ...v, frames: 6 },
   videoBwdif: { file: 'video-bwdif.y.gz', playlist: '00000', ...v, frames: 10, of: 'frames 0-4, top field then bottom field' },
   telecine: { file: 'telecine.y.gz', playlist: '00002', ...t, frames: 11 },
   telecineFilm: { file: 'telecine-film.y.gz', playlist: '00002', ...t, frames: 8 },
   smallMover: { file: 'small-mover.y.gz', playlist: null, ...SMALL, frames: 8 },
+  video2s: { file: 'video-2s.png', playlist: '00000', ...pc, pictures: VIDEO_FIELDS.count, of: `bwdif fields ${VIDEO_FIELDS.first}-${VIDEO_FIELDS.first + VIDEO_FIELDS.count - 1}`, firstField: VIDEO_FIELDS.first },
+  film2s: { file: 'film-2s.png', playlist: '00002 and 00003', ...pc, pictures: FILM_FRAMES_2S.count, of: `film frames ${FILM_FRAMES_2S.first}-${FILM_FRAMES_2S.first + FILM_FRAMES_2S.count - 1}`, firstFilmFrame: FILM_FRAMES_2S.first },
 };
 const refDir = join(dirname(outDir), 'deinterlace-ref');
 writeFixture(refDir, new Map([
@@ -172,5 +232,7 @@ writeFixture(refDir, new Map([
   ['telecine.y.gz', gzipSync(telecineFrames, { level: 9 })],
   ['telecine-film.y.gz', gzipSync(film, { level: 9 })],
   ['small-mover.y.gz', gzipSync(smallMover, { level: 9 })],
+  ['video-2s.png', grayPng(videoPictures, pc.width)],
+  ['film-2s.png', grayPng(filmPictures, pc.width)],
 ]));
 console.log(`wrote the deinterlacing references to ${refDir}`);

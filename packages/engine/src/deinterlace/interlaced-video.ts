@@ -19,6 +19,11 @@ export type DeinterlaceBackendFactory = (width: number, height: number, ringSize
 export const WOVEN_OFF = 'Deinterlacing is off';
 /** Why an interlaced session's frames are drawn woven: the browser has no WebGL2 for the deinterlacer. */
 export const WOVEN_NO_WEBGL2 = 'WebGL2 is unavailable';
+/**
+ * Why an interlaced session's frames are drawn woven: the browser's decoder gives them in `format`, not as YUV planes
+ * (I420 or NV12) the deinterlacer can read (Firefox on macOS gives BGRX).
+ */
+export const wovenFrameFormat = (format: string): string => `The browser decodes to ${format}, which the deinterlacer can't read`;
 
 /** What `InterlacedVideo` is built with. */
 export interface InterlacedVideoDeps {

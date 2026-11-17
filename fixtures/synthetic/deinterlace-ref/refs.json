@@ -44,5 +44,27 @@
     "x": 0,
     "y": 0,
     "frames": 8
+  },
+  "video2s": {
+    "file": "video-2s.png",
+    "playlist": "00000",
+    "width": 640,
+    "height": 256,
+    "x": 1280,
+    "y": 288,
+    "pictures": 4,
+    "of": "bwdif fields 120-123",
+    "firstField": 120
+  },
+  "film2s": {
+    "file": "film-2s.png",
+    "playlist": "00002 and 00003",
+    "width": 640,
+    "height": 256,
+    "x": 1280,
+    "y": 288,
+    "pictures": 6,
+    "of": "film frames 46-51",
+    "firstFilmFrame": 46
   }
 }

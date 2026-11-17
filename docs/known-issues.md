@@ -175,6 +175,16 @@ what would change that decision.
   and its frames are drawn as the decoder gives them; telemetry's `deinterlace.woven` says why.
 - **MPEG-2 and VC-1 aren't deinterlaced yet.** The browser has no decoder for them; the in-browser decoder on the
   roadmap will feed the same stage.
+- **Firefox on macOS isn't deinterlaced.** Its WebCodecs decoder gives H.264 frames as BGRX (RGB), not YUV planes, and
+  the deinterlacer reads planes, so those frames are drawn woven and telemetry's `deinterlace.woven` says why (before
+  this was caught the playlist never started). Other browsers give I420 (Chrome) or NV12 (Safari). *Revisit if*
+  Firefox on macOS matters for interlaced discs: the stage could take RGB frames, or the in-browser decoder could
+  decode for it.
+- **Safari's interlaced frames carry frame-sited chroma.** Its decoder's 4:2:0 chroma of a 1080i frame doesn't keep
+  the two fields apart, so colour lags or leads luma by a field on fast-moving coloured edges (the bar of
+  `disc-interlaced` shows a 15 px tint at its edge). Luma is exact. *Revisit if* it shows on a real disc.
+- **At a playlist's end the telemetry's mode reads video early.** The end-of-playlist flush starts the detector over
+  about 0.4 s before the last pictures show; the pictures themselves keep their mode.
 
 ## Menus (HDMV)
 

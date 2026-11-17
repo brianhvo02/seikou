@@ -425,6 +425,12 @@ export type EngineCommand =
   /** Turns deinterlacing of interlaced video on (`auto`) or off; applies at once, reopening an interlaced playlist at the same time. */
   | { readonly type: 'setDeinterlace'; readonly mode: DeinterlaceMode }
   /**
+   * Test-only (E2E, `?telemetry=1`; ignored otherwise): the first video picture drawn at or after playlist time `atUs`
+   * (microseconds) is read back at its own size, before any scaling or overlay, and answered by videoCapture. A later
+   * captureVideo replaces one still waiting.
+   */
+  | { readonly type: 'captureVideo'; readonly atUs: number }
+  /**
    * The player settings (PSR16-20) every disc's registers start with from the next open: the person's disc
    * preferences, resolved by the page. A setting left out keeps libbluray's default.
    */
@@ -665,6 +671,11 @@ export type EngineEvent =
   | { readonly type: 'videoHdr'; readonly hdr: boolean }
   /** The answer to readPlace. */
   | ({ readonly type: 'placeState' } & PlaceState)
+  /**
+   * The answer to captureVideo (test-only): the picture shown at `timestampUs` (playlist time), `width` x `height` RGBA,
+   * `deinterlaced` when the deinterlacer drew it (else a decoded frame as it is).
+   */
+  | { readonly type: 'videoCapture'; readonly timestampUs: number; readonly width: number; readonly height: number; readonly rgba: Uint8ClampedArray; readonly deinterlaced: boolean }
   /**
    * An open's start point could not be used: its playlist is not on the disc (nothing plays, the state is idle), or its
    * time is at or past the playlist's end (it plays from the beginning).

@@ -1,5 +1,5 @@
 import type { MemoryProfileName } from '../memory-profile';
-import type { Telemetry } from '../protocol';
+import type { EngineCommand, EngineEvent, Telemetry } from '../protocol';
 import { AudioOutput } from './audio-output';
 import { PlayerController } from './player-controller';
 
@@ -22,7 +22,8 @@ export interface CreateControllerOptions {
  * @example ../../examples/create-controller.browser.ts
  */
 export function createController(options: CreateControllerOptions): PlayerController {
-  const controller = new PlayerController(options.worker(), new AudioOutput(), options.failElementAppends ? { failElementAppends: true } : {});
+  const worker = options.worker();
+  const controller = new PlayerController(worker, new AudioOutput(), options.failElementAppends ? { failElementAppends: true } : {});
   controller.setMemoryProfile(options.profile);
   // what a BD-J disc saved in its last seconds is stored before the page goes (iOS often skips pagehide: hidden too)
   addEventListener('pagehide', () => controller.flushSaves());
@@ -36,6 +37,30 @@ export function createController(options: CreateControllerOptions): PlayerContro
     controller.subscribe(() => {
       target.__blurayTelemetry = controller.getSnapshot().telemetry;
     });
+    exposeVideoCapture(worker);
   }
   return controller;
+}
+
+/** The engine's answer to captureVideo, as window.__blurayCaptureVideo resolves it (test-only). */
+type VideoCapture = Omit<Extract<EngineEvent, { type: 'videoCapture' }>, 'type'>;
+
+/**
+ * Test-only (E2E): window.__blurayCaptureVideo(atUs) asks the engine for the first video picture drawn at or after
+ * playlist time `atUs` and resolves with it (captureVideo); a second call before the answer replaces the first.
+ */
+function exposeVideoCapture(worker: Worker): void {
+  let waiting: ((capture: VideoCapture) => void) | null = null;
+  worker.addEventListener('message', (event: MessageEvent<EngineEvent>) => {
+    const e = event.data;
+    if (e.type !== 'videoCapture' || !waiting) return;
+    const { type: _, ...capture } = e;
+    waiting(capture);
+    waiting = null;
+  });
+  (window as unknown as { __blurayCaptureVideo?: (atUs: number) => Promise<VideoCapture> }).__blurayCaptureVideo = (atUs) =>
+    new Promise((resolve) => {
+      waiting = resolve;
+      worker.postMessage({ type: 'captureVideo', atUs } satisfies EngineCommand);
+    });
 }

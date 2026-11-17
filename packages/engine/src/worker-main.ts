@@ -43,7 +43,7 @@ export interface WorkerScope {
  * - nodecoder (?nodecoder=1): the browser supports no video decoder configuration, so a decoder that fails to configure
  *   (UnsupportedCodecError) can be seen in any browser;
  * - telemetry (?telemetry=1): telemetry carries the BD-J plane's settled hash (PlayerDeps.planeHashTelemetry) and BD-J's
- *   memory (PlayerDeps.memoryTelemetry).
+ *   memory (PlayerDeps.memoryTelemetry), and the captureVideo command is answered (PlayerDeps.videoCapture).
  */
 export function engineWorkerTestFlags(): ReadonlySet<string> {
   return new Set(((self as unknown as { name?: string }).name ?? '').split(':')[1]?.split(',') ?? []);
@@ -91,6 +91,7 @@ export function startEngineWorker(options: EngineWorkerOptions): Player {
     createAudioDecoder: createAudioDecoderFactory(() => loadAudioWasm(fetch(audioWasmUrl, { signal: AbortSignal.timeout(ASSET_FETCH_TIMEOUT_MS) }))),
     planeHashTelemetry: testFlags.has('telemetry'),
     memoryTelemetry: testFlags.has('telemetry'),
+    videoCapture: testFlags.has('telemetry'),
     ...(bdj ? { bdj } : {}),
     // buffer first: a NAS disc's on-disk read-ahead cache, written through sync access handles (dedicated workers only)
     ...(readAheadCacheSupported() ? { readAheadCacheRoot: () => navigator.storage.getDirectory() } : {}),
