@@ -62,7 +62,7 @@ export interface DeinterlaceStats {
 /** What a `Deinterlacer` is built with. */
 export interface DeinterlacerDeps {
   readonly backend: DeinterlaceBackend;
-  /** Slots in the ring (about 12 at desktop, 8 under the constrained memory profile). */
+  /** Slots in the ring (12 at desktop, 10 under the constrained memory profile). */
   readonly ringSize: number;
   /** The stream's frame duration in microseconds. */
   readonly frameDurationUs: number;
@@ -144,7 +144,12 @@ export class Deinterlacer {
   private generation = 0;
   /** Bumped by `reset` and by a new stream after a flush: measurements of an earlier one are ignored. */
   private stream = 0;
+  /** A flush is draining the old stream: frames pushed meanwhile wait in `deferred` for the new one. */
   private flushing = false;
+  private deferred: Array<{ readonly slot: number; readonly input: FieldInput }> = [];
+  private flushDone: (() => void) | null = null;
+  private flushReject: ((err: Error) => void) | null = null;
+  private flushPromise: Promise<void> | null = null;
   private lastImage: OffscreenCanvas | null = null;
   private failure: Error | null = null;
 
@@ -188,14 +193,31 @@ export class Deinterlacer {
   /**
    * Adds one decoded frame: uploads its planes (before returning, so the caller may reuse the buffer), measures the
    * frame before it now that its next frame is in, and hands out the pictures the detector decides, through
-   * `onPictures`, as measurements come back. Throws when no slot is free. A push after `flush` starts a new stream.
+   * `onPictures`, as measurements come back. Throws when no slot is free. A push after `flush` starts a new stream;
+   * while the flush is still draining, the frame is uploaded at once and joins the new stream once the old one has
+   * drained, so no frame is lost. An upload that fails (a lost WebGL context) sets `error` instead of throwing, and
+   * once `error` is set pushes do nothing.
    */
   push(input: FieldInput): void {
-    if (this.flushing) this.restart();
+    if (this.failure) return;
     const slot = this.refs.indexOf(0);
     if (slot < 0) throw new Error('deinterlacer: no free ring slot (decode-ahead must wait for freeSlots())');
-    this.backend.upload(slot, input.planes);
+    try {
+      this.backend.upload(slot, input.planes);
+    } catch (err) {
+      this.fail(err);
+      return;
+    }
     this.refs[slot] = 1;
+    if (this.flushing) {
+      this.deferred.push({ slot, input });
+      return;
+    }
+    this.admit(slot, input);
+  }
+
+  /** Puts an uploaded frame into the current stream and measures the frame before it. */
+  private admit(slot: number, input: FieldInput): void {
     const frame: RingFrame = {
       seq: this.nextSeq++,
       slot,
@@ -215,14 +237,23 @@ export class Deinterlacer {
 
   /**
    * End of stream: measures the last frame with no next frame, and once every measurement is back, plans the frames
-   * still waiting for lookahead and releases the ring's own hold on every slot (open pictures keep theirs).
+   * still waiting for lookahead and releases the ring's own hold on every slot (open pictures keep theirs). Resolves
+   * once that is done (every picture of the stream handed out), or when `reset` abandons it; rejects with `error`
+   * when a measurement fails. Frames pushed before it resolves start the next stream.
    */
-  flush(): void {
-    if (this.flushing) return;
+  flush(): Promise<void> {
+    if (this.flushPromise) return this.flushPromise;
+    if (this.failure) return Promise.reject(this.failure);
     this.flushing = true;
+    const promise = new Promise<void>((resolve, reject) => {
+      this.flushDone = resolve;
+      this.flushReject = reject;
+    });
+    this.flushPromise = promise;
     const last = this.frames.get(this.nextSeq - 1);
     if (last && !last.measure) this.measure(last, null);
     this.drain();
+    return promise;
   }
 
   /**
@@ -234,8 +265,10 @@ export class Deinterlacer {
     this.generation++;
     for (const p of this.pictures) p.orphan();
     this.pictures.clear();
+    this.deferred = [];
     this.restart();
     this.refs.fill(0);
+    this.endFlush();
   }
 
   /** Draws the picture into the backend's canvas (the same canvas every call, valid until the next render). */
@@ -246,7 +279,12 @@ export class Deinterlacer {
       if (this.lastImage) return this.lastImage;
       throw new Error('deinterlacer: the picture is closed or from before a reset');
     }
-    this.lastImage = this.backend.render(picture.op, picture.slots, picture.fieldOrder, picture.matrix);
+    try {
+      this.lastImage = this.backend.render(picture.op, picture.slots, picture.fieldOrder, picture.matrix);
+    } catch (err) {
+      this.fail(err);
+      throw err;
+    }
     return this.lastImage;
   }
 
@@ -254,6 +292,27 @@ export class Deinterlacer {
   dispose(): void {
     this.reset();
     this.backend.dispose();
+  }
+
+  /** Records why the deinterlacer stopped (the first failure wins) and settles a flush waiting on it. */
+  private fail(err: unknown): void {
+    if (!this.failure) this.failure = err instanceof Error ? err : new Error(String(err));
+    const reject = this.flushReject;
+    this.flushDone = null;
+    this.flushReject = null;
+    this.flushPromise = null;
+    this.flushing = false;
+    reject?.(this.failure);
+  }
+
+  /** Settles the flush: it has drained (or was abandoned by a reset). */
+  private endFlush(): void {
+    const done = this.flushDone;
+    this.flushDone = null;
+    this.flushReject = null;
+    this.flushPromise = null;
+    this.flushing = false;
+    done?.();
   }
 
   /**
@@ -284,8 +343,8 @@ export class Deinterlacer {
         this.drain();
       },
       (err: unknown) => {
-        if (stream !== this.stream || this.failure) return;
-        this.failure = err instanceof Error ? err : new Error(String(err));
+        if (stream !== this.stream) return;
+        this.fail(err);
       },
     );
   }
@@ -308,6 +367,14 @@ export class Deinterlacer {
       if (f.seq < plannedThrough || finished) this.releaseFrame(f);
     }
     if (pictures.length > 0) this.onPictures(pictures);
+    if (finished) {
+      // The old stream is done: the frames pushed while it drained start the next one.
+      const waiting = this.deferred;
+      this.deferred = [];
+      this.restart();
+      this.endFlush();
+      for (const w of waiting) this.admit(w.slot, w.input);
+    }
   }
 
   private releaseFrame(f: RingFrame): void {

@@ -229,6 +229,78 @@ describe('Deinterlacer', () => {
     expect(t.d.freeSlots()).toBe(12);
   });
 
+  it('a push right after flush waits for the old stream to drain, and no frame is lost', async () => {
+    const t = setup({ ringSize: 20, deferred: true, metrics: CLEAN });
+    for (let i = 0; i < 4; i++) t.d.push(input(i));
+    let drained = false;
+    const flushed = t.d.flush().then(() => {
+      drained = true;
+    });
+    // The next stream's first frames arrive before the old stream's measurements are back.
+    for (let i = 10; i < 13; i++) t.d.push(input(i));
+    expect(t.uploads).toHaveLength(7);
+    for (let i = 0; i < 4; i++) t.measures[i]!.resolve(CLEAN);
+    await flushed;
+    expect(drained).toBe(true);
+    expect(t.pictures.map((p) => p.timestamp)).toEqual([0, 1, 2, 3].map((i) => i * FRAME_US));
+    // The new stream starts with no previous neighbour, measured against its own frames only.
+    expect(t.measures.slice(4).map((m) => [m.prev, m.cur, m.next])).toEqual([
+      [null, t.uploads[4]!.slot, t.uploads[5]!.slot],
+      [t.uploads[4]!.slot, t.uploads[5]!.slot, t.uploads[6]!.slot],
+    ]);
+    const second = t.d.flush();
+    for (const m of t.measures.slice(4)) m.resolve(CLEAN);
+    await second;
+    // Three frames are too few to be taken for progressive: the new stream starts as video, two fields a frame.
+    const after = t.pictures.slice(4).map((p) => p.timestamp);
+    const want = [10, 10.5, 11, 11.5, 12, 12.5].map((i) => i * FRAME_US);
+    expect(after).toHaveLength(want.length);
+    after.forEach((ts, i) => expect(ts).toBeCloseTo(want[i]!, 6));
+  });
+
+  it('flush resolves at once with nothing pushed', async () => {
+    const t = setup();
+    await expect(t.d.flush()).resolves.toBeUndefined();
+  });
+
+  it('an upload that throws (a lost context) sets error instead of throwing from push', () => {
+    const t = setup();
+    const d = new Deinterlacer({
+      backend: {
+        ...t.backend,
+        upload: () => {
+          throw new Error('WebGL context lost');
+        },
+      },
+      ringSize: 12,
+      frameDurationUs: FRAME_US,
+      onPictures: () => {},
+    });
+    expect(() => d.push(input(0))).not.toThrow();
+    expect(d.error?.message).toBe('WebGL context lost');
+    expect(d.freeSlots()).toBe(12);
+  });
+
+  it('a render that throws sets error and throws', async () => {
+    const t = setup({ ringSize: 30 });
+    const pictures: Picture[] = [];
+    const d = new Deinterlacer({
+      backend: {
+        ...t.backend,
+        render: () => {
+          throw new Error('WebGL context lost');
+        },
+      },
+      ringSize: 30,
+      frameDurationUs: FRAME_US,
+      onPictures: (p) => pictures.push(...p),
+    });
+    for (let i = 0; i < 10; i++) d.push(input(i));
+    await settle();
+    expect(() => d.render(pictures[0]!)).toThrow('WebGL context lost');
+    expect(d.error?.message).toBe('WebGL context lost');
+  });
+
   it('stats report the detector, the ring and the backend', () => {
     const t = setup({ ringSize: 8 });
     expect(t.d.stats).toEqual({
