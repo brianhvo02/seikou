@@ -35,9 +35,14 @@ export interface FrameMetrics {
   readonly combMatchNext: number;
   /** Mean absolute difference of this frame from the previous, 0 to 1 (for decimation). */
   readonly diffPrev: number;
-  /** Field-order evidence: how inconsistent the motion is if the top field is first (lower is likelier) … */
+  /**
+   * Field-order evidence: how inconsistent the motion is if the top field is first (lower is likelier): the combing
+   * pixels (the 3-px rule above, counted over the whole frame, not per window) of its top field with the previous
+   * frame's bottom field plus those of its bottom field with the next frame's top field, divided by width x height, a
+   * missing neighbour's term 0 …
+   */
   readonly motionTff: number;
-  /** … and if the bottom field is first. */
+  /** … and if the bottom field is first: its bottom field with the previous top, plus its top field with the next bottom. */
   readonly motionBff: number;
 }
 

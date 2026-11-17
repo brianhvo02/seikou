@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ShaderSetData, ShaderState } from '../protocol';
 import type { ShaderPass } from './parse';
 import { ShaderStage } from './stage';
@@ -20,7 +20,7 @@ interface PendingCompile {
 
 function fakeBackend() {
   const compiles: PendingCompile[] = [];
-  const renders: Array<{ set: FakeSet; frame: VideoFrame; output: { width: number; height: number } }> = [];
+  const renders: Array<{ set: FakeSet; frame: VideoFrame | OffscreenCanvas; output: { width: number; height: number } }> = [];
   const images = new Map<number, OffscreenCanvas>();
   const state = { renderError: null as Error | null };
   const imageOf = (set: FakeSet): OffscreenCanvas => {
@@ -87,6 +87,35 @@ describe('ShaderStage', () => {
     expect(t.renders[1]!.output).toEqual({ width: 1280, height: 720 });
     t.stage.process(frame(), { width: 1280, height: 720 });
     expect(t.renders).toHaveLength(3);
+  });
+
+  describe('a canvas source (the deinterlacer\'s picture)', () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it('is shaded on every call, since its pixels change under one identity, unless the caller gives a key', async () => {
+      class FakeCanvas {
+        width = 1920;
+        height = 1080;
+      }
+      vi.stubGlobal('OffscreenCanvas', FakeCanvas);
+      const t = setup();
+      t.stage.setSet(set('A'));
+      t.compiles[0]!.resolve();
+      await settle();
+      const canvas = new FakeCanvas() as unknown as OffscreenCanvas;
+      expect(t.stage.process(canvas, OUT)).toBe(t.imageOf(t.compiles[0]!.set));
+      t.stage.process(canvas, OUT);
+      expect(t.renders).toHaveLength(2);
+      expect(t.renders[1]!.frame).toBe(canvas);
+      const key = {};
+      t.stage.process(canvas, OUT, key);
+      t.stage.process(canvas, OUT, key);
+      expect(t.renders).toHaveLength(3);
+      t.stage.process(canvas, OUT, {});
+      expect(t.renders).toHaveLength(4);
+    });
   });
 
   it('keeps shading with A while B compiles, and switches back to a cached A at once', async () => {
