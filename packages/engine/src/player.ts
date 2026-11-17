@@ -3332,7 +3332,9 @@ export class Player {
       } else frame.close();
     };
     decoder.onFieldInput = session.deinterlace ? (input) => this.onFieldInput(session, input) : null;
-    decoder.onFieldsUnreadable = (format) => this.deinterlaceFailed(session, wovenFrameFormat(format));
+    decoder.onFieldsUnreadable = (format) => {
+      if (this.session === session) this.deinterlaceFailed(session, wovenFrameFormat(format));
+    };
     decoder.onError = (err) => this.onDecoderError(session, err);
   }
 

@@ -32,7 +32,7 @@ import { ShaderStage } from './shaders/stage';
 import type { DrawnPicture } from './render/compositor';
 import type { FrameMetrics, PictureOp } from './deinterlace/cadence';
 import { Deinterlacer, type DeinterlaceBackend, type Picture } from './deinterlace/deinterlacer';
-import { WOVEN_NO_WEBGL2, WOVEN_OFF, wovenFrameFormat, wovenSoftwareRenderer } from './deinterlace/interlaced-video';
+import { InterlacedVideo, WOVEN_NO_WEBGL2, WOVEN_OFF, wovenFrameFormat, wovenSoftwareRenderer } from './deinterlace/interlaced-video';
 import { SIM_COMB_CLEAN, SIM_COMB_HIGH, SIM_DIFF_HIGH, completeFilmFrames, telecine } from './deinterlace/metric-sequences';
 import { VideoPresenter, type PresentableFrame } from './render/video-presenter';
 
@@ -3818,6 +3818,32 @@ describe('Player with interlaced video (deinterlacing)', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("a stale session's decoder saying its frames are unreadable changes nothing for the playing session", async () => {
+    const fake = fakeDeinterlace();
+    const h = await harness(CodingType.LPCM, { videoFormat: 4, videoCodecApi: interlacedApi, createDeinterlaceBackend: fake.factory });
+    const decoderOf = (): { onFieldsUnreadable: ((format: string) => void) | null } | null =>
+      (h.player as unknown as { session: { decoder: { onFieldsUnreadable: ((format: string) => void) | null } | null } | null }).session?.decoder ?? null;
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await h.play(300);
+    const stale = decoderOf()!;
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' }); // a new session
+    await untilPlaying(h);
+    await h.play(300);
+    expect(decoderOf()).not.toBe(stale);
+    const resets = vi.spyOn(InterlacedVideo.prototype, 'reset');
+    try {
+      stale.onFieldsUnreadable?.('BGRX');
+      expect(resets).not.toHaveBeenCalled();
+    } finally {
+      resets.mockRestore();
+    }
+    expect(h.player.deinterlaceState.woven).toBeNull();
+    const before = fake.ops.length;
+    await h.play(300);
+    expect(fake.ops.length).toBeGreaterThan(before); // still deinterlacing
   });
 
   it('frames the decoder gives as RGB (Firefox on macOS): woven frames, no decoder error, and telemetry says why', async () => {
