@@ -158,6 +158,24 @@ what would change that decision.
   would have to be presented through WebGPU. *Revisit if* a 2D canvas gains an HDR mode, or the owner picks the WebGPU
   route and a white level.
 
+## Deinterlacing
+
+- **How it decides.** Interlaced video (480i, 576i and 1080i by the CLPI's format) goes through a WebGL2 deinterlacer
+  on the canvas path. Live footage is deinterlaced to the field rate (bwdif); 3:2 film, hard or soft pulldown, is
+  reassembled to 23.976; a cadence detector chooses per scene and falls back to video when the pattern breaks.
+  *Revisit if* a disc is misjudged (telemetry's `deinterlace` shows the mode, locks and breaks).
+- **After a seek, film is recognised late.** The detector needs about three 5-frame cycles (about 0.5 s) to lock, and
+  shows field-rate pictures until then. Left, because a wrong early lock would be worse than half a second of video mode.
+- **Faint combing under 3 px isn't counted.** Sharp near-vertical edges moving 1 to 2 px a field don't pass the
+  detector's combing measure, so a nearly still scene may be woven, with faint jaggies. *Revisit if* it is noticed on a
+  real disc.
+- **A play item change flushes the deinterlacer.** The item's last frames are kept, and the detector locks again
+  after the change, so film is field-rate for about half a second at the start of each item.
+- **A lost WebGL context falls back to woven frames for the session.** The playlist is reread from the current time
+  and its frames are drawn as the decoder gives them; telemetry's `deinterlace.woven` says why.
+- **MPEG-2 and VC-1 aren't deinterlaced yet.** The browser has no decoder for them; the in-browser decoder on the
+  roadmap will feed the same stage.
+
 ## Menus (HDMV)
 
 - **Menu sounds are verified on synthetic data only.** `disc-menu` carries a `sound.bdmv`; none of the local discs

@@ -9,7 +9,7 @@ import type { LevelState } from './nas/level-session';
 import { QualityMenu } from './QualityMenu';
 import { ShaderMenu } from './ShaderMenu';
 import { VideoOutputMenu } from './VideoOutputMenu';
-import { videoOutputSetting } from './video-output';
+import { deinterlaceSetting, videoOutputSetting } from './video-output';
 import type { ShaderModel, ShaderModelState } from './shader-model';
 import { SubtitleMenu, type StoredSubtitles } from './SubtitleMenu';
 import type { ToshoSearch } from './ToshoSearch';
@@ -154,6 +154,7 @@ interface ControlBarProps {
  */
 export function ControlBar({ controller, snapshot, shaderModel, shaderState, visible, onOpenPlaylists, onFullscreen, onMenuKey, remoteOpen, onToggleRemote, onMenuOpenChange, onSubtitleFiles, storedSubtitles = null, toshoSearch = null, quality = null, encode = null, onPreferences }: ControlBarProps): ReactElement {
   const videoOutput = useSyncExternalStore(videoOutputSetting().subscribe, videoOutputSetting().get);
+  const deinterlace = useSyncExternalStore(deinterlaceSetting().subscribe, deinterlaceSetting().get);
   const playing = snapshot.engineState === 'playing' || snapshot.engineState === 'buffering';
   const silent = snapshot.muted || snapshot.volume === 0;
   const masked = (op: UoOp): boolean => snapshot.uoMask.includes(op);
@@ -241,6 +242,11 @@ export function ControlBar({ controller, snapshot, shaderModel, shaderState, vis
             onPick={(path) => {
               videoOutputSetting().choose(path);
               controller.setVideoPath(path);
+            }}
+            deinterlace={deinterlace}
+            onDeinterlace={(mode) => {
+              deinterlaceSetting().choose(mode);
+              controller.setDeinterlace(mode);
             }}
             onOpenChange={onMenuOpenChange}
           />

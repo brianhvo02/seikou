@@ -5,7 +5,7 @@ import type { PlayerSettings } from '../disc/player-settings';
 import type { UoOp } from '../hdmv/uo-mask';
 import type { Chapter } from '../nav/timeline';
 import type { MemoryProfileName } from '../memory-profile';
-import type { AudioTrack, BufferRequest, EncodeSpec, EngineCommand, EngineEvent, ErrorCode, MenuKey, PlaceState, PlaybackState, ShaderSetData, ShaderState, StartPoint, SubtitleChoice, Telemetry, VideoPath } from '../protocol';
+import type { AudioTrack, BufferRequest, EncodeSpec, EngineCommand, EngineEvent, ErrorCode, MenuKey, PlaceState, PlaybackState, ShaderSetData, ShaderState, StartPoint, SubtitleChoice, Telemetry, VideoPath, DeinterlaceMode } from '../protocol';
 import { elementCheck } from './element-caps';
 import { type ElementAnswer, ElementVideoOutput, type MediaSourceLike } from './element-output';
 import { trackLabel } from './language';
@@ -572,6 +572,15 @@ export class PlayerController {
    */
   setVideoPath(path: VideoPath): void {
     this.post({ type: 'setVideoPath', path });
+  }
+
+  /**
+   * Turns deinterlacing of interlaced video (480i, 576i and 1080i discs, drawn on the canvas) on (`auto`) or off (its
+   * frames are drawn woven, as the decoder gives them). Applies at once: a playlist playing reopens at the same time.
+   * @example ../../examples/player-controller.browser.ts#setDeinterlace
+   */
+  setDeinterlace(mode: DeinterlaceMode): void {
+    this.post({ type: 'setDeinterlace', mode });
   }
 
   /**

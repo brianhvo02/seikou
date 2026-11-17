@@ -1,17 +1,21 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import type { DeinterlaceMode } from '@seikou/engine/protocol';
 import { VideoOutputMenu } from './VideoOutputMenu';
 import { HdrBadge } from './HdrBadge';
 
 afterEach(cleanup);
 
+const menu = (props: { value?: 'auto' | 'element' | 'canvas'; onPick?: (p: string) => void; deinterlace?: DeinterlaceMode; onDeinterlace?: (m: DeinterlaceMode) => void }): ReturnType<typeof render> =>
+  render(<VideoOutputMenu value={props.value ?? 'auto'} onPick={props.onPick ?? (() => undefined)} deinterlace={props.deinterlace ?? 'auto'} onDeinterlace={props.onDeinterlace ?? (() => undefined)} onOpenChange={() => undefined} />);
+
 describe('VideoOutputMenu', () => {
   it('lists the three options with the current one checked, and picks one', () => {
     const onPick = vi.fn();
-    render(<VideoOutputMenu value="auto" onPick={onPick} onOpenChange={() => undefined} />);
+    menu({ onPick });
     fireEvent.click(screen.getByTestId('video-output-menu'));
-    const items = screen.getAllByRole('menuitemradio');
+    const items = screen.getAllByRole('menuitemradio').filter((i) => i.hasAttribute('data-path'));
     expect(items.map((i) => [i.getAttribute('data-path'), i.textContent, i.getAttribute('aria-checked')])).toEqual([
       ['auto', "Auto (HDR through the browser's video player)", 'true'],
       ['element', 'Always the video player', 'false'],
@@ -24,10 +28,29 @@ describe('VideoOutputMenu', () => {
 
   it('does not repeat the current one', () => {
     const onPick = vi.fn();
-    render(<VideoOutputMenu value="element" onPick={onPick} onOpenChange={() => undefined} />);
+    menu({ value: 'element', onPick });
     fireEvent.click(screen.getByTestId('video-output-menu'));
     fireEvent.click(screen.getAllByRole('menuitemradio')[1]);
     expect(onPick).not.toHaveBeenCalled();
+  });
+
+  it('lists Deinterlacing Auto (checked) and Off, and picks Off', () => {
+    const onDeinterlace = vi.fn();
+    menu({ onDeinterlace });
+    fireEvent.click(screen.getByTestId('video-output-menu'));
+    expect(screen.getByText('Deinterlacing')).toBeTruthy();
+    expect(screen.getByTestId('deinterlace-auto').getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByTestId('deinterlace-off').getAttribute('aria-checked')).toBe('false');
+    fireEvent.click(screen.getByTestId('deinterlace-auto'));
+    expect(onDeinterlace).not.toHaveBeenCalled();
+  });
+
+  it('calls onDeinterlace with off when Off is picked', () => {
+    const onDeinterlace = vi.fn();
+    menu({ onDeinterlace });
+    fireEvent.click(screen.getByTestId('video-output-menu'));
+    fireEvent.click(screen.getByTestId('deinterlace-off'));
+    expect(onDeinterlace).toHaveBeenCalledWith('off');
   });
 });
 

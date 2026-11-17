@@ -53,7 +53,11 @@ export type {
   NoticeCode,
   ErrorCode,
   VideoPath,
+  DeinterlaceMode,
+  DeinterlaceTelemetry,
 } from './protocol';
+// What the deinterlacer reports in telemetry.
+export type { DeinterlaceStats } from './deinterlace/deinterlacer';
 // BD-J memory figures that telemetry reports.
 export type { JvmMemoryStats } from './bdj-types';
 // Which clock playback runs on.

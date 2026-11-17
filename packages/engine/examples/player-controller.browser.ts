@@ -98,6 +98,10 @@ async function tour(controller: PlayerController, canvas: HTMLCanvasElement, sen
   controller.setVideoPath('auto'); // 'element', 'canvas' or 'auto'; before opening a disc
   // #endregion
 
+  // #region setDeinterlace
+  controller.setDeinterlace('auto'); // or 'off' to draw interlaced video woven; applies at once
+  // #endregion
+
   // #region setDiscPreferences
   controller.setDiscPreferences({ audioLanguage: 'jpn', pgLanguage: 'eng', menuLanguage: 'eng', country: 'us', region: 1 }); // before opening
   // #endregion

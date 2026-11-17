@@ -16,6 +16,7 @@ import type { PlaylistSummary } from './disc/open-disc';
 import type { PlayerSettings } from './disc/player-settings';
 import type { UoOp } from './hdmv/uo-mask';
 import type { Chapter } from './nav/timeline';
+import type { DeinterlaceStats } from './deinterlace/deinterlacer';
 
 /**
  * What the player is doing: nothing open or between playlists (`idle`), opening a disc (`loading`), `paused`, waiting for
@@ -31,6 +32,21 @@ export type PlaybackState = 'idle' | 'loading' | 'paused' | 'buffering' | 'playi
  * configure (one it can't still goes to the element, without the shaders).
  */
 export type VideoPath = 'auto' | 'element' | 'canvas';
+
+/** The deinterlacing setting: `auto` deinterlaces interlaced video on the canvas path, `off` draws its frames woven. */
+export type DeinterlaceMode = 'auto' | 'off';
+
+/**
+ * What deinterlacing is doing for the playing interlaced playlist: the `setting`, `stats` while the deinterlacer runs
+ * (its field order and where it came from, the cadence mode, locks and breaks, GPU time per picture (null where the
+ * browser has no timer query), ring size and `fallback`), and `woven`, the reason the frames are drawn woven (the
+ * setting is off, no WebGL2, the GPU failed) or null while they are deinterlaced.
+ */
+export interface DeinterlaceTelemetry {
+  readonly setting: DeinterlaceMode;
+  readonly stats: DeinterlaceStats | null;
+  readonly woven: string | null;
+}
 
 /**
  * A stream's HDR facts, which the page needs to tell whether its video element can show it: the transfer function
@@ -189,6 +205,8 @@ export interface Telemetry {
    * that plays on the canvas shows why; null when the playlist asked nothing (or none plays).
    */
   readonly elementQuery: ElementQueryTelemetry | null;
+  /** Deinterlacing of the playing playlist; null for progressive video (and when none plays). */
+  readonly deinterlace: DeinterlaceTelemetry | null;
 }
 
 /** What BD-J holds in memory, so the budgets of the constrained memory profile can be checked on a device; sizes in bytes. */
@@ -404,6 +422,8 @@ export type EngineCommand =
   | { readonly type: 'setLevel'; readonly disc: RemoteDiscSpec; readonly audio?: number }
   /** Which path draws H.264 and HEVC video: the page's video element, the canvas, or the engine's choice. */
   | { readonly type: 'setVideoPath'; readonly path: VideoPath }
+  /** Turns deinterlacing of interlaced video on (`auto`) or off; applies at once, reopening an interlaced playlist at the same time. */
+  | { readonly type: 'setDeinterlace'; readonly mode: DeinterlaceMode }
   /**
    * The player settings (PSR16-20) every disc's registers start with from the next open: the person's disc
    * preferences, resolved by the page. A setting left out keeps libbluray's default.

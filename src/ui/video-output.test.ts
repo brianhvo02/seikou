@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { VIDEO_OUTPUT_KEY, VideoOutputSetting, initialVideoPath } from './video-output';
+import { DEINTERLACE_KEY, DeinterlaceSetting, VIDEO_OUTPUT_KEY, VideoOutputSetting, initialVideoPath } from './video-output';
 
 function memory(): Storage {
   const map = new Map<string, string>();
@@ -73,5 +73,34 @@ describe('initialVideoPath', () => {
     expect(initialVideoPath(new VideoOutputSetting({ storage: () => storage, params: new URLSearchParams('') }))).toBe('auto');
     storage.setItem(VIDEO_OUTPUT_KEY, 'element');
     expect(initialVideoPath(new VideoOutputSetting({ storage: () => storage, params: new URLSearchParams('') }))).toBe('element');
+  });
+});
+
+describe('DeinterlaceSetting', () => {
+  const make = (storage: Storage | null): DeinterlaceSetting => new DeinterlaceSetting({ storage: () => storage });
+
+  it('is auto on a new device, and saves and reads back off under bluray-web:deinterlace', () => {
+    const storage = memory();
+    const a = make(storage);
+    expect(a.get()).toBe('auto');
+    let calls = 0;
+    a.subscribe(() => calls++);
+    a.choose('off');
+    expect(calls).toBe(1);
+    expect(DEINTERLACE_KEY).toBe('bluray-web:deinterlace');
+    expect(storage.getItem(DEINTERLACE_KEY)).toBe('off');
+    expect(make(storage).get()).toBe('off');
+  });
+
+  it('reads an unknown value, missing storage and storage that throws as auto, and still holds a choice', () => {
+    const storage = memory();
+    storage.setItem(DEINTERLACE_KEY, 'bwdif');
+    expect(make(storage).get()).toBe('auto');
+    for (const s of [null, throwing()]) {
+      const d = make(s);
+      expect(d.get()).toBe('auto');
+      d.choose('off');
+      expect(d.get()).toBe('off');
+    }
   });
 });

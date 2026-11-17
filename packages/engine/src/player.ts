@@ -90,7 +90,7 @@ import type { ColourDescription } from '@seikou/bdmv/codecs/param-sets';
 import { ElementCodecQueries, ElementSession } from './element/element-session';
 import type { Mat3 } from '@seikou/ass/transform';
 import type { AssTrack } from '@seikou/ass/types';
-import { BDJ_STORAGE_MESSAGE, ENCODE_FILE, ENCODE_PLAYLIST_ID, NO_PICTURE_MESSAGE, type AudioTrack, type EncodeSpec, type BufferRequest, type BdjMemoryTelemetry, type EngineCommand, type EngineEvent, type FileData, type MenuKey, type NoticeCode, type PlaceState, type PgTrack, type PlaybackState, type ElementQuery, type ElementQueryTelemetry, type ShaderSetData, type StartPoint, type SubtitleChoice, type VideoPath } from './protocol';
+import { BDJ_STORAGE_MESSAGE, ENCODE_FILE, ENCODE_PLAYLIST_ID, NO_PICTURE_MESSAGE, type AudioTrack, type EncodeSpec, type BufferRequest, type BdjMemoryTelemetry, type DeinterlaceTelemetry, type EngineCommand, type EngineEvent, type FileData, type MenuKey, type NoticeCode, type PlaceState, type PgTrack, type PlaybackState, type ElementQuery, type ElementQueryTelemetry, type ShaderSetData, type StartPoint, type SubtitleChoice, type VideoPath } from './protocol';
 import type { CompositorLike, DrawnPicture, TextRendererLike } from './render/compositor';
 import { ShaderStage } from './shaders/stage';
 import { UNAVAILABLE, type ShaderBackend } from './shaders/webgl-backend';
@@ -832,6 +832,9 @@ export class Player {
         case 'setVideoPath':
           this.videoPath = cmd.path; // from the next session on
           break;
+        case 'setDeinterlace':
+          await this.setDeinterlace(cmd.mode);
+          break;
         case 'setDiscPreferences':
           this.playerSettings = cmd.settings; // from the next disc open on
           break;
@@ -1058,6 +1061,13 @@ export class Player {
     const disc = this.disc;
     if (!s || !disc || !s.interlaced || !s.decoder || this.state === 'error') return;
     await this.restart(disc, this.restartPoint(s));
+  }
+
+  /** Telemetry's deinterlacing field: null unless the playing session is interlaced. */
+  private deinterlaceTelemetry(s: Session | null): DeinterlaceTelemetry | null {
+    if (!s?.interlaced) return null;
+    const { setting, woven, stats } = this.deinterlaceState;
+    return { setting, woven, stats };
   }
 
   /** The deinterlacing state: the setting, why the playing interlaced video is drawn woven (null when it isn't), and the deinterlacer's stats while it runs. */
@@ -4221,6 +4231,7 @@ export class Player {
         elementFailure: this.elementFailure,
         videoHdr: this.videoHdr,
         elementQuery: s?.elementQuery ?? null,
+        deinterlace: this.deinterlaceTelemetry(s),
         bdj: this.bdjStartup ? { ...this.bdjStartup, inputLatencyMs: this.bdjLatency?.stats ?? null } : null,
         ...(this.deps.memoryTelemetry ? { bdjMemory: this.bdjMemory() } : {}),
         bdjPlane: this.bdj ? { flushes: this.bdj.plane.flushCount(), tapsIgnored: this.bdjTapsIgnored, ...(this.deps.planeHashTelemetry ? { hash: this.settledPlaneHash(this.bdj.plane) } : {}) } : null,

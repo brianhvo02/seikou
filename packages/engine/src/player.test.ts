@@ -3750,6 +3750,26 @@ describe('Player with interlaced video (deinterlacing)', () => {
     expect(h.player.deinterlaceState.woven).toBe(WOVEN_OFF);
   });
 
+  it('the setDeinterlace command and telemetry: stats while deinterlacing, the reason when woven, null for progressive', async () => {
+    const fake = fakeDeinterlace();
+    const h = await harness(CodingType.LPCM, { videoFormat: 4, videoCodecApi: interlacedApi, createDeinterlaceBackend: fake.factory });
+    await h.player.handle({ type: 'setDeinterlace', mode: 'off' });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await h.play(1100);
+    expect(lastTelemetry(h)?.deinterlace).toEqual({ setting: 'off', stats: null, woven: WOVEN_OFF });
+    await h.player.handle({ type: 'setDeinterlace', mode: 'auto' });
+    await untilPlaying(h);
+    await h.play(1100);
+    expect(lastTelemetry(h)?.deinterlace).toMatchObject({ setting: 'auto', woven: null, stats: { mode: 'video', fallback: false } });
+
+    const progressive = await harness(CodingType.LPCM, {});
+    await progressive.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(progressive);
+    await progressive.play(1100);
+    expect(lastTelemetry(progressive)?.deinterlace).toBeNull();
+  });
+
   it('no WebGL2: woven frames and telemetry says why', async () => {
     const h = await harness(CodingType.LPCM, { videoFormat: 4, videoCodecApi: interlacedApi, createDeinterlaceBackend: () => null });
     await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
