@@ -17,8 +17,8 @@ import { collectWindows, expectInSync, recordTelemetrySamples, telemetry, teleme
 //
 // The pictures are compared at the deinterlacer's own pixels: the engine reads back the picture it draws (the
 // test-only captureVideo, ?telemetry=1) before it is scaled onto the page, so no screenshot scaling or colour
-// management comes into it. They are taken while playing: a paused picture is drawn whole (a woven frame in video
-// mode, never one interpolated field), so a pause would show what Off shows.
+// management comes into it. They are taken while playing (a pause keeps the picture as it was shown, and nothing new is
+// drawn to capture).
 
 const DISC = 'fixtures/synthetic/disc-interlaced';
 const REF_DIR = 'fixtures/synthetic/deinterlace-ref';

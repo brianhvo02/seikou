@@ -122,20 +122,19 @@ describe('InterlacedVideo', () => {
     expect(t.uploads).toEqual([7, 8]);
   });
 
-  it('draws a still as a whole frame and reuses the image for the same picture', async () => {
+  it('draws a picture with its own op and reuses its image when the same picture is drawn again (a pause)', async () => {
     const t = setup();
     t.video.start(8, 8, FRAME_US);
     for (let i = 0; i < 4; i++) t.video.push(input(i));
     await t.video.flush();
     const p = t.pictures.find((x) => t.video.owns(x))!;
-    const moving = t.video.render(p, false)!;
+    const shown = t.video.render(p)!;
     expect(t.ops.at(-1)!.kind).toBe('interpolate');
-    expect(moving).toMatchObject({ displayWidth: 16, displayHeight: 9 });
-    expect(t.video.render(p, false)).toBe(moving);
+    expect(shown).toMatchObject({ displayWidth: 16, displayHeight: 9 });
+    // drawn again (paused, or a still held): the same bitmap, never rendered again from the canvas it was moved out of
+    expect(t.video.render(p)).toBe(shown);
     expect(t.ops).toHaveLength(1);
-    const still = t.video.render(p, true)!;
-    expect(t.ops.at(-1)!.kind).toBe('weave');
-    expect(still.key).not.toBe(moving.key);
+    expect(t.bitmaps).toHaveLength(1);
   });
 
   it('hands the compositor each drawn picture as an ImageBitmap, closing the one before when the next is drawn', async () => {
@@ -145,11 +144,11 @@ describe('InterlacedVideo', () => {
     for (let i = 0; i < 4; i++) t.video.push(input(i));
     await t.video.flush();
     const [a, b] = t.pictures.filter((x) => t.video.owns(x));
-    const first = t.video.render(a!, false)!;
+    const first = t.video.render(a!)!;
     expect(first.image).toBe(t.bitmaps[0]);
-    expect(t.video.render(a!, false)!.image).toBe(t.bitmaps[0]);
+    expect(t.video.render(a!)!.image).toBe(t.bitmaps[0]);
     expect(t.bitmaps).toHaveLength(1);
-    const second = t.video.render(b!, false)!;
+    const second = t.video.render(b!)!;
     expect(second.image).toBe(t.bitmaps[1]);
     expect(t.bitmaps.map((x) => x.closed)).toEqual([true, false]);
     t.video.dispose();

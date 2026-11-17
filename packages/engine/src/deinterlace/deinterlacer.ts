@@ -349,20 +349,22 @@ export class Deinterlacer {
   }
 
   /**
-   * Draws the picture into the backend's canvas (the same canvas every call, valid until the next render). With `still`
-   * (paused, or a held still) a picture that interpolates one field is drawn as its whole frame woven instead, so a
-   * picture that stays on screen is a full one, never a single field.
+   * Draws the picture with its own op into the backend's canvas (the same canvas every call, valid until the next
+   * render). A picture that stays on screen (paused, or a still held) is the one drawn while it played: an interpolated
+   * picture frozen doesn't shimmer, and weaving it instead would show the comb wherever anything moved.
+   *
+   * A closed picture, or one from before a reset, isn't drawn (its slots may hold other frames now): the canvas is
+   * returned untouched, which is blank once its image has been moved out with `transferToImageBitmap`, so a caller
+   * that does that keeps its own image of the picture instead of asking again.
    */
-  render(picture: Picture, still = false): OffscreenCanvas {
+  render(picture: Picture): OffscreenCanvas {
     if (!(picture instanceof RingPicture)) throw new Error('deinterlacer: not a picture of this deinterlacer');
     if (!picture.live || picture.generation !== this.generation) {
-      // A closed picture, or one from before a reset: its slots may hold other frames now, so the canvas stays as is.
       if (this.lastImage) return this.lastImage;
       throw new Error('deinterlacer: the picture is closed or from before a reset');
     }
     try {
-      const op: PictureOp = still && picture.op.kind === 'interpolate' ? { kind: 'weave' } : picture.op;
-      this.lastImage = this.backend.render(op, picture.slots, picture.fieldOrder, picture.matrix, this.fallback);
+      this.lastImage = this.backend.render(picture.op, picture.slots, picture.fieldOrder, picture.matrix, this.fallback);
     } catch (err) {
       this.fail(err);
       throw err;

@@ -42,7 +42,6 @@ type Parked = { readonly kind: 'frame'; readonly input: FieldInput } | { readonl
 /** The last picture drawn, so drawing the same one again reuses its image as it is. */
 interface Drawn {
   readonly picture: Picture;
-  readonly still: boolean;
   readonly result: DrawnPicture;
 }
 
@@ -234,19 +233,22 @@ export class InterlacedVideo {
   }
 
   /**
-   * Draws the picture for the compositor. `still` (paused, or a held still) draws a picture of one field as its whole
-   * frame woven. The same picture drawn the same way again reuses its image. Null when the GPU fails (`error`).
+   * Draws the picture for the compositor as an ImageBitmap moved out of the deinterlacer's canvas (which is left blank).
+   * The same picture drawn again (paused, a still held, an overlay changed) reuses that bitmap as it is, never drawing
+   * from the canvas again. The bitmap stays open until the next picture is drawn or `dispose`. A picture that has
+   * closed, or is from before a reset, comes out blank unless it is the last drawn since that reset
+   * (`Deinterlacer.render` leaves the canvas as it is); the presenter never shows one. Null when the GPU fails (`error`).
    */
-  render(picture: Picture, still: boolean): DrawnPicture | null {
+  render(picture: Picture): DrawnPicture | null {
     const d = this.deinterlacer;
     if (!d || this.error) return null;
     const last = this.drawn;
-    if (last && last.picture === picture && last.still === still) return last.result;
+    if (last && last.picture === picture) return last.result;
     let image: ImageBitmap;
     try {
       // WebKit copies a WebGL canvas drawn into a 2D canvas at about 15 ms a 1080 picture on an iPhone 17 Pro, which
       // can't keep up with film; the canvas's image moved out as an ImageBitmap draws without that copy.
-      image = d.render(picture, still).transferToImageBitmap();
+      image = d.render(picture).transferToImageBitmap();
     } catch (err) {
       this.failure ??= err instanceof Error ? err : new Error(String(err));
       return null;
@@ -260,7 +262,7 @@ export class InterlacedVideo {
     };
     this.bitmap?.close();
     this.bitmap = image;
-    this.drawn = { picture, still, result };
+    this.drawn = { picture, result };
     return result;
   }
 

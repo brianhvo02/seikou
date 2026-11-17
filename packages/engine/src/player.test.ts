@@ -3680,9 +3680,9 @@ describe('Player with interlaced video (deinterlacing)', () => {
     const rendered: number[] = [];
     const original = Deinterlacer.prototype.render;
     const resetSpy = vi.spyOn(Deinterlacer.prototype, 'reset');
-    const drawSpy = vi.spyOn(Deinterlacer.prototype, 'render').mockImplementation(function (this: Deinterlacer, picture: Picture, still?: boolean) {
+    const drawSpy = vi.spyOn(Deinterlacer.prototype, 'render').mockImplementation(function (this: Deinterlacer, picture: Picture) {
       rendered.push(picture.timestamp);
-      return original.call(this, picture, still);
+      return original.call(this, picture);
     });
     try {
       const fake = fakeDeinterlace();
@@ -3705,7 +3705,7 @@ describe('Player with interlaced video (deinterlacing)', () => {
     }
   });
 
-  it('pause shows a woven-or-matched picture', async () => {
+  it('pause keeps the picture on screen as it was shown, never another op (a frozen interpolated picture has no comb)', async () => {
     const fake = fakeDeinterlace();
     const h = await harness(CodingType.LPCM, { videoFormat: 4, videoCodecApi: interlacedApi, createDeinterlaceBackend: fake.factory });
     await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
@@ -3715,12 +3715,13 @@ describe('Player with interlaced video (deinterlacing)', () => {
     expect(fake.ops.some((op) => op.kind === 'interpolate')).toBe(true);
     await h.player.handle({ type: 'pause' });
     const before = fake.ops.length;
-    await h.play(200);
-    expect(fake.ops.length).toBeGreaterThan(before); // the picture on screen was drawn again as a still
-    expect(['weave', 'match']).toContain(fake.ops.at(-1)!.kind);
+    const shown = fake.ops.at(-1)!;
     const shownBefore = h.drawnPictures.length;
-    await h.play(200);
-    expect(h.drawnPictures.length).toBe(shownBefore); // and stays as it is
+    await h.play(400);
+    expect(fake.ops).toHaveLength(before); // nothing is drawn again from the GPU
+    expect(fake.ops.at(-1)).toBe(shown);
+    expect(shown.kind).toBe('interpolate');
+    expect(h.drawnPictures.length).toBe(shownBefore); // and the picture on screen stays as it is
   });
 
   it('constrained profile keeps 2 pictures queued', async () => {
@@ -3924,7 +3925,7 @@ describe('Player with interlaced video (deinterlacing)', () => {
     /** The first item's last frame: 96 frames at 24 fps from playlist time 0. */
     const LAST_FRAME_US = Math.round((95 * 3750) / 0.09);
 
-    /** The picture on screen is a whole one (never an interpolated field) of the first item's last frame, and stays. */
+    /** The picture on screen is the first item's last frame as it was shown while playing, and stays. */
     async function expectHeldLastFrame(h: Harness, fake: ReturnType<typeof fakeDeinterlace>, holdMs: number): Promise<void> {
       await vi.waitFor(
         async () => {
@@ -3938,7 +3939,7 @@ describe('Player with interlaced video (deinterlacing)', () => {
         { timeout: 20_000 },
       );
       const shown = fake.draws.at(-1)!;
-      expect(['weave', 'match']).toContain(shown.op.kind);
+      expect(shown.op.kind).toBe('interpolate'); // video mode: the picture as it was shown, not woven when it stops
       expect(Math.abs(shown.cur - LAST_FRAME_US)).toBeLessThan(1000);
       const draws = fake.draws.length;
       await h.play(holdMs);
@@ -3946,7 +3947,7 @@ describe('Player with interlaced video (deinterlacing)', () => {
       expect(lastState(h)).toBe('playing');
     }
 
-    it("a held infinite still at a playlist's end shows its last frame whole, without user input", async () => {
+    it("a held infinite still at a playlist's end shows its last frame as it was shown, without user input", async () => {
       const fake = fakeDeinterlace();
       const h = await program(fake, [{ id: '00000', clipIds: ['00001'], stills: { 0: { mode: 2 } } }]);
       await untilPlaying(h);
@@ -3955,7 +3956,7 @@ describe('Player with interlaced video (deinterlacing)', () => {
       await expectHeldLastFrame(h, fake, 3000);
     }, 40_000);
 
-    it('a held still at the end of an item followed by another shows that item\'s last frame whole, not the next item\'s first', async () => {
+    it('a held still at the end of an item followed by another shows that item\'s last frame as it was shown, not the next item\'s first', async () => {
       const fake = fakeDeinterlace();
       const h = await program(fake, [{ id: '00000', clipIds: ['00001', '00002'], stills: { 0: { mode: 2 } } }]);
       await untilPlaying(h);

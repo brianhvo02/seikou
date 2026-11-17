@@ -511,8 +511,6 @@ export class Player {
   private interlacedVideo: InterlacedVideo | null = null;
   /** Why the playing session's interlaced frames are drawn woven; null when they are deinterlaced, or the video is progressive. */
   private deinterlaceWoven: string | null = null;
-  /** The last deinterlaced picture was drawn as a still (paused or held): one of one field is drawn whole. */
-  private drawnStill = false;
   /** Limits for this device; desktop (libbluray's) until the UI says otherwise. */
   private memory: MemoryProfile = MEMORY_PROFILES.desktop;
   private memoryName: MemoryProfileName = 'desktop';
@@ -1046,10 +1044,8 @@ export class Player {
     const igChanged = ig !== null && ig.dirty() !== null;
     const textChanged = this.subtitlesDirty || (text !== null && text.changed(nowUs, textOpts));
     this.subtitlesDirty = false;
-    // a deinterlaced picture on screen is drawn again when playback stops or starts (a still shows a whole frame)
     const current = this.presenter.current;
-    const stillChanged = current !== null && this.interlacedVideo?.owns(current) === true && this.stillPicture() !== this.drawnStill;
-    const changed = pgChanged || igChanged || textChanged || bdjChanged || this.shadersDirty || this.backgroundDirty || this.elementDirty || stillChanged;
+    const changed = pgChanged || igChanged || textChanged || bdjChanged || this.shadersDirty || this.backgroundDirty || this.elementDirty;
     this.shadersDirty = false;
     this.backgroundDirty = false;
     this.elementDirty = false;
@@ -1078,7 +1074,7 @@ export class Player {
 
   /**
    * What the compositor draws for a presented frame: a decoded frame as it is, a deinterlaced picture drawn by the
-   * deinterlacer (whole, as a still, while paused or held). Null when the deinterlacer's GPU fails: the session goes on
+   * deinterlacer (paused or held, the same picture as it was shown). Null when the deinterlacer's GPU fails: the session goes on
    * with woven frames.
    */
   private drawable(frame: VideoFrame | Picture | null): VideoFrame | DrawnPicture | null {
@@ -1087,8 +1083,7 @@ export class Player {
       if (frame) this.capture(frame as VideoFrame, frame.timestamp, false);
       return frame as VideoFrame | null;
     }
-    this.drawnStill = this.stillPicture();
-    const drawn = video.render(frame, this.drawnStill);
+    const drawn = video.render(frame);
     if (!drawn && this.session?.deinterlace?.video === video) this.deinterlaceFailed(this.session);
     if (drawn) this.capture(drawn.image, frame.timestamp, true);
     return drawn;
@@ -1105,11 +1100,6 @@ export class Player {
     ctx.drawImage(image, 0, 0, width, height);
     const rgba = ctx.getImageData(0, 0, width, height).data;
     this.deps.emit({ type: 'videoCapture', timestampUs, width, height, rgba, deinterlaced }, [rgba.buffer]);
-  }
-
-  /** A picture on screen stays there (paused, or a still held at a play item's end). */
-  private stillPicture(): boolean {
-    return this.state !== 'playing' || this.held;
   }
 
   /**

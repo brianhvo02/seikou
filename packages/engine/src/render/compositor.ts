@@ -20,15 +20,16 @@ export interface ElementPictureSize {
 export type { Rect, TextRendererLike };
 
 /**
- * A picture the deinterlacer drew: its image (at the stream's visible size, valid until the next picture is drawn),
- * the size it shows at, and what it holds, so a shader set's result is reused while the same picture shows.
+ * A picture the deinterlacer drew: its image (an ImageBitmap of its own at the stream's visible size, open until the
+ * next picture is drawn, and the same bitmap every time the same picture is drawn again), the size it shows at, and
+ * what it holds, so a shader set's result is reused while the same picture shows.
  * @internal
  */
 export interface DrawnPicture {
   readonly image: ImageBitmap;
   readonly displayWidth: number;
   readonly displayHeight: number;
-  /** Changes whenever the canvas holds another picture (or the same one drawn otherwise). */
+  /** Changes whenever another picture is drawn. */
   readonly key: object;
 }
 
