@@ -1,8 +1,8 @@
-import type { FansubPick, FansubPickRequest, PlaceFansub, PlaceSubtitleSource, PlaceTextFile, StoredSubtitle } from '@seikou/nas/nas-api';
+import type { DiscPreferences, FansubPick, FansubPickRequest, PlaceFansub, PlaceSubtitleSource, PlaceTextFile, StoredSubtitle } from '@seikou/nas/nas-api';
 import type { PgTrack, SubtitleChoice } from '@seikou/engine/protocol';
 import type { PlayerController, PlayerSnapshot } from '@seikou/engine/controller/player-controller';
 import { isFontName } from '@seikou/engine/controller/drop-files';
-import { settingsForUpNext } from './place-model';
+import { settingsForPins, settingsForUpNext } from './place-model';
 import type { PlaceSaver } from './place-saver';
 import type { StoredTextFile } from './place-store';
 import { NasHttpError, type NasClient } from './nas/nas-client';
@@ -55,6 +55,8 @@ export interface LaunchSettingsDeps {
    * a resume and the next episode; null when the entry is gone. Without it an encode's NAS subtitles are not restored.
    */
   readonly loadEncodeSubtitles?: (encodeId: string) => Promise<EncodeSubtitleSources | null>;
+  /** The person's disc preferences: a fresh encode starts on their pinned languages (absent: no pins). */
+  readonly discPreferences?: () => DiscPreferences;
   /** A resumed stored subtitle is in the text set again (the menu checks its row). */
   readonly onStoredSubtitle?: (id: string) => void;
   /** A resumed Anime Tosho pick is in the text set again (the search checks its track). */
@@ -121,6 +123,8 @@ export class LaunchSettingsApplier {
   private text: PendingText | null = null;
   /** Bumped by supersede: a re-add started under an older value loads and notes nothing. */
   private generation = 0;
+  /** The open (`discOpens`) whose encode the pins were looked at for, so they apply once per open. */
+  private pinnedOpen = -1;
   /** The stored subtitles being downloaded for a resume: stopped by supersede (and each by its timeout). */
   private readonly downloads = new Set<AbortController>();
 
@@ -147,8 +151,13 @@ export class LaunchSettingsApplier {
     const playlistId = s.currentPlaylistId;
     if (playlistId === null || (s.engineState !== 'playing' && s.engineState !== 'paused')) return;
     const launch = this.deps.places.takeLaunchSettings();
-    if (!launch) return;
     const { controller } = this.deps;
+    if (s.encodeId !== null && this.pinnedOpen !== controller.discOpens) {
+      this.pinnedOpen = controller.discOpens;
+      // a fresh encode: the person's pinned languages; a resume, Start from beginning or Up next keeps its own tracks
+      if (!launch) this.applyPins(s);
+    }
+    if (!launch) return;
     const settings = launch.byLanguage ? settingsForUpNext(launch.settings, s.audioTracks, s.subtitles?.pg ?? [], launch.names) : launch.settings;
     controller.setVolume(settings.volume);
     if (settings.muted !== s.muted) controller.toggleMute();
@@ -165,6 +174,15 @@ export class LaunchSettingsApplier {
     else if (carried?.fansub) void this.pickNextFansub(launch.discKey, playlistId, carried.fansub, carried.language!, pgChoice(settings.psr2, pg));
     else if (carried) void this.pickNext(launch.discKey, playlistId, carried.language!, pgChoice(settings.psr2, pg));
     else if (settings.textFiles.length > 0) void this.addText(launch.discKey, playlistId, settings, !launch.byLanguage, encodeId);
+  }
+
+  /** Starts a fresh encode on the person's pinned audio and subtitle languages, where the episode has them. */
+  private applyPins(s: PlayerSnapshot): void {
+    const prefs = this.deps.discPreferences?.();
+    if (!prefs) return;
+    const pick = settingsForPins(s.audioTracks, s.subtitles?.pg ?? [], prefs);
+    if (pick.audio !== null) this.deps.controller.selectAudio(pick.audio);
+    if (pick.subtitle !== null) this.deps.controller.selectSubtitle({ kind: 'pg', stream: pick.subtitle });
   }
 
   /** An encoded episode's NAS subtitle sources, within STORED_FETCH_TIMEOUT_MS; null when there are none to be had. */

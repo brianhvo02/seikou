@@ -1,6 +1,7 @@
 import { pickedSubtitles, splitPick } from './drop-files';
 import type { RemoteDiscSpec } from '../disc/disc-spec';
 import type { PlaylistSummary } from '../disc/open-disc';
+import type { PlayerSettings } from '../disc/player-settings';
 import type { UoOp } from '../hdmv/uo-mask';
 import type { Chapter } from '../nav/timeline';
 import type { MemoryProfileName } from '../memory-profile';
@@ -571,6 +572,16 @@ export class PlayerController {
    */
   setVideoPath(path: VideoPath): void {
     this.post({ type: 'setVideoPath', path });
+  }
+
+  /**
+   * Sets the player settings every disc starts with from the next open (sends `setDiscPreferences`): preferred audio,
+   * subtitle and menu languages (ISO 639-2/B), the country and the Blu-ray region (1, 2 or 4 for A, B, C), written to
+   * PSR16-20 as libbluray's bd_set_player_setting does. A setting left out keeps libbluray's default.
+   * @example ../../examples/player-controller.browser.ts#setDiscPreferences
+   */
+  setDiscPreferences(settings: PlayerSettings): void {
+    this.post({ type: 'setDiscPreferences', settings });
   }
 
   /**

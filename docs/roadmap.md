@@ -18,7 +18,6 @@ Short tasks that unblock or protect what is already deployed.
 | Item | Size | Notes |
 | --- | --- | --- |
 | **Open a local `.iso`** from the landing screen. The UDF reader (`packages/bdmv/src/udf.ts`) already serves NAS ISOs; this is the local half of cross-browser spec §4, deferred in the nas-server spec §10. | M | |
-| **Player settings screen** for menu, audio and subtitle languages, country and region. These come from the browser's locale today, for HDMV and BD-J alike. | M | |
 | **Subtitles from picked `.mkv` files.** Extract ASS and SRT tracks and attached fonts from an `.mkv` the viewer picks or drops (the Encodes library's own MKVs already load theirs), deferred since M4b. This pairs with episode subtitle sets and the subtitle store. | M | |
 | **HDMV TextST and sub-path PG** decoding. | M | needs a disc |
 | **Device coverage:** iPad over the NAS, real Android Chrome (HEVC, USB OTG), the iPhone row of the probe table, Blob slicing over 4 GiB on iOS, long press on real hardware, and the alphabet bar on a later iOS build. | M | needs a device |
@@ -33,7 +32,7 @@ Short tasks that unblock or protect what is already deployed.
 | **MPEG-2 and VC-1 pictures for local folders** through a WASM decoder. NAS discs already get a picture through quality levels. | L | |
 | **Deinterlacing** for 1080i discs, perhaps as a built-in shader. They show combing today. | M | |
 | **Hold the first GOP** on H.264 streams that redefine the PPS, so a playlist start loses no frames. | M | |
-| **Lossless and multichannel audio:** full TrueHD and DTS-HD instead of their cores, and output beyond a stereo downmix. | L | |
+| **Lossless and multichannel audio:** full TrueHD and DTS-HD instead of their cores, and output beyond a stereo downmix (multichannel PCM where the browser offers it; no Atmos or DTS:X height channels, since a page can't pass a stream through). | L | deferred by the owner (2026-11-16) |
 | **Encoders beyond Intel QSV** (NVENC, AMD VAAPI) for self-hosters. The self-hosting spec puts this last, after everything else. | L | |
 | **Quality-level ideas:** pre-encode while the GPU is idle, re-encode audio, and an "auto" level that labels itself. Known gaps to close: the disc's PSR1 audio choice at a level, the `primaryAudioChange` UO mask, and the BD-J still timer restarting on a switch. | L | |
 | **Per-person shelves,** and hiding titles from a person. | M | |

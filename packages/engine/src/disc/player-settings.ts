@@ -12,6 +12,8 @@ export interface PlayerSettings {
   readonly menuLanguage?: string;
   /** Country as two lower-case letters (`jp`); written to PSR19. */
   readonly country?: string;
+  /** Blu-ray region, 1 (A), 2 (B) or 4 (C), as BLURAY_PLAYER_SETTING_REGION_CODE takes it; written to PSR20. */
+  readonly region?: 1 | 2 | 4;
 }
 
 /** str_to_uint32: the first `n` bytes big-endian, padded with zero bytes past the end; all ones for an empty string. */
@@ -22,19 +24,23 @@ export function strToUint32(s: string, n: number): number {
   return v;
 }
 
-/** bd_set_player_setting_str for the languages (3 bytes) and the country (2 bytes): a setting write of the PSR. */
+/**
+ * bd_set_player_setting_str for the languages (3 bytes) and the country (2 bytes), and bd_set_player_setting for the
+ * region: a setting write of the PSR.
+ */
 export function applyPlayerSettings(regs: RegisterFile, settings: PlayerSettings): void {
   if (settings.audioLanguage !== undefined) regs.psrSettingWrite(PSR.AUDIO_LANG, strToUint32(settings.audioLanguage, 3));
   if (settings.pgLanguage !== undefined) regs.psrSettingWrite(PSR.PG_AND_SUB_LANG, strToUint32(settings.pgLanguage, 3));
   if (settings.menuLanguage !== undefined) regs.psrSettingWrite(PSR.MENU_LANG, strToUint32(settings.menuLanguage, 3));
   if (settings.country !== undefined) regs.psrSettingWrite(PSR.COUNTRY, strToUint32(settings.country, 2));
+  if (settings.region !== undefined) regs.psrSettingWrite(PSR.REGION, settings.region);
 }
 
 /**
  * ISO 639-1 to ISO 639-2. Blu-ray discs label their streams with the bibliographic (/B) codes ("fre", "ger", "chi"),
  * so where /B and /T differ this table uses /B.
  */
-const ISO_639_2: Readonly<Record<string, string>> = {
+export const ISO_639_1_TO_2B: Readonly<Record<string, string>> = {
   ar: 'ara', bg: 'bul', bn: 'ben', ca: 'cat', cs: 'cze', cy: 'wel', da: 'dan', de: 'ger', el: 'gre', en: 'eng',
   es: 'spa', et: 'est', eu: 'baq', fa: 'per', fi: 'fin', fr: 'fre', ga: 'gle', gl: 'glg', he: 'heb', hi: 'hin',
   hr: 'hrv', hu: 'hun', hy: 'arm', id: 'ind', is: 'ice', it: 'ita', ja: 'jpn', ka: 'geo', kk: 'kaz', km: 'khm',
@@ -56,7 +62,7 @@ export function playerSettingsForLocale(tag: string | undefined): PlayerSettings
   } catch {
     return {};
   }
-  const language = ISO_639_2[locale.language];
+  const language = ISO_639_1_TO_2B[locale.language];
   const region = locale.region !== undefined && /^[A-Z]{2}$/.test(locale.region) ? locale.region.toLowerCase() : undefined;
   return {
     ...(language ? { audioLanguage: language, pgLanguage: language, menuLanguage: language } : {}),

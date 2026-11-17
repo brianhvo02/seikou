@@ -17,6 +17,15 @@ describe('player settings (bd_set_player_setting_str)', () => {
     expect([16, 17, 18, 19].map((i) => regs.psrRead(i))).toEqual([0x6a706e, 0x656e67, 0x667261, 0x6a70]);
   });
 
+  it('writes the region to PSR20, and leaves it at B when not given', () => {
+    const regs = new RegisterFile();
+    applyPlayerSettings(regs, { region: 1 });
+    expect(regs.psrRead(20)).toBe(1);
+    const other = new RegisterFile();
+    applyPlayerSettings(other, {});
+    expect(other.psrRead(20)).toBe(2);
+  });
+
   it('leaves a setting it is not given alone', () => {
     const regs = new RegisterFile();
     const before = regs.psrRead(16);

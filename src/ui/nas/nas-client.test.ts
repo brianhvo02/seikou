@@ -1162,9 +1162,9 @@ describe('NasClient places', () => {
     const server = fakeServer();
     const nas = client(server);
     await nas.pair(await server.code(), 'iPad');
-    expect(await nas.playerSettings()).toEqual({ nextEpisodeCountdown: false });
-    expect(await nas.putPlayerSettings({ nextEpisodeCountdown: true })).toEqual({ nextEpisodeCountdown: true });
-    expect(await nas.playerSettings()).toEqual({ nextEpisodeCountdown: true });
+    expect(await nas.playerSettings()).toEqual({ nextEpisodeCountdown: false, discPreferences: null });
+    expect(await nas.putPlayerSettings({ nextEpisodeCountdown: true })).toEqual({ nextEpisodeCountdown: true, discPreferences: null });
+    expect(await nas.playerSettings()).toEqual({ nextEpisodeCountdown: true, discPreferences: null });
     expect(await nas.encodeBase('100-3')).toBe(`${BASE}encodes/100-3/`);
     const encodePlace = playbackPlace({ discKey: 'e.100.3', discId: '100-3', playlistId: 'mkv', psrs: [] });
     expect(await nas.putPlace(encodePlace)).toBe('stored');
