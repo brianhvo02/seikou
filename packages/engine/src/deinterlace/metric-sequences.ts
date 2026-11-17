@@ -6,7 +6,10 @@
 import type { FieldFlags } from './field-input';
 import type { FrameMetrics, PlannedPicture } from './cadence';
 
-/** One coded frame as the labels of its two fields, in time order (first, then second). */
+/**
+ * One coded frame as the labels of its two fields: `first` is the field of the stream's first parity (the top field
+ * in a top-field-first stream), `second` the other, whatever order the frame's own flags give.
+ */
 export interface SimFrame {
   readonly first: string;
   readonly second: string;
@@ -137,6 +140,23 @@ export function pictureFields(
       const firstIsTop = order === 'tff';
       return [(op.field === 'top') === firstIsTop ? f.first : f.second];
     }
+  }
+}
+
+/**
+ * The source fields a planned picture shows, as ids: frame index × 2, plus 1 for the field of the second parity.
+ * `streamOrder` is the stream's field order, which says which parity is first.
+ */
+export function pictureFieldIds(picture: PlannedPicture, firstSeq: number, streamOrder: 'tff' | 'bff' = 'tff'): number[] {
+  const i = picture.frame - firstSeq;
+  const op = picture.op;
+  switch (op.kind) {
+    case 'weave':
+      return [2 * i, 2 * i + 1];
+    case 'match':
+      return op.with === 'prev' ? [2 * i, 2 * i - 1] : [2 * i + 1, 2 * i + 2];
+    case 'interpolate':
+      return [(op.field === 'top') === (streamOrder === 'tff') ? 2 * i : 2 * i + 1];
   }
 }
 

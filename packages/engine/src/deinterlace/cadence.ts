@@ -9,13 +9,18 @@ import type { FieldFlags } from './field-input';
 /**
  * One frame's measurements (from the GPU, or the CPU reference). Comb values are the share of the frame's pixels
  * that comb under a pairing, 0 to 1; higher means more combing.
+ *
+ * The match pairings are defined by field parity against the stream's field order (`CadenceDetector.fieldOrder` when
+ * the frame is measured), never by the frame's own flags, so a match always joins one top and one bottom field even
+ * where single frames flip their order. Call the parity the stream shows first the first parity (top for a
+ * top-field-first stream) and the other the second parity.
  */
 export interface FrameMetrics {
-  /** The frame as coded. */
+  /** The frame as coded (its top field with its bottom field). */
   readonly combWoven: number;
-  /** Its first field with the previous frame's second field. */
+  /** Its first-parity field with the previous frame's second-parity field. */
   readonly combMatchPrev: number;
-  /** Its second field with the next frame's first field. */
+  /** Its second-parity field with the next frame's first-parity field. */
   readonly combMatchNext: number;
   /** Mean absolute difference of this frame from the previous, 0 to 1 (for decimation). */
   readonly diffPrev: number;
@@ -26,8 +31,9 @@ export interface FrameMetrics {
 }
 
 /**
- * How a picture is made from its frame: woven as coded, its first field matched with the previous frame's second
- * (`prev`) or its second field with the next frame's first (`next`), or one field interpolated to a full picture.
+ * How a picture is made from its frame: woven as coded, its first-parity field matched with the previous frame's
+ * second-parity field (`prev`) or its second-parity field with the next frame's first-parity field (`next`), the
+ * parities as `FrameMetrics` defines them, or one field interpolated to a full picture.
  */
 export type PictureOp =
   | { readonly kind: 'weave' }
@@ -52,8 +58,6 @@ export const UNLOCK_FRAMES = 4;
 export const LOOKAHEAD = 5;
 /** Consecutive frames that weave clean before video is taken for progressive. */
 export const PROGRESSIVE_FRAMES = 4;
-/** Frames after a broken lock that film waits for a new phase before it is left for video. */
-export const SEARCH_FRAMES = 10;
 /** A comb value at or below this is clean whatever the others are. */
 export const COMB_CLEAN = 0.02;
 /** A pairing explains the combing when its comb value is at most this share of the worst pairing's. */
@@ -114,6 +118,12 @@ function usable(m: FrameMetrics, op: BestOp): boolean {
   return combOf(m, op) <= Math.max(COMB_CLEAN, lo * TIE_RATIO);
 }
 
+/** The pairing's combing is small next to the frame's worst pairing (or clean outright). */
+function explained(m: FrameMetrics, op: BestOp): boolean {
+  const comb = combOf(m, op);
+  return comb <= COMB_CLEAN || comb <= MATCH_RATIO * Math.max(m.combWoven, m.combMatchPrev, m.combMatchNext);
+}
+
 function classify(m: FrameMetrics): { cls: FrameClass; best: BestOp } {
   const lo = Math.min(m.combWoven, m.combMatchPrev, m.combMatchNext);
   const hi = Math.max(m.combWoven, m.combMatchPrev, m.combMatchNext);
@@ -137,19 +147,22 @@ export class CadenceDetector {
   private pending: Frame[] = [];
   private count = 0;
   private state: Segment = VIDEO;
-  /** The classes of the two frames before the latest (the nearer first). */
-  private recentClasses: [FrameClass | null, FrameClass | null] = [null, null];
+  /** The classes of the three frames before the latest (the nearest first). */
+  private recentClasses: [FrameClass | null, FrameClass | null, FrameClass | null] = [null, null, null];
   private combedRun = 0;
   private wovenRun = 0;
   private candidate: { phase: number; pairs: number } | null = null;
   private lastConfirm = -1;
-  private searchSince = 0;
   private lastPulldown = -Infinity;
   private prevTimestampUs: number | null = null;
   private softActive = false;
   private orderScore = 0;
   private detectedOrder: 'tff' | 'bff' | null = null;
-  private lastStreamOrder: 'tff' | 'bff' | null = null;
+  /** The latest frame carried its field order. */
+  private lastCarriedOrder = false;
+  /** The stream's prevailing order from the frames' flags, which one flipped frame doesn't change. */
+  private streamOrder: 'tff' | 'bff' | null = null;
+  private streamScore = 0;
   /** The pair frame dropped in place of the one before it (that one then matches forward). */
   private dropIndex = -1;
   private grid: { anchorUs: number; k: number } | null = null;
@@ -176,14 +189,17 @@ export class CadenceDetector {
     }
   }
 
-  /** Which field is first in time, as of the latest frame. */
+  /**
+   * The stream's field order, which the match pairings of `FrameMetrics` are measured against: the order most frames
+   * carry (one flipped frame doesn't change it), else the order measured from motion, else top field first.
+   */
   get fieldOrder(): 'tff' | 'bff' {
-    return this.lastStreamOrder ?? this.detectedOrder ?? 'tff';
+    return this.streamOrder ?? this.detectedOrder ?? 'tff';
   }
 
   /** Where `fieldOrder` comes from: the latest frame's flags, measured motion, or the top-first default. */
   get fieldOrderSource(): 'stream' | 'detected' | 'assumed' {
-    if (this.lastStreamOrder !== null) return 'stream';
+    if (this.lastCarriedOrder && this.streamOrder !== null) return 'stream';
     return this.detectedOrder !== null ? 'detected' : 'assumed';
   }
 
@@ -225,18 +241,19 @@ export class CadenceDetector {
     this.pending = [];
     this.count = 0;
     this.state = VIDEO;
-    this.recentClasses = [null, null];
+    this.recentClasses = [null, null, null];
     this.combedRun = 0;
     this.wovenRun = 0;
     this.candidate = null;
     this.lastConfirm = -1;
-    this.searchSince = 0;
     this.lastPulldown = -Infinity;
     this.prevTimestampUs = null;
     this.softActive = false;
     this.orderScore = 0;
     this.detectedOrder = null;
-    this.lastStreamOrder = null;
+    this.lastCarriedOrder = false;
+    this.streamOrder = null;
+    this.streamScore = 0;
     this.dropIndex = -1;
     this.grid = null;
     this.recentFields = [];
@@ -244,8 +261,15 @@ export class CadenceDetector {
   }
 
   private noteOrder(flags: FieldFlags, m: FrameMetrics): void {
-    this.lastStreamOrder = flags.fieldOrder;
-    if (flags.fieldOrder !== null) return;
+    this.lastCarriedOrder = flags.fieldOrder !== null;
+    if (flags.fieldOrder !== null) {
+      const vote = flags.fieldOrder === 'tff' ? 1 : -1;
+      if (this.streamOrder === null) this.streamScore = vote * ORDER_VOTES;
+      else this.streamScore = Math.max(-ORDER_SCORE_MAX, Math.min(ORDER_SCORE_MAX, this.streamScore + vote));
+      if (this.streamScore >= ORDER_VOTES) this.streamOrder = 'tff';
+      else if (this.streamScore <= -ORDER_VOTES) this.streamOrder = 'bff';
+      return;
+    }
     const hi = Math.max(m.motionTff, m.motionBff);
     if (hi <= 0 || Math.abs(m.motionTff - m.motionBff) <= ORDER_MARGIN * hi) return;
     const vote = m.motionTff < m.motionBff ? 1 : -1;
@@ -274,16 +298,18 @@ export class CadenceDetector {
   /** The state machine, run on each frame as it arrives. */
   private update(f: Frame): void {
     const i = f.index;
-    const [c1, c2] = this.recentClasses;
-    this.recentClasses = [f.cls, c1];
-    const pairStart = f.cls === 'matched' && c1 === 'matched' && c2 !== 'matched' ? i - 1 : null;
+    const [c1, c2, c3] = this.recentClasses;
+    this.recentClasses = [f.cls, c1, c2];
+    // A 3:2 pair is exactly two matched frames between unmatched ones, so it is known one frame after it ends: a
+    // matched frame beside a real pair (three in a row) is no pair at all.
+    const pairStart = f.cls !== 'matched' && c1 === 'matched' && c2 === 'matched' && c3 !== 'matched' ? i - 2 : null;
     this.combedRun = f.cls === 'combed' ? this.combedRun + 1 : 0;
     this.wovenRun = f.cls === 'woven' ? this.wovenRun + 1 : 0;
 
     switch (this.state.kind) {
       case 'video':
       case 'progressive':
-        this.trackCandidate(f, c1, pairStart);
+        this.trackCandidate(f, pairStart);
         if (this.candidate !== null && this.candidate.pairs >= LOCK_CYCLES) {
           this.lock(this.candidate.phase, i);
         } else if (this.state.kind === 'video' && this.wovenRun >= PROGRESSIVE_FRAMES) {
@@ -299,43 +325,33 @@ export class CadenceDetector {
           this.leaveFilm(i);
           break;
         }
-        const pos = mod(i - this.state.phase, CYCLE);
-        if (f.cls === 'matched' && pos !== 0 && pos !== 1) {
-          this.breakCount++;
-          this.state = SEARCH;
-          this.searchSince = i;
-          this.apply(SEARCH, this.lastConfirm + 1);
-          if (pairStart !== null) this.lock(mod(pairStart, CYCLE), i);
-        } else if (pairStart !== null && mod(pairStart - this.state.phase, CYCLE) === 0) {
+        if (pairStart === null) break;
+        if (mod(pairStart - this.state.phase, CYCLE) === 0) {
           this.lastConfirm = i;
+          break;
         }
+        // A pair at a new phase breaks the lock (one ambiguous frame never does). The frames still waiting since the
+        // last confirmed pair are planned frame by frame, and the new phase locks at once: the content is still film.
+        this.breakCount++;
+        this.apply(SEARCH, this.lastConfirm + 1);
+        this.lock(mod(pairStart, CYCLE), i);
         break;
       }
-      case 'search':
-        if (this.combedRun >= UNLOCK_FRAMES) this.leaveFilm(i);
-        else if (pairStart !== null) this.lock(mod(pairStart, CYCLE), i);
-        else if (i - this.searchSince >= SEARCH_FRAMES) {
-          this.state = VIDEO;
-          this.apply(VIDEO, i);
-        }
-        break;
     }
     this.updateSoft(i);
   }
 
-  private trackCandidate(f: Frame, c1: FrameClass | null, pairStart: number | null): void {
+  private trackCandidate(f: Frame, pairStart: number | null): void {
     if (!this.filmRate) return;
     if (f.cls === 'combed') {
       this.candidate = null;
       return;
     }
-    if (f.cls !== 'matched') return;
     const cand = this.candidate;
-    if (cand !== null) {
+    if (f.cls === 'matched' && cand !== null) {
       const pos = mod(f.index - cand.phase, CYCLE);
       if (pos !== 0 && pos !== 1) this.candidate = null;
     }
-    if (c1 === 'matched' && pairStart === null) this.candidate = null; // three matched in a row is no 3:2
     if (pairStart === null) return;
     const phase = mod(pairStart, CYCLE);
     if (this.candidate !== null && this.candidate.phase === phase) this.candidate.pairs++;
@@ -367,7 +383,7 @@ export class CadenceDetector {
   private updateSoft(i: number): void {
     const soft = this.state.kind === 'progressive' && this.isSoft(i);
     if (soft && !this.softActive) this.lockCount++;
-    if (!soft && this.softActive && this.state.kind !== 'locked' && this.state.kind !== 'search') this.breakCount++;
+    if (!soft && this.softActive && this.state.kind !== 'locked') this.breakCount++;
     this.softActive = soft;
   }
 
@@ -448,25 +464,39 @@ export class CadenceDetector {
     }
   }
 
-  /** Plans a film frame: `op` null drops it, `first` interpolates its first field (combing no match removes). */
-  private decideFilm(out: PlannedPicture[], f: Frame, op: BestOp | 'first' | null, cycleStart: boolean): void {
-    if (op === null) return;
-    const fields = this.fieldsOf(f, op);
-    if (this.repeats(fields)) return;
-    this.remember(fields);
+  /**
+   * Plans a film frame: `op` null drops it, `first` interpolates its first-parity field (combing no match removes).
+   * A pairing that would show a field already shown gives way to the cleanest of the frame's other pairings that
+   * shows only new fields and whose combing is explained; with none, the frame repeats what is shown and is dropped.
+   */
+  private decideFilm(out: PlannedPicture[], f: Frame, planned: BestOp | 'first' | null, cycleStart: boolean): void {
+    if (planned === null) return;
+    let op: BestOp | 'first' | null = planned;
+    if (this.repeats(this.fieldsOf(f, op))) {
+      const m = f.metrics;
+      let alt: BestOp | null = null;
+      for (const o of (['weave', 'prev', 'next'] as const).filter((p) => p !== planned)) {
+        if (this.repeats(this.fieldsOf(f, o)) || !explained(m, o)) continue;
+        if (alt === null || combOf(m, o) < combOf(m, alt)) alt = o;
+      }
+      op = alt;
+      if (op === null) return;
+    }
+    this.remember(this.fieldsOf(f, op));
     const pictureOp: PictureOp =
       op === 'weave'
         ? { kind: 'weave' }
         : op === 'first'
-          ? { kind: 'interpolate', field: this.orderOf(f) === 'tff' ? 'top' : 'bottom' }
+          ? { kind: 'interpolate', field: this.fieldOrder === 'tff' ? 'top' : 'bottom' }
           : { kind: 'match', with: op };
     this.emit(out, f, pictureOp, this.gridTime(f.timestampUs, cycleStart && op === 'weave'));
   }
 
   /**
    * The cycle's plan for a locked frame: the pair's duplicate (the one of the two closer to the frame before it)
-   * dropped and the other matched to its whole film frame, the rest woven; a pairing that combs gives way to the
-   * frame's best, and a frame that combs whatever is paired shows its first field interpolated.
+   * dropped and the other matched to its whole film frame, the rest woven. The lock's pairing stands while its
+   * combing is explained (an ambiguous frame keeps the cadence); one that combs outright gives way to the frame's
+   * best, and a frame that combs whatever is paired shows its first-parity field interpolated.
    */
   private lockedOp(f: Frame, phase: number): BestOp | 'first' | null {
     const pos = mod(f.index - phase, CYCLE);
@@ -482,6 +512,6 @@ export class CadenceDetector {
     } else op = 'weave';
     if (op === null) return null;
     if (f.cls === 'combed') return 'first';
-    return usable(f.metrics, op) ? op : f.best;
+    return explained(f.metrics, op) ? op : f.best;
   }
 }

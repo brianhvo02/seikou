@@ -11,6 +11,7 @@ import {
   evenTimestamps,
   filmNumber,
   orderFlags,
+  pictureFieldIds,
   pictureFields,
   progressiveFrames,
   simMetrics,
@@ -244,6 +245,54 @@ describe('CadenceDetector', () => {
       expect(counts.slice(c, c + 5).reduce((a, b) => a + b, 0)).toBe(4);
     }
     expectFilmSpacing(pictures.filter((p) => p.frame - FIRST_SEQ >= LOCK_CYCLES * 5));
+  });
+
+  it('keeps the lock through one ambiguous frame at each cycle position', () => {
+    const frames = telecine(0, 48);
+    const base = simMetrics(frames);
+    for (let at = 30; at < 35; at++) {
+      const variants: ((m: FrameMetrics) => FrameMetrics)[] =
+        base[at]!.combWoven <= SIM_COMB_CLEAN
+          ? [
+              // A woven frame with a little combing (fine detail) and a neighbouring pairing that looks clean.
+              (m) => ({ ...m, combWoven: 0.1, combMatchPrev: SIM_COMB_CLEAN }),
+              (m) => ({ ...m, combWoven: 0.1, combMatchNext: SIM_COMB_CLEAN }),
+            ]
+          : [(m) => ({ ...m, combWoven: 0.01 })]; // a pair frame that weaves nearly clean
+      for (const variant of variants) {
+        const { detector, pictures, modes } = run(frames, { tweak: (ms) => (ms[at] = variant(ms[at]!)) });
+        expect(detector.breaks, `frame ${at}`).toBe(0);
+        expect(modes.slice(LOCK_CYCLES * 5 + LOOKAHEAD).every((m) => m === 'film')).toBe(true);
+        const film = pictures.filter((p) => p.frame - FIRST_SEQ >= LOCK_CYCLES * 5);
+        const shown = filmFramesShown(film, frames);
+        expect(shown, `frame ${at}`).toEqual(completeFilmFrames(frames).filter((n) => n >= shown[0]!));
+      }
+    }
+  });
+
+  it('film whose frames flip to bottom field first every fifth frame', () => {
+    // The committed hard-telecine clip: top field first, with pic_struct 4 on every fifth frame after a run.
+    const frames = telecine(0, 48);
+    const flags = (i: number): FieldFlags => orderFlags(i >= 20 && i % 5 === 4 ? 'bff' : 'tff');
+    const d = new CadenceDetector({ frameDurationUs: NTSC_FRAME_US, lookahead: LOOKAHEAD });
+    const metrics = simMetrics(frames);
+    const ts = evenTimestamps(frames.length);
+    const pictures: PlannedPicture[] = [];
+    frames.forEach((_, i) => {
+      pictures.push(...d.push(FIRST_SEQ + i, ts[i]!, flags(i), metrics[i]!));
+      // Match pairings are measured against the stream's order, which one flipped frame doesn't change.
+      expect(d.fieldOrder).toBe('tff');
+      expect(d.fieldOrderSource).toBe('stream');
+    });
+    pictures.push(...d.flush());
+    expect(d.mode).toBe('film');
+    expect(d.breaks).toBe(0);
+    const film = pictures.filter((p) => p.frame - FIRST_SEQ >= LOCK_CYCLES * 5);
+    const ids = film.flatMap((p) => pictureFieldIds(p, FIRST_SEQ));
+    expect(new Set(ids).size).toBe(ids.length); // every source field in at most one picture
+    for (const p of film) expect(['weave', 'match']).toContain(p.op.kind);
+    const shown = filmFramesShown(film, frames);
+    expect(shown).toEqual(completeFilmFrames(frames).filter((n) => n >= shown[0]!));
   });
 
   it('shows a lone frame that combs under every pairing in film as one interpolated field', () => {
