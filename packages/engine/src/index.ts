@@ -64,6 +64,8 @@ export type { MemoryProfileName } from './memory-profile';
 export type { UoOp } from './hdmv/uo-mask';
 // A playlist's chapters.
 export type { Chapter } from './nav/timeline';
+// The player settings a disc starts with (setDiscPreferences).
+export type { PlayerSettings } from './disc/player-settings';
 // Which disc to open: local files or a server's disc.
 export type { DiscSpec, RemoteDiscSpec } from './disc/disc-spec';
 // Opening a disc and what it holds.

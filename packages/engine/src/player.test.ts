@@ -20,6 +20,7 @@ import { createAudioDecoderFactory, type AudioDecoderFactory } from './decode/au
 import type { VideoCodecApi, VideoDecoderLike } from './decode/video-decoder';
 import { OverlayPlane } from '@seikou/pg';
 import { RegisterFile } from './hdmv/registers';
+import { strToUint32 } from './disc/player-settings';
 import { Navigator } from './nav/navigator';
 import { DEFAULT_CHUNK_PACKETS } from '@seikou/bdmv/demux/m2ts-reader';
 import { SOURCE_PACKET_SIZE } from '@seikou/bdmv/demux/constants';
@@ -1379,13 +1380,29 @@ describe('Player with HDMV navigation', () => {
       expect(profile(regsOf(nav, 'navRegs'))).toEqual(profile(new RegisterFile()));
     });
 
-    it('leaves the language and country PSRs of an HDMV disc at their defaults (player settings apply under BD-J only, R9)', async () => {
-      const playerSettings = { audioLanguage: 'jpn', pgLanguage: 'eng', menuLanguage: 'fre', country: 'jp' };
-      const langs = (r: { psrRead(i: number): number }): number[] => [16, 17, 18, 19].map((i) => r.psrRead(i));
+    const settingsPsrs = (r: { psrRead(i: number): number }): number[] => [16, 17, 18, 19, 20].map((i) => r.psrRead(i));
+
+    it('writes the disc preferences for an HDMV disc and a disc without a program, region included', async () => {
+      const playerSettings = { audioLanguage: 'jpn', pgLanguage: 'eng', menuLanguage: 'fre', country: 'jp', region: 4 } as const;
+      const want = [strToUint32('jpn', 3), strToUint32('eng', 3), strToUint32('fre', 3), strToUint32('jp', 2), 4];
       const plain = await harness(undefined, { playerSettings });
       const nav = await harness(undefined, { movieObjects, index: hdmvIndex, playerSettings });
-      expect(langs(regsOf(plain, 'pgRegs'))).toEqual(langs(new RegisterFile()));
-      expect(langs(regsOf(nav, 'navRegs'))).toEqual(langs(new RegisterFile()));
+      expect(settingsPsrs(regsOf(plain, 'pgRegs'))).toEqual(want);
+      expect(settingsPsrs(regsOf(nav, 'navRegs'))).toEqual(want);
+    });
+
+    it('takes the preferences from setDiscPreferences, from the next open on, not for the open disc', async () => {
+      const h = await harness(undefined, { movieObjects, index: hdmvIndex, noOpen: true });
+      await h.player.handle({ type: 'setDiscPreferences', settings: { audioLanguage: 'jpn', region: 1 } });
+      await h.player.handle({ type: 'open', disc: { kind: 'files', entries: h.entries } });
+      expect(settingsPsrs(regsOf(h, 'navRegs')).slice(0, 1)).toEqual([strToUint32('jpn', 3)]);
+      expect(regsOf(h, 'navRegs').psrRead(20)).toBe(1);
+      await h.player.handle({ type: 'setDiscPreferences', settings: { menuLanguage: 'fre' } });
+      expect(regsOf(h, 'navRegs').psrRead(18)).toBe(new RegisterFile().psrRead(18)); // the open disc keeps what it read
+      await h.player.handle({ type: 'open', disc: { kind: 'files', entries: h.entries } });
+      expect(regsOf(h, 'navRegs').psrRead(18)).toBe(strToUint32('fre', 3));
+      expect(regsOf(h, 'navRegs').psrRead(16)).toBe(new RegisterFile().psrRead(16)); // an empty preference: the default
+      expect(regsOf(h, 'navRegs').psrRead(20)).toBe(2);
     });
 
     it('applies the UHD profile to a 0300 index, with and without a navigator', async () => {

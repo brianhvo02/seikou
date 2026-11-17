@@ -13,6 +13,7 @@ import type { DiscManifest } from '@seikou/nas/nas-api';
 import type { DiscSpec, RemoteDiscSpec } from './disc/disc-spec';
 import type { RemoteFailure } from './disc/http-transport';
 import type { PlaylistSummary } from './disc/open-disc';
+import type { PlayerSettings } from './disc/player-settings';
 import type { UoOp } from './hdmv/uo-mask';
 import type { Chapter } from './nav/timeline';
 
@@ -403,6 +404,11 @@ export type EngineCommand =
   | { readonly type: 'setLevel'; readonly disc: RemoteDiscSpec; readonly audio?: number }
   /** Which path draws H.264 and HEVC video: the page's video element, the canvas, or the engine's choice. */
   | { readonly type: 'setVideoPath'; readonly path: VideoPath }
+  /**
+   * The player settings (PSR16-20) every disc's registers start with from the next open: the person's disc
+   * preferences, resolved by the page. A setting left out keeps libbluray's default.
+   */
+  | { readonly type: 'setDiscPreferences'; readonly settings: PlayerSettings }
   /** The clock block (packages/engine/src/element/clock-block.ts) the engine publishes its clock through, for the page's video element. */
   | { readonly type: 'attachVideoElement'; readonly clock: SharedArrayBuffer }
   /**

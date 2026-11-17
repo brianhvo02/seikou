@@ -151,7 +151,10 @@ export interface PlayerDeps {
   readonly bdjLog?: (line: string, error: boolean) => void;
   /** The engine's own log lines (a resume that falls back, an audio stream a level lacks); dropped by default. */
   readonly log?: (line: string) => void;
-  /** bd_set_player_setting_str's languages and country, written to the program's registers when a BD-J title is entered. */
+  /**
+   * The player settings (languages, country, region) every disc's registers start with until a setDiscPreferences
+   * command replaces them; none by default (libbluray's defaults).
+   */
   readonly playerSettings?: PlayerSettings;
   /**
    * Test-only (E2E, ?telemetry=1): telemetry carries the BD-J plane's hash once it settles (bdjPlane.hash), so a
@@ -588,6 +591,8 @@ export class Player {
    * only, 'canvas' none. The canvas until the host says otherwise: a host with no video element never answers a question.
    */
   private videoPath: VideoPath = 'canvas';
+  /** The player settings every disc's registers start with (setDiscPreferences): `deps.playerSettings` until the page sends its own. */
+  private playerSettings: PlayerSettings;
   /** The clock block of the page's video element (attachVideoElement), written every tick; null with no element. */
   private clockWriter: ClockBlockWriter | null = null;
   /** Smooths the stepped audio clock into the line the clock block publishes. */
@@ -610,6 +615,7 @@ export class Player {
   private shadersOn = false;
 
   constructor(private readonly deps: PlayerDeps) {
+    this.playerSettings = deps.playerSettings ?? {};
     this.clock = new MasterClock(deps.nowMs);
     this.elementQueries = new ElementCodecQueries((event) => deps.emit(event), (ms, fn) => (deps.setTimer ?? defaultSetTimer)(ms, fn));
     const bdj = deps.bdj;
@@ -790,6 +796,9 @@ export class Player {
           break;
         case 'setVideoPath':
           this.videoPath = cmd.path; // from the next session on
+          break;
+        case 'setDiscPreferences':
+          this.playerSettings = cmd.settings; // from the next disc open on
           break;
         case 'attachVideoElement':
           await this.attachVideoElement(cmd.clock);
@@ -1788,18 +1797,13 @@ export class Player {
     return bdjUnsupportedMessage(this.bdjMissing, what);
   }
 
-  /** _fill_disc_info's profile switch (bd_open). */
+  /**
+   * _fill_disc_info's profile switch (bd_open), then the player settings an application sets with
+   * bd_set_player_setting(_str) (the person's disc preferences), as libbluray has them from bd_open for every disc.
+   */
   private initRegs(regs: RegisterFile, index: IndexBdmv): void {
     applyDiscProfile(regs, index);
-  }
-
-  /**
-   * The player settings an application sets with bd_set_player_setting_str, written when the registers of a disc that
-   * uses BD-J are made, as libbluray has them from bd_open: its HDMV First Play reads them too. Discs without BD-J keep
-   * the registers' defaults.
-   */
-  private applyBdjSettings(regs: RegisterFile): void {
-    if (this.deps.playerSettings) applyPlayerSettings(regs, this.deps.playerSettings);
+    applyPlayerSettings(regs, this.playerSettings);
   }
 
   /** The registers of the disc's program (HDMV or BD-J), shared with a BD-J worker when the disc can run BD-J. */
@@ -1808,7 +1812,6 @@ export class Player {
     const shared = bdj ? new SharedArrayBuffer(bdj.REGISTER_WORDS * 4) : undefined;
     const regs = new RegisterFile(shared ? { shared } : {});
     this.initRegs(regs, index);
-    if (usesBdj) this.applyBdjSettings(regs);
     regs.onPsrEvent((e) => this.onPsrEvent(e, regs));
     return regs;
   }

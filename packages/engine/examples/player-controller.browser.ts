@@ -98,6 +98,10 @@ async function tour(controller: PlayerController, canvas: HTMLCanvasElement, sen
   controller.setVideoPath('auto'); // 'element', 'canvas' or 'auto'; before opening a disc
   // #endregion
 
+  // #region setDiscPreferences
+  controller.setDiscPreferences({ audioLanguage: 'jpn', pgLanguage: 'eng', menuLanguage: 'eng', country: 'us', region: 1 }); // before opening
+  // #endregion
+
   // #region resize
   controller.resize(canvas.width, canvas.height); // again whenever the canvas's box changes size
   // #endregion

@@ -17,7 +17,6 @@ import type { BdjProvider } from './bdj-provider';
 import { createAudioDecoderFactory } from './decode/audio-decoder';
 import { loadAudioWasm } from './decode/wasm-audio';
 import { browserVideoCodecApi } from './decode/video-decoder';
-import { playerSettingsForLocale } from './disc/player-settings';
 import { Player } from './player';
 import type { EngineCommand, EngineEvent } from './protocol';
 import { Compositor } from './render/compositor';
@@ -95,8 +94,6 @@ export function startEngineWorker(options: EngineWorkerOptions): Player {
     ...(bdj ? { bdj } : {}),
     // buffer first: a NAS disc's on-disk read-ahead cache, written through sync access handles (dedicated workers only)
     ...(readAheadCacheSupported() ? { readAheadCacheRoot: () => navigator.storage.getDirectory() } : {}),
-    // bd_set_player_setting_str as a player application sets it: the browser's language and region
-    playerSettings: playerSettingsForLocale(navigator.language),
     bdjLog: (line, error) => (error ? console.warn : console.debug)(`[BD-J] ${line}`),
     log: (line) => console.info(`[engine] ${line}`),
     // ASS: fonts in the worker's FontFaceSet, then the device's installed fonts, DejaVu Sans as the default font (libass's fallback in our harness)

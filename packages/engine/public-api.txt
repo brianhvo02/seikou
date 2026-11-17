@@ -53,6 +53,8 @@ JvmMemoryStats
 ClockMode
 # memory-profile
 MemoryProfileName
+# disc/player-settings
+PlayerSettings
 # hdmv/uo-mask
 UoOp
 # nav/timeline
