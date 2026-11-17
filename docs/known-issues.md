@@ -74,10 +74,10 @@ what would change that decision.
 
 ## Video
 
-- **Interlaced H.264 (1080i) is decoded in software and shown without deinterlacing.** Chrome's hardware decoders
-  fail on streams with `frame_mbs_only_flag` 0 ("Decoding error"; HDMV_DISC_A's 1080i logo is MBAFF), so those streams
-  are configured with `prefer-software`. Frames come out as woven fields, so motion shows combing. *Revisit if* a
-  disc has long interlaced content (a deinterlacing shader in the compositor would fix it).
+- **Interlaced H.264 (1080i) is decoded in software.** Chrome's hardware decoders fail on streams with
+  `frame_mbs_only_flag` 0 ("Decoding error"; HDMV_DISC_A's 1080i logo is MBAFF), so those streams are configured with
+  `prefer-software`. The decoded fields are then deinterlaced (see Deinterlacing below). *Revisit if* software decoding
+  can't keep up with a disc's 1080i on a device.
 - **H.264 that redefines a PPS id switches to software decoding, dropping up to one GOP once.** Some encoders resend
   PPS 0 with other content on nearly every picture. Chrome's hardware decoder on macOS fails on such a stream every
   few seconds ("Decoding error", then frames lost to the next keyframe); ffmpeg and Chrome's software decoder decode
