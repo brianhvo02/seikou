@@ -40,7 +40,7 @@ export function applyPlayerSettings(regs: RegisterFile, settings: PlayerSettings
  * ISO 639-1 to ISO 639-2. Blu-ray discs label their streams with the bibliographic (/B) codes ("fre", "ger", "chi"),
  * so where /B and /T differ this table uses /B.
  */
-const ISO_639_2: Readonly<Record<string, string>> = {
+export const ISO_639_1_TO_2B: Readonly<Record<string, string>> = {
   ar: 'ara', bg: 'bul', bn: 'ben', ca: 'cat', cs: 'cze', cy: 'wel', da: 'dan', de: 'ger', el: 'gre', en: 'eng',
   es: 'spa', et: 'est', eu: 'baq', fa: 'per', fi: 'fin', fr: 'fre', ga: 'gle', gl: 'glg', he: 'heb', hi: 'hin',
   hr: 'hrv', hu: 'hun', hy: 'arm', id: 'ind', is: 'ice', it: 'ita', ja: 'jpn', ka: 'geo', kk: 'kaz', km: 'khm',
@@ -62,7 +62,7 @@ export function playerSettingsForLocale(tag: string | undefined): PlayerSettings
   } catch {
     return {};
   }
-  const language = ISO_639_2[locale.language];
+  const language = ISO_639_1_TO_2B[locale.language];
   const region = locale.region !== undefined && /^[A-Z]{2}$/.test(locale.region) ? locale.region.toLowerCase() : undefined;
   return {
     ...(language ? { audioLanguage: language, pgLanguage: language, menuLanguage: language } : {}),
