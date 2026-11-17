@@ -1,7 +1,8 @@
 import { CodingType, codingName } from '@seikou/bdmv/stream-types';
 import { DecoderError, UnsupportedCodecError, type Decoder, type StreamConfig } from './decoder';
-import { analyzeAvc, avcCodecString, avcIsInterlaced, avcPpsId, type AccessUnitInfo } from '@seikou/bdmv/codecs/h264';
+import { analyzeAvc, avcCodecString, avcIsInterlaced, avcPicStruct, avcPpsId, avcTiming, type AccessUnitInfo, type AvcTiming } from '@seikou/bdmv/codecs/h264';
 import { analyzeHevc, hevcCodecStrings } from '@seikou/bdmv/codecs/hevc';
+import { flagsFromPicStruct, framePlanes, type FieldFlags, type FieldInput } from '../deinterlace/field-input';
 import { CODING_AV1, av1CodecString } from './av1';
 
 /** One video access unit for the decoder. */
@@ -117,6 +118,12 @@ function toDomException(err: unknown): DOMException {
  */
 export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
   onOutput: (frame: VideoFrame) => void = (frame) => frame.close(); // nobody listening: don't leak GPU memory
+  /**
+   * When set, an H.264 stream's frames go here as YUV planes with the field flags of their unit (pic_struct), in
+   * output order, instead of to `onOutput`. Set it for an interlaced stream before configure(); progressive streams
+   * and other codecs keep `onOutput`.
+   */
+  onFieldInput: ((input: FieldInput) => void) | null = null;
   onError: (err: DecoderError) => void = () => undefined;
 
   private decoder: VideoDecoderLike | null = null;
@@ -143,6 +150,12 @@ export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
   private readonly ppsById = new Map<number, Uint8Array>();
   /** The switch to software decoding was tried since configure(). */
   private softwareTried = false;
+  /** The picture timing facts of the stream's latest SPS, for reading pic_struct. */
+  private timing: AvcTiming | null = null;
+  /** The field flags of the units fed, by timestamp, until their frames come out. */
+  private readonly fieldFlags = new Map<number, FieldFlags>();
+  /** Delivers field inputs one after another, so their order is the output order. */
+  private fieldChain: Promise<void> = Promise.resolve();
 
   constructor(private readonly api: VideoCodecApi = browserVideoCodecApi) {}
 
@@ -232,6 +245,7 @@ export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
     this.ppsById.clear();
     this.softwareTried = false;
     this.lastKeyWasIdr = true;
+    this.timing = config.codingType === CodingType.AVC ? avcTiming(params) : null;
     this.open();
   }
 
@@ -258,6 +272,10 @@ export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
       this.leadingKeyPtsUs = null;
     }
     this.pending.set(unit.ptsUs, unit.discard);
+    if (this.onFieldInput && this.codingType === CodingType.AVC) {
+      if (info.sps) this.timing = avcTiming(info.sps);
+      this.fieldFlags.set(unit.ptsUs, flagsFromPicStruct(this.timing ? avcPicStruct(unit.data, this.timing) : null));
+    }
     try {
       decoder.decode(this.api.makeChunk({ type: startsSequence || info.idr ? 'key' : 'delta', timestamp: unit.ptsUs, data: info.data }));
     } catch (err) {
@@ -275,10 +293,12 @@ export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
     } catch {
       return; // a reset() during flush aborts it; nothing to do
     }
+    await this.fieldChain; // field inputs of the flushed frames are delivered before flush() resolves
   }
 
   reset(): void {
     this.pending.clear();
+    this.fieldFlags.clear();
     this.needKey = true;
     this.leadingKeyPtsUs = null;
     this.requireIdr = false;
@@ -301,6 +321,7 @@ export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
     if (this.decoder && this.decoder.state !== 'closed') this.decoder.close();
     this.decoder = null;
     this.pending.clear();
+    this.fieldFlags.clear();
   }
 
   /** Switches to software decoding once a PPS id comes back with other content (CodecOps.ppsId). */
@@ -348,6 +369,7 @@ export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
     this.needKey = true;
     this.leadingKeyPtsUs = null;
     this.pending.clear();
+    this.fieldFlags.clear();
     try {
       decoder.configure(config);
     } catch (err) {
@@ -363,13 +385,37 @@ export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
     this.consecutiveErrors = 0;
     this.hasOutput = true;
     const discard = this.pending.get(frame.timestamp);
+    const flags = this.fieldFlags.get(frame.timestamp);
     this.pending.delete(frame.timestamp);
+    this.fieldFlags.delete(frame.timestamp);
     if (discard !== false) {
       frame.close(); // discarded, or stale from before a reset
       return;
     }
     this.prunePending(frame.timestamp);
+    const sink = this.onFieldInput;
+    if (sink && flags) {
+      this.deliverFields(source, frame, flags, sink);
+      return;
+    }
     this.onOutput(frame);
+  }
+
+  /** Copies the frame's planes and passes them on in output order; the frame is closed either way. */
+  private deliverFields(source: VideoDecoderLike, frame: VideoFrame, flags: FieldFlags, sink: (input: FieldInput) => void): void {
+    const matrix = this.timing?.matrixCoefficients ?? null;
+    const timestampUs = frame.timestamp;
+    const durationUs = frame.duration ?? 0;
+    this.fieldChain = this.fieldChain.then(async () => {
+      try {
+        const planes = await framePlanes(frame, matrix);
+        if (source === this.decoder) sink({ planes, timestampUs, durationUs, flags });
+      } catch (err) {
+        if (source === this.decoder) this.handleError(source, toDomException(err));
+      } finally {
+        frame.close();
+      }
+    });
   }
 
   private prunePending(outputUs: number): void {

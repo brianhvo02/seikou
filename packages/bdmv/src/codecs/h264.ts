@@ -111,6 +111,8 @@ export interface AvcTiming {
   readonly dpbOutputDelayBits: number;
   /** NAL or VCL HRD parameters are present, so picture timing SEI starts with the two delays. */
   readonly hrdPresent: boolean;
+  /** matrix_coefficients of the VUI's colour description (H.264 Table E-5), or null when it has none. */
+  readonly matrixCoefficients: number | null;
 }
 
 /**
@@ -119,7 +121,7 @@ export interface AvcTiming {
  * @internal
  */
 export function avcTiming(sps: Uint8Array): AvcTiming {
-  const none: AvcTiming = { picStructPresent: false, cpbRemovalDelayBits: 24, dpbOutputDelayBits: 24, hrdPresent: false };
+  const none: AvcTiming = { picStructPresent: false, cpbRemovalDelayBits: 24, dpbOutputDelayBits: 24, hrdPresent: false, matrixCoefficients: null };
   const r = new ExpGolomb(unescapeRbsp(sps.subarray(1)));
   try {
     if (readSpsToFrameMbsOnly(r) === 0) r.u(1); // mb_adaptive_frame_field_flag
@@ -128,10 +130,15 @@ export function avcTiming(sps: Uint8Array): AvcTiming {
     if (!r.u(1)) return none; // vui_parameters_present_flag
     if (r.u(1) && r.u(8) === 255) r.u(32); // aspect_ratio_info_present_flag; Extended_SAR
     if (r.u(1)) r.u(1); // overscan_info_present_flag, overscan_appropriate_flag
+    let matrixCoefficients: number | null = null;
     if (r.u(1)) {
       // video_signal_type_present_flag
       r.u(4); // video_format, video_full_range_flag
-      if (r.u(1)) r.u(24); // colour_description_present_flag
+      if (r.u(1)) {
+        // colour_description_present_flag
+        r.u(16); // colour_primaries, transfer_characteristics
+        matrixCoefficients = r.u(8);
+      }
     }
     if (r.u(1)) {
       // chroma_loc_info_present_flag
@@ -169,7 +176,7 @@ export function avcTiming(sps: Uint8Array): AvcTiming {
     }
     if (hrd) r.u(1); // low_delay_hrd_flag
     const picStructPresent = r.u(1) === 1;
-    return { picStructPresent, cpbRemovalDelayBits: cpb, dpbOutputDelayBits: dpb, hrdPresent: hrd };
+    return { picStructPresent, cpbRemovalDelayBits: cpb, dpbOutputDelayBits: dpb, hrdPresent: hrd, matrixCoefficients };
   } catch (err) {
     if (err instanceof ParseError) return none;
     throw err;
