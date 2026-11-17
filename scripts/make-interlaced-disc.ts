@@ -3,6 +3,7 @@ import { CodingType } from '@seikou/bdmv/stream-types';
 import { CLIP_START_PTS, buildSyntheticDisc, type SyntheticClipSpec } from '../tests/helpers/synthetic-disc';
 import { writeFixture } from './fixture-dir';
 import { execFileSync } from 'node:child_process';
+import { analyzeAvc, avcPicStruct, avcTiming } from '@seikou/bdmv/codecs/h264';
 import { encodeTestVideo, splitAccessUnits } from './x264';
 
 const outDir = process.argv[2];
@@ -75,35 +76,19 @@ function encodeSoftPulldown(): Uint8Array[] {
   return aus;
 }
 
-/** The pic_struct of an access unit's picture timing SEI (payload type 1; x264 writes no HRD, so it is the first 4 bits). */
-function picStruct(au: Uint8Array): number {
-  for (let i = 0; i + 6 < au.length; i++) {
-    if (au[i] !== 0 || au[i + 1] !== 0 || au[i + 2] !== 1 || (au[i + 3] & 0x1f) !== 6) continue;
-    let j = i + 4;
-    while (j < au.length) {
-      const type = au[j++];
-      let size = 0;
-      while (au[j] === 255) { size += 255; j++; }
-      size += au[j++];
-      if (type === 1) return au[j] >> 4;
-      j += size;
-    }
-  }
-  throw new Error('access unit has no picture timing SEI');
-}
-
 /** Fields each pic_struct shows (H.264 table D-1). */
 const FIELDS = [2, 1, 1, 2, 2, 3, 3, 4, 6];
 const soft = encodeSoftPulldown();
 // Each frame lasts as many fields as its pic_struct shows, accumulated and rounded so 4 frames span exactly 5 x 3003 ticks.
-const softFields = soft.map((au) => FIELDS[picStruct(au)]);
+const softTiming = avcTiming(analyzeAvc(soft[0]).sps as Uint8Array);
+const softFields = soft.map((au) => FIELDS[avcPicStruct(au, softTiming) as number]);
 let acc = 0;
 const filmTicks = softFields.map((f) => {
   const before = Math.round((acc * FRAME_TICKS) / 2);
   acc += f;
   return Math.round((acc * FRAME_TICKS) / 2) - before;
 });
-console.log(`soft pulldown pic_struct: ${soft.slice(0, 8).map(picStruct).join(' ')} ...; ticks: ${filmTicks.slice(0, 8).join(' ')}`);
+console.log(`soft pulldown pic_struct: ${soft.slice(0, 8).map((au) => avcPicStruct(au, softTiming)).join(' ')} ...; ticks: ${filmTicks.slice(0, 8).join(' ')}`);
 
 const clips = [clip('00001', tff, even(tff.length)), clip('00002', bff, even(bff.length)), clip('00003', hard, even(hard.length)), clip('00004', soft, filmTicks)];
 const files = buildSyntheticDisc({

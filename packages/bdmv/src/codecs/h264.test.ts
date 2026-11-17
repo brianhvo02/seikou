@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { INTERLACED_SPS, PROGRESSIVE_SPS, TEST_PPS, TEST_SPS, avcAu } from '../../../../tests/helpers/h264-units';
 import { ParseError } from '../byte-reader';
-import { analyzeAvc, avcCodecString, avcIsInterlaced, avcPpsId } from './h264';
+import { execFileSync } from 'node:child_process';
+import { encodeTestVideo, splitAccessUnits } from '../../../../scripts/x264';
+import { analyzeAvc, avcCodecString, avcIsInterlaced, avcPicStruct, avcPpsId, avcTiming } from './h264';
 import { splitAnnexB } from './nal';
 
 describe('H.264 analysis', () => {
@@ -64,5 +66,48 @@ describe('H.264 analysis', () => {
     expect(avcPpsId(new Uint8Array([0x68, 0xee, 0x35, 0x25]))).toBe(0);
     expect(avcPpsId(new Uint8Array([0x68, 0x5e, 0x3c, 0xb0]))).toBe(1);
     expect(avcPpsId(new Uint8Array([0x68]))).toBeNull();
+  });
+});
+
+describe('H.264 picture structure', () => {
+  const picStructs = (aus: Uint8Array[]): (number | null)[] => {
+    const timing = avcTiming(analyzeAvc(aus[0]).sps as Uint8Array);
+    return aus.map((au) => avcPicStruct(au, timing));
+  };
+  const encode = (params: string): Uint8Array[] =>
+    encodeTestVideo(12, '320x180', ['-x264-params', params], '30000/1001');
+
+  it('reads pic_struct 3 (top field, then bottom) from top-field-first interlaced units', () => {
+    const aus = encode('interlaced=1:tff=1:pic-struct=1');
+    expect(avcTiming(analyzeAvc(aus[0]).sps as Uint8Array).picStructPresent).toBe(true);
+    expect(picStructs(aus)).toEqual(Array(12).fill(3));
+  });
+
+  it('reads pic_struct 4 (bottom field, then top) from bottom-field-first interlaced units', () => {
+    expect(picStructs(encode('interlaced=1:bff=1:pic-struct=1'))).toEqual(Array(12).fill(4));
+  });
+
+  it('gives null for a progressive stream written without picture timing', () => {
+    const aus = encode('pic-struct=0');
+    expect(avcTiming(analyzeAvc(aus[0]).sps as Uint8Array).picStructPresent).toBe(false);
+    expect(picStructs(aus)).toEqual(Array(12).fill(null));
+  });
+
+  it('reads the repeating soft pulldown sequence 5 4 6 3 that the x264 command line writes', () => {
+    // ffmpeg's libx264 ignores pulldown, so the standalone encoder makes the stream; ffprobe reports the same
+    // (top_field_first, repeat_pict) per frame: (1,1) (0,0) (0,1) (1,0).
+    const y4m = execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=320x180:rate=24000/1001',
+      '-frames:v', '12', '-pix_fmt', 'yuv420p', '-f', 'yuv4mpegpipe', '-'], { maxBuffer: 1 << 28 });
+    const h264 = execFileSync('x264', ['--demuxer', 'y4m', '--profile', 'high', '--crf', '30', '--keyint', '24', '--bframes', '0',
+      '--aud', '--pulldown', '32', '--pic-struct', '--output', '-', '-'], { input: y4m, maxBuffer: 1 << 28, stdio: ['pipe', 'pipe', 'ignore'] });
+    const aus = splitAccessUnits(new Uint8Array(h264));
+    expect(picStructs(aus)).toEqual([5, 4, 6, 3, 5, 4, 6, 3, 5, 4, 6, 3]);
+  });
+
+  it('skips the HRD delays before pic_struct when the SPS carries HRD parameters', () => {
+    const aus = encode('interlaced=1:tff=1:pic-struct=1:nal-hrd=vbr:bitrate=2000:vbv-maxrate=2000:vbv-bufsize=2000');
+    const timing = avcTiming(analyzeAvc(aus[0]).sps as Uint8Array);
+    expect(timing.hrdPresent).toBe(true);
+    expect(picStructs(aus)).toEqual(Array(12).fill(3));
   });
 });
