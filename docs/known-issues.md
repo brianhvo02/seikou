@@ -340,6 +340,15 @@ what would change that decision.
 - **Disc directory listings are sorted (5c).** `listBdFilesN` (and the VFS's other directory listings, `vfs.ts`)
   return names in sorted order, where libbluray returns readdir order. A folder the browser hands over has no
   canonical readdir order, so sorted is the one order that is the same on every run and machine.
+- **A BD-J mark just after the start point is reported, where libbluray skips it.** libbluray's
+  `_find_next_playmark` takes the first mark whose packet lies after the read position, and a mark's packet is the EP
+  entry at or before it, so after opening or seeking a playlist a mark later than the start but inside the same EP
+  interval (under about a second away) is never reported. A disc's top menu waited for exactly such a mark: it opens
+  its background loop at one mark and draws the menu on the next, 0.25 s later, so Top Menu showed the loop with no
+  menu, in libbluray too. Under BD-J the player takes a mark later than the start as the next one whatever its packet,
+  as a player that reports marks by time does (`nextMarkAt` in `player.ts`). HDMV keeps libbluray's rule, because its
+  marks only update the chapter PSR, which libbluray reads from the packet, and vm-trace compares those. *Revisit if* a
+  BD-J disc's library check diverges from libbluray on a mark in the first second after a playlist starts.
 - **BD-J input (5d).** Keys, clicks and taps reach Java as libbluray sends them (`bd_user_input`,
   `bd_mouse_select`), and 5c's "menu isn't shown yet" notice is gone. While the BD-J plane shows anything, a tap or
   click on the video goes to the disc; on an empty plane it shows or hides the controls (desktop: play/pause). A tap

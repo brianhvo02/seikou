@@ -2528,10 +2528,17 @@ export class Player {
 
   /**
    * _find_next_playmark at read position `sPos` (title packets): the first mark whose packet lies after it. Marks are
-   * then reached by time (syncNavigator, syncBdj).
+   * then reached by time (syncNavigator, syncBdj). Under BD-J (`bdj`) a mark later than the start `startUs` is the next
+   * one even when its packet is `sPos` (the same EP interval), as for a player that reports marks by time: libbluray
+   * skips it, and a disc that waits for it (a top menu drawn on the mark a quarter second after its loop's start)
+   * never goes on. HDMV keeps libbluray's rule: its marks only update the chapter PSR, which is read from the packet.
    */
-  private nextMarkAt(mpls: Mpls, sPos: number): number {
-    return nextPlaymark(sPos, mpls.marks, mpls.playItems, this.disc?.clips);
+  private nextMarkAt(mpls: Mpls, sPos: number, timeline: Timeline, startUs: number, bdj: boolean): number {
+    const next = nextPlaymark(sPos, mpls.marks, mpls.playItems, this.disc?.clips);
+    if (!bdj) return next;
+    const end = next < 0 ? timeline.markCount : next;
+    for (let k = 0; k < end; k++) if (timeline.markTimeUs(k) > startUs) return k;
+    return next;
   }
 
   /** s_pos after _seek_internal to playlist time `timeUs`: the title packet of the EP map entry at or before it. */
@@ -2592,7 +2599,7 @@ export class Player {
     const openPkt = this.openTitlePkt(mpls, timeline, at, startUs);
     if (!restart) {
       this.navItem = startItem;
-      this.navNextMark = this.nextMarkAt(mpls, openPkt);
+      this.navNextMark = this.nextMarkAt(mpls, openPkt, timeline, startUs, caller === 'bdj');
       if (caller === 'navigator' && this.navigator) this.navigator.playlistStarted(playlistId, startItem);
       if (caller === 'bdj') this.bdjListener?.playlistStarted(playlistId, startItem);
     }
@@ -3171,7 +3178,7 @@ export class Player {
     const t = Math.min(Math.max(0, targetUs), Math.max(0, s.timeline.durationUs - 1));
     if (marks !== 'keep') {
       const mpls = this.disc?.playlists.get(s.playlistId);
-      this.navNextMark = mpls ? this.nextMarkAt(mpls, marks ?? this.titlePktAt(s.timeline, s.playItems, t)) : -1;
+      this.navNextMark = mpls ? this.nextMarkAt(mpls, marks ?? this.titlePktAt(s.timeline, s.playItems, t), s.timeline, t, s.owner === 'bdj') : -1;
     }
     s.pipeline.stop();
     this.navigator?.seekGraphics(); // queued units from the old read position are dropped; the menu stays
