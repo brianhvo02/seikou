@@ -157,7 +157,7 @@ case alone (my call; its speed is measured then), and everything else here is un
 - Fixtures: generated, never from the owner's discs. `scripts/` builds 1080i H.264 clips with ffmpeg (libx264,
   interlaced, top and bottom field first) from moving synthetic content, and 3:2 telecined 24p clips (FFmpeg's
   `telecine` filter, LGPL, used only to make fixtures). Committed under `fixtures/synthetic/`.
-- Fixtures also include soft pulldown (x264's `--pulldown 32`).
+- Fixtures also include soft pulldown (x264's `pulldown=32`).
 - Pixel checks on planes: our output against references computed by FFmpeg (`bwdif` on the same planes; for film, the
   untelecined source frames), by PSNR thresholds per mode.
 - E2E: A/V sync on an interlaced fixture in video and film mode, the Off switch, telemetry modes; WebKit and Chrome
