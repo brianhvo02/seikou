@@ -9,7 +9,8 @@ import { LandingScreen } from './LandingScreen';
 import { levelSessionOf } from './nas/level-session';
 import { NasClient } from './nas/nas-client';
 import { getNasHistory, useNasRoute } from './nas/nas-history';
-import { idbNasStore } from './nas/nas-store';
+import { idbNasStore, pairingKey } from './nas/nas-store';
+import { DiscPreferencesStore, LOCAL_SCOPE } from './disc-preferences-store';
 import { isLoopbackHost, parsePairLink, type PairLink } from './nas/pair-link';
 import { PlayingRoute } from './nas/playing-route';
 import { PlaceSaver } from './place-saver';
@@ -71,6 +72,35 @@ function getNasClient(): NasClient {
     rendezvousUrl: import.meta.env.VITE_RENDEZVOUS_URL as string | undefined,
   });
   return sharedNas;
+}
+
+let sharedPreferences: DiscPreferencesStore | null = null;
+
+/** The person's disc preferences, one store for the page; loaded as the app starts and when the pairing changes. */
+export function getDiscPreferences(): DiscPreferencesStore {
+  if (sharedPreferences) return sharedPreferences;
+  const nas = getNasClient();
+  const controller = getController();
+  let paired = false;
+  sharedPreferences = new DiscPreferencesStore({
+    storage: (() => {
+      try {
+        return window.localStorage;
+      } catch {
+        return null;
+      }
+    })(),
+    scope: async () => {
+      const pairing = await nas.pairing().catch(() => null);
+      paired = pairing !== null;
+      return pairing ? pairingKey(pairing) : LOCAL_SCOPE;
+    },
+    nas: () => (paired ? { get: () => nas.playerSettings(), put: (body) => nas.putPlayerSettings(body) } : null),
+    send: (settings) => controller.setDiscPreferences(settings),
+    locale: () => navigator.language,
+    countdown: () => false,
+  });
+  return sharedPreferences;
 }
 
 let sharedPlaces: PlaceSaver | null = null;
@@ -225,6 +255,12 @@ export function App(): ReactElement {
       offPairing();
     };
   }, [places, nas]);
+  const [preferences] = useState(getDiscPreferences);
+  useEffect(() => {
+    void preferences.load();
+    // another NAS or person, or forgotten: that person's copy (or this device's own)
+    return nas.onPairingChange(() => void preferences.rescope());
+  }, [preferences, nas]);
   const [shaders] = useState(() => getShaderModel(controller));
   const shaderState = useSyncExternalStore(shaders.subscribe, shaders.getSnapshot);
   useEffect(() => {
