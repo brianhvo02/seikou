@@ -258,6 +258,37 @@ describe('Deinterlacer', () => {
     after.forEach((ts, i) => expect(ts).toBeCloseTo(want[i]!, 6));
   });
 
+  it('flush, push, flush, push, flush: each flush resolves once its own stream has come out whole', async () => {
+    const t = setup({ ringSize: 20, deferred: true, metrics: CLEAN });
+    const resolveAll = async (): Promise<void> => {
+      // Answers every measurement asked so far, and those asked as streams start, until none is left.
+      for (let n = 0; n < 10; n++) {
+        for (const m of t.measures) m.resolve(CLEAN);
+        await settle();
+      }
+    };
+    const done: string[] = [];
+    t.d.push(input(0));
+    t.d.push(input(1));
+    const first = t.d.flush().then(() => done.push('first'));
+    // A single-frame stream (a still play item), then a third stream, all before the first has drained.
+    t.d.push(input(10));
+    const second = t.d.flush().then(() => done.push('second'));
+    t.d.push(input(20));
+    t.d.push(input(21));
+    const third = t.d.flush().then(() => done.push('third'));
+    expect(second).not.toBe(first);
+    await resolveAll();
+    await Promise.all([first, second, third]);
+    expect(done).toEqual(['first', 'second', 'third']);
+    // Every frame came out: the woven frames of the first stream, then the lone frame's two fields, then the third
+    // stream's frames (too few for progressive: two fields each).
+    const starts = new Set(t.pictures.map((p) => Math.floor(p.timestamp / FRAME_US + 1e-6)));
+    expect([...starts]).toEqual([0, 1, 10, 20, 21]);
+    for (const p of t.pictures) p.close();
+    expect(t.d.freeSlots()).toBe(20);
+  });
+
   it('flush resolves at once with nothing pushed', async () => {
     const t = setup();
     await expect(t.d.flush()).resolves.toBeUndefined();

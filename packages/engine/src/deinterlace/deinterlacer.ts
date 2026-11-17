@@ -72,6 +72,27 @@ export interface DeinterlacerDeps {
 
 const FILM_FRAME_US = 1_001_000 / 24;
 
+/** A flush waiting to end its stream, with the promise `flush` returned for it. */
+interface FlushMarker {
+  readonly kind: 'flush';
+  readonly promise: Promise<void>;
+  readonly resolve: () => void;
+  readonly reject: (err: Error) => void;
+}
+
+/** What waits while a flush drains: a frame already uploaded for the next stream, or the flush that ends it. */
+type Deferred = { readonly kind: 'frame'; readonly slot: number; readonly input: FieldInput } | FlushMarker;
+
+function flushMarker(): FlushMarker {
+  let resolve!: () => void;
+  let reject!: (err: Error) => void;
+  const promise = new Promise<void>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { kind: 'flush', promise, resolve, reject };
+}
+
 /** One frame in the ring: its slot holds the frame's planes while the frame holds its own reference. */
 interface RingFrame {
   readonly seq: number;
@@ -144,9 +165,12 @@ export class Deinterlacer {
   private generation = 0;
   /** Bumped by `reset` and by a new stream after a flush: measurements of an earlier one are ignored. */
   private stream = 0;
-  /** A flush is draining the old stream: frames pushed meanwhile wait in `deferred` for the new one. */
+  /**
+   * A flush is draining the old stream: frames pushed meanwhile wait in `deferred` for the new one, and a flush asked
+   * after them waits there too, as the end of that stream (and so on for later streams).
+   */
   private flushing = false;
-  private deferred: Array<{ readonly slot: number; readonly input: FieldInput }> = [];
+  private deferred: Deferred[] = [];
   private flushDone: (() => void) | null = null;
   private flushReject: ((err: Error) => void) | null = null;
   private flushPromise: Promise<void> | null = null;
@@ -210,7 +234,7 @@ export class Deinterlacer {
     }
     this.refs[slot] = 1;
     if (this.flushing) {
-      this.deferred.push({ slot, input });
+      this.deferred.push({ kind: 'frame', slot, input });
       return;
     }
     this.admit(slot, input);
@@ -242,18 +266,31 @@ export class Deinterlacer {
    * when a measurement fails. Frames pushed before it resolves start the next stream.
    */
   flush(): Promise<void> {
-    if (this.flushPromise) return this.flushPromise;
     if (this.failure) return Promise.reject(this.failure);
+    if (this.flushing) {
+      // While a flush drains, a flush after newly pushed frames ends their stream once it starts; with none pushed
+      // since the latest flush, it is that flush.
+      const tail = this.deferred.at(-1);
+      if (!tail) return this.flushPromise!;
+      if (tail.kind === 'flush') return tail.promise;
+      const marker = flushMarker();
+      this.deferred.push(marker);
+      return marker.promise;
+    }
+    const marker = flushMarker();
+    this.startFlush(marker);
+    return marker.promise;
+  }
+
+  /** Ends the current stream with `marker`'s flush. */
+  private startFlush(marker: FlushMarker): void {
     this.flushing = true;
-    const promise = new Promise<void>((resolve, reject) => {
-      this.flushDone = resolve;
-      this.flushReject = reject;
-    });
-    this.flushPromise = promise;
+    this.flushDone = marker.resolve;
+    this.flushReject = marker.reject;
+    this.flushPromise = marker.promise;
     const last = this.frames.get(this.nextSeq - 1);
     if (last && !last.measure) this.measure(last, null);
     this.drain();
-    return promise;
   }
 
   /**
@@ -265,10 +302,12 @@ export class Deinterlacer {
     this.generation++;
     for (const p of this.pictures) p.orphan();
     this.pictures.clear();
+    const abandoned = this.deferred;
     this.deferred = [];
     this.restart();
     this.refs.fill(0);
     this.endFlush();
+    for (const d of abandoned) if (d.kind === 'flush') d.resolve();
   }
 
   /** Draws the picture into the backend's canvas (the same canvas every call, valid until the next render). */
@@ -303,6 +342,9 @@ export class Deinterlacer {
     this.flushPromise = null;
     this.flushing = false;
     reject?.(this.failure);
+    // Flushes of streams that will now never start fail with it; their frames' slots stay as they are.
+    for (const d of this.deferred) if (d.kind === 'flush') d.reject(this.failure);
+    this.deferred = this.deferred.filter((d) => d.kind === 'frame');
   }
 
   /** Settles the flush: it has drained (or was abandoned by a reset). */
@@ -368,12 +410,22 @@ export class Deinterlacer {
     }
     if (pictures.length > 0) this.onPictures(pictures);
     if (finished) {
-      // The old stream is done: the frames pushed while it drained start the next one.
+      // The old stream is done: the frames pushed while it drained start the next one, up to a flush asked after
+      // them, which ends that stream (frames after it stay deferred for the stream after).
       const waiting = this.deferred;
       this.deferred = [];
       this.restart();
       this.endFlush();
-      for (const w of waiting) this.admit(w.slot, w.input);
+      for (let i = 0; i < waiting.length; i++) {
+        const w = waiting[i]!;
+        if (w.kind === 'frame') {
+          this.admit(w.slot, w.input);
+          continue;
+        }
+        this.deferred = waiting.slice(i + 1);
+        this.startFlush(w);
+        break;
+      }
     }
   }
 
