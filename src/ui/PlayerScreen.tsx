@@ -7,6 +7,7 @@ import type { NasClient } from './nas/nas-client';
 import type { NasHistory } from './nas/nas-history';
 import type { NasRoute } from './nas/nas-route';
 import type { PlaceSaver } from './place-saver';
+import type { DiscPreferencesStore } from './disc-preferences-store';
 import { LaunchSettingsApplier } from './place-apply';
 import type { PlayingRoute } from './nas/playing-route';
 import { RelayBadge } from './nas/RelayBadge';
@@ -74,6 +75,8 @@ interface PlayerScreenProps {
   /** A NAS disc's playback is in the address bar (playingRoute, once its pre-flight started it); Back closes it. */
   readonly history: NasHistory;
   readonly playingRoute: PlayingRoute;
+  /** The person's disc preferences (the Settings menu; a fresh encode's pinned languages); none in tests that don't need them. */
+  readonly preferences?: DiscPreferencesStore;
 }
 
 /**
@@ -106,7 +109,7 @@ function Notice({ message, onDismiss, testId }: { message: string; onDismiss(): 
  * bar (`playingRoute`), and Back out of the play route closes the disc; `places` saves the place as the disc plays.
  * `nas` (absent without one) supplies the quality level, stored subtitles and Anime Tosho search of a NAS disc.
  */
-export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, nas, places, history, playingRoute }: PlayerScreenProps): ReactElement {
+export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, nas, places, history, playingRoute, preferences }: PlayerScreenProps): ReactElement {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -416,6 +419,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
           setStoredActive(null);
         },
         log: (message, err) => console.warn(message, err),
+        ...(preferences ? { discPreferences: () => preferences.current() } : {}),
       }),
   );
   useEffect(() => launchSettings.observe(snapshot), [launchSettings, snapshot]);

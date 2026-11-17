@@ -290,6 +290,7 @@ export function App(): ReactElement {
           places={places}
           history={history}
           playingRoute={playingRoute}
+          preferences={preferences}
         />
       )}
     </div>

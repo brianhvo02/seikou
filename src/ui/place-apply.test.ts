@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { EncodeDetail, FansubAlignment, FansubPick, FansubPickRequest, PlaceFansub, PlaceSettings, StoredSubtitle, ToshoReleaseFiles } from '@seikou/nas/nas-api';
+import { AUTO_DISC_PREFERENCES, type DiscPreferences, type EncodeDetail, type FansubAlignment, type FansubPick, type FansubPickRequest, type PlaceFansub, type PlaceSettings, type StoredSubtitle, type ToshoReleaseFiles } from '@seikou/nas/nas-api';
 import type { EncodeSubtitleSources } from './nas/encode-subtitles';
 import { NasHttpError } from './nas/nas-client';
 import { PICK_FAILED } from './nas/tosho-search-model';
@@ -41,6 +41,8 @@ interface SetupOpts {
   encodeSources?: EncodeSubtitleSources | null | Error;
   /** How the NAS lined each pick up. */
   alignment?: FansubAlignment;
+  /** The person's disc preferences; none passed when absent. */
+  prefs?: DiscPreferences;
 }
 
 /** The NAS's answer to a pick: shaped as a stored subtitle, under its own id. */
@@ -135,6 +137,7 @@ function setup(launch: LaunchSettings | null, stored: StoredTextFile[] = [], opt
     },
     nowMs: () => clock,
     log: () => {},
+    ...(opts.prefs ? { discPreferences: () => opts.prefs! } : {}),
   });
   let snap: PlayerSnapshot = {
     ...INITIAL_SNAPSHOT, engineState: 'loading', currentPlaylistId: null,
@@ -644,3 +647,36 @@ describe('LaunchSettingsApplier on an encoded episode', () => {
     expect(t.calls).toContainEqual(['note', 'ep1.ass', 'sub-1', 120, 'en']);
   });
 });
+
+describe('pinned languages on an encode', () => {
+  const pins = { ...AUTO_DISC_PREFERENCES, audioLanguage: 'jpn', subtitleLanguage: 'eng' };
+  const playingEncode = { engineState: 'playing', currentPlaylistId: 'mkv', encodeId: '100-3' } as const;
+
+  it('a fresh encode starts on the pinned audio and subtitle languages, once per open', () => {
+    const t = setup(null, [], { prefs: pins });
+    t.show(playingEncode);
+    expect(t.calls).toEqual([['audio', 2], ['subtitle', { kind: 'pg', stream: 1 }]]);
+    t.show(playingEncode);
+    expect(t.calls).toHaveLength(2);
+  });
+
+  it('Auto changes nothing', () => {
+    const t = setup(null, [], { prefs: AUTO_DISC_PREFERENCES });
+    t.show(playingEncode);
+    expect(t.calls).toEqual([]);
+  });
+
+  it("a resumed place's own tracks win over the pins", () => {
+    const t = setup({ settings: { ...base, psr1: 1, psr2: 0 }, byLanguage: false }, [], { prefs: pins });
+    t.show(playingEncode);
+    expect(t.calls).toContainEqual(['audio', 1]);
+    expect(t.calls).not.toContainEqual(['audio', 2]);
+  });
+
+  it('a disc is left to its own registers', () => {
+    const t = setup(null, [], { prefs: pins });
+    t.show({ engineState: 'playing', currentPlaylistId: '00001', encodeId: null });
+    expect(t.calls).toEqual([]);
+  });
+});
+

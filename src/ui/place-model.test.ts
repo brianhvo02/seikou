@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { PlaceSettings, PlaybackPlace } from '@seikou/nas/nas-api';
+import { AUTO_DISC_PREFERENCES, type PlaceSettings, type PlaybackPlace } from '@seikou/nas/nas-api';
 import type { AudioTrack } from '@seikou/engine/protocol';
 import type { PlayerSnapshot } from '@seikou/engine/controller/player-controller';
-import { buildPlace, isFinished, placeMinDurationUs, promptLines, qualifies, resumeStart, settingsForUpNext } from './place-model';
+import { buildPlace, isFinished, placeMinDurationUs, promptLines, qualifies, resumeStart, settingsForPins, settingsForUpNext } from './place-model';
 
 const S = 1e6;
 const MIN = 300 * S;
@@ -190,3 +190,22 @@ describe('promptLines', () => {
     expect(p.details).toBe('Subtitles: ep03.en.ass -0.4 s · Shader: Anime4K A');
   });
 });
+
+describe('settingsForPins', () => {
+  const audio = (language: string, index: number, playable = true): AudioTrack => ({ index, codec: 'opus', language, channels: 'stereo', playable });
+  const tracks = [audio('jpn', 1), audio('eng', 2), audio('fra', 3)];
+  const subs = [{ index: 1, language: 'en' }, { index: 2, language: 'jpn' }];
+  const pins = (audioLanguage: string, subtitleLanguage: string) => ({ ...AUTO_DISC_PREFERENCES, audioLanguage, subtitleLanguage });
+
+  it('picks the first playable track in each pinned language, whatever form the tag is in', () => {
+    expect(settingsForPins(tracks, subs, pins('eng', 'eng'))).toEqual({ audio: 2, subtitle: 1 });
+    expect(settingsForPins(tracks, subs, pins('fre', 'jpn'))).toEqual({ audio: 3, subtitle: 2 });
+  });
+
+  it('gives null for Auto and for a language the episode lacks', () => {
+    expect(settingsForPins(tracks, subs, AUTO_DISC_PREFERENCES)).toEqual({ audio: null, subtitle: null });
+    expect(settingsForPins(tracks, subs, pins('kor', 'kor'))).toEqual({ audio: null, subtitle: null });
+    expect(settingsForPins([audio('kor', 1, false)], [], pins('kor', 'auto'))).toEqual({ audio: null, subtitle: null });
+  });
+});
+

@@ -1,7 +1,8 @@
-import type { PlaceFansub, PlaceSettings, PlaceSubtitleSource, PlaybackPlace, PlaceTextFile } from '@seikou/nas/nas-api';
+import type { DiscPreferences, PlaceFansub, PlaceSettings, PlaceSubtitleSource, PlaybackPlace, PlaceTextFile } from '@seikou/nas/nas-api';
 import type { AudioTrack, PgTrack, PlaceState, StartPoint } from '@seikou/engine/protocol';
 import type { PlayerSnapshot } from '@seikou/engine/controller/player-controller';
 import { formatTime } from './format';
+import { languageMatches } from './disc-preferences';
 
 /** A playlist of this length (300 s, in microseconds) or more makes a place, so a menu loop or a short extra does not. */
 export const PLACE_MIN_DURATION_US = 300_000_000;
@@ -180,3 +181,15 @@ export function promptLines(place: PlaybackPlace, nowMs: number): { heading: str
     resumeLabel: `Resume at ${t}`,
   };
 }
+
+/**
+ * The tracks an encoded episode starts on for the person's pinned languages: the first playable audio track and the
+ * first subtitle track (ASS or PGS) in each pinned language, the tag matched in any form (`fra`, `fr`); null for Auto
+ * or a language the episode lacks, which leaves the MKV's default.
+ */
+export function settingsForPins(audio: readonly AudioTrack[], subtitles: readonly PgTrack[], prefs: DiscPreferences): { readonly audio: number | null; readonly subtitle: number | null } {
+  const a = prefs.audioLanguage === 'auto' ? undefined : audio.find((t) => t.playable && languageMatches(t.language, prefs.audioLanguage));
+  const s = prefs.subtitleLanguage === 'auto' ? undefined : subtitles.find((t) => languageMatches(t.language, prefs.subtitleLanguage));
+  return { audio: a?.index ?? null, subtitle: s?.index ?? null };
+}
+
