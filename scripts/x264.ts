@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 
 /** Splits an Annex-B stream at access unit delimiters (NAL type 9). */
-function splitAccessUnits(stream: Uint8Array): Uint8Array[] {
+export function splitAccessUnits(stream: Uint8Array): Uint8Array[] {
   const starts: number[] = [];
   for (let i = 0; i + 3 < stream.length; i++) {
     if (stream[i] === 0 && stream[i + 1] === 0 && stream[i + 2] === 1 && (stream[i + 3] & 0x1f) === 9) {

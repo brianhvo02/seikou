@@ -2,7 +2,8 @@
 import { CodingType } from '@seikou/bdmv/stream-types';
 import { CLIP_START_PTS, buildSyntheticDisc, type SyntheticClipSpec } from '../tests/helpers/synthetic-disc';
 import { writeFixture } from './fixture-dir';
-import { encodeTestVideo } from './x264';
+import { execFileSync } from 'node:child_process';
+import { encodeTestVideo, splitAccessUnits } from './x264';
 
 const outDir = process.argv[2];
 if (!outDir) {
@@ -52,13 +53,57 @@ function clip(clipId: string, videoAus: Uint8Array[], frameTicks: number[]): Syn
 }
 
 const even = (frames: number): number[] => Array.from({ length: frames }, () => FRAME_TICKS);
-// 24p coded frames at 90 kHz: 3753.75 ticks each, rounded cumulatively so the timeline doesn't drift.
-const filmTicks = Array.from({ length: FILM_FRAMES }, (_, i) => Math.round(((i + 1) * 90000 * 1001) / 24000) - Math.round((i * 90000 * 1001) / 24000));
-
 const tff = encodeTestVideo(FRAMES, SIZE, [...graph(900, 'interlace=scan=tff:lowpass=off'), '-crf', '30', '-x264-params', `interlaced=1:tff=1:${X264}`], FIELD_RATE);
 const bff = encodeTestVideo(FRAMES, SIZE, [...graph(900, 'interlace=scan=bff:lowpass=off'), '-crf', '30', '-x264-params', `interlaced=1:bff=1:${X264}`], FIELD_RATE);
 const hard = encodeTestVideo(FRAMES, SIZE, [...graph(700, 'telecine=pattern=23'), '-crf', '30', '-x264-params', `interlaced=1:tff=1:${X264}`], FILM_RATE);
-const soft = encodeTestVideo(FILM_FRAMES, SIZE, [...graph(700, 'null'), '-crf', '30', '-x264-params', `pulldown=32:${X264}`], FILM_RATE);
+
+/**
+ * Soft pulldown needs the x264 command line, which flags each 24p frame for 3:2 pulldown (libx264 through ffmpeg
+ * ignores `pulldown`): the frames stay progressive and picture timing SEI's pic_struct asks for 3, 2, 3, 2 fields.
+ */
+function encodeSoftPulldown(): Uint8Array[] {
+  const y4m = execFileSync('ffmpeg', [
+    '-v', 'error', '-f', 'lavfi', '-i', `testsrc2=size=${SIZE}:rate=${FILM_RATE}`, ...graph(700, 'null'),
+    '-frames:v', String(FILM_FRAMES), '-pix_fmt', 'yuv420p', '-f', 'yuv4mpegpipe', '-',
+  ], { maxBuffer: 1 << 30 });
+  const h264 = execFileSync('x264', [
+    '--demuxer', 'y4m', '--profile', 'high', '--level', '4.1', '--crf', '30', '--keyint', '24', '--min-keyint', '24',
+    '--no-scenecut', '--bframes', '0', '--aud', '--pulldown', '32', '--pic-struct', '--output', '-', '-',
+  ], { input: y4m, maxBuffer: 1 << 30, stdio: ['pipe', 'pipe', 'ignore'] });
+  const aus = splitAccessUnits(new Uint8Array(h264));
+  if (aus.length !== FILM_FRAMES) throw new Error(`expected ${FILM_FRAMES} access units, got ${aus.length}`);
+  return aus;
+}
+
+/** The pic_struct of an access unit's picture timing SEI (payload type 1; x264 writes no HRD, so it is the first 4 bits). */
+function picStruct(au: Uint8Array): number {
+  for (let i = 0; i + 6 < au.length; i++) {
+    if (au[i] !== 0 || au[i + 1] !== 0 || au[i + 2] !== 1 || (au[i + 3] & 0x1f) !== 6) continue;
+    let j = i + 4;
+    while (j < au.length) {
+      const type = au[j++];
+      let size = 0;
+      while (au[j] === 255) { size += 255; j++; }
+      size += au[j++];
+      if (type === 1) return au[j] >> 4;
+      j += size;
+    }
+  }
+  throw new Error('access unit has no picture timing SEI');
+}
+
+/** Fields each pic_struct shows (H.264 table D-1). */
+const FIELDS = [2, 1, 1, 2, 2, 3, 3, 4, 6];
+const soft = encodeSoftPulldown();
+// Each frame lasts as many fields as its pic_struct shows, accumulated and rounded so 4 frames span exactly 5 x 3003 ticks.
+const softFields = soft.map((au) => FIELDS[picStruct(au)]);
+let acc = 0;
+const filmTicks = softFields.map((f) => {
+  const before = Math.round((acc * FRAME_TICKS) / 2);
+  acc += f;
+  return Math.round((acc * FRAME_TICKS) / 2) - before;
+});
+console.log(`soft pulldown pic_struct: ${soft.slice(0, 8).map(picStruct).join(' ')} ...; ticks: ${filmTicks.slice(0, 8).join(' ')}`);
 
 const clips = [clip('00001', tff, even(tff.length)), clip('00002', bff, even(bff.length)), clip('00003', hard, even(hard.length)), clip('00004', soft, filmTicks)];
 const files = buildSyntheticDisc({
