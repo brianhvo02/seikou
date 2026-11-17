@@ -16,7 +16,7 @@ interface RefEntry {
   readonly frames: number;
 }
 
-function refFrames(name: 'video' | 'telecine' | 'telecineFilm'): Plane[] {
+function refFrames(name: 'video' | 'telecine' | 'telecineFilm' | 'smallMover'): Plane[] {
   const refs = JSON.parse(readFileSync(`${REF}refs.json`, 'utf8')) as Record<string, RefEntry>;
   const r = refs[name]!;
   const bytes = new Uint8Array(gunzipSync(readFileSync(REF + r.file)));
@@ -166,6 +166,35 @@ describe('frameMetrics on field-rate video (00000)', () => {
     expect(bff.combMatchPrev).toBe(combShare(cur, 1, prev));
     expect(bff.combMatchNext).toBe(combShare(cur, 0, next));
     expect([bff.combWoven, bff.diffPrev, bff.motionTff, bff.motionBff]).toEqual([tff.combWoven, tff.diffPrev, tff.motionTff, tff.motionBff]);
+  });
+});
+
+describe('frameMetrics on a small mover (field-rate video, still but for a 48x96 box)', () => {
+  const frames = refFrames('smallMover');
+  const metrics = metricsOf(frames, 'tff');
+
+  it('shows combing under the woven frame and under every match', () => {
+    for (let i = 1; i < frames.length - 1; i++) {
+      const m = metrics[i]!;
+      const lo = Math.min(m.combWoven, m.combMatchPrev, m.combMatchNext);
+      expect(lo, `frame ${i}`).toBeGreaterThan(COMB_CLEAN);
+      expect(lo, `frame ${i}`).toBeGreaterThan(MATCH_RATIO * Math.max(m.combWoven, m.combMatchPrev, m.combMatchNext));
+    }
+  });
+
+  it('keeps the detector in video mode, never progressive', () => {
+    // The 8 measured frames, repeated (the motion is steady), for longer than the detector needs to change its mind.
+    const middle = metrics.slice(1, -1);
+    const detector = new CadenceDetector({ frameDurationUs: NTSC_FRAME_US, lookahead: LOOKAHEAD });
+    const ts = evenTimestamps(36);
+    const pictures: PlannedPicture[] = [];
+    for (let i = 0; i < 36; i++) {
+      pictures.push(...detector.push(FIRST_SEQ + i, ts[i]!, orderFlags('tff'), middle[i % middle.length]!));
+      expect(detector.mode, `after frame ${i}`).toBe('video');
+    }
+    pictures.push(...detector.flush());
+    expect(pictures).toHaveLength(72);
+    for (const p of pictures) expect(p.op.kind).toBe('interpolate');
   });
 });
 

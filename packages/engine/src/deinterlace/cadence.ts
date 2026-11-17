@@ -7,8 +7,19 @@
 import type { FieldFlags } from './field-input';
 
 /**
- * One frame's measurements (from the GPU, or the CPU reference). Comb values are the share of the frame's pixels
- * that comb under a pairing, 0 to 1; higher means more combing.
+ * One frame's measurements (from the GPU, or the CPU reference `metrics-cpu.ts`). A comb value is how densely the
+ * picture a pairing makes combs where it combs most, 0 to 1, higher meaning more combing, so a small moving part of a
+ * still frame counts as much as a large one:
+ *
+ * - A pixel (columns 1 to width - 2, rows 2 to height - 3) combs when it and its left and right neighbours each pass
+ *   the comb test the same way up: each differs from the other field's rows above and below it in the same direction
+ *   by more than 12 levels (`COMB_LEVEL`, 8-bit luma), and |2c - (two rows up) - (two rows down)| is less than twice
+ *   the smaller of those two differences.
+ * - Combing pixels are counted in 64x64 cells from the top left (`COMB_CELL`; part cells at the right and bottom
+ *   edge count what falls in them). Every 2x2 block of neighbouring cells is a window: the windows start at each cell
+ *   but the last column and row of cells (one column or row of windows when the picture is a single cell across or
+ *   down), and cells past the edge count 0.
+ * - The comb value is the largest window count divided by 128 x 128, a whole window's pixels.
  *
  * The match pairings are defined by field parity against the stream's field order (`CadenceDetector.fieldOrder` when
  * the frame is measured), never by the frame's own flags, so a match always joins one top and one bottom field even
@@ -60,10 +71,10 @@ export const LOOKAHEAD = 5;
 export const PROGRESSIVE_FRAMES = 4;
 /**
  * A comb value at or below this is clean whatever the others are. Measured on the whole 1080i frames of the
- * interlaced fixture disc with the CPU reference (`metrics-cpu.ts`), clean pairings sit at 0.001 to 0.002 (coding
- * noise) and field-rate video combs at about 0.02 under every pairing, so the line sits between them.
+ * interlaced fixture disc with the CPU reference (`metrics-cpu.ts`), clean pairings read at most 0.004 (coding noise
+ * and still detail), a 48x96 box moving 6 px a field over a still picture 0.04, and field-rate video 0.19 to 0.22.
  */
-export const COMB_CLEAN = 0.005;
+export const COMB_CLEAN = 0.01;
 /** A pairing explains the combing when its comb value is at most this share of the worst pairing's. */
 export const MATCH_RATIO = 0.5;
 /** A pairing is as good as the best when its comb value is at most this many times the best's. */

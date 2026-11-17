@@ -110,6 +110,9 @@ console.log(`wrote ${files.size} files to ${outDir}`);
 //                      the stream's first, which has no previous frame)
 //   telecine.y.gz      playlist 00002's frames 0-10 (hard 3:2, two cycles and the frame after)
 //   telecine-film.y.gz the 24p film frames 0-7 that 00002 telecines (its first two cycles), before encoding
+//   small-mover.y.gz   8 whole 1920x1080 frames of field-rate video (top field first) that is still but for a
+//                      48x96 box moving 6 px a field over still SMPTE HD bars, woven by ffmpeg's interlace
+//                      filter, not encoded: combing on a small part of an otherwise clean frame (not on the disc)
 // refs.json gives each file's size and frame count.
 const VIDEO_CROP = { width: 1920, height: 320, x: 0, y: 160 };
 const TELECINE_CROP = { width: 512, height: 256, x: 0, y: 256 };
@@ -142,11 +145,24 @@ const film = lumaFrames(
   t.height,
   8,
 );
+const SMALL = { width: 1920, height: 1080, x: 0, y: 0 };
+const smallMover = lumaFrames(
+  [
+    '-f', 'lavfi', '-i', `smptehdbars=size=${SIZE}:rate=${FIELD_RATE}`, '-filter_complex',
+    `color=c=white:s=48x96:r=${FIELD_RATE}[box];[0:v]trim=end_frame=1,loop=loop=-1:size=1:start=0,setpts=N/(${FIELD_RATE})/TB[bg];` +
+      `[bg][box]overlay=x='600+n*6':y=500:shortest=1,interlace=scan=tff:lowpass=off[v]`,
+    '-map', '[v]',
+  ],
+  SMALL.width,
+  SMALL.height,
+  8,
+);
 const refs = {
   video: { file: 'video.y.gz', playlist: '00000', ...v, frames: 6 },
   videoBwdif: { file: 'video-bwdif.y.gz', playlist: '00000', ...v, frames: 10, of: 'frames 0-4, top field then bottom field' },
   telecine: { file: 'telecine.y.gz', playlist: '00002', ...t, frames: 11 },
   telecineFilm: { file: 'telecine-film.y.gz', playlist: '00002', ...t, frames: 8 },
+  smallMover: { file: 'small-mover.y.gz', playlist: null, ...SMALL, frames: 8 },
 };
 const refDir = join(dirname(outDir), 'deinterlace-ref');
 writeFixture(refDir, new Map([
@@ -155,5 +171,6 @@ writeFixture(refDir, new Map([
   ['video-bwdif.y.gz', gzipSync(bwdif, { level: 9 })],
   ['telecine.y.gz', gzipSync(telecineFrames, { level: 9 })],
   ['telecine-film.y.gz', gzipSync(film, { level: 9 })],
+  ['small-mover.y.gz', gzipSync(smallMover, { level: 9 })],
 ]));
 console.log(`wrote the deinterlacing references to ${refDir}`);
