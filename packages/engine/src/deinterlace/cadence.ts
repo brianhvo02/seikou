@@ -77,17 +77,22 @@ export const LOOKAHEAD = 5;
 /** Consecutive frames that weave clean before video is taken for progressive. */
 export const PROGRESSIVE_FRAMES = 4;
 /**
- * Frames (two whole cycles) with no matched frame after which a film lock is left, if most of them moved
- * (`MOTION_FLOOR`): moving film shows matched frames every cycle (a cut between films too, until its new phase
- * breaks the lock), so clean frames that move with none are progressive content (30p after the film). A static scene
- * shows none either, and keeps the lock.
+ * Frames (two whole cycles) with no matched frame after which a film lock is left, if most of them are progressive
+ * motion (`progressiveMotion`): moving film shows matched frames every cycle (a cut between films too, until its new
+ * phase breaks the lock), so frames that weave clean while their neighbours' fields comb against them, with none
+ * matched, are progressive content (30p after the film). A static scene or a fade combs in no pairing and keeps the
+ * lock.
  */
 export const UNCONFIRMED_FRAMES = 10;
+
 /**
- * A `diffPrev` above this is motion (a mean difference of about 2.5 levels in 8-bit luma), above coding noise on a
- * still picture.
+ * Whether a frame shows progressive motion: it weaves clean, and a pairing with a neighbour's field combs. Comb
+ * values are each pairing's densest window, so a small moving part counts as much as a whole moving picture; a fade
+ * or grain changes every pixel a little and combs in no pairing.
  */
-export const MOTION_FLOOR = 0.01;
+function progressiveMotion(m: FrameMetrics): boolean {
+  return m.combWoven <= COMB_CLEAN && Math.max(m.combMatchPrev, m.combMatchNext) > COMB_CLEAN;
+}
 /**
  * A comb value at or below this is clean whatever the others are. Measured on the whole 1080i frames of the
  * interlaced fixture disc with the CPU reference (`metrics-cpu.ts`), clean pairings read at most 0.004 (coding noise
@@ -342,7 +347,7 @@ export class CadenceDetector {
     const pairStart = f.cls !== 'matched' && c1 === 'matched' && c2 === 'matched' && c3 !== 'matched' ? i - 2 : null;
     this.combedRun = f.cls === 'combed' ? this.combedRun + 1 : 0;
     this.wovenRun = f.cls === 'woven' ? this.wovenRun + 1 : 0;
-    this.recentMotion.push({ moved: f.metrics.diffPrev > MOTION_FLOOR, matched: f.cls === 'matched' });
+    this.recentMotion.push({ moved: progressiveMotion(f.metrics), matched: f.cls === 'matched' });
     if (this.recentMotion.length > UNCONFIRMED_FRAMES) this.recentMotion.shift();
 
     switch (this.state.kind) {
@@ -431,7 +436,7 @@ export class CadenceDetector {
     this.apply(VIDEO, from);
   }
 
-  /** The latest `UNCONFIRMED_FRAMES` frames have no matched frame, and most of them moved. */
+  /** The latest `UNCONFIRMED_FRAMES` frames have no matched frame, and most of them are progressive motion. */
   private movingWithoutPulldown(): boolean {
     const recent = this.recentMotion;
     if (recent.length < UNCONFIRMED_FRAMES || recent.some((r) => r.matched)) return false;

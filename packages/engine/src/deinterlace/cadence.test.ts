@@ -375,6 +375,34 @@ describe('CadenceDetector', () => {
     expect(detector.breaks).toBe(0);
   });
 
+  it('keeps the film lock through a fade after it (every pairing clean, the picture brightening frame to frame)', () => {
+    const film = telecine(0, 40);
+    const fade = Array.from({ length: 40 }, (): SimFrame => ({ first: 'hold', second: 'hold' }));
+    const { detector, modes } = run([...film, ...fade], {
+      tweak: (metrics) => {
+        // a fade on a near-still shot: no pairing combs, yet the whole picture changes by more than coding noise
+        for (let i = film.length; i < metrics.length; i++) metrics[i] = { ...metrics[i]!, diffPrev: 0.03 };
+      },
+    });
+    expect(modes.slice(LOCK_CYCLES * 5 + LOOKAHEAD).every((m) => m === 'film')).toBe(true);
+    expect(detector.breaks).toBe(0);
+  });
+
+  it('leaves film for progressive when 30p follows in which only a small part of the picture moves', () => {
+    const film = telecine(0, 40);
+    const moving = progressiveFrames(0, 40);
+    const frames = [...film, ...moving];
+    const { detector, modes } = run(frames, {
+      tweak: (metrics) => {
+        // a talking head over a still background: the mean difference stays under coding noise's level
+        for (let i = film.length; i < metrics.length; i++) metrics[i] = { ...metrics[i]!, diffPrev: 0.004 };
+      },
+    });
+    const settled = film.length + 2 * 5 + LOOKAHEAD;
+    expect(modes.slice(settled).every((m) => m === 'progressive')).toBe(true);
+    expect(detector.breaks).toBe(1);
+  });
+
   it('detects bottom field first', () => {
     const frames = videoFrames(0, 20);
     const { detector, pictures } = run(frames, { order: 'bff', flags: () => orderFlags(null) });
