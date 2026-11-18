@@ -51,6 +51,9 @@ export interface SyntheticClipSpec {
   videoColorSpace?: number;
   /** 90 kHz ticks per frame (default: 24 fps, FRAME_TICKS_90K). */
   frameTicks?: number;
+  /** PES stream_id of the primary video (default 0xE0) and, for Blu-ray VC-1 (0xFD with 0x55), its stream_id_extension. */
+  videoStreamId?: number;
+  videoStreamIdExtension?: number;
   /** Secondary video streams (AVC, one access unit per frame like the primary): multiplexed on their own PIDs and listed in the CLPI and every play item's STN. */
   secondaryVideo?: Array<{ pid: number; videoAus: Uint8Array[] }>;
   /** Audio coding type: LPCM gets a real 440 Hz tone, other types get dummy payloads. Omit for no audio. */
@@ -167,7 +170,8 @@ export function buildSyntheticDisc(spec: SyntheticDiscSpec): Map<string, Uint8Ar
     const endPts = (clip.pts ? Math.max(...clip.pts) : clip.startPts + (clip.videoAus.length - 1) * frameTicks) + frameTicks;
     const units: Array<MuxUnit & { videoIndex?: number }> = clip.videoAus.map((payload, i) => ({
       pid: VIDEO_PID,
-      streamId: 0xe0,
+      streamId: clip.videoStreamId ?? 0xe0,
+      streamIdExtension: clip.videoStreamIdExtension,
       pts: clip.pts?.[i] ?? clip.startPts + i * frameTicks,
       dts: clip.dts?.[i],
       payload,
