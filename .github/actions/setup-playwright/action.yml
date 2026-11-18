@@ -31,7 +31,7 @@ runs:
         printf '%s\n' "Dir::Cache::Archives \"$dir/\";" 'Binary::apt::APT::Keep-Downloaded-Packages "true";' \
           'APT::Keep-Downloaded-Packages "true";' 'Acquire::http::Timeout "30";' 'Acquire::Retries "5";' \
           | sudo tee /etc/apt/apt.conf.d/99playwright-debs > /dev/null
-        ls "$dir"/*.deb 2>/dev/null | sort | sha256sum | cut -c1-16 > /tmp/playwright-debs-before
+        find "$dir" -maxdepth 1 -name "*.deb" | sort | sha256sum | cut -c1-16 > /tmp/playwright-debs-before
     # A second try keeps what the first one downloaded, so a slow mirror still makes progress within the job's limit.
     - shell: bash
       run: |
@@ -52,7 +52,7 @@ runs:
           pkg=$(dpkg-deb -f "$deb" Package); ver=$(dpkg-deb -f "$deb" Version)
           [ "$(dpkg-query -W -f='${Version}' "$pkg" 2>/dev/null)" = "$ver" ] || rm -f "$deb"
         done
-        hash=$(ls "$dir"/*.deb 2>/dev/null | sort | sha256sum | cut -c1-16)
+        hash=$(find "$dir" -maxdepth 1 -name "*.deb" | sort | sha256sum | cut -c1-16)
         echo "hash=$hash" >> "$GITHUB_OUTPUT"
         if [ "$hash" != "$(cat /tmp/playwright-debs-before)" ]; then echo "changed=true" >> "$GITHUB_OUTPUT"; fi
     # saved at once (not in the job's post step), so the packages are kept even when the tests fail
