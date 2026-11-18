@@ -88,7 +88,8 @@ export function matrixFromCoefficients(coefficients: number | null): PlaneMatrix
   return null;
 }
 
-function matrixByHeight(height: number): PlaneMatrix {
+/** The colour matrix of a picture whose stream names none: standard definition (576 lines or fewer) or high. */
+export function matrixByHeight(height: number): PlaneMatrix {
   if (height === 576) return 'bt470bg';
   return height <= 576 ? 'smpte170m' : 'bt709';
 }

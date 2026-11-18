@@ -8,6 +8,8 @@ export interface StreamConfig {
   readonly key?: boolean;
   /** The track's CodecPrivate (Matroska): AV1's av1C record, which the codec string comes from. */
   readonly codecPrivate?: Uint8Array;
+  /** The stream is interlaced (its CLPI format is 480i, 576i or 1080i): a decoder that reads it sends planes to its field input. */
+  readonly interlaced?: boolean;
 }
 
 /** Common shape of a decoder that delivers its output through callbacks (the WebCodecs video decoder). */
