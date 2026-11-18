@@ -44,6 +44,26 @@ describe('PresentationClock', () => {
     expect(play(2048 / 48, 10).droppedAfterStart).toBe(0);
   });
 
+  it('drops no field-rate picture over 20 s, whatever the phase of the ticks, the steps and the pictures', () => {
+    for (const stepMs of [1024 / 48, 1228.8 / 48, 2048 / 48]) {
+      for (const tickPhaseMs of [0, 2.6, 7.8, 13]) {
+        for (const picturePhaseUs of [0, 5000, 11_000]) {
+          const presenter = new VideoPresenter<PresentableFrame>();
+          const clock = new PresentationClock();
+          let next = 0;
+          let droppedAtOneSecond = 0;
+          for (let tick = 0; tick * TICK_MS < 20_000; tick++) {
+            const clockUs = Math.floor((tick * TICK_MS) / stepMs) * stepMs * 1000;
+            while (presenter.size < 8) presenter.push(picture(picturePhaseUs + next++ * FIELD_US));
+            presenter.select(clock.at(clockUs, true, 1000 + tick * TICK_MS + tickPhaseMs));
+            if (tick === 60) droppedAtOneSecond = presenter.dropped;
+          }
+          expect(presenter.dropped - droppedAtOneSecond, `${stepMs} ms steps, ticks at +${tickPhaseMs} ms, pictures at +${picturePhaseUs} us`).toBe(0);
+        }
+      }
+    }
+  });
+
   it('holds the shown picture while the clock holds: paused, and a still past one step', () => {
     const clock = new PresentationClock();
     // running in 20 ms steps, then the clock holds while playing (a still at a play item's end)

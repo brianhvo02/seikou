@@ -23,6 +23,31 @@ describe('VideoPresenter', () => {
     expect(p.select(80_000)).toBe(b);
   });
 
+  it('a frame due for under 5 ms does not drop the unshown one before it: that one shows first', () => {
+    const p = new VideoPresenter<TestFrame>();
+    const [a, b, c] = [frame(0), frame(16_683), frame(33_367)];
+    for (const f of [a, b, c]) p.push(f);
+    expect(p.select(0)).toBe(a);
+    // b and c are both due, c for 1 ms only: b shows now and c at the next tick, nothing dropped
+    expect(p.select(34_367)).toBe(b);
+    expect(p.select(51_000)).toBe(c);
+    expect(p.dropped).toBe(0);
+    // once the newer has been due for 5 ms the older one is late, and dropped as before
+    const q = new VideoPresenter<TestFrame>();
+    const [d, e, f] = [frame(0), frame(16_683), frame(33_367)];
+    for (const x of [d, e, f]) q.push(x);
+    q.select(0);
+    expect(q.select(38_367)).toBe(f);
+    expect(q.dropped).toBe(1);
+    // dropLate keeps the frame select would show
+    const r = new VideoPresenter<TestFrame>();
+    const [g, h2] = [frame(16_683), frame(33_367)];
+    r.push(g);
+    r.push(h2);
+    r.dropLate(34_367);
+    expect(r.size).toBe(2);
+  });
+
   it('shows the newest due frame and closes skipped ones', () => {
     const p = new VideoPresenter<TestFrame>();
     const [a, b, c] = [frame(0), frame(40_000), frame(80_000)];

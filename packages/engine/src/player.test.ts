@@ -32,6 +32,7 @@ import { ShaderStage } from './shaders/stage';
 import type { DrawnPicture } from './render/compositor';
 import type { FrameMetrics, PictureOp } from './deinterlace/cadence';
 import { Deinterlacer, type DeinterlaceBackend, type Picture } from './deinterlace/deinterlacer';
+import { PresentationClock } from './render/presentation-clock';
 import { InterlacedVideo, WOVEN_NO_WEBGL2, WOVEN_OFF, wovenFrameFormat, wovenSoftwareRenderer } from './deinterlace/interlaced-video';
 import { SIM_COMB_CLEAN, SIM_COMB_HIGH, SIM_DIFF_HIGH, completeFilmFrames, telecine } from './deinterlace/metric-sequences';
 import { CadenceDetector } from './deinterlace/cadence';
@@ -108,6 +109,13 @@ interface Harness {
   underruns(): number;
   /** Advance simulated time; the fake worklet consumes audio unless audio: false; ticks unless render: false. */
   play(ms: number, opts?: { render?: boolean; audio?: boolean }): Promise<void>;
+  /**
+   * Advance simulated time with display ticks every `tickMs` and the fake worklet consuming audio in callbacks of
+   * `audioStepMs` (whole render quanta), so the audio clock moves in steps that don't line up with the ticks.
+   */
+  playStepped(ms: number, opts: { tickMs: number; audioStepMs: number }): Promise<void>;
+  /** With `recordText`: each drawText call's time, and the timestamp of the picture on screen then (null for none). */
+  textDraws: Array<{ atUs: number; pictureUs: number | null }>;
 }
 
 const noWasmFactory = createAudioDecoderFactory(() => Promise.reject(new Error('no wasm in unit tests')));
@@ -140,7 +148,7 @@ function fakeAudioFactory(log: FakeAudioLog = { decoded: [], resets: 0, failNext
   };
 }
 
-async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?: number; videoCodingType?: number; throwOnDraw?: boolean; audioMuxLag90k?: number; frameBytes?: number; playlists?: SyntheticPlaylistSpec[]; audioStreams?: SyntheticAudioStream[]; secondClipAudioStreams?: SyntheticAudioStream[]; createAudioDecoder?: AudioDecoderFactory; movieObjects?: Uint8Array<ArrayBuffer>; dropFiles?: string[]; extraFiles?: Record<string, Uint8Array<ArrayBuffer>>; igUnits?: Array<{ pts: number; payload: Uint8Array }>; subPathIg?: SyntheticSubPathIg; pgStreams?: SyntheticPgStream[]; createAssDeps?: NonNullable<PlayerDeps['createAssDeps']>; createShaderBackend?: PlayerDeps['createShaderBackend']; index?: SyntheticDiscSpec['index']; playerSettings?: PlayerDeps['playerSettings']; remote?: FakeNas | ((files: Map<string, Uint8Array<ArrayBuffer>>) => FakeNas); remoteLimits?: PlayerDeps['remoteLimits']; clipSeconds?: number; noOpen?: boolean; cacheRoot?: MemoryDirectory; segmentBytes?: number; mutateFiles?: (files: Map<string, Uint8Array<ArrayBuffer>>) => void; videoCodecApi?: VideoCodecApi; log?: PlayerDeps['log']; videoFormat?: number; clipExtra?: Partial<Pick<SyntheticClipSpec, 'frameTicks' | 'videoRate'>>; createDeinterlaceBackend?: PlayerDeps['createDeinterlaceBackend']; videoCapture?: boolean; webglSoftwareRenderer?: PlayerDeps['webglSoftwareRenderer']; videoWasm?: (nowMs: () => number) => NonNullable<PlayerDeps['videoWasm']>; setTimer?: PlayerDeps['setTimer'] } = {},
+async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?: number; videoCodingType?: number; throwOnDraw?: boolean; audioMuxLag90k?: number; frameBytes?: number; playlists?: SyntheticPlaylistSpec[]; audioStreams?: SyntheticAudioStream[]; secondClipAudioStreams?: SyntheticAudioStream[]; createAudioDecoder?: AudioDecoderFactory; movieObjects?: Uint8Array<ArrayBuffer>; dropFiles?: string[]; extraFiles?: Record<string, Uint8Array<ArrayBuffer>>; igUnits?: Array<{ pts: number; payload: Uint8Array }>; subPathIg?: SyntheticSubPathIg; pgStreams?: SyntheticPgStream[]; createAssDeps?: NonNullable<PlayerDeps['createAssDeps']>; createShaderBackend?: PlayerDeps['createShaderBackend']; index?: SyntheticDiscSpec['index']; playerSettings?: PlayerDeps['playerSettings']; remote?: FakeNas | ((files: Map<string, Uint8Array<ArrayBuffer>>) => FakeNas); remoteLimits?: PlayerDeps['remoteLimits']; clipSeconds?: number; noOpen?: boolean; cacheRoot?: MemoryDirectory; segmentBytes?: number; mutateFiles?: (files: Map<string, Uint8Array<ArrayBuffer>>) => void; videoCodecApi?: VideoCodecApi; log?: PlayerDeps['log']; videoFormat?: number; clipExtra?: Partial<Pick<SyntheticClipSpec, 'frameTicks' | 'videoRate'>>; createDeinterlaceBackend?: PlayerDeps['createDeinterlaceBackend']; videoCapture?: boolean; webglSoftwareRenderer?: PlayerDeps['webglSoftwareRenderer']; videoWasm?: (nowMs: () => number) => NonNullable<PlayerDeps['videoWasm']>; setTimer?: PlayerDeps['setTimer']; recordText?: boolean } = {},
   memory?: 'constrained',
 ): Promise<Harness> {
   decoders.length = 0;
@@ -167,7 +175,9 @@ async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?:
   const shaderStages: Array<ShaderStage | null> = [];
   let stage: ShaderStage | null = null;
   const clock = { ms: 1000 };
-  const player = new Player({
+  const textDraws: Harness['textDraws'] = [];
+  const shownUs = (): number | null => (player as unknown as { presenter: { current: { timestamp: number } | null } }).presenter.current?.timestamp ?? null;
+  const player: Player = new Player({
     emit: (e) => events.push(e),
     videoCodecApi: opts.videoCodecApi ?? fakeApi,
     nowMs: () => clock.ms,
@@ -217,6 +227,7 @@ async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?:
         shaderStages.push(s);
         stage = s;
       },
+      ...(opts.recordText ? { drawText: (_text: unknown, atUs: number) => void textDraws.push({ atUs, pictureUs: shownUs() }) } : {}),
     }),
   });
   const ring = createRing(48_000, 2);
@@ -229,6 +240,7 @@ async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?:
   const left = new Float32Array(128);
   const right = new Float32Array(128);
   const audibleFrames: number[] = [];
+  const nextAudioMs = { value: clock.ms };
   return {
     player,
     events,
@@ -259,6 +271,20 @@ async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?:
         await new Promise((r) => setTimeout(r, 1));
       }
     },
+    async playStepped(ms, { tickMs, audioStepMs }) {
+      const quanta = Math.round((audioStepMs * 48) / 128);
+      nextAudioMs.value = Math.max(nextAudioMs.value, clock.ms);
+      for (let elapsed = 0; elapsed < ms; elapsed += tickMs) {
+        clock.ms += tickMs;
+        while (nextAudioMs.value <= clock.ms) {
+          for (let q = 0; q < quanta; q++) renderQuantum(views, left, right);
+          nextAudioMs.value += (quanta * 128) / 48;
+        }
+        player.tick();
+        await new Promise((r) => setTimeout(r, 1));
+      }
+    },
+    textDraws,
   };
 }
 
@@ -3785,6 +3811,23 @@ describe('Player with interlaced video (deinterlacing)', () => {
     expect(lastTelemetry(progressive)?.deinterlace).toBeNull();
   });
 
+  it('presents every field-rate picture once against an audio clock that moves every 21.3 ms', async () => {
+    const fake = fakeDeinterlace();
+    const h = await harness(CodingType.LPCM, { videoFormat: 4, clipExtra: { frameTicks: 3003, videoRate: 4 }, clipSeconds: 8, videoCodecApi: interlacedApi, createDeinterlaceBackend: fake.factory });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    // a 60 Hz display, and Chrome's audio callbacks of 1024 frames at 48 kHz
+    const stepped = { tickMs: 1000 / 60, audioStepMs: 1024 / 48 };
+    await h.playStepped(1000, stepped);
+    const presenter = (h.player as unknown as { presenter: { presented: number; dropped: number } }).presenter;
+    const [presented, dropped] = [presenter.presented, presenter.dropped];
+    await h.playStepped(3000, stepped);
+    expect(h.player.deinterlaceState.stats).toMatchObject({ mode: 'video', frameRate: false });
+    expect(presenter.dropped - dropped).toBe(0);
+    // 59.94 pictures a second
+    expect(presenter.presented - presented).toBeGreaterThanOrEqual(175);
+  });
+
   it('a device whose ticks stay slow with the cheap path on steps video down to frame rate, and telemetry says so', async () => {
     const fake = fakeDeinterlace();
     const h = await harness(CodingType.LPCM, { videoFormat: 4, videoCodecApi: interlacedApi, createDeinterlaceBackend: fake.factory, clipSeconds: 40 });
@@ -4392,6 +4435,35 @@ describe('Player with MPEG-2 and VC-1 video through the WASM decoder', () => {
     return h;
   }
   const skippingCalls = () => vi.spyOn(WasmVideoDecoder.prototype, 'setSkipping');
+
+  it("late pictures are dropped, and the WASM decoder's lateness judged, at the presentation time, not the stepped clock", async () => {
+    // the canvas picks pictures by PresentationClock (the audio clock smoothed between its steps); the two other places
+    // that judge a picture late must read the same time, or they would judge by a clock up to a step behind it
+    const at = vi.spyOn(PresentationClock.prototype, 'at');
+    const proto = Player.prototype as unknown as Record<'isFull' | 'followDecodeSpeed', (...args: unknown[]) => unknown>;
+    const readIt = { isFull: [] as boolean[], followDecodeSpeed: [] as boolean[] };
+    const spies = (['isFull', 'followDecodeSpeed'] as const).map((name) => {
+      const original = proto[name]!;
+      return vi.spyOn(proto, name).mockImplementation(function (this: unknown, ...args: unknown[]) {
+        const before = at.mock.calls.length;
+        const result = original.apply(this, args);
+        readIt[name].push(at.mock.calls.length > before);
+        return result;
+      });
+    });
+    try {
+      const wasm = fakeVideoWasm(scriptedPictures({ interlaced: true }), { picture: 5, skipped: 5 });
+      const h = await openFixture('disc-mpeg2-interlaced', { videoWasm: wasm.deps, createDeinterlaceBackend: recordingDeinterlace().factory });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilPlaying(h);
+      await h.playStepped(1000, { tickMs: 1000 / 60, audioStepMs: 1024 / 48 });
+      expect(readIt.isFull.some(Boolean)).toBe(true);
+      expect(readIt.followDecodeSpeed.some(Boolean)).toBe(true);
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+      at.mockRestore();
+    }
+  }, 30_000);
 
   it('an MPEG-2 playlist plays with a picture through the WASM decoder and shows no no-picture notice', async () => {
     const wasm = fakeVideoWasm(realPictures);
