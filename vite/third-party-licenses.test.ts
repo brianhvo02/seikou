@@ -87,9 +87,11 @@ describe('vendored works, metafile roots and formatting', () => {
     const own = ['/repo/server/src', '/repo/packages'];
     expect([...rootsFromMetafile({ 'server/src/a.ts': {}, 'packages/nas/src/b.ts': {}, 'node_modules/werift/x.js': {} }, '/repo', own)]).toEqual(['/repo/node_modules/werift']);
     expect(() => rootsFromMetafile({ 'vendor/lib/a.js': {} }, '/repo', own)).toThrow(/vendor\/lib\/a\.js/);
+    expect(() => rootsFromMetafile({ 'packages/ass/src/default-font.ttf': {} }, '/repo', own)).toThrow(/default-font\.ttf/);
+    expect(() => rootsFromMetafile({ 'packages/engine/wasm/audio/audio.wasm': {} }, '/repo', own)).toThrow(/audio\.wasm/);
   });
 
-  it('builds the same licence list whatever directory the build runs from', () => {
+  it('builds the same licence list from the repo root and from inside server/ (where the metafile paths differ)', () => {
     const repo = fileURLToPath(new URL('../', import.meta.url));
     const out = join(repo, 'server/dist/third-party-licenses.txt');
     const run = (cwd: string): string => {
@@ -98,6 +100,6 @@ describe('vendored works, metafile roots and formatting', () => {
     };
     const here = run(repo);
     expect(here).toContain('werift');
-    expect(run(tmpdir())).toBe(here);
+    expect(run(join(repo, 'server'))).toBe(here);
   }, 60_000);
 });
