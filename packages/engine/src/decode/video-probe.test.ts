@@ -39,6 +39,36 @@ describe('probeVideoDecoderSpeed', () => {
     expect(workers.every((w) => w.terminated)).toBe(true);
   });
 
+  it('a probe past its deadline starts no decoder when its clip arrives late', async () => {
+    const timers: Array<{ ms: number; fn: () => void; live: boolean }> = [];
+    let workers = 0;
+    let arrive!: (bytes: Uint8Array) => void;
+    const late = new Promise<Uint8Array>((resolve) => (arrive = resolve));
+    const result = probeVideoDecoderSpeed({
+      nowMs: () => 0,
+      setTimer: (ms, fn) => {
+        const t = { ms, fn, live: true };
+        timers.push(t);
+        return () => {
+          t.live = false;
+        };
+      },
+      videoWasm: {
+        wasmUrl: 'video.wasm',
+        createWorker: () => {
+          workers++;
+          return { onmessage: null, onerror: null, postMessage: () => undefined, terminate: () => undefined } as WorkerLike<ToVideoWorker, FromVideoWorker>;
+        },
+        bench: { mpeg2Url: 'a', vc1Url: 'b', fetchBytes: () => late },
+      },
+    });
+    timers.find((t) => t.ms === PROBE_DEADLINE_MS)!.fn();
+    await expect(result).resolves.toBeNull();
+    arrive(Uint8Array.of(0, 0, 1, 0, 1, 2));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(workers).toBe(0);
+  });
+
   it('splits a stream at its picture start codes', () => {
     const data = Uint8Array.of(9, 9, 0, 0, 1, 0xb3, 1, 0, 0, 1, 0, 5, 0, 0, 1, 0xb8, 0, 0, 1, 0, 6);
     // the headers before the first picture go with it, and a header between pictures with the picture before

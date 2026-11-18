@@ -75,6 +75,8 @@ const defaultSetTimer = (ms: number, fn: () => void): (() => void) => {
  * picture) over the time from the first unit sent to the flush's answer. Throws when it can't decode.
  */
 async function clipFps(deps: VideoProbeDeps, active: Set<WasmVideoDecoder>, cancelled: () => boolean, codingType: number, code: number, clip: Uint8Array): Promise<number> {
+  // past the deadline (the clip arrived late): no worker is started
+  if (cancelled()) throw new Error('the probe was cancelled');
   const decoder = new WasmVideoDecoder({
     createWorker: () => deps.videoWasm.createWorker(),
     wasmUrl: deps.videoWasm.wasmUrl,
@@ -97,6 +99,7 @@ async function clipFps(deps: VideoProbeDeps, active: Set<WasmVideoDecoder>, canc
   };
   try {
     await decoder.configure({ codingType, interlaced: true });
+    if (cancelled()) throw new Error('the probe was cancelled');
     const units = splitPictures(clip, code);
     let best = 0;
     for (let pass = 0; pass <= TIMED_PASSES; pass++) {

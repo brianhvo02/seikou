@@ -140,7 +140,7 @@ function fakeAudioFactory(log: FakeAudioLog = { decoded: [], resets: 0, failNext
   };
 }
 
-async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?: number; videoCodingType?: number; throwOnDraw?: boolean; audioMuxLag90k?: number; frameBytes?: number; playlists?: SyntheticPlaylistSpec[]; audioStreams?: SyntheticAudioStream[]; secondClipAudioStreams?: SyntheticAudioStream[]; createAudioDecoder?: AudioDecoderFactory; movieObjects?: Uint8Array<ArrayBuffer>; dropFiles?: string[]; extraFiles?: Record<string, Uint8Array<ArrayBuffer>>; igUnits?: Array<{ pts: number; payload: Uint8Array }>; subPathIg?: SyntheticSubPathIg; pgStreams?: SyntheticPgStream[]; createAssDeps?: NonNullable<PlayerDeps['createAssDeps']>; createShaderBackend?: PlayerDeps['createShaderBackend']; index?: SyntheticDiscSpec['index']; playerSettings?: PlayerDeps['playerSettings']; remote?: FakeNas | ((files: Map<string, Uint8Array<ArrayBuffer>>) => FakeNas); remoteLimits?: PlayerDeps['remoteLimits']; clipSeconds?: number; noOpen?: boolean; cacheRoot?: MemoryDirectory; segmentBytes?: number; mutateFiles?: (files: Map<string, Uint8Array<ArrayBuffer>>) => void; videoCodecApi?: VideoCodecApi; log?: PlayerDeps['log']; videoFormat?: number; clipExtra?: Partial<Pick<SyntheticClipSpec, 'frameTicks' | 'videoRate'>>; createDeinterlaceBackend?: PlayerDeps['createDeinterlaceBackend']; videoCapture?: boolean; webglSoftwareRenderer?: PlayerDeps['webglSoftwareRenderer']; videoWasm?: (nowMs: () => number) => NonNullable<PlayerDeps['videoWasm']> } = {},
+async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?: number; videoCodingType?: number; throwOnDraw?: boolean; audioMuxLag90k?: number; frameBytes?: number; playlists?: SyntheticPlaylistSpec[]; audioStreams?: SyntheticAudioStream[]; secondClipAudioStreams?: SyntheticAudioStream[]; createAudioDecoder?: AudioDecoderFactory; movieObjects?: Uint8Array<ArrayBuffer>; dropFiles?: string[]; extraFiles?: Record<string, Uint8Array<ArrayBuffer>>; igUnits?: Array<{ pts: number; payload: Uint8Array }>; subPathIg?: SyntheticSubPathIg; pgStreams?: SyntheticPgStream[]; createAssDeps?: NonNullable<PlayerDeps['createAssDeps']>; createShaderBackend?: PlayerDeps['createShaderBackend']; index?: SyntheticDiscSpec['index']; playerSettings?: PlayerDeps['playerSettings']; remote?: FakeNas | ((files: Map<string, Uint8Array<ArrayBuffer>>) => FakeNas); remoteLimits?: PlayerDeps['remoteLimits']; clipSeconds?: number; noOpen?: boolean; cacheRoot?: MemoryDirectory; segmentBytes?: number; mutateFiles?: (files: Map<string, Uint8Array<ArrayBuffer>>) => void; videoCodecApi?: VideoCodecApi; log?: PlayerDeps['log']; videoFormat?: number; clipExtra?: Partial<Pick<SyntheticClipSpec, 'frameTicks' | 'videoRate'>>; createDeinterlaceBackend?: PlayerDeps['createDeinterlaceBackend']; videoCapture?: boolean; webglSoftwareRenderer?: PlayerDeps['webglSoftwareRenderer']; videoWasm?: (nowMs: () => number) => NonNullable<PlayerDeps['videoWasm']>; setTimer?: PlayerDeps['setTimer'] } = {},
   memory?: 'constrained',
 ): Promise<Harness> {
   decoders.length = 0;
@@ -187,6 +187,7 @@ async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?:
     // a GPU renderer unless a test says otherwise
     webglSoftwareRenderer: opts.webglSoftwareRenderer ?? (() => null),
     ...(opts.videoWasm ? { videoWasm: opts.videoWasm(() => clock.ms) } : {}),
+    ...(opts.setTimer ? { setTimer: opts.setTimer } : {}),
     createCompositor: () => ({
       resize: () => undefined,
       drawVideo: (f) => {
@@ -4533,6 +4534,39 @@ describe('Player with MPEG-2 and VC-1 video through the WASM decoder', () => {
     await vi.waitFor(() => expect(speedEvents(h)).toHaveLength(3), { timeout: 2000 });
     expect(speedEvents(h)[2]).toEqual(speedEvents(h)[1]);
     expect(reads).toBe(readsAfter);
+  });
+
+  it('a timed-out probe is not kept either: the next ask measures again', async () => {
+    const timers: Array<{ ms: number; fn: () => void; live: boolean }> = [];
+    let reads = 0;
+    const wasm = fakeVideoWasm(scriptedPictures({ interlaced: true }), { picture: 20, skipped: 20 });
+    const h = await harness(undefined, {
+      noOpen: true,
+      setTimer: (ms, fn) => {
+        const t = { ms, fn, live: true };
+        timers.push(t);
+        return () => void (t.live = false);
+      },
+      videoWasm: (nowMs) => ({
+        ...wasm.deps(nowMs),
+        bench: {
+          mpeg2Url: 'a',
+          vc1Url: 'b',
+          // the first probe's read never answers
+          fetchBytes: (url) => (reads++ === 0 ? new Promise<Uint8Array>(() => undefined) : Promise.resolve(url === 'a' ? benchClip(0x00, 15) : benchClip(0x0d, 15))),
+        },
+      }),
+    });
+    await h.player.handle({ type: 'probeVideoDecoder' });
+    await vi.waitFor(() => expect(timers.some((t) => t.ms === 20_000 && t.live)).toBe(true), { timeout: 2000 });
+    timers.find((t) => t.ms === 20_000 && t.live)!.fn();
+    await vi.waitFor(() => expect(speedEvents(h)).toEqual([null]), { timeout: 2000 });
+    await h.player.handle({ type: 'probeVideoDecoder' });
+    await vi.waitFor(async () => {
+      await h.play(20, { render: false, audio: false });
+      expect(speedEvents(h)).toHaveLength(2);
+    }, { timeout: 5000 });
+    expect(speedEvents(h)[1]).toMatchObject({ moduleUrl: 'video.wasm', clips: 'a|b' });
   });
 
   it.each([
