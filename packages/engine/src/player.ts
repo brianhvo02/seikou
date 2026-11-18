@@ -4292,6 +4292,9 @@ export class Player {
       this.endElement(s);
       return;
     }
+    // a decoder still starting (a WASM worker loading its module) takes the held units once it is configured, and
+    // feedDecoder flushes it then; counting it flushed now would end the playlist on the picture already on screen
+    if (s.videoState === 'configuring') return;
     if (s.videoState !== 'configured') {
       s.flushed = true;
       return;

@@ -4626,6 +4626,32 @@ describe('Player with MPEG-2 and VC-1 video through the WASM decoder', () => {
     }
   }, 30_000);
 
+  it('a playlist reopened near its end plays its last second when the reader is done before the new decoder opens', async () => {
+    // a slow device: the 4 s playlist reopens (Deinterlacing Off) at 2.9 s, and the reader reaches the clip's end while
+    // the new decoder worker is still loading video.wasm
+    let opens = 0;
+    let release: (() => void) | null = null;
+    const gated: VideoWorkerCoreDeps['openDecoder'] = async (url, codec, timeoutMs) => {
+      if (++opens === 2) await new Promise<void>((resolve) => (release = resolve));
+      return realPictures(url, codec, timeoutMs);
+    };
+    const h = await openFixture('disc-mpeg2-interlaced', { videoWasm: fakeVideoWasm(gated).deps, createDeinterlaceBackend: recordingDeinterlace().factory });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' }); // 1080i, 4 s
+    await untilPlaying(h);
+    await h.play(2900);
+    await h.player.handle({ type: 'setDeinterlace', mode: 'off' });
+    await vi.waitFor(() => expect(release).not.toBeNull());
+    await new Promise((r) => setTimeout(r, 300)); // the reader reads to the end meanwhile; no playback time passes
+    const drawn = h.drawn.length;
+    release!();
+    await h.play(800);
+    expect(lastState(h)).not.toBe('ended');
+    expect(h.drawn.length - drawn).toBeGreaterThan(10); // woven frames of the last second
+    await h.play(1000);
+    expect(lastState(h)).toBe('ended');
+    expect(times(h).at(-1)!).toBeGreaterThan(3_800_000);
+  }, 30_000);
+
   it('without videoWasm an MPEG-2 playlist plays without a picture and shows the notice', async () => {
     const h = await openFixture('disc-mpeg2-interlaced');
     await h.player.handle({ type: 'playPlaylist', playlistId: '00004' });
