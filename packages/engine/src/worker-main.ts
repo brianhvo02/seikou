@@ -13,6 +13,7 @@ import { createDeviceFontSource } from '@seikou/ass/device-fonts';
 import { createFontFaceLoader } from '@seikou/ass/fonts';
 import { createCanvasMeasurer } from '@seikou/ass/measure';
 import { drawWarped } from '@seikou/ass/warp';
+import { ASSET_FETCH_TIMEOUT_MS } from './asset-fetch';
 import type { BdjProvider } from './bdj-provider';
 import { createAudioDecoderFactory } from './decode/audio-decoder';
 import { loadAudioWasm } from './decode/wasm-audio';
@@ -49,8 +50,8 @@ export function engineWorkerTestFlags(): ReadonlySet<string> {
   return new Set(((self as unknown as { name?: string }).name ?? '').split(':')[1]?.split(',') ?? []);
 }
 
-/** The wait for an asset the worker fetches: the audio wasm, the default font (and a provider's class library jars). */
-export const ASSET_FETCH_TIMEOUT_MS = 20_000;
+/** The wait for an asset the worker fetches (asset-fetch.ts), re-exported for the hosts that import it from here. */
+export { ASSET_FETCH_TIMEOUT_MS } from './asset-fetch';
 
 /** What a host passes to startEngineWorker. */
 export interface EngineWorkerOptions {

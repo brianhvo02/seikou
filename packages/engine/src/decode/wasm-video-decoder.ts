@@ -2,6 +2,7 @@
 // MPEG-1, MPEG-2 and VC-1 video through FFmpeg's decoders in video.wasm, run in a decoder worker of their own
 // (video-worker.ts), behind the same Decoder surface as WebCodecsVideoDecoder.
 import { codingName } from '@seikou/bdmv/stream-types';
+import { ASSET_FETCH_TIMEOUT_MS } from '../asset-fetch';
 import type { WorkerLike } from '../bdj-types';
 import { matrixByHeight, type FieldInput, type PlaneMatrix } from '../deinterlace/field-input';
 import { DecoderError, UnsupportedCodecError, type Decoder, type StreamConfig } from './decoder';
@@ -15,11 +16,26 @@ export interface WasmVideoDecoderDeps {
   createWorker(): WorkerLike<ToVideoWorker, FromVideoWorker>;
   /** Where the worker fetches video.wasm from. */
   readonly wasmUrl: string;
-  /** The limit on that fetch in milliseconds; none when absent. */
-  readonly fetchTimeoutMs?: number;
+  /** The limit on that fetch in milliseconds (default ASSET_FETCH_TIMEOUT_MS); null for none. */
+  readonly fetchTimeoutMs?: number | null;
+  /** Starts a timer and returns its cancel (default setTimeout), for the watchdog. */
+  readonly setTimer?: (ms: number, fn: () => void) => () => void;
+  /** How long the worker may go without a message while it owes answers before it counts as stopped (default VIDEO_WORKER_WATCHDOG_MS). */
+  readonly watchdogMs?: number;
   /** Makes a progressive picture's VideoFrame (frameFromPicture; tests pass a fake). */
   makeFrame(p: DecodedPicture): VideoFrame;
 }
+
+/**
+ * How long the worker may go silent while units or a flush wait on it: far above a slow phone's worst decode of a
+ * unit (about 10 ms for a 1080i VC-1 frame), so only a worker that stopped (killed, a lost message) reaches it.
+ */
+export const VIDEO_WORKER_WATCHDOG_MS = 8_000;
+
+const defaultSetTimer = (ms: number, fn: () => void): (() => void) => {
+  const id = setTimeout(fn, ms);
+  return () => clearTimeout(id);
+};
 
 /** How many decode times decodeMs averages. */
 const DECODE_TIMES = 30;
@@ -64,6 +80,8 @@ export class WasmVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
   private readonly times: number[] = [];
   private skipping = false;
   private skippedCount = 0;
+  /** Cancels the watchdog's timer, while one runs. */
+  private cancelWatchdog: (() => void) | null = null;
 
   constructor(private readonly deps: WasmVideoDecoderDeps) {}
 
@@ -88,10 +106,13 @@ export class WasmVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
     return this.times.reduce((a, b) => a + b, 0) / this.times.length;
   }
 
-  /** Starts the worker and opens its decoder for the stream's codec; rejects with UnsupportedCodecError when it can't. */
-  configure(config: StreamConfig): Promise<void> {
+  /**
+   * Starts the worker and opens its decoder for the stream's codec; rejects (never throws) with UnsupportedCodecError
+   * when it can't: no such codec, a worker that can't be started, or a module that doesn't load in time.
+   */
+  async configure(config: StreamConfig): Promise<void> {
     const codec = wasmVideoCodecFor(config.codingType);
-    if (codec === null) return Promise.reject(new UnsupportedCodecError(config.codingType, `${codingName(config.codingType)} video is not supported.`));
+    if (codec === null) throw new UnsupportedCodecError(config.codingType, `${codingName(config.codingType)} video is not supported.`);
     this.teardown();
     this.codingType = config.codingType;
     this.interlaced = config.interlaced === true;
@@ -99,7 +120,12 @@ export class WasmVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
     this.skippedCount = 0;
     this.times.length = 0;
     this.pending.clear();
-    const worker = this.deps.createWorker();
+    let worker: WorkerLike<ToVideoWorker, FromVideoWorker>;
+    try {
+      worker = this.deps.createWorker();
+    } catch (err) {
+      throw new UnsupportedCodecError(config.codingType, `The ${codingName(config.codingType)} video decoder could not start: ${errorMessage(err)}`);
+    }
     this.worker = worker;
     worker.onmessage = (event) => this.handleMessage(worker, event.data);
     worker.onerror = (event) => {
@@ -108,7 +134,12 @@ export class WasmVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
     const opened = new Promise<void>((resolve, reject) => {
       this.opening = { resolve, reject };
     });
-    worker.postMessage({ type: 'open', wasmUrl: this.deps.wasmUrl, codec, timeoutMs: this.deps.fetchTimeoutMs ?? null });
+    const timeoutMs = this.deps.fetchTimeoutMs === undefined ? ASSET_FETCH_TIMEOUT_MS : this.deps.fetchTimeoutMs;
+    try {
+      worker.postMessage({ type: 'open', wasmUrl: this.deps.wasmUrl, codec, timeoutMs });
+    } catch (err) {
+      this.fail(errorMessage(err));
+    }
     return opened;
   }
 
@@ -118,7 +149,7 @@ export class WasmVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
     const id = ++this.nextId;
     this.inFlight.add(id);
     if (Number.isFinite(unit.ptsUs)) this.pending.set(Math.round(unit.ptsUs), { discard: unit.discard, skipping: this.skipping });
-    worker.postMessage({ type: 'decode', id, data: unit.data, ptsUs: unit.ptsUs, discard: unit.discard });
+    this.post(worker, { type: 'decode', id, data: unit.data, ptsUs: unit.ptsUs, discard: unit.discard });
   }
 
   /** Resolves once every picture of the units sent has come out (at once when the worker is gone). */
@@ -127,7 +158,7 @@ export class WasmVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
     if (!worker || this.opening) return Promise.resolve();
     const id = ++this.nextId;
     const done = new Promise<void>((resolve) => this.flushes.set(id, resolve));
-    worker.postMessage({ type: 'flush', id });
+    this.post(worker, { type: 'flush', id });
     return done;
   }
 
@@ -136,22 +167,63 @@ export class WasmVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
     if (!worker) return;
     this.staleUntilId = this.nextId;
     this.pending.clear();
-    worker.postMessage({ type: 'reset' });
+    this.sendQuietly(worker, { type: 'reset' });
   }
 
   /** On: the worker stops decoding B pictures (a device too slow for them all); counted in `skipped`. */
   setSkipping(on: boolean): void {
     this.skipping = on;
-    this.worker?.postMessage({ type: 'skip', on });
+    if (this.worker) this.sendQuietly(this.worker, { type: 'skip', on });
   }
 
   close(): void {
-    this.worker?.postMessage({ type: 'close' });
+    try {
+      this.worker?.postMessage({ type: 'close' });
+    } catch {
+      // the worker is terminated next all the same
+    }
     this.teardown();
+  }
+
+  /** Sends a message that the worker owes an answer to, and starts the watchdog when none runs. A throw is fatal. */
+  private post(worker: WorkerLike<ToVideoWorker, FromVideoWorker>, message: ToVideoWorker): void {
+    try {
+      worker.postMessage(message);
+    } catch (err) {
+      this.fail(errorMessage(err));
+      return;
+    }
+    if (!this.cancelWatchdog) this.armWatchdog();
+  }
+
+  /** Sends a message the worker answers nothing to; a throw is fatal. */
+  private sendQuietly(worker: WorkerLike<ToVideoWorker, FromVideoWorker>, message: ToVideoWorker): void {
+    try {
+      worker.postMessage(message);
+    } catch (err) {
+      this.fail(errorMessage(err));
+    }
+  }
+
+  /** (Re)starts the watchdog while the worker owes answers; stops it when it owes none. */
+  private armWatchdog(): void {
+    this.cancelWatchdog?.();
+    this.cancelWatchdog = null;
+    if (!this.worker || (this.inFlight.size === 0 && this.flushes.size === 0)) return;
+    const setTimer = this.deps.setTimer ?? defaultSetTimer;
+    this.cancelWatchdog = setTimer(this.deps.watchdogMs ?? VIDEO_WORKER_WATCHDOG_MS, () => {
+      this.cancelWatchdog = null;
+      this.fail('the video decoder worker stopped answering');
+    });
   }
 
   private handleMessage(worker: WorkerLike<ToVideoWorker, FromVideoWorker>, message: FromVideoWorker): void {
     if (worker !== this.worker) return;
+    this.receive(message);
+    if (this.worker === worker) this.armWatchdog();
+  }
+
+  private receive(message: FromVideoWorker): void {
     switch (message.type) {
       case 'opened': {
         const opening = this.opening;
@@ -220,6 +292,8 @@ export class WasmVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
 
   /** Stops the worker; an open in progress resolves (nobody is waiting on its outcome) and flushes resolve. */
   private teardown(): void {
+    this.cancelWatchdog?.();
+    this.cancelWatchdog = null;
     const worker = this.worker;
     this.worker = null;
     if (worker) {
@@ -238,6 +312,10 @@ export class WasmVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
     this.answeredId = 0;
     this.staleUntilId = 0;
   }
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }
 
 /** A picture's planes as the deinterlacer takes them: tightly packed I420, the chroma planes half size rounded up. */

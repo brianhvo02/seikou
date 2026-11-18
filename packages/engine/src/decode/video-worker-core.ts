@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // The video decoder worker's work, apart from the worker global so tests drive it in-process (video-worker.ts runs it).
 import type { FromVideoWorker, ToVideoWorker } from './video-worker-protocol';
-import type { DecodedPicture, WasmPictureDecoder, WasmVideoCodecId } from './wasm-video';
+import { WasmPictureDecoder, loadVideoWasm, type DecodedPicture, type VideoWasm, type WasmVideoCodecId } from './wasm-video';
 
 /** The part of WasmPictureDecoder the worker uses. */
 export type PictureDecoderLike = Pick<WasmPictureDecoder, 'push' | 'drain' | 'flush' | 'reset' | 'setSkipNonReference' | 'close'>;
@@ -28,7 +28,22 @@ export class VideoWorkerCore {
   /** The rounded times of discard units whose pictures have not come out, since the last open, reset or flush. */
   private readonly discards = new Set<number>();
 
+  private chain: Promise<void> = Promise.resolve();
+
   constructor(private readonly deps: VideoWorkerCoreDeps) {}
+
+  /**
+   * Queues a message behind the ones before it (an open's load finishes before the units after it are decoded). A
+   * message whose handling throws or rejects anywhere is a fatal error for the engine, never a silent stop.
+   */
+  enqueue(message: ToVideoWorker): void {
+    this.chain = this.chain.then(() => this.handle(message)).catch((err: unknown) => this.fail(err));
+  }
+
+  /** A message from the engine that could not be deserialized (the worker's messageerror): fatal, as the unit is lost. */
+  messageError(): void {
+    this.fail(new Error('a message to the video decoder worker could not be read'));
+  }
 
   /** Handles one message; the next must wait for the returned promise (only `open` awaits anything). */
   async handle(message: ToVideoWorker): Promise<void> {
@@ -109,7 +124,11 @@ export class VideoWorkerCore {
     this.closeDecoder();
     if (this.failed) return;
     this.failed = true;
-    this.deps.post({ type: 'error', message: err instanceof Error ? err.message : String(err), fatal: true });
+    try {
+      this.deps.post({ type: 'error', message: err instanceof Error ? err.message : String(err), fatal: true });
+    } catch {
+      // nothing can reach the engine: its watchdog reports the worker as stopped
+    }
   }
 
   private closeDecoder(): void {
@@ -121,4 +140,28 @@ export class VideoWorkerCore {
       // closing a decoder that already failed: nothing more to free
     }
   }
+}
+
+/** The fetch the worker loads video.wasm with (the global fetch; tests pass a fake). */
+export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
+
+/**
+ * The worker's openDecoder: fetches video.wasm (aborted after `timeoutMs`, so a stalled fetch fails the open rather
+ * than leaving it pending), keeps the compiled module per URL for later opens (a failed load is tried again), and opens
+ * a decoder in it.
+ */
+export function videoDecoderOpener(
+  fetchImpl: FetchLike,
+  load: (source: Promise<Response>) => Promise<VideoWasm> = loadVideoWasm,
+): VideoWorkerCoreDeps['openDecoder'] {
+  const modules = new Map<string, Promise<VideoWasm>>();
+  return async (wasmUrl, codec, timeoutMs) => {
+    let module = modules.get(wasmUrl);
+    if (!module) {
+      module = load(fetchImpl(wasmUrl, timeoutMs === null ? undefined : { signal: AbortSignal.timeout(timeoutMs) }));
+      modules.set(wasmUrl, module);
+      module.catch(() => modules.delete(wasmUrl));
+    }
+    return new WasmPictureDecoder(await module, codec);
+  };
 }

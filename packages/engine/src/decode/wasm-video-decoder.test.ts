@@ -11,7 +11,8 @@ import type { FieldInput } from '../deinterlace/field-input';
 import { DecoderError, UnsupportedCodecError } from './decoder';
 import type { VideoUnit } from './video-decoder';
 import type { FromVideoWorker, ToVideoWorker } from './video-worker-protocol';
-import { VideoWorkerCore } from './video-worker-core';
+import { ASSET_FETCH_TIMEOUT_MS } from '../asset-fetch';
+import { VideoWorkerCore, videoDecoderOpener, type VideoWorkerCoreDeps } from './video-worker-core';
 import { WasmVideoDecoder, frameFromPicture } from './wasm-video-decoder';
 import { WasmPictureDecoder, WasmVideoCodec, loadVideoWasm, type DecodedPicture, type VideoWasm } from './wasm-video';
 
@@ -87,6 +88,45 @@ function setup(): { worker: FakeWorker; decoder: WasmVideoDecoder; frames: FakeF
 }
 
 const unit = (ptsUs: number, discard = false): VideoUnit => ({ data: new Uint8Array([0, 0, 1, 0, ptsUs & 0xff]), ptsUs, discard });
+
+/** A worker whose messages run VideoWorkerCore in this thread, posting back asynchronously as a real worker does. */
+function inProcessWorker(openDecoder: VideoWorkerCoreDeps['openDecoder']): WorkerLike<ToVideoWorker, FromVideoWorker> {
+  const worker: WorkerLike<ToVideoWorker, FromVideoWorker> = {
+    onmessage: null,
+    onerror: null,
+    postMessage: (message) => core.enqueue(message),
+    terminate: () => undefined,
+  };
+  const core = new VideoWorkerCore({
+    post: (message) => {
+      void Promise.resolve().then(() => worker.onmessage?.({ data: message } as MessageEvent<FromVideoWorker>));
+    },
+    openDecoder,
+    now: () => performance.now(),
+  });
+  return worker;
+}
+
+/** A timer the test fires by hand. */
+class ManualTimers {
+  readonly timers: { ms: number; fn: () => void; cancelled: boolean }[] = [];
+  readonly setTimer = (ms: number, fn: () => void): (() => void) => {
+    const timer = { ms, fn, cancelled: false };
+    this.timers.push(timer);
+    return () => {
+      timer.cancelled = true;
+    };
+  };
+  live(): { ms: number; fn: () => void; cancelled: boolean }[] {
+    return this.timers.filter((t) => !t.cancelled);
+  }
+  /** Fires the one live timer, which is then spent. */
+  fire(): void {
+    const [timer] = this.live();
+    timer!.cancelled = true;
+    timer!.fn();
+  }
+}
 
 describe('WasmVideoDecoder', () => {
   it('configure opens the worker for the stream\'s codec and rejects with UnsupportedCodecError when it reports a fatal error', async () => {
@@ -299,6 +339,103 @@ describe('WasmVideoDecoder', () => {
     expect(frames.map((f) => f.timestamp)).toEqual([0, 120_000, 240_000]);
   });
 
+  it('a stalled module fetch times out and configure rejects', async () => {
+    // a fetch that never answers, until its signal aborts it
+    const stalled = (_url: string, init?: RequestInit): Promise<Response> =>
+      new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason)));
+    const decoder = new WasmVideoDecoder({
+      createWorker: () => inProcessWorker(videoDecoderOpener(stalled)),
+      wasmUrl: 'video.wasm',
+      fetchTimeoutMs: 30,
+      makeFrame: () => {
+        throw new Error('no frames');
+      },
+    });
+    await expect(decoder.configure({ codingType: CodingType.MPEG2_VIDEO })).rejects.toBeInstanceOf(UnsupportedCodecError);
+
+    // without a limit of its own, the decoder asks for the engine's asset limit
+    const plain = new FakeWorker();
+    const byDefault = new WasmVideoDecoder({ createWorker: () => plain, wasmUrl: 'video.wasm', makeFrame: () => ({}) as VideoFrame });
+    await byDefault.configure({ codingType: CodingType.MPEG2_VIDEO });
+    expect(plain.of('open')[0]!.timeoutMs).toBe(ASSET_FETCH_TIMEOUT_MS);
+  });
+
+  it("configure rejects instead of throwing when the worker can't be created", async () => {
+    const decoder = new WasmVideoDecoder({
+      createWorker: () => {
+        throw new Error('nested workers are not available');
+      },
+      wasmUrl: 'video.wasm',
+      makeFrame: () => ({}) as VideoFrame,
+    });
+    let configured: Promise<void> | null = null;
+    expect(() => {
+      configured = decoder.configure({ codingType: CodingType.VC1 });
+    }).not.toThrow();
+    await expect(configured).rejects.toBeInstanceOf(UnsupportedCodecError);
+    await expect(configured).rejects.toThrow(/nested workers/);
+  });
+
+  it('a worker that stops answering with units in flight reports a fatal error once and settles a pending flush', async () => {
+    const timers = new ManualTimers();
+    const worker = new FakeWorker();
+    const decoder = new WasmVideoDecoder({ createWorker: () => worker, wasmUrl: 'video.wasm', makeFrame: () => ({}) as VideoFrame, setTimer: timers.setTimer, watchdogMs: 5_000 });
+    const errors: DecoderError[] = [];
+    decoder.onError = (e) => errors.push(e);
+    await decoder.configure({ codingType: CodingType.MPEG2_VIDEO });
+    // nothing owed: no watchdog
+    expect(timers.live()).toHaveLength(0);
+    decoder.decode(unit(0));
+    decoder.decode(unit(40_000));
+    expect(timers.live()).toHaveLength(1);
+    expect(timers.live()[0]!.ms).toBe(5_000);
+    // an answer restarts it; once nothing is owed it stops
+    worker.reply({ type: 'decoded', id: worker.of('decode')[0]!.id, ms: 1 });
+    expect(timers.live()).toHaveLength(1);
+    worker.reply({ type: 'decoded', id: worker.of('decode')[1]!.id, ms: 1 });
+    expect(timers.live()).toHaveLength(0);
+
+    decoder.decode(unit(80_000));
+    let flushed = false;
+    const done = decoder.flush().then(() => {
+      flushed = true;
+    });
+    expect(timers.live()).toHaveLength(1);
+    timers.fire();
+    await done;
+    expect(flushed).toBe(true);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.fatal).toBe(true);
+    expect(errors[0]!.message).toMatch(/stopped answering/);
+    expect(decoder.queueSize).toBe(0);
+    expect(worker.terminated).toBe(true);
+    expect(timers.live()).toHaveLength(0);
+  });
+
+  it("a rejected task in the worker's chain posts a fatal error", async () => {
+    const posted: FromVideoWorker[] = [];
+    const fake = { push: vi.fn(), drain: vi.fn(() => [picture(0)]), flush: vi.fn(() => []), reset: vi.fn(), setSkipNonReference: vi.fn(), close: vi.fn() };
+    const core = new VideoWorkerCore({
+      post: (message) => {
+        // a picture that can't be posted (a DataCloneError): the task rejects outside the decoder's own calls
+        if (message.type === 'picture') throw new Error('could not clone the picture');
+        posted.push(message);
+      },
+      openDecoder: async () => fake,
+      now: () => 0,
+    });
+    core.enqueue({ type: 'open', wasmUrl: 'x', codec: WasmVideoCodec.MPEG2, timeoutMs: null });
+    core.enqueue({ type: 'decode', id: 1, data: new Uint8Array(1), ptsUs: 0, discard: false });
+    await vi.waitFor(() => expect(posted.some((m) => m.type === 'error')).toBe(true));
+    expect(posted.filter((m) => m.type === 'error')).toEqual([{ type: 'error', message: 'could not clone the picture', fatal: true }]);
+
+    // a message that can't be read is fatal too
+    const second: FromVideoWorker[] = [];
+    const other = new VideoWorkerCore({ post: (m) => second.push(m), openDecoder: async () => fake, now: () => 0 });
+    other.messageError();
+    expect(second).toEqual([{ type: 'error', message: 'a message to the video decoder worker could not be read', fatal: true }]);
+  });
+
   it('close tells the worker and terminates it', async () => {
     const { worker, decoder } = setup();
     await decoder.configure({ codingType: CodingType.MPEG2_VIDEO });
@@ -359,31 +496,10 @@ describe('the decoder worker with the real video.wasm', () => {
     return units;
   }
 
-  /** A worker whose messages run VideoWorkerCore in this thread, posting back asynchronously as a real worker does. */
-  function inProcessWorker(module: VideoWasm): WorkerLike<ToVideoWorker, FromVideoWorker> {
-    let chain = Promise.resolve();
-    const worker: WorkerLike<ToVideoWorker, FromVideoWorker> = {
-      onmessage: null,
-      onerror: null,
-      postMessage(message) {
-        chain = chain.then(() => core.handle(message));
-      },
-      terminate: () => undefined,
-    };
-    const core = new VideoWorkerCore({
-      post: (message) => {
-        void Promise.resolve().then(() => worker.onmessage?.({ data: message } as MessageEvent<FromVideoWorker>));
-      },
-      openDecoder: async (_url, codec) => new WasmPictureDecoder(module, codec),
-      now: () => performance.now(),
-    });
-    return worker;
-  }
-
   it("decodes disc-mpeg2-interlaced's playlist 00000 to interlaced field inputs in presentation order", async () => {
     const module = await wasm();
     const decoder = new WasmVideoDecoder({
-      createWorker: () => inProcessWorker(module),
+      createWorker: () => inProcessWorker(async (_url, codec) => new WasmPictureDecoder(module, codec)),
       wasmUrl: 'video.wasm',
       makeFrame: () => {
         throw new Error('an interlaced stream makes no VideoFrame');
