@@ -4611,6 +4611,37 @@ describe('Player with MPEG-2 and VC-1 video through the WASM decoder', () => {
     expect(troubles(h)).toEqual(['failed']);
   });
 
+  it('a stream that never yields a picture falls back to no picture with the notice', async () => {
+    // a decoder that takes every unit and never makes a picture: a VC-1 stream with no sequence header, or units it rejects
+    const silent: VideoWorkerCoreDeps['openDecoder'] = async () => ({
+      push: () => undefined,
+      drain: () => [],
+      flush: () => [],
+      reset: () => undefined,
+      setSkipNonReference: () => undefined,
+      close: () => undefined,
+    });
+    const h = await harness(CodingType.LPCM, { videoCodingType: CodingType.VC1, clipSeconds: 30, videoWasm: fakeVideoWasm(silent).deps });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    // with no picture to start on, the playlist waits in buffering: the bound counts that wait as well as playback
+    await h.play(4000);
+    expect(troubles(h)).toEqual([]);
+    expect(noPicture(h)).toEqual([]);
+    let waitedMs = 4000;
+    while (troubles(h).length === 0 && waitedMs < 10_000) {
+      await h.play(200);
+      waitedMs += 200;
+    }
+    expect(troubles(h)).toEqual(['failed']);
+    expect(waitedMs).toBeLessThanOrEqual(7000);
+    await untilPlaying(h);
+    await h.play(500);
+    expect(noPicture(h)).toEqual([{ type: 'unsupported', kind: 'video', codec: 'VC-1', message: NO_PICTURE_MESSAGE, noPicture: true }]);
+    expect(h.events.some((e) => e.type === 'error')).toBe(false);
+    expect(lastTelemetry(h)).toMatchObject({ videoDecoder: null });
+    expect(lastState(h)).toBe('playing');
+  }, 30_000);
+
   it('a seek shows no picture before the next I picture', async () => {
     const h = await openFixture('disc-mpeg2-interlaced', { videoWasm: fakeVideoWasm(realPictures).deps });
     await h.player.handle({ type: 'playPlaylist', playlistId: '00004' }); // open GOPs of 12, two B pictures between references

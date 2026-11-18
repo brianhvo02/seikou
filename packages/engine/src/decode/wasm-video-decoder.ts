@@ -100,6 +100,8 @@ export class WasmVideoDecoder implements CanvasVideoDecoder {
   private readonly times: number[] = [];
   private skipping = false;
   private skippedCount = 0;
+  /** Units the worker decoded since the configure or the latest reset; null once a picture has come out since. */
+  private unitsBeforePicture: number | null = 0;
   /** Cancels the watchdog's timer, while one runs. */
   private cancelWatchdog: (() => void) | null = null;
   /** Cancels the bound on the open in progress, while one runs. */
@@ -115,6 +117,15 @@ export class WasmVideoDecoder implements CanvasVideoDecoder {
   /** Always 0: pictures reach `onFieldInput` as they arrive, with no copy pending. */
   get fieldInputsPending(): number {
     return 0;
+  }
+
+  /**
+   * Units the worker has decoded since the configure or the latest reset() without a picture coming out; 0 once one has.
+   * A stream the decoder never makes a picture of (units it rejects, a VC-1 stream with no sequence header) keeps
+   * counting up.
+   */
+  get unitsWithoutPicture(): number {
+    return this.unitsBeforePicture ?? 0;
   }
 
   /** Pictures not decoded because skipping was on (B pictures). */
@@ -140,6 +151,7 @@ export class WasmVideoDecoder implements CanvasVideoDecoder {
     this.interlaced = config.interlaced === true;
     this.failed = false;
     this.skippedCount = 0;
+    this.unitsBeforePicture = 0;
     this.times.length = 0;
     this.pending.clear();
     let worker: WorkerLike<ToVideoWorker, FromVideoWorker>;
@@ -196,6 +208,7 @@ export class WasmVideoDecoder implements CanvasVideoDecoder {
     if (!worker) return;
     this.staleUntilId = this.nextId;
     this.pending.clear();
+    this.unitsBeforePicture = 0;
     this.sendQuietly(worker, { type: 'reset' });
   }
 
@@ -271,9 +284,11 @@ export class WasmVideoDecoder implements CanvasVideoDecoder {
       }
       case 'picture':
         if (this.answeredId < this.staleUntilId) return; // sent before the latest reset() reached the worker
+        this.unitsBeforePicture = null;
         this.deliver(message.picture);
         return;
       case 'decoded':
+        if (message.id > this.staleUntilId && this.unitsBeforePicture !== null) this.unitsBeforePicture++;
         this.answered(message.id);
         this.inFlight.delete(message.id);
         this.times.push(message.ms);

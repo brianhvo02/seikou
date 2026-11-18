@@ -427,6 +427,13 @@ interface WasmSkip {
   lastUs: number | null;
   /** videoDecoderTrouble 'slow' was sent for this playlist. */
   slowSent: boolean;
+  /**
+   * Time spent wanting to play (playing, or buffering for a first picture) while the decoder had decoded
+   * NO_PICTURE_UNITS units or more since its start or the last seek and made no picture, in microseconds.
+   */
+  blankUs: number;
+  /** The engine's time (nowMs) at the last tick that counted blankUs; null when the next tick starts counting afresh. */
+  blankLastMs: number | null;
 }
 
 /**
@@ -436,10 +443,24 @@ interface WasmSkip {
 const SLOW_DECODE_US = 10_000_000;
 
 /**
- * The most playback time one tick counts toward the skipping run: a tick after a gap (a hidden page, a suspended
- * device) adds no more than this.
+ * The most time one tick counts toward the skipping run or the wait for a picture: a tick after a gap (a hidden page,
+ * a suspended device) adds no more than this.
  */
 const MAX_COUNTED_TICK_US = 250_000;
+
+/**
+ * Units decoded with no picture out of them after which the wait for one counts (NO_PICTURE_FAIL_US): more than a
+ * second of video at any Blu-ray frame rate, which always holds a picture the decoder can show.
+ */
+const NO_PICTURE_UNITS = 30;
+
+/**
+ * How long a playlist may want to play while its WASM decoder takes units (NO_PICTURE_UNITS or more) and makes no picture
+ * before the decoder counts as failed: units it rejects, or a VC-1 stream whose sequence header never comes, would
+ * otherwise stay black with no notice. Counted on the engine's time, since a playlist with no picture never starts its
+ * clock; a hidden page, a pause and the gap of a suspension count nothing.
+ */
+const NO_PICTURE_FAIL_US = 5_000_000;
 
 /** Telemetry's videoDecoder: which decoder the session's picture comes from, its decode time and its skipped pictures. */
 function videoDecoderTelemetry(decoder: CanvasVideoDecoder | null): Telemetry['videoDecoder'] {
@@ -1019,6 +1040,7 @@ export class Player {
     this.encodeSubs?.pgs?.control.tick(now);
     this.paint(frame, now);
     this.countSkipping(s, now);
+    if (this.session === s) this.watchForPicture(s);
     this.feedDecoder(s); // presenting freed decoded-frame slots
     const last = this.presenter.current;
     // without a picture the playlist ends, as libbluray's does on EOF, once the reader is done and what it delivered
@@ -3043,7 +3065,7 @@ export class Player {
       tracks: audioTracks((mpls.playItems[startItem].stn.audio.length > 0 ? mpls.playItems[startItem] : audioItem).stn),
       videoCodingType: choice.video.codingType,
       decoder,
-      wasmSkip: decoder instanceof WasmVideoDecoder ? { frameUs: 1e6 / (frameRateOf(choice.video.rate) ?? 30_000 / 1001), on: false, early: 0, onUs: 0, lastUs: null, slowSent: false } : null,
+      wasmSkip: decoder instanceof WasmVideoDecoder ? { frameUs: 1e6 / (frameRateOf(choice.video.rate) ?? 30_000 / 1001), on: false, early: 0, onUs: 0, lastUs: null, slowSent: false, blankUs: 0, blankLastMs: null } : null,
       pipeline,
       videoCodecPrivate: null,
       encode: null,
@@ -4331,6 +4353,28 @@ export class Player {
     this.deps.emit({ type: 'videoDecoderTrouble', reason: 'slow' });
   }
 
+  /**
+   * Counts the time a WASM-decoded playlist wants to play while its decoder takes units and makes no picture (each tick
+   * at most MAX_COUNTED_TICK_US; nothing while paused or hidden), and at NO_PICTURE_FAIL_US treats the decoder as failed
+   * (videoWasmFallback): the playlist goes on without a picture, with the notice.
+   */
+  private watchForPicture(s: Session): void {
+    const skip = s.wasmSkip;
+    const decoder = s.decoder;
+    if (!skip || !(decoder instanceof WasmVideoDecoder) || s.videoState === 'failed') return;
+    const nowMs = this.deps.nowMs();
+    if (!this.wantPlaying || this.pageHidden || decoder.unitsWithoutPicture < NO_PICTURE_UNITS) {
+      skip.blankLastMs = null;
+      if (decoder.unitsWithoutPicture === 0) skip.blankUs = 0;
+      return;
+    }
+    if (skip.blankLastMs !== null && nowMs > skip.blankLastMs) skip.blankUs += Math.min((nowMs - skip.blankLastMs) * 1000, MAX_COUNTED_TICK_US);
+    skip.blankLastMs = nowMs;
+    if (skip.blankUs < NO_PICTURE_FAIL_US) return;
+    s.videoState = 'failed';
+    this.videoWasmFallback(s, `no picture came out of ${decoder.unitsWithoutPicture} units in ${NO_PICTURE_FAIL_US / 1e6} s`);
+  }
+
   /** A seek: skipping starts off again, and the time it has been on counts from here. */
   private resetSkipping(s: Session): void {
     const skip = s.wasmSkip;
@@ -4340,6 +4384,8 @@ export class Player {
     skip.early = 0;
     skip.onUs = 0;
     skip.lastUs = null;
+    skip.blankUs = 0;
+    skip.blankLastMs = null;
   }
 
   /**

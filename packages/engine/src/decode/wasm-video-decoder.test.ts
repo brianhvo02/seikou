@@ -493,6 +493,24 @@ describe('WasmVideoDecoder', () => {
     expect(errors[0]!.message).toMatch(/stopped answering/);
   });
 
+  it('unitsWithoutPicture counts decoded units until a picture comes out, from the configure or the latest reset', async () => {
+    const { worker, decoder } = setup();
+    await decoder.configure({ codingType: CodingType.VC1 });
+    for (const t of [0, 40_000, 80_000]) decoder.decode(unit(t));
+    for (const m of worker.of('decode')) worker.reply({ type: 'decoded', id: m.id, ms: 1 });
+    expect(decoder.unitsWithoutPicture).toBe(3);
+    worker.reply({ type: 'picture', picture: picture(0) });
+    expect(decoder.unitsWithoutPicture).toBe(0);
+    decoder.decode(unit(120_000));
+    decoder.reset();
+    // the answer to a unit sent before the reset doesn't count
+    worker.reply({ type: 'decoded', id: worker.of('decode').at(-1)!.id, ms: 1 });
+    expect(decoder.unitsWithoutPicture).toBe(0);
+    decoder.decode(unit(160_000));
+    worker.reply({ type: 'decoded', id: worker.of('decode').at(-1)!.id, ms: 1 });
+    expect(decoder.unitsWithoutPicture).toBe(1);
+  });
+
   it("a rejected task in the worker's chain posts a fatal error", async () => {
     const posted: FromVideoWorker[] = [];
     const fake = { push: vi.fn(), drain: vi.fn(() => [picture(0)]), flush: vi.fn(() => []), reset: vi.fn(), setSkipNonReference: vi.fn(), close: vi.fn() };

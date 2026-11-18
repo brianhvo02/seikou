@@ -89,7 +89,10 @@ what would change that decision.
   WebKit on an Apple silicon Mac: 1.2 to 1.6 ms a 1080 picture for MPEG-2 and 3.1 to 4.0 ms for VC-1. Phones are
   not measured by the tests; a hand speed test on an iPhone 17 Pro found the decoder fast enough. A device that
   falls behind skips B pictures; on a NAS disc the player switches to a re-encoded level after 10 s of playback
-  skipping without a break, or at once when the decoder fails. *Revisit if* a browser gains MPEG-2 or VC-1 decoding.
+  skipping without a break, or at once when the decoder fails. A stream the decoder takes and makes no picture of
+  (units it rejects, or VC-1 whose sequence header never comes) counts as failed after 5 s of waiting to play with
+  over a second of video decoded: it plays without a picture, with the notice. *Revisit if* a browser gains MPEG-2 or
+  VC-1 decoding.
 - **Without the WASM decoder, MPEG-2 and VC-1 play without a picture (5e).** Where the decoder can't start (a browser
   that can't start a worker from a worker, `?novideowasm=1` in tests, or a device offline before `video.wasm` was
   ever fetched: the service worker keeps it in a runtime cache, not the precache, so it needs one online play first),
