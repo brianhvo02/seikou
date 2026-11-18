@@ -49,18 +49,37 @@ async function open(page: Page, disc: string, id: string, query = ''): Promise<S
   return t!;
 }
 
+/**
+ * Whether the deinterlacer runs for the interlaced playlist playing, as telemetry says once the session has started:
+ * the engine decides as an interlaced session starts (`deinterlace` is null before), drawing the frames woven with
+ * the reason in `woven` when it can't run. Waits for that sample, so the answer never races the first picture.
+ */
+async function deinterlacerDecision(page: Page): Promise<NonNullable<Sample['deinterlace']>> {
+  let d: Sample['deinterlace'] = null;
+  await expect
+    .poll(async () => {
+      d = (await sample(page))?.deinterlace ?? null;
+      return d !== null;
+    }, { timeout: 10_000, message: 'telemetry says whether the deinterlacer runs' })
+    .toBe(true);
+  return d!;
+}
+
 /** Skips where the machine can't deinterlace at all (no WebGL2, or WebGL drawn in software); telemetry says why. */
-function skipWithoutDeinterlacer(t: Sample): void {
-  const woven = t.deinterlace?.woven ?? '';
+async function skipWithoutDeinterlacer(page: Page): Promise<void> {
+  const woven = (await deinterlacerDecision(page)).woven ?? '';
   test.skip(NO_DEINTERLACER.test(woven), woven);
 }
+
+/** The A/V sync checks are left out in Firefox on Linux (CI): it has no running audio output there, so no audio clock to sync to. */
+const skipsSync = (browserName: string): boolean => browserName === 'firefox' && process.platform === 'linux';
 
 test('an MPEG-2 1080p playlist plays with a picture in sync', async ({ page, browserName }) => {
   test.skip(isLinuxWebKit(browserName), LINUX_WEBKIT_REALTIME);
   await open(page, MPEG2_DISC, '00004');
   const windows = await collectWindows(page, 3_800_000);
   expect(windows.length).toBeGreaterThan(3);
-  if (browserName === 'firefox' && process.platform === 'linux') {
+  if (skipsSync(browserName)) {
     // the pictures are still checked below; Firefox on CI has no running audio output, so there is no audio clock to sync to
     test.info().annotations.push({ type: 'skipped check', description: NO_FIREFOX_AUDIO });
   } else {
@@ -78,29 +97,63 @@ test('an MPEG-2 1080p playlist plays with a picture in sync', async ({ page, bro
   await expect(page.getByRole('status').filter({ hasText: NO_PICTURE_NOTICE })).toHaveCount(0);
 });
 
+const INTERLACED = [
+  { disc: MPEG2_DISC, id: '00000', what: 'MPEG-2 1080i top field first', mode: 'video', fieldOrder: 'tff' },
+  { disc: MPEG2_DISC, id: '00001', what: 'MPEG-2 1080i bottom field first', mode: 'video', fieldOrder: 'bff' },
+  { disc: MPEG2_DISC, id: '00002', what: 'MPEG-2 1080i hard telecine', mode: 'film', fieldOrder: undefined },
+  { disc: MPEG2_DISC, id: '00003', what: 'MPEG-2 480i soft pulldown', mode: 'film', fieldOrder: undefined },
+  { disc: VC1_DISC, id: '00000', what: 'VC-1 1080i top field first', mode: 'video', fieldOrder: 'tff' },
+] as const;
+
+// Needs no GPU and no real time, so it runs on every runner: where the deinterlacer can't run, the pictures are drawn
+// woven, which is still a picture from the WASM decoder.
+test('interlaced MPEG-2 and VC-1 play with pictures from the WASM decoder, deinterlaced or drawn woven with a reason', async ({ page, browserName }) => {
+  for (const p of INTERLACED) {
+    await open(page, p.disc, p.id);
+    const d = await deinterlacerDecision(page);
+    expect(d.setting).toBe('auto');
+    // woven only for a reason of the machine's (no GPU), never a fault
+    if (d.woven !== null) expect(d.woven).toMatch(NO_DEINTERLACER);
+    const from = (await sample(page))!.framesPresented ?? 0;
+    await expect.poll(async () => ((await sample(page))?.framesPresented ?? 0) - from, { timeout: 15_000, message: `${p.what}: pictures keep coming` }).toBeGreaterThanOrEqual(10);
+    const t = (await sample(page))!;
+    expect(t.videoDecoder, p.what).toMatchObject({ kind: 'wasm' });
+    expect(t.decoderErrors ?? 0, p.what).toBe(0);
+    await expect(page.getByRole('status').filter({ hasText: NO_PICTURE_NOTICE })).toHaveCount(0);
+    console.log(`${browserName} ${p.what}: ${t.framesPresented} pictures, ${d.woven === null ? 'deinterlaced' : `woven (${d.woven})`}, decode ${t.videoDecoder?.decodeMs} ms`);
+  }
+});
+
 test('interlaced MPEG-2 is deinterlaced: video at field rate, telecine and soft pulldown as film', async ({ page, browserName }) => {
   test.skip(isLinuxWebKit(browserName), LINUX_WEBKIT_REALTIME);
-  for (const { id, mode, fieldOrder } of [
-    { id: '00000', mode: 'video', fieldOrder: 'tff' },
-    { id: '00001', mode: 'video', fieldOrder: 'bff' },
-    { id: '00002', mode: 'film', fieldOrder: undefined },
-    { id: '00003', mode: 'film', fieldOrder: undefined },
-  ] as const) {
-    const first = await open(page, MPEG2_DISC, id);
-    skipWithoutDeinterlacer(first);
-    await expect.poll(async () => (await sample(page))?.deinterlace?.stats?.mode, { timeout: 10_000, message: `${id}'s mode` }).toBe(mode);
+  for (const p of INTERLACED.filter((p) => p.disc === MPEG2_DISC)) {
+    await open(page, p.disc, p.id);
+    await skipWithoutDeinterlacer(page);
+    await expect.poll(async () => (await sample(page))?.deinterlace?.stats?.mode, { timeout: 10_000, message: `${p.id}'s mode` }).toBe(p.mode);
     const t = (await sample(page))!;
     expect(t.videoDecoder).toMatchObject({ kind: 'wasm' });
-    expect(t.deinterlace).toMatchObject({ setting: 'auto', woven: null, stats: { mode, fallback: false, ...(fieldOrder ? { fieldOrder } : {}) } });
-    console.log(`${browserName} ${id}: ${t.deinterlace?.stats?.mode} ${t.deinterlace?.stats?.fieldOrder}, decode ${t.videoDecoder?.decodeMs} ms`);
+    expect(t.deinterlace).toMatchObject({ setting: 'auto', woven: null, stats: { mode: p.mode, fallback: false, ...(p.fieldOrder ? { fieldOrder: p.fieldOrder } : {}) } });
+    console.log(`${browserName} ${p.id}: ${t.deinterlace?.stats?.mode} ${t.deinterlace?.stats?.fieldOrder}, decode ${t.videoDecoder?.decodeMs} ms`);
   }
+});
+
+test('deinterlaced MPEG-2 plays in sync at field rate', async ({ page, browserName }) => {
+  test.skip(isLinuxWebKit(browserName), LINUX_WEBKIT_REALTIME);
+  test.skip(skipsSync(browserName), NO_FIREFOX_AUDIO);
+  await open(page, MPEG2_DISC, '00000');
+  await skipWithoutDeinterlacer(page);
+  const windows = await collectWindows(page, 3_800_000);
+  expect(windows.length).toBeGreaterThan(3);
+  for (const w of windows) expect(w.clockMode).toBe('audio');
+  expectInSync(windows);
+  expect((await sample(page))!.deinterlace?.stats).toMatchObject({ mode: 'video', fallback: false });
 });
 
 test('a VC-1 interlaced playlist plays with a picture and is deinterlaced', async ({ page, browserName }) => {
   test.skip(isLinuxWebKit(browserName), LINUX_WEBKIT_REALTIME);
   const first = await open(page, VC1_DISC, '00000');
   expect(first.videoDecoder).toMatchObject({ kind: 'wasm' });
-  skipWithoutDeinterlacer(first);
+  await skipWithoutDeinterlacer(page);
   await expect.poll(async () => (await sample(page))?.deinterlace?.stats?.mode, { timeout: 10_000 }).toBe('video');
   await expect.poll(async () => (await sample(page))?.clockUs ?? 0, { timeout: 15_000 }).toBeGreaterThanOrEqual(3_000_000);
   const t = (await sample(page))!;
@@ -112,10 +165,12 @@ test('a VC-1 interlaced playlist plays with a picture and is deinterlaced', asyn
   await expect(page.getByRole('status').filter({ hasText: NO_PICTURE_NOTICE })).toHaveCount(0);
 });
 
+// Off needs no GPU: it runs on every runner, and checks the deinterlacer was running first only where it can.
 test('Deinterlacing Off draws MPEG-2 woven', async ({ page }) => {
-  const first = await open(page, MPEG2_DISC, '00000');
-  skipWithoutDeinterlacer(first);
-  await expect.poll(async () => (await sample(page))?.deinterlace?.stats?.mode, { timeout: 10_000 }).toBe('video');
+  await open(page, MPEG2_DISC, '00000');
+  const d = await deinterlacerDecision(page);
+  if (d.woven === null) await expect.poll(async () => (await sample(page))?.deinterlace?.stats?.mode, { timeout: 10_000 }).toBe('video');
+  else expect(d.woven).toMatch(NO_DEINTERLACER);
 
   await page.getByTestId('player').hover();
   await page.getByTestId('video-output-menu').click();

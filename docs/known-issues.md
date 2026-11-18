@@ -86,7 +86,8 @@ what would change that decision.
   playlist. *Revisit if* that gap shows (holding the first GOP until the PPS pattern is known would remove it).
 - **MPEG-2 and VC-1 video is decoded in WASM, on the CPU.** The browsers decode neither, so FFmpeg's decoders run
   in `video.wasm` in a worker of their own, single-threaded. Measured on the synthetic discs in Chrome, Firefox and
-  WebKit on an Apple silicon Mac: 1.2 to 1.6 ms a 1080 picture for MPEG-2 and 3.1 to 4.0 ms for VC-1. A device that
+  WebKit on an Apple silicon Mac: 1.2 to 1.6 ms a 1080 picture for MPEG-2 and 3.1 to 4.0 ms for VC-1. Phones are
+  not measured by the tests; a hand speed test on an iPhone 17 Pro found the decoder fast enough. A device that
   falls behind skips B pictures; on a NAS disc the player switches to a re-encoded level after 10 s of it, or at once
   when the decoder fails. *Revisit if* a browser gains MPEG-2 or VC-1 decoding.
 - **Without the WASM decoder, MPEG-2 and VC-1 play without a picture (5e).** Where the decoder can't start (a browser
@@ -94,9 +95,9 @@ what would change that decision.
   ever fetched: the service worker keeps it in a runtime cache, not the precache, so it needs one online play first),
   a playlist with such video, HDMV or BD-J, plays as libbluray plays it, with audio, subtitles and IG or BD-J menus
   over black, its reads paced by the clock, and a notice once per disc ("This disc's video can't be played here yet,
-  so it will play without a picture"), cleared when a playlist with a picture starts and not shown again for that disc
-  (R9). A playlist with such video and nothing else playable still runs, silent and black on the wall clock, to its
-  end (ruling R12): libbluray does the same, and some HDMV programs rely on it. `UnsupportedCodecError` is left for a
+  so it will play without a picture"), cleared when a playlist with a picture starts and not shown again for that
+  disc. A playlist with such video and nothing else playable still runs, silent and black on the wall clock, to its
+  end: libbluray does the same, and some HDMV programs rely on it. `UnsupportedCodecError` is left for a
   decoder that fails to configure. *Revisit if* a precached decoder is worth its 1 MB to every visitor.
 - **The first NAS pre-flight of an MPEG-2 or VC-1 disc may wait up to 10 s.** The decode speed probe runs once a
   device (its answer is kept 30 days), raced against the pre-flight's own 10 s bound, and Play waits for it. A probe
@@ -736,6 +737,20 @@ what would change that decision.
 - **Probe-dependent steps: none needed on the iPad.** It runs the AudioContext at 48 kHz, has worker `requestAnimationFrame` (p95 18.9 ms) and canvas `letterSpacing`, so no resampling, main-thread frame tick or letter-spacing fallback was built. It lacks canvas `filter`, so ASS blur takes the mask path (Task 13). Re-check on the iPhone when convenient.
 - **Playwright reuses a running preview server on :4173 locally** (`reuseExistingServer`); stop a stale one after changing source.
 - **WebKit on Linux CI runs no real-time playback tests.** On GitHub's GPU-less runners, Playwright's Linux WebKit missed a different set of timing windows on every run (frames presented, remote presses, pauses landing), even on a runner of its own. Tests that need real-time playback skip there (`LINUX_WEBKIT_REALTIME` in `tests/e2e/support.ts`); the landing, capability, folder-picking, layout and offline tests still run. They all run in WebKit on macOS, and real Safari is covered by the real-device test.
+- **Linux CI checks little of MPEG-2 and VC-1 playback.** `tests/e2e/mpeg-vc1.spec.ts` runs in full on macOS (Chrome,
+  Firefox, WebKit and the mobile Chrome emulation, every test passing), and that is where its deinterlacing and sync
+  are checked. GitHub's Linux runners have no GPU, so WebGL draws in software there and the player draws interlaced
+  pictures woven, as it does on any machine without a graphics chip; the tests that check the deinterlacer's modes,
+  its sync and VC-1 deinterlacing skip with that reason. What each browser checks on Linux CI:
+  - Chrome and the mobile Chrome emulation: the progressive MPEG-2 playlist in sync (at CI's widened bounds), every
+    interlaced MPEG-2 and VC-1 playlist drawing WASM pictures (woven), Deinterlacing Off, and the no-decoder case.
+  - Firefox: the same, except that the progressive playlist's sync isn't checked (Firefox there has no running audio
+    output, so there is no audio clock; the test still checks its pictures).
+  - WebKit: the interlaced playlists drawing WASM pictures, Deinterlacing Off and the no-decoder case; the progressive
+    sync test skips with the other real-time tests there (above).
+  A GPU-less run simulated on a Mac (Chrome with `--disable-gpu`, and with SwiftShader forced) skipped the three
+  deinterlacer tests with the software-renderer reason and passed the rest; its progressive sync measured 17 to 22 ms
+  worst mean against the local 20 ms bound, as H.264 does there (16 ms), and within CI's 30 ms.
 
 ### Device probe results
 
