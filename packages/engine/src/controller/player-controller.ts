@@ -111,6 +111,11 @@ export interface PlayerSnapshot {
   readonly startFailed: 'no-playlist' | 'past-end' | null;
   /** A quality level switch (setLevel): 'switching' until the engine's levelChanged, then 'idle' or its error. */
   readonly levelSwitch: 'idle' | 'switching' | { readonly error: string };
+  /**
+   * The MPEG-1, MPEG-2 or VC-1 decoder's last trouble on this disc (videoDecoderTrouble): `failed` (the playlist goes on
+   * without a picture) or `slow` (it has had to skip pictures for 10 s); null otherwise, and again on every open.
+   */
+  readonly videoDecoderTrouble: 'failed' | 'slow' | null;
 }
 
 export type { PlaceState, StartPoint };
@@ -196,6 +201,7 @@ export const INITIAL_SNAPSHOT: PlayerSnapshot = {
   readAheadCache: null,
   startFailed: null,
   levelSwitch: 'idle',
+  videoDecoderTrouble: null,
 };
 
 function withNotice(s: PlayerSnapshot, notice: Notice): PlayerSnapshot {
@@ -274,7 +280,9 @@ export function reduceEvent(s: PlayerSnapshot, e: EngineEvent): PlayerSnapshot {
     case 'placeState':
       return s; // answers readPlace
     case 'videoDecoderTrouble':
-      return s; // a failed decoder's notice comes as 'unsupported' with noPicture; nothing else in the snapshot changes
+      // (a failed decoder's notice comes as 'unsupported' with noPicture.) Before the disc's titles it is a late event
+      // from the disc before: no playlist of this one has played yet.
+      return s.playlists.length === 0 ? s : { ...s, videoDecoderTrouble: e.reason };
     case 'videoDecoderSpeed':
       return s; // answers probeVideoDecoder (the controller resolves it)
     case 'videoCapture':

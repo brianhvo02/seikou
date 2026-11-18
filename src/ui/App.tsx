@@ -60,6 +60,11 @@ function createAppController(): PlayerController {
   // the app has a video element: HDR streams take it (auto), or ?videopath= picks; set before the first open
   controller.setVideoPath(initialVideoPath());
   controller.setDeinterlace(deinterlaceSetting().get());
+  // The controller lives as long as the page: it is let go when the page is unloaded for good (not kept in the
+  // back-forward cache), so a pre-flight still waiting on its decode speed probe gets its answer (none).
+  window.addEventListener('pagehide', (e) => {
+    if (!e.persisted) controller.dispose();
+  });
   return controller;
 }
 

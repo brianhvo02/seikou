@@ -151,6 +151,54 @@ describe('LevelSession', () => {
   });
 });
 
+describe('LevelSession and the decoder at Original', () => {
+  const mpeg2Levels = [
+    { level: 'original' as const, label: 'Original', budgetMbps: 30, available: true },
+    { level: 'h264-1080' as const, label: '1080p', budgetMbps: 10, available: true },
+    { level: 'hevc-1080' as const, label: '1080p HEVC', budgetMbps: 7, available: true },
+    { level: 'phone-720' as const, label: 'Phone', budgetMbps: 4, available: true },
+  ];
+  const choice = { connectionMbps: 100, phone: false, originalMbps: 30 };
+  const nasDisc = { remoteDisc: true, playingAudio: 2 };
+
+  it('a failed decoder at Original switches to the auto level', async () => {
+    const t = setup();
+    t.session.begin({ discId: 'd1', levels: mpeg2Levels, at: ORIGINAL_AT, original, choice });
+    const at = t.session.troubleSwitch({ reason: 'failed', ...nasDisc });
+    // the audio that plays goes on at the level, as a Quality menu pick from Original
+    expect(at).toEqual({ level: 'h264-1080', audio: 2 });
+    await t.session.switchTo(at!, t.deps);
+    expect(t.manifest).toHaveBeenCalledWith('d1', { level: 'h264-1080', audio: 2 });
+    expect(t.session.get()?.at).toEqual({ level: 'h264-1080', audio: 2 });
+    // once per disc open
+    expect(t.session.troubleSwitch({ reason: 'failed', ...nasDisc })).toBeNull();
+  });
+
+  it('slow at Original switches too, and nothing switches on a local disc', () => {
+    const t = setup();
+    t.session.begin({ discId: 'd1', levels: mpeg2Levels, at: ORIGINAL_AT, original, choice: { ...choice, phone: true } });
+    expect(t.session.troubleSwitch({ reason: 'slow', ...nasDisc })).toEqual({ level: 'phone-720', audio: 2 });
+    // a local disc: no NAS disc open, so no session state, or a stale one for a disc no longer open
+    const local = setup();
+    expect(local.session.troubleSwitch({ reason: 'failed', remoteDisc: false, playingAudio: 1 })).toBeNull();
+    local.session.begin({ discId: 'd1', levels: mpeg2Levels, at: ORIGINAL_AT, original, choice });
+    expect(local.session.troubleSwitch({ reason: 'failed', remoteDisc: false, playingAudio: 1 })).toBeNull();
+  });
+
+  it('nothing switches at a re-encoded level, or with no re-encoded level available', () => {
+    const t = setup();
+    t.session.begin({ discId: 'd1', levels: mpeg2Levels, at: H264, original, choice });
+    expect(t.session.troubleSwitch({ reason: 'failed', ...nasDisc })).toBeNull();
+    const busy = setup();
+    busy.session.begin({ discId: 'd1', levels: [mpeg2Levels[0]!, { ...mpeg2Levels[1]!, available: false, reason: 'busy' }], at: ORIGINAL_AT, original, choice });
+    expect(busy.session.troubleSwitch({ reason: 'failed', ...nasDisc })).toBeNull();
+    // without the pre-flight's choice, the first available re-encoded level
+    const plain = setup();
+    plain.session.begin({ discId: 'd1', levels: mpeg2Levels, at: ORIGINAL_AT, original });
+    expect(plain.session.troubleSwitch({ reason: 'slow', ...nasDisc })?.level).toBe('h264-1080');
+  });
+});
+
 describe('launchManifest', () => {
   const nasWith = () => {
     const manifest = vi.fn(async (_id: string, at?: LevelAt): Promise<DiscManifest> => ({ discId: 'd1', name: `at ${at?.level}`, files: [], inline: {} }));

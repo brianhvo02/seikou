@@ -148,6 +148,24 @@ describe('playlist lifecycle', () => {
     expect(c.getSnapshot().levelSwitch).toBe('idle'); // a new disc starts without one
   });
 
+  it('videoDecoderTrouble reaches the snapshot, and a new open clears it', () => {
+    const worker = new FakeWorker();
+    const c = new PlayerController(worker, new FakeAudio());
+    const spec = { kind: 'remote', base: 'https://nas.example/discs/a/', token: 't', manifest: { discId: 'a', name: 'a', files: [], inline: {} } } as const;
+    expect(INITIAL_SNAPSHOT.videoDecoderTrouble).toBeNull();
+    c.openRemote(spec);
+    // before the disc's titles: a late event from the disc before is no trouble of this one
+    worker.emit({ type: 'videoDecoderTrouble', reason: 'failed' });
+    expect(c.getSnapshot().videoDecoderTrouble).toBeNull();
+    worker.emit({ type: 'titles', playlists: [{ id: '00000' }], usesBdj: false, bdjSupported: true, warnings: [] } as unknown as EngineEvent);
+    worker.emit({ type: 'videoDecoderTrouble', reason: 'slow' });
+    expect(c.getSnapshot().videoDecoderTrouble).toBe('slow');
+    worker.emit({ type: 'videoDecoderTrouble', reason: 'failed' });
+    expect(c.getSnapshot().videoDecoderTrouble).toBe('failed');
+    c.openRemote(spec);
+    expect(c.getSnapshot().videoDecoderTrouble).toBeNull();
+  });
+
   it('a late levelChanged from the previous disc does not touch the new one', () => {
     const worker = new FakeWorker();
     const c = new PlayerController(worker, new FakeAudio());

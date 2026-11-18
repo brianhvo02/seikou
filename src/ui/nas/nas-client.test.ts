@@ -1445,6 +1445,14 @@ describe('NasClient quality levels', () => {
     expect(await nas.levels('d1', { hevc: false, hevc10: false, hdr: false, audio: 1 })).toBeNull();
   });
 
+  it('levels says mpeg2=1 and vc1=1 when the device decodes them, and nothing of them otherwise', async () => {
+    const { nas, routes } = await paired(() => Response.json({ levels: [] }));
+    await nas.levels('d1', { hevc: false, hevc10: false, hdr: false, mpeg2: true, vc1: true, audio: 1 });
+    expect(routes[0].route).toBe('discs/d1/levels?hevc=0&hevc10=0&hdr=0&mpeg2=1&vc1=1&audio=1');
+    await nas.levels('d1', { hevc: false, hevc10: false, hdr: false, mpeg2: false, vc1: false, audio: 1 });
+    expect(routes[1].route).toBe('discs/d1/levels?hevc=0&hevc10=0&hdr=0&audio=1');
+  });
+
   it('admin.encodingNow reads admin/encoding and answers null on 404', async () => {
     const encoding = [{ personName: 'Owner', deviceName: 'Mac', discName: 'Starfall Wanderer Vol 1', level: 'h264-1080', label: '1080p', gpuPercent: 16 }];
     let n = 0;

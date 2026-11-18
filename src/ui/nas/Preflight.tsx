@@ -5,11 +5,11 @@ import type { ContinueItem, DiscEntry, DiscManifest, DiscPlaces, LevelAt, LevelI
 import type { BufferRequest, StartPoint } from '@seikou/engine/protocol';
 import type { PlayerController } from '@seikou/engine/controller/player-controller';
 import { BUFFER_FAILED_COPY, bufferPlan, playlistFacts, readAheadCacheBytes, storageRoom, tooBigCopy, waitCopy, watchBufferFailure, type BufferPlan } from './buffer-model';
-import { discBadges, discFacts, formatSize, mainPlaylist, mainPlaylistId, openFailed, playlistOf, preflightLines, type DiscFacts } from './library-model';
+import { discBadges, discFacts, formatSize, mainPlaylist, mainPlaylistId, openFailed, playlistOf, preflightLines, wasmVideoCoding, type DiscFacts } from './library-model';
 import { audioStarted } from './encode-launch';
 import { nasDiscSpec } from './disc-spec';
-import { videoCaps, type VideoCaps } from '../video-caps';
-import { ORIGINAL_ONLY, busyMessage, levelAudio, levelRows, placeAudioHint, preflightLevelState } from './level-model';
+import { videoCaps, wasmVideoPlayability, type VideoCaps } from '../video-caps';
+import { ORIGINAL_ONLY, busyMessage, levelAudio, levelRows, levelsQuery, placeAudioHint, preflightLevelState, type WasmPlayability } from './level-model';
 import { launchManifest, levelSessionOf } from './level-session';
 import { NasBusyError, NasHttpError, PLACES_READ_TIMEOUT_MS, type NasClient } from './nas-client';
 import { useNasRoute, type NasHistory } from './nas-history';
@@ -50,6 +50,9 @@ interface PreflightProps {
 
 /** Over WebRTC abroad a 3 s timeout would drop an MPEG-2/VC-1 disc to Original, while a NAS without levels answers 404 at once. */
 const LEVELS_TIMEOUT_MS = 10_000;
+
+/** A speed probe that didn't answer within the pre-flight's bound (LEVELS_TIMEOUT_MS) counts as no measurement. */
+const UNKNOWN_PLAYABILITY: WasmPlayability = { mpeg2: 'unknown', vc1: 'unknown' };
 
 const LIBRARY: NasRoute = { kind: 'library', shelf: null, q: '' };
 const NO_OFFER: ResumeOffer = { kind: 'none' };
@@ -243,24 +246,46 @@ export function Preflight({ nas, controller, disc, playlistId, title, startTimeS
     // never rejects: a probe that fails gives no HEVC and "phone" from the memory profile (loadVideoCaps)
     void videoCaps().then(setCaps);
   }, []);
+  /** The main title's MPEG-1, MPEG-2 or VC-1 video, which plays through the app's own decoder; null for any other. */
+  const wasmCoding = useMemo(() => (manifest ? wasmVideoCoding(manifest) : null), [manifest]);
+  /**
+   * How fast the app's decoder plays such video here (the stored speed, else the engine's speed probe, bounded as the
+   * levels request is); null for a disc that needs no such decoder, which asks nothing; undefined until known.
+   */
+  const [wasm, setWasm] = useState<WasmPlayability | null | undefined>(undefined);
+  useEffect(() => {
+    if (!manifest) return;
+    if (wasmCoding === null) {
+      setWasm(null);
+      return;
+    }
+    let live = true;
+    // never rejects; an answer past the bound is kept for the next pre-flight (stored when measured)
+    void within(wasmVideoPlayability(() => controller.probeVideoDecoder()), LEVELS_TIMEOUT_MS, UNKNOWN_PLAYABILITY).then((w) => live && setWasm(w));
+    return () => {
+      live = false;
+    };
+  }, [manifest, wasmCoding, controller]);
+  /** The disc's video decodes here, but too slowly for Original: the auto choice takes a re-encoded level. */
+  const originalSlow = wasmCoding !== null && wasm?.[wasmCoding] === 'slow';
   /** Bumped after a busy refusal, so the list is asked again. */
   const [levelsNonce, setLevelsNonce] = useState(0);
   // Asked alongside the probe (not after the places); asked again when the places change the audio stream. Play waits for it.
   useEffect(() => {
-    if (!manifest || original === null || !caps) return;
+    if (!manifest || original === null || !caps || wasm === undefined) return;
     let live = true;
     void within(
-      nas.levels(disc.id, { hevc: caps.hevc, hevc10: caps.hevc10, hdr: caps.hdrDisplay, audio: levelAudioNumber }).catch(() => null),
+      nas.levels(disc.id, { ...levelsQuery(caps, wasm), audio: levelAudioNumber }).catch(() => null),
       LEVELS_TIMEOUT_MS,
       null,
     ).then((list) => live && setLevels(list ?? ORIGINAL_ONLY));
     return () => {
       live = false;
     };
-  }, [nas, disc.id, manifest, original, caps, levelAudioNumber, levelsNonce]);
+  }, [nas, disc.id, manifest, original, caps, wasm, levelAudioNumber, levelsNonce]);
   const levelList = levels ?? ORIGINAL_ONLY;
   const originalMbps = original && original.durationS > 0 ? (original.playlistBytes * 8) / original.durationS / 1e6 : 0;
-  const levelState = preflightLevelState({ levels, connectionMbps: mbps, caps, originalMbps });
+  const levelState = preflightLevelState({ levels, connectionMbps: mbps, caps, originalMbps, originalSlow });
   /** The automatic level, taken once when the levels, the probe and the caps are all known, then kept. */
   const [auto, setAuto] = useState<LevelId | null>(null);
   useEffect(() => {
@@ -363,7 +388,7 @@ export function Preflight({ nas, controller, disc, playlistId, title, startTimeS
         }
         const { spec, release } = nasDiscSpec(base, token, opened, nas.discFetch, atLevel ? { at, original: manifest } : undefined);
         controller.openRemote(spec, () => nas.freshSession(token).then((s) => (token = s.token)), release, bufferFirst, start);
-        levelSession.begin({ discId: disc.id, levels: levelList, at, original: manifest });
+        levelSession.begin({ discId: disc.id, levels: levelList, at, original: manifest, choice: { connectionMbps: mbps ?? Infinity, phone: caps?.phone ?? false, originalMbps } });
         places.begin(
           {
             discKey, discId: disc.id, remote: true, chosen: start?.playlistId ?? null, mainPlaylistId: mainPlaylistId(manifest),

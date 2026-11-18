@@ -154,6 +154,22 @@ describe('levelsFor', () => {
     }
   });
 
+  it('levelsFor offers original for MPEG-2 only to a client that decodes it', () => {
+    const mpeg2 = { codingType: 0x02, height: 1080, hdr: false };
+    const vc1 = { codingType: 0xea, height: 1080, hdr: false };
+    const mpeg1 = { codingType: 0x01, height: 480, hdr: false };
+    expect(levelsFor(mpeg2)).not.toContain('original');
+    expect(levelsFor(mpeg2, {})).not.toContain('original');
+    expect(levelsFor(mpeg2, { mpeg2: true })).toEqual(['original', 'h264-1080', 'hevc-1080', 'phone-720']);
+    expect(levelsFor(mpeg2, { vc1: true })).not.toContain('original');
+    // MPEG-1 goes with MPEG-2: the same decoder
+    expect(levelsFor(mpeg1, { mpeg2: true })).toEqual(['original', 'phone-720']);
+    expect(levelsFor(vc1, { mpeg2: true })).not.toContain('original');
+    expect(levelsFor(vc1, { vc1: true })).toEqual(['original', 'h264-1080', 'hevc-1080', 'phone-720']);
+    // H.264 and HEVC keep their original whatever the client says
+    expect(levelsFor({ codingType: 0x1b, height: 1080, hdr: false }, { mpeg2: false, vc1: false })[0]).toBe('original');
+  });
+
   it('offers original plus the 1080p and phone levels for H.264 and HEVC 1080p', () => {
     expect(levelsFor({ codingType: 0x1b, height: 1080, hdr: false })).toEqual(['original', 'h264-1080', 'hevc-1080', 'phone-720']);
     expect(levelsFor({ codingType: 0x24, height: 1080, hdr: false })).toEqual(['original', 'h264-1080', 'hevc-1080', 'phone-720']);

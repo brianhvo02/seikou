@@ -225,7 +225,8 @@ async function release(levels: DiscLevels, req: IncomingMessage, url: URL, discI
 }
 
 /**
- * `GET /api/discs/<id>/levels?hevc=&hevc10=&hdr=&audio=` (priced with that audio stream, 1 by default), and the manifest and files at `?level=<level>&audio=<n>` (404 for an unknown level
+ * `GET /api/discs/<id>/levels?hevc=&hevc10=&hdr=&mpeg2=&vc1=&audio=` (priced with that audio stream, 1 by default;
+ * `mpeg2=1` and `vc1=1` say the client decodes MPEG-1 and MPEG-2, and VC-1, so such a disc's Original is offered), and the manifest and files at `?level=<level>&audio=<n>` (404 for an unknown level
  * or an `audio` outside 1 to 32, 401 without a device):
  * a level's manifest leases the GPU for the token's device's viewing; a read answers 503 with `Retry-After: 1` while the
  * encoder hasn't reached its bytes (or was restarted or closed), and 503 `busy` when the GPU has no room for the viewing.
@@ -238,7 +239,7 @@ async function levelRoute(levels: DiscLevels, req: IncomingMessage, url: URL, di
   if (action === 'levels') {
     const audio = audioParam(url);
     if (!(audio >= 1 && audio <= 32)) return notFound();
-    const list = await service.levels(discId, { hevc: flag(url, 'hevc'), hevc10: flag(url, 'hevc10'), hdr: flag(url, 'hdr') }, device.id, audio);
+    const list = await service.levels(discId, { hevc: flag(url, 'hevc'), hevc10: flag(url, 'hevc10'), hdr: flag(url, 'hdr'), mpeg2: flag(url, 'mpeg2'), vc1: flag(url, 'vc1') }, device.id, audio);
     return list ? json(200, { levels: list }) : discChanged();
   }
   const level = url.searchParams.get('level')!;

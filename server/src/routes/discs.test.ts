@@ -165,6 +165,17 @@ describe('disc routes at a quality level', () => {
     expect(hevc.levels.find((l) => l.level === 'hevc-1080')).toMatchObject({ available: true });
   });
 
+  it('the levels route passes mpeg2 and vc1 through', async () => {
+    type Levels = { levels: { level: string; available: boolean; reason?: string }[] };
+    const original = async (query: string) =>
+      ((await (await fetch(withToken(`/discs/${ids.mpeg2}/levels?hevc=0&hevc10=0&hdr=0${query}`))).json()) as Levels).levels.find((l) => l.level === 'original');
+    expect(await original('&mpeg2=1')).toEqual(expect.objectContaining({ available: true }));
+    expect(await original('&mpeg2=true')).toEqual(expect.objectContaining({ available: true }));
+    expect(await original('&mpeg2=0')).toMatchObject({ available: false, reason: 'unplayable' });
+    // VC-1 is its own flag: an MPEG-2 disc stays unplayable for a client that decodes only VC-1
+    expect(await original('&vc1=1')).toMatchObject({ available: false, reason: 'unplayable' });
+  });
+
   it('prices the levels with the audio stream asked for (audio=, 1 by default); a bad audio number is 404', async () => {
     type Levels = { levels: { level: string; budgetMbps: number }[] };
     const at = async (query: string): Promise<number> =>

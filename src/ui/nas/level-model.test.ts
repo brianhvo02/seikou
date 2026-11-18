@@ -12,8 +12,10 @@ import {
   levelRateMbps,
   preflightLevelState,
   levelRows,
+  levelsQuery,
   pickAt,
   placeAudioHint,
+  troubleLevel,
 } from './level-model';
 
 const L = (level: LevelId, budgetMbps: number, available = true, reason?: LevelReason): LevelInfo => ({ level, label: level, budgetMbps, available, ...(reason ? { reason } : {}) });
@@ -154,5 +156,39 @@ describe('placeAudioHint', () => {
     const audio = [{ language: 'jpn' }, { language: 'eng' }, { language: 'fra' }];
     expect(levelAudio(audio, { audioLanguage: 'fra', language: 'en-US' })).toBe(3);
     expect(levelAudio(audio, { audioLanguage: 'deu', language: 'en-US' })).toBe(2);
+  });
+});
+
+describe('levelsQuery', () => {
+  const caps = { hevc: true, hevc10: false, hdrDisplay: false };
+  it('the pre-flight sends mpeg2=1 when the speed probe passed and not when it failed', () => {
+    // fast or slow: the decoder runs here, so Original is listed (the auto choice decides between them)
+    expect(levelsQuery(caps, { mpeg2: 'fast', vc1: 'slow' })).toEqual({ hevc: true, hevc10: false, hdr: false, mpeg2: true, vc1: true });
+    expect(levelsQuery(caps, { mpeg2: 'slow', vc1: 'unknown' })).toMatchObject({ mpeg2: true, vc1: false });
+    // unknown: no decoder here, or the probe failed or timed out
+    expect(levelsQuery(caps, { mpeg2: 'unknown', vc1: 'unknown' })).toMatchObject({ mpeg2: false, vc1: false });
+    // an H.264 or HEVC disc asks no probe
+    expect(levelsQuery(caps, null)).toMatchObject({ mpeg2: false, vc1: false });
+  });
+});
+
+describe('the auto choice with the WASM decoder', () => {
+  const lv = (level: LevelId, budgetMbps: number, available = true): LevelInfo => ({ level, label: level, budgetMbps, available });
+  const levels = [lv('original', 0), lv('h264-1080', 8), lv('hevc-1080', 5), lv('phone-720', 3)];
+  const base = { levels, connectionMbps: 100, caps: { phone: false }, originalMbps: 30 };
+  it('takes Original when the decoder is fast here, a re-encoded level when it is slow', () => {
+    expect(preflightLevelState(base).auto).toBe('original');
+    expect(preflightLevelState({ ...base, originalSlow: true }).auto).toBe('h264-1080');
+    expect(preflightLevelState({ ...base, originalSlow: true, caps: { phone: true } }).auto).toBe('phone-720');
+  });
+  it('takes Original all the same when no re-encoded level is available', () => {
+    const busy = [lv('original', 0), { ...lv('h264-1080', 8, false), reason: 'busy' as const }];
+    expect(preflightLevelState({ ...base, levels: busy, originalSlow: true }).auto).toBe('original');
+  });
+  it('troubleLevel: the auto choice among the re-encoded levels, null when none is available', () => {
+    expect(troubleLevel(levels, { connectionMbps: 100, phone: false, originalMbps: 30 })).toBe('h264-1080');
+    expect(troubleLevel(levels, { connectionMbps: 4, phone: false, originalMbps: 30 })).toBe('phone-720');
+    expect(troubleLevel([lv('original', 0), lv('h264-1080', 8, false)], { connectionMbps: 100, phone: false, originalMbps: 30 })).toBeNull();
+    expect(troubleLevel(ORIGINAL_ONLY, { connectionMbps: 100, phone: false, originalMbps: 30 })).toBeNull();
   });
 });

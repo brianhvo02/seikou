@@ -1,4 +1,5 @@
 import type { LevelAt, LevelId, LevelInfo, LevelReason, PlaceSettings } from '@seikou/nas/nas-api';
+import type { VideoCaps, WasmSpeedClass } from '../video-caps';
 import { RATE_MARGIN, bufferPlan } from './buffer-model';
 
 /** What the pre-flight says when the NAS's GPU is busy but Original can play. */
@@ -25,6 +26,34 @@ export function autoLevel(levels: readonly LevelInfo[], o: { connectionMbps: num
   if (o.phone) return available.find((l) => l.level === 'phone-720')?.level ?? lowest();
   const fits = available.find((l) => levelRateMbps(l, o.originalMbps) * RATE_MARGIN <= o.connectionMbps);
   return fits?.level ?? lowest();
+}
+
+/**
+ * The level a decoder in trouble at Original switches to: autoLevel among the available re-encoded levels; null when
+ * none is available (Original is all there is).
+ */
+export function troubleLevel(levels: readonly LevelInfo[], o: { connectionMbps: number; phone: boolean; originalMbps: number }): LevelId | null {
+  const reencoded = levels.filter((l) => l.level !== 'original');
+  return reencoded.some((l) => l.available) ? autoLevel(reencoded, o) : null;
+}
+
+/** What the speed probe says of the WASM decoder here, per coding (MPEG-1 goes with `mpeg2`). */
+export interface WasmPlayability {
+  readonly mpeg2: WasmSpeedClass;
+  readonly vc1: WasmSpeedClass;
+}
+
+/**
+ * The device flags a levels request sends: the caps' HEVC and HDR, and `mpeg2`/`vc1` when the WASM decoder runs here
+ * (`fast` or `slow`: the NAS then lists Original, and the auto choice takes it only when `fast`); `unknown` (no decoder,
+ * or the probe failed or timed out) and a disc that asked no probe (`wasm` null) send neither.
+ */
+export function levelsQuery(
+  caps: Pick<VideoCaps, 'hevc' | 'hevc10' | 'hdrDisplay'>,
+  wasm: WasmPlayability | null,
+): { hevc: boolean; hevc10: boolean; hdr: boolean; mpeg2: boolean; vc1: boolean } {
+  const runs = (c: WasmSpeedClass | undefined): boolean => c === 'fast' || c === 'slow';
+  return { hevc: caps.hevc, hevc10: caps.hevc10, hdr: caps.hdrDisplay, mpeg2: runs(wasm?.mpeg2), vc1: runs(wasm?.vc1) };
 }
 
 /** One row of the pre-flight's level list: the level, its label, whether it can be picked and the note beside it (`plays now`, `about N minutes`, `plays with pauses`, or why it is unavailable). */
@@ -141,7 +170,9 @@ export function badgeText(l: LevelInfo): string | null {
 /**
  * Whether the pre-flight knows enough to offer Play (the levels answered or failed, the probe settled, the device's
  * caps known), the level it preselects then, and whether any level can play at all. The pre-flight keeps the first non-null `auto` for the disc, so the
- * preselected radio never changes under the viewer.
+ * preselected radio never changes under the viewer. `originalSlow`: the disc's MPEG or VC-1 video decodes here, but
+ * too slowly to play at Original (the speed probe's `slow`), so the auto choice takes a re-encoded level when one is
+ * available; Original stays in the list.
  */
 export function preflightLevelState(o: {
   levels: readonly LevelInfo[] | undefined;
@@ -149,9 +180,11 @@ export function preflightLevelState(o: {
   connectionMbps: number | null | undefined;
   caps: { phone: boolean } | undefined;
   originalMbps: number;
+  originalSlow?: boolean;
 }): { ready: boolean; auto: LevelId | null; playable: boolean } {
   if (o.levels === undefined || o.connectionMbps === undefined || o.caps === undefined) return { ready: false, auto: null, playable: false };
-  const auto = autoLevel(o.levels, { connectionMbps: o.connectionMbps ?? Infinity, phone: o.caps.phone, originalMbps: o.originalMbps });
+  const choice = { connectionMbps: o.connectionMbps ?? Infinity, phone: o.caps.phone, originalMbps: o.originalMbps };
+  const auto = (o.originalSlow ? troubleLevel(o.levels, choice) : null) ?? autoLevel(o.levels, choice);
   // An MPEG-2 or VC-1 disc whose levels are all busy has nothing to play (Original would have no picture).
   return { ready: true, auto, playable: o.levels.some((l) => l.available) };
 }

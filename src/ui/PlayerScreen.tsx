@@ -201,6 +201,14 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
       .then(() => setSwitchFailure(null))
       .catch((err: unknown) => setSwitchFailure(`Couldn't switch quality: ${err instanceof Error ? err.message : String(err)}`));
   };
+  // The MPEG or VC-1 decoder failed or can't keep up at Original on a NAS disc: the disc switches to the auto choice
+  // among the re-encoded levels (once per open, as a Quality menu pick would) instead of playing on without a picture.
+  const decoderTrouble = snapshot.videoDecoderTrouble;
+  useEffect(() => {
+    if (decoderTrouble === null || !levelSession) return;
+    const at = levelSession.troubleSwitch({ reason: decoderTrouble, remoteDisc: snapshot.remoteDisc, playingAudio: snapshot.selectedAudio });
+    if (at) switchTo(at);
+  }, [decoderTrouble, levelSession]); // only a new trouble asks; the rest is read as it stands then
   const atLevel = levelState !== null && levelState.at.level !== 'original';
   const quality = levelState
     ? {

@@ -4,6 +4,7 @@ import { audioTracks } from '@seikou/engine/playback/tracks';
 import type { PlayerController } from '@seikou/engine/controller/player-controller';
 import { trackLabel } from '@seikou/engine/controller/language';
 import { levelQuery } from './disc-spec';
+import { pickAt, troubleLevel } from './level-model';
 import { NasBusyError } from './nas-client';
 import type { NasClient } from './nas-client';
 
@@ -22,6 +23,16 @@ export interface OriginalAudioTrack {
   readonly language: string;
   readonly label: string;
 }
+
+/** What the pre-flight's auto choice was made from: the connection's measured rate (Infinity without one), whether this is a phone, and the original's rate. */
+export interface LevelChoice {
+  readonly connectionMbps: number;
+  readonly phone: boolean;
+  readonly originalMbps: number;
+}
+
+/** Without the pre-flight's inputs: no measurement, a computer (the first available level). */
+const NO_CHOICE: LevelChoice = { connectionMbps: Infinity, phone: false, originalMbps: 0 };
 
 /** What a level switch needs to reopen the disc: the player's controller, and the NAS's API base and session token the engine reads with. */
 export interface SwitchDeps {
@@ -45,6 +56,9 @@ export class LevelSession {
   private original: DiscManifest | null = null;
   private readonly listeners = new Set<() => void>();
   private chain: Promise<void> = Promise.resolve();
+  private choice: LevelChoice = NO_CHOICE;
+  /** The decoder's trouble already switched this disc open away from Original (once per open). */
+  private troubleHandled = false;
 
   constructor(private readonly nas: NasClient) {}
 
@@ -57,10 +71,15 @@ export class LevelSession {
     };
   };
 
-  /** Called after a pre-flight opens a disc. A disc still held from before is released first. */
-  begin(s: { discId: string; levels: readonly LevelInfo[]; at: LevelAt; original: DiscManifest }): void {
+  /**
+   * Called after a pre-flight opens a disc. A disc still held from before is released first. `choice`: what the
+   * pre-flight's auto choice was made from, for a switch away from a decoder in trouble.
+   */
+  begin(s: { discId: string; levels: readonly LevelInfo[]; at: LevelAt; original: DiscManifest; choice?: LevelChoice }): void {
     this.end();
     this.original = s.original;
+    this.choice = s.choice ?? NO_CHOICE;
+    this.troubleHandled = false;
     this.state = { discId: s.discId, levels: s.levels, at: s.at, notice: null };
     this.notify();
   }
@@ -76,6 +95,21 @@ export class LevelSession {
     } catch {
       return [];
     }
+  }
+
+  /**
+   * The MPEG-1, MPEG-2 or VC-1 decoder failed or can't keep up (the snapshot's videoDecoderTrouble): the version to
+   * switch to (switchTo), once per disc open, when a NAS disc plays at Original and a re-encoded level is available: the
+   * auto choice among the re-encoded levels, with the audio that plays (`playingAudio`, Original numbering). Null
+   * otherwise: a local disc (`remoteDisc` false) plays on without a picture.
+   */
+  troubleSwitch(t: { readonly reason: 'failed' | 'slow'; readonly remoteDisc: boolean; readonly playingAudio: number | null }): LevelAt | null {
+    const state = this.state;
+    if (!state || !t.remoteDisc || this.troubleHandled || state.at.level !== 'original') return null;
+    const level = troubleLevel(state.levels, this.choice);
+    if (level === null) return null;
+    this.troubleHandled = true;
+    return pickAt(state.at, level, t.playingAudio);
   }
 
   switchTo(at: LevelAt, deps: SwitchDeps): Promise<void> {
