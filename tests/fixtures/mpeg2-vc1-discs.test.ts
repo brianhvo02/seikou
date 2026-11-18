@@ -91,6 +91,32 @@ function presentationOrder(packets: readonly PesPacket[]): number[] {
   });
 }
 
+/**
+ * A test that decodes a clip's video in WASM: about a second here, several on a slow CI runner (the six playlists in one
+ * test outran the default 5 s there), so each gets the time the heavier BD-J and trace tests give theirs.
+ */
+const DECODE_TIMEOUT_MS = 60_000;
+
+let wasmModule: ReturnType<typeof loadVideoWasm> | null = null;
+/** The engine's video WASM module, loaded once for the file. */
+function videoWasm(): ReturnType<typeof loadVideoWasm> {
+  wasmModule ??= loadVideoWasm(readFileSync(fileURLToPath(new URL('../../packages/engine/wasm/video/video.wasm', import.meta.url))));
+  return wasmModule;
+}
+
+/** Every picture `codec`'s decoder gives for `packets`, flushed at the end. */
+function decodeAll(wasm: Awaited<ReturnType<typeof loadVideoWasm>>, codec: 1 | 2, packets: readonly PesPacket[]): DecodedPicture[] {
+  const d = new WasmPictureDecoder(wasm, codec);
+  const out: DecodedPicture[] = [];
+  for (const p of packets) {
+    d.push(p.payload, ((p.pts ?? 0) * 1000) / 90);
+    out.push(...d.drain());
+  }
+  out.push(...d.flush());
+  d.close();
+  return out;
+}
+
 describe('the MPEG-2 and VC-1 discs', () => {
   it("the MPEG-2 and VC-1 discs' playlists carry their codings and formats", async () => {
     for (const e of EXPECTED) {
@@ -156,30 +182,20 @@ describe('the MPEG-2 and VC-1 discs', () => {
     flags.forEach((f, i) => expect(f, `picture ${i}`).toEqual(cycle[i % 4]));
   });
 
-  it("the WASM decoder decodes each disc's video to the pictures it holds", async () => {
-    const wasm = await loadVideoWasm(readFileSync(fileURLToPath(new URL('../../packages/engine/wasm/video/video.wasm', import.meta.url))));
-    const decode = (disc: string, playlist: string, codec: number): DecodedPicture[] => {
-      const d = new WasmPictureDecoder(wasm, codec as 1 | 2);
-      const out: DecodedPicture[] = [];
-      for (const p of videoPackets(fixtureDiscFiles(disc), playlist)) {
-        d.push(p.payload, ((p.pts ?? 0) * 1000) / 90);
-        out.push(...d.drain());
-      }
-      out.push(...d.flush());
-      d.close();
-      return out;
-    };
-    const cases: Array<[string, string, number, number, number, number, boolean, 'tff' | 'bff' | null]> = [
-      // disc, playlist, codec, pictures, width, height, interlaced, field order
-      ['disc-mpeg2-interlaced', '00000', WasmVideoCodec.MPEG2, 120, 1920, 1080, true, 'tff'],
-      ['disc-mpeg2-interlaced', '00001', WasmVideoCodec.MPEG2, 120, 1920, 1080, true, 'bff'],
-      ['disc-mpeg2-interlaced', '00002', WasmVideoCodec.MPEG2, 120, 1920, 1080, true, 'tff'],
-      ['disc-mpeg2-interlaced', '00003', WasmVideoCodec.MPEG2, 96, 720, 480, false, null],
-      ['disc-mpeg2-interlaced', '00004', WasmVideoCodec.MPEG2, 96, 1920, 1080, false, null],
-      ['disc-vc1', '00000', WasmVideoCodec.VC1, 180, 1920, 1080, true, 'tff'],
-    ];
-    for (const [disc, playlist, codec, count, width, height, interlaced, order] of cases) {
-      const pictures = decode(disc, playlist, codec);
+  // Each playlist is its own test: decoding 96 to 180 pictures of 1080 lines in WASM takes about a second here, and
+  // several times that on a slow CI runner, so all six in one test outran the default 5 s there.
+  const decodeCases: Array<[string, string, number, number, number, number, boolean, 'tff' | 'bff' | null]> = [
+    // disc, playlist, codec, pictures, width, height, interlaced, field order
+    ['disc-mpeg2-interlaced', '00000', WasmVideoCodec.MPEG2, 120, 1920, 1080, true, 'tff'],
+    ['disc-mpeg2-interlaced', '00001', WasmVideoCodec.MPEG2, 120, 1920, 1080, true, 'bff'],
+    ['disc-mpeg2-interlaced', '00002', WasmVideoCodec.MPEG2, 120, 1920, 1080, true, 'tff'],
+    ['disc-mpeg2-interlaced', '00003', WasmVideoCodec.MPEG2, 96, 720, 480, false, null],
+    ['disc-mpeg2-interlaced', '00004', WasmVideoCodec.MPEG2, 96, 1920, 1080, false, null],
+    ['disc-vc1', '00000', WasmVideoCodec.VC1, 180, 1920, 1080, true, 'tff'],
+  ];
+  for (const [disc, playlist, codec, count, width, height, interlaced, order] of decodeCases) {
+    it(`the WASM decoder decodes ${disc} ${playlist}'s video to the pictures it holds`, async () => {
+      const pictures = decodeAll(await videoWasm(), codec as 1 | 2, videoPackets(fixtureDiscFiles(disc), playlist));
       const label = `${disc} ${playlist}`;
       expect(pictures, label).toHaveLength(count);
       // In presentation order: B pictures came out after the references that followed them in the stream.
@@ -187,46 +203,34 @@ describe('the MPEG-2 and VC-1 discs', () => {
       expect([pictures[0]!.width, pictures[0]!.height], label).toEqual([width, height]);
       expect(pictures.every((p) => !p.flags.progressive === interlaced), label).toBe(true);
       if (order) expect(pictures.every((p) => p.flags.fieldOrder === order), label).toBe(true);
-    }
+    }, DECODE_TIMEOUT_MS);
+  }
+
+  it('the WASM decoder cases cover every playlist of both discs', () => {
+    expect(decodeCases.map(([disc, playlist]) => `${disc} ${playlist}`)).toEqual(EXPECTED.map((e) => `${e.disc} ${e.playlist}`));
   });
 
   it('decodes from the second VC-1 entry point (headers, then frames 60 on) with no error', async () => {
-    const wasm = await loadVideoWasm(readFileSync(fileURLToPath(new URL('../../packages/engine/wasm/video/video.wasm', import.meta.url))));
     const packets = videoPackets(fixtureDiscFiles('disc-vc1'), '00000');
     // The unit at frame 60 begins with the sequence header (00 00 01 0F) and the entry point header (00 00 01 0E).
     expect([...packets[60]!.payload.subarray(0, 4)]).toEqual([0, 0, 1, 0x0f]);
     expect(packets[60]!.payload.indexOf(0x0e, 4)).toBeGreaterThan(0);
-    const d = new WasmPictureDecoder(wasm, WasmVideoCodec.VC1);
-    const out: DecodedPicture[] = [];
-    for (const p of packets.slice(60)) {
-      d.push(p.payload, ((p.pts ?? 0) * 1000) / 90);
-      out.push(...d.drain());
-    }
-    out.push(...d.flush());
-    d.close();
+    const out = decodeAll(await videoWasm(), WasmVideoCodec.VC1, packets.slice(60));
     expect(out).toHaveLength(120);
     expect(out[0]!.keyFrame).toBe(true);
     expect(out.every((p) => !p.flags.progressive && p.width === 1920 && p.height === 1080)).toBe(true);
-  });
+  }, DECODE_TIMEOUT_MS);
 
   it('decodes from an MPEG-2 open GOP, dropping the B pictures that lead its I picture', async () => {
-    const wasm = await loadVideoWasm(readFileSync(fileURLToPath(new URL('../../packages/engine/wasm/video/video.wasm', import.meta.url))));
     const packets = videoPackets(fixtureDiscFiles('disc-mpeg2-interlaced'), '00000');
     const start = packets.findIndex((p, i) => i > 0 && p.payload[3] === 0xb3);
     expect(start).toBeGreaterThan(0);
     const leading = pictureHeaders(packets[start + 1]!.payload)[0]!;
     expect(leading.type).toBe(3);
-    const d = new WasmPictureDecoder(wasm, WasmVideoCodec.MPEG2);
-    const out: DecodedPicture[] = [];
-    for (const p of packets.slice(start)) {
-      d.push(p.payload, ((p.pts ?? 0) * 1000) / 90);
-      out.push(...d.drain());
-    }
-    out.push(...d.flush());
-    d.close();
+    const out = decodeAll(await videoWasm(), WasmVideoCodec.MPEG2, packets.slice(start));
     expect(out[0]!.keyFrame).toBe(true);
     // The two B pictures after the I picture show before it and need the GOP before: they are not output.
     expect(out).toHaveLength(packets.length - start - 2);
     for (let i = 1; i < out.length; i++) expect(out[i]!.ptsUs).toBeGreaterThan(out[i - 1]!.ptsUs);
-  });
+  }, DECODE_TIMEOUT_MS);
 });
