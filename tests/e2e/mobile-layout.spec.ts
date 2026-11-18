@@ -34,6 +34,22 @@ for (const size of [
   test.describe(`${size.width}x${size.height}`, () => {
     test.use({ viewport: size });
 
+    test('the start screen fits the screen, its app bar included', async ({ page }) => {
+      await page.goto('/');
+      await expect(page.getByTestId('open-folder')).toBeVisible();
+      // A page wider than a phone's screen is zoomed out to fit, and the player opened from it could keep the zoom's
+      // horizontal scroll (CI run 44266015221: a menu sheet at x = -17).
+      expect(await noOverflow(page)).toBe(true);
+      expect(await page.evaluate(() => window.innerWidth)).toBe(size.width);
+      for (const id of ['help-link', 'disc-preferences-button', 'theme-switch']) {
+        const el = page.getByTestId(id);
+        if ((await el.count()) === 0) continue;
+        const box = (await el.boundingBox())!;
+        expect(box.x, `${id} x`).toBeGreaterThanOrEqual(0);
+        expect(box.x + box.width, `${id} right`).toBeLessThanOrEqual(size.width + 0.5);
+      }
+    });
+
     test('controls fit the screen and every button is a 44x44 touch target', async ({ page }) => {
       await play(page, DISC, 'playlist-00000');
       expect(await noOverflow(page)).toBe(true);
