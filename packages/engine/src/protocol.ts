@@ -214,6 +214,11 @@ export interface Telemetry {
    * with no picture decoded here (no playlist, no picture, or the element path).
    */
   readonly videoDecoder: { readonly kind: 'webcodecs' | 'wasm'; readonly decodeMs: number | null; readonly skipped: number } | null;
+  /**
+   * Why the WASM video decoder (MPEG-1, MPEG-2, VC-1) failed on this disc, whose playlists then play without a picture;
+   * null while it hasn't.
+   */
+  readonly videoDecoderFailure: string | null;
 }
 
 /** What BD-J holds in memory, so the budgets of the constrained memory profile can be checked on a device; sizes in bytes. */

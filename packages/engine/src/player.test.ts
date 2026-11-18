@@ -4592,6 +4592,7 @@ describe('Player with MPEG-2 and VC-1 video through the WASM decoder', () => {
     if (how === 'kill') {
       await h.play(500);
       expect(h.drawn.length).toBeGreaterThan(5);
+      expect(lastTelemetry(h)?.videoDecoderFailure).toBeNull();
       wasm.kill();
     }
     await vi.waitFor(async () => {
@@ -4607,8 +4608,18 @@ describe('Player with MPEG-2 and VC-1 video through the WASM decoder', () => {
     expect(noPicture(h)).toEqual([{ type: 'unsupported', kind: 'video', codec: 'MPEG-2 video', message: NO_PICTURE_MESSAGE, noPicture: true }]);
     expect(h.events.some((e) => e.type === 'error')).toBe(false);
     expect(lastTelemetry(h)).toMatchObject({ clockMode: 'audio', videoDecoder: null });
+    // the reason stays in telemetry for the rest of the disc
+    expect(lastTelemetry(h)?.videoDecoderFailure).toMatch(how === 'kill' ? /the decoder worker crashed/ : /video\.wasm did not load/);
     expect(lastState(h)).toBe('playing');
     expect(troubles(h)).toEqual(['failed']);
+    if (how === 'kill') {
+      // and goes with it: the disc opened again starts with none, decoding again
+      await h.player.handle({ type: 'open', disc: { kind: 'files', entries: fixture('disc-mpeg2-interlaced') } });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00004' });
+      await untilPlaying(h);
+      await h.play(500);
+      expect(lastTelemetry(h)?.videoDecoderFailure).toBeNull();
+    }
   });
 
   it('a stream that never yields a picture falls back to no picture with the notice', async () => {
@@ -4639,6 +4650,7 @@ describe('Player with MPEG-2 and VC-1 video through the WASM decoder', () => {
     expect(noPicture(h)).toEqual([{ type: 'unsupported', kind: 'video', codec: 'VC-1', message: NO_PICTURE_MESSAGE, noPicture: true }]);
     expect(h.events.some((e) => e.type === 'error')).toBe(false);
     expect(lastTelemetry(h)).toMatchObject({ videoDecoder: null });
+    expect(lastTelemetry(h)?.videoDecoderFailure).toMatch(/no picture came out/);
     expect(lastState(h)).toBe('playing');
   }, 30_000);
 

@@ -660,6 +660,8 @@ export class Player {
   private noPictureNotice: 'unsent' | 'shown' | 'cleared' = 'unsent';
   /** The WASM video decoder failed on the open disc (it could not start, or stopped): its later playlists play without a picture. */
   private videoWasmFailed = false;
+  /** Why the WASM video decoder failed on this disc (telemetry's videoDecoderFailure); null while it hasn't. */
+  private videoWasmFailure: string | null = null;
   /** Audio streams asked for that the playing playlist's STN lacks (a quality level keeps one track), logged once per disc. */
   private missingAudioLogged = new Set<number>();
   /** A setLevel under way: resolves once the new version is in place (source, cache, disc model), before its restart. */
@@ -1397,6 +1399,7 @@ export class Player {
     this.bdjTapsIgnored = 0;
     this.noPictureNotice = 'unsent';
     this.videoWasmFailed = false;
+    this.videoWasmFailure = null;
     this.missingAudioLogged = new Set();
     this.bdjStorageNotice = false;
     this.stopBdj();
@@ -1474,6 +1477,7 @@ export class Player {
       this.bdjStartup = null;
       this.noPictureNotice = 'unsent';
       this.videoWasmFailed = false;
+      this.videoWasmFailure = null;
       this.missingAudioLogged = new Set();
       this.bdjStorageNotice = false;
       this.stopBdj();
@@ -4396,6 +4400,7 @@ export class Player {
   private videoWasmFallback(s: Session, reason: string): void {
     if (this.session !== s) return;
     this.videoWasmFailed = true;
+    this.videoWasmFailure = reason;
     this.deps.log?.(`The video decoder failed, so the video plays without a picture: ${reason}`);
     this.deps.emit({ type: 'videoDecoderTrouble', reason: 'failed' });
     if (this.noPictureNotice === 'cleared') this.noPictureNotice = 'unsent';
@@ -4556,6 +4561,7 @@ export class Player {
         elementQuery: s?.elementQuery ?? null,
         deinterlace: this.deinterlaceTelemetry(s),
         videoDecoder: videoDecoderTelemetry(s?.decoder ?? null),
+        videoDecoderFailure: this.videoWasmFailure,
         bdj: this.bdjStartup ? { ...this.bdjStartup, inputLatencyMs: this.bdjLatency?.stats ?? null } : null,
         ...(this.deps.memoryTelemetry ? { bdjMemory: this.bdjMemory() } : {}),
         bdjPlane: this.bdj ? { flushes: this.bdj.plane.flushCount(), tapsIgnored: this.bdjTapsIgnored, ...(this.deps.planeHashTelemetry ? { hash: this.settledPlaneHash(this.bdj.plane) } : {}) } : null,
