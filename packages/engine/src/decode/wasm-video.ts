@@ -32,7 +32,7 @@ export interface VideoWasm {
   video_picture_sar_den(handle: number): number;
   /** The picture's time in microseconds, NaN when it has none. */
   video_picture_pts(handle: number): number;
-  /** Bit 0 key, bit 1 interlaced, bit 2 top field first; repeat_pict from bit 8. */
+  /** Bit 0 key, bit 1 interlaced, bit 2 top field first, bit 3 an interlaced sequence; repeat_pict from bit 8. */
   video_picture_flags(handle: number): number;
   /** The picture's matrix_coefficients (H.264 Table E-5 numbering). */
   video_picture_colorspace(handle: number): number;
@@ -84,19 +84,21 @@ export function loadVideoWasm(source: BufferSource | Promise<Response>): Promise
 const FLAG_KEY = 1;
 const FLAG_INTERLACED = 2;
 const FLAG_TFF = 4;
+const FLAG_INTERLACED_SEQUENCE = 8;
 const REPEAT_SHIFT = 8;
 
 /**
- * The field flags of a decoded picture. A frame FFmpeg didn't mark interlaced is progressive (a progressive sequence's
- * always are); a field order is given for interlaced frames and for progressive frames of an interlaced sequence that
- * repeat their first field (repeat_pict 1, soft pulldown), where it says which field is shown again. repeat_pict above 1
- * is a progressive sequence's frame doubling or tripling.
+ * The field flags of a decoded picture, as FieldFlags reads H.264's pic_struct. A frame FFmpeg didn't mark interlaced is
+ * progressive. An interlaced sequence states which field is first for every frame (MPEG-2's top_field_first, VC-1's
+ * TFF), progressive ones included: under soft pulldown that is the field shown first and, with repeat_first_field, again
+ * after the second, so the order is given whenever the sequence is interlaced, as pic_struct 3 to 6 give it. A
+ * progressive sequence's frames carry none; their repeat_pict above 1 is frame doubling or tripling, a repeat too.
  */
 function fieldFlags(flags: number): FieldFlags {
   const interlaced = (flags & FLAG_INTERLACED) !== 0;
-  const repeat = flags >> REPEAT_SHIFT;
-  const fieldOrder = interlaced || repeat === 1 ? ((flags & FLAG_TFF) !== 0 ? 'tff' : 'bff') : null;
-  return { fieldOrder, progressive: !interlaced, repeatFirstField: repeat > 0 };
+  const states = interlaced || (flags & FLAG_INTERLACED_SEQUENCE) !== 0;
+  const fieldOrder = states ? ((flags & FLAG_TFF) !== 0 ? 'tff' : 'bff') : null;
+  return { fieldOrder, progressive: !interlaced, repeatFirstField: flags >> REPEAT_SHIFT > 0 };
 }
 
 /**

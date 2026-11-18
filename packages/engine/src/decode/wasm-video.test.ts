@@ -103,6 +103,14 @@ async function decodeUnits(codec: WasmVideoCodecId, units: readonly Unit[], setu
 
 const STREAMS = ['mpeg2-1080p', 'mpeg2-1080i-tff', 'mpeg2-1080i-bff'] as const;
 
+/**
+ * The field order a picture should carry: an interlaced sequence states one for every frame, progressive ones too
+ * (which field is first, and repeated under soft pulldown); a progressive sequence's frames carry none.
+ */
+function orderOf(e: Expected, interlacedSequence: boolean): 'tff' | 'bff' | null {
+  return e.interlaced || interlacedSequence ? (e.topFieldFirst ? 'tff' : 'bff') : null;
+}
+
 describe('wasmVideoCodecFor', () => {
   it('maps the MPEG-1, MPEG-2 and VC-1 coding types and nothing else', () => {
     expect(wasmVideoCodecFor(CodingType.MPEG1_VIDEO)).toBe(WasmVideoCodec.MPEG1);
@@ -123,7 +131,7 @@ describe('video.wasm', () => {
         const e = expected[i]!;
         expect(p.ptsUs, `${name} #${i}`).toBe(e.ptsUs);
         expect(p.flags.progressive, `${name} #${i}`).toBe(!e.interlaced);
-        expect(p.flags.fieldOrder, `${name} #${i}`).toBe(e.interlaced ? (e.topFieldFirst ? 'tff' : 'bff') : null);
+        expect(p.flags.fieldOrder, `${name} #${i}`).toBe(orderOf(e, name !== 'mpeg2-1080p'));
         expect(p.flags.repeatFirstField, `${name} #${i}`).toBe(e.repeatPict > 0);
         expect(p.keyFrame, `${name} #${i}`).toBe(e.keyFrame);
         expect([p.width, p.height, p.displayWidth, p.displayHeight]).toEqual([1920, 1080, 1920, 1080]);
@@ -142,10 +150,35 @@ describe('video.wasm', () => {
       const e = expected[i]!;
       expect(p.ptsUs, `#${i}`).toBe(e.ptsUs);
       expect(p.flags.progressive, `#${i}`).toBe(!e.interlaced);
-      expect(p.flags.fieldOrder, `#${i}`).toBe(e.interlaced ? (e.topFieldFirst ? 'tff' : 'bff') : null);
+      expect(p.flags.fieldOrder, `#${i}`).toBe(orderOf(e, true));
       expect(p.flags.repeatFirstField, `#${i}`).toBe(e.repeatPict > 0);
       expect(p.keyFrame, `#${i}`).toBe(e.keyFrame);
       expect([p.width, p.height]).toEqual([1920, 1080]);
+    });
+  });
+
+  it('soft pulldown frames carry repeatFirstField and their field order in the 3:2 pattern, with 1.5-frame durations on repeated frames', async () => {
+    const name = 'mpeg2-softpulldown';
+    const expected = expectedOf(name);
+    // The cycle scripts/mpeg2-pulldown.ts writes, checked against ffprobe so the oracle can't drift from the stream.
+    const cycle = [
+      ['tff', true],
+      ['bff', false],
+      ['bff', true],
+      ['tff', false],
+    ] as const;
+    expected.forEach((e, i) => {
+      expect([e.interlaced, e.topFieldFirst ? 'tff' : 'bff', e.repeatPict === 1]).toEqual([false, ...cycle[i % 4]!]);
+    });
+    const pictures = await decodeUnits(WasmVideoCodec.MPEG2, mpeg2Units(read(`fixtures/${name}.m2v`), expected));
+    expect(pictures.length).toBe(expected.length);
+    const frameUs = 1_001_000 / 30;
+    pictures.forEach((p, i) => {
+      const [order, repeated] = cycle[i % 4]!;
+      expect(p.ptsUs, `#${i}`).toBe(expected[i]!.ptsUs);
+      expect(p.flags, `#${i}`).toEqual({ fieldOrder: order, progressive: true, repeatFirstField: repeated });
+      expect(p.durationUs, `#${i}`).toBe(Math.round(repeated ? 1.5 * frameUs : frameUs));
+      expect([p.width, p.height]).toEqual([720, 480]);
     });
   });
 

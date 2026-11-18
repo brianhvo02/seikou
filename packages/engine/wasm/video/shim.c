@@ -19,8 +19,9 @@
 
 enum { CODEC_MPEG1 = 0, CODEC_MPEG2 = 1, CODEC_VC1 = 2 };
 
-/* Bits of video_picture_flags; the repeat_pict count sits above them. */
-enum { FLAG_KEY = 1, FLAG_INTERLACED = 2, FLAG_TFF = 4, REPEAT_SHIFT = 8 };
+/* Bits of video_picture_flags; the repeat_pict count sits above them. FLAG_INTERLACED_SEQUENCE: the picture's sequence
+ * is interlaced (MPEG-2 progressive_sequence 0, VC-1 INTERLACE 1), so its field flags hold for progressive frames too. */
+enum { FLAG_KEY = 1, FLAG_INTERLACED = 2, FLAG_TFF = 4, FLAG_INTERLACED_SEQUENCE = 8, REPEAT_SHIFT = 8 };
 
 typedef struct Decoder {
   int codec;
@@ -34,6 +35,8 @@ typedef struct Decoder {
   /* Pictures are dropped until a key picture comes out (after open, a reset or a flush). */
   int need_key;
   int skip_nonref;
+  /* Whether the sequence the parser last saw a header of is interlaced; each packet carries it to its frame. */
+  int interlaced_sequence;
   /* Decoded pictures waiting for video_receive, oldest first. */
   AVFrame **queue;
   int queue_len;
@@ -93,6 +96,7 @@ EMSCRIPTEN_KEEPALIVE Decoder *video_open(int codec) {
   int ok = d->ctx && d->pkt && d->frame && d->current && open_parser(d) == 0;
   if (ok) {
     d->ctx->thread_count = 1;
+    d->ctx->flags |= AV_CODEC_FLAG_COPY_OPAQUE;
     d->ctx->pkt_timebase = (AVRational){1, 1000000};
     if (codec != CODEC_VC1) ok = avcodec_open2(d->ctx, c, NULL) >= 0;
     d->opened = codec != CODEC_VC1;
@@ -130,6 +134,7 @@ static int open_vc1(Decoder *d, const uint8_t *data, int size) {
     d->ctx = avcodec_alloc_context3(d->av_codec);
     if (d->ctx) {
       d->ctx->thread_count = 1;
+      d->ctx->flags |= AV_CODEC_FLAG_COPY_OPAQUE;
       d->ctx->pkt_timebase = (AVRational){1, 1000000};
     }
     return 0;
@@ -171,6 +176,27 @@ static int receive_all(Decoder *d) {
   }
 }
 
+/*
+ * Notes whether the sequence is interlaced from the headers in front of a picture: MPEG-2's sequence extension
+ * (progressive_sequence, bit 3 of its second byte; a sequence header with no extension is MPEG-1, progressive), or a
+ * VC-1 Advanced Profile sequence header (INTERLACE, bit 41 after the start code). Stops at the picture's first slice
+ * or frame start code.
+ */
+static void note_sequence(Decoder *d, const uint8_t *data, int size) {
+  const uint8_t *end = data + size;
+  for (const uint8_t *p = find_start_code(data, end, -1); p && p + 10 <= end; p = find_start_code(p + 3, end, -1)) {
+    int code = p[3];
+    if (d->codec == CODEC_VC1) {
+      if (code == 0x0D) return;
+      if (code == 0x0F && (p[4] >> 6) == 3) d->interlaced_sequence = (p[9] >> 6) & 1;
+    } else {
+      if (code >= 0x01 && code <= 0xAF) return;
+      if (code == 0xB3) d->interlaced_sequence = 0;
+      if (code == 0xB5 && (p[4] >> 4) == 1) d->interlaced_sequence = !(p[5] & 0x08);
+    }
+  }
+}
+
 /* Sends one parsed picture to the decoder. Returns 1 when the decoder rejected it, 0 when taken, -1 out of memory. */
 static int decode_packet(Decoder *d, const uint8_t *data, int size, int64_t pts) {
   if (!d->opened && !open_vc1(d, data, size)) return 0;
@@ -178,6 +204,9 @@ static int decode_packet(Decoder *d, const uint8_t *data, int size, int64_t pts)
   if (av_new_packet(d->pkt, size) < 0) return -1;
   memcpy(d->pkt->data, data, size);
   d->pkt->pts = pts;
+  note_sequence(d, data, size);
+  /* Carried to the frame by AV_CODEC_FLAG_COPY_OPAQUE, so a reordered picture keeps its own sequence's kind. */
+  d->pkt->opaque = (void *)(intptr_t)(d->interlaced_sequence ? 2 : 1);
   int rejected = avcodec_send_packet(d->ctx, d->pkt) < 0;
   if (receive_all(d) < 0) return -1;
   return rejected;
@@ -294,13 +323,14 @@ EMSCRIPTEN_KEEPALIVE int video_picture_sar_den(Decoder *d) { return d->current->
 EMSCRIPTEN_KEEPALIVE double video_picture_pts(Decoder *d) {
   return d->current->pts == AV_NOPTS_VALUE ? NAN : (double)d->current->pts;
 }
-/* FLAG_KEY, FLAG_INTERLACED and FLAG_TFF, with repeat_pict (extra fields shown, in halves of a frame) above REPEAT_SHIFT. */
+/* FLAG_KEY, FLAG_INTERLACED, FLAG_TFF and FLAG_INTERLACED_SEQUENCE, with repeat_pict (extra fields shown, in halves of a frame) above REPEAT_SHIFT. */
 EMSCRIPTEN_KEEPALIVE int video_picture_flags(Decoder *d) {
   const AVFrame *f = d->current;
   int flags = 0;
   if (f->flags & AV_FRAME_FLAG_KEY) flags |= FLAG_KEY;
   if (f->flags & AV_FRAME_FLAG_INTERLACED) flags |= FLAG_INTERLACED;
   if (f->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST) flags |= FLAG_TFF;
+  if ((intptr_t)f->opaque == 2) flags |= FLAG_INTERLACED_SEQUENCE;
   return flags | (f->repeat_pict << REPEAT_SHIFT);
 }
 /* The picture's matrix_coefficients (AVColorSpace, numbered as H.264 Table E-5), 2 when unspecified. */
