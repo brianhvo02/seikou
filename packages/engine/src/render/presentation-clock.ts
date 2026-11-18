@@ -20,10 +20,17 @@ const MAX_LEAD_US = 50_000;
  */
 export class PresentationClock {
   private readonly line = new ClockLine();
+  private lineRunning = false;
+
+  /** Whether the time last given runs on (the line): false while paused, before the clock first moves, and once it holds. */
+  get running(): boolean {
+    return this.lineRunning;
+  }
 
   /** The time to present at, from the clock `clockUs` read at `nowMs` (any millisecond clock) and whether playback runs. */
   at(clockUs: number, playing: boolean, nowMs: number): number {
     const line = this.line.at(clockUs, playing, nowMs);
+    this.lineRunning = line.running;
     return line.running ? Math.min(Math.max(line.clockUs, clockUs), clockUs + MAX_LEAD_US) : clockUs;
   }
 }

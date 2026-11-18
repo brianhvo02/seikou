@@ -319,6 +319,11 @@ const NEXT_CHAPTER_GUARD_US = 500_000;
 const PREV_CHAPTER_RESTART_US = 3_000_000;
 /** A still play item is held this close to its end, so the last frame stays on screen. */
 const STILL_MARGIN_US = 40_000;
+/**
+ * A gap after the picture on screen longer than this (us; over two frames at 24 a second) is no next frame but a still
+ * or the next item: subtitles then follow the presentation time instead of that picture (subtitleUs).
+ */
+const PICTURE_GAP_US = 100_000;
 /** mpls still_mode 1: a time still of still_time seconds (2 is an infinite still). */
 const STILL_TIME = 1;
 const SCR_PER_MS = 90;
@@ -1035,7 +1040,7 @@ export class Player {
     this.syncNavigator(s);
     const now = this.clock.nowUs();
     const showUs = this.presentUs();
-    const frame = this.presenter.select(showUs);
+    const frame = this.presenter.select(showUs, this.presentClock.running);
     // the offset is measured against the audio clock itself, not the time the picture was picked by
     if (frame && this.state === 'playing') this.offsets.push(now - frame.timestamp);
     this.notePicturePacing(s, frame, showUs);
@@ -4027,13 +4032,20 @@ export class Player {
   }
 
   /**
-   * The playlist time subtitles (PG and text) are drawn at: the time of the picture on screen on the canvas path, so a
-   * sign follows what it tracks and a line timed to a cut changes with the picture; `showUs` (the presentation time)
-   * when no picture shows, and on the element path, whose element follows that time.
+   * The playlist time subtitles (PG and text) are drawn at: while the clock runs, the time of the picture on screen on
+   * the canvas path, so a sign follows what it tracks, a line timed to a cut changes with the picture, and a decoder
+   * stall holds them with the picture. `showUs` (the presentation time) otherwise: with no picture, on the element path
+   * (whose element follows that time), while the clock is stopped (paused, a still held), and once no newer picture can
+   * come soon (the last picture of the playlist, or one followed only after a gap, as a still item's single picture
+   * is), so a caption timed after that picture still shows.
    */
   private subtitleUs(showUs: number): number {
-    const shown = this.session?.element ? null : this.presenter.current;
-    return shown ? shown.timestamp : showUs;
+    const s = this.session;
+    const shown = s?.element ? null : this.presenter.current;
+    if (!s || !shown || !this.presentClock.running) return showUs;
+    const next = this.presenter.nextTimestamp;
+    const noNewer = next === null ? s.flushed : next - shown.timestamp > PICTURE_GAP_US;
+    return noNewer ? showUs : shown.timestamp;
   }
 
   /** Writes the clock to the clock block (when the page gave one): the line through the audio clock's steps, running once it moves. */

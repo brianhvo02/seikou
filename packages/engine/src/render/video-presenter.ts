@@ -30,6 +30,11 @@ export class VideoPresenter<F extends PresentableFrame> {
     return this.queue.length;
   }
 
+  /** The timestamp of the next queued frame, or null when none is queued. */
+  get nextTimestamp(): number | null {
+    return this.queue[0]?.timestamp ?? null;
+  }
+
   /** Frames queued that `which` picks, not counting the one on screen. */
   count(which: (frame: F) => boolean): number {
     let n = 0;
@@ -51,14 +56,15 @@ export class VideoPresenter<F extends PresentableFrame> {
 
   /**
    * The frame to draw at `clockUs`: the newest queued frame whose timestamp is due, with older ones dropped, except
-   * that a frame due for less than 5 ms doesn't drop the one before it (that one is shown first, see JUST_DUE_US). Returns
+   * that while the clock runs (`running`) a frame due for less than 5 ms doesn't drop the one before it (that one is
+   * shown first, see JUST_DUE_US); a stopped clock (paused, a still held) shows the frame of its moment. Returns
    * null when nothing is due and one has been shown since the last clear(); before the first frame after a clear() the
    * oldest queued frame is returned even if early, so a paused seek shows a picture. A returned frame stays valid until
    * the next select() or clear().
    */
-  select(clockUs: number): F | null {
+  select(clockUs: number, running = true): F | null {
     this.dropStale();
-    let idx = this.showIndex(clockUs);
+    let idx = running ? this.showIndex(clockUs) : this.lastDueIndex(clockUs);
     if (idx < 0) {
       if (this.presentedSinceClear || this.queue.length === 0) return null;
       idx = 0;

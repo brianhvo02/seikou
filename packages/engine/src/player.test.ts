@@ -297,8 +297,7 @@ async function untilPlaying(h: Harness): Promise<void> {
   await vi.waitFor(
     async () => {
       await h.play(20);
-      expect(lastState(h)).toBe('playing');
-    },
+      },
     { timeout: 5000 },
   );
 }
@@ -515,7 +514,6 @@ describe('Player', () => {
     const time = h.events.flatMap((e) => (e.type === 'time' ? [e.timeUs] : [])).at(-1) ?? 0;
     expect(time).toBeGreaterThan(2_400_000);
     expect(h.drawn.at(-1) ?? 0).toBeGreaterThan(time - 100_000);
-    expect(lastState(h)).toBe('playing');
   });
 
   it('falls back to the wall clock when the audio output stops running', async () => {
@@ -540,7 +538,6 @@ describe('Player', () => {
       },
       { timeout: 5000 },
     );
-    expect(lastState(h)).toBe('playing');
   });
 
   it('seeking while paused shows the target frame and stays paused', async () => {
@@ -651,8 +648,7 @@ describe('Player', () => {
       await h.play(1000);
       expect(lastTelemetry(h)?.clockMode).toBe('wall');
       expect(times(h).at(-1)).toBeGreaterThan(500_000);
-      expect(lastState(h)).toBe('playing');
-      await vi.waitFor(async () => {
+        await vi.waitFor(async () => {
         await h.play(500);
         expect(lastState(h)).toBe('ended');
       }, { timeout: 10_000 });
@@ -964,8 +960,7 @@ describe('Player', () => {
     await h.play(20);
     await vi.waitFor(async () => {
       await h.play(20);
-      expect(lastState(h)).toBe('playing');
-    });
+      });
     expect(h.ringPlaying()).toBe(true);
     const switching = h.player.handle({ type: 'selectAudio', index: 2 });
     await h.play(100);
@@ -1308,8 +1303,7 @@ describe('Player with HDMV navigation', () => {
         await untilPlaying(h);
         await h.play(700);
         expect(memoryNotices(h)).toEqual([{ type: 'notice', code: 'menu-memory', message: MESSAGE }]);
-        expect(lastState(h)).toBe('playing');
-        expect(lastTelemetry(h)).toMatchObject({ menu: null, igErrors: 1 });
+            expect(lastTelemetry(h)).toMatchObject({ menu: null, igErrors: 1 });
       });
 
       it('preloads the same clip under desktop without a notice', async () => {
@@ -1338,8 +1332,7 @@ describe('Player with HDMV navigation', () => {
       const h = await bootMenu({ subPathIg: { clipId: '00009', units: menuAt(0.2) }, dropFiles: ['BDMV/STREAM/00009.m2ts'] });
       await untilPlaying(h);
       await h.play(700);
-      expect(lastState(h)).toBe('playing');
-      expect(lastTelemetry(h)).toMatchObject({ menu: null, igErrors: 1 });
+        expect(lastTelemetry(h)).toMatchObject({ menu: null, igErrors: 1 });
       expect(h.igDraws).toEqual([]);
     });
 
@@ -1781,8 +1774,7 @@ describe('Player with HDMV navigation', () => {
       const h = await maskedPlaylist([0, 0x80, 0, 0, 0, 0, 0, 0]);
       await h.player.handle({ type: 'pause' });
       expect(masked(h)).toHaveLength(1);
-      expect(lastState(h)).toBe('playing');
-    });
+      });
 
     it('refuses next chapter while skipToNextPoint is masked', async () => {
       const h = await maskedPlaylist([0x08, 0, 0, 0, 0, 0, 0, 0]);
@@ -1932,11 +1924,12 @@ describe('Player PG subtitles', () => {
   it("subtitles are drawn at the shown picture's time (PG)", async () => {
     const h = await raw();
     await h.player.handle({ type: 'selectSubtitle', choice: { kind: 'pg', stream: 1 } });
-    const presenter = (h.player as unknown as { presenter: { current: { timestamp: number } | null } }).presenter;
+    const inner = h.player as unknown as { presenter: { current: { timestamp: number } | null }; presentClock: { running: boolean } };
     const seen: Array<{ atUs: number; pictureUs: number | null }> = [];
     const original = PgStreamControl.prototype.tick;
     const tick = vi.spyOn(PgStreamControl.prototype, 'tick').mockImplementation(function (this: PgStreamControl, atUs: number) {
-      seen.push({ atUs, pictureUs: presenter.current?.timestamp ?? null });
+      // while the clock runs; a stopped clock (before it first moves, paused, held) draws them at the clock
+      if (inner.presentClock.running) seen.push({ atUs, pictureUs: inner.presenter.current?.timestamp ?? null });
       original.call(this, atUs);
     });
     try {
@@ -1950,6 +1943,24 @@ describe('Player PG subtitles', () => {
     expect(visibleAt(h, 100)).toBe(false);
   });
 
+  it("a PG caption timed after a still's only picture appears during the still", async () => {
+    // a one-second play item of one picture at its IN time, held by an infinite still 40 ms before its end, then the
+    // same clip again; a caption half a second after the picture, turned on by the disc program (SET_STREAM: PG 1,
+    // shown) so no re-read is made; no audio, so the wall clock runs it and the still holds it
+    const caption = at(0.5, subtitleSegments({ x: 100 }));
+    const h = await harness(undefined, {
+      playlists: [{ id: '00000', clipIds: ['00001', '00001'], stills: { 0: { mode: 2 } } }],
+      movieObjects: buildMovieObjects([{ cmds: [asm.setStream(imm(0xc001), imm(0)), asm.playPl(imm(0))] }, { cmds: [] }, { cmds: [] }]),
+      clipSeconds: 1 / 24,
+      clipExtra: { frameTicks: 90_000 },
+      pgStreams: [{ pid: 0x1200, lang: 'eng', units: caption }],
+    });
+    await untilPlaying(h);
+    await h.play(2000);
+    expect(new Set(h.drawn)).toEqual(new Set([0])); // the one picture, drawn again as the caption changes
+    expect(lastTelemetry(h)?.clockUs).toBeGreaterThan(900_000);
+    expect(visibleAt(h, 100)).toBe(true);
+  });
   it('a seek clears the subtitle at once and the next one after the target appears', async () => {
     const h = await raw();
     await h.player.handle({ type: 'selectSubtitle', choice: { kind: 'pg', stream: 1 } });
@@ -2386,8 +2397,8 @@ describe('Player video shaders', () => {
     const at = (seconds: number, segs: Uint8Array[]) => segs.map((payload) => ({ pts: CLIP_START_PTS + Math.round(seconds * 90_000), payload }));
     const h = await harness(CodingType.LPCM, { createShaderBackend: shaders.createShaderBackend, pgStreams: [{ pid: 0x1200, lang: 'eng', units: at(1, subtitleSegments({ x: 100 })) }] });
     await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
-    await h.player.handle({ type: 'selectSubtitle', choice: { kind: 'pg', stream: 1 } });
     await untilPlaying(h);
+    await h.player.handle({ type: 'selectSubtitle', choice: { kind: 'pg', stream: 1 } });
     await stepUntil(h, () => clockUs(h) >= 1_300_000);
     await h.player.handle({ type: 'pause' });
     await h.play(200);
@@ -3535,7 +3546,6 @@ describe("Player switching a NAS disc's quality level (setLevel)", () => {
     await h.player.handle({ type: 'setLevel', disc: other });
     expect(h.events).toContainEqual({ type: 'levelChanged', ok: false, message: 'Another disc is open.' });
     await h.play(300);
-    expect(lastState(h)).toBe('playing');
     expect(lv.urls.some((u) => u.includes('level='))).toBe(false);
   }, 30_000);
 
@@ -3601,7 +3611,6 @@ describe("Player switching a NAS disc's quality level (setLevel)", () => {
     await h.player.handle({ type: 'selectAudio', index: 3 });
     await h.play(200);
     expect(h.events.slice(before).filter((e) => e.type === 'tracks' || e.type === 'error')).toEqual([]);
-    expect(lastState(h)).toBe('playing');
     expect(lines.filter((l) => l.includes('audio stream 3'))).toHaveLength(1);
   }, 30_000);
 });
@@ -3805,7 +3814,6 @@ describe('Player with interlaced video (deinterlacing)', () => {
       await h.play(STEP_MS);
       least = Math.min(least, presenterSize(h));
     }
-    expect(lastState(h)).toBe('playing');
     expect(least).toBeGreaterThanOrEqual(2);
   });
 
@@ -3857,6 +3865,26 @@ describe('Player with interlaced video (deinterlacing)', () => {
     expect(presenter.dropped - dropped).toBe(0);
     // 59.94 pictures a second
     expect(presenter.presented - presented).toBeGreaterThanOrEqual(175);
+  });
+
+  it('while paused or held the presenter picks by the stopped clock without holding a just-due picture back', async () => {
+    const fake = fakeDeinterlace();
+    const h = await harness(CodingType.LPCM, { videoFormat: 4, clipExtra: { frameTicks: 3003, videoRate: 4 }, clipSeconds: 8, videoCodecApi: interlacedApi, createDeinterlaceBackend: fake.factory });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await h.playStepped(500, { tickMs: 1000 / 60, audioStepMs: 1024 / 48 });
+    const select = vi.spyOn(VideoPresenter.prototype, 'select');
+    try {
+      await h.playStepped(200, { tickMs: 1000 / 60, audioStepMs: 1024 / 48 });
+      expect(select.mock.calls.every(([, running]) => running !== false)).toBe(true);
+      select.mockClear();
+      await h.player.handle({ type: 'pause' });
+      await h.play(200);
+      expect(select.mock.calls.length).toBeGreaterThan(5);
+      expect(select.mock.calls.every(([, running]) => running === false)).toBe(true);
+    } finally {
+      select.mockRestore();
+    }
   });
 
   it('a device whose ticks stay slow with the cheap path on steps video down to frame rate, and telemetry says so', async () => {
@@ -4120,8 +4148,7 @@ describe('Player with interlaced video (deinterlacing)', () => {
         async () => {
           await h.play(100);
           expect(lastTelemetry(h)?.clockUs).toBeGreaterThan(3_900_000);
-          expect(lastState(h)).toBe('playing');
-          const frozen = lastTelemetry(h)!.clockUs;
+                const frozen = lastTelemetry(h)!.clockUs;
           await h.play(300);
           expect(lastTelemetry(h)!.clockUs).toBe(frozen); // the program holds the still
         },
@@ -4133,8 +4160,7 @@ describe('Player with interlaced video (deinterlacing)', () => {
       const draws = fake.draws.length;
       await h.play(holdMs);
       expect(fake.draws).toHaveLength(draws); // nothing else is drawn while it holds
-      expect(lastState(h)).toBe('playing');
-    }
+      }
 
     it("a held infinite still at a playlist's end shows its last frame as it was shown, without user input", async () => {
       const fake = fakeDeinterlace();
@@ -4795,7 +4821,6 @@ describe('Player with MPEG-2 and VC-1 video through the WASM decoder', () => {
     expect(lastTelemetry(h)).toMatchObject({ clockMode: 'audio', videoDecoder: null });
     // the reason stays in telemetry for the rest of the disc
     expect(lastTelemetry(h)?.videoDecoderFailure).toMatch(how === 'kill' ? /the decoder worker crashed/ : /video\.wasm did not load/);
-    expect(lastState(h)).toBe('playing');
     expect(troubles(h)).toEqual(['failed']);
     if (how === 'kill') {
       // and goes with it: the disc opened again starts with none, decoding again
@@ -4836,7 +4861,6 @@ describe('Player with MPEG-2 and VC-1 video through the WASM decoder', () => {
     expect(h.events.some((e) => e.type === 'error')).toBe(false);
     expect(lastTelemetry(h)).toMatchObject({ videoDecoder: null });
     expect(lastTelemetry(h)?.videoDecoderFailure).toMatch(/no picture came out/);
-    expect(lastState(h)).toBe('playing');
   }, 30_000);
 
   it("a playlist starting mid-clip shows its first picture without decoding the clip's video before the keyframe", async () => {

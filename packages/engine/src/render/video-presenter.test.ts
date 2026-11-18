@@ -23,6 +23,28 @@ describe('VideoPresenter', () => {
     expect(p.select(80_000)).toBe(b);
   });
 
+  it('a held still shows its last picture even when it had just come due', () => {
+    const p = new VideoPresenter<TestFrame>();
+    const [a, b, c] = [frame(0), frame(41_708), frame(83_417)];
+    for (const f of [a, b, c]) p.push(f);
+    expect(p.select(0)).toBe(a);
+    // the clock stops (a still holds it) with b and c both due, c for 1 ms only: c, the last picture, shows and stays
+    expect(p.select(84_417, false)).toBe(c);
+    expect(p.select(84_417, false)).toBeNull();
+    expect(p.current).toBe(c);
+    expect(b.closed).toBe(true);
+  });
+
+  it('a pause shows the picture due at the pause', () => {
+    const p = new VideoPresenter<TestFrame>();
+    const [a, b, c] = [frame(0), frame(16_683), frame(33_367)];
+    for (const f of [a, b, c]) p.push(f);
+    p.select(0);
+    // paused with b and c both due, c for 2 ms: c is the picture of that moment
+    expect(p.select(35_367, false)).toBe(c);
+    expect(p.dropped).toBe(1);
+  });
+
   it('a frame due for under 5 ms does not drop the unshown one before it: that one shows first', () => {
     const p = new VideoPresenter<TestFrame>();
     const [a, b, c] = [frame(0), frame(16_683), frame(33_367)];
