@@ -7,6 +7,8 @@ import { formatLicenses, readPackageLicenses, readVendored, rootsFromMetafile } 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 
 const result = await build({
+  // The metafile's input paths are relative to this directory, whatever the shell's.
+  absWorkingDir: repoRoot,
   metafile: true,
   entryPoints: [new URL('src/main.ts', import.meta.url).pathname],
   outfile: new URL('dist/server.mjs', import.meta.url).pathname,

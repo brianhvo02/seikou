@@ -70,4 +70,14 @@ describe('vendored works, metafile roots and formatting', () => {
     const text = formatLicenses('T', [{ heading: 'H', entries: [{ name: 'react', version: '19', license: 'MIT', text: 'MIT body' }] }]);
     expect(text).toContain('react 19\nLicence: MIT\n\nMIT body');
   });
+
+  it('resolves metafile paths against the directory esbuild ran in, and refuses an input that names no package', () => {
+    const roots = rootsFromMetafile({ '../node_modules/werift/lib/a.js': {}, '../node_modules/@scope/pkg/x.js': {}, 'src/main.ts': {} }, '/repo/server');
+    expect([...roots].sort()).toEqual(['/repo/node_modules/@scope/pkg', '/repo/node_modules/werift']);
+    expect(() => rootsFromMetafile({ 'node_modules/@scope': {} }, '/repo')).toThrow(/names no package/);
+  });
+
+  it('fails for a package root with no package.json', () => {
+    expect(() => readPackageLicenses(['/nonexistent/node_modules/ghost'])).toThrow(MissingLicenseError);
+  });
 });

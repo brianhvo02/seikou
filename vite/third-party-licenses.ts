@@ -95,7 +95,10 @@ export function readPackageLicenses(roots: Iterable<string>, allowMissing: Reado
   const missing: string[] = [];
   for (const root of new Set(roots)) {
     const pkgFile = join(root, 'package.json');
-    if (!existsSync(pkgFile)) continue;
+    if (!existsSync(pkgFile)) {
+      missing.push(`${root} (no package.json)`);
+      continue;
+    }
     const pkg = JSON.parse(readFileSync(pkgFile, 'utf8')) as { name?: string; version?: string; license?: unknown; licenses?: unknown };
     const name = pkg.name ?? root.slice(root.lastIndexOf('/node_modules/') + '/node_modules/'.length);
     const files = licenseFilesIn(root);
@@ -150,12 +153,18 @@ export function formatLicenses(title: string, sections: readonly { heading: stri
   return out.join('\n');
 }
 
-/** The package roots of the modules an esbuild metafile lists as inputs. */
-export function rootsFromMetafile(inputs: Record<string, unknown>, repoRoot: string): Set<string> {
+/**
+ * The package roots of the modules an esbuild metafile lists as inputs. esbuild reports them relative to its working
+ * directory, so `baseDir` must be that directory (the build passes it as `absWorkingDir`). An input under a
+ * `node_modules` that names no package is an error, never skipped.
+ */
+export function rootsFromMetafile(inputs: Record<string, unknown>, baseDir: string): Set<string> {
   const roots = new Set<string>();
   for (const key of Object.keys(inputs)) {
-    const root = packageRootOf(resolve(repoRoot, key));
+    const path = resolve(baseDir, key);
+    const root = packageRootOf(path);
     if (root) roots.add(root);
+    else if (path.includes('/node_modules/')) throw new Error(`Bundled input names no package: ${key}`);
   }
   return roots;
 }

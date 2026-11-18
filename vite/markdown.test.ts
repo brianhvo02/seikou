@@ -8,6 +8,13 @@ const repo = fileURLToPath(new URL('../', import.meta.url));
 const read = (file: string): string => readFileSync(repo + file, 'utf8');
 
 describe('renderHelpPage', () => {
+  it("links the licences file at this site's own address, not production's", () => {
+    const { html } = renderHelpPage('[licences](https://bluray.pages.dev/third-party-licenses.txt) and [other](https://bluray.pages.dev/x.txt)\n', 'docs/credits.md');
+    expect(html).toContain('<a href="/third-party-licenses.txt">licences</a>');
+    expect(html).toContain('href="https://bluray.pages.dev/x.txt"');
+  });
+
+
   it('rewrites links and gives headings their GitHub ids', () => {
     const { html, summary } = renderHelpPage('# Title\n\nSee [NAS](nas.md#pairing) and [notes](contributing.md).\n\n## Audio & text\n', 'docs/x.md');
     expect(html).toContain('<a href="/help/nas#pairing">NAS</a>');
