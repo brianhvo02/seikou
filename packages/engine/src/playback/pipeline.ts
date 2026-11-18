@@ -283,13 +283,14 @@ export class PlaybackPipeline implements SessionPipeline {
         const fromSpn = findEpBefore(ep, leadTarget, range)?.spn ?? range.startSpn;
         if (fromSpn < startSpn) lead = { fromSpn, pids: new Set([pgPid]) };
       }
-      // A read from packet 0 of an item whose IN time lies past the clip's first keyframe: video only from the keyframe at
-      // or before the IN time, where a decode can start, so the clip's earlier pictures are not decoded for nothing (a
-      // software decoder would spend minutes on them before the first picture). Audio and graphics still come from packet 0.
-      if (fromClipStart && readVideo && ep) {
-        const keySpn = findEpBefore(ep, item.inTime, range)?.spn ?? startSpn;
-        if (alignedUnit(keySpn) > alignedUnit(startSpn)) {
-          readerStartSpn = keySpn;
+      // The playlist's first item read from packet 0 with its IN time past the clip's first keyframe: video only from the
+      // keyframe at or before the IN time, where a decode can start, so the clip's earlier pictures are not decoded for
+      // nothing (a software decoder would spend minutes on them before the first picture). Audio and graphics still come
+      // from packet 0. A seamless item (connection 5, 6) is never cut: its first pictures may continue the previous clip.
+      if (fromClipStart && i === 0 && i === startPos.item.index && readVideo && ep) {
+        const key = findEpBefore(ep, item.inTime, range);
+        if (key && key.pts <= item.inTime && alignedUnit(key.spn) > alignedUnit(startSpn)) {
+          readerStartSpn = key.spn;
           lead = { fromSpn: startSpn, pids: new Set([...pids].filter((pid) => pid !== videoPid)) };
         }
       }

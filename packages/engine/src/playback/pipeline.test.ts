@@ -248,6 +248,51 @@ describe('PlaybackPipeline: a first play item whose IN time lies inside its clip
     expect(got.audio.filter((u) => u.ptsUs < 0).every((u) => !u.inRange)).toBe(true);
   });
 
+  it('PG at the clip start still arrives for a mid-clip first item', async () => {
+    const units = subtitleSegments({ x: 10 }).map((payload) => ({ pts: CLIP_START_PTS, payload }));
+    const files = buildSyntheticDisc({
+      clips: [syntheticClip('00001', 8, { pgStreams: [{ pid: 0x1200, lang: 'eng', units }] })],
+      playlists: [{ id: '00000', clipIds: ['00001'], inSeconds: { 0: 5.5 } }],
+    });
+    const source = syntheticSource(files);
+    const mpls = parseMpls(await readWhole(source, 'BDMV/PLAYLIST/00000.MPLS'));
+    const config: PipelineConfig = { source, timeline: new Timeline(mpls.playItems), clips: await loadClips(source, ['00001']), videoPid: VIDEO_PID, playItems: mpls.playItems, audioStream: null };
+    const pg: PipelineUnit[] = [];
+    const video: PipelineUnit[] = [];
+    let finish: () => void = () => undefined;
+    const done = new Promise<void>((r) => (finish = r));
+    const p = new PlaybackPipeline(config, { video: (u) => video.push(u), audio: () => undefined, pg: (u) => pg.push(u), isFull: () => false, ended: () => finish(), failed: () => finish() });
+    p.setPgStream(0x1200);
+    p.start(0);
+    await done;
+    expect(pg).toHaveLength(units.length);
+    expect(pg[0]!.ptsUs).toBe(-5_500_000);
+    // video from the keyframe's aligned unit (the IDR at -0.5 s), as on a seek: a picture or two muxed in the same unit
+    // ahead of it may come too, nothing earlier
+    expect(video.every((u) => u.ptsUs >= -1_000_000)).toBe(true);
+    expect(video.some((u) => u.ptsUs === -500_000)).toBe(true);
+  });
+
+  it("a seamless item's video before its first EP entry is not cut", async () => {
+    // the second clip (connection condition 5) opens with a second of pictures continuing the first clip's GOP: its first
+    // EP entry is the IDR one second in, after its IN time, and nothing is at or before it
+    const second = syntheticClip('00002', 4, { keyEvery: 24 });
+    const files = buildSyntheticDisc({
+      clips: [syntheticClip('00001', 2), { ...second, keyIndices: second.keyIndices.filter((k) => k > 0) }],
+      playlists: [{ id: '00000', clipIds: ['00001', '00002'] }],
+    });
+    const source = syntheticSource(files);
+    const mpls = parseMpls(await readWhole(source, 'BDMV/PLAYLIST/00000.MPLS'));
+    expect(mpls.playItems[1]!.connectionCondition).toBe(5);
+    const clips = await loadClips(source, ['00001', '00002']);
+    expect(clips.get('00002')!.epMaps[0]!.entries[0]!.spn).toBeGreaterThanOrEqual(32); // the first IDR is past the first aligned unit
+    const config: PipelineConfig = { source, timeline: new Timeline(mpls.playItems), clips, videoPid: VIDEO_PID, playItems: mpls.playItems, audioStream: null };
+    const { got, done } = run(config, 0);
+    await done;
+    expect(got.video).toHaveLength(6 * 24);
+    expect(got.video[48]!.ptsUs).toBe(2_000_000);
+  });
+
   it('reads as before when the IN time is at the clip start', async () => {
     const got = await collectAll(await midClipSetup(0));
     expect(got.video[0]!.ptsUs).toBe(0);
