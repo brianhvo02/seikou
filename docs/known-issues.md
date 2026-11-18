@@ -111,6 +111,25 @@ what would change that decision.
 - **No progressive VC-1 is tested, nor VC-1 pulldown.** ffmpeg can't encode VC-1, so the one VC-1 fixture
   (`disc-vc1`) is a CC BY 1080i sample; progressive VC-1 and VC-1 with pulldown flags are untested until a disc or a
   licensed sample has them.
+- **1080i VC-1 on an iPhone 17 Pro plays at frame rate, not field rate.** Decoding takes 13 to 20 ms a picture there,
+  too slow for field-rate deinterlacing alongside it, so the deinterlacer's frame pacing steps down within the first
+  half minute of video and shows one picture a frame, a steady 29.97 a second. Measured 2026-11-18 over a 10-minute
+  play of a 1080i VC-1 film with five seeks: 132 pictures dropped in all, nearly all around the seeks, A/V offset
+  within 10 ms on average and 16 ms at most outside one brief 50 ms window, no decoder errors. The same device plays
+  480i MPEG-2 with 0 dropped. *Revisit if* the decoder gets faster (threads, or a decoder that skips work for the
+  field the frame-rate step doesn't show).
+- **A playlist that starts mid-clip reads the clip from its start first.** The first play item of a playlist is read
+  from the clip's first packet, as libbluray's `_fill_clip` does (`start_pkt = 0` for the first item), and only video
+  from the EP entry at or before the item's IN time reaches the decoder. From a local folder this costs nothing
+  noticeable; over the network (a NAS or the disc server) every byte before the IN point is downloaded first, for
+  every codec: a chapter playlist starting 31 minutes into a 480i MPEG-2 clip took 65 s to start over Wi-Fi. *Revisit
+  if* it bothers someone: start the read at the EP entry for IN, with what the first packets carry for navigation
+  (marks, PSRs) supplied another way.
+- **A playlist ends 100 ms after its last picture.** Even when its last play item lasts longer (a single-picture
+  still at the end), the playlist ends 100 ms after that picture, so such a still can end early. *Revisit if* a disc's
+  program waits on the full item.
+- **Picking a PG stream re-reads the playlist.** In an item showing one picture a second, the re-read shows the next
+  picture early.
 - **A picture size change in interlaced video briefly blanks the screen.** When the frame size changes (a 1080i item
   after a 480i one, or a new sequence header), the deinterlacer restarts at the new size and the pictures of the old
   size not yet shown are dropped, a black flash of about 0.1 to 0.3 s. On Blu-ray a clip's video attributes are

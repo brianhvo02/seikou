@@ -20,6 +20,7 @@ Short tasks that unblock or protect what is already deployed.
 | **Open a local `.iso`** from the landing screen. The UDF reader (`packages/bdmv/src/udf.ts`) already serves NAS ISOs; this is the local half of cross-browser spec §4, deferred in the nas-server spec §10. | M | |
 | **Subtitles from picked `.mkv` files.** Extract ASS and SRT tracks and attached fonts from an `.mkv` the viewer picks or drops (the Encodes library's own MKVs already load theirs), deferred since M4b. This pairs with episode subtitle sets and the subtitle store. | M | |
 | **HDMV TextST and sub-path PG** decoding. | M | needs a disc |
+| **Faster start of a playlist that begins mid-clip over the network.** The first play item is read from the clip's first packet, as libbluray does, so a chapter playlist on a NAS downloads everything before its IN point first (65 s on Wi-Fi for one MPEG-2 film; see known-issues, Video). | M | |
 | **Device coverage:** iPad over the NAS, real Android Chrome (HEVC, USB OTG), the iPhone row of the probe table, Blob slicing over 4 GiB on iOS, long press on real hardware, and the alphabet bar on a later iOS build. | M | needs a device |
 | **A friend abroad over WebRTC.** The route has only been measured through a VPN. Record a real friend's throughput and start-up time. | S | needs a person |
 | **The BD-J library's open cases:** 18 discs that fail in libbluray too (a native amd64 libbluray run, or a check by hand) and 1 unconfirmed disc (a long opening video before the menu). | M | |
