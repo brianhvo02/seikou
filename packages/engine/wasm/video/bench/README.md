@@ -18,7 +18,7 @@ pictures. It was generated for this repository and has no third-party content.
 ## vc1-1080i.vc1
 
 A VC-1 Advanced Profile elementary stream in SMPTE 421M Annex E form (`scripts/make-vc1-disc.ts`): the first 15 frames
-of `fixtures/vc1-sample/interlaced.vc1`, from its sequence and entry point headers (its only ones) through the end of
+of `fixtures/vc1-sample/interlaced.vc1`, from its sequence and entry point headers through the end of
 the 15th frame, with no re-encode. Every picture is field-coded. The stream carries no timing; read it at 30000/1001.
 
 - Work: "Stumpy Lake forest in HD" by Microdac, 2008

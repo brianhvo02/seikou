@@ -9,3 +9,12 @@ fixtures/vc1-sample/ (interlaced.vc1 and its README.md)
   Changed for Seikou (2026): six seconds (180 frames) of the video track cut
   without re-encoding into a VC-1 elementary stream; audio removed. See
   fixtures/vc1-sample/README.md.
+
+fixtures/synthetic/disc-vc1/ (BDMV/STREAM/00001.m2ts and its NOTICE.txt)
+  The video is the same Microdac work, "Stumpy Lake forest in HD" (CC BY 2.5, as above).
+  Changed for Seikou (2026): the 180 frames of fixtures/vc1-sample/interlaced.vc1, carried in an M2TS clip with
+  LPCM audio added; the sequence and entry-point headers are repeated before frames 60 and 120.
+
+packages/engine/wasm/video/bench/vc1-1080i.vc1 (shipped in the @seikou/engine package; see its README.md)
+  The video is the same Microdac work, "Stumpy Lake forest in HD" (CC BY 2.5, as above).
+  Changed for Seikou (2026): the first 15 frames of fixtures/vc1-sample/interlaced.vc1, cut without re-encoding.
