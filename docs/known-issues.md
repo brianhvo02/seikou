@@ -102,10 +102,12 @@ what would change that decision.
   disc. A playlist with such video and nothing else playable still runs, silent and black on the wall clock, to its
   end: libbluray does the same, and some HDMV programs rely on it. `UnsupportedCodecError` is left for a
   decoder that fails to configure. *Revisit if* a precached decoder is worth its 1 MB to every visitor.
-- **The first NAS pre-flight of an MPEG-2 or VC-1 disc may wait up to 10 s.** The decode speed probe runs once a
-  device (its answer is kept 30 days), raced against the pre-flight's own 10 s bound, and Play waits for it. A probe
-  asked while the page is hidden or another disc plays answers unknown, and that open gets no Original. *Revisit if*
-  the wait is noticed: probe ahead of the first pre-flight.
+- **The first NAS pre-flight of an MPEG-2 or VC-1 disc may wait up to about 20 s.** The decode speed probe runs once
+  a device (its answer is kept 30 days), raced against the pre-flight's own 10 s bound; the levels request, which
+  needs its answer, starts only then, with its own 10 s bound. Play waits for both, and the pre-flight says "Checking
+  this device can play this disc…" meanwhile. A probe asked while the page is hidden or another disc plays answers
+  unknown, and that open gets no Original. *Revisit if* the wait is noticed: probe ahead of the first pre-flight, or
+  ask the levels with a provisional answer while the probe runs.
 - **No progressive VC-1 is tested, nor VC-1 pulldown.** ffmpeg can't encode VC-1, so the one VC-1 fixture
   (`disc-vc1`) is a CC BY 1080i sample; progressive VC-1 and VC-1 with pulldown flags are untested until a disc or a
   licensed sample has them.
@@ -800,7 +802,7 @@ Fill in from `probe.html` on each device.
 - **Quality levels: a disc program's own audio choice at a level is ignored.** When PSR1 names an audio track the level doesn't carry, the level's track keeps playing. Audio changes at a level go through the player's Audio menu, which reopens the level with that audio. A switch back to Original keeps the track heard at the level (the `setLevel` command's `audio`) and sets the program's PSR1 to it, as an Audio menu pick would.
 - **Quality levels: the level Audio menu doesn't honour the disc's `primaryAudioChange` UO mask.** A level audio switch reopens the disc, so it is not a stream change the mask can block.
 - **Quality levels: "phone" in the auto rule is a size, not a device type.** It means the constrained memory profile or a screen whose shorter side is under 600 CSS px (phones are 320-440; 1280x800 and 1440x900 laptops are not phones).
-- **Quality levels: the levels request waits up to 10 s,** then the pre-flight offers Original only.
+- **Quality levels: the levels request waits up to 10 s,** then the pre-flight offers Original only. For an MPEG-2 or VC-1 disc it starts after the decode speed probe, which can wait up to 10 s before it (see above).
 - **Quality levels: a level switch during a BD-J time still restarts the still's timer.** The switch restarts the playlist session (`setLevel`), which lets the still go and meets it again, so a play-item time still lasts up to its `stillTime` longer; nothing hangs and Java sees no second report (HDMV programs are told once). Carrying the remaining time across the restart would remove it.
 - **Quality levels: the play route is pushed when the disc opens, not at the click.** At a level the pre-flight first fetches the level's manifest; a busy refusal then leaves the address bar where it was. Original opens push it after the session round trip, just before the open.
 

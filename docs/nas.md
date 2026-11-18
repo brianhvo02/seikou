@@ -89,7 +89,7 @@ During playback the **Quality** menu switches level at the same place. A badge r
 
 The audio track menu on a re-encoded level reopens the level with that track.
 
-Discs with MPEG-2 or VC-1 video can play at **Original** too, decoded by the player itself. The first time such a disc's pre-flight opens on a device, the player measures how fast the device decodes these formats (this can take up to 10 seconds, and Play waits for it); the answer is kept on the device for 30 days. A device fast enough starts at Original. A slower one starts on a re-encoded level, with Original still in the list to pick by hand. If the player's decoder fails or can't keep up during playback, it switches to a re-encoded level by itself, at the same place.
+Discs with MPEG-2 or VC-1 video can play at **Original** too, decoded by the player itself. The first time such a disc's pre-flight opens on a device, the player measures how fast the device decodes these formats (this can take up to about 20 seconds; the pre-flight says it is checking the device, and Play waits for it); the answer is kept on the device for 30 days. A device fast enough starts at Original. A slower one starts on a re-encoded level, with Original still in the list to pick by hand. If the player's decoder fails or can't keep up during playback, it switches to a re-encoded level by itself, at the same place.
 
 ## Continue watching and Up next
 

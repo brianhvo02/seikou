@@ -7,6 +7,12 @@ export const BUSY_COPY = 'The NAS is busy re-encoding for others. This will play
 /** What the pre-flight says when the GPU is busy and no level, Original included, can play. */
 export const BUSY_TRY_LATER_COPY = 'The NAS is busy. Try again in a few minutes.';
 
+/**
+ * What the pre-flight says while it checks how this device plays an MPEG-2 or VC-1 disc (the decoder speed probe, then
+ * the levels request it feeds), which can take up to about 20 s with Play waiting.
+ */
+export const DEVICE_CHECK_COPY = 'Checking this device can play this disc…';
+
 /** What a NAS without levels means. */
 export const ORIGINAL_ONLY: readonly LevelInfo[] = [{ level: 'original', label: 'Original', budgetMbps: 0, available: true }];
 

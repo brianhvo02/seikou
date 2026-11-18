@@ -9,7 +9,7 @@ import { discBadges, discFacts, formatSize, mainPlaylist, mainPlaylistId, openFa
 import { audioStarted } from './encode-launch';
 import { nasDiscSpec } from './disc-spec';
 import { videoCaps, wasmVideoPlayability, type VideoCaps } from '../video-caps';
-import { ORIGINAL_ONLY, busyMessage, levelAudio, levelRows, levelsQuery, placeAudioHint, preflightLevelState, type WasmPlayability } from './level-model';
+import { DEVICE_CHECK_COPY, ORIGINAL_ONLY, busyMessage, levelAudio, levelRows, levelsQuery, placeAudioHint, preflightLevelState, type WasmPlayability } from './level-model';
 import { launchManifest, levelSessionOf } from './level-session';
 import { NasBusyError, NasHttpError, PLACES_READ_TIMEOUT_MS, type NasClient } from './nas-client';
 import { useNasRoute, type NasHistory } from './nas-history';
@@ -284,6 +284,8 @@ export function Preflight({ nas, controller, disc, playlistId, title, startTimeS
     };
   }, [nas, disc.id, manifest, original, caps, wasm, levelAudioNumber, levelsNonce]);
   const levelList = levels ?? ORIGINAL_ONLY;
+  /** The device check of a disc the app's own decoder plays runs: its speed probe, then the levels request it feeds. */
+  const checkingDevice = wasmCoding !== null && (wasm === undefined || (original !== null && levels === undefined));
   const originalMbps = original && original.durationS > 0 ? (original.playlistBytes * 8) / original.durationS / 1e6 : 0;
   const levelState = preflightLevelState({ levels, connectionMbps: mbps, caps, originalMbps, originalSlow });
   /** The automatic level, taken once when the levels, the probe and the caps are all known, then kept. */
@@ -463,6 +465,11 @@ export function Preflight({ nas, controller, disc, playlistId, title, startTimeS
         ))}
       </p>
       {mbps === undefined && !error && <p className="status">Measuring this connection…</p>}
+      {checkingDevice && !error && (
+        <p className="status" data-testid="nas-device-check">
+          {DEVICE_CHECK_COPY}
+        </p>
+      )}
       {lines.map((line) => (
         <p key={line} className="status" data-testid="nas-preflight-line">
           {line}
