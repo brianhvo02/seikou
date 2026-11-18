@@ -57,12 +57,12 @@ describe('help pages', () => {
 describe('credits page', () => {
   it('carries the notices its sources require', () => {
     const text = read('docs/credits.md');
-    expect(text).toContain('Portions of this software are copyright © The FreeType Project (www.freetype.org). All rights reserved.');
+    expect(text).toContain('Portions of this software are copyright © 2023 The FreeType Project (www.freetype.org). All rights reserved.');
     expect(text).toContain('This product uses the TMDB API but is not endorsed or certified by TMDB.');
     expect(text).toContain('Stumpy Lake forest in HD');
     expect(text).toContain('Microdac');
     expect(text).toContain('https://archive.org/details/MicrodacStumpyLakeforestinHD');
-    expect(text).toContain('http://creativecommons.org/licenses/by/2.5/');
+    expect(text).toContain('https://creativecommons.org/licenses/by/2.5/');
     expect(text).toContain('https://github.com/brianhvo02/seikou');
   });
 });

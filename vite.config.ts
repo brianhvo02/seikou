@@ -5,6 +5,7 @@ import type { Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { defineConfig } from 'vitest/config';
 import { developerSite } from './vite/devsite/plugin.ts';
+import { collectBundledPackages, thirdPartyLicenses } from './vite/licenses-plugin.ts';
 import { helpPages } from './vite/markdown.ts';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
@@ -56,15 +57,17 @@ export default defineConfig({
         // (MPEG-2 and VC-1 decoding, about 1 MB, fetched by the first such playlist or the speed probe) and the probe's
         // clips (.m2v and .vc1, not in the patterns): src/sw.ts caches them at runtime too.
         globPatterns: ['**/*.{js,css,html,wasm,ttf,woff2,svg,png,webmanifest,jar}'],
+        buildPlugins: { vite: [collectBundledPackages()] },
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
         // The diagnostics page is online-only, and the developer pages are a site of their own, outside the player.
         globIgnores: ['probe.html', 'assets/probe-*.js', 'assets/video-*.wasm', 'developers/**'],
       },
     }),
+    thirdPartyLicenses(root),
   ],
   server: { headers: crossOriginIsolation },
   preview: { headers: crossOriginIsolation },
-  worker: { format: 'es' },
+  worker: { format: 'es', plugins: () => [collectBundledPackages()] },
   build: { rollupOptions: { input: { main: resolve(root, 'index.html'), probe: resolve(root, 'probe.html') } } },
   test: {
     environment: 'node',

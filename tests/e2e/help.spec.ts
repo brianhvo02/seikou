@@ -70,7 +70,19 @@ test('the Credits page shows the FreeType notice and the CC BY attribution', asy
   await page.goto('/help/credits');
   const article = page.getByTestId('help-page');
   await expect(article.getByRole('heading', { level: 1 })).toHaveText('Credits');
-  await expect(article).toContainText('Portions of this software are copyright © The FreeType Project (www.freetype.org). All rights reserved.');
+  await expect(article).toContainText('Portions of this software are copyright © 2023 The FreeType Project (www.freetype.org). All rights reserved.');
   await expect(article).toContainText('Stumpy Lake forest in HD');
-  await expect(article.locator('a[href="http://creativecommons.org/licenses/by/2.5/"]')).toBeVisible();
+  await expect(article.locator('a[href="https://creativecommons.org/licenses/by/2.5/"]')).toBeVisible();
+});
+
+test('the build ships the licence text of the packages it bundles', async ({ request }) => {
+  const res = await request.get('/third-party-licenses.txt');
+  expect(res.ok()).toBe(true);
+  const text = await res.text();
+  expect(text).toMatch(/^react \d/m);
+  expect(text).toMatch(/^@fontsource-variable\/instrument-sans \d/m);
+  expect(text).toMatch(/^workbox-precaching \d/m);
+  expect(text).toContain('Permission is hereby granted');
+  expect(text).toContain('SIL OPEN FONT LICENSE');
+  expect(text).toContain('FreeType License');
 });

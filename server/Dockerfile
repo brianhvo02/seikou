@@ -27,6 +27,8 @@ COPY dist/7zz.wasm ./7zz.wasm
 COPY data/discdb-index.json ./data/discdb-index.json
 # The notices for what the image ships, TheDiscDB's MIT data and ffmpeg among them.
 COPY NOTICE ./NOTICE
+# The licence of every package bundled into server.mjs (written by build.mjs).
+COPY dist/third-party-licenses.txt ./third-party-licenses.txt
 # The notice for the GPL parts (ffmpeg, Intel's media driver) and where their sources are.
 COPY deploy/IMAGE-NOTICE /usr/share/doc/bluray-server/NOTICE
 # Created here so the named volume mounted on /data starts out owned by `node`.
