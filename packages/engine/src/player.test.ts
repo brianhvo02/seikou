@@ -4692,7 +4692,35 @@ describe('Player with MPEG-2 and VC-1 video through the WASM decoder', () => {
     }
   }, 20_000);
 
-  it('ten seconds of skipping emits videoDecoderTrouble slow once', async () => {
+  it('brief skipping in heavy scenes never adds up to slow', async () => {
+    const skip = skippingCalls();
+    try {
+      // heavy scenes of 3 s, too slow for every picture, between light ones of 1.5 s: skipping comes and goes, on for
+      // well over 10 s in all but never for 10 s in a row
+      const cost: UnitCost = { picture: 60, skipped: 24 };
+      const wasm = fakeVideoWasm(scriptedPictures({ interlaced: false }), cost);
+      const h = await harness(CodingType.LPCM, { videoCodingType: CodingType.MPEG2_VIDEO, clipSeconds: 26, videoWasm: wasm.deps });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilPlaying(h);
+      for (let scene = 0; scene < 5; scene++) {
+        cost.picture = 60;
+        cost.skipped = 24;
+        await h.play(3000);
+        cost.picture = 0;
+        cost.skipped = 0;
+        await h.play(1500);
+      }
+      const turns = skip.mock.calls.map((c) => c[0]);
+      expect(turns.filter((on) => on).length).toBeGreaterThanOrEqual(4);
+      expect(turns.filter((on) => !on).length).toBeGreaterThanOrEqual(4);
+      expect(times(h).at(-1)).toBeGreaterThan(20_000_000);
+      expect(troubles(h)).toEqual([]);
+    } finally {
+      skip.mockRestore();
+    }
+  }, 60_000);
+
+  it('ten seconds of continuous skipping is slow', async () => {
     // too slow even with B pictures skipped (84 ms for two frames of 83.4): skipping stays on, a little behind
     const wasm = fakeVideoWasm(scriptedPictures({ interlaced: false }), { picture: 60, skipped: 24 });
     const h = await harness(CodingType.LPCM, { videoCodingType: CodingType.MPEG2_VIDEO, clipSeconds: 16, videoWasm: wasm.deps });

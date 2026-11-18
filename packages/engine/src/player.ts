@@ -413,7 +413,7 @@ interface SessionDeinterlace {
 /**
  * Whether a WASM-decoded session skips B pictures to keep up: on when a picture arrives later than the clock by more
  * than a frame, off when two pictures in a row arrive at least two frames early; with the playback time it has been on
- * since the playlist started or the last seek, which reports the decoder slow once it reaches SLOW_DECODE_US.
+ * without a break, which reports the decoder slow once it reaches SLOW_DECODE_US.
  */
 interface WasmSkip {
   /** The stream's frame duration in microseconds. */
@@ -421,7 +421,7 @@ interface WasmSkip {
   on: boolean;
   /** Pictures in a row that came at least two frames early, while on. */
   early: number;
-  /** Playback time with skipping on since the playlist started or the last seek, in microseconds. */
+  /** Playback time skipping has been on without a break (since it last turned on), in microseconds; 0 while off. */
   onUs: number;
   /** The clock at the last tick that counted it; null when the next tick starts counting afresh. */
   lastUs: number | null;
@@ -429,8 +429,17 @@ interface WasmSkip {
   slowSent: boolean;
 }
 
-/** Playback time with skipping on, since the playlist started or the last seek, after which the decoder counts as slow. */
+/**
+ * Playback time with skipping on without a break after which the decoder counts as slow: brief skipping in heavy scenes
+ * starts over each time it turns off, so only a decoder that can't keep up at all reaches it.
+ */
 const SLOW_DECODE_US = 10_000_000;
+
+/**
+ * The most playback time one tick counts toward the skipping run: a tick after a gap (a hidden page, a suspended
+ * device) adds no more than this.
+ */
+const MAX_COUNTED_TICK_US = 250_000;
 
 /** Telemetry's videoDecoder: which decoder the session's picture comes from, its decode time and its skipped pictures. */
 function videoDecoderTelemetry(decoder: CanvasVideoDecoder | null): Telemetry['videoDecoder'] {
@@ -4299,22 +4308,26 @@ export class Player {
     if (++skip.early < 2) return;
     skip.on = false;
     skip.early = 0;
+    skip.onUs = 0;
     decoder.setSkipping(false);
   }
 
-  /** Adds the playback time since the last tick to the time skipping has been on, and reports the decoder slow once it reaches SLOW_DECODE_US. */
+  /**
+   * Adds the playback time since the last tick (at most MAX_COUNTED_TICK_US; nothing while paused or hidden) to the run
+   * skipping has been on, and reports the decoder slow once the run reaches SLOW_DECODE_US.
+   */
   private countSkipping(s: Session, nowUs: number): void {
     const skip = s.wasmSkip;
     if (!skip) return;
-    if (this.state !== 'playing') {
+    if (this.state !== 'playing' || this.pageHidden) {
       skip.lastUs = null;
       return;
     }
-    if (skip.on && skip.lastUs !== null && nowUs > skip.lastUs) skip.onUs += nowUs - skip.lastUs;
+    if (skip.on && skip.lastUs !== null && nowUs > skip.lastUs) skip.onUs += Math.min(nowUs - skip.lastUs, MAX_COUNTED_TICK_US);
     skip.lastUs = nowUs;
     if (skip.slowSent || skip.onUs < SLOW_DECODE_US) return;
     skip.slowSent = true;
-    this.deps.log?.(`The video decoder has skipped pictures for ${SLOW_DECODE_US / 1e6} s to keep up`);
+    this.deps.log?.(`The video decoder has skipped pictures for ${SLOW_DECODE_US / 1e6} s in a row to keep up`);
     this.deps.emit({ type: 'videoDecoderTrouble', reason: 'slow' });
   }
 
