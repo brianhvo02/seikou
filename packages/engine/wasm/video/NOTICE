@@ -1,0 +1,7 @@
+video.wasm: FFmpeg libavcodec decoders (mpeg1video, mpeg2video, vc1) and parsers (mpegvideo, vc1) with shim.c, for Seikou.
+LGPL-2.1-or-later.
+
+FFmpeg (https://ffmpeg.org), LGPL-2.1-or-later. Copyright (c) the FFmpeg developers.
+  Source: https://git.ffmpeg.org/ffmpeg.git, tag n9.0.2 (unmodified).
+  Configure line and link flags: build.sh in this folder.
+  Rebuild: npm run wasm:build:video (Docker). The output is reproducible; CI checks video.wasm.sha256.

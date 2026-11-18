@@ -6,10 +6,11 @@
   "exports": {
     ".": "./src/index.ts",
     "./audio.wasm": "./wasm/audio/audio.wasm",
+    "./video.wasm": "./wasm/video/video.wasm",
     "./worker-main": "./src/worker-main.ts",
     "./*": "./src/*.ts"
   },
-  "files": ["src", "!src/**/*.test.ts", "!src/**/__fixtures__", "wasm", "LICENSE", "COPYING", "LICENSES", "NOTICE"],
+  "files": ["src", "!src/**/*.test.ts", "!src/**/__fixtures__", "!src/decode/fixtures", "wasm", "LICENSE", "COPYING", "LICENSES", "NOTICE"],
   "dependencies": {
     "@seikou/ass": "*",
     "@seikou/bdmv": "*",

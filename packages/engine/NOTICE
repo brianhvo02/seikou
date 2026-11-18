@@ -77,3 +77,8 @@ FFmpeg (https://ffmpeg.org), LGPL-2.1-or-later
 FFmpeg decoders (wasm/audio/), LGPL-2.1-or-later
   audio.wasm is built from FFmpeg n9.0.2 (ac3, eac3, dca decoders) and wasm/audio/shim.c.
   See wasm/audio/NOTICE for the exact source and build.
+
+FFmpeg decoders (wasm/video/), LGPL-2.1-or-later
+  video.wasm is built from FFmpeg n9.0.2 (mpeg1video, mpeg2video and vc1 decoders, mpegvideo and vc1 parsers) and
+  wasm/video/shim.c. See wasm/video/NOTICE for the exact source and build. decode/wasm-video.ts, which loads it, is
+  original code.
