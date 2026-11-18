@@ -32,6 +32,7 @@ import { ShaderStage } from './shaders/stage';
 import type { DrawnPicture } from './render/compositor';
 import type { FrameMetrics, PictureOp } from './deinterlace/cadence';
 import { Deinterlacer, type DeinterlaceBackend, type Picture } from './deinterlace/deinterlacer';
+import { PgStreamControl } from './nav/subtitles';
 import { PresentationClock } from './render/presentation-clock';
 import { InterlacedVideo, WOVEN_NO_WEBGL2, WOVEN_OFF, wovenFrameFormat, wovenSoftwareRenderer } from './deinterlace/interlaced-video';
 import { SIM_COMB_CLEAN, SIM_COMB_HIGH, SIM_DIFF_HIGH, completeFilmFrames, telecine } from './deinterlace/metric-sequences';
@@ -1928,6 +1929,27 @@ describe('Player PG subtitles', () => {
     expect(lastTelemetry(h)!.pgErrors).toBe(0);
   });
 
+  it("subtitles are drawn at the shown picture's time (PG)", async () => {
+    const h = await raw();
+    await h.player.handle({ type: 'selectSubtitle', choice: { kind: 'pg', stream: 1 } });
+    const presenter = (h.player as unknown as { presenter: { current: { timestamp: number } | null } }).presenter;
+    const seen: Array<{ atUs: number; pictureUs: number | null }> = [];
+    const original = PgStreamControl.prototype.tick;
+    const tick = vi.spyOn(PgStreamControl.prototype, 'tick').mockImplementation(function (this: PgStreamControl, atUs: number) {
+      seen.push({ atUs, pictureUs: presenter.current?.timestamp ?? null });
+      original.call(this, atUs);
+    });
+    try {
+      await playUntil(h, 2_100_000);
+    } finally {
+      tick.mockRestore();
+    }
+    const withPicture = seen.filter((t) => t.pictureUs !== null);
+    expect(withPicture.length).toBeGreaterThan(50);
+    for (const t of withPicture) expect(t.atUs).toBe(t.pictureUs);
+    expect(visibleAt(h, 100)).toBe(false);
+  });
+
   it('a seek clears the subtitle at once and the next one after the target appears', async () => {
     const h = await raw();
     await h.player.handle({ type: 'selectSubtitle', choice: { kind: 'pg', stream: 1 } });
@@ -2061,6 +2083,15 @@ describe('Player text subtitles', () => {
     return h;
   }
   const lastText = (h: Harness) => subtitleEvents(h).at(-1)!.text;
+
+  it("subtitles are drawn at the shown picture's time (ASS)", async () => {
+    const h = await raw({ recordText: true });
+    await h.player.handle({ type: 'addTextSubtitles', files: [file('sign.ass', ass('DejaVu Sans', dialogue('0:00:01.00', '0:00:02.00', 'hi')))], fonts: [fontFile('DejaVuSans.ttf')] });
+    await playUntil(h, 2_100_000);
+    const withPicture = h.textDraws.filter((t) => t.pictureUs !== null);
+    expect(withPicture.length).toBeGreaterThan(20);
+    for (const t of withPicture) expect(t.atUs).toBe(t.pictureUs);
+  });
 
   it('loads a file, selects it, and reports a visible cue only during its time', async () => {
     const h = await raw();

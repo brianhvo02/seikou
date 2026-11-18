@@ -1043,9 +1043,11 @@ export class Player {
       this.bdjDirty = true; // paint composites it now, whether or not a plane changed
     }
     if (frame || blank) this.noteBdjFirstFrame(s);
-    this.pg?.tick(now);
-    this.encodeSubs?.pgs?.control.tick(now);
-    this.paint(frame, now);
+    // subtitles keep to the picture on screen; the navigator, IG and the playlist's end keep to the clock
+    const subtitlesUs = this.subtitleUs(showUs);
+    this.pg?.tick(subtitlesUs);
+    this.encodeSubs?.pgs?.control.tick(subtitlesUs);
+    this.paint(frame, subtitlesUs);
     this.countSkipping(s, now);
     if (this.session === s) this.watchForPicture(s);
     this.feedDecoder(s); // presenting freed decoded-frame slots
@@ -1098,7 +1100,7 @@ export class Player {
     const pg = this.pgPlane();
     if (pg) this.compositor?.drawPg?.(pg);
     const text = this.activeText();
-    if (text) this.compositor?.drawText?.(text, this.clock.nowUs(), this.textOptions());
+    if (text) this.compositor?.drawText?.(text, this.subtitleUs(this.presentUs()), this.textOptions());
     if (this.navigator?.igPlane) this.compositor?.drawIg?.(this.navigator.igPlane);
     if (this.bdj) this.compositor?.drawBdj?.(this.bdj.plane);
   }
@@ -1116,11 +1118,11 @@ export class Player {
   }
 
   /**
-   * Video, then the PG plane, the text subtitles, the IG plane and the BD-J plane. A change to any of them repaints the
+   * Video, then the PG plane, the text subtitles (at `subtitlesUs`), the IG plane and the BD-J plane. A change to any of them repaints the
    * video and everything over it (an overlay replaces pixels, it does not blend with what it covered). The BD-J plane
    * changes only when Java flushes (or opens or closes it), so a half-drawn menu never shows.
    */
-  private paint(frame: VideoFrame | Picture | null, nowUs: number): void {
+  private paint(frame: VideoFrame | Picture | null, subtitlesUs: number): void {
     const nav = this.navigator;
     const pg = this.pgPlane();
     const ig = nav?.igPlane ?? null;
@@ -1131,7 +1133,7 @@ export class Player {
     const textOpts = this.textOptions();
     const pgChanged = pg !== null && pg.dirty() !== null;
     const igChanged = ig !== null && ig.dirty() !== null;
-    const textChanged = this.subtitlesDirty || (text !== null && text.changed(nowUs, textOpts));
+    const textChanged = this.subtitlesDirty || (text !== null && text.changed(subtitlesUs, textOpts));
     this.subtitlesDirty = false;
     const current = this.presenter.current;
     const changed = pgChanged || igChanged || textChanged || bdjChanged || this.shadersDirty || this.backgroundDirty || this.elementDirty;
@@ -1146,7 +1148,7 @@ export class Player {
       if (this.compositor?.drawPg) this.compositor.drawPg(pg);
       else pg.takeDirty();
     }
-    if (text) this.compositor?.drawText?.(text, nowUs, textOpts);
+    if (text) this.compositor?.drawText?.(text, subtitlesUs, textOpts);
     if (ig && (ig.hasContent || igChanged)) {
       if (this.compositor?.drawIg) this.compositor.drawIg(ig);
       else ig.takeDirty();
@@ -4017,6 +4019,16 @@ export class Player {
    */
   private presentUs(): number {
     return this.presentClock.at(this.clock.nowUs(), this.state === 'playing' && !this.held, this.deps.nowMs());
+  }
+
+  /**
+   * The playlist time subtitles (PG and text) are drawn at: the time of the picture on screen on the canvas path, so a
+   * sign follows what it tracks and a line timed to a cut changes with the picture; `showUs` (the presentation time)
+   * when no picture shows, and on the element path, whose element follows that time.
+   */
+  private subtitleUs(showUs: number): number {
+    const shown = this.session?.element ? null : this.presenter.current;
+    return shown ? shown.timestamp : showUs;
   }
 
   /** Writes the clock to the clock block (when the page gave one): the line through the audio clock's steps, running once it moves. */
