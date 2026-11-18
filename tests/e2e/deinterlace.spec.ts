@@ -59,7 +59,7 @@ const refs = JSON.parse(readFileSync(`${REF_DIR}/refs.json`, 'utf8')) as {
 interface DeinterlaceSample extends TelemetrySample {
   deinterlace: {
     setting: 'auto' | 'off';
-    stats: { mode: 'progressive' | 'film' | 'video'; fieldOrder: 'tff' | 'bff'; fieldOrderSource: string; fallback: boolean; locks: number; breaks: number } | null;
+    stats: { mode: 'progressive' | 'film' | 'video'; fieldOrder: 'tff' | 'bff'; fieldOrderSource: string; fallback: boolean; frameRate: boolean; locks: number; breaks: number } | null;
     woven: string | null;
   } | null;
 }
@@ -173,7 +173,7 @@ function expectFilmThroughout(samples: DeinterlaceSample[]): void {
   const middle = samples.filter((t) => t.clockUs >= FILM_LOCKED_US && t.clockUs <= FILM_UNTIL_US);
   console.log(`modes: ${samples.map((t) => `${(t.clockUs / 1e6).toFixed(2)} s ${t.deinterlace?.stats?.mode ?? '-'}`).join(', ')}`);
   expect(middle.length).toBeGreaterThanOrEqual(3);
-  for (const t of middle) expect(t.deinterlace?.stats, `at ${t.clockUs} us`).toMatchObject({ mode: 'film', breaks: 0, fallback: false });
+  for (const t of middle) expect(t.deinterlace?.stats, `at ${t.clockUs} us`).toMatchObject({ mode: 'film', breaks: 0, fallback: false, frameRate: false });
 }
 
 /** Skips the A/V sync checks in Firefox, as the element path's do: Firefox on CI has no running audio output. */
@@ -187,7 +187,7 @@ test('true interlaced video (00000) is deinterlaced at field rate, its pictures 
   const shot = await capture(page, PICTURE_AT_US, refs.video2s);
   expect(shot.deinterlaced).toBe(true);
   const d = await deinterlaceOf(page);
-  expect(d).toMatchObject({ setting: 'auto', woven: null, stats: { mode: 'video', fieldOrder: 'tff', fallback: false } });
+  expect(d).toMatchObject({ setting: 'auto', woven: null, stats: { mode: 'video', fieldOrder: 'tff', fallback: false, frameRate: false } });
   const db = scored('00000 auto', shot, refPictures(refs.video2s), Math.round(shot.timestampUs / FIELD_US) - refs.video2s.firstField);
   expect(db).toBeGreaterThanOrEqual(VIDEO_PSNR_DB);
 });
@@ -199,7 +199,7 @@ test('video mode plays in sync (00000)', async ({ page, browserName }) => {
   expect(windows.length).toBeGreaterThan(3);
   for (const w of windows) expect(w.clockMode).toBe('audio');
   expectInSync(windows);
-  expect((await deinterlaceOf(page))?.stats).toMatchObject({ mode: 'video', fallback: false });
+  expect((await deinterlaceOf(page))?.stats).toMatchObject({ mode: 'video', fallback: false, frameRate: false });
 });
 
 test('bottom field first video (00001) is found to be bottom field first', async ({ page }) => {

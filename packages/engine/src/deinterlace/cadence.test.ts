@@ -118,6 +118,42 @@ describe('CadenceDetector', () => {
     expect(detector.locks).toBe(0);
   });
 
+  it('video at frame rate: one picture a frame, its first field interpolated, at the frame\'s own time', () => {
+    for (const order of ['tff', 'bff'] as const) {
+      const frames = videoFrames(0, 30);
+      const ts = evenTimestamps(frames.length);
+      const detector = new CadenceDetector({ frameDurationUs: NTSC_FRAME_US, lookahead: LOOKAHEAD });
+      detector.frameRate = true;
+      const { pictures } = run(frames, { detector, timestamps: ts, order, flags: () => orderFlags(order) });
+      expect(pictures).toHaveLength(30);
+      frames.forEach((_, k) => {
+        expect(pictures[k]).toEqual({ frame: FIRST_SEQ + k, op: { kind: 'interpolate', field: order === 'tff' ? 'top' : 'bottom' }, timestampUs: ts[k] });
+      });
+      for (let k = 1; k < pictures.length; k++) expect(Math.abs(pictures[k]!.timestampUs - pictures[k - 1]!.timestampUs - NTSC_FRAME_US)).toBeLessThanOrEqual(1);
+      expect(detector.mode).toBe('video');
+      // a seek keeps it: the step is the session's
+      detector.reset();
+      expect(detector.frameRate).toBe(true);
+    }
+  });
+
+  it('frame rate leaves film (once locked) and progressive as they are', () => {
+    const film = telecine(0, 48);
+    const fieldRate = run(film);
+    const detector = new CadenceDetector({ frameDurationUs: NTSC_FRAME_US, lookahead: LOOKAHEAD });
+    detector.frameRate = true;
+    // the frames before the lock are video, which frame rate halves; from the lock on the film pictures are the same
+    const locked = (pictures: readonly PlannedPicture[]): PlannedPicture[] => pictures.filter((p) => p.frame >= FIRST_SEQ + LOCK_CYCLES * 5);
+    const stepped = run(film, { detector });
+    expect(stepped.modes).toEqual(fieldRate.modes);
+    expect(locked(stepped.pictures).length).toBeGreaterThan(20);
+    expect(locked(stepped.pictures)).toEqual(locked(fieldRate.pictures));
+    const progressive = progressiveFrames(0, 30);
+    const step = new CadenceDetector({ frameDurationUs: NTSC_FRAME_US, lookahead: LOOKAHEAD });
+    step.frameRate = true;
+    expect(run(progressive, { detector: step }).pictures).toEqual(run(progressive).pictures);
+  });
+
   it('holds pictures back by the lookahead and plans them in order', () => {
     const frames = videoFrames(0, 12);
     const d = new CadenceDetector({ frameDurationUs: NTSC_FRAME_US, lookahead: LOOKAHEAD });

@@ -39,7 +39,8 @@ export type DeinterlaceMode = 'auto' | 'off';
 /**
  * What deinterlacing is doing for the playing interlaced playlist: the `setting`, `stats` while the deinterlacer runs
  * (its field order and where it came from, the cadence mode, locks and breaks, GPU time per picture (null where the
- * browser has no timer query), ring size and `fallback`), and `woven`, the reason the frames are drawn woven (the
+ * browser has no timer query), ring size, `fallback` (interpolated fields drawn cheaply) and `frameRate` (video shown
+ * one picture a frame, the step after `fallback`)), and `woven`, the reason the frames are drawn woven (the
  * setting is off, no WebGL2, the GPU failed) or null while they are deinterlaced.
  */
 export interface DeinterlaceTelemetry {

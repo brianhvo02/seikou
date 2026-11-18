@@ -132,8 +132,13 @@ again.
 The budget is one picture per display refresh at field rate, plus the metrics passes per frame and the plane copy. On
 a device that can't keep up, the stage falls back to its cheapest correct path: field matching stays, and
 motion-adaptive interpolation becomes plain field interpolation. The trigger is frame pacing, which every browser can
-see (pictures presented late or dropped across a window), not GPU timer queries, which Safari and Firefox lack. That
-is logged in telemetry, with no notice; the telemetry's GPU time is null where the browser has no timer query.
+see (pictures presented late or dropped across a window), not GPU timer queries, which Safari and Firefox lack. A
+device that still misses pictures with the cheap path on (after a grace of 240 pacing reports, a full window of 120
+again at 10% late) takes a second step: video is shown at frame rate, one picture a frame (its first field,
+interpolated cheaply) at the frame's time, a steady 29.97 or 25 pictures a second in place of uneven drops at field
+rate. Film and progressive content are unchanged. Each step lasts until the next playlist, never back, so it can't
+flip at a boundary; a seek empties the window. Both are logged in telemetry (`fallback`, `frameRate`), with no notice;
+the telemetry's GPU time is null where the browser has no timer query.
 
 ### Edge cases
 

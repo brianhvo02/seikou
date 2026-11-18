@@ -3776,13 +3776,43 @@ describe('Player with interlaced video (deinterlacing)', () => {
     await h.player.handle({ type: 'setDeinterlace', mode: 'auto' });
     await untilPlaying(h);
     await h.play(1100);
-    expect(lastTelemetry(h)?.deinterlace).toMatchObject({ setting: 'auto', woven: null, stats: { mode: 'video', fallback: false } });
+    expect(lastTelemetry(h)?.deinterlace).toMatchObject({ setting: 'auto', woven: null, stats: { mode: 'video', fallback: false, frameRate: false } });
 
     const progressive = await harness(CodingType.LPCM, {});
     await progressive.player.handle({ type: 'playPlaylist', playlistId: '00000' });
     await untilPlaying(progressive);
     await progressive.play(1100);
     expect(lastTelemetry(progressive)?.deinterlace).toBeNull();
+  });
+
+  it('a device whose ticks stay slow with the cheap path on steps video down to frame rate, and telemetry says so', async () => {
+    const fake = fakeDeinterlace();
+    const h = await harness(CodingType.LPCM, { videoFormat: 4, videoCodecApi: interlacedApi, createDeinterlaceBackend: fake.factory, clipSeconds: 40 });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await h.play(1100);
+    expect(lastTelemetry(h)?.deinterlace?.stats).toMatchObject({ mode: 'video', fallback: false, frameRate: false });
+    // the display ticks every fourth step (about 53 ms): the device can't keep up, with the cheap path on or not
+    const slowTicks = async (ms: number): Promise<void> => {
+      for (let t = 0; t < ms; t += 4 * STEP_MS) {
+        await h.play(3 * STEP_MS - 1, { render: false });
+        await h.play(1);
+      }
+    };
+    let stats = h.player.deinterlaceState.stats;
+    for (let s = 0; s < 34 && !stats?.frameRate; s++) {
+      await slowTicks(1000);
+      stats = h.player.deinterlaceState.stats;
+    }
+    expect(stats).toMatchObject({ mode: 'video', fallback: true, frameRate: true });
+    await h.play(1100);
+    expect(lastTelemetry(h)?.deinterlace?.stats).toMatchObject({ mode: 'video', fallback: true, frameRate: true });
+    // from now on one picture a frame: the first field (top), drawn cheaply
+    const drawn = fake.ops.length;
+    await slowTicks(2000);
+    const after = fake.ops.slice(drawn);
+    expect(after.length).toBeGreaterThan(5);
+    expect(after.every((op) => op.kind === 'interpolate' && op.field === 'top')).toBe(true);
   });
 
   it('captureVideo (test-only) answers once with the first picture drawn at or after its time, and only in telemetry runs', async () => {

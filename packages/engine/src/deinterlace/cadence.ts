@@ -172,9 +172,9 @@ function classify(m: FrameMetrics): { cls: FrameClass; best: BestOp } {
 }
 
 /**
- * Turns per-frame field measurements into output pictures: two interpolated fields per frame for video, the 3:2
- * film reassembled to four pictures per five frames at an even 1001/24000 s, or one woven picture per frame for
- * progressive content (soft-pulldown film evened to the film grid). A frame is planned once `lookahead` later frames
+ * Turns per-frame field measurements into output pictures: two interpolated fields per frame for video (one at
+ * `frameRate`), the 3:2 film reassembled to four pictures per five frames at an even 1001/24000 s, or one woven
+ * picture per frame for progressive content (soft-pulldown film evened to the film grid). A frame is planned once `lookahead` later frames
  * have arrived, so a mode change can take effect from where the content changed.
  */
 export class CadenceDetector {
@@ -211,6 +211,12 @@ export class CadenceDetector {
   private lastTimeUs = -Infinity;
   private lockCount = 0;
   private breakCount = 0;
+  /**
+   * Video is planned at frame rate: one picture a frame, its first field interpolated, at the frame's own time, in
+   * place of both fields at field rate (the deinterlacer's last pacing step, for a device that can't present field-rate
+   * pictures in time). Film and progressive content are planned as they are. Kept through `reset`.
+   */
+  frameRate = false;
 
   constructor(opts: { readonly frameDurationUs: number; readonly lookahead: number }) {
     this.frameDurationUs = opts.frameDurationUs;
@@ -532,6 +538,10 @@ export class CadenceDetector {
         const first = this.orderOf(f) === 'tff' ? 'top' : 'bottom';
         const second = first === 'top' ? 'bottom' : 'top';
         this.emit(out, f, { kind: 'interpolate', field: first }, f.timestampUs);
+        if (this.frameRate) {
+          this.remember([2 * f.index]);
+          return;
+        }
         this.emit(out, f, { kind: 'interpolate', field: second }, f.timestampUs + this.frameDurationUs / 2);
         this.remember([2 * f.index, 2 * f.index + 1]);
         return;

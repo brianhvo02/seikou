@@ -146,7 +146,7 @@ test('deinterlaced MPEG-2 plays in sync at field rate', async ({ page, browserNa
   expect(windows.length).toBeGreaterThan(3);
   for (const w of windows) expect(w.clockMode).toBe('audio');
   expectInSync(windows);
-  expect((await sample(page))!.deinterlace?.stats).toMatchObject({ mode: 'video', fallback: false });
+  expect((await sample(page))!.deinterlace?.stats).toMatchObject({ mode: 'video', fallback: false, frameRate: false });
 });
 
 test('a VC-1 interlaced playlist plays with a picture and is deinterlaced', async ({ page, browserName }) => {
@@ -160,7 +160,7 @@ test('a VC-1 interlaced playlist plays with a picture and is deinterlaced', asyn
   expect(t.decoderErrors ?? 0).toBe(0);
   // 29.97 frames, drawn at field rate: well over 100 pictures by 3 s
   expect(t.framesPresented ?? 0).toBeGreaterThanOrEqual(100);
-  expect(t.deinterlace).toMatchObject({ setting: 'auto', woven: null, stats: { mode: 'video', fieldOrder: 'tff', fallback: false } });
+  expect(t.deinterlace).toMatchObject({ setting: 'auto', woven: null, stats: { mode: 'video', fieldOrder: 'tff', fallback: false, frameRate: false } });
   console.log(`${browserName} VC-1: ${t.framesPresented} pictures by ${t.clockUs} us, decode ${t.videoDecoder?.decodeMs} ms, skipped ${t.videoDecoder?.skipped}`);
   await expect(page.getByRole('status').filter({ hasText: NO_PICTURE_NOTICE })).toHaveCount(0);
 });
