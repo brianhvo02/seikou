@@ -5,8 +5,8 @@ import { codingName } from '@seikou/bdmv/stream-types';
 import { ASSET_FETCH_TIMEOUT_MS } from '../asset-fetch';
 import type { WorkerLike } from '../bdj-types';
 import { matrixByHeight, type FieldInput, type PlaneMatrix } from '../deinterlace/field-input';
-import { DecoderError, UnsupportedCodecError, type Decoder, type StreamConfig } from './decoder';
-import type { VideoUnit } from './video-decoder';
+import { DecoderError, UnsupportedCodecError, type StreamConfig } from './decoder';
+import type { CanvasVideoDecoder, VideoUnit } from './video-decoder';
 import type { FromVideoWorker, ToVideoWorker } from './video-worker-protocol';
 import { wasmVideoCodecFor, type DecodedPicture } from './wasm-video';
 
@@ -22,6 +22,12 @@ export interface WasmVideoDecoderDeps {
   readonly setTimer?: (ms: number, fn: () => void) => () => void;
   /** How long the worker may go without a message while it owes answers before it counts as stopped (default VIDEO_WORKER_WATCHDOG_MS). */
   readonly watchdogMs?: number;
+  /**
+   * How long the worker may take to answer `open` before configure rejects and the worker is stopped (default the fetch
+   * limit plus VIDEO_WORKER_OPEN_MARGIN_MS; none when the fetch has no limit): a worker the browser killed while it
+   * loaded, with no error event, would otherwise leave configure pending.
+   */
+  readonly openTimeoutMs?: number | null;
   /** Makes a progressive picture's VideoFrame (frameFromPicture; tests pass a fake). */
   makeFrame(p: DecodedPicture): VideoFrame;
 }
@@ -31,6 +37,9 @@ export interface WasmVideoDecoderDeps {
  * unit (about 10 ms for a 1080i VC-1 frame), so only a worker that stopped (killed, a lost message) reaches it.
  */
 export const VIDEO_WORKER_WATCHDOG_MS = 8_000;
+
+/** The time allowed beyond the fetch limit for the worker to compile video.wasm and open its decoder. */
+export const VIDEO_WORKER_OPEN_MARGIN_MS = 10_000;
 
 const defaultSetTimer = (ms: number, fn: () => void): (() => void) => {
   const id = setTimeout(fn, ms);
@@ -50,10 +59,12 @@ interface PendingUnit {
  * Decodes MPEG-1, MPEG-2 and VC-1 video in a worker running FFmpeg's decoders (video.wasm). Units go to the worker as
  * they come (one PES payload each, which the worker's parser splits into pictures); pictures come back in
  * presentation order, each timed by the unit it started in. An interlaced stream's pictures go to `onFieldInput` as
- * I420 planes; a progressive one's become VideoFrames through `makeFrame`. Pictures of `discard` units and pictures
- * the worker sent before a reset() are dropped. A worker that fails is a fatal error; it is not restarted.
+ * I420 planes, except those of a progressive sequence (a progressive play item; they state no field order); a
+ * progressive stream's become VideoFrames through `makeFrame`. Pictures of `discard` units and pictures the worker sent
+ * before a reset() are dropped. A worker that fails is a fatal error; it is not restarted. FFmpeg skips an open GOP's
+ * leading pictures after a reset itself, uncounted, so there is no `openGop`.
  */
-export class WasmVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
+export class WasmVideoDecoder implements CanvasVideoDecoder {
   onOutput: (frame: VideoFrame) => void = (frame) => frame.close();
   /** When set and the stream is interlaced (StreamConfig.interlaced), every picture goes here as planes instead of to `onOutput`. */
   onFieldInput: ((input: FieldInput) => void) | null = null;
@@ -82,6 +93,8 @@ export class WasmVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
   private skippedCount = 0;
   /** Cancels the watchdog's timer, while one runs. */
   private cancelWatchdog: (() => void) | null = null;
+  /** Cancels the bound on the open in progress, while one runs. */
+  private cancelOpenBound: (() => void) | null = null;
 
   constructor(private readonly deps: WasmVideoDecoderDeps) {}
 
@@ -135,6 +148,13 @@ export class WasmVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
       this.opening = { resolve, reject };
     });
     const timeoutMs = this.deps.fetchTimeoutMs === undefined ? ASSET_FETCH_TIMEOUT_MS : this.deps.fetchTimeoutMs;
+    const openBound = this.deps.openTimeoutMs !== undefined ? this.deps.openTimeoutMs : timeoutMs === null ? null : timeoutMs + VIDEO_WORKER_OPEN_MARGIN_MS;
+    if (openBound !== null) {
+      this.cancelOpenBound = (this.deps.setTimer ?? defaultSetTimer)(openBound, () => {
+        this.cancelOpenBound = null;
+        if (this.worker === worker && this.opening) this.fail('the video decoder worker did not open in time');
+      });
+    }
     try {
       worker.postMessage({ type: 'open', wasmUrl: this.deps.wasmUrl, codec, timeoutMs });
     } catch (err) {
@@ -228,6 +248,8 @@ export class WasmVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
       case 'opened': {
         const opening = this.opening;
         this.opening = null;
+        this.cancelOpenBound?.();
+        this.cancelOpenBound = null;
         opening?.resolve();
         return;
       }
@@ -261,8 +283,12 @@ export class WasmVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
     if (id > this.answeredId) this.answeredId = id;
   }
 
-  /** Passes a picture on, unless it is a discard unit's; units before it that never came out while skipping were skipped. */
+  /**
+   * Passes a picture on, unless it is a discard unit's; units before it that never came out while skipping were skipped,
+   * and the picture's field input says so (`afterSkip`).
+   */
   private deliver(picture: DecodedPicture): void {
+    const skippedBefore = this.skippedCount;
     const unit = this.pending.get(picture.ptsUs);
     this.pending.delete(picture.ptsUs);
     // pictures come out in presentation order: a unit timed before this picture won't come out now
@@ -273,7 +299,7 @@ export class WasmVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
     }
     if (unit?.discard) return;
     const sink = this.onFieldInput;
-    if (sink && this.interlaced) sink(fieldInputOf(picture));
+    if (sink && this.interlaced && picture.flags.fieldOrder !== null) sink(fieldInputOf(picture, this.skippedCount > skippedBefore));
     else this.onOutput(this.deps.makeFrame(picture));
   }
 
@@ -294,6 +320,8 @@ export class WasmVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
   private teardown(): void {
     this.cancelWatchdog?.();
     this.cancelWatchdog = null;
+    this.cancelOpenBound?.();
+    this.cancelOpenBound = null;
     const worker = this.worker;
     this.worker = null;
     if (worker) {
@@ -318,8 +346,11 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** A picture's planes as the deinterlacer takes them: tightly packed I420, the chroma planes half size rounded up. */
-function fieldInputOf(picture: DecodedPicture): FieldInput {
+/**
+ * A picture's planes as the deinterlacer takes them: tightly packed I420, the chroma planes half size rounded up;
+ * `afterSkip` when pictures were skipped just before it.
+ */
+function fieldInputOf(picture: DecodedPicture, afterSkip: boolean): FieldInput {
   const { width, height } = picture;
   const chromaWidth = Math.ceil(width / 2);
   const chromaSize = chromaWidth * Math.ceil(height / 2);
@@ -341,6 +372,7 @@ function fieldInputOf(picture: DecodedPicture): FieldInput {
     flags: picture.flags,
     displayWidth: picture.displayWidth,
     displayHeight: picture.displayHeight,
+    ...(afterSkip ? { afterSkip: true } : {}),
   };
 }
 

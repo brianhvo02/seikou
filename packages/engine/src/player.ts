@@ -30,6 +30,7 @@ import type {
   PlayerBdjHostLike,
   StatusBlockWriterLike,
   TapReactionWatchLike,
+  WorkerLike,
 } from './bdj-types';
 import { indexUsesBdj, type IndexBdmv } from '@seikou/bdmv/index-parser';
 import { CodingType, codingName, isVideoCoding } from '@seikou/bdmv/stream-types';
@@ -37,7 +38,10 @@ import { MasterClock } from './clock/master-clock';
 import { Decimator } from './decode/decimator';
 import { UnsupportedCodecError, type DecoderError } from './decode/decoder';
 import { type AudioDecodeResult, type AudioDecoder, type AudioDecoderFactory } from './decode/audio-decoder';
-import { WebCodecsVideoDecoder, canStartStream, isSupportedVideoCoding, type VideoCodecApi, type VideoUnit } from './decode/video-decoder';
+import { WebCodecsVideoDecoder, canDecodeVideo, canStartStream, type CanvasVideoDecoder, type VideoCodecApi, type VideoUnit } from './decode/video-decoder';
+import { WasmVideoDecoder, frameFromPicture } from './decode/wasm-video-decoder';
+import { wasmVideoCodecFor } from './decode/wasm-video';
+import type { FromVideoWorker, ToVideoWorker } from './decode/video-worker-protocol';
 import { CODING_AV1 } from './decode/av1';
 import { CODING_OPUS, OPUS_NAME, browserAudioDecoderApi, createOpusDecoder, opusTrackConfig, type AudioDecoderApi } from './decode/opus-decoder';
 import { EncodePipeline, type EncodeSubtitleUnit } from './encode/encode-pipeline';
@@ -90,7 +94,7 @@ import type { ColourDescription } from '@seikou/bdmv/codecs/param-sets';
 import { ElementCodecQueries, ElementSession } from './element/element-session';
 import type { Mat3 } from '@seikou/ass/transform';
 import type { AssTrack } from '@seikou/ass/types';
-import { BDJ_STORAGE_MESSAGE, ENCODE_FILE, ENCODE_PLAYLIST_ID, NO_PICTURE_MESSAGE, type AudioTrack, type EncodeSpec, type BufferRequest, type BdjMemoryTelemetry, type DeinterlaceTelemetry, type EngineCommand, type EngineEvent, type FileData, type MenuKey, type NoticeCode, type PlaceState, type PgTrack, type PlaybackState, type ElementQuery, type ElementQueryTelemetry, type ShaderSetData, type StartPoint, type SubtitleChoice, type VideoPath } from './protocol';
+import { BDJ_STORAGE_MESSAGE, ENCODE_FILE, ENCODE_PLAYLIST_ID, NO_PICTURE_MESSAGE, type AudioTrack, type EncodeSpec, type BufferRequest, type BdjMemoryTelemetry, type DeinterlaceTelemetry, type EngineCommand, type EngineEvent, type FileData, type MenuKey, type NoticeCode, type PlaceState, type PgTrack, type PlaybackState, type ElementQuery, type ElementQueryTelemetry, type ShaderSetData, type StartPoint, type SubtitleChoice, type Telemetry, type VideoPath } from './protocol';
 import type { CompositorLike, DrawnPicture, TextRendererLike } from './render/compositor';
 import { ShaderStage } from './shaders/stage';
 import { UNAVAILABLE, type ShaderBackend } from './shaders/webgl-backend';
@@ -129,6 +133,11 @@ export interface PlayerDeps {
   emit(event: EngineEvent, transfer?: Transferable[]): void;
   /** WebCodecs for video (the browser's, or a fake). */
   readonly videoCodecApi: VideoCodecApi;
+  /**
+   * MPEG-1, MPEG-2 and VC-1 video: starts a decoder worker (decode/video-worker.ts) and says where it loads video.wasm
+   * from. Without it (no nested workers here) those playlists play without a picture, with the no-picture notice.
+   */
+  readonly videoWasm?: { createWorker(): WorkerLike<ToVideoWorker, FromVideoWorker>; readonly wasmUrl: string };
   /** A monotonic clock in milliseconds (performance.now); it drives the master clock when no audio plays. */
   nowMs(): number;
   /** Calls `callback` once at the next frame (requestAnimationFrame, or a 16 ms timer in a worker without it); the render loop started by attachCanvas asks again after every tick. */
@@ -400,6 +409,35 @@ interface SessionDeinterlace {
   sized: boolean;
 }
 
+/**
+ * Whether a WASM-decoded session skips B pictures to keep up: on when a picture arrives later than the clock by more
+ * than a frame, off when two pictures in a row arrive at least two frames early; with the playback time it has been on
+ * since the playlist started or the last seek, which reports the decoder slow once it reaches SLOW_DECODE_US.
+ */
+interface WasmSkip {
+  /** The stream's frame duration in microseconds. */
+  readonly frameUs: number;
+  on: boolean;
+  /** Pictures in a row that came at least two frames early, while on. */
+  early: number;
+  /** Playback time with skipping on since the playlist started or the last seek, in microseconds. */
+  onUs: number;
+  /** The clock at the last tick that counted it; null when the next tick starts counting afresh. */
+  lastUs: number | null;
+  /** videoDecoderTrouble 'slow' was sent for this playlist. */
+  slowSent: boolean;
+}
+
+/** Playback time with skipping on, since the playlist started or the last seek, after which the decoder counts as slow. */
+const SLOW_DECODE_US = 10_000_000;
+
+/** Telemetry's videoDecoder: which decoder the session's picture comes from, its decode time and its skipped pictures. */
+function videoDecoderTelemetry(decoder: CanvasVideoDecoder | null): Telemetry['videoDecoder'] {
+  if (!decoder) return null;
+  if (decoder instanceof WasmVideoDecoder) return { kind: 'wasm', decodeMs: decoder.decodeMs, skipped: decoder.skipped };
+  return { kind: 'webcodecs', decodeMs: null, skipped: 0 };
+}
+
 /** The size of a CLPI video format's frames, for the deinterlacer's backend until the first frame says otherwise. */
 const INTERLACED_SIZE: Readonly<Record<number, readonly [number, number]>> = { 1: [720, 480], 2: [720, 576], 4: [1920, 1080] };
 
@@ -411,10 +449,13 @@ interface Session {
   readonly tracks: readonly AudioTrack[];
   readonly videoCodingType: number;
   /**
-   * Null when the browser can't decode the video (MPEG-2, VC-1): the playlist plays without a picture, as in libbluray;
-   * also null once the session took the element path (`element`).
+   * WebCodecs for H.264, HEVC and AV1, the WASM decoder for MPEG-1, MPEG-2 and VC-1. Null when the video can't be
+   * decoded here (MPEG-2 or VC-1 without the WASM decoder, or after it failed on this disc): the playlist plays without a
+   * picture, as in libbluray; also null once the session took the element path (`element`).
    */
-  decoder: WebCodecsVideoDecoder | null;
+  decoder: CanvasVideoDecoder | null;
+  /** The WASM decoder's skipping of B pictures to keep up with the clock; null for any other decoder. */
+  readonly wasmSkip: WasmSkip | null;
   /** The element path: the video is remuxed for the page's video element instead of decoded here; null on the canvas path. */
   element: ElementSession | null;
   /** Where presentation last started (startAt's target): an element session chosen later begins its video there. */
@@ -586,6 +627,8 @@ export class Player {
   private pageHidden = false;
   /** The open disc's no-picture notice: not sent yet, shown, or cleared by a playlist with a picture (never sent again). */
   private noPictureNotice: 'unsent' | 'shown' | 'cleared' = 'unsent';
+  /** The WASM video decoder failed on the open disc (it could not start, or stopped): its later playlists play without a picture. */
+  private videoWasmFailed = false;
   /** Audio streams asked for that the playing playlist's STN lacks (a quality level keeps one track), logged once per disc. */
   private missingAudioLogged = new Set<number>();
   /** A setLevel under way: resolves once the new version is in place (source, cache, disc model), before its restart. */
@@ -959,6 +1002,7 @@ export class Player {
     this.pg?.tick(now);
     this.encodeSubs?.pgs?.control.tick(now);
     this.paint(frame, now);
+    this.countSkipping(s, now);
     this.feedDecoder(s); // presenting freed decoded-frame slots
     const last = this.presenter.current;
     // without a picture the playlist ends, as libbluray's does on EOF, once the reader is done and what it delivered
@@ -1174,20 +1218,29 @@ export class Player {
     }
   }
 
-  /** A decoded interlaced frame of the session goes to the deinterlacer; a frame of a new play item starts a new stream. */
+  /**
+   * A decoded interlaced frame of the session goes to the deinterlacer; a frame of a new play item starts a new stream,
+   * and a frame of another size than the ring's starts the ring again at its size.
+   */
   private onFieldInput(s: Session, input: FieldInput): void {
     const d = s.deinterlace;
     if (this.session !== s || !d) return;
     this.codedWidth = input.planes.width;
-    if (!d.sized) {
-      d.sized = true;
-      const size = d.video.frameSize;
-      // the stream's frames are another size than its format's (1440x1080): the backend is made again for them
-      if ((size?.width !== input.planes.width || size?.height !== input.planes.height) && !d.video.start(input.planes.width, input.planes.height, d.frameDurationUs)) {
+    const size = d.video.frameSize;
+    if (size?.width !== input.planes.width || size?.height !== input.planes.height) {
+      // The first frame is another size than its format's (1440x1080), or a sequence header changed the size (a play
+      // item of another format, or within one): the backend is made again for it. The old size's pictures not yet shown
+      // can't be drawn on the new one, so they go.
+      if (!d.video.start(input.planes.width, input.planes.height, d.frameDurationUs)) {
         this.deinterlaceFailed(s, WOVEN_NO_WEBGL2);
         return;
       }
+      if (d.sized) {
+        this.presenter.clear();
+        d.item = -1;
+      }
     }
+    d.sized = true;
     const item = s.timeline.locate(input.timestampUs).item.index;
     if (d.item >= 0 && item !== d.item) {
       // a new play item: the frames before it become pictures, and the detector starts over (a failure shows at the push)
@@ -1305,6 +1358,7 @@ export class Player {
     this.bdjLatency = this.deps.bdj?.input.createInputLatency() ?? null;
     this.bdjTapsIgnored = 0;
     this.noPictureNotice = 'unsent';
+    this.videoWasmFailed = false;
     this.missingAudioLogged = new Set();
     this.bdjStorageNotice = false;
     this.stopBdj();
@@ -1381,6 +1435,7 @@ export class Player {
       this.elementFailure = null;
       this.bdjStartup = null;
       this.noPictureNotice = 'unsent';
+      this.videoWasmFailed = false;
       this.missingAudioLogged = new Set();
       this.bdjStorageNotice = false;
       this.stopBdj();
@@ -1500,6 +1555,7 @@ export class Player {
       tracks: audio.tracks,
       videoCodingType: CODING_AV1,
       decoder,
+      wasmSkip: null,
       pipeline,
       videoCodecPrivate: video.codecPrivate ?? null,
       encode: {
@@ -2892,7 +2948,8 @@ export class Player {
     // libbluray opens a playlist whatever its video: one the browser can't decode plays without a picture (audio,
     // subtitles, menus and the clock run), with a notice once per disc. With nothing else playable either it still plays,
     // silent black, as libbluray does (some HDMV programs expect the playlist to run to its end); UnsupportedCodecError stays for a decoder whose configuration fails.
-    const picture = isSupportedVideoCoding(choice.video.codingType);
+    // MPEG-1, MPEG-2 and VC-1 have a picture through the WASM decoder while it can run here and hasn't failed on this disc.
+    const picture = canDecodeVideo(choice.video.codingType, this.deps.videoWasm !== undefined && !this.videoWasmFailed);
     // With a disc program (HDMV or BD-J) the audio stream register (PSR1) decides, when it names a playable stream
     let audioIndex = choice.audioIndex;
     let audioEntry = choice.audio;
@@ -2922,7 +2979,7 @@ export class Player {
     const audioActive = audioEntry !== null && this.ring !== null;
     if (audioEntry && !this.ring) this.notice('audio-disabled', 'Audio output is not available, so video will play without sound.');
 
-    const decoder = picture ? new WebCodecsVideoDecoder(this.deps.videoCodecApi) : null;
+    const decoder = picture ? this.createVideoDecoder(choice.video.codingType) : null;
     const ref: { current: Session | null } = { current: null };
     const delivered = (ptsUs: number): void => {
       if (ref.current && ptsUs > ref.current.deliveredEndUs) ref.current.deliveredEndUs = ptsUs;
@@ -2970,6 +3027,7 @@ export class Player {
       tracks: audioTracks((mpls.playItems[startItem].stn.audio.length > 0 ? mpls.playItems[startItem] : audioItem).stn),
       videoCodingType: choice.video.codingType,
       decoder,
+      wasmSkip: decoder instanceof WasmVideoDecoder ? { frameUs: 1e6 / (frameRateOf(choice.video.rate) ?? 30_000 / 1001), on: false, early: 0, onUs: 0, lastUs: null, slowSent: false } : null,
       pipeline,
       videoCodecPrivate: null,
       encode: null,
@@ -3323,15 +3381,24 @@ export class Player {
     return 0;
   }
 
-  /** The session's decoded frames go to the presenter while it is the playing session; its errors to onDecoderError. */
-  private wireDecoder(session: Session, decoder: WebCodecsVideoDecoder): void {
+  /**
+   * The session's decoded frames go to the presenter while it is the playing session (a WASM decoder's are timed against
+   * the clock first, followDecodeSpeed); its errors to onDecoderError.
+   */
+  private wireDecoder(session: Session, decoder: CanvasVideoDecoder): void {
     decoder.onOutput = (frame) => {
       if (this.session === session) {
+        this.followDecodeSpeed(session, frame.timestamp);
         this.codedWidth = frame.codedWidth;
         this.presenter.push(frame);
       } else frame.close();
     };
-    decoder.onFieldInput = session.deinterlace ? (input) => this.onFieldInput(session, input) : null;
+    decoder.onFieldInput = session.deinterlace
+      ? (input) => {
+          this.followDecodeSpeed(session, input.timestampUs);
+          this.onFieldInput(session, input);
+        }
+      : null;
     decoder.onFieldsUnreadable = (format) => {
       if (this.session === session) this.deinterlaceFailed(session, wovenFrameFormat(format));
     };
@@ -3439,6 +3506,7 @@ export class Player {
     this.pg?.seek(); // GC_CTRL_PG_RESET in _seek_internal: the subtitle on screen goes
     this.encodeSubs?.pgs?.control.seek();
     if (s.videoState === 'configured') s.decoder?.reset();
+    this.resetSkipping(s);
     if (s.deinterlace) {
       // the ring is cleared and the detector starts over at the target
       s.deinterlace.video.reset();
@@ -3609,15 +3677,18 @@ export class Player {
         s.pendingVideo.push(unit);
         const coding = this.elementCoding(s);
         const found = coding ? this.elementQueryFor(s, coding, u) : null;
-        if (coding && found) this.choosePath(s, decoder, u, coding, found);
+        if (coding && found && decoder instanceof WebCodecsVideoDecoder) this.choosePath(s, decoder, u, coding, found);
         else this.configureDecoder(s, decoder, u);
       }
     }
   }
 
-  /** Configures the session's decoder from its first unit (the canvas path); the units held meanwhile are fed once it is. */
-  private configureDecoder(s: Session, decoder: WebCodecsVideoDecoder, u: PipelineUnit): void {
-    decoder.configure({ codingType: s.videoCodingType, firstUnit: u.data, ...(u.key !== undefined ? { key: u.key } : {}), ...(s.videoCodecPrivate ? { codecPrivate: s.videoCodecPrivate } : {}) }).then(
+  /**
+   * Configures the session's decoder from its first unit (the canvas path); the units held meanwhile are fed once it is.
+   * A WASM decoder that can't start leaves the playlist without a picture (videoWasmFallback).
+   */
+  private configureDecoder(s: Session, decoder: CanvasVideoDecoder, u: PipelineUnit): void {
+    decoder.configure({ codingType: s.videoCodingType, firstUnit: u.data, interlaced: s.interlaced, ...(u.key !== undefined ? { key: u.key } : {}), ...(s.videoCodecPrivate ? { codecPrivate: s.videoCodecPrivate } : {}) }).then(
       () => {
         if (this.session !== s) {
           decoder.close(); // configure() finished after teardown and opened a fresh decoder
@@ -3629,6 +3700,10 @@ export class Player {
       (err: unknown) => {
         if (this.session !== s) return;
         s.videoState = 'failed';
+        if (decoder instanceof WasmVideoDecoder) {
+          this.videoWasmFallback(s, err instanceof Error ? err.message : String(err));
+          return;
+        }
         // a playlist the user picked whose decoder can't be configured is gone (playlistCleared), so the picker
         // shows the reason, as for a pick that fails to open; a disc program's playlist stays, in error
         if (err instanceof UnsupportedCodecError && s.owner === 'user') this.teardownSession();
@@ -4148,6 +4223,88 @@ export class Player {
     });
   }
 
+  /** The decoder for a stream of this coding type: the WASM decoder for MPEG-1, MPEG-2 and VC-1, WebCodecs otherwise. */
+  private createVideoDecoder(codingType: number): CanvasVideoDecoder {
+    const wasm = this.deps.videoWasm;
+    if (!wasm || wasmVideoCodecFor(codingType) === null) return new WebCodecsVideoDecoder(this.deps.videoCodecApi);
+    return new WasmVideoDecoder({
+      createWorker: () => wasm.createWorker(),
+      wasmUrl: wasm.wasmUrl,
+      makeFrame: frameFromPicture,
+      ...(this.deps.setTimer ? { setTimer: this.deps.setTimer } : {}),
+    });
+  }
+
+  /**
+   * A WASM-decoded picture of the session arrived (`ptsUs`) while it plays: later than the clock by more than a frame
+   * turns skipping on (the decoder leaves out B pictures), two in a row at least two frames early turn it off.
+   */
+  private followDecodeSpeed(s: Session, ptsUs: number): void {
+    const skip = s.wasmSkip;
+    const decoder = s.decoder;
+    if (!skip || !(decoder instanceof WasmVideoDecoder) || this.session !== s || this.state !== 'playing') return;
+    const lateUs = this.clock.nowUs() - ptsUs;
+    if (!skip.on) {
+      if (lateUs <= skip.frameUs) return;
+      skip.on = true;
+      skip.early = 0;
+      decoder.setSkipping(true);
+      return;
+    }
+    if (-lateUs < 2 * skip.frameUs) {
+      skip.early = 0;
+      return;
+    }
+    if (++skip.early < 2) return;
+    skip.on = false;
+    skip.early = 0;
+    decoder.setSkipping(false);
+  }
+
+  /** Adds the playback time since the last tick to the time skipping has been on, and reports the decoder slow once it reaches SLOW_DECODE_US. */
+  private countSkipping(s: Session, nowUs: number): void {
+    const skip = s.wasmSkip;
+    if (!skip) return;
+    if (this.state !== 'playing') {
+      skip.lastUs = null;
+      return;
+    }
+    if (skip.on && skip.lastUs !== null && nowUs > skip.lastUs) skip.onUs += nowUs - skip.lastUs;
+    skip.lastUs = nowUs;
+    if (skip.slowSent || skip.onUs < SLOW_DECODE_US) return;
+    skip.slowSent = true;
+    this.deps.log?.(`The video decoder has skipped pictures for ${SLOW_DECODE_US / 1e6} s to keep up`);
+    this.deps.emit({ type: 'videoDecoderTrouble', reason: 'slow' });
+  }
+
+  /** A seek: skipping starts off again, and the time it has been on counts from here. */
+  private resetSkipping(s: Session): void {
+    const skip = s.wasmSkip;
+    if (!skip) return;
+    if (skip.on && s.decoder instanceof WasmVideoDecoder) s.decoder.setSkipping(false);
+    skip.on = false;
+    skip.early = 0;
+    skip.onUs = 0;
+    skip.lastUs = null;
+  }
+
+  /**
+   * The WASM video decoder could not start or stopped (`reason`): the disc's playlists play without a picture from now
+   * on, this one opening again at the same time that way, with the no-picture notice (shown even when an earlier playlist
+   * of the disc cleared it) and videoDecoderTrouble 'failed'.
+   */
+  private videoWasmFallback(s: Session, reason: string): void {
+    if (this.session !== s) return;
+    this.videoWasmFailed = true;
+    this.deps.log?.(`The video decoder failed, so the video plays without a picture: ${reason}`);
+    this.deps.emit({ type: 'videoDecoderTrouble', reason: 'failed' });
+    if (this.noPictureNotice === 'cleared') this.noPictureNotice = 'unsent';
+    const disc = this.disc;
+    this.enqueue(async () => {
+      if (this.session === s && this.disc === disc && disc && this.state !== 'error') await this.restart(disc, this.restartPoint(s));
+    });
+  }
+
   private onDecoderError(s: Session, err: DecoderError): void {
     if (this.session !== s) return;
     this.decoderErrors++;
@@ -4156,6 +4313,10 @@ export class Player {
       return;
     }
     s.videoState = 'failed';
+    if (s.decoder instanceof WasmVideoDecoder) {
+      this.videoWasmFallback(s, err.message);
+      return;
+    }
     s.pipeline.stop();
     this.deps.emit({ type: 'error', code: 'decoder-failed', message: err.message, paths: [] });
     this.pause();
@@ -4277,8 +4438,8 @@ export class Player {
         audioDecodeErrors: this.audioDecodeErrors,
         continuityErrors: stats.continuityErrors,
         decoderErrors: this.decoderErrors,
-        openGopStarts: s?.decoder?.openGop.starts ?? 0,
-        leadingPicturesSkipped: s?.decoder?.openGop.leadingSkipped ?? 0,
+        openGopStarts: s?.decoder?.openGop?.starts ?? 0,
+        leadingPicturesSkipped: s?.decoder?.openGop?.leadingSkipped ?? 0,
         menu: this.menuActive && this.navRegs ? { page: this.navRegs.psrRead(PSR.MENU_PAGE_ID), selectedButton: this.navRegs.psrRead(PSR.SELECTED_BUTTON_ID), buttonsDrawn: this.igDraws } : null,
         igErrors: this.navigator?.igErrors ?? 0,
         soundsPlayed: this.soundsPlayed,
@@ -4294,6 +4455,7 @@ export class Player {
         videoHdr: this.videoHdr,
         elementQuery: s?.elementQuery ?? null,
         deinterlace: this.deinterlaceTelemetry(s),
+        videoDecoder: videoDecoderTelemetry(s?.decoder ?? null),
         bdj: this.bdjStartup ? { ...this.bdjStartup, inputLatencyMs: this.bdjLatency?.stats ?? null } : null,
         ...(this.deps.memoryTelemetry ? { bdjMemory: this.bdjMemory() } : {}),
         bdjPlane: this.bdj ? { flushes: this.bdj.plane.flushCount(), tapsIgnored: this.bdjTapsIgnored, ...(this.deps.planeHashTelemetry ? { hash: this.settledPlaneHash(this.bdj.plane) } : {}) } : null,

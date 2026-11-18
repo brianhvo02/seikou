@@ -1,8 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
 import { setFolder } from './support';
 
-// Video the browser can't decode (MPEG-2, VC-1) plays without a picture, as libbluray opens such playlists: audio,
-// subtitles, menus and the clock run, and a notice says so once per disc.
+// Video that can't be decoded here plays without a picture, as libbluray opens such playlists: audio, subtitles, menus
+// and the clock run, and a notice says so once per disc. MPEG-2 and VC-1 have a decoder of their own (video.wasm in a
+// worker); ?novideowasm=1 leaves it out, as in a browser that can't start a worker from a worker.
 //
 // fixtures/synthetic/disc-mpeg2-menu (scripts/make-mpeg2-disc.ts): real MPEG-2 video. First Play loops the top menu (playlist
 // 00001, an always-on IG menu whose button 1 jumps to title 1); title 1 plays 00000 with PG subtitles on.
@@ -31,7 +32,7 @@ async function expectClockRunning(page: Page): Promise<void> {
 }
 
 test('an MPEG-2 disc opens into its menu without a picture, with the notice and a running clock', async ({ page }) => {
-  await page.goto('/?telemetry=1');
+  await page.goto('/?telemetry=1&novideowasm=1');
   await setFolder(page.getByTestId('folder-input'), MPEG2_DISC);
   await expect(page.getByTestId('player')).toHaveAttribute('data-menu-active', 'true', { timeout: 10_000 });
   await expect.poll(async () => (await sample(page))?.menu?.selectedButton ?? null, { timeout: 10_000 }).toBe(1);
@@ -51,7 +52,7 @@ test('an MPEG-2 disc opens into its menu without a picture, with the notice and 
 });
 
 test('a VC-1 playlist picked in the picker plays without a picture, and another disc shows the notice again', async ({ page }) => {
-  await page.goto('/?telemetry=1');
+  await page.goto('/?telemetry=1&novideowasm=1');
   await setFolder(page.getByTestId('folder-input'), VC1_DISC);
   await page.getByTestId('playlist-00000').click();
   await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'playing', { timeout: 10_000 });

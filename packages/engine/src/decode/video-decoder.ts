@@ -4,6 +4,7 @@ import { analyzeAvc, avcCodecString, avcIsInterlaced, avcPicStruct, avcPpsId, av
 import { analyzeHevc, hevcCodecStrings } from '@seikou/bdmv/codecs/hevc';
 import { flagsFromPicStruct, framePlanes, type FieldFlags, type FieldInput } from '../deinterlace/field-input';
 import { CODING_AV1, av1CodecString } from './av1';
+import { wasmVideoCodecFor } from './wasm-video';
 
 /** One video access unit for the decoder. */
 export interface VideoUnit {
@@ -86,9 +87,30 @@ const MAX_CONSECUTIVE_ERRORS = 3;
 const PENDING_PRUNE_SIZE = 64;
 const PENDING_PRUNE_WINDOW_US = 2_000_000;
 
-/** Whether the engine has a decoder for this coding type (H.264, HEVC, AV1); MPEG-2 and VC-1 have none and play without a picture. */
-export function isSupportedVideoCoding(codingType: number): boolean {
-  return CODECS.has(codingType);
+/**
+ * Whether the engine can decode this coding type here: H.264, HEVC and AV1 through WebCodecs, and MPEG-1, MPEG-2 and
+ * VC-1 when `wasm` says their decoder (video.wasm in a worker of its own) can run. Anything else plays without a picture.
+ */
+export function canDecodeVideo(codingType: number, wasm: boolean): boolean {
+  return CODECS.has(codingType) || (wasm && wasmVideoCodecFor(codingType) !== null);
+}
+
+/**
+ * What the player drives a video decoder through on the canvas path: WebCodecsVideoDecoder (H.264, HEVC, AV1) or
+ * WasmVideoDecoder (MPEG-1, MPEG-2, VC-1). An interlaced stream's pictures go to `onFieldInput` as planes when it is set.
+ */
+export interface CanvasVideoDecoder extends Decoder<VideoUnit, VideoFrame> {
+  /** Receives an interlaced stream's pictures as YUV planes instead of `onOutput`, when set. */
+  onFieldInput: ((input: FieldInput) => void) | null;
+  /** Called when a picture meant for `onFieldInput` has no planes to read (`format`); it goes to `onOutput`. */
+  onFieldsUnreadable: ((format: string) => void) | null;
+  /** Pictures out of the decoder still on their way to `onFieldInput`. */
+  readonly fieldInputsPending: number;
+  /**
+   * Decode sequences started on a non-IDR random access point and the leading pictures skipped after them; absent for a
+   * decoder that skips them itself without counting (FFmpeg's, in WasmVideoDecoder).
+   */
+  readonly openGop?: { readonly starts: number; readonly leadingSkipped: number };
 }
 
 /** Whether the unit holds a sequence parameter set of this codec, which a decoder can be configured from; false for a codec the engine does not decode. */
@@ -98,9 +120,11 @@ export function hasSps(codingType: number, data: Uint8Array): boolean {
 
 /**
  * Whether the decoder can be configured at this unit: one with an SPS, or for a codec configured from CodecPrivate
- * (AV1), a key unit (`key`, the container's flag).
+ * (AV1), a key unit (`key`, the container's flag); any unit for MPEG-1, MPEG-2 and VC-1 (WasmVideoDecoder).
  */
 export function canStartStream(codingType: number, data: Uint8Array, key?: boolean): boolean {
+  // video.wasm's parser finds the sequence header itself, and FFmpeg outputs nothing before it and the I picture after
+  if (wasmVideoCodecFor(codingType) !== null) return true;
   const ops = CODECS.get(codingType);
   if (!ops) return false;
   return ops.fromCodecPrivate ? key === true : ops.analyze(data).sps !== null;
@@ -116,7 +140,7 @@ function toDomException(err: unknown): DOMException {
  * A decoder error reopens the decoder and resumes at the next key unit; after more than three in a row the error is
  * fatal. Runs in the engine worker.
  */
-export class WebCodecsVideoDecoder implements Decoder<VideoUnit, VideoFrame> {
+export class WebCodecsVideoDecoder implements CanvasVideoDecoder {
   onOutput: (frame: VideoFrame) => void = (frame) => frame.close(); // nobody listening: don't leak GPU memory
   /**
    * When set, an H.264 stream's frames go here as YUV planes with the field flags of their unit (pic_struct), in

@@ -42,6 +42,11 @@ export interface FieldInput {
   /** The size the picture shows at (its sample aspect applied), as the frame reported it. */
   readonly displayWidth: number;
   readonly displayHeight: number;
+  /**
+   * Pictures were skipped just before this one (a decoder too slow for every picture skipped B pictures): the field
+   * cadence breaks here, so the detector starts its cycle again, as at a cut.
+   */
+  readonly afterSkip?: boolean;
 }
 
 /** Whether a CLPI or STN video `format` code is interlaced: 1 (480i), 2 (576i) or 4 (1080i). */

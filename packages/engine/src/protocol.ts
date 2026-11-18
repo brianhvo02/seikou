@@ -207,6 +207,13 @@ export interface Telemetry {
   readonly elementQuery: ElementQueryTelemetry | null;
   /** Deinterlacing of the playing playlist; null for progressive video (and when none plays). */
   readonly deinterlace: DeinterlaceTelemetry | null;
+  /**
+   * The decoder of the playing playlist's picture on the canvas path: WebCodecs (H.264, HEVC, AV1) or FFmpeg's in
+   * video.wasm (MPEG-1, MPEG-2, VC-1), its mean decode time per unit in ms over the last 30 (null before any, and always
+   * for WebCodecs, which doesn't say) and the pictures it skipped to keep up (B pictures; always 0 for WebCodecs); null
+   * with no picture decoded here (no playlist, no picture, or the element path).
+   */
+  readonly videoDecoder: { readonly kind: 'webcodecs' | 'wasm'; readonly decodeMs: number | null; readonly skipped: number } | null;
 }
 
 /** What BD-J holds in memory, so the budgets of the constrained memory profile can be checked on a device; sizes in bytes. */
@@ -680,7 +687,13 @@ export type EngineEvent =
    * An open's start point could not be used: its playlist is not on the disc (nothing plays, the state is idle), or its
    * time is at or past the playlist's end (it plays from the beginning).
    */
-  | { readonly type: 'startFailed'; readonly reason: 'no-playlist' | 'past-end' };
+  | { readonly type: 'startFailed'; readonly reason: 'no-playlist' | 'past-end' }
+  /**
+   * The video decoder of MPEG-1, MPEG-2 and VC-1 (video.wasm) is in trouble on the playing playlist: `failed`, it could not
+   * start or stopped (the playlist goes on without a picture, with the no-picture notice); `slow`, it has had to skip
+   * pictures for 10 s of playback since the playlist started or the last seek (sent once a playlist).
+   */
+  | { readonly type: 'videoDecoderTrouble'; readonly reason: 'failed' | 'slow' };
 
 /**
  * The notice of a playlist whose video (MPEG-2, VC-1) the browser can't decode: it plays without a picture. Sent once per

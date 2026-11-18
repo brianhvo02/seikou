@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { FrameMetrics, PictureOp } from './cadence';
-import type { DeinterlaceBackend, Picture } from './deinterlacer';
+import { Deinterlacer, type DeinterlaceBackend, type Picture } from './deinterlacer';
 import type { FieldInput } from './field-input';
 import { InterlacedVideo } from './interlaced-video';
 
@@ -120,6 +120,28 @@ describe('InterlacedVideo', () => {
     for (const p of t.pictures) p.close();
     t.video.pump();
     expect(t.uploads).toEqual([7, 8]);
+  });
+
+  it('a frame after a skip ends the stream before it, as at a cut, and no frame is lost', async () => {
+    const t = setup();
+    t.video.start(8, 8, FRAME_US);
+    const flush = vi.spyOn(Deinterlacer.prototype, 'flush');
+    try {
+      for (let i = 0; i < 3; i++) t.video.push(input(i));
+      expect(flush).not.toHaveBeenCalled();
+      // frame 3 was skipped by the decoder: frame 4 comes next, marked
+      t.video.push({ ...input(4), afterSkip: true });
+      expect(flush).toHaveBeenCalledTimes(1);
+      t.video.push(input(5));
+      expect(flush).toHaveBeenCalledTimes(1);
+      await t.video.flush();
+      expect(t.uploads).toEqual([0, 1, 2, 4, 5]);
+      // every frame pushed became pictures (two a frame at field rate), frame 3's place left empty
+      const frames = new Set(t.pictures.map((p) => Math.floor(p.timestamp / FRAME_US + 1e-6)));
+      expect([...frames].sort((a, b) => a - b)).toEqual([0, 1, 2, 4, 5]);
+    } finally {
+      flush.mockRestore();
+    }
   });
 
   it('draws a picture with its own op and reuses its image when the same picture is drawn again (a pause)', async () => {

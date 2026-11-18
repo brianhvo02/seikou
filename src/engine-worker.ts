@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 // The app's engine worker entry: the engine (@seikou/engine/worker-main) with BD-J as its provider.
 import audioWasmUrl from '@seikou/engine/audio.wasm?url';
+import videoWasmUrl from '@seikou/engine/video.wasm?url';
 import defaultFontUrl from '@seikou/ass/default-font.ttf?url';
 import { ASSET_FETCH_TIMEOUT_MS, engineWorkerTestFlags, startEngineWorker } from '@seikou/engine/worker-main';
 import rtJarUrl from './bdj-classlib/rt-bdj.jar?url';
@@ -22,6 +23,7 @@ async function fetchBytes(url: string): Promise<Uint8Array> {
 startEngineWorker({
   audioWasmUrl,
   defaultFontUrl,
+  videoWasmUrl,
   bdj: seikouBdjProvider({
     /** What this browser lacks to run BD-J, seen from this worker (the one that starts the BD-J worker). */
     missing: bdjMissing(

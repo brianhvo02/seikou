@@ -13,7 +13,7 @@ import type { VideoUnit } from './video-decoder';
 import type { FromVideoWorker, ToVideoWorker } from './video-worker-protocol';
 import { ASSET_FETCH_TIMEOUT_MS } from '../asset-fetch';
 import { VideoWorkerCore, videoDecoderOpener, type VideoWorkerCoreDeps } from './video-worker-core';
-import { WasmVideoDecoder, frameFromPicture } from './wasm-video-decoder';
+import { VIDEO_WORKER_OPEN_MARGIN_MS, WasmVideoDecoder, frameFromPicture } from './wasm-video-decoder';
 import { WasmPictureDecoder, WasmVideoCodec, loadVideoWasm, type DecodedPicture, type VideoWasm } from './wasm-video';
 
 /** A worker that records what it was sent; tests answer through `reply`, synchronously unless `respond` defers. */
@@ -337,6 +337,56 @@ describe('WasmVideoDecoder', () => {
     // 160 000 was sent with skipping off and never came out: lost, not skipped
     expect(decoder.skipped).toBe(2);
     expect(frames.map((f) => f.timestamp)).toEqual([0, 120_000, 240_000]);
+  });
+
+  it('a picture after units skipped while skipping was on carries afterSkip, the next one not', async () => {
+    const { worker, decoder } = setup();
+    const inputs: FieldInput[] = [];
+    decoder.onFieldInput = (i) => inputs.push(i);
+    await decoder.configure({ codingType: CodingType.MPEG2_VIDEO, interlaced: true });
+    decoder.setSkipping(true);
+    for (const t of [0, 120_000, 40_000, 80_000, 240_000, 160_000, 200_000]) decoder.decode(unit(t));
+    worker.reply({ type: 'picture', picture: picture(0) });
+    worker.reply({ type: 'picture', picture: picture(120_000) }); // 40 000 and 80 000 were skipped
+    worker.reply({ type: 'picture', picture: picture(160_000) });
+    expect(inputs.map((i) => [i.timestampUs, i.afterSkip === true])).toEqual([
+      [0, false],
+      [120_000, true],
+      [160_000, false],
+    ]);
+  });
+
+  it("an interlaced stream's picture of a progressive sequence goes to onOutput as a frame (a progressive play item)", async () => {
+    const { worker, decoder, frames } = setup();
+    const inputs: FieldInput[] = [];
+    decoder.onFieldInput = (i) => inputs.push(i);
+    await decoder.configure({ codingType: CodingType.MPEG2_VIDEO, interlaced: true });
+    decoder.decode(unit(0));
+    decoder.decode(unit(40_000));
+    worker.reply({ type: 'picture', picture: picture(0) });
+    // a picture of a progressive sequence states no field order
+    worker.reply({ type: 'picture', picture: picture(40_000, { flags: { fieldOrder: null, progressive: true, repeatFirstField: false } }) });
+    expect(inputs.map((i) => i.timestampUs)).toEqual([0]);
+    expect(frames.map((f) => f.timestamp)).toEqual([40_000]);
+  });
+
+  it('configure rejects when the worker never answers open within the fetch limit and a margin, and stops the worker', async () => {
+    const timers = new ManualTimers();
+    const worker = new FakeWorker();
+    worker.respond = null; // killed while it loads, without an error event
+    const decoder = new WasmVideoDecoder({ createWorker: () => worker, wasmUrl: 'video.wasm', fetchTimeoutMs: 1000, setTimer: timers.setTimer, makeFrame: () => ({}) as VideoFrame });
+    const opened = decoder.configure({ codingType: CodingType.VC1 });
+    expect(timers.live().map((t) => t.ms)).toEqual([1000 + VIDEO_WORKER_OPEN_MARGIN_MS]);
+    timers.fire();
+    await expect(opened).rejects.toBeInstanceOf(UnsupportedCodecError);
+    expect(worker.terminated).toBe(true);
+
+    // answered in time: the bound is cancelled
+    const quick = new FakeWorker();
+    const timers2 = new ManualTimers();
+    const ok = new WasmVideoDecoder({ createWorker: () => quick, wasmUrl: 'video.wasm', fetchTimeoutMs: 1000, setTimer: timers2.setTimer, makeFrame: () => ({}) as VideoFrame });
+    await ok.configure({ codingType: CodingType.VC1 });
+    expect(timers2.live()).toEqual([]);
   });
 
   it('a stalled module fetch times out and configure rejects', async () => {

@@ -272,6 +272,8 @@ export function reduceEvent(s: PlayerSnapshot, e: EngineEvent): PlayerSnapshot {
       return s.levelSwitch !== 'switching' ? s : { ...s, levelSwitch: e.ok ? 'idle' : { error: e.message } };
     case 'placeState':
       return s; // answers readPlace
+    case 'videoDecoderTrouble':
+      return s; // a failed decoder's notice comes as 'unsupported' with noPicture; nothing else in the snapshot changes
     case 'videoCapture':
       return s; // answers captureVideo (test-only; createController hands it to the page)
     case 'videoInit':
