@@ -85,8 +85,9 @@ jobs:
     # Pinned: on ubuntu-26.04 (ubuntu-latest from November 2026) Linux WebKit plays the NAS tests' discs too slowly for
     # their waits (CI runs 42464130005 and 42469519101), while all of them pass on 24.04 (run 42469601138).
     runs-on: ubuntu-24.04
-    # The installs can be slow when the Ubuntu mirror is; the tests themselves have their own limit below.
-    timeout-minutes: 35
+    # The installs can be slow when the Ubuntu mirror is (setup-playwright gives its install two 12-minute tries); the tests
+    # themselves have their own limit below.
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
@@ -107,7 +108,9 @@ jobs:
       - run: npm run devsite:install
       # The NAS stand-in encodes quality levels with ffmpeg and libx264 (bdj-store.spec.ts starts it on mobile-chromium too).
       - uses: ./.github/actions/setup-ffmpeg
-      - run: npx playwright install --with-deps ${{ matrix.browser }}
+      - uses: ./.github/actions/setup-playwright
+        with:
+          browser: ${{ matrix.browser }}
       - run: scripts/ci-audio.sh
       - run: npm run test:e2e -- --project ${{ matrix.project }}
         timeout-minutes: 20
@@ -131,7 +134,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.ass == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -140,7 +143,9 @@ jobs:
           cache: npm
       - run: npm install -g npm@11.19.0
       - run: npm ci
-      - run: npx playwright install --with-deps chrome
+      - uses: ./.github/actions/setup-playwright
+        with:
+          browser: chrome
       - run: npm run test:ass
         timeout-minutes: 20
       - uses: actions/upload-artifact@v4

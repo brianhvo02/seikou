@@ -1,0 +1,63 @@
+name: Set up a Playwright browser
+description: >-
+  Installs one Playwright browser with its system packages, keeping the packages' .deb files in the Actions cache, so
+  CI doesn't wait on a slow Ubuntu mirror for them (WebKit's 125 MB took 15 to over 34 minutes at 110-140 kB/s on
+  2026-11-18 and timed the webkit job out three runs in a row). apt still fetches the package index (13 MB, seconds).
+inputs:
+  browser:
+    description: The browser to install (chrome, firefox, webkit).
+    required: true
+runs:
+  using: composite
+  steps:
+    - id: key
+      shell: bash
+      run: |
+        version=$(node -p "require('@playwright/test/package.json').version")
+        echo "prefix=playwright-debs-${ImageOS}-${{ inputs.browser }}-${version}-" >> "$GITHUB_OUTPUT"
+        echo "dir=$HOME/.cache/playwright-debs" >> "$GITHUB_OUTPUT"
+    - id: restore
+      uses: actions/cache/restore@v4
+      with:
+        path: ${{ steps.key.outputs.dir }}
+        key: ${{ steps.key.outputs.prefix }}none
+        restore-keys: ${{ steps.key.outputs.prefix }}
+    # apt keeps the .deb files it downloads in the cached folder (playwright runs apt-get under sudo, so the setting
+    # goes in apt.conf.d), gives up on a stalled connection after 30 s and retries it
+    - shell: bash
+      run: |
+        dir='${{ steps.key.outputs.dir }}'
+        mkdir -p "$dir/partial"
+        printf '%s\n' "Dir::Cache::Archives \"$dir/\";" 'Binary::apt::APT::Keep-Downloaded-Packages "true";' \
+          'APT::Keep-Downloaded-Packages "true";' 'Acquire::http::Timeout "30";' 'Acquire::Retries "5";' \
+          | sudo tee /etc/apt/apt.conf.d/99playwright-debs > /dev/null
+        ls "$dir"/*.deb 2>/dev/null | sort | sha256sum | cut -c1-16 > /tmp/playwright-debs-before
+    # A second try keeps what the first one downloaded, so a slow mirror still makes progress within the job's limit.
+    - shell: bash
+      run: |
+        for attempt in 1 2; do
+          if timeout 12m npx playwright install --with-deps '${{ inputs.browser }}'; then exit 0; fi
+          echo "::warning::playwright install of ${{ inputs.browser }} failed or took over 12 minutes (attempt $attempt)"
+        done
+        exit 1
+    - id: after
+      shell: bash
+      run: |
+        dir='${{ steps.key.outputs.dir }}'
+        sudo chown -R "$(id -u):$(id -g)" "$dir"
+        rm -rf "$dir/partial" "$dir/lock"
+        # drop .deb files of versions the runner image doesn't have installed now, so the cache doesn't grow
+        for deb in "$dir"/*.deb; do
+          [ -e "$deb" ] || continue
+          pkg=$(dpkg-deb -f "$deb" Package); ver=$(dpkg-deb -f "$deb" Version)
+          [ "$(dpkg-query -W -f='${Version}' "$pkg" 2>/dev/null)" = "$ver" ] || rm -f "$deb"
+        done
+        hash=$(ls "$dir"/*.deb 2>/dev/null | sort | sha256sum | cut -c1-16)
+        echo "hash=$hash" >> "$GITHUB_OUTPUT"
+        if [ "$hash" != "$(cat /tmp/playwright-debs-before)" ]; then echo "changed=true" >> "$GITHUB_OUTPUT"; fi
+    # saved at once (not in the job's post step), so the packages are kept even when the tests fail
+    - if: steps.after.outputs.changed == 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: ${{ steps.key.outputs.dir }}
+        key: ${{ steps.key.outputs.prefix }}${{ steps.after.outputs.hash }}
