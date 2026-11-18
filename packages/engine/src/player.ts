@@ -4240,13 +4240,14 @@ export class Player {
     });
   }
 
-  /** The measurement probeVideoDecoder has in progress or has made, failed or not: the Player measures once. */
+  /** The measurement probeVideoDecoder has in progress, or the successful one the Player keeps; a failed one is forgotten. */
   private speedProbe: Promise<VideoDecoderSpeed | null> | null = null;
 
   /**
-   * Answers probeVideoDecoder with videoDecoderSpeed: the speed of the one measurement this Player makes (null when it
-   * failed or timed out), or null without a decoder or bench, and null, measuring nothing and remembering nothing,
-   * while the page is hidden or a disc loads or plays (the measurement would share the device with it).
+   * Answers probeVideoDecoder with videoDecoderSpeed. A successful measurement is kept and answers every later ask; a
+   * failed or timed-out one is answered null once and forgotten, so the next ask measures again (at most one is in flight
+   * at a time: asks meanwhile get its answer). Null, measuring nothing, without a decoder or bench, and while the page is
+   * hidden or a disc loads or plays (the measurement would share the device with it).
    */
   private probeSpeed(): void {
     const wasm = this.deps.videoWasm;
@@ -4255,8 +4256,11 @@ export class Player {
       this.deps.emit({ type: 'videoDecoderSpeed', speed: null });
       return;
     }
-    this.speedProbe ??= probeVideoDecoderSpeed({ videoWasm: wasm, nowMs: () => this.deps.nowMs(), ...(this.deps.setTimer ? { setTimer: this.deps.setTimer } : {}) });
-    void this.speedProbe.then((speed) => this.deps.emit({ type: 'videoDecoderSpeed', speed }));
+    const probe = (this.speedProbe ??= probeVideoDecoderSpeed({ videoWasm: wasm, nowMs: () => this.deps.nowMs(), ...(this.deps.setTimer ? { setTimer: this.deps.setTimer } : {}) }));
+    void probe.then((speed) => {
+      if (speed === null && this.speedProbe === probe) this.speedProbe = null;
+      this.deps.emit({ type: 'videoDecoderSpeed', speed });
+    });
   }
 
   /** The decoder for a stream of this coding type: the WASM decoder for MPEG-1, MPEG-2 and VC-1, WebCodecs otherwise. */

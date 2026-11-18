@@ -4501,6 +4501,40 @@ describe('Player with MPEG-2 and VC-1 video through the WASM decoder', () => {
     expect(wasm.created()).toBe(created);
   });
 
+  it('a failed or timed-out probe is not kept: the next ask measures again', async () => {
+    let reads = 0;
+    const wasm = fakeVideoWasm(scriptedPictures({ interlaced: true }), { picture: 20, skipped: 20 });
+    const h = await harness(undefined, {
+      noOpen: true,
+      videoWasm: (nowMs) => ({
+        ...wasm.deps(nowMs),
+        bench: {
+          mpeg2Url: 'a',
+          vc1Url: 'b',
+          // the first probe's first read fails, as a dropped connection would
+          fetchBytes: async (url) => {
+            if (reads++ === 0) throw new Error('offline');
+            return url === 'a' ? benchClip(0x00, 15) : benchClip(0x0d, 15);
+          },
+        },
+      }),
+    });
+    await probe(h);
+    expect(speedEvents(h)).toEqual([null]);
+    await h.player.handle({ type: 'probeVideoDecoder' });
+    await vi.waitFor(async () => {
+      await h.play(20, { render: false, audio: false });
+      expect(speedEvents(h)).toHaveLength(2);
+    }, { timeout: 5000 });
+    expect(speedEvents(h)[1]).toMatchObject({ moduleUrl: 'video.wasm', clips: 'a|b' });
+    // a success is kept: a third ask is answered with it, with nothing read again
+    const readsAfter = reads;
+    await h.player.handle({ type: 'probeVideoDecoder' });
+    await vi.waitFor(() => expect(speedEvents(h)).toHaveLength(3), { timeout: 2000 });
+    expect(speedEvents(h)[2]).toEqual(speedEvents(h)[1]);
+    expect(reads).toBe(readsAfter);
+  });
+
   it.each([
     ['its decoder does not open', () => ({ wasm: fakeVideoWasm(() => Promise.reject(new Error('video.wasm did not load'))), fetchBytes: async () => benchClip(0, 15) })],
     ['a clip cannot be fetched', () => ({ wasm: fakeVideoWasm(scriptedPictures({ interlaced: true })), fetchBytes: async (): Promise<Uint8Array> => Promise.reject(new Error('HTTP 404')) })],
