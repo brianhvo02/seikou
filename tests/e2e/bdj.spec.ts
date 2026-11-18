@@ -23,6 +23,12 @@ async function open(page: Page, query = ''): Promise<void> {
 test.beforeEach(({ browserName }) => test.skip(isLinuxWebKit(browserName), LINUX_WEBKIT_REALTIME));
 
 test("plays the playlist the disc's Java selects, with no picker and no notice", async ({ page }) => {
+  // Java's selections, from the BD-J log: between the two plays the player is 'ended' until the second arrives, for a
+  // frame here and longer on a slow runner (CI run 44266015221 read the first play's telemetry there: 40 frames at 1.69 s)
+  let selections = 0;
+  page.on('console', (m) => {
+    if (m.text().includes('bdj_process_event(PLAYLIST,')) selections++;
+  });
   await open(page);
   await reachesState(page, 'playing', 30_000);
   await expect(page.getByTestId('player')).toHaveAttribute('data-playlist', '00000'); // the playlist Java selected
@@ -35,6 +41,8 @@ test("plays the playlist the disc's Java selects, with no picker and no notice",
   expect(startup.bootMs!).toBeLessThanOrEqual(startup.firstPlaylistMs!);
   expect(startup.firstPlaylistMs!).toBeLessThanOrEqual(startup.firstFrameMs!);
   // Java plays the playlist twice; then playback has ended, still under Java (no picker)
+  await expect.poll(() => selections, { timeout: 15_000 }).toBe(2);
+  await reachesState(page, 'playing', 15_000); // the second play (2 s)
   await reachesState(page, 'ended', 15_000);
   await expect(page.getByTestId('playlist-picker')).toBeHidden();
   const t = await telemetry(page);
