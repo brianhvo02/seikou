@@ -22,6 +22,8 @@ export interface WasmVideoDecoderDeps {
   readonly setTimer?: (ms: number, fn: () => void) => () => void;
   /** How long the worker may go without a message while it owes answers before it counts as stopped (default VIDEO_WORKER_WATCHDOG_MS). */
   readonly watchdogMs?: number;
+  /** The time in milliseconds the watchdog measures its lateness against (default performance.now). */
+  readonly nowMs?: () => number;
   /**
    * How long the worker may take to answer `open` before configure rejects and the worker is stopped (default the fetch
    * limit plus VIDEO_WORKER_OPEN_MARGIN_MS; none when the fetch has no limit): a worker the browser killed while it
@@ -37,6 +39,13 @@ export interface WasmVideoDecoderDeps {
  * unit (about 10 ms for a 1080i VC-1 frame), so only a worker that stopped (killed, a lost message) reaches it.
  */
 export const VIDEO_WORKER_WATCHDOG_MS = 8_000;
+
+/**
+ * A watchdog that fires this much later than it was due means the host was suspended (a locked phone, a closed lid),
+ * which froze the worker too: it starts over rather than failing the worker for time it never had, as BD-J's start-up
+ * timeout does.
+ */
+export const VIDEO_WORKER_SLEEP_GAP_MS = 5_000;
 
 /** The time allowed beyond the fetch limit for the worker to compile video.wasm and open its decoder. */
 export const VIDEO_WORKER_OPEN_MARGIN_MS = 10_000;
@@ -225,15 +234,22 @@ export class WasmVideoDecoder implements CanvasVideoDecoder {
     }
   }
 
-  /** (Re)starts the watchdog while the worker owes answers; stops it when it owes none. */
+  /**
+   * (Re)starts the watchdog while the worker owes answers; stops it when it owes none. A watchdog that fires
+   * VIDEO_WORKER_SLEEP_GAP_MS or more past its time (the host was suspended) starts over instead of failing.
+   */
   private armWatchdog(): void {
     this.cancelWatchdog?.();
     this.cancelWatchdog = null;
     if (!this.worker || (this.inFlight.size === 0 && this.flushes.size === 0)) return;
     const setTimer = this.deps.setTimer ?? defaultSetTimer;
-    this.cancelWatchdog = setTimer(this.deps.watchdogMs ?? VIDEO_WORKER_WATCHDOG_MS, () => {
+    const now = this.deps.nowMs ?? (() => performance.now());
+    const ms = this.deps.watchdogMs ?? VIDEO_WORKER_WATCHDOG_MS;
+    const due = now() + ms;
+    this.cancelWatchdog = setTimer(ms, () => {
       this.cancelWatchdog = null;
-      this.fail('the video decoder worker stopped answering');
+      if (now() - due >= VIDEO_WORKER_SLEEP_GAP_MS) this.armWatchdog();
+      else this.fail('the video decoder worker stopped answering');
     });
   }
 

@@ -4271,6 +4271,7 @@ export class Player {
       createWorker: () => wasm.createWorker(),
       wasmUrl: wasm.wasmUrl,
       makeFrame: frameFromPicture,
+      nowMs: () => this.deps.nowMs(),
       ...(this.deps.setTimer ? { setTimer: this.deps.setTimer } : {}),
     });
   }

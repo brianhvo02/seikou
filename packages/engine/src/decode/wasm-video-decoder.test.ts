@@ -462,6 +462,37 @@ describe('WasmVideoDecoder', () => {
     expect(timers.live()).toHaveLength(0);
   });
 
+  it('a watchdog that fires late after a suspension re-arms instead of failing', async () => {
+    const timers = new ManualTimers();
+    const worker = new FakeWorker();
+    let now = 1_000;
+    const decoder = new WasmVideoDecoder({ createWorker: () => worker, wasmUrl: 'video.wasm', makeFrame: () => ({}) as VideoFrame, setTimer: timers.setTimer, watchdogMs: 8_000, nowMs: () => now });
+    const errors: DecoderError[] = [];
+    decoder.onError = (e) => errors.push(e);
+    await decoder.configure({ codingType: CodingType.MPEG2_VIDEO });
+    decoder.decode(unit(0));
+    expect(timers.live()).toHaveLength(1);
+    // the device slept for a minute: the timer fires long after it was due, before the frozen worker could answer
+    now += 60_000;
+    timers.fire();
+    expect(errors).toEqual([]);
+    expect(worker.terminated).toBe(false);
+    expect(timers.live()).toHaveLength(1);
+    // the woken worker answers, and decoding goes on
+    worker.reply({ type: 'decoded', id: worker.of('decode')[0]!.id, ms: 1 });
+    expect(timers.live()).toHaveLength(0);
+    // a worker that is really gone still fails once its re-armed watchdog fires on time
+    decoder.decode(unit(40_000));
+    now += 60_000;
+    timers.fire();
+    expect(errors).toEqual([]);
+    now += 8_000;
+    timers.fire();
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.fatal).toBe(true);
+    expect(errors[0]!.message).toMatch(/stopped answering/);
+  });
+
   it("a rejected task in the worker's chain posts a fatal error", async () => {
     const posted: FromVideoWorker[] = [];
     const fake = { push: vi.fn(), drain: vi.fn(() => [picture(0)]), flush: vi.fn(() => []), reset: vi.fn(), setSkipNonReference: vi.fn(), close: vi.fn() };
