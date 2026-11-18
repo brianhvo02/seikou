@@ -1096,6 +1096,35 @@ describe('opening at a place', () => {
     await expect(beforeClose).resolves.toMatchObject({ mode: 'hdmv', title: 1 });
   });
 
+  it('probeVideoDecoder asks the engine once and resolves with its measurement for every caller', async () => {
+    const worker = new FakeWorker();
+    const c = new PlayerController(worker, new FakeAudio());
+    const first = c.probeVideoDecoder();
+    const second = c.probeVideoDecoder();
+    expect(worker.posted).toEqual([{ type: 'probeVideoDecoder' }]);
+    const speed = { mpeg2Fps: 80, vc1Fps: 61, moduleUrl: '/assets/video.wasm' };
+    worker.emit({ type: 'videoDecoderSpeed', speed });
+    await expect(first).resolves.toEqual(speed);
+    await expect(second).resolves.toEqual(speed);
+    await expect(c.probeVideoDecoder()).resolves.toEqual(speed);
+    expect(worker.posted).toHaveLength(1);
+    expect(reduceEvent(INITIAL_SNAPSHOT, { type: 'videoDecoderSpeed', speed })).toBe(INITIAL_SNAPSHOT);
+  });
+
+  it('probeVideoDecoder resolves null when the engine has no decoder or the worker fails', async () => {
+    const none = new FakeWorker();
+    const a = new PlayerController(none, new FakeAudio());
+    const pending = a.probeVideoDecoder();
+    none.emit({ type: 'videoDecoderSpeed', speed: null });
+    await expect(pending).resolves.toBeNull();
+    const failing = new FakeWorker();
+    const b = new PlayerController(failing, new FakeAudio());
+    const waiting = b.probeVideoDecoder();
+    failing.onerror?.({ message: 'boom' } as ErrorEvent);
+    await expect(waiting).resolves.toBeNull();
+    await expect(b.probeVideoDecoder()).resolves.toBeNull();
+  });
+
   it('records startFailed, and forgets it on the next open', () => {
     expect(INITIAL_SNAPSHOT.startFailed).toBeNull();
     expect(reduceEvent(INITIAL_SNAPSHOT, { type: 'startFailed', reason: 'past-end' }).startFailed).toBe('past-end');

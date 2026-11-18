@@ -52,11 +52,13 @@ export default defineConfig({
       injectManifest: {
         rollupFormat: 'iife',
         // jar: the BD-J class library (rt-bdj.jar is about 4 MB, over Workbox's 2 MiB default).
-        // No glsl: the bundled Anime4K shaders load on demand, and src/sw.ts caches them at runtime.
+        // No glsl: the bundled Anime4K shaders load on demand, and src/sw.ts caches them at runtime. Nor video.wasm
+        // (MPEG-2 and VC-1 decoding, about 1 MB, fetched by the first such playlist or the speed probe) and the probe's
+        // clips (.m2v and .vc1, not in the patterns): src/sw.ts caches them at runtime too.
         globPatterns: ['**/*.{js,css,html,wasm,ttf,woff2,svg,png,webmanifest,jar}'],
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
         // The diagnostics page is online-only, and the developer pages are a site of their own, outside the player.
-        globIgnores: ['probe.html', 'assets/probe-*.js', 'developers/**'],
+        globIgnores: ['probe.html', 'assets/probe-*.js', 'assets/video-*.wasm', 'developers/**'],
       },
     }),
   ],

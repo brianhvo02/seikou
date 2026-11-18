@@ -4221,6 +4221,7 @@ function fakeVideoWasm(openDecoder: VideoWorkerCoreDeps['openDecoder'], cost: Un
     deps,
     cost,
     created: () => created,
+    live: () => live.size,
     kill: () => {
       for (const w of [...live]) w.onerror?.({ message: 'the decoder worker crashed' } as ErrorEvent);
     },
@@ -4407,6 +4408,67 @@ describe('Player with MPEG-2 and VC-1 video through the WASM decoder', () => {
     expect(h.drawn).toEqual([]);
     expect(noPicture(h)).toEqual([{ type: 'unsupported', kind: 'video', codec: 'MPEG-2 video', message: NO_PICTURE_MESSAGE, noPicture: true }]);
     expect(lastTelemetry(h)?.videoDecoder).toBeNull();
+  });
+
+  /** `count` pictures of an elementary stream: a start code `00 00 01 <code>` and some payload each. */
+  const benchClip = (code: number, count: number): Uint8Array => {
+    const bytes: number[] = [];
+    for (let i = 0; i < count; i++) bytes.push(0, 0, 1, code, 0x55, 0x66, 0x77);
+    return Uint8Array.from(bytes);
+  };
+  const speedEvents = (h: Harness) => h.events.flatMap((e) => (e.type === 'videoDecoderSpeed' ? [e.speed] : []));
+  const probe = async (h: Harness): Promise<void> => {
+    await h.player.handle({ type: 'probeVideoDecoder' });
+    await vi.waitFor(async () => {
+      await h.play(20, { render: false, audio: false });
+      expect(speedEvents(h)).not.toHaveLength(0);
+    }, { timeout: 5000 });
+  };
+
+  it("probeVideoDecoder answers with the bench clips' decode rates, and null without videoWasm", async () => {
+    const fetched: string[] = [];
+    const wasm = fakeVideoWasm(scriptedPictures({ interlaced: true }), { picture: 20, skipped: 20 });
+    const h = await harness(undefined, {
+      noOpen: true,
+      videoWasm: (nowMs) => ({
+        ...wasm.deps(nowMs),
+        bench: {
+          mpeg2Url: '/assets/mpeg2.m2v',
+          vc1Url: '/assets/vc1.vc1',
+          fetchBytes: async (url) => {
+            fetched.push(url);
+            return url.endsWith('.m2v') ? benchClip(0x00, 15) : benchClip(0x0d, 15);
+          },
+        },
+      }),
+    });
+    await probe(h);
+    expect(fetched.sort()).toEqual(['/assets/mpeg2.m2v', '/assets/vc1.vc1']);
+    const [speed] = speedEvents(h);
+    expect(speed).toMatchObject({ moduleUrl: 'video.wasm' });
+    // 15 pictures at 20 ms of simulated time each: 50 pictures a second, a step of the test clock short of it at worst
+    expect(speed!.mpeg2Fps).toBeGreaterThan(45);
+    expect(speed!.mpeg2Fps).toBeLessThanOrEqual(50.01);
+    expect(speed!.vc1Fps).toBeGreaterThan(45);
+    expect(speed!.vc1Fps).toBeLessThanOrEqual(50.01);
+    // the probe leaves no decoder worker running
+    expect(wasm.live()).toBe(0);
+
+    const without = await harness(undefined, { noOpen: true });
+    await without.player.handle({ type: 'probeVideoDecoder' });
+    expect(speedEvents(without)).toEqual([null]);
+  });
+
+  it.each([
+    ['its decoder does not open', () => ({ wasm: fakeVideoWasm(() => Promise.reject(new Error('video.wasm did not load'))), fetchBytes: async () => benchClip(0, 15) })],
+    ['a clip cannot be fetched', () => ({ wasm: fakeVideoWasm(scriptedPictures({ interlaced: true })), fetchBytes: async (): Promise<Uint8Array> => Promise.reject(new Error('HTTP 404')) })],
+    ['a clip decodes to no picture', () => ({ wasm: fakeVideoWasm(scriptedPictures({ interlaced: true })), fetchBytes: async () => new Uint8Array(0) })],
+  ])('probeVideoDecoder answers null when %s', async (_what, make) => {
+    const { wasm, fetchBytes } = make();
+    const h = await harness(undefined, { noOpen: true, videoWasm: (nowMs) => ({ ...wasm.deps(nowMs), bench: { mpeg2Url: 'a', vc1Url: 'b', fetchBytes } }) });
+    await probe(h);
+    expect(speedEvents(h)).toEqual([null]);
+    expect(wasm.live()).toBe(0);
   });
 
   it.each([

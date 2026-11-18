@@ -72,6 +72,11 @@ export interface EngineWorkerOptions {
    */
   readonly videoWasmUrl?: string;
   /**
+   * The decode speed probe's clips (`@seikou/engine/bench/mpeg2-1080i.m2v?url` and `@seikou/engine/bench/vc1-1080i.vc1?url`):
+   * probeVideoDecoder decodes them to time the decoder. Without them it answers null.
+   */
+  readonly videoBenchUrls?: { readonly mpeg2: string; readonly vc1: string };
+  /**
    * The worker's messaging and frame pacing (default: self): the Player's events go out through its postMessage, the
    * page's commands arrive on its onmessage, and its requestAnimationFrame paces frames (a 16 ms setTimeout without
    * one).
@@ -84,7 +89,7 @@ export interface EngineWorkerOptions {
 
 /** Starts the engine in this worker: a Player that answers the page's commands. */
 export function startEngineWorker(options: EngineWorkerOptions): Player {
-  const { bdj, audioWasmUrl, defaultFontUrl, videoWasmUrl } = options;
+  const { bdj, audioWasmUrl, defaultFontUrl, videoWasmUrl, videoBenchUrls } = options;
   const scope = options.scope ?? (self as unknown as WorkerScope);
   const testFlags = engineWorkerTestFlags();
   // the MPEG-1, MPEG-2 and VC-1 decoder's worker, started by the first playlist that needs it (the literal URL is what
@@ -94,6 +99,7 @@ export function startEngineWorker(options: EngineWorkerOptions): Player {
     videoWasmUrl && nestedWorkers && !testFlags.has('novideowasm')
       ? {
           wasmUrl: videoWasmUrl,
+          ...(videoBenchUrls ? { bench: { mpeg2Url: videoBenchUrls.mpeg2, vc1Url: videoBenchUrls.vc1 } } : {}),
           createWorker: () => new Worker(new URL('./decode/video-worker.ts', import.meta.url), { type: 'module', name: 'seikou-video-decoder' }) as unknown as WorkerLike<ToVideoWorker, FromVideoWorker>,
         }
       : undefined;

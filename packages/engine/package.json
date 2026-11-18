@@ -7,6 +7,8 @@
     ".": "./src/index.ts",
     "./audio.wasm": "./wasm/audio/audio.wasm",
     "./video.wasm": "./wasm/video/video.wasm",
+    "./bench/mpeg2-1080i.m2v": "./wasm/video/bench/mpeg2-1080i.m2v",
+    "./bench/vc1-1080i.vc1": "./wasm/video/bench/vc1-1080i.vc1",
     "./worker-main": "./src/worker-main.ts",
     "./*": "./src/*.ts"
   },

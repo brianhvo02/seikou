@@ -438,6 +438,12 @@ export type EngineCommand =
    */
   | { readonly type: 'captureVideo'; readonly atUs: number }
   /**
+   * Measures how fast this device decodes MPEG-2 and VC-1 video (the bench clips shipped with the engine, decoded through
+   * the WASM decoder with no clock), answered by videoDecoderSpeed. Run only when asked, and answered at once, whatever
+   * the queue holds; ask while no playlist plays, since the measurement shares the device with it.
+   */
+  | { readonly type: 'probeVideoDecoder' }
+  /**
    * The player settings (PSR16-20) every disc's registers start with from the next open: the person's disc
    * preferences, resolved by the page. A setting left out keeps libbluray's default.
    */
@@ -693,7 +699,20 @@ export type EngineEvent =
    * start or stopped (the playlist goes on without a picture, with the no-picture notice); `slow`, it has had to skip
    * pictures for 10 s of playback since the playlist started or the last seek (sent once a playlist).
    */
-  | { readonly type: 'videoDecoderTrouble'; readonly reason: 'failed' | 'slow' };
+  | { readonly type: 'videoDecoderTrouble'; readonly reason: 'failed' | 'slow' }
+  /**
+   * The answer to probeVideoDecoder: pictures decoded per second of a 1080i MPEG-2 clip and of a 1080i VC-1 clip by the
+   * module at `moduleUrl`; null when the engine has no WASM video decoder or the measurement failed.
+   */
+  | { readonly type: 'videoDecoderSpeed'; readonly speed: VideoDecoderSpeed | null };
+
+/** How fast the WASM video decoder runs on this device: decoded 1080i pictures per second for each coding, and the module measured. */
+export interface VideoDecoderSpeed {
+  readonly mpeg2Fps: number;
+  readonly vc1Fps: number;
+  /** The URL video.wasm was loaded from; a new build has a new URL, so a stored speed names the module it belongs to. */
+  readonly moduleUrl: string;
+}
 
 /**
  * The notice of a playlist whose video (MPEG-2, VC-1) the browser can't decode: it plays without a picture. Sent once per

@@ -5,7 +5,7 @@ import type { PlayerSettings } from '../disc/player-settings';
 import type { UoOp } from '../hdmv/uo-mask';
 import type { Chapter } from '../nav/timeline';
 import type { MemoryProfileName } from '../memory-profile';
-import type { AudioTrack, BufferRequest, EncodeSpec, EngineCommand, EngineEvent, ErrorCode, MenuKey, PlaceState, PlaybackState, ShaderSetData, ShaderState, StartPoint, SubtitleChoice, Telemetry, VideoPath, DeinterlaceMode } from '../protocol';
+import type { AudioTrack, BufferRequest, EncodeSpec, EngineCommand, EngineEvent, ErrorCode, MenuKey, PlaceState, PlaybackState, ShaderSetData, ShaderState, StartPoint, SubtitleChoice, Telemetry, VideoDecoderSpeed, VideoPath, DeinterlaceMode } from '../protocol';
 import { elementCheck } from './element-caps';
 import { type ElementAnswer, ElementVideoOutput, type MediaSourceLike } from './element-output';
 import { trackLabel } from './language';
@@ -274,6 +274,8 @@ export function reduceEvent(s: PlayerSnapshot, e: EngineEvent): PlayerSnapshot {
       return s; // answers readPlace
     case 'videoDecoderTrouble':
       return s; // a failed decoder's notice comes as 'unsupported' with noPicture; nothing else in the snapshot changes
+    case 'videoDecoderSpeed':
+      return s; // answers probeVideoDecoder (the controller resolves it)
     case 'videoCapture':
       return s; // answers captureVideo (test-only; createController hands it to the page)
     case 'videoInit':
@@ -396,6 +398,8 @@ export class PlayerController {
   private placeWaiters: Array<{ resolve: (place: PlaceState) => void; reject: (err: Error) => void }> = [];
   /** The worker failed (reportInternalError): it will answer nothing more. */
   private engineFailed: Error | null = null;
+  /** The decode speed probe asked this page load, with the resolver of its answer. */
+  private speedProbe: { readonly promise: Promise<VideoDecoderSpeed | null>; resolve(speed: VideoDecoderSpeed | null): void } | null = null;
 
   constructor(
     private readonly worker: WorkerLike,
@@ -420,6 +424,7 @@ export class PlayerController {
       else if (e.type === 'remoteTokenNeeded') this.answerTokenRequest();
       else if (e.type === 'fetchPortClosed') this.fetchPortClosed();
       else if (e.type === 'placeState') this.placeState(e);
+      else if (e.type === 'videoDecoderSpeed') this.speedProbe?.resolve(e.speed);
       else this.update(this.withDropWarning(reduceEvent(this.snapshot, e), e));
     };
     worker.onerror = (event) => this.reportInternalError(`The player engine stopped unexpectedly: ${event.message || 'unknown error'}`);
@@ -474,6 +479,7 @@ export class PlayerController {
     const waiters = this.placeWaiters;
     this.placeWaiters = [];
     for (const w of waiters) w.reject(this.engineFailed);
+    this.speedProbe?.resolve(null);
     const s = reduceEvent(this.snapshot, { type: 'error', code: 'internal', message, paths: [] });
     this.update({ ...s, engineState: 'error' }); // the engine can't report its own state any more
   }
@@ -643,6 +649,24 @@ export class PlayerController {
       this.placeWaiters.push({ resolve, reject });
       this.post({ type: 'readPlace' });
     });
+  }
+
+  /**
+   * How fast this device decodes 1080i MPEG-2 and VC-1 video through the engine's WASM decoder, in pictures per second
+   * (the bench clips shipped with the engine, decoded with no clock; sends `probeVideoDecoder`). The engine measures at
+   * most once for this controller: every later call gets the same answer. Resolves null (never rejects) when the engine
+   * has no WASM video decoder, the measurement fails or the engine worker has failed. Ask while no playlist plays: the
+   * measurement shares the device with playback.
+   * @example ../../examples/player-controller.browser.ts#probeVideoDecoder
+   */
+  probeVideoDecoder(): Promise<VideoDecoderSpeed | null> {
+    if (this.speedProbe) return this.speedProbe.promise;
+    let resolve!: (speed: VideoDecoderSpeed | null) => void;
+    const promise = new Promise<VideoDecoderSpeed | null>((r) => (resolve = r));
+    this.speedProbe = { promise, resolve };
+    if (this.engineFailed) resolve(null);
+    else this.post({ type: 'probeVideoDecoder' });
+    return promise;
   }
 
   private placeState(e: Extract<EngineEvent, { type: 'placeState' }>): void {

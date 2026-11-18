@@ -53,6 +53,7 @@ export type {
   NoticeCode,
   ErrorCode,
   VideoPath,
+  VideoDecoderSpeed,
   DeinterlaceMode,
   DeinterlaceTelemetry,
 } from './protocol';

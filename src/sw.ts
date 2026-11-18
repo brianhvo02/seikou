@@ -97,6 +97,36 @@ registerRoute(
   },
 );
 
+/** The runtime cache for the video decoder's module and the speed probe's clips, which are not precached. */
+const VIDEO_DECODER_CACHE = 'video-decoder';
+
+/** Vite's name for a built asset, `<name>-<8-character hash>.<ext>`, without its hash. */
+function hashedKey(pathname: string): string {
+  const file = pathname.slice(pathname.lastIndexOf('/') + 1);
+  return file.replace(/-[\w-]{8}(\.[^.]+)$/, '$1');
+}
+
+// video.wasm (MPEG-1/2 and VC-1 decoding, about 1 MB) and the two 1080i bench clips load only when a disc needs the
+// decoder or the speed probe runs, so they are left out of the precache (see vite.config.ts) and kept here after their
+// first fetch, cache first: their URLs carry a content hash, and a newer build's copy replaces the older one.
+registerRoute(
+  ({ url, request }) => request.method === 'GET' && url.origin === self.location.origin && /^\/assets\/(video|mpeg2-1080i|vc1-1080i)-[^/]+\.(wasm|m2v|vc1)$/.test(url.pathname),
+  async ({ request, url }) => {
+    const cache = await caches.open(VIDEO_DECODER_CACHE);
+    const hit = await cache.match(request);
+    if (hit) return withIsolation(hit);
+    const response = await fetch(request);
+    if (response.ok) {
+      const key = hashedKey(url.pathname);
+      for (const old of await cache.keys()) {
+        if (hashedKey(new URL(old.url).pathname) === key) await cache.delete(old);
+      }
+      await cache.put(request, response.clone());
+    }
+    return withIsolation(response);
+  },
+);
+
 addPlugins([{ handlerWillRespond: async ({ response }) => withIsolation(response) }]);
 precacheAndRoute(self.__WB_MANIFEST);
 

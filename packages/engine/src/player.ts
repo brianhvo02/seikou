@@ -39,6 +39,7 @@ import { Decimator } from './decode/decimator';
 import { UnsupportedCodecError, type DecoderError } from './decode/decoder';
 import { type AudioDecodeResult, type AudioDecoder, type AudioDecoderFactory } from './decode/audio-decoder';
 import { WebCodecsVideoDecoder, canDecodeVideo, canStartStream, type CanvasVideoDecoder, type VideoCodecApi, type VideoUnit } from './decode/video-decoder';
+import { probeVideoDecoderSpeed, type VideoBench } from './decode/video-probe';
 import { WasmVideoDecoder, frameFromPicture } from './decode/wasm-video-decoder';
 import { wasmVideoCodecFor } from './decode/wasm-video';
 import type { FromVideoWorker, ToVideoWorker } from './decode/video-worker-protocol';
@@ -94,7 +95,7 @@ import type { ColourDescription } from '@seikou/bdmv/codecs/param-sets';
 import { ElementCodecQueries, ElementSession } from './element/element-session';
 import type { Mat3 } from '@seikou/ass/transform';
 import type { AssTrack } from '@seikou/ass/types';
-import { BDJ_STORAGE_MESSAGE, ENCODE_FILE, ENCODE_PLAYLIST_ID, NO_PICTURE_MESSAGE, type AudioTrack, type EncodeSpec, type BufferRequest, type BdjMemoryTelemetry, type DeinterlaceTelemetry, type EngineCommand, type EngineEvent, type FileData, type MenuKey, type NoticeCode, type PlaceState, type PgTrack, type PlaybackState, type ElementQuery, type ElementQueryTelemetry, type ShaderSetData, type StartPoint, type SubtitleChoice, type Telemetry, type VideoPath } from './protocol';
+import { BDJ_STORAGE_MESSAGE, ENCODE_FILE, ENCODE_PLAYLIST_ID, NO_PICTURE_MESSAGE, type AudioTrack, type EncodeSpec, type BufferRequest, type BdjMemoryTelemetry, type DeinterlaceTelemetry, type EngineCommand, type EngineEvent, type FileData, type MenuKey, type NoticeCode, type PlaceState, type PgTrack, type PlaybackState, type ElementQuery, type ElementQueryTelemetry, type ShaderSetData, type StartPoint, type SubtitleChoice, type Telemetry, type VideoDecoderSpeed, type VideoPath } from './protocol';
 import type { CompositorLike, DrawnPicture, TextRendererLike } from './render/compositor';
 import { ShaderStage } from './shaders/stage';
 import { UNAVAILABLE, type ShaderBackend } from './shaders/webgl-backend';
@@ -137,7 +138,7 @@ export interface PlayerDeps {
    * MPEG-1, MPEG-2 and VC-1 video: starts a decoder worker (decode/video-worker.ts) and says where it loads video.wasm
    * from. Without it (no nested workers here) those playlists play without a picture, with the no-picture notice.
    */
-  readonly videoWasm?: { createWorker(): WorkerLike<ToVideoWorker, FromVideoWorker>; readonly wasmUrl: string };
+  readonly videoWasm?: { createWorker(): WorkerLike<ToVideoWorker, FromVideoWorker>; readonly wasmUrl: string; /** The clips probeVideoDecoder decodes; without them it answers null. */ readonly bench?: VideoBench };
   /** A monotonic clock in milliseconds (performance.now); it drives the master clock when no audio plays. */
   nowMs(): number;
   /** Calls `callback` once at the next frame (requestAnimationFrame, or a 16 ms timer in a worker without it); the render loop started by attachCanvas asks again after every tick. */
@@ -790,6 +791,11 @@ export class Player {
       if (this.deps.videoCapture) this.captureAtUs = cmd.atUs;
       return Promise.resolve();
     }
+    // the decode speed probe runs on a decoder of its own, so it needn't wait behind the queue
+    if (cmd.type === 'probeVideoDecoder') {
+      this.probeSpeed();
+      return Promise.resolve();
+    }
     // a bufferFirst open waits for its fill: cancelling can't wait in the queue behind it
     if (cmd.type === 'cancelBuffer') {
       const hold = this.openHold;
@@ -833,6 +839,7 @@ export class Player {
         case 'visibility':
         case 'readPlace':
         case 'captureVideo':
+        case 'probeVideoDecoder':
         case 'videoElementAnswer':
         case 'videoBuffered':
         case 'videoStalled':
@@ -4231,6 +4238,23 @@ export class Player {
       }
       if (this.session === s && this.seekGeneration === gen) s.flushed = true;
     });
+  }
+
+  /** The measurement probeVideoDecoder has in progress or has made; the probe runs once for this Player. */
+  private speedProbe: Promise<void> | null = null;
+  private lastSpeed: VideoDecoderSpeed | null = null;
+
+  /** Answers probeVideoDecoder with videoDecoderSpeed: the speed of the first measurement, or null without a decoder or bench. */
+  private probeSpeed(): void {
+    const wasm = this.deps.videoWasm;
+    if (!wasm) {
+      this.deps.emit({ type: 'videoDecoderSpeed', speed: null });
+      return;
+    }
+    this.speedProbe ??= probeVideoDecoderSpeed({ videoWasm: wasm, nowMs: () => this.deps.nowMs(), ...(this.deps.setTimer ? { setTimer: this.deps.setTimer } : {}) }).then((speed) => {
+      this.lastSpeed = speed;
+    });
+    void this.speedProbe.then(() => this.deps.emit({ type: 'videoDecoderSpeed', speed: this.lastSpeed }));
   }
 
   /** The decoder for a stream of this coding type: the WASM decoder for MPEG-1, MPEG-2 and VC-1, WebCodecs otherwise. */
