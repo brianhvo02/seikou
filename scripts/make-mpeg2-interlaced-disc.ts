@@ -135,8 +135,16 @@ console.log(`${SECONDS} s playlists; picture counts ${clips.map((c) => c.videoAu
 writeFixture(outDir, files);
 console.log(`wrote ${files.size} files to ${outDir}`);
 
-// The speed probe's MPEG-2 clip (packages/engine/wasm/video/bench/): the first half second of playlist 00000's stream.
+// The speed probe's MPEG-2 clip (packages/engine/wasm/video/bench/): 36 pictures (1.2 s) of 1080i at 29.97, top field first, at
+// about 25 Mb/s as a disc's video is (testsrc2 with temporal noise, so the bits are real picture data, not stuffing), two B
+// pictures between references and open GOPs of 12.
 const BENCH = new URL('../packages/engine/wasm/video/bench/', import.meta.url).pathname;
 mkdirSync(BENCH, { recursive: true });
-writeFileSync(join(BENCH, 'mpeg2-1080i.m2v'), Buffer.concat(tff.slice(0, 15)));
+const benchEs = execFileSync('ffmpeg', [
+  '-v', 'error', '-f', 'lavfi', '-i', `testsrc2=size=1920x1080:rate=${FIELD_RATE}`,
+  '-filter_complex', '[0:v]noise=alls=12:allf=t+u,interlace=scan=tff:lowpass=off,setfield=tff[v]', '-map', '[v]',
+  '-frames:v', '36', '-flags', '+ilme+ildct', '-c:v', 'mpeg2video', '-pix_fmt', 'yuv420p', '-g', String(GOP), '-bf', '2',
+  '-b:v', '25M', '-maxrate', '25M', '-minrate', '25M', '-bufsize', '9781248', '-f', 'mpeg2video', '-',
+], { maxBuffer: 1 << 28 });
+writeFileSync(join(BENCH, 'mpeg2-1080i.m2v'), benchEs);
 console.log('wrote the bench clip mpeg2-1080i.m2v');

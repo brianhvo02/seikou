@@ -440,7 +440,8 @@ export type EngineCommand =
   /**
    * Measures how fast this device decodes MPEG-2 and VC-1 video (the bench clips shipped with the engine, decoded through
    * the WASM decoder with no clock), answered by videoDecoderSpeed. Run only when asked, and answered at once, whatever
-   * the queue holds; ask while no playlist plays, since the measurement shares the device with it.
+   * the queue holds; ask while no playlist plays, since the measurement shares the device with it
+   * (answered null, and not measured, while the page is hidden or a disc loads or plays).
    */
   | { readonly type: 'probeVideoDecoder' }
   /**
@@ -702,9 +703,13 @@ export type EngineEvent =
   | { readonly type: 'videoDecoderTrouble'; readonly reason: 'failed' | 'slow' }
   /**
    * The answer to probeVideoDecoder: pictures decoded per second of a 1080i MPEG-2 clip and of a 1080i VC-1 clip by the
-   * module at `moduleUrl`; null when the engine has no WASM video decoder or the measurement failed.
+   * module at `moduleUrl`; null when the engine has no WASM video decoder, the measurement failed or timed out, or it was
+   * not run because the page is hidden or a disc is loading or playing.
    */
   | { readonly type: 'videoDecoderSpeed'; readonly speed: VideoDecoderSpeed | null };
+
+/** The whole decode speed probe gives up after this long (20 s) and is answered null; a controller waits a little longer for the answer. */
+export const VIDEO_PROBE_DEADLINE_MS = 20_000;
 
 /** How fast the WASM video decoder runs on this device: decoded 1080i pictures per second for each coding, and the module measured. */
 export interface VideoDecoderSpeed {
@@ -712,6 +717,8 @@ export interface VideoDecoderSpeed {
   readonly vc1Fps: number;
   /** The URL video.wasm was loaded from; a new build has a new URL, so a stored speed names the module it belongs to. */
   readonly moduleUrl: string;
+  /** The two clips' URLs, MPEG-2's then VC-1's, joined by `|`: a new clip has a new URL, so a stored speed names the clips it was measured on. */
+  readonly clips: string;
 }
 
 /**

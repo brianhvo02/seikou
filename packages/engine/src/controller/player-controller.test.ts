@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BDJ_STORAGE_MESSAGE, NO_PICTURE_MESSAGE, type AudioTrack, type EngineEvent, type Telemetry } from '../protocol';
+import { BDJ_STORAGE_MESSAGE, NO_PICTURE_MESSAGE, VIDEO_PROBE_DEADLINE_MS, type AudioTrack, type EngineEvent, type Telemetry } from '../protocol';
 import { FETCH_PORT_RELEASE_MS, INITIAL_SNAPSHOT, PlayerController, reduceEvent, type AudioOutputLike, type WorkerLike } from './player-controller';
 
 class FakeWorker implements WorkerLike {
@@ -1102,7 +1102,7 @@ describe('opening at a place', () => {
     const first = c.probeVideoDecoder();
     const second = c.probeVideoDecoder();
     expect(worker.posted).toEqual([{ type: 'probeVideoDecoder' }]);
-    const speed = { mpeg2Fps: 80, vc1Fps: 61, moduleUrl: '/assets/video.wasm' };
+    const speed = { mpeg2Fps: 80, vc1Fps: 61, moduleUrl: '/assets/video.wasm', clips: 'a|b' };
     worker.emit({ type: 'videoDecoderSpeed', speed });
     await expect(first).resolves.toEqual(speed);
     await expect(second).resolves.toEqual(speed);
@@ -1123,6 +1123,33 @@ describe('opening at a place', () => {
     failing.onerror?.({ message: 'boom' } as ErrorEvent);
     await expect(waiting).resolves.toBeNull();
     await expect(b.probeVideoDecoder()).resolves.toBeNull();
+  });
+
+  it('a probe that never answers settles null at the deadline, and on dispose', async () => {
+    vi.useFakeTimers();
+    try {
+      const worker = new FakeWorker();
+      const c = new PlayerController(worker, new FakeAudio());
+      const slow = c.probeVideoDecoder();
+      let settled: unknown = 'pending';
+      void slow.then((v) => (settled = v));
+      await vi.advanceTimersByTimeAsync(VIDEO_PROBE_DEADLINE_MS + 5_000 - 1);
+      expect(settled).toBe('pending');
+      await vi.advanceTimersByTimeAsync(2);
+      expect(settled).toBeNull();
+      // a null is not remembered: the next ask goes to the engine again
+      const again = c.probeVideoDecoder();
+      expect(worker.posted.filter((m) => (m as { type: string }).type === 'probeVideoDecoder')).toHaveLength(2);
+      let after: unknown = 'pending';
+      void again.then((v) => (after = v));
+      c.dispose();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(after).toBeNull();
+      await expect(c.probeVideoDecoder()).resolves.toBeNull();
+      expect(worker.posted.filter((m) => (m as { type: string }).type === 'probeVideoDecoder')).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('records startFailed, and forgets it on the next open', () => {

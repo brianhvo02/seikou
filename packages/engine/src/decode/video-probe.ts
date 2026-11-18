@@ -3,7 +3,7 @@
 import { CodingType } from '@seikou/bdmv/stream-types';
 import { ASSET_FETCH_TIMEOUT_MS } from '../asset-fetch';
 import type { WorkerLike } from '../bdj-types';
-import type { VideoDecoderSpeed } from '../protocol';
+import { VIDEO_PROBE_DEADLINE_MS, type VideoDecoderSpeed } from '../protocol';
 import type { FromVideoWorker, ToVideoWorker } from './video-worker-protocol';
 import { WasmVideoDecoder } from './wasm-video-decoder';
 
@@ -57,8 +57,24 @@ export function splitPictures(data: Uint8Array, code: number): Uint8Array[] {
   return units;
 }
 
-/** Decodes one clip, no clock and no skipping, and returns the pictures it made per second of `nowMs` time (module load excluded). Throws when it can't decode. */
-async function clipFps(deps: VideoProbeDeps, codingType: number, code: number, clip: Uint8Array): Promise<number> {
+/** The probe as a whole gives up after this long (20 s) and answers null: a hung worker or fetch can't hold it. */
+export const PROBE_DEADLINE_MS = VIDEO_PROBE_DEADLINE_MS;
+
+/** How many timed passes over a clip follow its untimed warm-up pass; the best of them counts. */
+const TIMED_PASSES = 2;
+
+const defaultSetTimer = (ms: number, fn: () => void): (() => void) => {
+  const id = setTimeout(fn, ms);
+  return () => clearTimeout(id);
+};
+
+/**
+ * Decodes one clip, no clock and no skipping, and returns the best of its timed passes: pictures per second of `nowMs`
+ * time for the whole clip. The module's load is not timed, and one untimed pass first warms it up (the JIT compiles the
+ * decoder's code during it), so only steady-state decoding is measured. A pass is a rate of the clip's units (one a
+ * picture) over the time from the first unit sent to the flush's answer. Throws when it can't decode.
+ */
+async function clipFps(deps: VideoProbeDeps, active: Set<WasmVideoDecoder>, cancelled: () => boolean, codingType: number, code: number, clip: Uint8Array): Promise<number> {
   const decoder = new WasmVideoDecoder({
     createWorker: () => deps.videoWasm.createWorker(),
     wasmUrl: deps.videoWasm.wasmUrl,
@@ -66,7 +82,9 @@ async function clipFps(deps: VideoProbeDeps, codingType: number, code: number, c
     makeFrame: () => ({ close: () => undefined }) as unknown as VideoFrame,
     ...(deps.setTimer ? { setTimer: deps.setTimer } : {}),
   });
+  active.add(decoder);
   let pictures = 0;
+  let failure: Error | null = null;
   decoder.onOutput = (frame) => {
     pictures++;
     frame.close();
@@ -74,39 +92,58 @@ async function clipFps(deps: VideoProbeDeps, codingType: number, code: number, c
   decoder.onFieldInput = () => {
     pictures++;
   };
+  decoder.onError = (err) => {
+    failure = err;
+  };
   try {
     await decoder.configure({ codingType, interlaced: true });
     const units = splitPictures(clip, code);
-    let failure: Error | null = null;
-    decoder.onError = (err) => {
-      failure = err;
-    };
-    const start = deps.nowMs();
-    units.forEach((data, i) => decoder.decode({ data, ptsUs: i * FRAME_US, discard: false }));
-    await decoder.flush();
-    const seconds = Math.max(deps.nowMs() - start, 0.001) / 1000;
-    if (failure) throw failure;
-    if (pictures === 0) throw new Error('the clip decoded to no picture');
-    return pictures / seconds;
+    let best = 0;
+    for (let pass = 0; pass <= TIMED_PASSES; pass++) {
+      if (pass > 0) decoder.reset();
+      pictures = 0;
+      const start = deps.nowMs();
+      units.forEach((data, i) => decoder.decode({ data, ptsUs: i * FRAME_US, discard: false }));
+      await decoder.flush();
+      const seconds = Math.max(deps.nowMs() - start, 0.001) / 1000;
+      if (cancelled()) throw new Error('the probe was cancelled');
+      if (failure) throw failure;
+      if (pictures === 0) throw new Error('the clip decoded to no picture');
+      if (pass > 0) best = Math.max(best, units.length / seconds);
+    }
+    return best;
   } finally {
+    active.delete(decoder);
     decoder.close();
   }
 }
 
 /**
- * How fast the WASM decoder runs here: the MPEG-2 clip, then the VC-1 clip, decoded one after the other through a
- * WasmVideoDecoder (no clock, no skipping; the module's load is not timed), each as the pictures out per second of
- * wall time for the whole clip. Null when there is no bench or a clip can't be read or decoded; never rejects.
+ * How fast the WASM decoder runs here: the MPEG-2 clip, then the VC-1 clip, each decoded through one WasmVideoDecoder
+ * (no clock, no skipping) as an untimed warm-up and then two timed passes, the better of which is its pictures per second.
+ * Null when there is no bench, a clip can't be read or decoded, or the whole takes over PROBE_DEADLINE_MS (the decoder's
+ * workers are stopped then); never rejects.
  */
 export async function probeVideoDecoderSpeed(deps: VideoProbeDeps): Promise<VideoDecoderSpeed | null> {
   const bench = deps.videoWasm.bench;
   if (!bench) return null;
   const read = bench.fetchBytes ?? fetchClip;
-  try {
-    const mpeg2Fps = await clipFps(deps, CodingType.MPEG2_VIDEO, MPEG2_PICTURE, await read(bench.mpeg2Url));
-    const vc1Fps = await clipFps(deps, CodingType.VC1, VC1_FRAME, await read(bench.vc1Url));
-    return { mpeg2Fps, vc1Fps, moduleUrl: deps.videoWasm.wasmUrl };
-  } catch {
-    return null;
+  const active = new Set<WasmVideoDecoder>();
+  let over = false;
+  const work = (async (): Promise<VideoDecoderSpeed | null> => {
+    const mpeg2Fps = await clipFps(deps, active, () => over, CodingType.MPEG2_VIDEO, MPEG2_PICTURE, await read(bench.mpeg2Url));
+    const vc1Fps = await clipFps(deps, active, () => over, CodingType.VC1, VC1_FRAME, await read(bench.vc1Url));
+    return { mpeg2Fps, vc1Fps, moduleUrl: deps.videoWasm.wasmUrl, clips: `${bench.mpeg2Url}|${bench.vc1Url}` };
+  })().catch(() => null);
+  let cancelTimer = (): void => undefined;
+  const deadline = new Promise<null>((resolve) => {
+    cancelTimer = (deps.setTimer ?? defaultSetTimer)(PROBE_DEADLINE_MS, () => resolve(null));
+  });
+  const speed = await Promise.race([work, deadline]);
+  cancelTimer();
+  if (speed === null) {
+    over = true;
+    for (const decoder of [...active]) decoder.close();
   }
+  return speed;
 }

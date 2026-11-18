@@ -1,3 +1,5 @@
+import mpeg2BenchUrl from '@seikou/engine/bench/mpeg2-1080i.m2v?url';
+import vc1BenchUrl from '@seikou/engine/bench/vc1-1080i.vc1?url';
 import videoWasmUrl from '@seikou/engine/video.wasm?url';
 import type { MemoryProfileName } from '@seikou/engine/memory-profile';
 import type { VideoDecoderSpeed } from '@seikou/engine/protocol';
@@ -13,13 +15,6 @@ export interface VideoCaps {
   hdrDisplay: boolean;
   /** A phone-sized device: the constrained memory profile or a screen under 600 CSS px on its shorter side. */
   phone: boolean;
-  /**
-   * The WASM decoder keeps up with 1080i MPEG-2 on this device, going by the speed the last probe stored for this build
-   * (false until a probe has run: `wasmVideoPlayability` runs it).
-   */
-  mpeg2: boolean;
-  /** As `mpeg2`, for VC-1. */
-  vc1: boolean;
 }
 
 /** What the caps probes read, injectable for tests. */
@@ -33,20 +28,30 @@ export interface VideoCapsEnv {
   screen: { width: number; height: number };
   /** The memory profile in force. */
   memoryProfile: 'desktop' | 'constrained';
-  /** The decode speed a probe stored for the current video.wasm, if any; absent or null when none (no probe is run here). */
-  cachedWasmSpeed?: () => { mpeg2Fps: number; vc1Fps: number } | null;
 }
 
-/** The decode rate, in pictures per second, from which a 1080i disc plays: 1.5 times its 29.97, the margin for a busy device. */
-const WASM_PLAYABLE_FPS = (1.5 * 30000) / 1001;
+/**
+ * The decode rates, in pictures per second, from which a 1080i disc plays. MPEG-2: 1.5 times 29.97, the margin for a busy
+ * device (the probe's clip is coded at a disc's rate, about 25 Mb/s). VC-1: 2 times, because its clip can only be the
+ * CC BY sample, at about 5 Mb/s against a disc's 25 to 35, so the same speed on the clip means a slower decode of a disc.
+ */
+const MPEG2_PLAYABLE_FPS = (1.5 * 30000) / 1001;
+const VC1_PLAYABLE_FPS = (2 * 30000) / 1001;
 
-/** Which of MPEG-2 and VC-1 the WASM decoder decodes fast enough to play (1.5 times 29.97 pictures per second); neither when the probe failed (null). */
-export function wasmVideoPlayable(speed: { mpeg2Fps: number; vc1Fps: number } | null): { mpeg2: boolean; vc1: boolean } {
-  return { mpeg2: speed !== null && speed.mpeg2Fps >= WASM_PLAYABLE_FPS, vc1: speed !== null && speed.vc1Fps >= WASM_PLAYABLE_FPS };
+/** What the probe says of one coding: `fast` (plays a disc at Original), `slow` (measured, too slow), `unknown` (not measured: not probed, or the probe could not run). */
+export type WasmSpeedClass = 'fast' | 'slow' | 'unknown';
+
+/** Which of MPEG-2 and VC-1 the WASM decoder decodes fast enough to play (MPEG-2 at 1.5 times 29.97 pictures per second, VC-1 at 2 times); both `unknown` for no measurement (null). */
+export function wasmVideoPlayable(speed: { mpeg2Fps: number; vc1Fps: number } | null): { mpeg2: WasmSpeedClass; vc1: WasmSpeedClass } {
+  if (speed === null) return { mpeg2: 'unknown', vc1: 'unknown' };
+  return { mpeg2: speed.mpeg2Fps >= MPEG2_PLAYABLE_FPS ? 'fast' : 'slow', vc1: speed.vc1Fps >= VC1_PLAYABLE_FPS ? 'fast' : 'slow' };
 }
 
-/** The localStorage key of the stored decode speed: `{ moduleUrl, mpeg2Fps, vc1Fps }`. */
+/** The localStorage key of the stored decode speed: `{ moduleUrl, clips, mpeg2Fps, vc1Fps, measuredAt }`. */
 export const WASM_VIDEO_SPEED_KEY = 'bluray-web:wasm-video-speed';
+
+/** A stored speed is measured again after this long (30 days): a device's speed changes with its hardware, load and browser. */
+export const WASM_VIDEO_SPEED_TTL_MS = 30 * 24 * 3600 * 1000;
 
 /** The part of `Storage` the speed cache uses. */
 export interface SpeedStorage {
@@ -54,13 +59,20 @@ export interface SpeedStorage {
   setItem(key: string, value: string): void;
 }
 
-/** The stored speed when it was measured for `moduleUrl`; null for none, another module's or a damaged value. Never throws. */
-export function readStoredWasmSpeed(storage: () => SpeedStorage | null, moduleUrl: string): { mpeg2Fps: number; vc1Fps: number } | null {
+/**
+ * The stored speed when it was measured for this module and these clips, no more than 30 days before `nowMs`; null for
+ * none, another build's, an old one or a damaged value. Never throws.
+ */
+export function readStoredWasmSpeed(storage: () => SpeedStorage | null, moduleUrl: string, clips: string, nowMs: number): { mpeg2Fps: number; vc1Fps: number } | null {
   try {
     const raw = storage()?.getItem(WASM_VIDEO_SPEED_KEY);
     if (!raw) return null;
-    const v = JSON.parse(raw) as Partial<VideoDecoderSpeed> | null;
-    if (!v || v.moduleUrl !== moduleUrl || typeof v.mpeg2Fps !== 'number' || typeof v.vc1Fps !== 'number' || !Number.isFinite(v.mpeg2Fps) || !Number.isFinite(v.vc1Fps)) return null;
+    const v = JSON.parse(raw) as { moduleUrl?: unknown; clips?: unknown; mpeg2Fps?: unknown; vc1Fps?: unknown; measuredAt?: unknown } | null;
+    if (!v || v.moduleUrl !== moduleUrl || v.clips !== clips) return null;
+    if (typeof v.mpeg2Fps !== 'number' || typeof v.vc1Fps !== 'number' || !Number.isFinite(v.mpeg2Fps) || !Number.isFinite(v.vc1Fps)) return null;
+    if (typeof v.measuredAt !== 'number') return null;
+    const age = nowMs - v.measuredAt;
+    if (!(age >= 0 && age <= WASM_VIDEO_SPEED_TTL_MS)) return null;
     return { mpeg2Fps: v.mpeg2Fps, vc1Fps: v.vc1Fps };
   } catch {
     return null;
@@ -71,32 +83,48 @@ export function readStoredWasmSpeed(storage: () => SpeedStorage | null, moduleUr
 export interface WasmSpeedEnv {
   /** The URL of the video.wasm this build loads. */
   readonly moduleUrl: string;
+  /** This build's two bench clip URLs joined by `|` (MPEG-2's, then VC-1's), as the engine reports them. */
+  readonly clips: string;
   /** localStorage, or null where it is missing (it may throw: private browsing). */
   storage(): SpeedStorage | null;
-  /** Runs the engine's decode speed probe. */
+  /** The time in milliseconds since the epoch. */
+  now(): number;
+  /** The page is hidden: nothing is measured then, since a hidden page's timers and threads are throttled. */
+  hidden(): boolean;
+  /** Runs the engine's decode speed probe (null when it could not run). */
   probe(): Promise<VideoDecoderSpeed | null>;
 }
 
+const UNKNOWN = { mpeg2: 'unknown', vc1: 'unknown' } as const;
+
 /**
- * Which of MPEG-2 and VC-1 the WASM decoder plays on this device: the speed stored for the current module when there is
- * one, else a probe (stored when it answers). A probe that fails or answers null makes both unplayable and stores
- * nothing. Never rejects.
+ * Which of MPEG-2 and VC-1 the WASM decoder plays on this device: the speed stored for this module and these clips when
+ * it is under 30 days old, else a probe, whose clean answer is stored. `unknown` for both, with nothing stored, when
+ * the page is hidden or the probe fails, answers null (the engine would not run it: a disc is playing; or it timed
+ * out) or throws. Never rejects.
  */
-export async function measureWasmVideo(env: WasmSpeedEnv): Promise<{ mpeg2: boolean; vc1: boolean }> {
-  const stored = readStoredWasmSpeed(env.storage, env.moduleUrl);
+export async function measureWasmVideo(env: WasmSpeedEnv): Promise<{ mpeg2: WasmSpeedClass; vc1: WasmSpeedClass }> {
+  const now = env.now();
+  const stored = readStoredWasmSpeed(env.storage, env.moduleUrl, env.clips, now);
   if (stored) return wasmVideoPlayable(stored);
+  let hidden = false;
+  try {
+    hidden = env.hidden();
+  } catch {
+    // unreadable: measure
+  }
+  if (hidden) return UNKNOWN;
   let speed: VideoDecoderSpeed | null = null;
   try {
     speed = await env.probe();
   } catch {
     speed = null;
   }
-  if (speed) {
-    try {
-      env.storage()?.setItem(WASM_VIDEO_SPEED_KEY, JSON.stringify({ moduleUrl: env.moduleUrl, mpeg2Fps: speed.mpeg2Fps, vc1Fps: speed.vc1Fps }));
-    } catch {
-      // private mode: the result still counts for this page
-    }
+  if (!speed) return UNKNOWN;
+  try {
+    env.storage()?.setItem(WASM_VIDEO_SPEED_KEY, JSON.stringify({ moduleUrl: env.moduleUrl, clips: env.clips, mpeg2Fps: speed.mpeg2Fps, vc1Fps: speed.vc1Fps, measuredAt: now }));
+  } catch {
+    // private mode: the result still counts for this page
   }
   return wasmVideoPlayable(speed);
 }
@@ -157,14 +185,6 @@ function mseProbe(env: Pick<VideoCapsEnv, 'isTypeSupported'>, codec: string): bo
   }
 }
 
-function readCachedSpeed(env: Pick<VideoCapsEnv, 'cachedWasmSpeed'>): { mpeg2Fps: number; vc1Fps: number } | null {
-  try {
-    return env.cachedWasmSpeed?.() ?? null;
-  } catch {
-    return null;
-  }
-}
-
 /** Probes the device once: HEVC Main and Main 10 through `isConfigSupported` or the media source's `isTypeSupported` (false for a probe that throws or is missing), the display's dynamic range and the phone test. */
 export async function detectVideoCaps(env: VideoCapsEnv): Promise<VideoCaps> {
   const [codecs, codecs10] = await Promise.all([probe(env, HEVC_MAIN), probe(env, HEVC_MAIN10)]);
@@ -175,7 +195,6 @@ export async function detectVideoCaps(env: VideoCapsEnv): Promise<VideoCaps> {
     hevc10,
     hdrDisplay: env.matchMedia('(dynamic-range: high)').matches,
     phone: env.memoryProfile === 'constrained' || Math.min(env.screen.width, env.screen.height) < PHONE_SHORT_SIDE,
-    ...wasmVideoPlayable(readCachedSpeed(env)),
   };
 }
 
@@ -206,7 +225,6 @@ export function browserVideoCapsEnv(): VideoCapsEnv {
     matchMedia: (q) => window.matchMedia(q),
     screen: { width: window.screen.width, height: window.screen.height },
     memoryProfile: browserMemoryProfile(),
-    cachedWasmSpeed: () => readStoredWasmSpeed(browserStorage, videoWasmUrl),
   };
 }
 
@@ -233,7 +251,7 @@ export async function loadVideoCaps(makeEnv: () => VideoCapsEnv, profile: () => 
     } catch {
       // no profile either: a computer, as the desktop profile is the default
     }
-    return { hevc: false, hevc10: false, hdrDisplay: false, phone, mpeg2: false, vc1: false };
+    return { hevc: false, hevc10: false, hdrDisplay: false, phone };
   }
 }
 
@@ -245,14 +263,28 @@ export function videoCaps(): Promise<VideoCaps> {
   return cached;
 }
 
-let wasmPlayability: Promise<{ mpeg2: boolean; vc1: boolean }> | null = null;
+let wasmPlayability: Promise<{ mpeg2: WasmSpeedClass; vc1: WasmSpeedClass }> | null = null;
 
 /**
- * Which of MPEG-2 and VC-1 play through the WASM decoder on this device: the stored speed for this build's module, else
- * `probe` (the controller's probeVideoDecoder) runs once, at most once per page load, and its answer is stored. Never
- * rejects; a failed probe says neither plays.
+ * Which of MPEG-2 and VC-1 play through the WASM decoder on this device (`fast`, `slow` or `unknown` each): the stored
+ * speed for this build when it is under 30 days old, else `probe` (the controller's probeVideoDecoder) runs and its clean
+ * answer is stored. Once measured, the answer is kept for the page's life; an `unknown` (hidden page, a disc playing, a
+ * failed probe) is asked again on the next call. Never rejects.
  */
-export function wasmVideoPlayability(probe: () => Promise<VideoDecoderSpeed | null>): Promise<{ mpeg2: boolean; vc1: boolean }> {
-  wasmPlayability ??= measureWasmVideo({ moduleUrl: videoWasmUrl, storage: browserStorage, probe });
-  return wasmPlayability;
+export function wasmVideoPlayability(probe: () => Promise<VideoDecoderSpeed | null>): Promise<{ mpeg2: WasmSpeedClass; vc1: WasmSpeedClass }> {
+  if (wasmPlayability) return wasmPlayability;
+  const run = measureWasmVideo({
+    moduleUrl: videoWasmUrl,
+    clips: `${mpeg2BenchUrl}|${vc1BenchUrl}`,
+    storage: browserStorage,
+    now: () => Date.now(),
+    hidden: () => typeof document !== 'undefined' && document.visibilityState === 'hidden',
+    probe,
+  });
+  const result = run.then((r) => {
+    if (r.mpeg2 === 'unknown' && r.vc1 === 'unknown' && wasmPlayability === result) wasmPlayability = null;
+    return r;
+  });
+  wasmPlayability = result;
+  return result;
 }

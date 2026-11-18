@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { VideoDecoderSpeed } from '@seikou/engine/protocol';
-import { browserIsTypeSupported, detectAv1, detectVideoCaps, loadVideoCaps, measureWasmVideo, noAv1Flag, wasmVideoPlayable, type VideoCapsEnv } from './video-caps';
+import { browserIsTypeSupported, detectAv1, detectVideoCaps, loadVideoCaps, measureWasmVideo, noAv1Flag, wasmVideoPlayable, type VideoCapsEnv, type WasmSpeedEnv } from './video-caps';
 
 function env(over: Partial<VideoCapsEnv> = {}): VideoCapsEnv {
   return {
@@ -66,15 +66,15 @@ describe('loadVideoCaps', () => {
     expect(await loadVideoCaps(() => env({ memoryProfile: 'constrained' }), () => 'desktop')).toMatchObject({ hevc: true, phone: true });
   });
   it('when the environment cannot be read, falls back to no HEVC and the memory profile for phone', async () => {
-    expect(await loadVideoCaps(thrower, () => 'constrained')).toEqual({ hevc: false, hevc10: false, hdrDisplay: false, phone: true, mpeg2: false, vc1: false });
-    expect(await loadVideoCaps(thrower, () => 'desktop')).toEqual({ hevc: false, hevc10: false, hdrDisplay: false, phone: false, mpeg2: false, vc1: false });
+    expect(await loadVideoCaps(thrower, () => 'constrained')).toEqual({ hevc: false, hevc10: false, hdrDisplay: false, phone: true });
+    expect(await loadVideoCaps(thrower, () => 'desktop')).toEqual({ hevc: false, hevc10: false, hdrDisplay: false, phone: false });
   });
   it('when the probe rejects, falls back the same way', async () => {
     const broken = env({ matchMedia: thrower });
     expect(await loadVideoCaps(() => broken, () => 'constrained')).toMatchObject({ phone: true, hevc: false });
   });
   it('a computer when even the memory profile cannot be told', async () => {
-    expect(await loadVideoCaps(thrower, thrower)).toEqual({ hevc: false, hevc10: false, hdrDisplay: false, phone: false, mpeg2: false, vc1: false });
+    expect(await loadVideoCaps(thrower, thrower)).toEqual({ hevc: false, hevc10: false, hdrDisplay: false, phone: false });
   });
 });
 
@@ -176,52 +176,105 @@ describe('browserIsTypeSupported', () => {
 });
 
 describe('wasmVideoPlayable', () => {
-  const threshold = 1.5 * (30000 / 1001);
-
-  it('wasmVideoPlayable passes a codec at 1.5x 29.97 and fails it just below', () => {
-    expect(threshold).toBeCloseTo(44.955, 3);
-    expect(wasmVideoPlayable({ mpeg2Fps: 45.0, vc1Fps: 44.9 })).toEqual({ mpeg2: true, vc1: false });
-    expect(wasmVideoPlayable({ mpeg2Fps: 44.9, vc1Fps: 45.0 })).toEqual({ mpeg2: false, vc1: true });
-    expect(wasmVideoPlayable({ mpeg2Fps: 300, vc1Fps: 90 })).toEqual({ mpeg2: true, vc1: true });
+  it('wasmVideoPlayable passes a codec at its threshold and fails it just below', () => {
+    expect(wasmVideoPlayable({ mpeg2Fps: 45.0, vc1Fps: 60.0 })).toEqual({ mpeg2: 'fast', vc1: 'fast' });
+    expect(wasmVideoPlayable({ mpeg2Fps: 44.9, vc1Fps: 59.9 })).toEqual({ mpeg2: 'slow', vc1: 'slow' });
+    expect(wasmVideoPlayable({ mpeg2Fps: 300, vc1Fps: 90 })).toEqual({ mpeg2: 'fast', vc1: 'fast' });
   });
 
-  it('a failed probe makes both codings unplayable', async () => {
-    expect(wasmVideoPlayable(null)).toEqual({ mpeg2: false, vc1: false });
-    const probe = vi.fn(async () => null);
-    expect(await measureWasmVideo({ moduleUrl: '/a.wasm', storage: () => memoryStorage(), probe })).toEqual({ mpeg2: false, vc1: false });
-    const throwing = vi.fn(async () => { throw new Error('worker gone'); });
-    expect(await measureWasmVideo({ moduleUrl: '/a.wasm', storage: () => memoryStorage(), probe: throwing })).toEqual({ mpeg2: false, vc1: false });
+  it('VC-1 needs 2x its frame rate and MPEG-2 1.5x', () => {
+    expect(wasmVideoPlayable({ mpeg2Fps: 1.5 * (30000 / 1001), vc1Fps: 2 * (30000 / 1001) })).toEqual({ mpeg2: 'fast', vc1: 'fast' });
+    // 50 pictures a second is enough for MPEG-2 and not for VC-1, whose clip is lighter than a disc's
+    expect(wasmVideoPlayable({ mpeg2Fps: 50, vc1Fps: 50 })).toEqual({ mpeg2: 'fast', vc1: 'slow' });
   });
 
-  it('the cached speed is used for the same module and probed again for a new one', async () => {
+  it('a missing measurement is unknown, not slow', () => {
+    expect(wasmVideoPlayable(null)).toEqual({ mpeg2: 'unknown', vc1: 'unknown' });
+  });
+});
+
+describe('measureWasmVideo', () => {
+  const NOW = Date.UTC(2026, 10, 17);
+  const DAY = 86_400_000;
+  const speed = (mpeg2Fps: number, vc1Fps: number, moduleUrl = '/a.wasm', clips = '/m.m2v|/v.vc1'): VideoDecoderSpeed => ({ mpeg2Fps, vc1Fps, moduleUrl, clips });
+  const mk = (over: Partial<WasmSpeedEnv> & Pick<WasmSpeedEnv, 'probe'>, storage: { getItem(k: string): string | null; setItem(k: string, v: string): void } | null = memoryStorage()): WasmSpeedEnv => ({
+    moduleUrl: '/a.wasm',
+    clips: '/m.m2v|/v.vc1',
+    storage: () => storage,
+    now: () => NOW,
+    hidden: () => false,
+    ...over,
+  });
+  const stored = (storage: { getItem(k: string): string | null }) => JSON.parse(storage.getItem('bluray-web:wasm-video-speed') ?? 'null');
+
+  it('the playability API distinguishes fast, slow and unknown', async () => {
+    expect(await measureWasmVideo(mk({ probe: async () => speed(80, 80) }))).toEqual({ mpeg2: 'fast', vc1: 'fast' });
+    expect(await measureWasmVideo(mk({ probe: async () => speed(80, 20) }))).toEqual({ mpeg2: 'fast', vc1: 'slow' });
+    expect(await measureWasmVideo(mk({ probe: async () => speed(10, 20) }))).toEqual({ mpeg2: 'slow', vc1: 'slow' });
+    expect(await measureWasmVideo(mk({ probe: async () => null }))).toEqual({ mpeg2: 'unknown', vc1: 'unknown' });
+  });
+
+  it('a probe on a hidden page or during playback answers unknown and stores nothing', async () => {
     const storage = memoryStorage();
-    const probe = vi.fn(async (): Promise<VideoDecoderSpeed | null> => ({ mpeg2Fps: 80, vc1Fps: 30, moduleUrl: '/a.wasm' }));
-    expect(await measureWasmVideo({ moduleUrl: '/a.wasm', storage: () => storage, probe })).toEqual({ mpeg2: true, vc1: false });
-    expect(JSON.parse(storage.getItem('bluray-web:wasm-video-speed')!)).toEqual({ moduleUrl: '/a.wasm', mpeg2Fps: 80, vc1Fps: 30 });
-    expect(await measureWasmVideo({ moduleUrl: '/a.wasm', storage: () => storage, probe })).toEqual({ mpeg2: true, vc1: false });
+    const probe = vi.fn(async () => speed(80, 80));
+    expect(await measureWasmVideo(mk({ probe, hidden: () => true }, storage))).toEqual({ mpeg2: 'unknown', vc1: 'unknown' });
+    expect(probe).not.toHaveBeenCalled();
+    expect(stored(storage)).toBeNull();
+    // the engine answers null while a disc plays: unknown, and nothing is stored
+    expect(await measureWasmVideo(mk({ probe: async () => null }, storage))).toEqual({ mpeg2: 'unknown', vc1: 'unknown' });
+    expect(stored(storage)).toBeNull();
+  });
+
+  it('a failed probe stores nothing', async () => {
+    const storage = memoryStorage();
+    expect(await measureWasmVideo(mk({ probe: async () => { throw new Error('worker gone'); } }, storage))).toEqual({ mpeg2: 'unknown', vc1: 'unknown' });
+    expect(await measureWasmVideo(mk({ probe: async () => null }, storage))).toEqual({ mpeg2: 'unknown', vc1: 'unknown' });
+    expect(stored(storage)).toBeNull();
+  });
+
+  it('the cached speed is used for the same module and clips, and measured again for a new module', async () => {
+    const storage = memoryStorage();
+    const probe = vi.fn(async () => speed(80, 70));
+    expect(await measureWasmVideo(mk({ probe }, storage))).toEqual({ mpeg2: 'fast', vc1: 'fast' });
+    expect(stored(storage)).toEqual({ moduleUrl: '/a.wasm', clips: '/m.m2v|/v.vc1', mpeg2Fps: 80, vc1Fps: 70, measuredAt: NOW });
+    expect(await measureWasmVideo(mk({ probe }, storage))).toEqual({ mpeg2: 'fast', vc1: 'fast' });
     expect(probe).toHaveBeenCalledTimes(1);
-    probe.mockResolvedValueOnce({ mpeg2Fps: 20, vc1Fps: 100, moduleUrl: '/b.wasm' });
-    expect(await measureWasmVideo({ moduleUrl: '/b.wasm', storage: () => storage, probe })).toEqual({ mpeg2: false, vc1: true });
+    probe.mockResolvedValueOnce(speed(20, 100, '/b.wasm'));
+    expect(await measureWasmVideo(mk({ probe, moduleUrl: '/b.wasm' }, storage))).toEqual({ mpeg2: 'slow', vc1: 'fast' });
     expect(probe).toHaveBeenCalledTimes(2);
-    expect(JSON.parse(storage.getItem('bluray-web:wasm-video-speed')!).moduleUrl).toBe('/b.wasm');
+    expect(stored(storage).moduleUrl).toBe('/b.wasm');
+  });
+
+  it('a new bench clip URL measures again', async () => {
+    const storage = memoryStorage();
+    const probe = vi.fn(async () => speed(80, 70));
+    await measureWasmVideo(mk({ probe }, storage));
+    await measureWasmVideo(mk({ probe, clips: '/m2.m2v|/v.vc1' }, storage));
+    expect(probe).toHaveBeenCalledTimes(2);
+    expect(stored(storage).clips).toBe('/m2.m2v|/v.vc1');
+  });
+
+  it('a stored result older than 30 days is measured again', async () => {
+    const storage = memoryStorage();
+    const probe = vi.fn(async () => speed(80, 70));
+    await measureWasmVideo(mk({ probe }, storage));
+    await measureWasmVideo(mk({ probe, now: () => NOW + 29 * DAY }, storage));
+    expect(probe).toHaveBeenCalledTimes(1);
+    await measureWasmVideo(mk({ probe, now: () => NOW + 31 * DAY }, storage));
+    expect(probe).toHaveBeenCalledTimes(2);
+    expect(stored(storage).measuredAt).toBe(NOW + 31 * DAY);
   });
 
   it('works without a usable localStorage, and ignores a damaged stored value', async () => {
-    const probe = vi.fn(async (): Promise<VideoDecoderSpeed | null> => ({ mpeg2Fps: 80, vc1Fps: 80, moduleUrl: '/a.wasm' }));
+    const probe = vi.fn(async () => speed(80, 80));
     const broken = (): never => { throw new Error('SecurityError'); };
-    expect(await measureWasmVideo({ moduleUrl: '/a.wasm', storage: broken, probe })).toEqual({ mpeg2: true, vc1: true });
+    expect(await measureWasmVideo(mk({ probe, storage: broken }))).toEqual({ mpeg2: 'fast', vc1: 'fast' });
     const storage = memoryStorage();
-    storage.setItem('bluray-web:wasm-video-speed', '{"moduleUrl":"/a.wasm","mpeg2Fps":"fast"}');
-    expect(await measureWasmVideo({ moduleUrl: '/a.wasm', storage: () => storage, probe })).toEqual({ mpeg2: true, vc1: true });
+    storage.setItem('bluray-web:wasm-video-speed', '{"moduleUrl":"/a.wasm","clips":"/m.m2v|/v.vc1","mpeg2Fps":"fast","measuredAt":0}');
+    expect(await measureWasmVideo(mk({ probe }, storage))).toEqual({ mpeg2: 'fast', vc1: 'fast' });
     expect(probe).toHaveBeenCalledTimes(2);
     const throwingStore = { getItem: broken, setItem: broken };
-    expect(await measureWasmVideo({ moduleUrl: '/a.wasm', storage: () => throwingStore, probe })).toEqual({ mpeg2: true, vc1: true });
-  });
-
-  it('the caps carry the cached speed without probing', async () => {
-    const caps = await detectVideoCaps(env({ cachedWasmSpeed: () => ({ mpeg2Fps: 60, vc1Fps: 10 }) }));
-    expect(caps).toMatchObject({ mpeg2: true, vc1: false });
-    expect(await detectVideoCaps(env())).toMatchObject({ mpeg2: false, vc1: false });
+    expect(await measureWasmVideo(mk({ probe }, throwingStore))).toEqual({ mpeg2: 'fast', vc1: 'fast' });
   });
 });
 

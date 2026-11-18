@@ -495,4 +495,10 @@ async function construct(): Promise<void> {
   const s = preview.getSnapshot();
   check(s.engineState === 'error' && s.error?.code === 'internal', 'the error is not shown');
   check(await preview.readPlace().then(() => false, () => true), 'readPlace should reject once the engine failed');
+
+  // #region dispose
+  // the host is done with the controller: a decode speed probe still waiting is answered null
+  preview.dispose();
+  // #endregion
+  check((await preview.probeVideoDecoder()) === null, 'a disposed controller probes nothing');
 }

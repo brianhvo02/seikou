@@ -6,6 +6,7 @@ import type { UoOp } from '../hdmv/uo-mask';
 import type { Chapter } from '../nav/timeline';
 import type { MemoryProfileName } from '../memory-profile';
 import type { AudioTrack, BufferRequest, EncodeSpec, EngineCommand, EngineEvent, ErrorCode, MenuKey, PlaceState, PlaybackState, ShaderSetData, ShaderState, StartPoint, SubtitleChoice, Telemetry, VideoDecoderSpeed, VideoPath, DeinterlaceMode } from '../protocol';
+import { VIDEO_PROBE_DEADLINE_MS } from '../protocol';
 import { elementCheck } from './element-caps';
 import { type ElementAnswer, ElementVideoOutput, type MediaSourceLike } from './element-output';
 import { trackLabel } from './language';
@@ -398,6 +399,7 @@ export class PlayerController {
   private placeWaiters: Array<{ resolve: (place: PlaceState) => void; reject: (err: Error) => void }> = [];
   /** The worker failed (reportInternalError): it will answer nothing more. */
   private engineFailed: Error | null = null;
+  private disposed = false;
   /** The decode speed probe asked this page load, with the resolver of its answer. */
   private speedProbe: { readonly promise: Promise<VideoDecoderSpeed | null>; resolve(speed: VideoDecoderSpeed | null): void } | null = null;
 
@@ -653,20 +655,41 @@ export class PlayerController {
 
   /**
    * How fast this device decodes 1080i MPEG-2 and VC-1 video through the engine's WASM decoder, in pictures per second
-   * (the bench clips shipped with the engine, decoded with no clock; sends `probeVideoDecoder`). The engine measures at
-   * most once for this controller: every later call gets the same answer. Resolves null (never rejects) when the engine
-   * has no WASM video decoder, the measurement fails or the engine worker has failed. Ask while no playlist plays: the
-   * measurement shares the device with playback.
+   * (the bench clips shipped with the engine, an untimed warm-up and the better of two timed passes each; sends
+   * `probeVideoDecoder`). A successful answer is kept: later calls get it without asking again. Resolves null (never
+   * rejects) when the engine has no WASM video decoder, will not measure now (the page is hidden or a disc loads or
+   * plays), the measurement failed, the engine worker failed, the controller was disposed, or no answer came within the
+   * probe's deadline plus a margin (25 s); a null is not kept, so asking again measures again. Ask while no playlist plays.
    * @example ../../examples/player-controller.browser.ts#probeVideoDecoder
    */
   probeVideoDecoder(): Promise<VideoDecoderSpeed | null> {
     if (this.speedProbe) return this.speedProbe.promise;
+    if (this.engineFailed || this.disposed) return Promise.resolve(null);
+    let timer: ReturnType<typeof setTimeout> | undefined;
     let resolve!: (speed: VideoDecoderSpeed | null) => void;
     const promise = new Promise<VideoDecoderSpeed | null>((r) => (resolve = r));
-    this.speedProbe = { promise, resolve };
-    if (this.engineFailed) resolve(null);
-    else this.post({ type: 'probeVideoDecoder' });
+    const probe = {
+      promise,
+      resolve: (speed: VideoDecoderSpeed | null): void => {
+        clearTimeout(timer);
+        if (this.speedProbe === probe && speed === null) this.speedProbe = null; // a null isn't kept
+        resolve(speed);
+      },
+    };
+    this.speedProbe = probe;
+    timer = setTimeout(() => probe.resolve(null), VIDEO_PROBE_DEADLINE_MS + 5_000);
+    this.post({ type: 'probeVideoDecoder' });
     return promise;
+  }
+
+  /**
+   * Ends the controller's pending work: a decode speed probe still waiting is answered null, and later ones answer null at
+   * once. It does not close the disc or the worker.
+   * @example ../../examples/player-controller.browser.ts#dispose
+   */
+  dispose(): void {
+    this.disposed = true;
+    this.speedProbe?.resolve(null);
   }
 
   private placeState(e: Extract<EngineEvent, { type: 'placeState' }>): void {

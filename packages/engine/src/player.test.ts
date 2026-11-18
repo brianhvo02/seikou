@@ -4459,6 +4459,48 @@ describe('Player with MPEG-2 and VC-1 video through the WASM decoder', () => {
     expect(speedEvents(without)).toEqual([null]);
   });
 
+  it('the better of two timed passes is kept, after an untimed warm-up', async () => {
+    // each clip is decoded three times in a row (15 units each): the warm-up at 10 ms a unit, which would read 100 fps if it
+    // were timed, then 20 ms (50 fps), then 40 ms (25 fps): the better timed pass is the answer
+    let calls = 0;
+    const cost: UnitCost = { get picture() { return [10, 20, 40][Math.floor((calls++ % 45) / 15)]!; }, skipped: 0 };
+    const wasm = fakeVideoWasm(scriptedPictures({ interlaced: true }), cost);
+    const h = await harness(undefined, {
+      noOpen: true,
+      videoWasm: (nowMs) => ({ ...wasm.deps(nowMs), bench: { mpeg2Url: 'a', vc1Url: 'b', fetchBytes: async (url) => (url === 'a' ? benchClip(0x00, 15) : benchClip(0x0d, 15)) } }),
+    });
+    await probe(h);
+    const [speed] = speedEvents(h);
+    expect(speed!.mpeg2Fps).toBeGreaterThan(45);
+    expect(speed!.mpeg2Fps).toBeLessThanOrEqual(50.01);
+    expect(speed!.vc1Fps).toBeGreaterThan(45);
+    expect(speed!.vc1Fps).toBeLessThanOrEqual(50.01);
+    expect(speed!.clips).toBe('a|b');
+  });
+
+  it.each([
+    ['the page is hidden', async (h: Harness) => h.player.handle({ type: 'visibility', hidden: true })],
+    ['a disc is playing', async (h: Harness) => {
+      await h.player.handle({ type: 'open', disc: { kind: 'files', entries: fixture('disc-mpeg2-interlaced') } });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00004' });
+      await untilPlaying(h);
+    }],
+  ])('a probe on a hidden page or during playback answers null and measures nothing (%s)', async (_what, setup) => {
+    const wasm = fakeVideoWasm(realPictures);
+    const fetched: string[] = [];
+    const h = await harness(undefined, {
+      noOpen: true,
+      videoWasm: (nowMs) => ({ ...wasm.deps(nowMs), bench: { mpeg2Url: 'a', vc1Url: 'b', fetchBytes: async (url) => { fetched.push(url); return benchClip(0, 3); } } }),
+    });
+    await setup(h);
+    const created = wasm.created();
+    await h.player.handle({ type: 'probeVideoDecoder' });
+    await h.play(40, { render: false, audio: false });
+    expect(speedEvents(h)).toEqual([null]);
+    expect(fetched).toEqual([]);
+    expect(wasm.created()).toBe(created);
+  });
+
   it.each([
     ['its decoder does not open', () => ({ wasm: fakeVideoWasm(() => Promise.reject(new Error('video.wasm did not load'))), fetchBytes: async () => benchClip(0, 15) })],
     ['a clip cannot be fetched', () => ({ wasm: fakeVideoWasm(scriptedPictures({ interlaced: true })), fetchBytes: async (): Promise<Uint8Array> => Promise.reject(new Error('HTTP 404')) })],
