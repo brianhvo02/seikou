@@ -569,7 +569,7 @@ ${nav === null ? '' : '    <a class="dev-bar-packages" href="#packages">Packages
 ${main}
     </main>
 ${nav ?? ''}  </div>
-  <footer class="dev-foot"><a href="${GITHUB}">Source on GitHub</a></footer>
+  <footer class="dev-foot"><a href="${GITHUB}">Source on GitHub</a> · <a href="/help/credits">Credits</a></footer>
   <script src="${escapeHtml(assets.script)}" defer></script>
 </body>
 </html>

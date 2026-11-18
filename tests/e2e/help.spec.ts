@@ -28,7 +28,7 @@ test("the landing screen's Help link opens the index, and the index opens a page
   await expect(page).toHaveURL(/\/help$/);
   const index = page.getByTestId('help-index');
   await expect(index.getByRole('heading', { level: 1 })).toHaveText('Help');
-  await expect(index.getByRole('listitem')).toHaveCount(5);
+  await expect(index.getByRole('listitem')).toHaveCount(6);
   await index.getByRole('link', { name: 'Playing discs' }).click();
   await expect(page).toHaveURL(/\/help\/playing-discs$/);
   await expect(page.getByTestId('help-page').getByRole('heading', { level: 1 })).toHaveText('Playing discs');
@@ -64,4 +64,13 @@ test.describe('offline', () => {
     await page.goto('/help/nas');
     await expect(page.getByTestId('help-page').getByRole('heading', { level: 1 })).toHaveText('NAS');
   });
+});
+
+test('the Credits page shows the FreeType notice and the CC BY attribution', async ({ page }) => {
+  await page.goto('/help/credits');
+  const article = page.getByTestId('help-page');
+  await expect(article.getByRole('heading', { level: 1 })).toHaveText('Credits');
+  await expect(article).toContainText('Portions of this software are copyright © The FreeType Project (www.freetype.org). All rights reserved.');
+  await expect(article).toContainText('Stumpy Lake forest in HD');
+  await expect(article.locator('a[href="http://creativecommons.org/licenses/by/2.5/"]')).toBeVisible();
 });
