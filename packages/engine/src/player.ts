@@ -958,6 +958,8 @@ export class Player {
           // ASS collision memory belongs to what was on screen before the seek
           for (const f of this.textTrack?.files ?? []) if (f.renderer instanceof AssRenderer) f.renderer.reset();
           for (const a of this.encodeSubs?.ass.values() ?? []) a.reset();
+          // a stall that stepped interlaced video down to frame rate may have passed: the user's seek tries field rate again
+          this.session?.deinterlace?.video.returnToFieldRate();
           await this.startAt(cmd.timeUs, this.wantPlaying);
           break;
         case 'selectAudio':

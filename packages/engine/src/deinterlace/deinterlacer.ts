@@ -246,7 +246,8 @@ export class Deinterlacer {
    *    interpolated cheaply) at the frame's time, an even 29.97 or 25 a second, in place of field rate, so a device
    *    that can't keep up shows steady pictures instead of dropping them unevenly.
    *
-   * A seek or new play item (`reset`) and `restartPacing` empty the window; a step taken stays.
+   * A seek or new play item (`reset`) and `restartPacing` empty the window; a step taken stays, except that a seek the
+   * user makes takes the second back (`returnToFieldRate`).
    */
   notePacing(late: boolean): void {
     if (this.detector.frameRate) return;
@@ -265,6 +266,18 @@ export class Deinterlacer {
       return;
     }
     this.fallback = true;
+    this.restartPacing();
+    this.graceLeft = PACING_STEP_GRACE;
+  }
+
+  /**
+   * The user seeked: video goes back to field rate (the cheap path stays), and the pacing window starts again after
+   * the grace a step takes, so a device still too slow steps down again after a full window. A stall that passed (a
+   * tab in the background, a burst of work) then no longer holds the rest of the playlist at frame rate.
+   */
+  returnToFieldRate(): void {
+    if (!this.detector.frameRate) return;
+    this.detector.frameRate = false;
     this.restartPacing();
     this.graceLeft = PACING_STEP_GRACE;
   }

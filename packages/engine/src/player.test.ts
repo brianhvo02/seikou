@@ -3889,6 +3889,36 @@ describe('Player with interlaced video (deinterlacing)', () => {
     expect(after.every((op) => op.kind === 'interpolate' && op.field === 'top')).toBe(true);
   });
 
+  it('a seek returns field rate after the frame-rate step, and a device still too slow steps down again', async () => {
+    const fake = fakeDeinterlace();
+    const h = await harness(CodingType.LPCM, { videoFormat: 4, videoCodecApi: interlacedApi, createDeinterlaceBackend: fake.factory, clipSeconds: 40 });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await h.play(1100);
+    const slowTicks = async (ms: number): Promise<void> => {
+      for (let t = 0; t < ms; t += 4 * STEP_MS) {
+        await h.play(3 * STEP_MS - 1, { render: false });
+        await h.play(1);
+      }
+    };
+    const stepDown = async (): Promise<void> => {
+      for (let s = 0; s < 34 && !h.player.deinterlaceState.stats?.frameRate; s++) await slowTicks(1000);
+      expect(h.player.deinterlaceState.stats).toMatchObject({ mode: 'video', fallback: true, frameRate: true });
+    };
+    await stepDown();
+    // the user seeks: field rate again (the cheap path stays), both fields of each frame drawn at a healthy pace
+    await h.player.handle({ type: 'seek', timeUs: 2_000_000 });
+    await untilPlaying(h);
+    expect(h.player.deinterlaceState.stats).toMatchObject({ mode: 'video', fallback: true, frameRate: false });
+    const drawn = fake.ops.length;
+    await h.play(1100);
+    expect(h.player.deinterlaceState.stats).toMatchObject({ frameRate: false });
+    const after = fake.ops.slice(drawn);
+    expect(after.some((op) => op.kind === 'interpolate' && op.field === 'bottom')).toBe(true);
+    // still too slow: it steps down again after its windows
+    await stepDown();
+  }, 60_000);
+
   it('captureVideo (test-only) answers once with the first picture drawn at or after its time, and only in telemetry runs', async () => {
     const drawnImages: unknown[] = [];
     vi.stubGlobal('OffscreenCanvas', class {

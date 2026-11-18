@@ -224,6 +224,11 @@ export class InterlacedVideo {
     this.pacing.settle();
   }
 
+  /** The user seeked: field rate again after the frame-rate step (`Deinterlacer.returnToFieldRate`). */
+  returnToFieldRate(): void {
+    this.deinterlacer?.returnToFieldRate();
+  }
+
   /** A seek: the frames and the cadence are forgotten; pictures handed out before draw nothing new. */
   reset(): void {
     this.pacing.settle();
