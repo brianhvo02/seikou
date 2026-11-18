@@ -2,7 +2,7 @@ import { copyFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import { SERVER_VENDORED } from '../vite/licenses-plugin.ts';
-import { formatLicenses, readPackageLicenses, readVendored, rootsFromMetafile } from '../vite/third-party-licenses.ts';
+import { formatLicenses, SERVER_OWN_SOURCES, readPackageLicenses, readVendored, rootsFromMetafile } from '../vite/third-party-licenses.ts';
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 
@@ -27,7 +27,7 @@ copyFileSync(new URL('../node_modules/7z-wasm/7zz.wasm', import.meta.url), new U
 
 // The licence of every package esbuild put in the bundle (7z-wasm's WASM is copied beside it, so it counts), and the vendored
 // notices; a bundled package without a licence file fails the build.
-const roots = rootsFromMetafile(result.metafile.inputs, repoRoot);
+const roots = rootsFromMetafile(result.metafile.inputs, repoRoot, SERVER_OWN_SOURCES);
 roots.add(`${repoRoot}node_modules/7z-wasm`);
 writeFileSync(
   new URL('dist/third-party-licenses.txt', import.meta.url),

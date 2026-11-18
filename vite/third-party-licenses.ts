@@ -153,18 +153,24 @@ export function formatLicenses(title: string, sections: readonly { heading: stri
   return out.join('\n');
 }
 
+/** The repo-relative directories whose sources the NAS server's bundle holds besides packages: ours, so they need no licence entry. */
+export const SERVER_OWN_SOURCES: readonly string[] = ['server/src', 'packages', 'rendezvous/src'];
+
 /**
  * The package roots of the modules an esbuild metafile lists as inputs. esbuild reports them relative to its working
- * directory, so `baseDir` must be that directory (the build passes it as `absWorkingDir`). An input under a
- * `node_modules` that names no package is an error, never skipped.
+ * directory, so `baseDir` must be that directory (the build passes the same one as `absWorkingDir`). An input that
+ * is in a `node_modules` package is collected; one under `ownDirs` (absolute, or relative to `baseDir`) is our own
+ * source; anything else is an error, never skipped.
  */
-export function rootsFromMetafile(inputs: Record<string, unknown>, baseDir: string): Set<string> {
+export function rootsFromMetafile(inputs: Record<string, unknown>, baseDir: string, ownDirs: readonly string[] = []): Set<string> {
   const roots = new Set<string>();
+  const own = ownDirs.map((d) => resolve(baseDir, d) + '/');
   for (const key of Object.keys(inputs)) {
     const path = resolve(baseDir, key);
     const root = packageRootOf(path);
     if (root) roots.add(root);
-    else if (path.includes('/node_modules/')) throw new Error(`Bundled input names no package: ${key}`);
+    else if (!path.includes('/node_modules/') && own.some((d) => path.startsWith(d))) continue;
+    else throw new Error(`Bundled input is neither our own source nor in a package: ${key}`);
   }
   return roots;
 }

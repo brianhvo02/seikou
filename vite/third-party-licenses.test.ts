@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { formatLicenses, MissingLicenseError, packageRootOf, readPackageLicenses, readVendored, rootsFromMetafile } from './third-party-licenses.ts';
 
@@ -63,7 +65,7 @@ describe('vendored works, metafile roots and formatting', () => {
     expect(() => readVendored(root, [{ name: 'Y', version: '', license: 'MIT', files: ['nope'] }])).toThrow(/nope/);
   });
   it('maps esbuild inputs to package roots', () => {
-    const roots = rootsFromMetafile({ 'node_modules/werift/lib/a.js': {}, 'src/main.ts': {}, '../packages/nas/src/a.ts': {} }, '/repo/server');
+    const roots = rootsFromMetafile({ 'node_modules/werift/lib/a.js': {}, 'src/main.ts': {}, '../packages/nas/src/a.ts': {} }, '/repo/server', ['/repo/server/src', 'src', '/repo/packages']);
     expect([...roots]).toEqual(['/repo/server/node_modules/werift']);
   });
   it('lists name, version, licence and text', () => {
@@ -72,12 +74,30 @@ describe('vendored works, metafile roots and formatting', () => {
   });
 
   it('resolves metafile paths against the directory esbuild ran in, and refuses an input that names no package', () => {
-    const roots = rootsFromMetafile({ '../node_modules/werift/lib/a.js': {}, '../node_modules/@scope/pkg/x.js': {}, 'src/main.ts': {} }, '/repo/server');
+    const roots = rootsFromMetafile({ '../node_modules/werift/lib/a.js': {}, '../node_modules/@scope/pkg/x.js': {}, 'src/main.ts': {} }, '/repo/server', ['/repo/server/src', 'src', '/repo/packages']);
     expect([...roots].sort()).toEqual(['/repo/node_modules/@scope/pkg', '/repo/node_modules/werift']);
-    expect(() => rootsFromMetafile({ 'node_modules/@scope': {} }, '/repo')).toThrow(/names no package/);
+    expect(() => rootsFromMetafile({ 'node_modules/@scope': {} }, '/repo')).toThrow(/neither our own/);
   });
 
   it('fails for a package root with no package.json', () => {
     expect(() => readPackageLicenses(['/nonexistent/node_modules/ghost'])).toThrow(MissingLicenseError);
   });
+
+  it('refuses an input that is neither our own source nor in a package', () => {
+    const own = ['/repo/server/src', '/repo/packages'];
+    expect([...rootsFromMetafile({ 'server/src/a.ts': {}, 'packages/nas/src/b.ts': {}, 'node_modules/werift/x.js': {} }, '/repo', own)]).toEqual(['/repo/node_modules/werift']);
+    expect(() => rootsFromMetafile({ 'vendor/lib/a.js': {} }, '/repo', own)).toThrow(/vendor\/lib\/a\.js/);
+  });
+
+  it('builds the same licence list whatever directory the build runs from', () => {
+    const repo = fileURLToPath(new URL('../', import.meta.url));
+    const out = join(repo, 'server/dist/third-party-licenses.txt');
+    const run = (cwd: string): string => {
+      execFileSync(process.execPath, [join(repo, 'server/build.mjs')], { cwd, stdio: 'pipe' });
+      return readFileSync(out, 'utf8');
+    };
+    const here = run(repo);
+    expect(here).toContain('werift');
+    expect(run(tmpdir())).toBe(here);
+  }, 60_000);
 });
