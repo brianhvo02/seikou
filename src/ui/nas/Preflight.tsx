@@ -388,7 +388,7 @@ export function Preflight({ nas, controller, disc, playlistId, title, startTimeS
         }
         const { spec, release } = nasDiscSpec(base, token, opened, nas.discFetch, atLevel ? { at, original: manifest } : undefined);
         controller.openRemote(spec, () => nas.freshSession(token).then((s) => (token = s.token)), release, bufferFirst, start);
-        levelSession.begin({ discId: disc.id, levels: levelList, at, original: manifest, choice: { connectionMbps: mbps ?? Infinity, phone: caps?.phone ?? false, originalMbps } });
+        levelSession.begin({ discId: disc.id, levels: levelList, at, original: manifest, choice: { connectionMbps: mbps ?? Infinity, phone: caps?.phone ?? false, originalMbps }, wasmVideo: wasmCoding !== null });
         places.begin(
           {
             discKey, discId: disc.id, remote: true, chosen: start?.playlistId ?? null, mainPlaylistId: mainPlaylistId(manifest),

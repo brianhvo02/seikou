@@ -543,22 +543,18 @@ test('an MPEG-2 disc plays with a picture at a re-encoded level', async ({ page,
 
 test('an MPEG-2 disc on the NAS opens at Original with a picture where the probe passes', async ({ page, browserName }) => {
   test.setTimeout(120_000);
-  await openLibrary(page, browserName);
+  // ?wasmfast=1: the speed probe answers fast without measuring, so a slow runner still takes Original; the picture
+  // below is what shows the decoder runs here
+  await openLibrary(page, browserName, '&wasmfast=1');
   const levelManifests: string[] = [];
   page.on('request', (r) => {
     if (r.url().includes('/manifest?level=')) levelManifests.push(r.url());
   });
   await discRow(page, 'disc-mpeg2-interlaced').click();
-  // the levels are asked once the speed probe has answered (within the pre-flight's 10 s)
-  await expect(page.getByTestId('level-list')).toBeVisible({ timeout: 40_000 });
-  const speed = await page.evaluate(() => JSON.parse(localStorage.getItem('bluray-web:wasm-video-speed') ?? 'null') as { mpeg2Fps: number } | null);
-  test.skip(speed === null, 'the decode speed probe could not run here');
+  await expect(page.getByTestId('level-list')).toBeVisible({ timeout: 20_000 });
   const original = page.locator('[data-testid="level-option"][data-level="original"]');
-  // the decoder runs here, fast or slow: Original is offered
   await expect(original).toBeEnabled();
   await expect(page.getByTestId('nas-play')).toBeEnabled({ timeout: 20_000 });
-  // fast preselects Original; slow a re-encoded level, with Original still offered
-  test.skip(speed!.mpeg2Fps < (1.5 * 30000) / 1001, `this machine decodes MPEG-2 at ${speed!.mpeg2Fps.toFixed(0)} fps, too slowly for Original`);
   await expect(original).toBeChecked();
   await page.getByTestId('nas-play').click();
   await startPlaylistIfPicked(page);

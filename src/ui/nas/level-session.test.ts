@@ -163,7 +163,7 @@ describe('LevelSession and the decoder at Original', () => {
 
   it('a failed decoder at Original switches to the auto level', async () => {
     const t = setup();
-    t.session.begin({ discId: 'd1', levels: mpeg2Levels, at: ORIGINAL_AT, original, choice });
+    t.session.begin({ discId: 'd1', levels: mpeg2Levels, at: ORIGINAL_AT, original, choice, wasmVideo: true });
     const at = t.session.troubleSwitch({ reason: 'failed', ...nasDisc });
     // the audio that plays goes on at the level, as a Quality menu pick from Original
     expect(at).toEqual({ level: 'h264-1080', audio: 2 });
@@ -176,25 +176,38 @@ describe('LevelSession and the decoder at Original', () => {
 
   it('slow at Original switches too, and nothing switches on a local disc', () => {
     const t = setup();
-    t.session.begin({ discId: 'd1', levels: mpeg2Levels, at: ORIGINAL_AT, original, choice: { ...choice, phone: true } });
+    t.session.begin({ discId: 'd1', levels: mpeg2Levels, at: ORIGINAL_AT, original, choice: { ...choice, phone: true }, wasmVideo: true });
     expect(t.session.troubleSwitch({ reason: 'slow', ...nasDisc })).toEqual({ level: 'phone-720', audio: 2 });
     // a local disc: no NAS disc open, so no session state, or a stale one for a disc no longer open
     const local = setup();
     expect(local.session.troubleSwitch({ reason: 'failed', remoteDisc: false, playingAudio: 1 })).toBeNull();
-    local.session.begin({ discId: 'd1', levels: mpeg2Levels, at: ORIGINAL_AT, original, choice });
+    local.session.begin({ discId: 'd1', levels: mpeg2Levels, at: ORIGINAL_AT, original, choice, wasmVideo: true });
     expect(local.session.troubleSwitch({ reason: 'failed', remoteDisc: false, playingAudio: 1 })).toBeNull();
+  });
+
+  it("a decoder trouble switch happens only when the disc's main video is MPEG or VC-1", () => {
+    // an H.264 main feature with an MPEG-2 menu: the menu's decoder trouble keeps the viewing at Original
+    for (const wasmVideo of [false, undefined]) {
+      const t = setup();
+      t.session.begin({ discId: 'd1', levels: mpeg2Levels, at: ORIGINAL_AT, original, choice, ...(wasmVideo === undefined ? {} : { wasmVideo }) });
+      expect(t.session.troubleSwitch({ reason: 'slow', ...nasDisc })).toBeNull();
+      expect(t.session.troubleSwitch({ reason: 'failed', ...nasDisc })).toBeNull();
+    }
+    const t = setup();
+    t.session.begin({ discId: 'd1', levels: mpeg2Levels, at: ORIGINAL_AT, original, choice, wasmVideo: true });
+    expect(t.session.troubleSwitch({ reason: 'failed', ...nasDisc })?.level).toBe('h264-1080');
   });
 
   it('nothing switches at a re-encoded level, or with no re-encoded level available', () => {
     const t = setup();
-    t.session.begin({ discId: 'd1', levels: mpeg2Levels, at: H264, original, choice });
+    t.session.begin({ discId: 'd1', levels: mpeg2Levels, at: H264, original, choice, wasmVideo: true });
     expect(t.session.troubleSwitch({ reason: 'failed', ...nasDisc })).toBeNull();
     const busy = setup();
-    busy.session.begin({ discId: 'd1', levels: [mpeg2Levels[0]!, { ...mpeg2Levels[1]!, available: false, reason: 'busy' }], at: ORIGINAL_AT, original, choice });
+    busy.session.begin({ discId: 'd1', levels: [mpeg2Levels[0]!, { ...mpeg2Levels[1]!, available: false, reason: 'busy' }], at: ORIGINAL_AT, original, choice, wasmVideo: true });
     expect(busy.session.troubleSwitch({ reason: 'failed', ...nasDisc })).toBeNull();
     // without the pre-flight's choice, the first available re-encoded level
     const plain = setup();
-    plain.session.begin({ discId: 'd1', levels: mpeg2Levels, at: ORIGINAL_AT, original });
+    plain.session.begin({ discId: 'd1', levels: mpeg2Levels, at: ORIGINAL_AT, original, wasmVideo: true });
     expect(plain.session.troubleSwitch({ reason: 'slow', ...nasDisc })?.level).toBe('h264-1080');
   });
 });

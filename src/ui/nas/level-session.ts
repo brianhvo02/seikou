@@ -59,6 +59,8 @@ export class LevelSession {
   private choice: LevelChoice = NO_CHOICE;
   /** The decoder's trouble already switched this disc open away from Original (once per open). */
   private troubleHandled = false;
+  /** The disc's main video is MPEG-1, MPEG-2 or VC-1: its Original plays through the app's own decoder. */
+  private wasmVideo = false;
 
   constructor(private readonly nas: NasClient) {}
 
@@ -73,13 +75,15 @@ export class LevelSession {
 
   /**
    * Called after a pre-flight opens a disc. A disc still held from before is released first. `choice`: what the
-   * pre-flight's auto choice was made from, for a switch away from a decoder in trouble.
+   * pre-flight's auto choice was made from, for a switch away from a decoder in trouble. `wasmVideo`: the disc's main
+   * video is MPEG-1, MPEG-2 or VC-1 (false when absent), the one case a decoder in trouble switches the disc.
    */
-  begin(s: { discId: string; levels: readonly LevelInfo[]; at: LevelAt; original: DiscManifest; choice?: LevelChoice }): void {
+  begin(s: { discId: string; levels: readonly LevelInfo[]; at: LevelAt; original: DiscManifest; choice?: LevelChoice; wasmVideo?: boolean }): void {
     this.end();
     this.original = s.original;
     this.choice = s.choice ?? NO_CHOICE;
     this.troubleHandled = false;
+    this.wasmVideo = s.wasmVideo === true;
     this.state = { discId: s.discId, levels: s.levels, at: s.at, notice: null };
     this.notify();
   }
@@ -99,13 +103,14 @@ export class LevelSession {
 
   /**
    * The MPEG-1, MPEG-2 or VC-1 decoder failed or can't keep up (the snapshot's videoDecoderTrouble): the version to
-   * switch to (switchTo), once per disc open, when a NAS disc plays at Original and a re-encoded level is available: the
-   * auto choice among the re-encoded levels, with the audio that plays (`playingAudio`, Original numbering). Null
-   * otherwise: a local disc (`remoteDisc` false) plays on without a picture.
+   * switch to (switchTo), once per disc open, when a NAS disc whose main video is MPEG-1, MPEG-2 or VC-1 (begin's
+   * `wasmVideo`) plays at Original and a re-encoded level is available: the auto choice among the re-encoded levels, with
+   * the audio that plays (`playingAudio`, Original numbering). Null otherwise: a local disc (`remoteDisc` false) plays on
+   * without a picture, and an H.264 or HEVC disc whose menu or extras are MPEG or VC-1 keeps its main feature at Original.
    */
   troubleSwitch(t: { readonly reason: 'failed' | 'slow'; readonly remoteDisc: boolean; readonly playingAudio: number | null }): LevelAt | null {
     const state = this.state;
-    if (!state || !t.remoteDisc || this.troubleHandled || state.at.level !== 'original') return null;
+    if (!state || !t.remoteDisc || !this.wasmVideo || this.troubleHandled || state.at.level !== 'original') return null;
     const level = troubleLevel(state.levels, this.choice);
     if (level === null) return null;
     this.troubleHandled = true;

@@ -93,6 +93,8 @@ export interface WasmSpeedEnv {
   hidden(): boolean;
   /** Runs the engine's decode speed probe (null when it could not run). */
   probe(): Promise<VideoDecoderSpeed | null>;
+  /** Test-only (`?wasmfast=1`): both codings answer `fast` at once, with nothing probed or stored. */
+  readonly forceFast?: boolean;
 }
 
 const UNKNOWN = { mpeg2: 'unknown', vc1: 'unknown' } as const;
@@ -104,6 +106,7 @@ const UNKNOWN = { mpeg2: 'unknown', vc1: 'unknown' } as const;
  * out) or throws. Never rejects.
  */
 export async function measureWasmVideo(env: WasmSpeedEnv): Promise<{ mpeg2: WasmSpeedClass; vc1: WasmSpeedClass }> {
+  if (env.forceFast) return { mpeg2: 'fast', vc1: 'fast' };
   const now = env.now();
   const stored = readStoredWasmSpeed(env.storage, env.moduleUrl, env.clips, now);
   if (stored) return wasmVideoPlayable(stored);
@@ -155,6 +158,17 @@ export function noAv1Flag(search: string): boolean {
  * navigates): the AV1 check then says unsupported, so an encode's pre-flight shows its AV1 warning in any browser.
  */
 const NO_AV1 = typeof location !== 'undefined' && noAv1Flag(location.search);
+
+/** Whether a page address's query carries the test-only `wasmfast` flag, which makes the decode speed probe answer `fast`. */
+export function wasmFastFlag(search: string): boolean {
+  return new URLSearchParams(search).has('wasmfast');
+}
+
+/**
+ * `?wasmfast=1` (test-only), read once as the app loads: wasmVideoPlayability answers `fast` for MPEG-2 and VC-1 without
+ * measuring, so the NAS offers and preselects Original for such a disc on any runner, however fast it decodes.
+ */
+const WASM_FAST = typeof location !== 'undefined' && wasmFastFlag(location.search);
 
 /** detectAv1 in this browser; never rejects. `?noav1=1` (test-only) makes it false. */
 export function av1Playable(codec?: string): Promise<boolean> {
@@ -280,6 +294,7 @@ export function wasmVideoPlayability(probe: () => Promise<VideoDecoderSpeed | nu
     now: () => Date.now(),
     hidden: () => typeof document !== 'undefined' && document.visibilityState === 'hidden',
     probe,
+    forceFast: WASM_FAST,
   });
   const result = run.then((r) => {
     if (r.mpeg2 === 'unknown' && r.vc1 === 'unknown' && wasmPlayability === result) wasmPlayability = null;

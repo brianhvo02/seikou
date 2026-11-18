@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { VideoDecoderSpeed } from '@seikou/engine/protocol';
-import { browserIsTypeSupported, detectAv1, detectVideoCaps, loadVideoCaps, measureWasmVideo, noAv1Flag, wasmVideoPlayable, type VideoCapsEnv, type WasmSpeedEnv } from './video-caps';
+import { browserIsTypeSupported, detectAv1, detectVideoCaps, loadVideoCaps, measureWasmVideo, noAv1Flag, wasmFastFlag, wasmVideoPlayable, type VideoCapsEnv, type WasmSpeedEnv } from './video-caps';
 
 function env(over: Partial<VideoCapsEnv> = {}): VideoCapsEnv {
   return {
@@ -206,6 +206,16 @@ describe('measureWasmVideo', () => {
     ...over,
   });
   const stored = (storage: { getItem(k: string): string | null }) => JSON.parse(storage.getItem('bluray-web:wasm-video-speed') ?? 'null');
+
+  it('?wasmfast=1 (test-only) answers fast for both without probing or storing', async () => {
+    const storage = memoryStorage();
+    const probe = vi.fn(async () => speed(10, 10));
+    expect(await measureWasmVideo(mk({ probe, forceFast: true }, storage))).toEqual({ mpeg2: 'fast', vc1: 'fast' });
+    expect(probe).not.toHaveBeenCalled();
+    expect(stored(storage)).toBeNull();
+    expect(wasmFastFlag('?telemetry=1&wasmfast=1')).toBe(true);
+    expect(wasmFastFlag('?telemetry=1')).toBe(false);
+  });
 
   it('the playability API distinguishes fast, slow and unknown', async () => {
     expect(await measureWasmVideo(mk({ probe: async () => speed(80, 80) }))).toEqual({ mpeg2: 'fast', vc1: 'fast' });
