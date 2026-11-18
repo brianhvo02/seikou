@@ -84,6 +84,7 @@ import { looksLikeAss, parseAss } from '@seikou/ass/parse';
 import { AssRenderer, type AssRendererDeps } from '@seikou/ass/renderer';
 import { MEMORY_PROFILES, type MemoryProfile, type MemoryProfileName } from './memory-profile';
 import { ClockBlockWriter, ClockLine } from './element/clock-block';
+import { PresentationClock } from './render/presentation-clock';
 import { elementStream } from './element/remux';
 import { elementQuery, frameRateOf } from './element/element-query';
 import { createGlDeinterlaceBackend, webglSoftwareRenderer } from './deinterlace/gl-backend';
@@ -723,6 +724,8 @@ export class Player {
   private clockWriter: ClockBlockWriter | null = null;
   /** Smooths the stepped audio clock into the line the clock block publishes. */
   private readonly clockLine = new ClockLine();
+  /** The time the canvas path picks pictures by: the same line through the audio clock's steps (presentUs). */
+  private readonly presentClock = new PresentationClock();
   /** The page's answers to whether its video element plays a codec, for the page's life, and the questions still open. */
   private readonly elementQueries: ElementCodecQueries;
   /** The element's presented and dropped frames, totals since its source opened (videoSync); telemetry on the element path. */
@@ -1028,9 +1031,11 @@ export class Player {
     this.updatePlayback(s);
     this.syncNavigator(s);
     const now = this.clock.nowUs();
-    const frame = this.presenter.select(now);
+    const showUs = this.presentUs();
+    const frame = this.presenter.select(showUs);
+    // the offset is measured against the audio clock itself, not the time the picture was picked by
     if (frame && this.state === 'playing') this.offsets.push(now - frame.timestamp);
-    this.notePicturePacing(s, frame, now);
+    this.notePicturePacing(s, frame, showUs);
     // without a picture the first frame is the black one with the planes over it, composited once the playlist plays
     const blank = !this.hasPicture(s) && this.state === 'playing' && !s.blankComposited;
     if (blank) {
@@ -4005,6 +4010,15 @@ export class Player {
     }
   }
 
+  /**
+   * The playlist time the canvas path picks pictures by and judges them late or dropped against: the audio clock
+   * smoothed between its steps (PresentationClock), so pictures at field rate, finer than a step, are each shown once.
+   * Everything else (audio, subtitles, the navigator, the end of a playlist, telemetry) follows the clock itself.
+   */
+  private presentUs(): number {
+    return this.presentClock.at(this.clock.nowUs(), this.state === 'playing' && !this.held, this.deps.nowMs());
+  }
+
   /** Writes the clock to the clock block (when the page gave one): the line through the audio clock's steps, running once it moves. */
   private publishClock(): void {
     const writer = this.clockWriter;
@@ -4184,7 +4198,7 @@ export class Player {
 
   private isFull(s: Session): boolean {
     // Rendering can be throttled (background tab); drop late frames here so reading never stalls on them.
-    if (this.state === 'playing') this.presenter.dropLate(this.clock.nowUs());
+    if (this.state === 'playing') this.presenter.dropLate(this.presentUs());
     this.feedDecoder(s);
     this.fillMissingAudio(s); // also drains the queued chunks
     return this.readerBlocked(s) || (s.audioActive && (this.audioWriter?.queuedChunks ?? 0) > 0);
@@ -4319,7 +4333,7 @@ export class Player {
     const skip = s.wasmSkip;
     const decoder = s.decoder;
     if (!skip || !(decoder instanceof WasmVideoDecoder) || this.session !== s || this.state !== 'playing') return;
-    const lateUs = this.clock.nowUs() - ptsUs;
+    const lateUs = this.presentUs() - ptsUs;
     if (!skip.on) {
       if (lateUs <= skip.frameUs) return;
       skip.on = true;
