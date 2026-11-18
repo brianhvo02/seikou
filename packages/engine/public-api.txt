@@ -28,6 +28,7 @@ EngineCommand
 EngineEvent
 Telemetry
 BdjTelemetry
+VideoDecoderSpeed
 BdjStartup
 BdjMemoryTelemetry
 StartPoint

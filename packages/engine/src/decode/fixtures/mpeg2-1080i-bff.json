@@ -1,0 +1,242 @@
+[
+ {
+  "ptsUs": 0,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "I",
+  "keyFrame": true
+ },
+ {
+  "ptsUs": 33367,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 66733,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 100100,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "P",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 133467,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 166833,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 200200,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "P",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 233567,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 266933,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 300300,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "P",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 333667,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 367033,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 400400,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "I",
+  "keyFrame": true
+ },
+ {
+  "ptsUs": 433767,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 467133,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 500500,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "P",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 533867,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 567233,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 600600,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "P",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 633967,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 667333,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 700700,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "P",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 734067,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 767433,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 800800,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "I",
+  "keyFrame": true
+ },
+ {
+  "ptsUs": 834167,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 867533,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 900900,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "P",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 934267,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 967633,
+  "interlaced": true,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "P",
+  "keyFrame": false
+ }
+]

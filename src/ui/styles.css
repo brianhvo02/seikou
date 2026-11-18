@@ -560,13 +560,16 @@ code { font-family: var(--mono); font-size: 0.9em; }
   .app-bar { padding-top: max(14px, env(safe-area-inset-top)); }
   .browsing .app-bar { gap: 10px; padding-bottom: 10px; }
   /* the switch and Help leave no room for the disc picker beside the name: it takes its own row, as at home */
-  .browsing .app-bar { --bar-pad-bottom: 10px; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'name help' 'drop drop'; }
-  .browsing .app-bar:has(.library-tabs) { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'name help' 'drop drop' 'tabs tabs'; }
+  .browsing .app-bar { --bar-pad-bottom: 10px; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: 'name help' 'drop drop'; }
+  .browsing .app-bar:has(.library-tabs) { grid-template-columns: auto minmax(0, 1fr); grid-template-areas: 'name help' 'drop drop' 'tabs tabs'; }
   /* on a phone the tabs take their own row under the bar, at full width */
   .library-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 0; margin-left: 0; }
   .library-tab { font-size: 1rem; }
   .library-tab[aria-current='page']::after { left: 22%; right: 22%; }
-  .app-bar .app-tools { gap: 10px; }
+  /* the theme switch, Disc preferences and Help don't fit beside the name on a phone: the tools wrap under the switch
+     instead of widening the page (a page wider than the screen is zoomed out to fit) */
+  .app-bar { grid-template-columns: auto minmax(0, 1fr); }
+  .app-bar .app-tools { gap: 4px 10px; flex-wrap: wrap; justify-content: flex-end; }
   .theme-option { padding: 5px 8px; }
   .theme-word { display: none; }
   .theme-icon { display: block; }

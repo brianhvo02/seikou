@@ -77,3 +77,16 @@ FFmpeg (https://ffmpeg.org), LGPL-2.1-or-later
 FFmpeg decoders (wasm/audio/), LGPL-2.1-or-later
   audio.wasm is built from FFmpeg n9.0.2 (ac3, eac3, dca decoders) and wasm/audio/shim.c.
   See wasm/audio/NOTICE for the exact source and build.
+
+FFmpeg decoders (wasm/video/), LGPL-2.1-or-later
+  video.wasm is built from FFmpeg n9.0.2 (mpeg1video, mpeg2video and vc1 decoders, mpegvideo and vc1 parsers) and
+  wasm/video/shim.c. See wasm/video/NOTICE for the exact source and build. decode/wasm-video.ts, which loads it, is
+  original code.
+
+wasm/video/bench/vc1-1080i.vc1 is third-party material, not Seikou's own code and not derived from the projects above.
+  "Stumpy Lake forest in HD" by Microdac, 2008
+  https://archive.org/details/MicrodacStumpyLakeforestinHD
+  Licensed under Creative Commons Attribution 2.5 Generic (CC BY 2.5),
+  https://creativecommons.org/licenses/by/2.5/
+  Changed for Seikou (2026): the video was cut to its first 15 frames without re-encoding, as a VC-1 elementary stream
+  with no audio. See wasm/video/bench/README.md.

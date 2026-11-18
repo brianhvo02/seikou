@@ -19,6 +19,7 @@ export const HELP_PAGES: readonly HelpPage[] = [
   { slug: 'nas', file: 'docs/nas.md', title: 'NAS' },
   { slug: 'troubleshooting', file: 'docs/troubleshooting.md', title: 'Troubleshooting' },
   { slug: 'self-hosting', file: 'docs/self-hosting.md', title: 'Run your own server' },
+  { slug: 'credits', file: 'docs/credits.md', title: 'Credits' },
 ];
 
 const GITHUB_BLOB = 'https://github.com/brianhvo02/seikou/blob/main/';

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { describe, expect, it } from 'vitest';
-import type { FrameMetrics, PictureOp } from './cadence';
-import type { DeinterlaceBackend, Picture } from './deinterlacer';
+import { describe, expect, it, vi } from 'vitest';
+import { CadenceDetector, type FrameMetrics, type PictureOp } from './cadence';
+import { Deinterlacer, type DeinterlaceBackend, type Picture } from './deinterlacer';
 import type { FieldInput } from './field-input';
 import { InterlacedVideo } from './interlaced-video';
 
@@ -11,6 +11,8 @@ const COMBED: FrameMetrics = { combWoven: 0.2, combMatchPrev: 0.2, combMatchNext
 function setup(opts: { ringSize?: number; noBackend?: boolean } = {}) {
   const made: Array<[number, number]> = [];
   const uploads: number[] = [];
+  /** The previous-neighbour slot each measurement was given. */
+  const measuredPrev: Array<number | null> = [];
   const ops: PictureOp[] = [];
   let disposed = 0;
   const bitmaps: Array<{ closed: boolean }> = [];
@@ -27,7 +29,10 @@ function setup(opts: { ringSize?: number; noBackend?: boolean } = {}) {
     upload: (_slot, planes) => {
       uploads.push(planes.data[0]!);
     },
-    measure: async () => COMBED,
+    measure: async (prev) => {
+      measuredPrev.push(prev);
+      return COMBED;
+    },
     render: (op) => {
       ops.push(op);
       return canvas;
@@ -46,7 +51,7 @@ function setup(opts: { ringSize?: number; noBackend?: boolean } = {}) {
     ringSize: opts.ringSize ?? 12,
     onPictures: (p) => pictures.push(...p),
   });
-  return { video, made, uploads, ops, pictures, bitmaps, disposed: () => disposed };
+  return { video, made, uploads, measuredPrev, ops, pictures, bitmaps, disposed: () => disposed };
 }
 
 /** A frame whose planes buffer is shared, as the decoder's is: the video must copy what it keeps. */
@@ -64,6 +69,8 @@ function input(i: number): FieldInput {
 }
 
 const settle = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
+const pushOriginal = CadenceDetector.prototype.push;
+const cadenceBreakOriginal = CadenceDetector.prototype.cadenceBreak;
 
 describe('InterlacedVideo', () => {
   it('keeps the backend for a session of the same size, and makes a new one for another size', () => {
@@ -120,6 +127,39 @@ describe('InterlacedVideo', () => {
     for (const p of t.pictures) p.close();
     t.video.pump();
     expect(t.uploads).toEqual([7, 8]);
+  });
+
+  it('a frame after a skip breaks the cadence where the detector reaches it, keeping the stream and its neighbours', async () => {
+    const t = setup();
+    t.video.start(8, 8, FRAME_US);
+    const flush = vi.spyOn(Deinterlacer.prototype, 'flush');
+    const pushes: string[] = [];
+    const push = vi.spyOn(CadenceDetector.prototype, 'push').mockImplementation(function (this: CadenceDetector, seq, ts, flags, m) {
+      pushes.push(`push ${Math.round(ts / FRAME_US)}`);
+      return pushOriginal.call(this, seq, ts, flags, m);
+    });
+    const cadenceBreak = vi.spyOn(CadenceDetector.prototype, 'cadenceBreak').mockImplementation(function (this: CadenceDetector) {
+      pushes.push('break');
+      return cadenceBreakOriginal.call(this);
+    });
+    try {
+      for (let i = 0; i < 3; i++) t.video.push(input(i));
+      // frame 3 was skipped by the decoder: frame 4 comes next, marked
+      t.video.push({ ...input(4), afterSkip: true });
+      t.video.push(input(5));
+      await t.video.flush();
+      expect(flush).toHaveBeenCalledTimes(1); // only the flush asked for at the end
+      expect(pushes).toEqual(['push 0', 'push 1', 'push 2', 'break', 'push 4', 'push 5']);
+      // every frame after the first was measured with its previous frame as neighbour, across the gap too
+      expect(t.measuredPrev.slice(1).every((p) => p !== null)).toBe(true);
+      expect(t.uploads).toEqual([0, 1, 2, 4, 5]);
+      const frames = new Set(t.pictures.map((p) => Math.floor(p.timestamp / FRAME_US + 1e-6)));
+      expect([...frames].sort((a, b) => a - b)).toEqual([0, 1, 2, 4, 5]);
+    } finally {
+      flush.mockRestore();
+      push.mockRestore();
+      cadenceBreak.mockRestore();
+    }
   });
 
   it('draws a picture with its own op and reuses its image when the same picture is drawn again (a pause)', async () => {

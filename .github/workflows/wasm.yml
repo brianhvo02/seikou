@@ -18,6 +18,8 @@ jobs:
         include:
           - module: audio
             dir: packages/engine/wasm/audio
+          - module: video
+            dir: packages/engine/wasm/video
           - module: freetype
             dir: src/wasm/freetype
     steps:

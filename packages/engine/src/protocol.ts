@@ -39,7 +39,8 @@ export type DeinterlaceMode = 'auto' | 'off';
 /**
  * What deinterlacing is doing for the playing interlaced playlist: the `setting`, `stats` while the deinterlacer runs
  * (its field order and where it came from, the cadence mode, locks and breaks, GPU time per picture (null where the
- * browser has no timer query), ring size and `fallback`), and `woven`, the reason the frames are drawn woven (the
+ * browser has no timer query), ring size, `fallback` (interpolated fields drawn cheaply) and `frameRate` (video shown
+ * one picture a frame, the step after `fallback`)), and `woven`, the reason the frames are drawn woven (the
  * setting is off, no WebGL2, the GPU failed) or null while they are deinterlaced.
  */
 export interface DeinterlaceTelemetry {
@@ -207,6 +208,18 @@ export interface Telemetry {
   readonly elementQuery: ElementQueryTelemetry | null;
   /** Deinterlacing of the playing playlist; null for progressive video (and when none plays). */
   readonly deinterlace: DeinterlaceTelemetry | null;
+  /**
+   * The decoder of the playing playlist's picture on the canvas path: WebCodecs (H.264, HEVC, AV1) or FFmpeg's in
+   * video.wasm (MPEG-1, MPEG-2, VC-1), its mean decode time per unit in ms over the last 30 (null before any, and always
+   * for WebCodecs, which doesn't say) and the pictures it skipped to keep up (B pictures; always 0 for WebCodecs); null
+   * with no picture decoded here (no playlist, no picture, or the element path).
+   */
+  readonly videoDecoder: { readonly kind: 'webcodecs' | 'wasm'; readonly decodeMs: number | null; readonly skipped: number } | null;
+  /**
+   * Why the WASM video decoder (MPEG-1, MPEG-2, VC-1) failed on this disc, whose playlists then play without a picture;
+   * null while it hasn't.
+   */
+  readonly videoDecoderFailure: string | null;
 }
 
 /** What BD-J holds in memory, so the budgets of the constrained memory profile can be checked on a device; sizes in bytes. */
@@ -430,6 +443,13 @@ export type EngineCommand =
    * captureVideo replaces one still waiting.
    */
   | { readonly type: 'captureVideo'; readonly atUs: number }
+  /**
+   * Measures how fast this device decodes MPEG-2 and VC-1 video (the bench clips shipped with the engine, decoded through
+   * the WASM decoder with no clock), answered by videoDecoderSpeed. Run only when asked, and answered at once, whatever
+   * the queue holds; ask while no playlist plays, since the measurement shares the device with it
+   * (answered null, and not measured, while the page is hidden or a disc loads or plays).
+   */
+  | { readonly type: 'probeVideoDecoder' }
   /**
    * The player settings (PSR16-20) every disc's registers start with from the next open: the person's disc
    * preferences, resolved by the page. A setting left out keeps libbluray's default.
@@ -680,7 +700,32 @@ export type EngineEvent =
    * An open's start point could not be used: its playlist is not on the disc (nothing plays, the state is idle), or its
    * time is at or past the playlist's end (it plays from the beginning).
    */
-  | { readonly type: 'startFailed'; readonly reason: 'no-playlist' | 'past-end' };
+  | { readonly type: 'startFailed'; readonly reason: 'no-playlist' | 'past-end' }
+  /**
+   * The video decoder of MPEG-1, MPEG-2 and VC-1 (video.wasm) is in trouble on the playing playlist: `failed`, it could not
+   * start or stopped (the playlist goes on without a picture, with the no-picture notice); `slow`, it has had to skip
+   * pictures for 10 s of playback since the playlist started or the last seek (sent once a playlist).
+   */
+  | { readonly type: 'videoDecoderTrouble'; readonly reason: 'failed' | 'slow' }
+  /**
+   * The answer to probeVideoDecoder: pictures decoded per second of a 1080i MPEG-2 clip and of a 1080i VC-1 clip by the
+   * module at `moduleUrl`; null when the engine has no WASM video decoder, the measurement failed or timed out, or it was
+   * not run because the page is hidden or a disc is loading or playing.
+   */
+  | { readonly type: 'videoDecoderSpeed'; readonly speed: VideoDecoderSpeed | null };
+
+/** The whole decode speed probe gives up after this long (20 s) and is answered null; a controller waits a little longer for the answer. */
+export const VIDEO_PROBE_DEADLINE_MS = 20_000;
+
+/** How fast the WASM video decoder runs on this device: decoded 1080i pictures per second for each coding, and the module measured. */
+export interface VideoDecoderSpeed {
+  readonly mpeg2Fps: number;
+  readonly vc1Fps: number;
+  /** The URL video.wasm was loaded from; a new build has a new URL, so a stored speed names the module it belongs to. */
+  readonly moduleUrl: string;
+  /** The two clips' URLs, MPEG-2's then VC-1's, joined by `|`: a new clip has a new URL, so a stored speed names the clips it was measured on. */
+  readonly clips: string;
+}
 
 /**
  * The notice of a playlist whose video (MPEG-2, VC-1) the browser can't decode: it plays without a picture. Sent once per

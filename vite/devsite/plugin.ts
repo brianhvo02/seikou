@@ -18,6 +18,7 @@ import { examplesPage } from './examples-page.ts';
 import { exampleFiles, loadSite, type DevPackage } from './model.ts';
 import { render404, renderExport, renderGuide, renderIndex, renderPackage } from './render.ts';
 import { searchIndex } from './search-index.ts';
+import { collectBundledPackages } from '../licenses-plugin.ts';
 
 const EXAMPLES_ID = 'virtual:devsite-examples';
 const RESOLVED_EXAMPLES_ID = `\0${EXAMPLES_ID}`;
@@ -127,8 +128,9 @@ export async function buildExamples(repoRoot: string, outDir: string, entry: str
     mode: 'production',
     logLevel: 'warn',
     publicDir: false,
-    worker: { format: 'es' },
+    worker: { format: 'es', plugins: () => [collectBundledPackages()] },
     plugins: [
+      collectBundledPackages(),
       {
         name: 'seikou-developer-examples-entry',
         resolveId: (id) => (id === EXAMPLES_ID ? RESOLVED_EXAMPLES_ID : undefined),

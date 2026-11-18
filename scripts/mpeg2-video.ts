@@ -8,7 +8,7 @@ const PICTURE = 0x00;
  * Splits an MPEG-2 video elementary stream into access units: each starts at its picture start code, or at the sequence
  * or GOP header in front of it.
  */
-function splitPictures(stream: Uint8Array): Uint8Array[] {
+export function splitPictures(stream: Uint8Array): Uint8Array[] {
   const starts: number[] = [];
   let headerAt = -1;
   for (let i = 0; i + 3 < stream.length; i++) {

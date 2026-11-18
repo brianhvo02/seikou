@@ -20,8 +20,8 @@ const isAbsolute = (href: string): boolean => /^[a-z][a-z0-9+.-]*:/i.test(href) 
 const anchorsOf = (file: string): Set<string> => new Set(headingIds(read(file)));
 
 describe('help pages', () => {
-  it('lists the five pages, each titled by its own heading', () => {
-    expect(HELP_PAGES.map((p) => p.slug)).toEqual(['getting-started', 'playing-discs', 'nas', 'troubleshooting', 'self-hosting']);
+  it('lists the six pages, each titled by its own heading', () => {
+    expect(HELP_PAGES.map((p) => p.slug)).toEqual(['getting-started', 'playing-discs', 'nas', 'troubleshooting', 'self-hosting', 'credits']);
     for (const page of HELP_PAGES) {
       expect(read(page.file).split('\n')[0]).toBe(`# ${page.title}`);
     }
@@ -51,6 +51,19 @@ describe('help pages', () => {
         expect(t.type, `${page.file}: ${t.raw}`).not.toBe('html');
       }
     }
+  });
+});
+
+describe('credits page', () => {
+  it('carries the notices its sources require', () => {
+    const text = read('docs/credits.md');
+    expect(text).toContain('Portions of this software are copyright © 2023 The FreeType Project (www.freetype.org). All rights reserved.');
+    expect(text).toContain('This product uses the TMDB API but is not endorsed or certified by TMDB.');
+    expect(text).toContain('Stumpy Lake forest in HD');
+    expect(text).toContain('Microdac');
+    expect(text).toContain('https://archive.org/details/MicrodacStumpyLakeforestinHD');
+    expect(text).toContain('https://creativecommons.org/licenses/by/2.5/');
+    expect(text).toContain('https://github.com/brianhvo02/seikou');
   });
 });
 

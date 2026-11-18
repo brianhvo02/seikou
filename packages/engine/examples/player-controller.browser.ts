@@ -188,6 +188,13 @@ async function tour(controller: PlayerController, canvas: HTMLCanvasElement, sen
   // #endregion
   check(place.mode === 'none' && place.psrs.length === 128, 'unexpected place');
 
+  // #region probeVideoDecoder
+  // decode speed of the WASM decoder for 1080i MPEG-2 and VC-1, measured once; ask while nothing plays
+  const speed = await controller.probeVideoDecoder();
+  console.log(speed ? `${speed.mpeg2Fps.toFixed(0)} and ${speed.vc1Fps.toFixed(0)} pictures per second` : 'no WASM video decoder here');
+  // #endregion
+  check(speed === null || (speed.mpeg2Fps > 0 && speed.vc1Fps > 0), 'unexpected decode speed');
+
   // #region showNotice
   controller.showNotice('example', 'Saved your place.'); // shown with the engine's notices, one per code
   // #endregion
@@ -488,4 +495,10 @@ async function construct(): Promise<void> {
   const s = preview.getSnapshot();
   check(s.engineState === 'error' && s.error?.code === 'internal', 'the error is not shown');
   check(await preview.readPlace().then(() => false, () => true), 'readPlace should reject once the engine failed');
+
+  // #region dispose
+  // the host is done with the controller: a decode speed probe still waiting is answered null
+  preview.dispose();
+  // #endregion
+  check((await preview.probeVideoDecoder()) === null, 'a disposed controller probes nothing');
 }

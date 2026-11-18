@@ -226,6 +226,9 @@ Then write an engine worker entry like Seikou's `src/engine-worker.ts`. It calls
 
 ```ts
 import audioWasmUrl from '@seikou/engine/audio.wasm?url';
+import videoWasmUrl from '@seikou/engine/video.wasm?url';
+import mpeg2BenchUrl from '@seikou/engine/bench/mpeg2-1080i.m2v?url';
+import vc1BenchUrl from '@seikou/engine/bench/vc1-1080i.vc1?url';
 import defaultFontUrl from '@seikou/ass/default-font.ttf?url';
 import { ASSET_FETCH_TIMEOUT_MS, startEngineWorker } from '@seikou/engine/worker-main';
 import rtJarUrl from './bdj-classlib/rt-bdj.jar?url';
@@ -243,6 +246,8 @@ const fetchBytes = async (url: string): Promise<Uint8Array> => {
 startEngineWorker({
   audioWasmUrl,
   defaultFontUrl,
+  videoWasmUrl,
+  videoBenchUrls: { mpeg2: mpeg2BenchUrl, vc1: vc1BenchUrl },
   bdj: seikouBdjProvider({
     missing: bdjMissing(
       { SharedArrayBuffer: g.SharedArrayBuffer, crossOriginIsolated: g.crossOriginIsolated, Atomics: g.Atomics, Worker: g.Worker, WebAssembly: g.WebAssembly, OffscreenCanvas: g.OffscreenCanvas },
@@ -257,7 +262,7 @@ startEngineWorker({
 });
 ```
 
-`missing` is what this browser lacks to run BD-J, seen from the engine worker; when it is not empty, BD-J discs open to the playlist list with a notice naming it. `loadClassLibrary` fetches the three jars, which Vite serves as assets through `?url` (`rt-bdj.jar` is about 4 MB). `decodeImage` decodes the background stills BD-J menus show under the video; without it they are not drawn. FreeType and the fallback font are not options: `src/bdj/bdj-worker-entry.ts` imports their URLs itself, and the BD-J worker fetches each the first time a menu draws text.
+`videoWasmUrl` is the decoder for MPEG-1, MPEG-2 and VC-1 video, which the browsers don't decode; without it those discs play without a picture. `videoBenchUrls` are the two short clips the decode speed probe (`probeVideoDecoder`) times; without them it answers null. All three are fetched only when needed: the decoder when such a playlist starts, the clips when the probe runs. `missing` is what this browser lacks to run BD-J, seen from the engine worker; when it is not empty, BD-J discs open to the playlist list with a notice naming it. `loadClassLibrary` fetches the three jars, which Vite serves as assets through `?url` (`rt-bdj.jar` is about 4 MB). `decodeImage` decodes the background stills BD-J menus show under the video; without it they are not drawn. FreeType and the fallback font are not options: `src/bdj/bdj-worker-entry.ts` imports their URLs itself, and the BD-J worker fetches each the first time a menu draws text.
 
 Start the controller with that worker as its factory:
 
@@ -283,6 +288,7 @@ Each piece carries its own licence. The files named here are the record; this se
 | Files ported from libass (`@seikou/ass`) | LGPL-2.1-or-later AND ISC | Each file's header and `packages/ass/NOTICE` |
 | DejaVu Sans (`packages/ass/src/default-font.ttf`) | The DejaVu fonts licence | `packages/ass/src/LICENSE-DejaVu.txt` |
 | `audio.wasm` (FFmpeg's AC-3, E-AC-3 and DTS decoders with `shim.c`) | LGPL-2.1-or-later | `packages/engine/wasm/audio/NOTICE` |
+| `video.wasm` (FFmpeg's MPEG-1, MPEG-2 and VC-1 decoders and parsers with `shim.c`) | LGPL-2.1-or-later | `packages/engine/wasm/video/NOTICE` |
 | `freetype.wasm` (FreeType 2.13.2 with `shim.c`) | FreeType: the FreeType License (FTL); `shim.c`: LGPL-2.1-or-later | `src/wasm/freetype/NOTICE` and `src/wasm/freetype/FTL.TXT` |
 | `src/bdj-classlib/rt-bdj.jar` (OpenJDK 8 classes) | GPLv2 with the Classpath Exception | `src/bdj-classlib/LICENSE`, `ASSEMBLY_EXCEPTION` and `NOTICE` |
 | The Apache Xerces classes in `rt-bdj.jar` (`com/sun/org/apache/xerces/internal/**`, `com/sun/xml/internal/stream/Entity*`) | Apache-2.0 | `src/bdj-classlib/THIRD_PARTY_APACHE` |

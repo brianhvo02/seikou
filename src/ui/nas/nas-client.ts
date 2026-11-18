@@ -678,10 +678,15 @@ export class NasClient {
     return (await res.json()) as DiscManifest;
   }
 
-  /** The levels this disc is offered at for this device (`audio` is 1-based); null when the NAS has no encoder or doesn't know. */
-  async levels(discId: string, q: { hevc: boolean; hevc10: boolean; hdr: boolean; audio: number }): Promise<LevelInfo[] | null> {
+  /**
+   * The levels this disc is offered at for this device (`audio` is 1-based); null when the NAS has no encoder or doesn't
+   * know. `mpeg2` and `vc1` (sent only when true) say the app's own decoder plays MPEG-1 and MPEG-2, and VC-1, here, so
+   * the NAS offers such a disc's Original.
+   */
+  async levels(discId: string, q: { hevc: boolean; hevc10: boolean; hdr: boolean; mpeg2?: boolean; vc1?: boolean; audio: number }): Promise<LevelInfo[] | null> {
     const flag = (b: boolean): string => (b ? '1' : '0');
-    const res = await this.authed(`${discPath(discId)}levels?hevc=${flag(q.hevc)}&hevc10=${flag(q.hevc10)}&hdr=${flag(q.hdr)}&audio=${q.audio}`);
+    const wasm = `${q.mpeg2 ? '&mpeg2=1' : ''}${q.vc1 ? '&vc1=1' : ''}`;
+    const res = await this.authed(`${discPath(discId)}levels?hevc=${flag(q.hevc)}&hevc10=${flag(q.hevc10)}&hdr=${flag(q.hdr)}${wasm}&audio=${q.audio}`);
     if (res.status === 404) return null;
     if (!res.ok) throw await httpError(res);
     return ((await res.json()) as { levels: LevelInfo[] }).levels;

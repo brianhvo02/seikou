@@ -158,7 +158,8 @@ export class InterlacedVideo {
 
   /**
    * Adds a decoded frame. Its planes are uploaded at once, or, with no slot free (a frame the decoder held back),
-   * copied and parked until one is. False once the GPU has failed (`error`).
+   * copied and parked until one is. A frame `afterSkip` breaks the detector's cycle where it is fed (as at a cut), the
+   * stream and its neighbours kept. False once the GPU has failed (`error`).
    */
   push(input: FieldInput): boolean {
     const d = this.deinterlacer;
@@ -221,6 +222,11 @@ export class InterlacedVideo {
   /** Playback starts or resumes, or the page is shown again: pacing isn't judged for the next second. */
   settlePacing(): void {
     this.pacing.settle();
+  }
+
+  /** The user seeked: field rate again after the frame-rate step (`Deinterlacer.returnToFieldRate`). */
+  returnToFieldRate(): void {
+    this.deinterlacer?.returnToFieldRate();
   }
 
   /** A seek: the frames and the cadence are forgotten; pictures handed out before draw nothing new. */

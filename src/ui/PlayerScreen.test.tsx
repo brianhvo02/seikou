@@ -8,6 +8,7 @@ import type { NasClient } from './nas/nas-client';
 import type { NasHistory } from './nas/nas-history';
 import type { NasRoute } from './nas/nas-route';
 import { PlayingRoute } from './nas/playing-route';
+import { levelSessionOf } from './nas/level-session';
 import type { PlaceSaver } from './place-saver';
 import { PlayerScreen } from './PlayerScreen';
 import type { ShaderModel, ShaderModelState } from './shader-model';
@@ -66,6 +67,7 @@ function setup(snapshot: PlayerSnapshot, nasOver: Record<string, unknown> = {}) 
     startAudio: vi.fn(),
     openEncode: vi.fn(),
     closeDisc: vi.fn(),
+    setLevel: vi.fn(),
   } as unknown as PlayerController;
   const finished: PlaybackPlace = {
     discKey: 'e.100.1', discId: '100-1', playlistId: 'mkv', timeUs: 1310 * S, durationUs: 1440 * S, finished: true, mode: 'none', title: null, psrs: [], gprs: null, settings, updatedAt: 1, deviceName: 'iPad',
@@ -277,5 +279,41 @@ describe('the player for an encoded episode', () => {
     expect(t.controller.selectSubtitle).toHaveBeenCalledWith({ kind: 'text' });
     // noted for the place with the disc and playlist it belongs to, so a resume finds it again
     expect(t.places.noteStoredSubtitle).toHaveBeenCalledWith('ep2.ass', 'sub-1', 10, 'en', { discKey: key, playlistId: '00000' });
+  });
+});
+
+describe('the player and the MPEG or VC-1 decoder at Original', () => {
+  const levels = [
+    { level: 'original' as const, label: 'Original', budgetMbps: 30, available: true },
+    { level: 'h264-1080' as const, label: '1080p', budgetMbps: 10, available: true },
+    { level: 'phone-720' as const, label: 'Phone', budgetMbps: 4, available: true },
+  ];
+  const original = { discId: 'd1', name: 'Disc', files: [], inline: {} };
+  const nasOver = () => ({
+    discBase: vi.fn(async () => 'https://nas.example/bluray/api/discs/d1/'),
+    manifest: vi.fn(async () => ({ discId: 'd1', name: 'at level', files: [], inline: {} })),
+    releaseViewing: vi.fn(async () => undefined),
+  });
+
+  it("a decoder in trouble switches a NAS disc at Original to the auto level, once, and only for the disc's own MPEG or VC-1 video", async () => {
+    const playing = snapshotAt('100-1', 10 * S, { selectedAudio: 2 });
+    const t = setup(playing, nasOver());
+    levelSessionOf(t.nas).begin({ discId: 'd1', levels, at: { level: 'original', audio: 1 }, original, choice: { connectionMbps: 100, phone: false, originalMbps: 30 }, wasmVideo: true });
+    t.show({ ...playing, videoDecoderTrouble: 'slow' });
+    await waitFor(() => expect(t.controller.setLevel).toHaveBeenCalledTimes(1));
+    expect(t.nas.manifest).toHaveBeenCalledWith('d1', { level: 'h264-1080', audio: 2 });
+    t.show({ ...playing, videoDecoderTrouble: 'failed' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(t.nas.manifest).toHaveBeenCalledTimes(1);
+  });
+
+  it('an H.264 disc whose menu decodes slowly stays at Original', async () => {
+    const playing = snapshotAt('100-1', 10 * S);
+    const t = setup(playing, nasOver());
+    levelSessionOf(t.nas).begin({ discId: 'd1', levels, at: { level: 'original', audio: 1 }, original, wasmVideo: false });
+    t.show({ ...playing, videoDecoderTrouble: 'slow' });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(t.nas.manifest).not.toHaveBeenCalled();
+    expect(t.controller.setLevel).not.toHaveBeenCalled();
   });
 });

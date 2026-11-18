@@ -37,11 +37,12 @@ function getController(): PlayerController {
 
 function createAppController(): PlayerController {
   const params = new URLSearchParams(location.search);
-  // Test-only (E2E): ?bdjfail=1, ?nonestedworkers=1, ?nodecoder=1 and ?telemetry=1 go to the engine worker as flags in
+  // Test-only (E2E): ?bdjfail=1, ?nonestedworkers=1, ?nodecoder=1, ?novideowasm=1 and ?telemetry=1 go to the engine worker as flags in
   // its name (@seikou/engine/worker-main engineWorkerTestFlags, src/engine-worker.ts): an unreadable class library, no
-  // workers started from workers, no video decoder configuration supported, the BD-J plane's hash and BD-J's memory in telemetry.
+  // workers started from workers, no video decoder configuration supported, no MPEG-2 and VC-1 decoder, the BD-J plane's
+  // hash and BD-J's memory in telemetry.
   // `?telemetry=1` also makes the controller copy telemetry to `window.__blurayTelemetry`, which the E2E tests read.
-  const flags = ['bdjfail', 'nonestedworkers', 'nodecoder', 'telemetry'].filter((f) => params.has(f));
+  const flags = ['bdjfail', 'nonestedworkers', 'nodecoder', 'novideowasm', 'telemetry'].filter((f) => params.has(f));
   const name = flags.length > 0 ? `bluray-engine:${flags.join(',')}` : 'bluray-engine';
   const controller = createController({
     // (the options stay an object literal with a literal type: Vite reads it to bundle the worker as a module)
@@ -59,6 +60,11 @@ function createAppController(): PlayerController {
   // the app has a video element: HDR streams take it (auto), or ?videopath= picks; set before the first open
   controller.setVideoPath(initialVideoPath());
   controller.setDeinterlace(deinterlaceSetting().get());
+  // The controller lives as long as the page: it is let go when the page is unloaded for good (not kept in the
+  // back-forward cache), so a pre-flight still waiting on its decode speed probe gets its answer (none).
+  window.addEventListener('pagehide', (e) => {
+    if (!e.persisted) controller.dispose();
+  });
   return controller;
 }
 

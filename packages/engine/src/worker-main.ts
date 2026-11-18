@@ -13,7 +13,10 @@ import { createDeviceFontSource } from '@seikou/ass/device-fonts';
 import { createFontFaceLoader } from '@seikou/ass/fonts';
 import { createCanvasMeasurer } from '@seikou/ass/measure';
 import { drawWarped } from '@seikou/ass/warp';
+import { ASSET_FETCH_TIMEOUT_MS } from './asset-fetch';
 import type { BdjProvider } from './bdj-provider';
+import type { WorkerLike } from './bdj-types';
+import type { FromVideoWorker, ToVideoWorker } from './decode/video-worker-protocol';
 import { createAudioDecoderFactory } from './decode/audio-decoder';
 import { loadAudioWasm } from './decode/wasm-audio';
 import { browserVideoCodecApi } from './decode/video-decoder';
@@ -42,6 +45,9 @@ export interface WorkerScope {
  *   entry);
  * - nodecoder (?nodecoder=1): the browser supports no video decoder configuration, so a decoder that fails to configure
  *   (UnsupportedCodecError) can be seen in any browser;
+ * - novideowasm (?novideowasm=1): the engine has no MPEG-1, MPEG-2 and VC-1 decoder (PlayerDeps.videoWasm), so those
+ *   discs play without a picture, with the no-picture notice, as where no worker can be started (nonestedworkers, which
+ *   leaves it out too);
  * - telemetry (?telemetry=1): telemetry carries the BD-J plane's settled hash (PlayerDeps.planeHashTelemetry) and BD-J's
  *   memory (PlayerDeps.memoryTelemetry), and the captureVideo command is answered (PlayerDeps.videoCapture).
  */
@@ -49,8 +55,8 @@ export function engineWorkerTestFlags(): ReadonlySet<string> {
   return new Set(((self as unknown as { name?: string }).name ?? '').split(':')[1]?.split(',') ?? []);
 }
 
-/** The wait for an asset the worker fetches: the audio wasm, the default font (and a provider's class library jars). */
-export const ASSET_FETCH_TIMEOUT_MS = 20_000;
+/** The wait for an asset the worker fetches (asset-fetch.ts), re-exported for the hosts that import it from here. */
+export { ASSET_FETCH_TIMEOUT_MS } from './asset-fetch';
 
 /** What a host passes to startEngineWorker. */
 export interface EngineWorkerOptions {
@@ -60,6 +66,16 @@ export interface EngineWorkerOptions {
   readonly audioWasmUrl: string;
   /** The default ASS font's URL (`@seikou/ass/default-font.ttf?url`). */
   readonly defaultFontUrl: string;
+  /**
+   * video.wasm's URL (`@seikou/engine/video.wasm?url`): MPEG-1, MPEG-2 and VC-1 video is decoded in a worker of its own
+   * that loads it. Without it those playlists play without a picture.
+   */
+  readonly videoWasmUrl?: string;
+  /**
+   * The decode speed probe's clips (`@seikou/engine/bench/mpeg2-1080i.m2v?url` and `@seikou/engine/bench/vc1-1080i.vc1?url`):
+   * probeVideoDecoder decodes them to time the decoder. Without them it answers null.
+   */
+  readonly videoBenchUrls?: { readonly mpeg2: string; readonly vc1: string };
   /**
    * The worker's messaging and frame pacing (default: self): the Player's events go out through its postMessage, the
    * page's commands arrive on its onmessage, and its requestAnimationFrame paces frames (a 16 ms setTimeout without
@@ -73,9 +89,20 @@ export interface EngineWorkerOptions {
 
 /** Starts the engine in this worker: a Player that answers the page's commands. */
 export function startEngineWorker(options: EngineWorkerOptions): Player {
-  const { bdj, audioWasmUrl, defaultFontUrl } = options;
+  const { bdj, audioWasmUrl, defaultFontUrl, videoWasmUrl, videoBenchUrls } = options;
   const scope = options.scope ?? (self as unknown as WorkerScope);
   const testFlags = engineWorkerTestFlags();
+  // the MPEG-1, MPEG-2 and VC-1 decoder's worker, started by the first playlist that needs it (the literal URL is what
+  // lets the bundler emit the worker's chunk)
+  const nestedWorkers = typeof (self as unknown as { Worker?: unknown }).Worker === 'function' && !testFlags.has('nonestedworkers');
+  const videoWasm =
+    videoWasmUrl && nestedWorkers && !testFlags.has('novideowasm')
+      ? {
+          wasmUrl: videoWasmUrl,
+          ...(videoBenchUrls ? { bench: { mpeg2Url: videoBenchUrls.mpeg2, vc1Url: videoBenchUrls.vc1 } } : {}),
+          createWorker: () => new Worker(new URL('./decode/video-worker.ts', import.meta.url), { type: 'module', name: 'seikou-video-decoder' }) as unknown as WorkerLike<ToVideoWorker, FromVideoWorker>,
+        }
+      : undefined;
   const player = new Player({
     emit: (event, transfer) => (transfer ? scope.postMessage(event, transfer) : scope.postMessage(event)),
     videoCodecApi: testFlags.has('nodecoder') ? { ...browserVideoCodecApi, isConfigSupported: async (config) => ({ supported: false, config }) } : browserVideoCodecApi,
@@ -93,6 +120,7 @@ export function startEngineWorker(options: EngineWorkerOptions): Player {
     memoryTelemetry: testFlags.has('telemetry'),
     videoCapture: testFlags.has('telemetry'),
     ...(bdj ? { bdj } : {}),
+    ...(videoWasm ? { videoWasm } : {}),
     // buffer first: a NAS disc's on-disk read-ahead cache, written through sync access handles (dedicated workers only)
     ...(readAheadCacheSupported() ? { readAheadCacheRoot: () => navigator.storage.getDirectory() } : {}),
     bdjLog: (line, error) => (error ? console.warn : console.debug)(`[BD-J] ${line}`),

@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildSoundBdmv, type IndexSpec } from '../../../tests/helpers/bdmv-builders';
 import { asm, buildMovieObjects, imm } from '../../../tests/helpers/hdmv-builders';
 import { simpleMenuSegments } from '../../../tests/helpers/ig-builders';
@@ -32,9 +32,20 @@ import { ShaderStage } from './shaders/stage';
 import type { DrawnPicture } from './render/compositor';
 import type { FrameMetrics, PictureOp } from './deinterlace/cadence';
 import { Deinterlacer, type DeinterlaceBackend, type Picture } from './deinterlace/deinterlacer';
+import { PgStreamControl } from './nav/subtitles';
+import { PresentationClock } from './render/presentation-clock';
 import { InterlacedVideo, WOVEN_NO_WEBGL2, WOVEN_OFF, wovenFrameFormat, wovenSoftwareRenderer } from './deinterlace/interlaced-video';
 import { SIM_COMB_CLEAN, SIM_COMB_HIGH, SIM_DIFF_HIGH, completeFilmFrames, telecine } from './deinterlace/metric-sequences';
+import { CadenceDetector } from './deinterlace/cadence';
 import { VideoPresenter, type PresentableFrame } from './render/video-presenter';
+import type { FieldInput } from './deinterlace/field-input';
+import type { WorkerLike } from './bdj-types';
+import { PesAssembler } from '@seikou/bdmv/demux/pes-assembler';
+import { parseSourcePacket } from '@seikou/bdmv/demux/ts-packet';
+import type { FromVideoWorker, ToVideoWorker } from './decode/video-worker-protocol';
+import { VideoWorkerCore, type PictureDecoderLike, type VideoWorkerCoreDeps } from './decode/video-worker-core';
+import { WasmVideoDecoder } from './decode/wasm-video-decoder';
+import { WasmPictureDecoder, loadVideoWasm, type DecodedPicture, type VideoWasm } from './decode/wasm-video';
 
 const originalPush = VideoPresenter.prototype.push;
 import { UNAVAILABLE, type CompiledSet, type ShaderBackend } from './shaders/webgl-backend';
@@ -99,6 +110,13 @@ interface Harness {
   underruns(): number;
   /** Advance simulated time; the fake worklet consumes audio unless audio: false; ticks unless render: false. */
   play(ms: number, opts?: { render?: boolean; audio?: boolean }): Promise<void>;
+  /**
+   * Advance simulated time with display ticks every `tickMs` and the fake worklet consuming audio in callbacks of
+   * `audioStepMs` (whole render quanta), so the audio clock moves in steps that don't line up with the ticks.
+   */
+  playStepped(ms: number, opts: { tickMs: number; audioStepMs: number }): Promise<void>;
+  /** With `recordText`: each drawText call's time, and the timestamp of the picture on screen then (null for none). */
+  textDraws: Array<{ atUs: number; pictureUs: number | null }>;
 }
 
 const noWasmFactory = createAudioDecoderFactory(() => Promise.reject(new Error('no wasm in unit tests')));
@@ -131,7 +149,7 @@ function fakeAudioFactory(log: FakeAudioLog = { decoded: [], resets: 0, failNext
   };
 }
 
-async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?: number; videoCodingType?: number; throwOnDraw?: boolean; audioMuxLag90k?: number; frameBytes?: number; playlists?: SyntheticPlaylistSpec[]; audioStreams?: SyntheticAudioStream[]; secondClipAudioStreams?: SyntheticAudioStream[]; createAudioDecoder?: AudioDecoderFactory; movieObjects?: Uint8Array<ArrayBuffer>; dropFiles?: string[]; extraFiles?: Record<string, Uint8Array<ArrayBuffer>>; igUnits?: Array<{ pts: number; payload: Uint8Array }>; subPathIg?: SyntheticSubPathIg; pgStreams?: SyntheticPgStream[]; createAssDeps?: NonNullable<PlayerDeps['createAssDeps']>; createShaderBackend?: PlayerDeps['createShaderBackend']; index?: SyntheticDiscSpec['index']; playerSettings?: PlayerDeps['playerSettings']; remote?: FakeNas | ((files: Map<string, Uint8Array<ArrayBuffer>>) => FakeNas); remoteLimits?: PlayerDeps['remoteLimits']; clipSeconds?: number; noOpen?: boolean; cacheRoot?: MemoryDirectory; segmentBytes?: number; mutateFiles?: (files: Map<string, Uint8Array<ArrayBuffer>>) => void; videoCodecApi?: VideoCodecApi; log?: PlayerDeps['log']; videoFormat?: number; clipExtra?: Partial<Pick<SyntheticClipSpec, 'frameTicks' | 'videoRate'>>; createDeinterlaceBackend?: PlayerDeps['createDeinterlaceBackend']; videoCapture?: boolean; webglSoftwareRenderer?: PlayerDeps['webglSoftwareRenderer'] } = {},
+async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?: number; videoCodingType?: number; throwOnDraw?: boolean; audioMuxLag90k?: number; frameBytes?: number; playlists?: SyntheticPlaylistSpec[]; audioStreams?: SyntheticAudioStream[]; secondClipAudioStreams?: SyntheticAudioStream[]; createAudioDecoder?: AudioDecoderFactory; movieObjects?: Uint8Array<ArrayBuffer>; dropFiles?: string[]; extraFiles?: Record<string, Uint8Array<ArrayBuffer>>; igUnits?: Array<{ pts: number; payload: Uint8Array }>; subPathIg?: SyntheticSubPathIg; pgStreams?: SyntheticPgStream[]; createAssDeps?: NonNullable<PlayerDeps['createAssDeps']>; createShaderBackend?: PlayerDeps['createShaderBackend']; index?: SyntheticDiscSpec['index']; playerSettings?: PlayerDeps['playerSettings']; remote?: FakeNas | ((files: Map<string, Uint8Array<ArrayBuffer>>) => FakeNas); remoteLimits?: PlayerDeps['remoteLimits']; clipSeconds?: number; noOpen?: boolean; cacheRoot?: MemoryDirectory; segmentBytes?: number; mutateFiles?: (files: Map<string, Uint8Array<ArrayBuffer>>) => void; videoCodecApi?: VideoCodecApi; log?: PlayerDeps['log']; videoFormat?: number; clipExtra?: Partial<Pick<SyntheticClipSpec, 'frameTicks' | 'videoRate'>>; createDeinterlaceBackend?: PlayerDeps['createDeinterlaceBackend']; videoCapture?: boolean; webglSoftwareRenderer?: PlayerDeps['webglSoftwareRenderer']; videoWasm?: (nowMs: () => number) => NonNullable<PlayerDeps['videoWasm']>; setTimer?: PlayerDeps['setTimer']; recordText?: boolean } = {},
   memory?: 'constrained',
 ): Promise<Harness> {
   decoders.length = 0;
@@ -158,7 +176,9 @@ async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?:
   const shaderStages: Array<ShaderStage | null> = [];
   let stage: ShaderStage | null = null;
   const clock = { ms: 1000 };
-  const player = new Player({
+  const textDraws: Harness['textDraws'] = [];
+  const shownUs = (): number | null => (player as unknown as { presenter: { current: { timestamp: number } | null } }).presenter.current?.timestamp ?? null;
+  const player: Player = new Player({
     emit: (e) => events.push(e),
     videoCodecApi: opts.videoCodecApi ?? fakeApi,
     nowMs: () => clock.ms,
@@ -177,6 +197,8 @@ async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?:
     ...(opts.videoCapture ? { videoCapture: true } : {}),
     // a GPU renderer unless a test says otherwise
     webglSoftwareRenderer: opts.webglSoftwareRenderer ?? (() => null),
+    ...(opts.videoWasm ? { videoWasm: opts.videoWasm(() => clock.ms) } : {}),
+    ...(opts.setTimer ? { setTimer: opts.setTimer } : {}),
     createCompositor: () => ({
       resize: () => undefined,
       drawVideo: (f) => {
@@ -206,6 +228,7 @@ async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?:
         shaderStages.push(s);
         stage = s;
       },
+      ...(opts.recordText ? { drawText: (_text: unknown, atUs: number) => void textDraws.push({ atUs, pictureUs: shownUs() }) } : {}),
     }),
   });
   const ring = createRing(48_000, 2);
@@ -218,6 +241,7 @@ async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?:
   const left = new Float32Array(128);
   const right = new Float32Array(128);
   const audibleFrames: number[] = [];
+  const nextAudioMs = { value: clock.ms };
   return {
     player,
     events,
@@ -248,6 +272,20 @@ async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?:
         await new Promise((r) => setTimeout(r, 1));
       }
     },
+    async playStepped(ms, { tickMs, audioStepMs }) {
+      const quanta = Math.round((audioStepMs * 48) / 128);
+      nextAudioMs.value = Math.max(nextAudioMs.value, clock.ms);
+      for (let elapsed = 0; elapsed < ms; elapsed += tickMs) {
+        clock.ms += tickMs;
+        while (nextAudioMs.value <= clock.ms) {
+          for (let q = 0; q < quanta; q++) renderQuantum(views, left, right);
+          nextAudioMs.value += (quanta * 128) / 48;
+        }
+        player.tick();
+        await new Promise((r) => setTimeout(r, 1));
+      }
+    },
+    textDraws,
   };
 }
 
@@ -1891,6 +1929,47 @@ describe('Player PG subtitles', () => {
     expect(lastTelemetry(h)!.pgErrors).toBe(0);
   });
 
+  it("subtitles are drawn at the shown picture's time (PG)", async () => {
+    const h = await raw();
+    await h.player.handle({ type: 'selectSubtitle', choice: { kind: 'pg', stream: 1 } });
+    const inner = h.player as unknown as { presenter: { current: { timestamp: number } | null }; presentClock: { running: boolean } };
+    const seen: Array<{ atUs: number; pictureUs: number | null }> = [];
+    const original = PgStreamControl.prototype.tick;
+    const tick = vi.spyOn(PgStreamControl.prototype, 'tick').mockImplementation(function (this: PgStreamControl, atUs: number) {
+      // while the clock runs; a stopped clock (before it first moves, paused, held) draws them at the clock
+      if (inner.presentClock.running) seen.push({ atUs, pictureUs: inner.presenter.current?.timestamp ?? null });
+      original.call(this, atUs);
+    });
+    try {
+      await playUntil(h, 2_100_000);
+    } finally {
+      tick.mockRestore();
+    }
+    const withPicture = seen.filter((t) => t.pictureUs !== null);
+    expect(withPicture.length).toBeGreaterThan(50);
+    for (const t of withPicture) expect(t.atUs).toBe(t.pictureUs);
+    expect(visibleAt(h, 100)).toBe(false);
+  });
+
+  it("a PG caption timed after a still's only picture appears during the still", async () => {
+    // a one-second play item of one picture at its IN time, held by an infinite still 40 ms before its end, then the
+    // same clip again; a caption half a second after the picture, turned on by the disc program (SET_STREAM: PG 1,
+    // shown) so no re-read is made; no audio, so the wall clock runs it and the still holds it
+    const caption = at(0.5, subtitleSegments({ x: 100 }));
+    const h = await harness(undefined, {
+      playlists: [{ id: '00000', clipIds: ['00001', '00001'], stills: { 0: { mode: 2 } } }],
+      movieObjects: buildMovieObjects([{ cmds: [asm.setStream(imm(0xc001), imm(0)), asm.playPl(imm(0))] }, { cmds: [] }, { cmds: [] }]),
+      clipSeconds: 1 / 24,
+      clipExtra: { frameTicks: 90_000 },
+      pgStreams: [{ pid: 0x1200, lang: 'eng', units: caption }],
+    });
+    await untilPlaying(h);
+    await h.play(2000);
+    expect(new Set(h.drawn)).toEqual(new Set([0])); // the one picture, drawn again as the caption changes
+    expect(lastTelemetry(h)?.clockUs).toBeGreaterThan(900_000);
+    expect(visibleAt(h, 100)).toBe(true);
+  });
+
   it('a seek clears the subtitle at once and the next one after the target appears', async () => {
     const h = await raw();
     await h.player.handle({ type: 'selectSubtitle', choice: { kind: 'pg', stream: 1 } });
@@ -2024,6 +2103,15 @@ describe('Player text subtitles', () => {
     return h;
   }
   const lastText = (h: Harness) => subtitleEvents(h).at(-1)!.text;
+
+  it("subtitles are drawn at the shown picture's time (ASS)", async () => {
+    const h = await raw({ recordText: true });
+    await h.player.handle({ type: 'addTextSubtitles', files: [file('sign.ass', ass('DejaVu Sans', dialogue('0:00:01.00', '0:00:02.00', 'hi')))], fonts: [fontFile('DejaVuSans.ttf')] });
+    await playUntil(h, 2_100_000);
+    const withPicture = h.textDraws.filter((t) => t.pictureUs !== null);
+    expect(withPicture.length).toBeGreaterThan(20);
+    for (const t of withPicture) expect(t.atUs).toBe(t.pictureUs);
+  });
 
   it('loads a file, selects it, and reports a visible cue only during its time', async () => {
     const h = await raw();
@@ -3765,7 +3853,7 @@ describe('Player with interlaced video (deinterlacing)', () => {
     await h.player.handle({ type: 'setDeinterlace', mode: 'auto' });
     await untilPlaying(h);
     await h.play(1100);
-    expect(lastTelemetry(h)?.deinterlace).toMatchObject({ setting: 'auto', woven: null, stats: { mode: 'video', fallback: false } });
+    expect(lastTelemetry(h)?.deinterlace).toMatchObject({ setting: 'auto', woven: null, stats: { mode: 'video', fallback: false, frameRate: false } });
 
     const progressive = await harness(CodingType.LPCM, {});
     await progressive.player.handle({ type: 'playPlaylist', playlistId: '00000' });
@@ -3773,6 +3861,121 @@ describe('Player with interlaced video (deinterlacing)', () => {
     await progressive.play(1100);
     expect(lastTelemetry(progressive)?.deinterlace).toBeNull();
   });
+
+  it('presents every field-rate picture once against an audio clock that moves every 21.3 ms', async () => {
+    const fake = fakeDeinterlace();
+    const h = await harness(CodingType.LPCM, { videoFormat: 4, clipExtra: { frameTicks: 3003, videoRate: 4 }, clipSeconds: 8, videoCodecApi: interlacedApi, createDeinterlaceBackend: fake.factory });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    // a 60 Hz display, and Chrome's audio callbacks of 1024 frames at 48 kHz
+    const stepped = { tickMs: 1000 / 60, audioStepMs: 1024 / 48 };
+    await h.playStepped(1000, stepped);
+    const presenter = (h.player as unknown as { presenter: { presented: number; dropped: number } }).presenter;
+    const [presented, dropped] = [presenter.presented, presenter.dropped];
+    await h.playStepped(3000, stepped);
+    expect(h.player.deinterlaceState.stats).toMatchObject({ mode: 'video', frameRate: false });
+    expect(presenter.dropped - dropped).toBe(0);
+    // 59.94 pictures a second
+    expect(presenter.presented - presented).toBeGreaterThanOrEqual(175);
+  });
+
+  it('while paused or held the presenter picks by the stopped clock without holding a just-due picture back', async () => {
+    const fake = fakeDeinterlace();
+    const h = await harness(CodingType.LPCM, { videoFormat: 4, clipExtra: { frameTicks: 3003, videoRate: 4 }, clipSeconds: 8, videoCodecApi: interlacedApi, createDeinterlaceBackend: fake.factory });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await h.playStepped(500, { tickMs: 1000 / 60, audioStepMs: 1024 / 48 });
+    const select = vi.spyOn(VideoPresenter.prototype, 'select');
+    try {
+      await h.playStepped(200, { tickMs: 1000 / 60, audioStepMs: 1024 / 48 });
+      expect(select.mock.calls.every(([, running]) => running !== false)).toBe(true);
+      select.mockClear();
+      await h.player.handle({ type: 'pause' });
+      await h.play(200);
+      expect(select.mock.calls.length).toBeGreaterThan(5);
+      expect(select.mock.calls.every(([, running]) => running === false)).toBe(true);
+    } finally {
+      select.mockRestore();
+    }
+  });
+
+  it('a device whose ticks stay slow with the cheap path on steps video down to frame rate, and telemetry says so', async () => {
+    const fake = fakeDeinterlace();
+    const h = await harness(CodingType.LPCM, { videoFormat: 4, videoCodecApi: interlacedApi, createDeinterlaceBackend: fake.factory, clipSeconds: 40 });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await h.play(1100);
+    expect(lastTelemetry(h)?.deinterlace?.stats).toMatchObject({ mode: 'video', fallback: false, frameRate: false });
+    // the display ticks every fourth step (about 53 ms): the device can't keep up, with the cheap path on or not
+    const slowTicks = async (ms: number): Promise<void> => {
+      for (let t = 0; t < ms; t += 4 * STEP_MS) {
+        await h.play(3 * STEP_MS - 1, { render: false });
+        await h.play(1);
+      }
+    };
+    let stats = h.player.deinterlaceState.stats;
+    for (let s = 0; s < 34 && !stats?.frameRate; s++) {
+      await slowTicks(1000);
+      stats = h.player.deinterlaceState.stats;
+    }
+    expect(stats).toMatchObject({ mode: 'video', fallback: true, frameRate: true });
+    await h.play(1100);
+    expect(lastTelemetry(h)?.deinterlace?.stats).toMatchObject({ mode: 'video', fallback: true, frameRate: true });
+    // from now on one picture a frame: the first field (top), drawn cheaply
+    const drawn = fake.ops.length;
+    await slowTicks(2000);
+    const after = fake.ops.slice(drawn);
+    expect(after.length).toBeGreaterThan(5);
+    expect(after.every((op) => op.kind === 'interpolate' && op.field === 'top')).toBe(true);
+  });
+
+  it('a seek returns field rate after the frame-rate step, and a device still too slow steps down again', async () => {
+    const fake = fakeDeinterlace();
+    const h = await harness(CodingType.LPCM, { videoFormat: 4, videoCodecApi: interlacedApi, createDeinterlaceBackend: fake.factory, clipSeconds: 40 });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await h.play(1100);
+    const slowTicks = async (ms: number): Promise<void> => {
+      for (let t = 0; t < ms; t += 4 * STEP_MS) {
+        await h.play(3 * STEP_MS - 1, { render: false });
+        await h.play(1);
+      }
+    };
+    const stepDown = async (): Promise<void> => {
+      for (let s = 0; s < 34 && !h.player.deinterlaceState.stats?.frameRate; s++) await slowTicks(1000);
+      expect(h.player.deinterlaceState.stats).toMatchObject({ mode: 'video', fallback: true, frameRate: true });
+    };
+    await stepDown();
+    // the user seeks: field rate again (the cheap path stays), both fields of each frame drawn at a healthy pace
+    await h.player.handle({ type: 'seek', timeUs: 2_000_000 });
+    await untilPlaying(h);
+    expect(h.player.deinterlaceState.stats).toMatchObject({ mode: 'video', fallback: true, frameRate: false });
+    const drawn = fake.ops.length;
+    await h.play(1100);
+    expect(h.player.deinterlaceState.stats).toMatchObject({ frameRate: false });
+    const after = fake.ops.slice(drawn);
+    expect(after.some((op) => op.kind === 'interpolate' && op.field === 'bottom')).toBe(true);
+    // still too slow: it steps down again after its windows
+    await stepDown();
+  }, 60_000);
+
+  it('a chapter skip returns field rate after the frame-rate step', async () => {
+    const fake = fakeDeinterlace();
+    const h = await harness(CodingType.LPCM, { videoFormat: 4, videoCodecApi: interlacedApi, createDeinterlaceBackend: fake.factory, clipSeconds: 40 });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await h.play(1100);
+    for (let s = 0; s < 34 && !h.player.deinterlaceState.stats?.frameRate; s++) {
+      for (let t = 0; t < 1000; t += 4 * STEP_MS) {
+        await h.play(3 * STEP_MS - 1, { render: false });
+        await h.play(1);
+      }
+    }
+    expect(h.player.deinterlaceState.stats).toMatchObject({ frameRate: true });
+    await h.player.handle({ type: 'nextChapter' });
+    await untilPlaying(h);
+    expect(h.player.deinterlaceState.stats).toMatchObject({ mode: 'video', fallback: true, frameRate: false });
+  }, 60_000);
 
   it('captureVideo (test-only) answers once with the first picture drawn at or after its time, and only in telemetry runs', async () => {
     const drawnImages: unknown[] = [];
@@ -4113,5 +4316,828 @@ describe('Player with interlaced video (deinterlacing)', () => {
         }
       }
     }, 30_000);
+  });
+});
+
+/** A decoded picture's VideoFrame for Node, which has none (frameFromPicture's I420 init). */
+class PictureFrame {
+  readonly timestamp: number;
+  readonly duration: number | null;
+  readonly codedWidth: number;
+  readonly codedHeight: number;
+  readonly displayWidth: number;
+  readonly displayHeight: number;
+  readonly format = 'I420';
+  constructor(_data: BufferSource, init: VideoFrameBufferInit) {
+    this.timestamp = init.timestamp;
+    this.duration = init.duration ?? null;
+    this.codedWidth = init.codedWidth;
+    this.codedHeight = init.codedHeight;
+    this.displayWidth = init.displayWidth ?? init.codedWidth;
+    this.displayHeight = init.displayHeight ?? init.codedHeight;
+  }
+  close(): void {}
+}
+
+/** What each unit costs the fake decoder worker in simulated ms: units that make a picture, and units skipped (B pictures, every other unit while skipping). */
+interface UnitCost {
+  picture: number;
+  skipped: number;
+}
+
+/**
+ * PlayerDeps.videoWasm over in-process decoder workers: VideoWorkerCore with `openDecoder` (the real video.wasm or a
+ * scripted one), each unit answered `cost` of simulated time after the worker is free for it, as a worker that takes
+ * that long a unit. `kill()` fires the live workers' error event (a crash).
+ */
+function fakeVideoWasm(openDecoder: VideoWorkerCoreDeps['openDecoder'], cost: UnitCost = { picture: 0, skipped: 0 }) {
+  const live = new Set<WorkerLike<ToVideoWorker, FromVideoWorker>>();
+  let created = 0;
+  /** The playlist time of every unit sent to a decoder worker, in order. */
+  const decoded: number[] = [];
+  const deps = (nowMs: () => number): NonNullable<PlayerDeps['videoWasm']> => ({
+    wasmUrl: 'video.wasm',
+    createWorker: () => {
+      created++;
+      const outbox: Array<{ at: number; message: FromVideoWorker }> = [];
+      const due: number[] = [];
+      let busyUntil = 0;
+      let lastAt = 0;
+      let skipping = false;
+      let units = 0;
+      let pumping = false;
+      const pump = (): void => {
+        pumping = false;
+        while (outbox.length > 0 && outbox[0]!.at <= nowMs() && live.has(worker)) {
+          const { message } = outbox.shift()!;
+          worker.onmessage?.({ data: message } as MessageEvent<FromVideoWorker>);
+        }
+        if (outbox.length > 0 && live.has(worker)) schedule(1);
+      };
+      const schedule = (ms: number): void => {
+        if (pumping) return;
+        pumping = true;
+        setTimeout(pump, ms);
+      };
+      const worker: WorkerLike<ToVideoWorker, FromVideoWorker> = {
+        onmessage: null,
+        onerror: null,
+        postMessage: (message) => {
+          if (!live.has(worker)) return;
+          if (message.type === 'skip') skipping = message.on;
+          if (message.type === 'reset' || message.type === 'open') units = 0;
+          if (message.type === 'decode') {
+            decoded.push(message.ptsUs);
+            units++;
+            const skippedUnit = skipping && units % 2 === 0;
+            busyUntil = Math.max(busyUntil, nowMs()) + (skippedUnit ? cost.skipped : cost.picture);
+            due.push(busyUntil);
+          }
+          core.enqueue(message);
+        },
+        terminate: () => {
+          live.delete(worker);
+        },
+      };
+      live.add(worker);
+      const core = new VideoWorkerCore({
+        post: (message) => {
+          const at = message.type === 'decoded' ? (due.shift() ?? lastAt) : message.type === 'picture' ? (due[0] ?? lastAt) : lastAt;
+          lastAt = Math.max(lastAt, at);
+          outbox.push({ at: lastAt, message });
+          schedule(0);
+        },
+        openDecoder,
+        now: () => 0,
+      });
+      return worker;
+    },
+  });
+  return {
+    deps,
+    cost,
+    decoded,
+    created: () => created,
+    live: () => live.size,
+    kill: () => {
+      for (const w of [...live]) w.onerror?.({ message: 'the decoder worker crashed' } as ErrorEvent);
+    },
+  };
+}
+
+let videoWasmModule: Promise<VideoWasm> | null = null;
+/** openDecoder with the committed video.wasm (FFmpeg's decoders), compiled once. */
+const realPictures: VideoWorkerCoreDeps['openDecoder'] = async (_url, codec) => {
+  videoWasmModule ??= loadVideoWasm(readFileSync(new URL('../wasm/video/video.wasm', import.meta.url)));
+  return new WasmPictureDecoder(await videoWasmModule, codec);
+};
+
+/**
+ * openDecoder with a scripted decoder: one picture a unit, at the unit's time, `size(time)` big, interlaced top field
+ * first (or progressive), its planes carrying the time (for the fake deinterlace backend); while skipping, every other
+ * unit (a B picture) makes none, as the fake worker counts them.
+ */
+function scriptedPictures(opts: { interlaced: boolean | ((ptsUs: number) => boolean); size?: (ptsUs: number) => readonly [number, number] }): VideoWorkerCoreDeps['openDecoder'] {
+  return async () => {
+    let skip = false;
+    let units = 0;
+    let out: DecodedPicture[] = [];
+    const decoder: PictureDecoderLike = {
+      push: (_data, ptsUs) => {
+        units++;
+        if (skip && units % 2 === 0) return;
+        const [width, height] = opts.size?.(ptsUs) ?? [64, 36];
+        const data = new Uint8Array(width * height + 2 * Math.ceil(width / 2) * Math.ceil(height / 2));
+        new DataView(data.buffer).setFloat64(0, ptsUs);
+        out.push({
+          width,
+          height,
+          displayWidth: width,
+          displayHeight: height,
+          data,
+          ptsUs,
+          durationUs: 41_708,
+          keyFrame: false,
+          matrix: 'bt709',
+          flags: (typeof opts.interlaced === 'function' ? opts.interlaced(ptsUs) : opts.interlaced)
+            ? { fieldOrder: 'tff', progressive: false, repeatFirstField: false }
+            : { fieldOrder: null, progressive: true, repeatFirstField: false },
+        });
+      },
+      drain: () => {
+        const pictures = out;
+        out = [];
+        return pictures;
+      },
+      flush: () => decoder.drain(),
+      reset: () => {
+        out = [];
+        units = 0;
+      },
+      setSkipNonReference: (on) => {
+        skip = on;
+      },
+      close: () => undefined,
+    };
+    return decoder;
+  };
+}
+
+/** A deinterlace backend that records the sizes made and the width of each upload; every frame measures combed. */
+function recordingDeinterlace() {
+  const made: Array<[number, number]> = [];
+  const uploads: number[] = [];
+  const combed: FrameMetrics = { combWoven: 0.2, combMatchPrev: 0.2, combMatchNext: 0.2, diffPrev: 0.1, motionTff: 0, motionBff: 0 };
+  const factory: NonNullable<PlayerDeps['createDeinterlaceBackend']> = (width, height) => {
+    made.push([width, height]);
+    const canvas = { width, height, transferToImageBitmap: () => ({ width, height, close: () => undefined }) } as unknown as OffscreenCanvas;
+    return {
+      upload: (_slot, planes) => {
+        uploads.push(planes.width);
+      },
+      measure: async () => combed,
+      render: () => canvas,
+      gpuMs: null,
+      dispose: () => undefined,
+    };
+  };
+  return { factory, made, uploads };
+}
+
+/** A clip of a committed disc rebuilt for buildSyntheticDisc: its MPEG-2 video units with their times, LPCM audio made anew. */
+function fixtureMpeg2Clip(disc: string, clipId: string, as: string, videoFormat: number, videoRate: number, frameTicks: number): SyntheticClipSpec {
+  const m2ts = fixtureDiscFiles(disc).get(`BDMV/STREAM/${clipId}.m2ts`)!;
+  const videoAus: Uint8Array[] = [];
+  const pts: number[] = [];
+  const dts: number[] = [];
+  const asm = new PesAssembler((pes) => {
+    if (pes.streamId !== 0xe0 || pes.pts === undefined) return;
+    videoAus.push(pes.payload);
+    pts.push(pes.pts);
+    dts.push(pes.dts ?? pes.pts);
+  });
+  for (let o = 0; o + 192 <= m2ts.length; o += 192) {
+    const pkt = parseSourcePacket(m2ts, o);
+    if (pkt) asm.push(pkt);
+  }
+  asm.flush();
+  return {
+    clipId: as,
+    videoAus,
+    keyIndices: videoAus.map((_, i) => i).filter((i) => videoAus[i]![3] === 0xb3),
+    startPts: Math.min(...pts),
+    pts,
+    dts,
+    frameTicks,
+    videoCodingType: CodingType.MPEG2_VIDEO,
+    videoFormat,
+    videoRate,
+    audio: CodingType.LPCM,
+  };
+}
+
+describe('Player with MPEG-2 and VC-1 video through the WASM decoder', () => {
+  beforeEach(() => {
+    vi.stubGlobal('VideoFrame', PictureFrame);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const noPicture = (h: Harness) => h.events.filter((e) => e.type === 'unsupported' && e.kind === 'video');
+  const troubles = (h: Harness) => h.events.flatMap((e) => (e.type === 'videoDecoderTrouble' ? [e.reason] : []));
+  const times = (h: Harness) => h.events.flatMap((e) => (e.type === 'time' ? [e.timeUs] : []));
+  const fixture = (name: string): Array<[string, File]> => discEntries(fixtureDiscFiles(name));
+  async function openFixture(name: string, opts: Parameters<typeof harness>[1] = {}): Promise<Harness> {
+    const h = await harness(undefined, { ...opts, noOpen: true });
+    await h.player.handle({ type: 'open', disc: { kind: 'files', entries: fixture(name) } });
+    return h;
+  }
+  const skippingCalls = () => vi.spyOn(WasmVideoDecoder.prototype, 'setSkipping');
+
+  it("late pictures are dropped, and the WASM decoder's lateness judged, at the presentation time, not the stepped clock", async () => {
+    // the canvas picks pictures by PresentationClock (the audio clock smoothed between its steps); the two other places
+    // that judge a picture late must read the same time, or they would judge by a clock up to a step behind it
+    const at = vi.spyOn(PresentationClock.prototype, 'at');
+    const proto = Player.prototype as unknown as Record<'isFull' | 'followDecodeSpeed', (...args: unknown[]) => unknown>;
+    const readIt = { isFull: [] as boolean[], followDecodeSpeed: [] as boolean[] };
+    const spies = (['isFull', 'followDecodeSpeed'] as const).map((name) => {
+      const original = proto[name]!;
+      return vi.spyOn(proto, name).mockImplementation(function (this: unknown, ...args: unknown[]) {
+        const before = at.mock.calls.length;
+        const result = original.apply(this, args);
+        readIt[name].push(at.mock.calls.length > before);
+        return result;
+      });
+    });
+    try {
+      const wasm = fakeVideoWasm(scriptedPictures({ interlaced: true }), { picture: 5, skipped: 5 });
+      const h = await openFixture('disc-mpeg2-interlaced', { videoWasm: wasm.deps, createDeinterlaceBackend: recordingDeinterlace().factory });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilPlaying(h);
+      await h.playStepped(1000, { tickMs: 1000 / 60, audioStepMs: 1024 / 48 });
+      expect(readIt.isFull.some(Boolean)).toBe(true);
+      expect(readIt.followDecodeSpeed.some(Boolean)).toBe(true);
+    } finally {
+      for (const spy of spies) spy.mockRestore();
+      at.mockRestore();
+    }
+  }, 30_000);
+
+  it('an MPEG-2 playlist plays with a picture through the WASM decoder and shows no no-picture notice', async () => {
+    const wasm = fakeVideoWasm(realPictures);
+    const h = await openFixture('disc-mpeg2-interlaced', { videoWasm: wasm.deps });
+    const sizes: number[][] = [];
+    const push = vi.spyOn(VideoPresenter.prototype, 'push').mockImplementation(function (this: VideoPresenter<PresentableFrame>, frame: PresentableFrame) {
+      const f = frame as unknown as PictureFrame;
+      sizes.push([f.codedWidth, f.codedHeight]);
+      return originalPush.call(this, frame);
+    });
+    try {
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00004' }); // 1080p at 23.976
+      await untilPlaying(h);
+      await h.play(1000);
+    } finally {
+      push.mockRestore();
+    }
+    expect(h.drawn.length).toBeGreaterThan(15);
+    for (let i = 1; i < h.drawn.length; i++) expect(h.drawn[i]).toBeGreaterThan(h.drawn[i - 1]!);
+    expect(sizes[0]).toEqual([1920, 1080]);
+    expect(noPicture(h)).toEqual([]);
+    expect(troubles(h)).toEqual([]);
+    expect(h.events.some((e) => e.type === 'error')).toBe(false);
+    expect(wasm.created()).toBe(1);
+  });
+
+  it("an interlaced MPEG-2 playlist's pictures go to the deinterlacer", async () => {
+    for (const [disc, codec] of [['disc-mpeg2-interlaced', 'MPEG-2'], ['disc-vc1', 'VC-1']] as const) {
+      const fake = recordingDeinterlace();
+      const h = await openFixture(disc, { videoWasm: fakeVideoWasm(realPictures).deps, createDeinterlaceBackend: fake.factory });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' }); // 1080i
+      await untilPlaying(h);
+      await h.play(1000);
+      expect(fake.made.at(-1), codec).toEqual([1920, 1080]);
+      expect(fake.uploads.length, codec).toBeGreaterThan(15);
+      expect(fake.uploads.every((w) => w === 1920), codec).toBe(true);
+      expect(h.drawnPictures.length, codec).toBeGreaterThan(15);
+      expect(h.drawn, codec).toEqual([]);
+      expect(h.player.deinterlaceState.woven, codec).toBeNull();
+      expect(noPicture(h), codec).toEqual([]);
+    }
+  }, 30_000);
+
+  it('without videoWasm an MPEG-2 playlist plays without a picture and shows the notice', async () => {
+    const h = await openFixture('disc-mpeg2-interlaced');
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00004' });
+    await untilPlaying(h);
+    await h.play(1000);
+    expect(h.drawn).toEqual([]);
+    expect(noPicture(h)).toEqual([{ type: 'unsupported', kind: 'video', codec: 'MPEG-2 video', message: NO_PICTURE_MESSAGE, noPicture: true }]);
+    expect(lastTelemetry(h)?.videoDecoder).toBeNull();
+  });
+
+  /** `count` pictures of an elementary stream: a start code `00 00 01 <code>` and some payload each. */
+  const benchClip = (code: number, count: number): Uint8Array => {
+    const bytes: number[] = [];
+    for (let i = 0; i < count; i++) bytes.push(0, 0, 1, code, 0x55, 0x66, 0x77);
+    return Uint8Array.from(bytes);
+  };
+  const speedEvents = (h: Harness) => h.events.flatMap((e) => (e.type === 'videoDecoderSpeed' ? [e.speed] : []));
+  const probe = async (h: Harness): Promise<void> => {
+    await h.player.handle({ type: 'probeVideoDecoder' });
+    await vi.waitFor(async () => {
+      await h.play(20, { render: false, audio: false });
+      expect(speedEvents(h)).not.toHaveLength(0);
+    }, { timeout: 5000 });
+  };
+
+  it("probeVideoDecoder answers with the bench clips' decode rates, and null without videoWasm", async () => {
+    const fetched: string[] = [];
+    const wasm = fakeVideoWasm(scriptedPictures({ interlaced: true }), { picture: 20, skipped: 20 });
+    const h = await harness(undefined, {
+      noOpen: true,
+      videoWasm: (nowMs) => ({
+        ...wasm.deps(nowMs),
+        bench: {
+          mpeg2Url: '/assets/mpeg2.m2v',
+          vc1Url: '/assets/vc1.vc1',
+          fetchBytes: async (url) => {
+            fetched.push(url);
+            return url.endsWith('.m2v') ? benchClip(0x00, 15) : benchClip(0x0d, 15);
+          },
+        },
+      }),
+    });
+    await probe(h);
+    expect(fetched.sort()).toEqual(['/assets/mpeg2.m2v', '/assets/vc1.vc1']);
+    const [speed] = speedEvents(h);
+    expect(speed).toMatchObject({ moduleUrl: 'video.wasm' });
+    // 15 pictures at 20 ms of simulated time each: 50 pictures a second, a step of the test clock short of it at worst
+    expect(speed!.mpeg2Fps).toBeGreaterThan(45);
+    expect(speed!.mpeg2Fps).toBeLessThanOrEqual(50.01);
+    expect(speed!.vc1Fps).toBeGreaterThan(45);
+    expect(speed!.vc1Fps).toBeLessThanOrEqual(50.01);
+    // the probe leaves no decoder worker running
+    expect(wasm.live()).toBe(0);
+
+    const without = await harness(undefined, { noOpen: true });
+    await without.player.handle({ type: 'probeVideoDecoder' });
+    expect(speedEvents(without)).toEqual([null]);
+  });
+
+  it('the better of two timed passes is kept, after an untimed warm-up', async () => {
+    // each clip is decoded three times in a row (15 units each): the warm-up at 10 ms a unit, which would read 100 fps if it
+    // were timed, then 20 ms (50 fps), then 40 ms (25 fps): the better timed pass is the answer
+    let calls = 0;
+    const cost: UnitCost = { get picture() { return [10, 20, 40][Math.floor((calls++ % 45) / 15)]!; }, skipped: 0 };
+    const wasm = fakeVideoWasm(scriptedPictures({ interlaced: true }), cost);
+    const h = await harness(undefined, {
+      noOpen: true,
+      videoWasm: (nowMs) => ({ ...wasm.deps(nowMs), bench: { mpeg2Url: 'a', vc1Url: 'b', fetchBytes: async (url) => (url === 'a' ? benchClip(0x00, 15) : benchClip(0x0d, 15)) } }),
+    });
+    await probe(h);
+    const [speed] = speedEvents(h);
+    expect(speed!.mpeg2Fps).toBeGreaterThan(45);
+    expect(speed!.mpeg2Fps).toBeLessThanOrEqual(50.01);
+    expect(speed!.vc1Fps).toBeGreaterThan(45);
+    expect(speed!.vc1Fps).toBeLessThanOrEqual(50.01);
+    expect(speed!.clips).toBe('a|b');
+  });
+
+  it.each([
+    ['the page is hidden', async (h: Harness) => h.player.handle({ type: 'visibility', hidden: true })],
+    ['a disc is playing', async (h: Harness) => {
+      await h.player.handle({ type: 'open', disc: { kind: 'files', entries: fixture('disc-mpeg2-interlaced') } });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00004' });
+      await untilPlaying(h);
+    }],
+  ])('a probe on a hidden page or during playback answers null and measures nothing (%s)', async (_what, setup) => {
+    const wasm = fakeVideoWasm(realPictures);
+    const fetched: string[] = [];
+    const h = await harness(undefined, {
+      noOpen: true,
+      videoWasm: (nowMs) => ({ ...wasm.deps(nowMs), bench: { mpeg2Url: 'a', vc1Url: 'b', fetchBytes: async (url) => { fetched.push(url); return benchClip(0, 3); } } }),
+    });
+    await setup(h);
+    const created = wasm.created();
+    await h.player.handle({ type: 'probeVideoDecoder' });
+    await h.play(40, { render: false, audio: false });
+    expect(speedEvents(h)).toEqual([null]);
+    expect(fetched).toEqual([]);
+    expect(wasm.created()).toBe(created);
+  });
+
+  it('a failed or timed-out probe is not kept: the next ask measures again', async () => {
+    let reads = 0;
+    const wasm = fakeVideoWasm(scriptedPictures({ interlaced: true }), { picture: 20, skipped: 20 });
+    const h = await harness(undefined, {
+      noOpen: true,
+      videoWasm: (nowMs) => ({
+        ...wasm.deps(nowMs),
+        bench: {
+          mpeg2Url: 'a',
+          vc1Url: 'b',
+          // the first probe's first read fails, as a dropped connection would
+          fetchBytes: async (url) => {
+            if (reads++ === 0) throw new Error('offline');
+            return url === 'a' ? benchClip(0x00, 15) : benchClip(0x0d, 15);
+          },
+        },
+      }),
+    });
+    await probe(h);
+    expect(speedEvents(h)).toEqual([null]);
+    await h.player.handle({ type: 'probeVideoDecoder' });
+    await vi.waitFor(async () => {
+      await h.play(20, { render: false, audio: false });
+      expect(speedEvents(h)).toHaveLength(2);
+    }, { timeout: 5000 });
+    expect(speedEvents(h)[1]).toMatchObject({ moduleUrl: 'video.wasm', clips: 'a|b' });
+    // a success is kept: a third ask is answered with it, with nothing read again
+    const readsAfter = reads;
+    await h.player.handle({ type: 'probeVideoDecoder' });
+    await vi.waitFor(() => expect(speedEvents(h)).toHaveLength(3), { timeout: 2000 });
+    expect(speedEvents(h)[2]).toEqual(speedEvents(h)[1]);
+    expect(reads).toBe(readsAfter);
+  });
+
+  it('a timed-out probe is not kept either: the next ask measures again', async () => {
+    const timers: Array<{ ms: number; fn: () => void; live: boolean }> = [];
+    let reads = 0;
+    const wasm = fakeVideoWasm(scriptedPictures({ interlaced: true }), { picture: 20, skipped: 20 });
+    const h = await harness(undefined, {
+      noOpen: true,
+      setTimer: (ms, fn) => {
+        const t = { ms, fn, live: true };
+        timers.push(t);
+        return () => void (t.live = false);
+      },
+      videoWasm: (nowMs) => ({
+        ...wasm.deps(nowMs),
+        bench: {
+          mpeg2Url: 'a',
+          vc1Url: 'b',
+          // the first probe's read never answers
+          fetchBytes: (url) => (reads++ === 0 ? new Promise<Uint8Array>(() => undefined) : Promise.resolve(url === 'a' ? benchClip(0x00, 15) : benchClip(0x0d, 15))),
+        },
+      }),
+    });
+    await h.player.handle({ type: 'probeVideoDecoder' });
+    await vi.waitFor(() => expect(timers.some((t) => t.ms === 20_000 && t.live)).toBe(true), { timeout: 2000 });
+    timers.find((t) => t.ms === 20_000 && t.live)!.fn();
+    await vi.waitFor(() => expect(speedEvents(h)).toEqual([null]), { timeout: 2000 });
+    await h.player.handle({ type: 'probeVideoDecoder' });
+    await vi.waitFor(async () => {
+      await h.play(20, { render: false, audio: false });
+      expect(speedEvents(h)).toHaveLength(2);
+    }, { timeout: 5000 });
+    expect(speedEvents(h)[1]).toMatchObject({ moduleUrl: 'video.wasm', clips: 'a|b' });
+  });
+
+  it.each([
+    ['its decoder does not open', () => ({ wasm: fakeVideoWasm(() => Promise.reject(new Error('video.wasm did not load'))), fetchBytes: async () => benchClip(0, 15) })],
+    ['a clip cannot be fetched', () => ({ wasm: fakeVideoWasm(scriptedPictures({ interlaced: true })), fetchBytes: async (): Promise<Uint8Array> => Promise.reject(new Error('HTTP 404')) })],
+    ['a clip decodes to no picture', () => ({ wasm: fakeVideoWasm(scriptedPictures({ interlaced: true })), fetchBytes: async () => new Uint8Array(0) })],
+  ])('probeVideoDecoder answers null when %s', async (_what, make) => {
+    const { wasm, fetchBytes } = make();
+    const h = await harness(undefined, { noOpen: true, videoWasm: (nowMs) => ({ ...wasm.deps(nowMs), bench: { mpeg2Url: 'a', vc1Url: 'b', fetchBytes } }) });
+    await probe(h);
+    expect(speedEvents(h)).toEqual([null]);
+    expect(wasm.live()).toBe(0);
+  });
+
+  it.each([
+    ['dies while playing', 'kill'],
+    ['cannot open its decoder', 'open'],
+  ] as const)('a worker that %s falls back to no picture', async (_what, how) => {
+    const wasm = fakeVideoWasm(how === 'open' ? () => Promise.reject(new Error('video.wasm did not load')) : realPictures);
+    const h = await openFixture('disc-mpeg2-interlaced', { videoWasm: wasm.deps });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00004' });
+    await untilPlaying(h);
+    if (how === 'kill') {
+      await h.play(500);
+      expect(h.drawn.length).toBeGreaterThan(5);
+      expect(lastTelemetry(h)?.videoDecoderFailure).toBeNull();
+      wasm.kill();
+    }
+    await vi.waitFor(async () => {
+      await h.play(50);
+      expect(troubles(h)).toEqual(['failed']);
+    }, { timeout: 5000 });
+    await untilPlaying(h);
+    const drawn = h.drawn.length;
+    const at = times(h).at(-1)!;
+    await h.play(1000);
+    expect(times(h).at(-1)! - at).toBeGreaterThan(500_000); // the clock runs on
+    expect(h.drawn.length).toBe(drawn); // with no picture
+    expect(noPicture(h)).toEqual([{ type: 'unsupported', kind: 'video', codec: 'MPEG-2 video', message: NO_PICTURE_MESSAGE, noPicture: true }]);
+    expect(h.events.some((e) => e.type === 'error')).toBe(false);
+    expect(lastTelemetry(h)).toMatchObject({ clockMode: 'audio', videoDecoder: null });
+    // the reason stays in telemetry for the rest of the disc
+    expect(lastTelemetry(h)?.videoDecoderFailure).toMatch(how === 'kill' ? /the decoder worker crashed/ : /video\.wasm did not load/);
+    expect(lastState(h)).toBe('playing');
+    expect(troubles(h)).toEqual(['failed']);
+    if (how === 'kill') {
+      // and goes with it: the disc opened again starts with none, decoding again
+      await h.player.handle({ type: 'open', disc: { kind: 'files', entries: fixture('disc-mpeg2-interlaced') } });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00004' });
+      await untilPlaying(h);
+      await h.play(500);
+      expect(lastTelemetry(h)?.videoDecoderFailure).toBeNull();
+    }
+  });
+
+  it('a stream that never yields a picture falls back to no picture with the notice', async () => {
+    // a decoder that takes every unit and never makes a picture: a VC-1 stream with no sequence header, or units it rejects
+    const silent: VideoWorkerCoreDeps['openDecoder'] = async () => ({
+      push: () => undefined,
+      drain: () => [],
+      flush: () => [],
+      reset: () => undefined,
+      setSkipNonReference: () => undefined,
+      close: () => undefined,
+    });
+    const h = await harness(CodingType.LPCM, { videoCodingType: CodingType.VC1, clipSeconds: 30, videoWasm: fakeVideoWasm(silent).deps });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    // with no picture to start on, the playlist waits in buffering: the bound counts that wait as well as playback
+    await h.play(4000);
+    expect(troubles(h)).toEqual([]);
+    expect(noPicture(h)).toEqual([]);
+    let waitedMs = 4000;
+    while (troubles(h).length === 0 && waitedMs < 10_000) {
+      await h.play(200);
+      waitedMs += 200;
+    }
+    expect(troubles(h)).toEqual(['failed']);
+    expect(waitedMs).toBeLessThanOrEqual(7000);
+    await untilPlaying(h);
+    await h.play(500);
+    expect(noPicture(h)).toEqual([{ type: 'unsupported', kind: 'video', codec: 'VC-1', message: NO_PICTURE_MESSAGE, noPicture: true }]);
+    expect(h.events.some((e) => e.type === 'error')).toBe(false);
+    expect(lastTelemetry(h)).toMatchObject({ videoDecoder: null });
+    expect(lastTelemetry(h)?.videoDecoderFailure).toMatch(/no picture came out/);
+    expect(lastState(h)).toBe('playing');
+  }, 30_000);
+
+  it("a playlist starting mid-clip shows its first picture without decoding the clip's video before the keyframe", async () => {
+    // the first play item's IN time is 20.5 s into a 26 s clip with an I picture every second: the read starts at the clip's
+    // first packet (graphics muxed there), but only the I picture at 20 s and what follows it reach the decoder
+    const wasm = fakeVideoWasm(scriptedPictures({ interlaced: false }), { picture: 10, skipped: 10 });
+    const h = await harness(CodingType.LPCM, {
+      clipSeconds: 26,
+      videoWasm: wasm.deps,
+      playlists: [{ id: '00000', clipIds: ['00001', '00002'], videoCodingType: CodingType.MPEG2_VIDEO, inSeconds: { 0: 20.5 } }],
+    });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await h.play(500);
+    expect(h.drawn.length).toBeGreaterThan(5);
+    expect(h.drawn[0]!).toBeGreaterThanOrEqual(0);
+    expect(wasm.decoded[0]).toBe(-500_000); // the I picture at or before the IN time
+    expect(wasm.decoded.every((t) => t >= -500_000)).toBe(true);
+    expect(troubles(h)).toEqual([]);
+    expect(noPicture(h)).toEqual([]);
+  }, 30_000);
+
+  it('a seek shows no picture before the next I picture', async () => {
+    const h = await openFixture('disc-mpeg2-interlaced', { videoWasm: fakeVideoWasm(realPictures).deps });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00004' }); // open GOPs of 12, two B pictures between references
+    await untilPlaying(h);
+    await h.play(300);
+    // the third GOP's I picture is at 24 frames; the two B pictures before it in presentation order follow it on the
+    // disc and refer to the GOP before, which a decode starting here never had
+    const iPictureUs = Math.round((24 * 3753.75) / 90) * 1000 / 1000;
+    const from = h.drawn.length;
+    await h.player.handle({ type: 'seek', timeUs: 1_001_000 });
+    await untilPlaying(h);
+    await h.play(500);
+    const after = h.drawn.slice(from);
+    expect(after.length).toBeGreaterThan(5);
+    expect(Math.abs(after[0]! - 1_001_000)).toBeLessThanOrEqual(1000);
+    expect(after.every((t) => t >= iPictureUs * 1000 - 1000)).toBe(true);
+  });
+
+  it('pictures late against the clock turn skipping on, and it turns off once caught up', async () => {
+    const skip = skippingCalls();
+    try {
+      // 60 ms a picture is too slow for 24 fps; with B pictures skipped (24 ms each) it about keeps up
+      const wasm = fakeVideoWasm(scriptedPictures({ interlaced: false }), { picture: 60, skipped: 24 });
+      const h = await harness(CodingType.LPCM, { videoCodingType: CodingType.MPEG2_VIDEO, videoWasm: wasm.deps });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilPlaying(h);
+      await vi.waitFor(async () => {
+        await h.play(100);
+        expect(skip.mock.calls.map((c) => c[0])).toContain(true);
+      }, { timeout: 5000 });
+      expect(lastTelemetry(h)?.videoDecoder?.skipped ?? 0).toBeGreaterThanOrEqual(0);
+      wasm.cost.picture = 0;
+      wasm.cost.skipped = 0;
+      await vi.waitFor(async () => {
+        await h.play(100);
+        expect(skip.mock.calls.at(-1)?.[0]).toBe(false);
+      }, { timeout: 5000 });
+      await h.play(500);
+      expect(lastTelemetry(h)?.videoDecoder).toMatchObject({ kind: 'wasm' });
+      expect(lastTelemetry(h)!.videoDecoder!.skipped).toBeGreaterThan(0);
+      expect(skip.mock.calls.at(-1)?.[0]).toBe(false);
+      expect(troubles(h)).toEqual([]);
+    } finally {
+      skip.mockRestore();
+    }
+  }, 20_000);
+
+  it('a skip is a cadence break for the deinterlacer', async () => {
+    const pushed: FieldInput[] = [];
+    const original = InterlacedVideo.prototype.push;
+    const push = vi.spyOn(InterlacedVideo.prototype, 'push').mockImplementation(function (this: InterlacedVideo, input: FieldInput) {
+      pushed.push(input);
+      return original.call(this, input);
+    });
+    try {
+      const breaks = vi.spyOn(CadenceDetector.prototype, 'cadenceBreak');
+      const fake = recordingDeinterlace();
+      const wasm = fakeVideoWasm(scriptedPictures({ interlaced: true }), { picture: 60, skipped: 24 });
+      const h = await harness(CodingType.LPCM, { videoCodingType: CodingType.MPEG2_VIDEO, videoFormat: 4, videoWasm: wasm.deps, createDeinterlaceBackend: fake.factory });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilPlaying(h);
+      await vi.waitFor(async () => {
+        await h.play(100);
+        expect(pushed.some((i) => i.afterSkip)).toBe(true);
+        // the detector gets the break once the marked frame is measured and fed to it
+        expect(breaks.mock.calls.length).toBeGreaterThan(0);
+      }, { timeout: 5000 });
+      // a frame marked afterSkip has a picture missing just before it; one not marked has none missing
+      const frameUs = 1e6 * 1001 / 24_000;
+      for (let i = 1; i < pushed.length; i++) {
+        const gap = pushed[i]!.timestampUs - pushed[i - 1]!.timestampUs;
+        if (gap <= 0) continue; // a seek or a new stream
+        expect(pushed[i]!.afterSkip === true, `frame at ${pushed[i]!.timestampUs}`).toBe(gap > frameUs * 1.5);
+      }
+      breaks.mockRestore();
+      expect(h.player.deinterlaceState.woven).toBeNull();
+    } finally {
+      push.mockRestore();
+    }
+  }, 20_000);
+
+  it('brief skipping in heavy scenes never adds up to slow', async () => {
+    const skip = skippingCalls();
+    try {
+      // heavy scenes of 3 s, too slow for every picture, between light ones of 1.5 s: skipping comes and goes, on for
+      // well over 10 s in all but never for 10 s in a row
+      const cost: UnitCost = { picture: 60, skipped: 24 };
+      const wasm = fakeVideoWasm(scriptedPictures({ interlaced: false }), cost);
+      const h = await harness(CodingType.LPCM, { videoCodingType: CodingType.MPEG2_VIDEO, clipSeconds: 26, videoWasm: wasm.deps });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilPlaying(h);
+      for (let scene = 0; scene < 5; scene++) {
+        cost.picture = 60;
+        cost.skipped = 24;
+        await h.play(3000);
+        cost.picture = 0;
+        cost.skipped = 0;
+        await h.play(1500);
+      }
+      const turns = skip.mock.calls.map((c) => c[0]);
+      expect(turns.filter((on) => on).length).toBeGreaterThanOrEqual(4);
+      expect(turns.filter((on) => !on).length).toBeGreaterThanOrEqual(4);
+      expect(times(h).at(-1)).toBeGreaterThan(20_000_000);
+      expect(troubles(h)).toEqual([]);
+    } finally {
+      skip.mockRestore();
+    }
+  }, 60_000);
+
+  it('ten seconds of continuous skipping is slow', async () => {
+    // too slow even with B pictures skipped (84 ms for two frames of 83.4): skipping stays on, a little behind
+    const wasm = fakeVideoWasm(scriptedPictures({ interlaced: false }), { picture: 60, skipped: 24 });
+    const h = await harness(CodingType.LPCM, { videoCodingType: CodingType.MPEG2_VIDEO, clipSeconds: 16, videoWasm: wasm.deps });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await h.play(8000);
+    expect(troubles(h)).toEqual([]);
+    await h.play(5000);
+    expect(troubles(h)).toEqual(['slow']);
+    await h.play(2000);
+    expect(troubles(h)).toEqual(['slow']);
+    expect(noPicture(h)).toEqual([]);
+  }, 30_000);
+
+  it('items of different size and scan type each play on their own path', async () => {
+    // one playlist: a 1080i item, a 480i item (soft pulldown) and a 1080p item, from disc-mpeg2-interlaced's clips
+    const files = buildSyntheticDisc({
+      clips: [
+        fixtureMpeg2Clip('disc-mpeg2-interlaced', '00001', '00001', 4, 4, 3003),
+        fixtureMpeg2Clip('disc-mpeg2-interlaced', '00004', '00002', 1, 4, 4505),
+        fixtureMpeg2Clip('disc-mpeg2-interlaced', '00005', '00003', 6, 1, 3754),
+      ],
+      playlists: [{ id: '00000', clipIds: ['00001', '00002', '00003'], videoCodingType: CodingType.MPEG2_VIDEO }],
+    });
+    const fake = recordingDeinterlace();
+    const h = await harness(undefined, { noOpen: true, videoWasm: fakeVideoWasm(realPictures).deps, createDeinterlaceBackend: fake.factory });
+    await h.player.handle({ type: 'open', disc: { kind: 'files', entries: discEntries(files) } });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await vi.waitFor(async () => {
+      await h.play(500);
+      expect(times(h).at(-1)).toBeGreaterThan(10_000_000);
+    }, { timeout: 20_000 });
+    // the 1080i item's frames, then the 480i item's, went to the deinterlacer, its ring made again at each size
+    expect(fake.made.slice(-2)).toEqual([[1920, 1080], [720, 480]]);
+    expect(fake.uploads.filter((w) => w === 1920).length).toBeGreaterThan(60);
+    expect(fake.uploads.filter((w) => w === 720).length).toBeGreaterThan(60);
+    // the 1080p item's frames went to the presenter as they are
+    expect(h.drawn.length).toBeGreaterThan(30);
+    expect(h.drawn.every((t) => t >= 7_900_000)).toBe(true);
+    expect(h.player.deinterlaceState.woven).toBeNull();
+    expect(h.events.some((e) => e.type === 'error')).toBe(false);
+  }, 40_000);
+
+  it('telemetry names the decoder in use', async () => {
+    const h = await harness(CodingType.LPCM, {
+      playlists: [
+        { id: '00000', clipIds: ['00001'], videoCodingType: CodingType.MPEG2_VIDEO },
+        { id: '00001', clipIds: ['00002'] },
+        { id: '00002', clipIds: ['00002'], videoCodingType: CodingType.VC1 },
+      ],
+      videoWasm: fakeVideoWasm(scriptedPictures({ interlaced: false })).deps,
+    });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await h.play(1000);
+    expect(lastTelemetry(h)?.videoDecoder).toEqual({ kind: 'wasm', decodeMs: 0, skipped: 0 });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00001' });
+    await untilPlaying(h);
+    await h.play(1000);
+    expect(lastTelemetry(h)?.videoDecoder).toEqual({ kind: 'webcodecs', decodeMs: null, skipped: 0 });
+
+    const none = await harness(CodingType.LPCM, { videoCodingType: CodingType.VC1 });
+    await none.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(none);
+    await none.play(1000);
+    expect(lastTelemetry(none)?.videoDecoder).toBeNull();
+  });
+
+  it("a progressive item after an interlaced one keeps the presenter's queued-picture cap", async () => {
+    // no audio, so nothing but the cap holds decoding back; item 1 (0-4 s) interlaced, item 2 (4-8 s) a progressive sequence
+    const wasm = fakeVideoWasm(scriptedPictures({ interlaced: (t) => t < 4_000_000 }));
+    const fake = recordingDeinterlace();
+    const h = await harness(undefined, { videoCodingType: CodingType.MPEG2_VIDEO, videoFormat: 4, videoWasm: wasm.deps, createDeinterlaceBackend: fake.factory });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    const presenter = (h.player as unknown as { presenter: { size: number } }).presenter;
+    let most = 0;
+    for (let i = 0; i < 200 && (times(h).at(-1) ?? 0) < 6_000_000; i++) {
+      await h.play(50);
+      if ((times(h).at(-1) ?? 0) > 4_500_000) most = Math.max(most, presenter.size);
+    }
+    expect(times(h).at(-1)).toBeGreaterThan(5_000_000);
+    expect(h.drawn.some((t) => t >= 4_000_000)).toBe(true);
+    // as for a progressive stream: maxQueuedFrames (8 on desktop) queued, plus what the decoder had in flight (8 at most)
+    expect(most).toBeLessThanOrEqual(16);
+  }, 20_000);
+
+  it('the last interlaced frames are drawn when a progressive item follows', async () => {
+    const rendered: number[] = [];
+    const original = Deinterlacer.prototype.render;
+    const render = vi.spyOn(Deinterlacer.prototype, 'render').mockImplementation(function (this: Deinterlacer, picture: Picture) {
+      rendered.push(picture.timestamp);
+      return original.call(this, picture);
+    });
+    try {
+      const wasm = fakeVideoWasm(scriptedPictures({ interlaced: (t) => t < 4_000_000 }));
+      const fake = recordingDeinterlace();
+      const h = await harness(CodingType.LPCM, { videoCodingType: CodingType.MPEG2_VIDEO, videoFormat: 4, videoWasm: wasm.deps, createDeinterlaceBackend: fake.factory });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilPlaying(h);
+      await vi.waitFor(async () => {
+        await h.play(200);
+        expect(times(h).at(-1)).toBeGreaterThan(4_500_000);
+      }, { timeout: 10_000 });
+      // item 1's last frame is at 95 frames of 24 fps; its fields are pictures up to half a frame after it
+      expect(Math.max(...rendered)).toBeGreaterThanOrEqual(3_950_000); // 95 frames of 3750 ticks: 3 958 333 µs
+      expect(h.drawn.some((t) => t >= 4_000_000)).toBe(true);
+    } finally {
+      render.mockRestore();
+    }
+  }, 20_000);
+
+  it("a sequence header that changes the size within an item restarts the deinterlacer's ring at the new size", async () => {
+    const fake = recordingDeinterlace();
+    const wasm = fakeVideoWasm(scriptedPictures({ interlaced: true, size: (t) => (t < 1_000_000 ? [64, 36] : [32, 18]) }));
+    const h = await harness(CodingType.LPCM, { videoCodingType: CodingType.MPEG2_VIDEO, videoFormat: 4, videoWasm: wasm.deps, createDeinterlaceBackend: fake.factory });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await vi.waitFor(async () => {
+      await h.play(200);
+      expect(times(h).at(-1)).toBeGreaterThan(2_000_000);
+    }, { timeout: 10_000 });
+    expect(fake.made.slice(-2)).toEqual([[64, 36], [32, 18]]);
+    const drawnBefore = h.drawnPictures.length;
+    await h.play(500);
+    expect(h.drawnPictures.length).toBeGreaterThan(drawnBefore + 5);
+    expect(fake.uploads.filter((w) => w === 32).length).toBeGreaterThan(20);
+    expect(h.player.deinterlaceState.woven).toBeNull();
+    expect(h.events.some((e) => e.type === 'error')).toBe(false);
   });
 });

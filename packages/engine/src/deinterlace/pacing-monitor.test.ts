@@ -24,10 +24,14 @@ interface Run {
   stallTicks?: number;
   /** Extra events: a gap with a burst of drops at this tick index. */
   burstAt?: { tick: number; gapMs: number; dropped: number };
+  /** Once the cheap path is on, ticks come at this interval instead (the cheap path's own pace). */
+  cheapTickMs?: number;
+  /** Once the cheap path is on, the stall pattern stops (the cheap path let the device keep up). */
+  cheapHeals?: boolean;
 }
 
 /** Plays pictures against display ticks as the presenter does and returns the share of late verdicts and whether the deinterlacer fell back. */
-function simulate(judge: Judge, run: Run): { fellBack: boolean; lateTicks: number; counted: number } {
+function simulate(judge: Judge, run: Run): { fellBack: boolean; frameRate: boolean; frameRateAtMs: number | null; lateTicks: number; counted: number } {
   const d = run.durationUs ?? 1_001_000 / 60;
   const deint = fakeWindow();
   let seed = 12345;
@@ -37,10 +41,12 @@ function simulate(judge: Judge, run: Run): { fellBack: boolean; lateTicks: numbe
   let ticks = 0;
   let lateTicks = 0;
   let counted = 0;
-  const total = Math.floor((run.seconds * 1000) / run.tickMs);
-  for (let i = 0; i < total; i++) {
-    let gapMs = run.tickMs + (run.jitterMs ? (rnd() * 2 - 1) * run.jitterMs : 0);
-    if (run.stallEvery && i % run.stallEvery === run.stallEvery - 1) gapMs += run.tickMs * (run.stallTicks ?? 2);
+  let frameRateAtMs: number | null = null;
+  for (let i = 0; nowMs < run.seconds * 1000; i++) {
+    const cheap = deint.fallback();
+    const tickMs = cheap && run.cheapTickMs !== undefined ? run.cheapTickMs : run.tickMs;
+    let gapMs = tickMs + (run.jitterMs ? (rnd() * 2 - 1) * run.jitterMs : 0);
+    if (run.stallEvery && !(cheap && run.cheapHeals) && i % run.stallEvery === run.stallEvery - 1) gapMs += tickMs * (run.stallTicks ?? 2);
     let dropped = 0;
     if (run.burstAt && i === run.burstAt.tick) {
       gapMs = run.burstAt.gapMs;
@@ -61,14 +67,15 @@ function simulate(judge: Judge, run: Run): { fellBack: boolean; lateTicks: numbe
       counted++;
       if (verdict === 'late') lateTicks++;
       deint.note(verdict === 'late');
+      if (frameRateAtMs === null && deint.frameRate()) frameRateAtMs = nowMs;
     }
   }
-  expect(ticks).toBe(total);
-  return { fellBack: deint.fallback(), lateTicks, counted };
+  expect(ticks).toBeGreaterThan(0);
+  return { fellBack: deint.fallback(), frameRate: deint.frameRate(), frameRateAtMs, lateTicks, counted };
 }
 
 /** The deinterlacer's own window, through its public methods. */
-function fakeWindow(): { note(late: boolean): void; restart(): void; fallback(): boolean } {
+function fakeWindow(): { note(late: boolean): void; restart(): void; fallback(): boolean; frameRate(): boolean } {
   const backend = {
     upload() {},
     measure: () => new Promise<never>(() => {}),
@@ -77,7 +84,7 @@ function fakeWindow(): { note(late: boolean): void; restart(): void; fallback():
     dispose() {},
   };
   const d = new Deinterlacer({ backend, ringSize: 4, frameDurationUs: 33_366, onPictures: () => {} });
-  return { note: (l) => d.notePacing(l), restart: () => d.restartPacing(), fallback: () => d.stats.fallback };
+  return { note: (l) => d.notePacing(l), restart: () => d.restartPacing(), fallback: () => d.stats.fallback, frameRate: () => d.stats.frameRate };
 }
 
 describe('PacingMonitor against the deinterlacer\'s window', () => {
@@ -92,7 +99,7 @@ describe('PacingMonitor against the deinterlacer\'s window', () => {
     it(`never falls back on ${name}`, () => {
       for (const judge of [OLD_RULE, judgeUnderTest()]) {
         const r = simulate(judge, run);
-        if (judge !== OLD_RULE) expect(r.fellBack).toBe(false);
+        if (judge !== OLD_RULE) expect(r).toMatchObject({ fellBack: false, frameRate: false });
         else if (name.startsWith('a 60 Hz display with')) expect(r.fellBack).toBe(true); // the first rule's flaw
       }
     });
@@ -120,6 +127,31 @@ describe('PacingMonitor against the deinterlacer\'s window', () => {
 
   it('never falls back on a 30 Hz display (Low Power Mode) showing 59.94 pictures a second', () => {
     expect(simulate(judgeUnderTest(), { tickMs: 1000 / 30, seconds: 60, jitterMs: 1.5 }).fellBack).toBe(false);
+  });
+
+  it('steps down to frame rate on a device whose ticks stay slow with the cheap path on, a few seconds after it', () => {
+    for (const [tickMs, cheapTickMs] of [[50, 50], [100, 50]] as const) {
+      const r = simulate(judgeUnderTest(), { tickMs, cheapTickMs, seconds: 60 });
+      expect(r, `${tickMs} ms ticks, then ${cheapTickMs}`).toMatchObject({ fellBack: true, frameRate: true });
+      expect(r.frameRateAtMs!).toBeLessThan(40_000);
+    }
+  });
+
+  it('steps down on a sustained stall the cheap path doesn\'t cure', () => {
+    expect(simulate(judgeUnderTest(), { tickMs: 1000 / 60, seconds: 30, stallEvery: 7, stallTicks: 2 })).toMatchObject({ fellBack: true, frameRate: true });
+  });
+
+  it('stays at field rate on a device the cheap path lets keep up', () => {
+    expect(simulate(judgeUnderTest(), { tickMs: 1000 / 60, seconds: 120, stallEvery: 7, stallTicks: 2, cheapHeals: true, jitterMs: 1.5 })).toMatchObject({
+      fellBack: true,
+      frameRate: false,
+    });
+    expect(simulate(judgeUnderTest(), { tickMs: 50, cheapTickMs: 1000 / 60, seconds: 120, jitterMs: 1 })).toMatchObject({ fellBack: true, frameRate: false });
+  });
+
+  it('a stall in a minute after the cheap path is on never steps down (one late burst is not a window)', () => {
+    const r = simulate(judgeUnderTest(), { tickMs: 50, cheapTickMs: 1000 / 60, seconds: 60, burstAt: { tick: 2000, gapMs: 200, dropped: 12 } });
+    expect(r).toMatchObject({ fellBack: true, frameRate: false });
   });
 
   it('counts at most one late per tick, and nothing while settling after a resume', () => {

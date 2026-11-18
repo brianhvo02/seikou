@@ -1,0 +1,194 @@
+[
+ {
+  "ptsUs": 0,
+  "interlaced": false,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "I",
+  "keyFrame": true
+ },
+ {
+  "ptsUs": 41708,
+  "interlaced": false,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 83417,
+  "interlaced": false,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 125125,
+  "interlaced": false,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "P",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 166833,
+  "interlaced": false,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 208542,
+  "interlaced": false,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 250250,
+  "interlaced": false,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "P",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 291958,
+  "interlaced": false,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 333667,
+  "interlaced": false,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 375375,
+  "interlaced": false,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "P",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 417083,
+  "interlaced": false,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 458792,
+  "interlaced": false,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 500500,
+  "interlaced": false,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "I",
+  "keyFrame": true
+ },
+ {
+  "ptsUs": 542208,
+  "interlaced": false,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 583917,
+  "interlaced": false,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 625625,
+  "interlaced": false,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "P",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 667333,
+  "interlaced": false,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 709042,
+  "interlaced": false,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 750750,
+  "interlaced": false,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "P",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 792458,
+  "interlaced": false,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 834167,
+  "interlaced": false,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 875875,
+  "interlaced": false,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "P",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 917583,
+  "interlaced": false,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "B",
+  "keyFrame": false
+ },
+ {
+  "ptsUs": 959292,
+  "interlaced": false,
+  "topFieldFirst": false,
+  "repeatPict": 0,
+  "pictType": "I",
+  "keyFrame": true
+ }
+]

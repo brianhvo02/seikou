@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BDJ_STORAGE_MESSAGE, NO_PICTURE_MESSAGE, type AudioTrack, type EngineEvent, type Telemetry } from '../protocol';
+import { BDJ_STORAGE_MESSAGE, NO_PICTURE_MESSAGE, VIDEO_PROBE_DEADLINE_MS, type AudioTrack, type EngineEvent, type Telemetry } from '../protocol';
 import { FETCH_PORT_RELEASE_MS, INITIAL_SNAPSHOT, PlayerController, reduceEvent, type AudioOutputLike, type WorkerLike } from './player-controller';
 
 class FakeWorker implements WorkerLike {
@@ -146,6 +146,24 @@ describe('playlist lifecycle', () => {
     expect(c.getSnapshot().levelSwitch).toEqual({ error: 'Another disc is open.' });
     c.openRemote(spec);
     expect(c.getSnapshot().levelSwitch).toBe('idle'); // a new disc starts without one
+  });
+
+  it('videoDecoderTrouble reaches the snapshot, and a new open clears it', () => {
+    const worker = new FakeWorker();
+    const c = new PlayerController(worker, new FakeAudio());
+    const spec = { kind: 'remote', base: 'https://nas.example/discs/a/', token: 't', manifest: { discId: 'a', name: 'a', files: [], inline: {} } } as const;
+    expect(INITIAL_SNAPSHOT.videoDecoderTrouble).toBeNull();
+    c.openRemote(spec);
+    // before the disc's titles: a late event from the disc before is no trouble of this one
+    worker.emit({ type: 'videoDecoderTrouble', reason: 'failed' });
+    expect(c.getSnapshot().videoDecoderTrouble).toBeNull();
+    worker.emit({ type: 'titles', playlists: [{ id: '00000' }], usesBdj: false, bdjSupported: true, warnings: [] } as unknown as EngineEvent);
+    worker.emit({ type: 'videoDecoderTrouble', reason: 'slow' });
+    expect(c.getSnapshot().videoDecoderTrouble).toBe('slow');
+    worker.emit({ type: 'videoDecoderTrouble', reason: 'failed' });
+    expect(c.getSnapshot().videoDecoderTrouble).toBe('failed');
+    c.openRemote(spec);
+    expect(c.getSnapshot().videoDecoderTrouble).toBeNull();
   });
 
   it('a late levelChanged from the previous disc does not touch the new one', () => {
@@ -1094,6 +1112,62 @@ describe('opening at a place', () => {
     worker.emit({ type: 'placeState', mode: 'hdmv', title: 1, psrs: [], gprs: {} });
     await expect(beforeOpen).resolves.toMatchObject({ mode: 'hdmv', title: 1 });
     await expect(beforeClose).resolves.toMatchObject({ mode: 'hdmv', title: 1 });
+  });
+
+  it('probeVideoDecoder asks the engine once and resolves with its measurement for every caller', async () => {
+    const worker = new FakeWorker();
+    const c = new PlayerController(worker, new FakeAudio());
+    const first = c.probeVideoDecoder();
+    const second = c.probeVideoDecoder();
+    expect(worker.posted).toEqual([{ type: 'probeVideoDecoder' }]);
+    const speed = { mpeg2Fps: 80, vc1Fps: 61, moduleUrl: '/assets/video.wasm', clips: 'a|b' };
+    worker.emit({ type: 'videoDecoderSpeed', speed });
+    await expect(first).resolves.toEqual(speed);
+    await expect(second).resolves.toEqual(speed);
+    await expect(c.probeVideoDecoder()).resolves.toEqual(speed);
+    expect(worker.posted).toHaveLength(1);
+    expect(reduceEvent(INITIAL_SNAPSHOT, { type: 'videoDecoderSpeed', speed })).toBe(INITIAL_SNAPSHOT);
+  });
+
+  it('probeVideoDecoder resolves null when the engine has no decoder or the worker fails', async () => {
+    const none = new FakeWorker();
+    const a = new PlayerController(none, new FakeAudio());
+    const pending = a.probeVideoDecoder();
+    none.emit({ type: 'videoDecoderSpeed', speed: null });
+    await expect(pending).resolves.toBeNull();
+    const failing = new FakeWorker();
+    const b = new PlayerController(failing, new FakeAudio());
+    const waiting = b.probeVideoDecoder();
+    failing.onerror?.({ message: 'boom' } as ErrorEvent);
+    await expect(waiting).resolves.toBeNull();
+    await expect(b.probeVideoDecoder()).resolves.toBeNull();
+  });
+
+  it('a probe that never answers settles null at the deadline, and on dispose', async () => {
+    vi.useFakeTimers();
+    try {
+      const worker = new FakeWorker();
+      const c = new PlayerController(worker, new FakeAudio());
+      const slow = c.probeVideoDecoder();
+      let settled: unknown = 'pending';
+      void slow.then((v) => (settled = v));
+      await vi.advanceTimersByTimeAsync(VIDEO_PROBE_DEADLINE_MS + 5_000 - 1);
+      expect(settled).toBe('pending');
+      await vi.advanceTimersByTimeAsync(2);
+      expect(settled).toBeNull();
+      // a null is not remembered: the next ask goes to the engine again
+      const again = c.probeVideoDecoder();
+      expect(worker.posted.filter((m) => (m as { type: string }).type === 'probeVideoDecoder')).toHaveLength(2);
+      let after: unknown = 'pending';
+      void again.then((v) => (after = v));
+      c.dispose();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(after).toBeNull();
+      await expect(c.probeVideoDecoder()).resolves.toBeNull();
+      expect(worker.posted.filter((m) => (m as { type: string }).type === 'probeVideoDecoder')).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('records startFailed, and forgets it on the next open', () => {

@@ -60,6 +60,11 @@ export interface DeinterlaceStats {
   readonly gpuMs: number | null;
   /** Pictures are drawn by the cheapest correct path because the device can't keep up. */
   readonly fallback: boolean;
+  /**
+   * Video is shown at frame rate (one picture a frame, 29.97 or 25 a second) in place of field rate, because the device
+   * still missed pictures with `fallback` on. Film and progressive content are unchanged.
+   */
+  readonly frameRate: boolean;
 }
 
 /** What a `Deinterlacer` is built with. */
@@ -77,8 +82,16 @@ const FILM_FRAME_US = 1_001_000 / 24;
 
 /** Pictures the frame-pacing check looks at: the latest this many that were presented or dropped. */
 export const PACING_WINDOW = 120;
-/** The share of late pictures in a full window at which the deinterlacer falls back to plain field interpolation. */
+/**
+ * The share of late pictures in a full window at which the deinterlacer falls back to plain field interpolation, and,
+ * once that has had `PACING_STEP_GRACE`, at which video steps down to frame rate.
+ */
 export const PACING_LATE_SHARE = 0.1;
+/**
+ * Pacing reports ignored after the fall-back to plain field interpolation before a window counts toward the frame-rate
+ * step (about four seconds of display ticks at 60 Hz): the pictures already queued were planned and drawn the old way.
+ */
+export const PACING_STEP_GRACE = 240;
 
 /** A flush waiting to end its stream, with the promise `flush` returned for it. */
 interface FlushMarker {
@@ -110,6 +123,8 @@ interface RingFrame {
   readonly matrix: YuvPlanes['matrix'];
   /** The order the match pairings were measured by. */
   order: 'tff' | 'bff';
+  /** Pictures were skipped just before it (FieldInput.afterSkip): the detector's cycle breaks before it is fed. */
+  readonly breakBefore: boolean;
   /** Set once the frame has been measured (when its next frame arrived, or at flush). */
   measure: Promise<FrameMetrics> | null;
   metrics: FrameMetrics | null;
@@ -190,6 +205,8 @@ export class Deinterlacer {
   private pacingLate = 0;
   /** Set for good once pacing fell short: interpolated fields are drawn cheaply. */
   private fallback = false;
+  /** Pacing reports still ignored after the fall-back before the frame-rate step's window counts. */
+  private graceLeft = 0;
 
   constructor(deps: DeinterlacerDeps) {
     if (!Number.isInteger(deps.ringSize) || deps.ringSize < 1) throw new Error('deinterlacer: the ring needs at least one slot');
@@ -213,27 +230,59 @@ export class Deinterlacer {
       ringSize: this.ringSize,
       gpuMs: this.backend.gpuMs,
       fallback: this.fallback,
+      frameRate: this.detector.frameRate,
     };
   }
 
   /**
-   * Reports one picture's pacing, from where pictures are presented: `late` is true for a picture presented more than
-   * half its duration past its time, or dropped without being shown. Once a full window of `PACING_WINDOW` pictures
-   * holds at least `PACING_LATE_SHARE` late ones, `stats.fallback` turns true and interpolated fields are drawn by
-   * plain field interpolation for the rest of the session (field matching and film decimation go on). A seek or new
-   * play item (`reset`) empties the window, but the fall-back stays.
+   * Reports one display tick's pacing (`PacingMonitor` judges it): `late` is true when a picture was missed. Pacing
+   * steps down twice, each step for the rest of the session and never back, so it can't flip at a boundary:
+   *
+   * 1. Once a full window of `PACING_WINDOW` reports holds at least `PACING_LATE_SHARE` late ones, `stats.fallback`
+   *    turns true and interpolated fields are drawn by plain field interpolation (field matching and film decimation go
+   *    on).
+   * 2. The window starts again, the next `PACING_STEP_GRACE` reports are ignored, and once a full window after them
+   *    again holds the share, `stats.frameRate` turns true: video is planned one picture a frame (its first field,
+   *    interpolated cheaply) at the frame's time, an even 29.97 or 25 a second, in place of field rate, so a device
+   *    that can't keep up shows steady pictures instead of dropping them unevenly.
+   *
+   * A seek or new play item (`reset`) and `restartPacing` empty the window; a step taken stays, except that a seek the
+   * user makes takes the second back (`returnToFieldRate`).
    */
   notePacing(late: boolean): void {
-    if (this.fallback) return;
+    if (this.detector.frameRate) return;
+    if (this.graceLeft > 0) {
+      this.graceLeft--;
+      return;
+    }
     const i = this.pacingCount % PACING_WINDOW;
     if (this.pacingCount >= PACING_WINDOW) this.pacingLate -= this.pacing[i]!;
     this.pacing[i] = late ? 1 : 0;
     this.pacingLate += this.pacing[i]!;
     this.pacingCount++;
-    if (this.pacingCount >= PACING_WINDOW && this.pacingLate >= PACING_LATE_SHARE * PACING_WINDOW) this.fallback = true;
+    if (this.pacingCount < PACING_WINDOW || this.pacingLate < PACING_LATE_SHARE * PACING_WINDOW) return;
+    if (this.fallback) {
+      this.detector.frameRate = true;
+      return;
+    }
+    this.fallback = true;
+    this.restartPacing();
+    this.graceLeft = PACING_STEP_GRACE;
   }
 
-  /** Empties the pacing window (playback started, resumed or seeked): what came before says nothing of what follows. The fall-back stays. */
+  /**
+   * The user seeked: video goes back to field rate (the cheap path stays), and the pacing window starts again after
+   * the grace a step takes, so a device still too slow steps down again after a full window. A stall that passed (a
+   * tab in the background, a burst of work) then no longer holds the rest of the playlist at frame rate.
+   */
+  returnToFieldRate(): void {
+    if (!this.detector.frameRate) return;
+    this.detector.frameRate = false;
+    this.restartPacing();
+    this.graceLeft = PACING_STEP_GRACE;
+  }
+
+  /** Empties the pacing window (playback started, resumed or seeked): what came before says nothing of what follows. The steps taken stay. */
   restartPacing(): void {
     this.pacingCount = 0;
     this.pacingLate = 0;
@@ -256,7 +305,8 @@ export class Deinterlacer {
    * frame before it now that its next frame is in, and hands out the pictures the detector decides, through
    * `onPictures`, as measurements come back. Throws when no slot is free. A push after `flush` starts a new stream;
    * while the flush is still draining, the frame is uploaded at once and joins the new stream once the old one has
-   * drained, so no frame is lost. An upload that fails (a lost WebGL context) sets `error` instead of throwing, and
+   * drained, so no frame is lost. A frame `afterSkip` breaks the detector's cycle when it is fed (`cadenceBreak`),
+   * its neighbours kept. An upload that fails (a lost WebGL context) sets `error` instead of throwing, and
    * once `error` is set pushes do nothing.
    */
   push(input: FieldInput): void {
@@ -286,6 +336,7 @@ export class Deinterlacer {
       flags: input.flags,
       matrix: input.planes.matrix,
       order: 'tff',
+      breakBefore: input.afterSkip === true,
       measure: null,
       metrics: null,
       held: true,
@@ -442,6 +493,7 @@ export class Deinterlacer {
     const out: PlannedPicture[] = [];
     while (this.queue.length > 0 && this.queue[0]!.metrics) {
       const f = this.queue.shift()!;
+      if (f.breakBefore) this.detector.cadenceBreak();
       out.push(...this.detector.push(f.seq, f.timestampUs, f.flags, f.metrics!));
       this.fed++;
     }
@@ -492,7 +544,11 @@ export class Deinterlacer {
     // Match pairings follow the parity the frame was measured by; an interpolated field keeps the frame's own order.
     const order = p.op.kind === 'interpolate' ? (f.flags.fieldOrder ?? f.order) : f.order;
     const duration =
-      this.detector.mode === 'film' ? FILM_FRAME_US : p.op.kind === 'interpolate' ? this.frameDurationUs / 2 : this.frameDurationUs;
+      this.detector.mode === 'film'
+        ? FILM_FRAME_US
+        : p.op.kind === 'interpolate' && !this.detector.frameRate
+          ? this.frameDurationUs / 2
+          : this.frameDurationUs;
     for (const s of [slots.prev, slots.cur, slots.next]) if (s !== null) this.refs[s]!++;
     const picture = new RingPicture(p.timestampUs, duration, p.op, slots, order, f.matrix, this.generation, (closed) => {
       this.pictures.delete(closed);

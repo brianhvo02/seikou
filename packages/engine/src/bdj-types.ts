@@ -251,13 +251,14 @@ export type FromBdj =
   | { readonly type: 'stopped' };
 
 /**
- * The BD-J worker as the engine talks to it (a Worker in production).
+ * A worker as the engine talks to it (a Worker in production): the BD-J worker by default, or another of the engine's
+ * own (the video decoder worker) with its message types.
  * @internal
  */
-export interface WorkerLike {
-  /** `transfer`: a boot message's fetch port (bootTransfer). */
-  postMessage(message: ToBdj, transfer?: Transferable[]): void;
-  onmessage: ((event: MessageEvent<FromBdj>) => void) | null;
+export interface WorkerLike<In = ToBdj, Out = FromBdj> {
+  /** `transfer`: buffers moved with the message (a BD-J boot message's fetch port, bootTransfer). */
+  postMessage(message: In, transfer?: Transferable[]): void;
+  onmessage: ((event: MessageEvent<Out>) => void) | null;
   onerror?: ((event: ErrorEvent) => void) | null;
   terminate(): void;
 }

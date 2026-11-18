@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { DiscEntry, DiscManifest, FolderEntry } from '@seikou/nas/nas-api';
 import { fakeNas } from '../../../tests/helpers/fake-nas';
 import { fixtureDiscFiles } from '../../../tests/helpers/fixture-disc';
-import { breadcrumbs, discBadges, discFacts, dynamicRangeBadge, folderMemory, formatSize, mainPlaylist, openFailed, playlistOf, preflightLines, sortRows } from './library-model';
+import { breadcrumbs, discBadges, discFacts, dynamicRangeBadge, folderMemory, formatSize, mainPlaylist, openFailed, playlistOf, preflightLines, sortRows, wasmVideoCoding } from './library-model';
 
 const folder = (name: string, path = `media5/${name}`): FolderEntry => ({ name, path, discs: 1 });
 const disc = (name: string, kind: DiscEntry['kind'] = 'folder', sizeBytes = 1): DiscEntry => ({ id: name, name, path: `media5/${name}`, kind, sizeBytes });
@@ -123,6 +123,15 @@ describe('discFacts', () => {
     const files = [{ path: 'BDMV/PLAYLIST/00000.MPLS', size: 3 }];
     const manifest: DiscManifest = { discId: 'x', name: 'x', files, inline: { 'BDMV/PLAYLIST/00000.MPLS': 'AAAA' } };
     expect(discFacts(manifest)).toEqual({ peakMbps: null, uhd: false, dynamicRange: null });
+  });
+});
+
+describe('wasmVideoCoding', () => {
+  it("names the main title's video when the app's own decoder plays it: mpeg2 (MPEG-1 too) or vc1, else null", () => {
+    expect(wasmVideoCoding(fakeNas(fixtureDiscFiles('disc-mpeg2')).spec.manifest)).toBe('mpeg2');
+    expect(wasmVideoCoding(fakeNas(fixtureDiscFiles('disc-vc1')).spec.manifest)).toBe('vc1');
+    expect(wasmVideoCoding(disc1Manifest())).toBeNull();
+    expect(wasmVideoCoding({ discId: 'x', name: 'x', files: [], inline: {} })).toBeNull();
   });
 });
 

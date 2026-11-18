@@ -172,9 +172,9 @@ function classify(m: FrameMetrics): { cls: FrameClass; best: BestOp } {
 }
 
 /**
- * Turns per-frame field measurements into output pictures: two interpolated fields per frame for video, the 3:2
- * film reassembled to four pictures per five frames at an even 1001/24000 s, or one woven picture per frame for
- * progressive content (soft-pulldown film evened to the film grid). A frame is planned once `lookahead` later frames
+ * Turns per-frame field measurements into output pictures: two interpolated fields per frame for video (one at
+ * `frameRate`), the 3:2 film reassembled to four pictures per five frames at an even 1001/24000 s, or one woven
+ * picture per frame for progressive content (soft-pulldown film evened to the film grid). A frame is planned once `lookahead` later frames
  * have arrived, so a mode change can take effect from where the content changed.
  */
 export class CadenceDetector {
@@ -211,6 +211,12 @@ export class CadenceDetector {
   private lastTimeUs = -Infinity;
   private lockCount = 0;
   private breakCount = 0;
+  /**
+   * Video is planned at frame rate: one picture a frame, its first field interpolated, at the frame's own time, in
+   * place of both fields at field rate (the deinterlacer's last pacing step, for a device that can't present field-rate
+   * pictures in time). Film and progressive content are planned as they are. Kept through `reset`.
+   */
+  frameRate = false;
 
   constructor(opts: { readonly frameDurationUs: number; readonly lookahead: number }) {
     this.frameDurationUs = opts.frameDurationUs;
@@ -268,6 +274,21 @@ export class CadenceDetector {
       this.decide(this.pending.shift()!, out);
     }
     return out;
+  }
+
+  /**
+   * A gap before the next frame (the decoder skipped pictures to keep up): the cycle starts again there, as at a cut,
+   * so the gap is never read as a pair at another phase or as uneven pulldown. Frames and neighbours are kept. A film
+   * lock is let go (a break) and the frames after it are planned frame by frame until one 3:2 pair locks film again at
+   * its phase, as after a cut; video and progressive content go on as they are.
+   */
+  cadenceBreak(): void {
+    this.recentClasses = [null, null, null];
+    this.candidate = null;
+    this.prevTimestampUs = null;
+    if (this.state.kind !== 'locked') return;
+    this.breakCount++;
+    this.state = SEARCH;
   }
 
   /** End of stream: decides the frames still waiting for lookahead. */
@@ -392,6 +413,17 @@ export class CadenceDetector {
         this.lock(mod(pairStart, CYCLE), i);
         break;
       }
+      case 'search':
+        // after a cadence break in film: one pair locks film again (the content is still film), and a run of frames
+        // that comb whatever is paired leaves it for video
+        if (this.combedRun >= UNLOCK_FRAMES) {
+          this.state = VIDEO;
+          this.apply(VIDEO, Math.max(this.earliestPending(), i - UNLOCK_FRAMES + 1));
+          break;
+        }
+        this.trackCandidate(f, pairStart);
+        if (this.candidate !== null) this.lock(this.candidate.phase, i);
+        break;
     }
     this.updateSoft(i);
   }
@@ -506,6 +538,10 @@ export class CadenceDetector {
         const first = this.orderOf(f) === 'tff' ? 'top' : 'bottom';
         const second = first === 'top' ? 'bottom' : 'top';
         this.emit(out, f, { kind: 'interpolate', field: first }, f.timestampUs);
+        if (this.frameRate) {
+          this.remember([2 * f.index]);
+          return;
+        }
         this.emit(out, f, { kind: 'interpolate', field: second }, f.timestampUs + this.frameDurationUs / 2);
         this.remember([2 * f.index, 2 * f.index + 1]);
         return;

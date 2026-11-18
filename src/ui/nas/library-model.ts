@@ -137,6 +137,16 @@ export function playlistOf(manifest: DiscManifest, id: string): Mpls | null {
   }
 }
 
+/**
+ * The main title's video coding when the app's own decoder plays it (and the NAS offers its Original only to a device
+ * that says so): `mpeg2` for MPEG-1 and MPEG-2, `vc1` for VC-1; null for any other video, or when there is no main title.
+ */
+export function wasmVideoCoding(manifest: DiscManifest): 'mpeg2' | 'vc1' | null {
+  const coding = mainPlaylist(manifest)?.playItems[0]?.stn.video[0]?.codingType;
+  if (coding === CodingType.MPEG1_VIDEO || coding === CodingType.MPEG2_VIDEO) return 'mpeg2';
+  return coding === CodingType.VC1 ? 'vc1' : null;
+}
+
 /** What the manifest's inlined playlists and clip info say about the main title (mainPlaylist). */
 export function discFacts(manifest: DiscManifest): DiscFacts {
   const unknown: DiscFacts = { peakMbps: null, uhd: false, dynamicRange: null };

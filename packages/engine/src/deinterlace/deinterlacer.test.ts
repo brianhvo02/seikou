@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import { LOOKAHEAD, type FrameMetrics, type PictureOp } from './cadence';
-import { Deinterlacer, PACING_WINDOW, type DeinterlaceBackend, type Picture } from './deinterlacer';
+import { Deinterlacer, PACING_LATE_SHARE, PACING_STEP_GRACE, PACING_WINDOW, type DeinterlaceBackend, type Picture } from './deinterlacer';
 import type { FieldFlags, FieldInput, YuvPlanes } from './field-input';
 
 const FRAME_US = 1_001_000 / 30;
@@ -343,6 +343,7 @@ describe('Deinterlacer', () => {
       ringSize: 8,
       gpuMs: 0.5,
       fallback: false,
+      frameRate: false,
     });
   });
 
@@ -384,6 +385,113 @@ describe('Deinterlacer', () => {
     expect(await run(11, 109)).toEqual({ fallback: false, cheap: false });
     // 11 late in a window of 120, then more on time: still no fall-back
     expect((await run(11, 119)).fallback).toBe(false);
+  });
+
+  describe('the frame-rate step', () => {
+    /** Falls back to the cheap path with a full window of late pictures. */
+    const fallBack = (t: ReturnType<typeof setup>): void => {
+      for (let i = 0; i < PACING_WINDOW; i++) t.d.notePacing(true);
+      expect(t.d.stats).toMatchObject({ fallback: true, frameRate: false });
+    };
+
+    it('engages once the cheap path has had its grace and a window still misses its share, and only then', () => {
+      const t = setup();
+      fallBack(t);
+      // the grace: however late, nothing counts
+      for (let i = 0; i < PACING_STEP_GRACE; i++) t.d.notePacing(true);
+      expect(t.d.stats.frameRate).toBe(false);
+      // a window just short of its share: still field rate
+      const late = Math.ceil(PACING_LATE_SHARE * PACING_WINDOW);
+      for (let i = 0; i < PACING_WINDOW - late + 1; i++) t.d.notePacing(false);
+      for (let i = 0; i < late - 1; i++) t.d.notePacing(true);
+      expect(t.d.stats.frameRate).toBe(false);
+      t.d.notePacing(true);
+      expect(t.d.stats.frameRate).toBe(true);
+    });
+
+    it('never engages on a device that keeps up once drawing cheaply', () => {
+      const t = setup();
+      fallBack(t);
+      for (let i = 0; i < 20 * PACING_WINDOW; i++) t.d.notePacing(i % 20 === 0); // 5% late
+      expect(t.d.stats).toMatchObject({ fallback: true, frameRate: false });
+    });
+
+    it('never engages without the cheap path first, however late', () => {
+      const t = setup();
+      for (let i = 0; i < PACING_WINDOW - 1; i++) t.d.notePacing(true);
+      expect(t.d.stats).toMatchObject({ fallback: false, frameRate: false });
+    });
+
+    it('stays on for the session once engaged, whatever pacing does after (no flip-flop)', () => {
+      const t = setup();
+      fallBack(t);
+      for (let i = 0; i < PACING_STEP_GRACE + PACING_WINDOW; i++) t.d.notePacing(true);
+      expect(t.d.stats.frameRate).toBe(true);
+      for (let i = 0; i < 10 * PACING_WINDOW; i++) t.d.notePacing(false);
+      t.d.reset();
+      for (let i = 0; i < 10 * PACING_WINDOW; i++) t.d.notePacing(false);
+      expect(t.d.stats.frameRate).toBe(true);
+    });
+
+    it('a share hovering at the boundary never toggles it: off below, on once reached, on after', () => {
+      const t = setup();
+      fallBack(t);
+      for (let i = 0; i < PACING_STEP_GRACE; i++) t.d.notePacing(false);
+      const below = Math.ceil(PACING_LATE_SHARE * PACING_WINDOW) - 1;
+      const seen: boolean[] = [];
+      for (let w = 0; w < 10; w++) {
+        for (let i = 0; i < PACING_WINDOW; i++) t.d.notePacing(i >= PACING_WINDOW - below);
+        seen.push(t.d.stats.frameRate);
+      }
+      expect(seen.every((s) => !s)).toBe(true);
+      t.d.notePacing(true); // one more late in the window: the share is reached
+      expect(t.d.stats.frameRate).toBe(true);
+      for (let w = 0; w < 10; w++) for (let i = 0; i < PACING_WINDOW; i++) t.d.notePacing(i >= PACING_WINDOW - below);
+      expect(t.d.stats.frameRate).toBe(true);
+    });
+
+    it('a seek or resume empties the window counting toward it', () => {
+      const t = setup();
+      fallBack(t);
+      for (let i = 0; i < PACING_STEP_GRACE; i++) t.d.notePacing(false);
+      for (let i = 0; i < PACING_WINDOW - 1; i++) t.d.notePacing(true);
+      t.d.reset();
+      for (let i = 0; i < PACING_WINDOW - 1; i++) t.d.notePacing(true);
+      t.d.restartPacing();
+      for (let i = 0; i < PACING_WINDOW - 1; i++) t.d.notePacing(true);
+      expect(t.d.stats.frameRate).toBe(false);
+      t.d.notePacing(true);
+      expect(t.d.stats.frameRate).toBe(true);
+    });
+
+    it('once on, video comes out one cheap picture a frame at an even frame spacing, the field order respected', async () => {
+      for (const order of ['tff', 'bff'] as const) {
+        const flags: FieldFlags = { fieldOrder: order, progressive: false, repeatFirstField: false };
+        const t = setup({ ringSize: 40 });
+        fallBack(t);
+        for (let i = 0; i < PACING_STEP_GRACE + PACING_WINDOW; i++) t.d.notePacing(true);
+        expect(t.d.stats.frameRate).toBe(true);
+        for (let i = 0; i < 20; i++) t.d.push(input(i, flags));
+        await settle();
+        t.d.flush();
+        await settle();
+        expect(t.pictures).toHaveLength(20);
+        t.pictures.forEach((p, i) => {
+          expect(p.timestamp).toBeCloseTo(i * FRAME_US, 6);
+          expect(p.duration).toBeCloseTo(FRAME_US, 6);
+          t.d.render(p);
+          expect(t.renders.at(-1)).toMatchObject({ op: { kind: 'interpolate', field: order === 'tff' ? 'top' : 'bottom' }, fieldOrder: order, cheap: true });
+        });
+      }
+    });
+
+    it('a new deinterlacer (the next playlist) starts at field rate again', () => {
+      const t = setup();
+      fallBack(t);
+      for (let i = 0; i < PACING_STEP_GRACE + PACING_WINDOW; i++) t.d.notePacing(true);
+      expect(t.d.stats.frameRate).toBe(true);
+      expect(setup().d.stats).toMatchObject({ fallback: false, frameRate: false });
+    });
   });
 
   it('keeps the fall-back for the session, even across a reset and a clean run', async () => {

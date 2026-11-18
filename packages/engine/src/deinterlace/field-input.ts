@@ -42,6 +42,11 @@ export interface FieldInput {
   /** The size the picture shows at (its sample aspect applied), as the frame reported it. */
   readonly displayWidth: number;
   readonly displayHeight: number;
+  /**
+   * Pictures were skipped just before this one (a decoder too slow for every picture skipped B pictures): the field
+   * cadence breaks here, so the detector starts its cycle again, as at a cut.
+   */
+  readonly afterSkip?: boolean;
 }
 
 /** Whether a CLPI or STN video `format` code is interlaced: 1 (480i), 2 (576i) or 4 (1080i). */
@@ -88,7 +93,8 @@ export function matrixFromCoefficients(coefficients: number | null): PlaneMatrix
   return null;
 }
 
-function matrixByHeight(height: number): PlaneMatrix {
+/** The colour matrix of a picture whose stream names none: standard definition (576 lines or fewer) or high. */
+export function matrixByHeight(height: number): PlaneMatrix {
   if (height === 576) return 'bt470bg';
   return height <= 576 ? 'smpte170m' : 'bt709';
 }

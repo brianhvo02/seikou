@@ -32,6 +32,9 @@ export function headingIds(markdown: string): string[] {
     .map((t) => slug(headingText(t.tokens)));
 }
 
+/** The licences file's address in the Markdown (it works on GitHub); the site's pages link its own copy instead. */
+export const LICENSES_URL = 'https://bluray.pages.dev/third-party-licenses.txt';
+
 export interface RenderedHelpPage {
   readonly html: string;
   /** The first paragraph, as plain text, for the index. */
@@ -53,7 +56,7 @@ export function renderHelpPage(markdown: string, file: string): RenderedHelpPage
       },
       link({ href, title, tokens }: Tokens.Link) {
         const text = this.parser.parseInline(tokens);
-        const to = helpHref(href, file);
+        const to = href === LICENSES_URL ? '/third-party-licenses.txt' : helpHref(href, file);
         if (to === null) return text;
         return `<a href="${escapeHtml(to)}"${title ? ` title="${escapeHtml(title)}"` : ''}>${text}</a>`;
       },

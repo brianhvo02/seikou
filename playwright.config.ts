@@ -44,8 +44,8 @@ export default defineConfig({
     },
     {
       name: 'mobile-chromium',
-      // the mobile specs, and the BD-J menu, saved-data, no-picture and error specs, which run on every project
-      testMatch: /\/(mobile-.*|bdj-menu|bdj-store|unsupported-video|errors|theme|developers)\.spec\.ts/,
+      // the mobile specs, and the BD-J menu, saved-data, no-picture, MPEG and VC-1, and error specs, which run on every project
+      testMatch: /\/(mobile-.*|bdj-menu|bdj-store|unsupported-video|mpeg-vc1|errors|theme|developers)\.spec\.ts/,
       use: { ...devices['Pixel 7'], channel: 'chrome', hasTouch: true, launchOptions: { args: ['--autoplay-policy=no-user-gesture-required'] } },
     },
   ],

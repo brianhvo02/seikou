@@ -42,16 +42,30 @@ export const LEVELS: Readonly<Record<Exclude<LevelId, 'original'>, LevelDef>> = 
   'h264-1080-sdr': level('h264-1080-sdr', 'h264', 1080, 8_000_000, false, true),
 };
 
-/** Video no browser decodes (MPEG-1, MPEG-2, VC-1), so a disc with it is never offered `original` and plays only at a re-encoded level. */
-const UNPLAYABLE_VIDEO = new Set<number>([CodingType.MPEG1_VIDEO, CodingType.MPEG2_VIDEO, CodingType.VC1]);
+/** What a client says it decodes beyond H.264 and HEVC: MPEG-1 and MPEG-2 video (`mpeg2`), VC-1 (`vc1`), through the app's own decoder. */
+export interface LevelClient {
+  readonly mpeg2?: boolean;
+  readonly vc1?: boolean;
+}
 
 /**
- * The levels a disc's primary video can be served at, best first: `original` unless the video is one no browser
- * decodes, an HDR source at the HDR and the tone-mapped levels, a source of 720 lines or fewer only at `phone-720`,
- * else the 1080 levels and `phone-720`.
+ * Whether a client plays a disc's original video: H.264 and HEVC always; MPEG-1 and MPEG-2 when it says `mpeg2`, VC-1
+ * when it says `vc1` (a client that says nothing, an older one among them, never gets an original it can't play).
  */
-export function levelsFor(source: { codingType: number; height: number; hdr: boolean }): LevelId[] {
-  const original: LevelId[] = UNPLAYABLE_VIDEO.has(source.codingType) ? [] : ['original'];
+function originalPlays(codingType: number, client: LevelClient): boolean {
+  if (codingType === CodingType.MPEG1_VIDEO || codingType === CodingType.MPEG2_VIDEO) return client.mpeg2 === true;
+  if (codingType === CodingType.VC1) return client.vc1 === true;
+  return true;
+}
+
+/**
+ * The levels a disc's primary video can be served at, best first: `original` unless the video is MPEG-1, MPEG-2 or
+ * VC-1 and `client` doesn't say it decodes it, an HDR source at the HDR and the tone-mapped levels, a source of 720
+ * lines or fewer only at `phone-720`, else the 1080 levels and `phone-720`. Without `client`, the re-encoded levels are
+ * the same and MPEG-1, MPEG-2 and VC-1 have no `original`.
+ */
+export function levelsFor(source: { codingType: number; height: number; hdr: boolean }, client: LevelClient = {}): LevelId[] {
+  const original: LevelId[] = originalPlays(source.codingType, client) ? ['original'] : [];
   if (source.hdr) return [...original, 'hevc-1080-hdr', 'h264-1080-sdr'];
   if (source.height <= 720) return [...original, 'phone-720'];
   return [...original, 'h264-1080', 'hevc-1080', 'phone-720'];

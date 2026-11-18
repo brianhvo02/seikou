@@ -84,15 +84,56 @@ what would change that decision.
   it cleanly. The first PPS only shows up after `configure()`, so the decoder reopens with `prefer-software` when it
   sees the redefinition and resumes at the next key unit. That costs about a second of frames at the start of each
   playlist. *Revisit if* that gap shows (holding the first GOP until the PPS pattern is known would remove it).
-- **MPEG-2 and VC-1 video plays without a picture (5e).** The player decodes only H.264 and HEVC. A playlist with
-  MPEG-2 or VC-1 video, HDMV or BD-J, plays as libbluray plays it, with audio, subtitles and IG or BD-J menus over
-  black, its reads paced by the clock, and a notice once per disc ("This disc's video can't be played here yet, so it
-  will play without a picture"), cleared when a playlist with a picture starts and not shown again for that disc (R9).
-  A playlist with such video and nothing else playable still runs, silent and black on the wall clock, to its end
-  (ruling R12): libbluray does the same, and some HDMV programs rely on it; a user who picks such a playlist sees the
-  notice, not an error. `UnsupportedCodecError` is left for a decoder that fails to configure. On a NAS disc the
-  quality levels (cross-browser step 4) play them with a picture, re-encoded on the NAS; a local folder still plays
-  them without one. *Revisit if* the browsers gain MPEG-2 or VC-1 decoding.
+- **MPEG-2 and VC-1 video is decoded in WASM, on the CPU.** The browsers decode neither, so FFmpeg's decoders run
+  in `video.wasm` in a worker of their own, single-threaded. Measured on the synthetic discs in Chrome, Firefox and
+  WebKit on an Apple silicon Mac: 1.2 to 1.6 ms a 1080 picture for MPEG-2 and 3.1 to 4.0 ms for VC-1. Phones are
+  not measured by the tests; a hand speed test on an iPhone 17 Pro found the decoder fast enough. A device that
+  falls behind skips B pictures; on a NAS disc the player switches to a re-encoded level after 10 s of playback
+  skipping without a break, or at once when the decoder fails. A stream the decoder takes and makes no picture of
+  (units it rejects, or VC-1 whose sequence header never comes) counts as failed after 5 s of waiting to play with
+  over a second of video decoded: it plays without a picture, with the notice. *Revisit if* a browser gains MPEG-2 or
+  VC-1 decoding.
+- **Without the WASM decoder, MPEG-2 and VC-1 play without a picture (5e).** Where the decoder can't start (a browser
+  that can't start a worker from a worker, `?novideowasm=1` in tests, or a device offline before `video.wasm` was
+  ever fetched: the service worker keeps it in a runtime cache, not the precache, so it needs one online play first),
+  a playlist with such video, HDMV or BD-J, plays as libbluray plays it, with audio, subtitles and IG or BD-J menus
+  over black, its reads paced by the clock, and a notice once per disc ("This disc's video can't be played here yet,
+  so it will play without a picture"), cleared when a playlist with a picture starts and not shown again for that
+  disc. A playlist with such video and nothing else playable still runs, silent and black on the wall clock, to its
+  end: libbluray does the same, and some HDMV programs rely on it. `UnsupportedCodecError` is left for a
+  decoder that fails to configure. *Revisit if* a precached decoder is worth its 1 MB to every visitor.
+- **The first NAS pre-flight of an MPEG-2 or VC-1 disc may wait up to about 20 s.** The decode speed probe runs once
+  a device (its answer is kept 30 days), raced against the pre-flight's own 10 s bound; the levels request, which
+  needs its answer, starts only then, with its own 10 s bound. Play waits for both, and the pre-flight says "Checking
+  this device can play this disc…" meanwhile. A probe asked while the page is hidden or another disc plays answers
+  unknown, and that open gets no Original. *Revisit if* the wait is noticed: probe ahead of the first pre-flight, or
+  ask the levels with a provisional answer while the probe runs.
+- **No progressive VC-1 is tested, nor VC-1 pulldown.** ffmpeg can't encode VC-1, so the one VC-1 fixture
+  (`disc-vc1`) is a CC BY 1080i sample; progressive VC-1 and VC-1 with pulldown flags are untested until a disc or a
+  licensed sample has them.
+- **1080i VC-1 on an iPhone 17 Pro plays at frame rate, not field rate.** Decoding takes 13 to 20 ms a picture there,
+  too slow for field-rate deinterlacing alongside it, so the deinterlacer's frame pacing steps down within the first
+  half minute of video and shows one picture a frame, a steady 29.97 a second. Measured 2026-11-18 over a 10-minute
+  play of a 1080i VC-1 film with five seeks: 132 pictures dropped in all, nearly all around the seeks, A/V offset
+  within 10 ms on average and 16 ms at most outside one brief 50 ms window, no decoder errors. The same device plays
+  480i MPEG-2 with 0 dropped. *Revisit if* the decoder gets faster (threads, or a decoder that skips work for the
+  field the frame-rate step doesn't show).
+- **A playlist that starts mid-clip reads the clip from its start first.** The first play item of a playlist is read
+  from the clip's first packet, as libbluray's `_fill_clip` does (`start_pkt = 0` for the first item), and only video
+  from the EP entry at or before the item's IN time reaches the decoder. From a local folder this costs nothing
+  noticeable; over the network (a NAS or the disc server) every byte before the IN point is downloaded first, for
+  every codec: a chapter playlist starting 31 minutes into a 480i MPEG-2 clip took 65 s to start over Wi-Fi. *Revisit
+  if* it bothers someone: start the read at the EP entry for IN, with what the first packets carry for navigation
+  (marks, PSRs) supplied another way.
+- **A playlist ends 100 ms after its last picture.** Even when its last play item lasts longer (a single-picture
+  still at the end), the playlist ends 100 ms after that picture, so such a still can end early. *Revisit if* a disc's
+  program waits on the full item.
+- **Picking a PG stream re-reads the playlist.** In an item showing one picture a second, the re-read shows the next
+  picture early.
+- **A picture size change in interlaced video briefly blanks the screen.** When the frame size changes (a 1080i item
+  after a 480i one, or a new sequence header), the deinterlacer restarts at the new size and the pictures of the old
+  size not yet shown are dropped, a black flash of about 0.1 to 0.3 s. On Blu-ray a clip's video attributes are
+  constant, so it happens only at item boundaries of mixed playlists. *Revisit if* a disc shows it.
 - **On the element path in WebKit, the sync telemetry can't see the last part of the display delay.** WebKit's
   `requestVideoFrameCallback` gives an `expectedDisplayTime` from another time origin (about -1.4e9 ms), so the page
   takes the callback's time plus one display refresh, measured from animation frames, as the time the frame shows. A
@@ -173,8 +214,9 @@ what would change that decision.
   after the change, so film is field-rate for about half a second at the start of each item.
 - **A lost WebGL context falls back to woven frames for the session.** The playlist is reread from the current time
   and its frames are drawn as the decoder gives them; telemetry's `deinterlace.woven` says why.
-- **MPEG-2 and VC-1 aren't deinterlaced yet.** The browser has no decoder for them; the in-browser decoder on the
-  roadmap will feed the same stage.
+- **A playlist that starts progressive draws a later interlaced play item woven.** Whether a playlist goes through
+  the deinterlacer is decided at its start, from its first clip; this holds for H.264 and for MPEG-2 and VC-1 alike.
+  *Revisit if* a disc mixes them.
 - **A software WebGL renderer isn't used for deinterlacing.** Where WebGL draws in software (SwiftShader in Chrome
   without a GPU, Mesa's llvmpipe, Microsoft's Basic Render Driver; read from the `WEBGL_debug_renderer_info` renderer
   name once, at the first interlaced playlist), interlaced frames are drawn woven, as without WebGL2, and telemetry's
@@ -183,9 +225,9 @@ what would change that decision.
   show combing. *Revisit if* a cheaper deinterlacer (CPU line doubling, or fewer GPU passes) is worth having there.
 - **Firefox on macOS isn't deinterlaced.** Its WebCodecs decoder gives H.264 frames as BGRX (RGB), not YUV planes, and
   the deinterlacer reads planes, so those frames are drawn woven and telemetry's `deinterlace.woven` says why (before
-  this was caught the playlist never started). Other browsers give I420 (Chrome) or NV12 (Safari). *Revisit if*
-  Firefox on macOS matters for interlaced discs: the stage could take RGB frames, or the in-browser decoder could
-  decode for it.
+  this was caught the playlist never started). Other browsers give I420 (Chrome) or NV12 (Safari). MPEG-2 and VC-1,
+  which the WASM decoder gives as I420 everywhere, are deinterlaced in Firefox on macOS too (`mpeg-vc1.spec.ts`).
+  *Revisit if* Firefox on macOS matters for interlaced H.264: the stage could take RGB frames.
 - **Safari's decoder blends the fields' chroma of an interlaced frame.** Measured on Mac Safari (WebKit) with
   `disc-interlaced` 00000: the planes its WebCodecs `VideoFrame.copyTo` gives for frame 60 (NV12) have luma identical
   to ffmpeg's decode of the same frame, but chroma differs on 9% of samples (up to 154 levels): where a chroma sample
@@ -719,6 +761,20 @@ what would change that decision.
 - **Probe-dependent steps: none needed on the iPad.** It runs the AudioContext at 48 kHz, has worker `requestAnimationFrame` (p95 18.9 ms) and canvas `letterSpacing`, so no resampling, main-thread frame tick or letter-spacing fallback was built. It lacks canvas `filter`, so ASS blur takes the mask path (Task 13). Re-check on the iPhone when convenient.
 - **Playwright reuses a running preview server on :4173 locally** (`reuseExistingServer`); stop a stale one after changing source.
 - **WebKit on Linux CI runs no real-time playback tests.** On GitHub's GPU-less runners, Playwright's Linux WebKit missed a different set of timing windows on every run (frames presented, remote presses, pauses landing), even on a runner of its own. Tests that need real-time playback skip there (`LINUX_WEBKIT_REALTIME` in `tests/e2e/support.ts`); the landing, capability, folder-picking, layout and offline tests still run. They all run in WebKit on macOS, and real Safari is covered by the real-device test.
+- **Linux CI checks little of MPEG-2 and VC-1 playback.** `tests/e2e/mpeg-vc1.spec.ts` runs in full on macOS (Chrome,
+  Firefox, WebKit and the mobile Chrome emulation, every test passing), and that is where its deinterlacing and sync
+  are checked. GitHub's Linux runners have no GPU, so WebGL draws in software there and the player draws interlaced
+  pictures woven, as it does on any machine without a graphics chip; the tests that check the deinterlacer's modes,
+  its sync and VC-1 deinterlacing skip with that reason. What each browser checks on Linux CI:
+  - Chrome and the mobile Chrome emulation: the progressive MPEG-2 playlist in sync (at CI's widened bounds), every
+    interlaced MPEG-2 and VC-1 playlist drawing WASM pictures (woven), Deinterlacing Off, and the no-decoder case.
+  - Firefox: the same, except that the progressive playlist's sync isn't checked (Firefox there has no running audio
+    output, so there is no audio clock; the test still checks its pictures).
+  - WebKit: the interlaced playlists drawing WASM pictures, Deinterlacing Off and the no-decoder case; the progressive
+    sync test skips with the other real-time tests there (above).
+  A GPU-less run simulated on a Mac (Chrome with `--disable-gpu`, and with SwiftShader forced) skipped the three
+  deinterlacer tests with the software-renderer reason and passed the rest; its progressive sync measured 17 to 22 ms
+  worst mean against the local 20 ms bound, as H.264 does there (16 ms), and within CI's 30 ms.
 
 ### Device probe results
 
@@ -765,7 +821,7 @@ Fill in from `probe.html` on each device.
 - **Quality levels: a disc program's own audio choice at a level is ignored.** When PSR1 names an audio track the level doesn't carry, the level's track keeps playing. Audio changes at a level go through the player's Audio menu, which reopens the level with that audio. A switch back to Original keeps the track heard at the level (the `setLevel` command's `audio`) and sets the program's PSR1 to it, as an Audio menu pick would.
 - **Quality levels: the level Audio menu doesn't honour the disc's `primaryAudioChange` UO mask.** A level audio switch reopens the disc, so it is not a stream change the mask can block.
 - **Quality levels: "phone" in the auto rule is a size, not a device type.** It means the constrained memory profile or a screen whose shorter side is under 600 CSS px (phones are 320-440; 1280x800 and 1440x900 laptops are not phones).
-- **Quality levels: the levels request waits up to 10 s,** then the pre-flight offers Original only.
+- **Quality levels: the levels request waits up to 10 s,** then the pre-flight offers Original only. For an MPEG-2 or VC-1 disc it starts after the decode speed probe, which can wait up to 10 s before it (see above).
 - **Quality levels: a level switch during a BD-J time still restarts the still's timer.** The switch restarts the playlist session (`setLevel`), which lets the still go and meets it again, so a play-item time still lasts up to its `stillTime` longer; nothing hangs and Java sees no second report (HDMV programs are told once). Carrying the remaining time across the restart would remove it.
 - **Quality levels: the play route is pushed when the disc opens, not at the click.** At a level the pre-flight first fetches the level's manifest; a busy refusal then leaves the address bar where it was. Original opens push it after the session round trip, just before the open.
 

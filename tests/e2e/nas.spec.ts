@@ -208,9 +208,9 @@ async function openTitles(page: Page, browserName: string, query = '', code?: st
   await expect(page.getByTestId('title-library')).toBeVisible({ timeout: 15_000 });
 }
 
-/** Pairs, then opens the folder browser at its top, from the title library. */
-async function openLibrary(page: Page, browserName: string): Promise<void> {
-  await openTitles(page, browserName);
+/** Pairs, then opens the folder browser at its top, from the title library. `query`: as pairByLink's. */
+async function openLibrary(page: Page, browserName: string, query = ''): Promise<void> {
+  await openTitles(page, browserName, query);
   await page.getByTestId('browse-folders').click();
   await expect(page.getByTestId('nas-crumbs')).toHaveText('NAS');
 }
@@ -521,7 +521,8 @@ test('a busy NAS refusing the level leaves the address bar where Play was presse
 test('an MPEG-2 disc plays with a picture at a re-encoded level', async ({ page, browserName }) => {
   test.setTimeout(120_000);
   await levelViewing(page, async () => {
-    await openLibrary(page, browserName);
+    // ?novideowasm=1: the engine has no MPEG-2 decoder, so the speed probe has nothing to measure and Original isn't offered
+    await openLibrary(page, browserName, '&novideowasm=1');
     await skipWithoutH264(page, { realtime: false });
     // disc-mpeg2 (the same video as disc-mpeg2-menu, with no menu): it opens to its playlist picker
     await discRow(page, 'disc-mpeg2').click();
@@ -538,6 +539,31 @@ test('an MPEG-2 disc plays with a picture at a re-encoded level', async ({ page,
     await expect.poll(async () => (await telemetry(page))?.framesPresented ?? 0, { timeout: 60_000 }).toBeGreaterThan(30);
     await expect(page.getByRole('status').filter({ hasText: "This disc's video can't be played here yet" })).toHaveCount(0);
   });
+});
+
+test('an MPEG-2 disc on the NAS opens at Original with a picture where the probe passes', async ({ page, browserName }) => {
+  test.setTimeout(120_000);
+  // ?wasmfast=1: the speed probe answers fast without measuring, so a slow runner still takes Original; the picture
+  // below is what shows the decoder runs here
+  await openLibrary(page, browserName, '&wasmfast=1');
+  const levelManifests: string[] = [];
+  page.on('request', (r) => {
+    if (r.url().includes('/manifest?level=')) levelManifests.push(r.url());
+  });
+  await discRow(page, 'disc-mpeg2-interlaced').click();
+  await expect(page.getByTestId('level-list')).toBeVisible({ timeout: 20_000 });
+  const original = page.locator('[data-testid="level-option"][data-level="original"]');
+  await expect(original).toBeEnabled();
+  await expect(page.getByTestId('nas-play')).toBeEnabled({ timeout: 20_000 });
+  await expect(original).toBeChecked();
+  await page.getByTestId('nas-play').click();
+  await startPlaylistIfPicked(page);
+  await expect(playerState(page)).toHaveAttribute('data-state', 'playing', { timeout: 60_000 });
+  await expect.poll(async () => (await telemetry(page))?.framesPresented ?? 0, { timeout: 60_000 }).toBeGreaterThan(30);
+  await expect(page.getByTestId('level-badge')).toHaveCount(0);
+  await expect(page.getByRole('status').filter({ hasText: "This disc's video can't be played here yet" })).toHaveCount(0);
+  // the NAS re-encodes nothing for it: no level's manifest was asked for
+  expect(levelManifests).toEqual([]);
 });
 
 test('opens disc-menu from the NAS into its menu', async ({ page, browserName }) => {

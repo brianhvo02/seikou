@@ -216,12 +216,13 @@ export class LevelService {
   }
 
   /**
-   * The levels a disc can be played at, for a client that decodes what `client` says. With `deviceId`, the capacity a
-   * level needs counts the device's own leases on this disc as free (choosing a level moves its lease).
+   * The levels a disc can be played at, for a client that decodes what `client` says (`mpeg2` and `vc1`: Original for an
+   * MPEG-1, MPEG-2 or VC-1 disc, which is otherwise `unplayable`). With `deviceId`, the capacity a level needs counts the
+   * device's own leases on this disc as free (choosing a level moves its lease).
    */
   async levels(
     discId: string,
-    client: { readonly hevc: boolean; readonly hevc10: boolean; readonly hdr: boolean },
+    client: { readonly hevc: boolean; readonly hevc10: boolean; readonly hdr: boolean; readonly mpeg2?: boolean; readonly vc1?: boolean },
     deviceId?: string,
     audioNumber = 1,
   ): Promise<LevelInfo[] | null> {
@@ -230,7 +231,7 @@ export class LevelService {
     const disc = await this.discInfo(discId, source);
     const main = disc.main;
     if (!main) return [{ level: 'original', label: LEVEL_LABELS.original, budgetMbps: 0, available: true }];
-    const offered = levelsFor(main.video);
+    const offered = levelsFor(main.video, { mpeg2: client.mpeg2 === true, vc1: client.vc1 === true });
     const durationS = filmSeconds(planClip(main.clpi, levelDefFor('phone-720', main.video), 0).intervals);
     const mbps = (bytes: number): number => Math.round((bytes * 8) / durationS / 100_000) / 10;
     const out: LevelInfo[] = [];
