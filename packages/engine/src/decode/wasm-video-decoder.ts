@@ -316,7 +316,7 @@ export class WasmVideoDecoder implements CanvasVideoDecoder {
 
   /**
    * Passes a picture on, unless it is a discard unit's; units before it that never came out while skipping were skipped,
-   * and the picture's field input says so (`afterSkip`).
+   * and the picture's field input says so (`afterSkip`). A VideoFrame that can't be made is a fatal error.
    */
   private deliver(picture: DecodedPicture): void {
     const skippedBefore = this.skippedCount;
@@ -330,8 +330,19 @@ export class WasmVideoDecoder implements CanvasVideoDecoder {
     }
     if (unit?.discard) return;
     const sink = this.onFieldInput;
-    if (sink && this.interlaced && picture.flags.fieldOrder !== null) sink(fieldInputOf(picture, this.skippedCount > skippedBefore));
-    else this.onOutput(this.deps.makeFrame(picture));
+    if (sink && this.interlaced && picture.flags.fieldOrder !== null) {
+      sink(fieldInputOf(picture, this.skippedCount > skippedBefore));
+      return;
+    }
+    let frame: VideoFrame;
+    try {
+      frame = this.deps.makeFrame(picture);
+    } catch (err) {
+      // a picture the browser's VideoFrame refuses (its size, its format): the next would be refused too
+      this.fail(`a picture could not be shown: ${errorMessage(err)}`);
+      return;
+    }
+    this.onOutput(frame);
   }
 
   private fail(message: string): void {

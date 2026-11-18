@@ -511,6 +511,30 @@ describe('WasmVideoDecoder', () => {
     expect(decoder.unitsWithoutPicture).toBe(1);
   });
 
+  it('a VideoFrame that cannot be made is a fatal decoder error, reported once', async () => {
+    const worker = new FakeWorker();
+    const decoder = new WasmVideoDecoder({
+      createWorker: () => worker,
+      wasmUrl: 'video.wasm',
+      makeFrame: () => {
+        throw new TypeError('Invalid display size');
+      },
+    });
+    const errors: DecoderError[] = [];
+    decoder.onError = (e) => errors.push(e);
+    decoder.onOutput = () => expect.unreachable('no frame was made');
+    await decoder.configure({ codingType: CodingType.MPEG2_VIDEO });
+    decoder.decode(unit(0));
+    decoder.decode(unit(40_000));
+    const progressive = { fieldOrder: null, progressive: true, repeatFirstField: false } as const;
+    expect(() => worker.reply({ type: 'picture', picture: picture(0, { flags: progressive }) })).not.toThrow();
+    expect(() => worker.reply({ type: 'picture', picture: picture(40_000, { flags: progressive }) })).not.toThrow();
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.fatal).toBe(true);
+    expect(errors[0]!.message).toMatch(/Invalid display size/);
+    expect(worker.terminated).toBe(true);
+  });
+
   it("a rejected task in the worker's chain posts a fatal error", async () => {
     const posted: FromVideoWorker[] = [];
     const fake = { push: vi.fn(), drain: vi.fn(() => [picture(0)]), flush: vi.fn(() => []), reset: vi.fn(), setSkipNonReference: vi.fn(), close: vi.fn() };
