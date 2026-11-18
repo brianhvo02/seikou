@@ -213,6 +213,49 @@ describe('PlaybackPipeline IG', () => {
   });
 });
 
+describe('PlaybackPipeline: a first play item whose IN time lies inside its clip', () => {
+  // an 8 s clip with an IDR every second, an IG menu at its first packet and LPCM throughout; the playlist starts 5.5 s in
+  async function midClipSetup(inSeconds = 5.5): Promise<PipelineConfig> {
+    const igUnits = simpleMenuSegments().map((payload) => ({ pts: CLIP_START_PTS, payload }));
+    const files = buildSyntheticDisc({
+      clips: [syntheticClip('00001', 8, { audio: CodingType.LPCM, igUnits })],
+      playlists: [{ id: '00000', clipIds: ['00001'], inSeconds: { 0: inSeconds } }],
+    });
+    const source = syntheticSource(files);
+    const mpls = parseMpls(await readWhole(source, 'BDMV/PLAYLIST/00000.MPLS'));
+    return { source, timeline: new Timeline(mpls.playItems), clips: await loadClips(source, ['00001']), videoPid: VIDEO_PID, playItems: mpls.playItems, audioStream: 1, igStream: 1 };
+  }
+  async function collectAll(config: PipelineConfig): Promise<{ video: PipelineUnit[]; audio: PipelineAudioUnit[]; ig: PipelineUnit[] }> {
+    const got = { video: [] as PipelineUnit[], audio: [] as PipelineAudioUnit[], ig: [] as PipelineUnit[] };
+    let finish: () => void = () => undefined;
+    const done = new Promise<void>((r) => (finish = r));
+    const p = new PlaybackPipeline(config, { video: (u) => got.video.push(u), audio: (u) => got.audio.push(u), ig: (u) => got.ig.push(u), isFull: () => false, ended: () => finish(), failed: () => finish() });
+    p.start(0);
+    await done;
+    return got;
+  }
+
+  it('hands the video sink nothing before the keyframe at or before the IN time, still reading IG and audio from the first packet', async () => {
+    const got = await collectAll(await midClipSetup());
+    // the IDR at 5 s in the clip is 0.5 s before the playlist's start: the first video unit, and nothing earlier
+    expect(got.video[0]!.ptsUs).toBe(-500_000);
+    expect(got.video.every((u) => u.ptsUs >= -500_000)).toBe(true);
+    expect(got.video).toHaveLength(3 * 24); // 5 s to 8 s
+    // IG muxed at the clip's start still arrives (_fill_clip), and audio from the first packet too, marked out of range
+    expect(got.ig).toHaveLength(simpleMenuSegments().length);
+    expect(got.audio[0]!.ptsUs).toBe(-5_500_000);
+    expect(got.audio.filter((u) => u.inRange).every((u) => u.ptsUs >= 0)).toBe(true);
+    expect(got.audio.filter((u) => u.ptsUs < 0).every((u) => !u.inRange)).toBe(true);
+  });
+
+  it('reads as before when the IN time is at the clip start', async () => {
+    const got = await collectAll(await midClipSetup(0));
+    expect(got.video[0]!.ptsUs).toBe(0);
+    expect(got.video).toHaveLength(8 * 24);
+    expect(got.ig).toHaveLength(simpleMenuSegments().length);
+  });
+});
+
 describe('PlaybackPipeline', () => {
   it.each([
     ['1 MB/s', 33_000],

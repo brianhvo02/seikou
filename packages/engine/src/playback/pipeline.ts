@@ -10,7 +10,7 @@
  */
 
 import { findEpAfter, findEpBefore, stcSpnRange, type Clpi, type EpEntry } from '@seikou/bdmv/clpi-parser';
-import { SOURCE_PACKET_SIZE, TS_PACKET_SIZE } from '@seikou/bdmv/demux/constants';
+import { PACKETS_PER_ALIGNED_UNIT, SOURCE_PACKET_SIZE, TS_PACKET_SIZE } from '@seikou/bdmv/demux/constants';
 import { DiscError, type ByteSource } from '@seikou/bdmv/byte-source';
 import { clipInfoPath, streamPath } from '../disc/open-disc';
 import { M2tsReader, type DemuxStats } from '@seikou/bdmv/demux/m2ts-reader';
@@ -277,12 +277,23 @@ export class PlaybackPipeline implements SessionPipeline {
       // item's subtitle), so a subtitle shown since before the keyframe comes back; the reader passes the other PIDs from
       // the keyframe on, as before. The 45 kHz clip time here is unwrapped (IN time plus offset), as for the keyframe.
       let lead: { fromSpn: number; pids: ReadonlySet<number> } | undefined;
+      let readerStartSpn = startSpn;
       if (pgPid !== null && ep && i === startPos.item.index && !fromClipStart && target > item.inTime) {
         const leadTarget = Math.max(item.inTime, target - Math.round((PG_SEEK_LEAD_US * 45) / 1000));
         const fromSpn = findEpBefore(ep, leadTarget, range)?.spn ?? range.startSpn;
         if (fromSpn < startSpn) lead = { fromSpn, pids: new Set([pgPid]) };
       }
-      const reader = new M2tsReader({ source, path: streamPath(item.clipId), startSpn, endSpn, pids, lead });
+      // A read from packet 0 of an item whose IN time lies past the clip's first keyframe: video only from the keyframe at
+      // or before the IN time, where a decode can start, so the clip's earlier pictures are not decoded for nothing (a
+      // software decoder would spend minutes on them before the first picture). Audio and graphics still come from packet 0.
+      if (fromClipStart && readVideo && ep) {
+        const keySpn = findEpBefore(ep, item.inTime, range)?.spn ?? startSpn;
+        if (alignedUnit(keySpn) > alignedUnit(startSpn)) {
+          readerStartSpn = keySpn;
+          lead = { fromSpn: startSpn, pids: new Set([...pids].filter((pid) => pid !== videoPid)) };
+        }
+      }
+      const reader = new M2tsReader({ source, path: streamPath(item.clipId), startSpn: readerStartSpn, endSpn, pids, lead });
       this.current?.cancel();
       this.retire(this.current); // a stopped earlier read keeps its counts
       this.current = reader;
@@ -321,6 +332,11 @@ export class PlaybackPipeline implements SessionPipeline {
     }
     if (gen === this.generation) this.sinks.ended();
   }
+}
+
+/** The first packet of the aligned unit that holds `spn`: where M2tsReader starts a read placed at `spn`. */
+function alignedUnit(spn: number): number {
+  return Math.floor(spn / PACKETS_PER_ALIGNED_UNIT) * PACKETS_PER_ALIGNED_UNIT;
 }
 
 /** Whether the play item's IN time (45 kHz) is where its STC sequence starts, within a frame (the read's first packet is there). */

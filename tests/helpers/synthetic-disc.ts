@@ -90,6 +90,8 @@ export interface SyntheticPlaylistSpec {
   uoMask?: number[];
   /** Still mode (1 time, 2 infinite) and time in seconds, by play item index. */
   stills?: Record<number, { mode: number; time?: number }>;
+  /** A play item's IN time in seconds after its clip's start, by play item index (default 0: the clip's start). */
+  inSeconds?: Record<number, number>;
 }
 
 /** An IG stream carried in a sub-path clip (an m2ts of its own with only the IG PID); every playlist references it from its first sub-path. */
@@ -238,7 +240,7 @@ export function buildSyntheticDisc(spec: SyntheticDiscSpec): Map<string, Uint8Ar
       if (step > 0 && !playlist.marks) for (let t = clip.inTime; t < clip.outTime; t += step) marks.push({ playItemRef: index, time: t });
       return {
         clipId,
-        inTime: clip.inTime,
+        inTime: clip.inTime + Math.round((playlist.inSeconds?.[index] ?? 0) * 45_000),
         outTime: clip.outTime,
         connectionCondition: index === 0 ? 1 : 5,
         stillMode: playlist.stills?.[index]?.mode,

@@ -4161,6 +4161,8 @@ interface UnitCost {
 function fakeVideoWasm(openDecoder: VideoWorkerCoreDeps['openDecoder'], cost: UnitCost = { picture: 0, skipped: 0 }) {
   const live = new Set<WorkerLike<ToVideoWorker, FromVideoWorker>>();
   let created = 0;
+  /** The playlist time of every unit sent to a decoder worker, in order. */
+  const decoded: number[] = [];
   const deps = (nowMs: () => number): NonNullable<PlayerDeps['videoWasm']> => ({
     wasmUrl: 'video.wasm',
     createWorker: () => {
@@ -4193,6 +4195,7 @@ function fakeVideoWasm(openDecoder: VideoWorkerCoreDeps['openDecoder'], cost: Un
           if (message.type === 'skip') skipping = message.on;
           if (message.type === 'reset' || message.type === 'open') units = 0;
           if (message.type === 'decode') {
+            decoded.push(message.ptsUs);
             units++;
             const skippedUnit = skipping && units % 2 === 0;
             busyUntil = Math.max(busyUntil, nowMs()) + (skippedUnit ? cost.skipped : cost.picture);
@@ -4221,6 +4224,7 @@ function fakeVideoWasm(openDecoder: VideoWorkerCoreDeps['openDecoder'], cost: Un
   return {
     deps,
     cost,
+    decoded,
     created: () => created,
     live: () => live.size,
     kill: () => {
@@ -4652,6 +4656,26 @@ describe('Player with MPEG-2 and VC-1 video through the WASM decoder', () => {
     expect(lastTelemetry(h)).toMatchObject({ videoDecoder: null });
     expect(lastTelemetry(h)?.videoDecoderFailure).toMatch(/no picture came out/);
     expect(lastState(h)).toBe('playing');
+  }, 30_000);
+
+  it("a playlist starting mid-clip shows its first picture without decoding the clip's video before the keyframe", async () => {
+    // the first play item's IN time is 20.5 s into a 26 s clip with an I picture every second: the read starts at the clip's
+    // first packet (graphics muxed there), but only the I picture at 20 s and what follows it reach the decoder
+    const wasm = fakeVideoWasm(scriptedPictures({ interlaced: false }), { picture: 10, skipped: 10 });
+    const h = await harness(CodingType.LPCM, {
+      clipSeconds: 26,
+      videoWasm: wasm.deps,
+      playlists: [{ id: '00000', clipIds: ['00001', '00002'], videoCodingType: CodingType.MPEG2_VIDEO, inSeconds: { 0: 20.5 } }],
+    });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await h.play(500);
+    expect(h.drawn.length).toBeGreaterThan(5);
+    expect(h.drawn[0]!).toBeGreaterThanOrEqual(0);
+    expect(wasm.decoded[0]).toBe(-500_000); // the I picture at or before the IN time
+    expect(wasm.decoded.every((t) => t >= -500_000)).toBe(true);
+    expect(troubles(h)).toEqual([]);
+    expect(noPicture(h)).toEqual([]);
   }, 30_000);
 
   it('a seek shows no picture before the next I picture', async () => {
