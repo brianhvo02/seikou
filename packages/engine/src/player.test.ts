@@ -34,6 +34,7 @@ import type { FrameMetrics, PictureOp } from './deinterlace/cadence';
 import { Deinterlacer, type DeinterlaceBackend, type Picture } from './deinterlace/deinterlacer';
 import { InterlacedVideo, WOVEN_NO_WEBGL2, WOVEN_OFF, wovenFrameFormat, wovenSoftwareRenderer } from './deinterlace/interlaced-video';
 import { SIM_COMB_CLEAN, SIM_COMB_HIGH, SIM_DIFF_HIGH, completeFilmFrames, telecine } from './deinterlace/metric-sequences';
+import { CadenceDetector } from './deinterlace/cadence';
 import { VideoPresenter, type PresentableFrame } from './render/video-presenter';
 import type { FieldInput } from './deinterlace/field-input';
 import type { WorkerLike } from './bdj-types';
@@ -4238,7 +4239,7 @@ const realPictures: VideoWorkerCoreDeps['openDecoder'] = async (_url, codec) => 
  * first (or progressive), its planes carrying the time (for the fake deinterlace backend); while skipping, every other
  * unit (a B picture) makes none, as the fake worker counts them.
  */
-function scriptedPictures(opts: { interlaced: boolean; size?: (ptsUs: number) => readonly [number, number] }): VideoWorkerCoreDeps['openDecoder'] {
+function scriptedPictures(opts: { interlaced: boolean | ((ptsUs: number) => boolean); size?: (ptsUs: number) => readonly [number, number] }): VideoWorkerCoreDeps['openDecoder'] {
   return async () => {
     let skip = false;
     let units = 0;
@@ -4260,7 +4261,9 @@ function scriptedPictures(opts: { interlaced: boolean; size?: (ptsUs: number) =>
           durationUs: 41_708,
           keyFrame: false,
           matrix: 'bt709',
-          flags: opts.interlaced ? { fieldOrder: 'tff', progressive: false, repeatFirstField: false } : { fieldOrder: null, progressive: true, repeatFirstField: false },
+          flags: (typeof opts.interlaced === 'function' ? opts.interlaced(ptsUs) : opts.interlaced)
+            ? { fieldOrder: 'tff', progressive: false, repeatFirstField: false }
+            : { fieldOrder: null, progressive: true, repeatFirstField: false },
         });
       },
       drain: () => {
@@ -4491,6 +4494,7 @@ describe('Player with MPEG-2 and VC-1 video through the WASM decoder', () => {
       return original.call(this, input);
     });
     try {
+      const breaks = vi.spyOn(CadenceDetector.prototype, 'cadenceBreak');
       const fake = recordingDeinterlace();
       const wasm = fakeVideoWasm(scriptedPictures({ interlaced: true }), { picture: 60, skipped: 24 });
       const h = await harness(CodingType.LPCM, { videoCodingType: CodingType.MPEG2_VIDEO, videoFormat: 4, videoWasm: wasm.deps, createDeinterlaceBackend: fake.factory });
@@ -4499,6 +4503,8 @@ describe('Player with MPEG-2 and VC-1 video through the WASM decoder', () => {
       await vi.waitFor(async () => {
         await h.play(100);
         expect(pushed.some((i) => i.afterSkip)).toBe(true);
+        // the detector gets the break once the marked frame is measured and fed to it
+        expect(breaks.mock.calls.length).toBeGreaterThan(0);
       }, { timeout: 5000 });
       // a frame marked afterSkip has a picture missing just before it; one not marked has none missing
       const frameUs = 1e6 * 1001 / 24_000;
@@ -4507,6 +4513,7 @@ describe('Player with MPEG-2 and VC-1 video through the WASM decoder', () => {
         if (gap <= 0) continue; // a seek or a new stream
         expect(pushed[i]!.afterSkip === true, `frame at ${pushed[i]!.timestampUs}`).toBe(gap > frameUs * 1.5);
       }
+      breaks.mockRestore();
       expect(h.player.deinterlaceState.woven).toBeNull();
     } finally {
       push.mockRestore();
@@ -4582,6 +4589,50 @@ describe('Player with MPEG-2 and VC-1 video through the WASM decoder', () => {
     await none.play(1000);
     expect(lastTelemetry(none)?.videoDecoder).toBeNull();
   });
+
+  it("a progressive item after an interlaced one keeps the presenter's queued-picture cap", async () => {
+    // no audio, so nothing but the cap holds decoding back; item 1 (0-4 s) interlaced, item 2 (4-8 s) a progressive sequence
+    const wasm = fakeVideoWasm(scriptedPictures({ interlaced: (t) => t < 4_000_000 }));
+    const fake = recordingDeinterlace();
+    const h = await harness(undefined, { videoCodingType: CodingType.MPEG2_VIDEO, videoFormat: 4, videoWasm: wasm.deps, createDeinterlaceBackend: fake.factory });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    const presenter = (h.player as unknown as { presenter: { size: number } }).presenter;
+    let most = 0;
+    for (let i = 0; i < 200 && (times(h).at(-1) ?? 0) < 6_000_000; i++) {
+      await h.play(50);
+      if ((times(h).at(-1) ?? 0) > 4_500_000) most = Math.max(most, presenter.size);
+    }
+    expect(times(h).at(-1)).toBeGreaterThan(5_000_000);
+    expect(h.drawn.some((t) => t >= 4_000_000)).toBe(true);
+    // as for a progressive stream: maxQueuedFrames (8 on desktop) queued, plus what the decoder had in flight (8 at most)
+    expect(most).toBeLessThanOrEqual(16);
+  }, 20_000);
+
+  it('the last interlaced frames are drawn when a progressive item follows', async () => {
+    const rendered: number[] = [];
+    const original = Deinterlacer.prototype.render;
+    const render = vi.spyOn(Deinterlacer.prototype, 'render').mockImplementation(function (this: Deinterlacer, picture: Picture) {
+      rendered.push(picture.timestamp);
+      return original.call(this, picture);
+    });
+    try {
+      const wasm = fakeVideoWasm(scriptedPictures({ interlaced: (t) => t < 4_000_000 }));
+      const fake = recordingDeinterlace();
+      const h = await harness(CodingType.LPCM, { videoCodingType: CodingType.MPEG2_VIDEO, videoFormat: 4, videoWasm: wasm.deps, createDeinterlaceBackend: fake.factory });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilPlaying(h);
+      await vi.waitFor(async () => {
+        await h.play(200);
+        expect(times(h).at(-1)).toBeGreaterThan(4_500_000);
+      }, { timeout: 10_000 });
+      // item 1's last frame is at 95 frames of 24 fps; its fields are pictures up to half a frame after it
+      expect(Math.max(...rendered)).toBeGreaterThanOrEqual(3_950_000); // 95 frames of 3750 ticks: 3 958 333 µs
+      expect(h.drawn.some((t) => t >= 4_000_000)).toBe(true);
+    } finally {
+      render.mockRestore();
+    }
+  }, 20_000);
 
   it("a sequence header that changes the size within an item restarts the deinterlacer's ring at the new size", async () => {
     const fake = recordingDeinterlace();

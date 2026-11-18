@@ -158,14 +158,12 @@ export class InterlacedVideo {
 
   /**
    * Adds a decoded frame. Its planes are uploaded at once, or, with no slot free (a frame the decoder held back),
-   * copied and parked until one is. A frame `afterSkip` ends the stream before it first (`flush`, as at a cut), so the
-   * detector starts its cycle there instead of reading the gap as another cadence; no frame is dropped. False once the
-   * GPU has failed (`error`).
+   * copied and parked until one is. A frame `afterSkip` breaks the detector's cycle where it is fed (as at a cut), the
+   * stream and its neighbours kept. False once the GPU has failed (`error`).
    */
   push(input: FieldInput): boolean {
     const d = this.deinterlacer;
     if (!d || this.error) return false;
-    if (input.afterSkip) this.flush().catch(() => undefined); // a failure shows at the push below
     this.display = { width: input.displayWidth, height: input.displayHeight };
     if (this.parked.length > 0 || d.freeSlots() === 0) {
       const planes = { ...input.planes, data: input.planes.data.slice() };

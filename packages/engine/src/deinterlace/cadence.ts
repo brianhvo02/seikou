@@ -270,6 +270,21 @@ export class CadenceDetector {
     return out;
   }
 
+  /**
+   * A gap before the next frame (the decoder skipped pictures to keep up): the cycle starts again there, as at a cut,
+   * so the gap is never read as a pair at another phase or as uneven pulldown. Frames and neighbours are kept. A film
+   * lock is let go (a break) and the frames after it are planned frame by frame until one 3:2 pair locks film again at
+   * its phase, as after a cut; video and progressive content go on as they are.
+   */
+  cadenceBreak(): void {
+    this.recentClasses = [null, null, null];
+    this.candidate = null;
+    this.prevTimestampUs = null;
+    if (this.state.kind !== 'locked') return;
+    this.breakCount++;
+    this.state = SEARCH;
+  }
+
   /** End of stream: decides the frames still waiting for lookahead. */
   flush(): readonly PlannedPicture[] {
     const out: PlannedPicture[] = [];
@@ -392,6 +407,17 @@ export class CadenceDetector {
         this.lock(mod(pairStart, CYCLE), i);
         break;
       }
+      case 'search':
+        // after a cadence break in film: one pair locks film again (the content is still film), and a run of frames
+        // that comb whatever is paired leaves it for video
+        if (this.combedRun >= UNLOCK_FRAMES) {
+          this.state = VIDEO;
+          this.apply(VIDEO, Math.max(this.earliestPending(), i - UNLOCK_FRAMES + 1));
+          break;
+        }
+        this.trackCandidate(f, pairStart);
+        if (this.candidate !== null) this.lock(this.candidate.phase, i);
+        break;
     }
     this.updateSoft(i);
   }

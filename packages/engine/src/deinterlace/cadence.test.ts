@@ -208,6 +208,39 @@ describe('CadenceDetector', () => {
     expect(detector.locks).toBe(2);
   });
 
+  it('a skip restarts the cadence without dropping neighbours, and film re-locks after it', () => {
+    // locked film, then one frame the decoder skipped: the frames either side are pushed as neighbours, with a break
+    const frames = telecine(0, 64); // 80 frames
+    const gap = 37;
+    const kept = [...frames.slice(0, gap), ...frames.slice(gap + 1)];
+    const metrics = simMetrics(frames).filter((_, i) => i !== gap);
+    const ts = evenTimestamps(frames.length).filter((_, i) => i !== gap);
+    const detector = new CadenceDetector({ frameDurationUs: NTSC_FRAME_US, lookahead: LOOKAHEAD });
+    const pictures: PlannedPicture[] = [];
+    kept.forEach((_, i) => {
+      if (i === gap) detector.cadenceBreak();
+      pictures.push(...detector.push(FIRST_SEQ + i, ts[i]!, orderFlags('tff'), metrics[i]!));
+    });
+    pictures.push(...detector.flush());
+    expect(detector.breaks).toBe(1);
+    expect(detector.locks).toBe(2); // re-locked after the break, from one pair, as after a cut
+    expect(detector.mode).toBe('film');
+    // no frame is left out around the gap: each frame from the gap on shows as film (weave or match), none interpolated
+    const after = pictures.filter((p) => p.frame - FIRST_SEQ >= gap);
+    expect(after.length).toBeGreaterThan(30);
+    for (const p of after) expect(['weave', 'match']).toContain(p.op.kind);
+    const lockedAgain = after.filter((p) => p.frame - FIRST_SEQ >= gap + 10);
+    expectFilmSpacing(lockedAgain);
+  });
+
+  it('a break in video or progressive content changes nothing but the cycle', () => {
+    const detector = new CadenceDetector({ frameDurationUs: NTSC_FRAME_US, lookahead: LOOKAHEAD });
+    run(videoFrames(0, 10), { detector, flush: false });
+    detector.cadenceBreak();
+    expect(detector.mode).toBe('video');
+    expect(detector.breaks).toBe(0);
+  });
+
   it('re-locks after a cut at any point of the cycle into any phase', () => {
     for (let into = 0; into < 5; into++) {
       for (let skip = 0; skip < 10; skip++) expectRelock(into, skip);

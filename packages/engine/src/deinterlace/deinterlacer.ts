@@ -110,6 +110,8 @@ interface RingFrame {
   readonly matrix: YuvPlanes['matrix'];
   /** The order the match pairings were measured by. */
   order: 'tff' | 'bff';
+  /** Pictures were skipped just before it (FieldInput.afterSkip): the detector's cycle breaks before it is fed. */
+  readonly breakBefore: boolean;
   /** Set once the frame has been measured (when its next frame arrived, or at flush). */
   measure: Promise<FrameMetrics> | null;
   metrics: FrameMetrics | null;
@@ -256,7 +258,8 @@ export class Deinterlacer {
    * frame before it now that its next frame is in, and hands out the pictures the detector decides, through
    * `onPictures`, as measurements come back. Throws when no slot is free. A push after `flush` starts a new stream;
    * while the flush is still draining, the frame is uploaded at once and joins the new stream once the old one has
-   * drained, so no frame is lost. An upload that fails (a lost WebGL context) sets `error` instead of throwing, and
+   * drained, so no frame is lost. A frame `afterSkip` breaks the detector's cycle when it is fed (`cadenceBreak`),
+   * its neighbours kept. An upload that fails (a lost WebGL context) sets `error` instead of throwing, and
    * once `error` is set pushes do nothing.
    */
   push(input: FieldInput): void {
@@ -286,6 +289,7 @@ export class Deinterlacer {
       flags: input.flags,
       matrix: input.planes.matrix,
       order: 'tff',
+      breakBefore: input.afterSkip === true,
       measure: null,
       metrics: null,
       held: true,
@@ -442,6 +446,7 @@ export class Deinterlacer {
     const out: PlannedPicture[] = [];
     while (this.queue.length > 0 && this.queue[0]!.metrics) {
       const f = this.queue.shift()!;
+      if (f.breakBefore) this.detector.cadenceBreak();
       out.push(...this.detector.push(f.seq, f.timestampUs, f.flags, f.metrics!));
       this.fed++;
     }

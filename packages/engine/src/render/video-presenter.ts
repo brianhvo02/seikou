@@ -21,6 +21,13 @@ export class VideoPresenter<F extends PresentableFrame> {
     return this.queue.length;
   }
 
+  /** Frames queued that `which` picks, not counting the one on screen. */
+  count(which: (frame: F) => boolean): number {
+    let n = 0;
+    for (const f of this.queue) if (which(f)) n++;
+    return n;
+  }
+
   /** The frame last selected (still owned by the presenter), or null. */
   get current(): F | null {
     return this.shown;

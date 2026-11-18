@@ -3389,6 +3389,13 @@ export class Player {
     decoder.onOutput = (frame) => {
       if (this.session === session) {
         this.followDecodeSpeed(session, frame.timestamp);
+        const d = session.deinterlace;
+        if (d && d.item >= 0) {
+          // a progressive picture of an interlaced session (a progressive play item): the interlaced frames before it
+          // become pictures now, and the next interlaced frame starts a new stream (a failure shows at its push)
+          d.item = -1;
+          d.video.flush().catch(() => undefined);
+        }
         this.codedWidth = frame.codedWidth;
         this.presenter.push(frame);
       } else frame.close();
@@ -4151,10 +4158,13 @@ export class Player {
       return;
     }
     // an interlaced stream's decode-ahead waits for the deinterlacer's ring (its pictures hold their frames' slots):
-    // a slot for every frame the decoder still owes
+    // a slot for every frame the decoder still owes; the frames that skip it (a progressive play item's) are capped as
+    // a progressive stream's are
+    // (the cap is read at each step: the frames decoded meanwhile set the coded width it depends on)
+    const cap = (): number => this.memory.maxQueuedFrames(this.codedWidth);
     const room = d
-      ? (): boolean => d.video.freeSlots() > decoder.queueSize + decoder.fieldInputsPending
-      : (): boolean => this.presenter.size < this.memory.maxQueuedFrames(this.codedWidth);
+      ? (): boolean => d.video.freeSlots() > decoder.queueSize + decoder.fieldInputsPending && this.presenter.count((f) => !d.video.owns(f)) < cap()
+      : (): boolean => this.presenter.size < cap();
     let fed = 0;
     while (fed < s.pendingVideo.length && room() && decoder.queueSize < MAX_DECODE_QUEUE) {
       decoder.decode(s.pendingVideo[fed]);
