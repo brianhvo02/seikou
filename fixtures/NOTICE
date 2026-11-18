@@ -1,0 +1,11 @@
+Seikou test fixtures: third-party material
+Seikou's own code is LGPL-3.0-or-later; the files listed here keep their own licences.
+
+fixtures/vc1-sample/ (interlaced.vc1 and its README.md)
+  "Stumpy Lake forest in HD" by Microdac, 2008
+  https://archive.org/details/MicrodacStumpyLakeforestinHD
+  Licensed under Creative Commons Attribution 2.5 Generic (CC BY 2.5),
+  https://creativecommons.org/licenses/by/2.5/
+  Changed for Seikou (2026): six seconds (180 frames) of the video track cut
+  without re-encoding into a VC-1 elementary stream; audio removed. See
+  fixtures/vc1-sample/README.md.
