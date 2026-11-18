@@ -22,7 +22,10 @@ For a disc in Recent discs, the browser asked for permission and it was refused.
 ## Picture and sound
 
 **"This disc's video can't be played here yet, so it will play without a picture."**
-The disc's video is MPEG-2 or VC-1, which browsers cannot decode. Sound, subtitles and menus still work over black. The notice shows once per disc and clears when something with a picture starts. On a NAS with quality levels, a level that re-encodes the disc may give a picture.
+The disc's video is MPEG-2 or VC-1, which browsers cannot decode, and the player's own decoder for them couldn't start on this device (the browser can't start it, or it is offline and the decoder was never downloaded: play such a disc once while online and it is kept). Sound, subtitles and menus still work over black. The notice shows once per disc and clears when something with a picture starts. On a NAS with quality levels, a level that re-encodes the disc gives a picture.
+
+**An MPEG-2 or VC-1 disc stutters, or its picture lags behind the sound**
+The player decodes these formats itself, on the device's processor. A slow device skips some pictures to keep up. On a NAS disc the player switches to a re-encoded level by itself when its decoder fails or can't keep up; for a local folder, close other tabs, or play the disc from a NAS with quality levels.
 
 **"This device can't decode HEVC (4K) video."**
 The disc's video is HEVC and this device cannot decode it. Try another browser or device.

@@ -53,7 +53,7 @@ The player installs as an app (a "progressive web app"):
 
 After the first visit the player works with no network: the app is cached, and a disc folder is read from your own drive. When a new version is downloaded, a bar says "A new version is ready." with a **Reload** button. It waits until nothing is playing.
 
-A few things need a network: a NAS, and the first use of a built-in video shader (see [Playing discs](playing-discs.md)). After that, the shader is kept for offline use.
+A few things need a network: a NAS, the first use of a built-in video shader, and the first disc with MPEG-2 or VC-1 video, whose decoder is downloaded when it first plays (see [Playing discs](playing-discs.md)). After that, each is kept for offline use.
 
 ## Next
 

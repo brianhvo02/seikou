@@ -84,15 +84,31 @@ what would change that decision.
   it cleanly. The first PPS only shows up after `configure()`, so the decoder reopens with `prefer-software` when it
   sees the redefinition and resumes at the next key unit. That costs about a second of frames at the start of each
   playlist. *Revisit if* that gap shows (holding the first GOP until the PPS pattern is known would remove it).
-- **MPEG-2 and VC-1 video plays without a picture (5e).** The player decodes only H.264 and HEVC. A playlist with
-  MPEG-2 or VC-1 video, HDMV or BD-J, plays as libbluray plays it, with audio, subtitles and IG or BD-J menus over
-  black, its reads paced by the clock, and a notice once per disc ("This disc's video can't be played here yet, so it
-  will play without a picture"), cleared when a playlist with a picture starts and not shown again for that disc (R9).
-  A playlist with such video and nothing else playable still runs, silent and black on the wall clock, to its end
-  (ruling R12): libbluray does the same, and some HDMV programs rely on it; a user who picks such a playlist sees the
-  notice, not an error. `UnsupportedCodecError` is left for a decoder that fails to configure. On a NAS disc the
-  quality levels (cross-browser step 4) play them with a picture, re-encoded on the NAS; a local folder still plays
-  them without one. *Revisit if* the browsers gain MPEG-2 or VC-1 decoding.
+- **MPEG-2 and VC-1 video is decoded in WASM, on the CPU.** The browsers decode neither, so FFmpeg's decoders run
+  in `video.wasm` in a worker of their own, single-threaded. Measured on the synthetic discs in Chrome, Firefox and
+  WebKit on an Apple silicon Mac: 1.2 to 1.6 ms a 1080 picture for MPEG-2 and 3.1 to 4.0 ms for VC-1. A device that
+  falls behind skips B pictures; on a NAS disc the player switches to a re-encoded level after 10 s of it, or at once
+  when the decoder fails. *Revisit if* a browser gains MPEG-2 or VC-1 decoding.
+- **Without the WASM decoder, MPEG-2 and VC-1 play without a picture (5e).** Where the decoder can't start (a browser
+  that can't start a worker from a worker, `?novideowasm=1` in tests, or a device offline before `video.wasm` was
+  ever fetched: the service worker keeps it in a runtime cache, not the precache, so it needs one online play first),
+  a playlist with such video, HDMV or BD-J, plays as libbluray plays it, with audio, subtitles and IG or BD-J menus
+  over black, its reads paced by the clock, and a notice once per disc ("This disc's video can't be played here yet,
+  so it will play without a picture"), cleared when a playlist with a picture starts and not shown again for that disc
+  (R9). A playlist with such video and nothing else playable still runs, silent and black on the wall clock, to its
+  end (ruling R12): libbluray does the same, and some HDMV programs rely on it. `UnsupportedCodecError` is left for a
+  decoder that fails to configure. *Revisit if* a precached decoder is worth its 1 MB to every visitor.
+- **The first NAS pre-flight of an MPEG-2 or VC-1 disc may wait up to 10 s.** The decode speed probe runs once a
+  device (its answer is kept 30 days), raced against the pre-flight's own 10 s bound, and Play waits for it. A probe
+  asked while the page is hidden or another disc plays answers unknown, and that open gets no Original. *Revisit if*
+  the wait is noticed: probe ahead of the first pre-flight.
+- **No progressive VC-1 is tested, nor VC-1 pulldown.** ffmpeg can't encode VC-1, so the one VC-1 fixture
+  (`disc-vc1`) is a CC BY 1080i sample; progressive VC-1 and VC-1 with pulldown flags are untested until a disc or a
+  licensed sample has them.
+- **A picture size change in interlaced video briefly blanks the screen.** When the frame size changes (a 1080i item
+  after a 480i one, or a new sequence header), the deinterlacer restarts at the new size and the pictures of the old
+  size not yet shown are dropped, a black flash of about 0.1 to 0.3 s. On Blu-ray a clip's video attributes are
+  constant, so it happens only at item boundaries of mixed playlists. *Revisit if* a disc shows it.
 - **On the element path in WebKit, the sync telemetry can't see the last part of the display delay.** WebKit's
   `requestVideoFrameCallback` gives an `expectedDisplayTime` from another time origin (about -1.4e9 ms), so the page
   takes the callback's time plus one display refresh, measured from animation frames, as the time the frame shows. A
@@ -173,8 +189,9 @@ what would change that decision.
   after the change, so film is field-rate for about half a second at the start of each item.
 - **A lost WebGL context falls back to woven frames for the session.** The playlist is reread from the current time
   and its frames are drawn as the decoder gives them; telemetry's `deinterlace.woven` says why.
-- **MPEG-2 and VC-1 aren't deinterlaced yet.** The browser has no decoder for them; the in-browser decoder on the
-  roadmap will feed the same stage.
+- **A playlist that starts progressive draws a later interlaced play item woven.** Whether a playlist goes through
+  the deinterlacer is decided at its start, from its first clip; this holds for H.264 and for MPEG-2 and VC-1 alike.
+  *Revisit if* a disc mixes them.
 - **A software WebGL renderer isn't used for deinterlacing.** Where WebGL draws in software (SwiftShader in Chrome
   without a GPU, Mesa's llvmpipe, Microsoft's Basic Render Driver; read from the `WEBGL_debug_renderer_info` renderer
   name once, at the first interlaced playlist), interlaced frames are drawn woven, as without WebGL2, and telemetry's
@@ -183,9 +200,9 @@ what would change that decision.
   show combing. *Revisit if* a cheaper deinterlacer (CPU line doubling, or fewer GPU passes) is worth having there.
 - **Firefox on macOS isn't deinterlaced.** Its WebCodecs decoder gives H.264 frames as BGRX (RGB), not YUV planes, and
   the deinterlacer reads planes, so those frames are drawn woven and telemetry's `deinterlace.woven` says why (before
-  this was caught the playlist never started). Other browsers give I420 (Chrome) or NV12 (Safari). *Revisit if*
-  Firefox on macOS matters for interlaced discs: the stage could take RGB frames, or the in-browser decoder could
-  decode for it.
+  this was caught the playlist never started). Other browsers give I420 (Chrome) or NV12 (Safari). MPEG-2 and VC-1,
+  which the WASM decoder gives as I420 everywhere, are deinterlaced in Firefox on macOS too (`mpeg-vc1.spec.ts`).
+  *Revisit if* Firefox on macOS matters for interlaced H.264: the stage could take RGB frames.
 - **Safari's decoder blends the fields' chroma of an interlaced frame.** Measured on Mac Safari (WebKit) with
   `disc-interlaced` 00000: the planes its WebCodecs `VideoFrame.copyTo` gives for frame 60 (NV12) have luma identical
   to ffmpeg's decode of the same frame, but chroma differs on 9% of samples (up to 154 levels): where a chroma sample

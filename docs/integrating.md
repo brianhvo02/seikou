@@ -283,6 +283,7 @@ Each piece carries its own licence. The files named here are the record; this se
 | Files ported from libass (`@seikou/ass`) | LGPL-2.1-or-later AND ISC | Each file's header and `packages/ass/NOTICE` |
 | DejaVu Sans (`packages/ass/src/default-font.ttf`) | The DejaVu fonts licence | `packages/ass/src/LICENSE-DejaVu.txt` |
 | `audio.wasm` (FFmpeg's AC-3, E-AC-3 and DTS decoders with `shim.c`) | LGPL-2.1-or-later | `packages/engine/wasm/audio/NOTICE` |
+| `video.wasm` (FFmpeg's MPEG-1, MPEG-2 and VC-1 decoders and parsers with `shim.c`) | LGPL-2.1-or-later | `packages/engine/wasm/video/NOTICE` |
 | `freetype.wasm` (FreeType 2.13.2 with `shim.c`) | FreeType: the FreeType License (FTL); `shim.c`: LGPL-2.1-or-later | `src/wasm/freetype/NOTICE` and `src/wasm/freetype/FTL.TXT` |
 | `src/bdj-classlib/rt-bdj.jar` (OpenJDK 8 classes) | GPLv2 with the Classpath Exception | `src/bdj-classlib/LICENSE`, `ASSEMBLY_EXCEPTION` and `NOTICE` |
 | The Apache Xerces classes in `rt-bdj.jar` (`com/sun/org/apache/xerces/internal/**`, `com/sun/xml/internal/stream/Entity*`) | Apache-2.0 | `src/bdj-classlib/THIRD_PARTY_APACHE` |

@@ -17,7 +17,6 @@ Short tasks that unblock or protect what is already deployed.
 
 | Item | Size | Notes |
 | --- | --- | --- |
-| **MPEG-2 and VC-1 pictures in the browser** through an in-browser decoder (a WASM build of FFmpeg's decoders), for local folders and every browser; it feeds the deinterlacer, since much MPEG-2 is interlaced. NAS discs already get a picture through quality levels. A speed test on 2026-11-17 found it viable single-threaded on an M5 Max and an iPhone 17 Pro over HTTPS. | L | next |
 | **Open a local `.iso`** from the landing screen. The UDF reader (`packages/bdmv/src/udf.ts`) already serves NAS ISOs; this is the local half of cross-browser spec §4, deferred in the nas-server spec §10. | M | |
 | **Subtitles from picked `.mkv` files.** Extract ASS and SRT tracks and attached fonts from an `.mkv` the viewer picks or drops (the Encodes library's own MKVs already load theirs), deferred since M4b. This pairs with episode subtitle sets and the subtitle store. | M | |
 | **HDMV TextST and sub-path PG** decoding. | M | needs a disc |
