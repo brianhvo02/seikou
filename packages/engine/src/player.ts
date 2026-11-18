@@ -958,7 +958,8 @@ export class Player {
           // ASS collision memory belongs to what was on screen before the seek
           for (const f of this.textTrack?.files ?? []) if (f.renderer instanceof AssRenderer) f.renderer.reset();
           for (const a of this.encodeSubs?.ass.values() ?? []) a.reset();
-          // a stall that stepped interlaced video down to frame rate may have passed: the user's seek tries field rate again
+          // a stall that stepped interlaced video down to frame rate may have passed: the viewer's seek (or chapter skip,
+          // skipChapter) tries field rate again; a disc program's own jumps don't
           this.session?.deinterlace?.video.returnToFieldRate();
           await this.startAt(cmd.timeUs, this.wantPlaying);
           break;
@@ -3700,6 +3701,8 @@ export class Player {
     }
     if (target !== undefined) {
       this.notifySeeked(target);
+      // a viewer's chapter skip is a seek: it tries field rate again after the frame-rate step, as `seek` does
+      s.deinterlace?.video.returnToFieldRate();
       await this.startAt(target, this.wantPlaying);
     }
   }

@@ -3919,6 +3919,24 @@ describe('Player with interlaced video (deinterlacing)', () => {
     await stepDown();
   }, 60_000);
 
+  it('a chapter skip returns field rate after the frame-rate step', async () => {
+    const fake = fakeDeinterlace();
+    const h = await harness(CodingType.LPCM, { videoFormat: 4, videoCodecApi: interlacedApi, createDeinterlaceBackend: fake.factory, clipSeconds: 40 });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await h.play(1100);
+    for (let s = 0; s < 34 && !h.player.deinterlaceState.stats?.frameRate; s++) {
+      for (let t = 0; t < 1000; t += 4 * STEP_MS) {
+        await h.play(3 * STEP_MS - 1, { render: false });
+        await h.play(1);
+      }
+    }
+    expect(h.player.deinterlaceState.stats).toMatchObject({ frameRate: true });
+    await h.player.handle({ type: 'nextChapter' });
+    await untilPlaying(h);
+    expect(h.player.deinterlaceState.stats).toMatchObject({ mode: 'video', fallback: true, frameRate: false });
+  }, 60_000);
+
   it('captureVideo (test-only) answers once with the first picture drawn at or after its time, and only in telemetry runs', async () => {
     const drawnImages: unknown[] = [];
     vi.stubGlobal('OffscreenCanvas', class {
