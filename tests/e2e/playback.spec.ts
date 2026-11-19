@@ -189,6 +189,12 @@ test('a local disc remembers its place on this device', async ({ page }) => {
   await page.getByTestId('resume-start-over').click({ timeout: 10_000 });
   await expect(page.getByTestId('playlist-00000')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId('player')).not.toHaveAttribute('data-playlist', '00000');
+  // and the place is forgotten: the next open asks nothing
+  await page.waitForTimeout(500);
+  await page.reload();
+  await setFolder(page.getByTestId('folder-input'), DISC);
+  await expect(page.getByTestId('playlist-00000')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId('resume-prompt')).toHaveCount(0);
 });
 
 test('arrow keys on a focused seek bar seek by 10 s instead of stepping the slider', async ({ page }) => {

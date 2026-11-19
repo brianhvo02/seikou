@@ -126,7 +126,7 @@ The on-screen **Remote** has arrows, OK, `0` to `9`, Top Menu and Pop-up. Play, 
 
 A disc remembers where you stopped, per playlist. The next time you open it:
 
-- You are asked **Resume at m:ss** or **Start from beginning**, with the device and time you stopped. On a disc, **Start from beginning** opens it as if for the first time, with its intro and menu. On an episode, it plays the episode from the start with the audio and subtitles you had.
+- You are asked **Resume at m:ss** or **Start from beginning**, with the device and time you stopped. On a disc, **Start from beginning** opens it as if for the first time, with its intro and menu, and forgets where you stopped, so the next open doesn't ask again. On an episode, it plays the episode from the start with the audio and subtitles you had.
 - A place in the first 30 seconds (or first 5% of a short playlist) asks nothing and plays from the start. So does a place near the end: a finished playlist starts over.
 - If the disc is not the same as when you stopped, only **Start from beginning** is offered ("This disc has changed since you stopped.").
 

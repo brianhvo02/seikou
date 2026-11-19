@@ -486,7 +486,7 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
     );
   };
 
-  /** Resume at the place with its settings, or Start from beginning: the disc as it starts (First Play), carrying nothing. */
+  /** Resume at the place with its settings, or Start from beginning: the disc as it starts (First Play), carrying nothing, the place forgotten. */
   const answerPending = (resume: boolean): void => {
     if (!pending) return;
     const { offer, open } = pending;
@@ -494,7 +494,10 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
     openSeq.current++;
     setPending(null);
     if (resume && offer.kind === 'ask') open(offer.start, { settings: offer.place.settings, byLanguage: false });
-    else open(undefined, undefined); // a local disc's offer is never for a requested playlist (startFromBeginning)
+    else {
+      void places.forget(offer.place);
+      open(undefined, undefined); // a local disc's offer is never for a requested playlist (startFromBeginning)
+    }
   };
 
   const error = localError ?? snapshot.error?.message ?? null;

@@ -1384,7 +1384,7 @@ test('a place on a disc that changed offers only Start from beginning', async ({
   expect((await api(`me/playback/${encodeURIComponent(disc1Key())}`, { method: 'DELETE' })).status).toBe(204);
 });
 
-test('Start from beginning on a disc opens it as it starts, not at the place\'s playlist', async ({ page, browserName }) => {
+test('Start from beginning on a disc opens it as it starts, not at the place\'s playlist, and forgets the place', async ({ page, browserName }) => {
   const api = await openTitlesAsResumePerson(page, browserName);
   await skipWithoutH264(page);
   await putPlace(api, disc1Key(), '00001', 2_000_000, 4_000_000);
@@ -1394,7 +1394,11 @@ test('Start from beginning on a disc opens it as it starts, not at the place\'s 
   // disc1 has no First Play: as it starts, it shows its title picker
   await expect(page.getByTestId('playlist-00000')).toBeVisible({ timeout: 15_000 });
   await expect(page.getByTestId('player')).not.toHaveAttribute('data-playlist', '00001');
-  expect((await api(`me/playback/${encodeURIComponent(disc1Key())}`, { method: 'DELETE' })).status).toBe(204);
+  // the place is gone from the NAS, so opening the disc again asks nothing
+  await expect.poll(() => placeTimeUs(api, '00001'), { timeout: 5_000 }).toBeNull();
+  await page.goto(`/nas/play/${disc1Key()}?telemetry=1&placemin=1`);
+  await expect(page.getByTestId('nas-play')).toBeEnabled({ timeout: 15_000 });
+  await expect(page.getByTestId('resume-prompt')).toHaveCount(0);
 });
 
 test('a pre-flight whose places request hangs offers Play after a few seconds', async ({ page, browserName }) => {

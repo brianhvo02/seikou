@@ -342,11 +342,16 @@ export function Preflight({ nas, controller, disc, playlistId, title, startTimeS
   };
   /** Resume at: the place's own playlist, time and registers (resumeStart), with its settings. */
   const resumeLaunch = (): Launch => (offer.kind === 'ask' ? { start: offer.start, settings: { settings: offer.place.settings, byLanguage: false } } : plainLaunch());
-  /** Start from beginning: a requested playlist from 0 with the place's settings, else the disc as it starts (First Play), carrying nothing. */
+  /**
+   * Start from beginning (called on its click): a requested playlist from 0 with the place's settings, else the disc as
+   * it starts (First Play), carrying nothing, and the place offered is forgotten so the disc doesn't offer it again.
+   */
   const startOverLaunch = (): Launch => {
     if (offer.kind === 'none') return plainLaunch();
     const start = startFromBeginning(offer.place, playlistId ?? null);
-    return start === null ? { start: undefined, settings: undefined } : { start, settings: { settings: offer.place.settings, byLanguage: false } };
+    if (start !== null) return { start, settings: { settings: offer.place.settings, byLanguage: false } };
+    void places.forget(offer.place);
+    return { start: undefined, settings: undefined };
   };
   /** Play: as the disc starts, or for a place near its start, its playlist from 0 with its settings. */
   const playLaunch = (): Launch =>
