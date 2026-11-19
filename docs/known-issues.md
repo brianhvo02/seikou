@@ -125,12 +125,14 @@ what would change that decision.
   cause in WebKit's GPU process, not the WASM decoder:
   - **Decoding** takes about 10 ms a picture, 15 to 17 ms in heavy scenes, in its own worker, inside the 33 ms a frame allows.
   - **The engine worker's own work** is about 3 ms a display tick in all: the tick itself, demuxing, plane uploads, the metric readback and the decoder's messages.
-  - **The worker blocks after each tick** while its canvas is committed. That's about 4 ms for film, about 10 ms at field rate, and 21 to 24 ms from a switch between film and video sections onwards. At that cost only about 40 ticks fit in a second, so pictures drop and the step comes.
+  - **The worker blocks after each tick** while its canvas is committed. That's about 4 ms for film and 4 to 6 ms at field rate in one stretch of video, but 11 to 14 ms through another stretch from its first second (a cool phone on a clean link, 2026-11-19; up to 24 ms when warm). At that cost only about 50 ticks fit in a second, so pictures drop and the step comes. It is not a spike at the switch into video.
+  - **`transferToImageBitmap`**, which hands the deinterlaced picture to the compositor, stalls up to 17 to 22 ms in the costly stretch, against 3 ms elsewhere.
+  - **The GPU work itself is small:** waiting for the GPU after the upload, the bwdif pass and the colour conversion each takes under 0.3 ms.
   - **The fall-back shader** changes nothing.
-  - **Leaving out the 2D compositor's draw of the picture** (the WebGL picture moved out as an ImageBitmap, then drawn on the 2D canvas) halves the field-rate cost, but the spikes at the switches remain.
-  - **Back-to-back runs got worse,** so heat may add to it.
+  - **Leaving out the 2D compositor's draw of the picture** halves the cost of a cheap stretch, but not of a costly one.
+  - **Runs on a warm phone cost more,** even at frame rate.
 
-  *Revisit when* the per-picture GPU work on WebKit is cut: first find what costs so much at a cadence switch (the switch itself, the readback, or shader compilation), then, if field rate still runs close to the limit, draw video and overlays in one WebGL canvas.
+  So the time goes to WebKit handing pictures across: the WebGL canvas's image moved out as an ImageBitmap, drawn on the 2D canvas, and that canvas committed to the page. The shaders and the decoder take little of it. *Revisit when* the pictures reach the screen with fewer hand-offs (the deinterlacer drawing straight into the visible canvas, with video and overlays in one WebGL canvas), measured on the same film.
 - **A playlist that starts mid-clip skips the clip's middle, unlike libbluray.** libbluray's `_fill_clip` reads the
   first play item from the clip's first packet (`start_pkt = 0`). Over the network that downloaded every byte before
   the IN point first: a chapter playlist starting 31 minutes into a 480i MPEG-2 clip took 65 s to start over Wi-Fi.

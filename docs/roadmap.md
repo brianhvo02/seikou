@@ -29,7 +29,7 @@ Short tasks that unblock or protect what is already deployed.
 | Item | Size | Notes |
 | --- | --- | --- |
 | **BD-J JIT** (stage 2 of 5c §4.7). This is the start-up lever: iPhone and iPad miss the 10 s cold-start target by 0.8 to 1.6 s, and desktop has little margin on its 5 s bar. A compact constant-pool form is the matching memory lever. | L | owner's call (deferred by choice) |
-| **Field rate on an iPhone:** less GPU work per picture in WebKit, so 1080i (VC-1 first) plays at field rate. Decoding isn't the limit; the GPU process is, and costs spike at a switch between film and video sections (known issues). First find what the switch costs, then decide whether video and overlays move to one WebGL canvas. | M | needs the phone |
+| **Field rate on an iPhone:** fewer hand-offs per picture in WebKit, so 1080i (VC-1 first) plays at field rate. Neither decoding nor the shaders are the limit; the deinterlaced picture's trip to the screen is (an ImageBitmap, the 2D canvas, the commit; known issues). The candidate is drawing video and overlays in one WebGL canvas, measured on the same film before and after. | M | needs the phone |
 | **Deinterlacing gaps:** RGB frames from Firefox on macOS (interlaced H.264 shows woven there) and a cheaper deinterlacer for software WebGL. | M | |
 | **HDR overlays at graphics white:** subtitles and menus over HDR video are drawn SDR; try a float16 or WebGPU canvas on an HDR display. | M | needs a device, owner's call |
 | **Element path start in WebKit,** which begins about 33 ms behind the sound. | S | owner's call |
