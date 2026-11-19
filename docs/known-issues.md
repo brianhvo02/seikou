@@ -859,6 +859,12 @@ Fill in from `probe.html` on each device.
   resolve from the registry) and compiles them with its own TypeScript or Vite. `npm run package-smoke` does exactly
   that in a temporary project. *Revisit if* a project outside this repo needs them from a registry: that needs a build
   step to JavaScript and `.d.ts`, real version ranges between the packages, and publishing.
+- **`@seikou/bdj` imports the other packages' internals.** It reaches `@seikou/engine`, `@seikou/bdmv`, `@seikou/nas`
+  and `@seikou/ass` through their `./*` subpaths (`@seikou/engine/bdj-types`, `@seikou/bdmv/bdjo-parser` and
+  others), not their roots, so it works only with packages from the same checkout. `@seikou/bdj-classlib`'s
+  intrinsics import `@seikou/bdj`'s JVM the same way, which is why it lists `@seikou/bdj` as a peer dependency
+  rather than a dependency (the two would otherwise depend on each other). *Revisit if* the packages are published:
+  the BD-J interface would then need a declared surface in the engine's root.
 
 ## Resolved (for reference)
 

@@ -1,20 +1,20 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { Jvm } from '../../src/bdj/jvm/jvm';
-import { Vfs } from '../../src/bdj/jvm/vfs';
-import { ZipArchive } from '../../src/bdj/jvm/zip';
-import type { JArray, JObject, JValue } from '../../src/bdj/jvm/values';
+import { Jvm } from '@seikou/bdj/jvm/jvm';
+import { Vfs } from '@seikou/bdj/jvm/vfs';
+import { ZipArchive } from '@seikou/bdj/jvm/zip';
+import type { JArray, JObject, JValue } from '@seikou/bdj/jvm/values';
 import { assembleClass, storedZip } from '../helpers/jvm-asm';
 import type { AsmMethod } from '../helpers/jvm-asm';
 import { syntheticSource } from '../helpers/synthetic-disc';
-import { byteArray } from '../../src/bdj/jvm/natives/util';
+import { byteArray } from '@seikou/bdj/jvm/natives/util';
 import { deflateSync, gzipSync } from 'node:zlib';
 
 const file = (rel: string): Uint8Array => readFileSync(fileURLToPath(new URL(rel, import.meta.url)));
 
-const RT = file('../../src/bdj-classlib/rt-bdj.jar');
-const BOOT_JARS = [file('../../src/bdj-classlib/libbluray-j2se.jar'), file('../../src/bdj-classlib/libbluray-awt-j2se.jar'), RT, file('./conformance.jar')];
+const RT = file('../../packages/bdj-classlib/rt-bdj.jar');
+const BOOT_JARS = [file('../../packages/bdj-classlib/libbluray-j2se.jar'), file('../../packages/bdj-classlib/libbluray-awt-j2se.jar'), RT, file('./conformance.jar')];
 
 const NEW = 0xbb, DUP = 0x59, INVOKESPECIAL = 0xb7, INVOKEVIRTUAL = 0xb6, INVOKESTATIC = 0xb8, RETURN = 0xb1, ARETURN = 0xb0;
 const ALOAD_0 = 0x2a, ASTORE_0 = 0x4b, ICONST_0 = 0x03, ICONST_1 = 0x04, ICONST_5 = 0x08, NEWARRAY = 0xbc, ACONST_NULL = 0x01, AALOAD = 0x32;

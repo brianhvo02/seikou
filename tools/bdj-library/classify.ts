@@ -5,7 +5,7 @@
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { TraceEntry } from '../../src/bdj/host';
+import type { TraceEntry } from '@seikou/bdj/host';
 import { CONTROL_CALLS } from '../../tests/bdj/format';
 
 export type DiscVerdict = 'works' | 'unconfirmed' | 'libbluray-fails-too' | 'missing-class' | 'unsupported-video' | 'stall' | 'diverges' | 'error';

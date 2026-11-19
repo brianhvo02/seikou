@@ -32,6 +32,8 @@ ASS='^(packages/ass/|packages/engine/src/subs/|packages/engine/src/memory-profil
 SITE="^(src/|tools/devsite/|public/|vite/|vite\.config\.ts|index\.html|probe\.html|docs/[^/]+\.md$|tsconfig[^/]*\.json|$PKG|packages/)"
 WORKER="^(rendezvous/|packages/nas/|tsconfig\.rendezvous\.json|$PKG)"
 IMAGE="^(server/|tsconfig\.server\.json|$PKG|packages/)"
+# BD-J (packages/bdj, packages/bdj-classlib) runs only in the browser: the server bundle never holds it.
+NOT_IMAGE='^packages/bdj(-classlib)?/'
 
 has() { printf '%s\n' "$files" | grep -Eq "$1"; }
 # server/deploy/ is the owner's deploy (compose files, scripts): no test or image reads it.
@@ -44,6 +46,6 @@ e2e=false; { $force || has "$E2E"; } && e2e=true
 ass=false; { $force || has "$ASS"; } && ass=true
 site=false; has "$SITE" && site=true
 worker=false; has "$WORKER" && worker=true
-image=false; has "$IMAGE" && image=true
+image=false; printf '%s\n' "$files" | grep -Ev "$NOT_IMAGE" | grep -Eq "$IMAGE" && image=true
 
 for k in "${keys[@]}"; do echo "$k=${!k}"; done

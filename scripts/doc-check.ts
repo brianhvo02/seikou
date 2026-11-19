@@ -254,12 +254,12 @@ export function codeChanges(base: string, files: readonly string[]): string[] {
 /** The globs of the checked scope, relative to the repository root. */
 const SCOPE = ['packages/*/src/**', 'src/**', 'server/src/**', 'rendezvous/src/**', 'encoder/src/**', 'encoder/web/src/**'];
 
-/** The tracked source files in the checked scope (no tests, declaration files or the BD-J class library). */
+/** The tracked source files in the checked scope (no tests or declaration files). */
 function scopeFromGit(): string[] {
   const out = execFileSync('git', ['ls-files', '--', ...SCOPE.map((g) => `:(glob)${g}`)], { encoding: 'utf8' });
   return out
     .split('\n')
-    .filter((f) => /\.tsx?$/.test(f) && !/\.(test\.tsx?|d\.ts)$/.test(f) && !f.startsWith('src/bdj-classlib/'))
+    .filter((f) => /\.tsx?$/.test(f) && !/\.(test\.tsx?|d\.ts)$/.test(f))
     .sort();
 }
 

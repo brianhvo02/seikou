@@ -13,8 +13,8 @@ import { parseSource } from './doc-check';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** The eight documented packages. */
-export const PACKAGES = ['bdmv', 'nas', 'pg', 'ass', 'engine', 'titles', 'fansubs', 'matroska'] as const;
+/** The ten documented packages. */
+export const PACKAGES = ['bdmv', 'nas', 'pg', 'ass', 'engine', 'titles', 'fansubs', 'matroska', 'bdj', 'bdj-classlib'] as const;
 
 /** Marks an import whose names are not known (`import * as ns`, a bare dynamic `import()`). */
 export const UNKNOWN_NAMES = '*';

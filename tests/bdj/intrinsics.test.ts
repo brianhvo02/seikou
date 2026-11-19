@@ -1,6 +1,6 @@
 /**
- * Each intrinsic and loop hook (src/bdj/jvm/natives/intrinsics, and the class library's own in
- * src/bdj-classlib/intrinsics) against the Java it replaces: the same calls on
+ * Each intrinsic and loop hook (packages/bdj/src/jvm/natives/intrinsics, and the class library's own in
+ * packages/bdj-classlib/intrinsics) against the Java it replaces: the same calls on
  * seeded random inputs, in a JVM with intrinsics off and one with them on, must leave the same arrays, fields, return
  * values and exceptions (class, message and stack trace).
  */
@@ -8,22 +8,22 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { deflateSync } from 'node:zlib';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { Invoke, setBytecodeProfile } from '../../src/bdj/jvm/interpreter';
-import type { BytecodeProfile } from '../../src/bdj/jvm/interpreter';
-import { Jvm } from '../../src/bdj/jvm/jvm';
-import type { StackTrace } from '../../src/bdj/jvm/jvm';
-import { JClass } from '../../src/bdj/jvm/loader';
-import { parseClassFile } from '../../src/bdj/jvm/classfile';
-import { Vfs } from '../../src/bdj/jvm/vfs';
-import { ZipArchive } from '../../src/bdj/jvm/zip';
-import type { JArray, JObject, JValue } from '../../src/bdj/jvm/values';
+import { Invoke, setBytecodeProfile } from '@seikou/bdj/jvm/interpreter';
+import type { BytecodeProfile } from '@seikou/bdj/jvm/interpreter';
+import { Jvm } from '@seikou/bdj/jvm/jvm';
+import type { StackTrace } from '@seikou/bdj/jvm/jvm';
+import { JClass } from '@seikou/bdj/jvm/loader';
+import { parseClassFile } from '@seikou/bdj/jvm/classfile';
+import { Vfs } from '@seikou/bdj/jvm/vfs';
+import { ZipArchive } from '@seikou/bdj/jvm/zip';
+import type { JArray, JObject, JValue } from '@seikou/bdj/jvm/values';
 import { assembleClass } from '../helpers/jvm-asm';
-import { MAX_FRAMES } from '../../src/bdj/jvm/interpreter';
-import { registerClassLibraryIntrinsics } from '../../src/bdj-classlib/intrinsics/index';
+import { MAX_FRAMES } from '@seikou/bdj/jvm/interpreter';
+import { registerClassLibraryIntrinsics } from '@seikou/bdj-classlib/intrinsics';
 
 const file = (rel: string): Uint8Array => readFileSync(fileURLToPath(new URL(rel, import.meta.url)));
-const RT = file('../../src/bdj-classlib/rt-bdj.jar');
-const BOOT_JARS = [file('../../src/bdj-classlib/libbluray-j2se.jar'), file('../../src/bdj-classlib/libbluray-awt-j2se.jar'), RT];
+const RT = file('../../packages/bdj-classlib/rt-bdj.jar');
+const BOOT_JARS = [file('../../packages/bdj-classlib/libbluray-j2se.jar'), file('../../packages/bdj-classlib/libbluray-awt-j2se.jar'), RT];
 
 /** intrinsics: 'off', the engine's only, or with the class library's (as the BD-J worker runs). */
 function newJvm(intrinsics: 'off' | 'engine' | 'all'): Jvm {

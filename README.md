@@ -69,7 +69,7 @@ Seikou stands on a lot of other work. Each entry links to the project and, where
 
 ### Ported from
 
-Code this project translates to TypeScript (the files are listed in the NOTICE files of [packages/bdmv](packages/bdmv/NOTICE), [packages/pg](packages/pg/NOTICE), [packages/ass](packages/ass/NOTICE) and [packages/engine](packages/engine/NOTICE), and in [src/bdj/NOTICE](src/bdj/NOTICE)).
+Code this project translates to TypeScript (the files are listed in the NOTICE files of [packages/bdmv](packages/bdmv/NOTICE), [packages/pg](packages/pg/NOTICE), [packages/ass](packages/ass/NOTICE) and [packages/engine](packages/engine/NOTICE), and in [packages/bdj/NOTICE](packages/bdj/NOTICE)).
 
 - [libbluray](https://www.videolan.org/developers/libbluray.html), LGPL-2.1-or-later: the C library's disc parsing, navigation, HDMV virtual machine, menus, and BD-J glue and natives.
 - [libudfread](https://code.videolan.org/videolan/libudfread), LGPL-2.1-or-later: the UDF reader for ISO discs.
@@ -87,12 +87,12 @@ Shipped inside the app, the server image or the Worker.
 - [FFmpeg](https://ffmpeg.org) n9.0.2 AC-3, E-AC-3 and DTS decoders, LGPL-2.1-or-later, compiled to `audio.wasm`.
 - [FFmpeg](https://ffmpeg.org) n9.0.2 MPEG-1, MPEG-2 and VC-1 decoders, LGPL-2.1-or-later, compiled to `video.wasm`.
 - [FreeType](https://freetype.org) 2.13.2, FreeType License, compiled to `freetype.wasm` for BD-J text.
-- The OpenJDK 8 class library (GPLv2 with the Classpath Exception), trimmed for BD-J, with [Apache Xerces](https://xerces.apache.org) (Apache-2.0), the [SAX](http://www.saxproject.org) classes (public domain notice) and ICU4J-derived classes ([ICU](https://icu.unicode.org)), as listed in [src/bdj-classlib/NOTICE](src/bdj-classlib/NOTICE).
+- The OpenJDK 8 class library (GPLv2 with the Classpath Exception), trimmed for BD-J, with [Apache Xerces](https://xerces.apache.org) (Apache-2.0), the [SAX](http://www.saxproject.org) classes (public domain notice) and ICU4J-derived classes ([ICU](https://icu.unicode.org)), as listed in [packages/bdj-classlib/NOTICE](packages/bdj-classlib/NOTICE).
 - [Anime4K](https://github.com/bloc97/Anime4K) v4.0.1, MIT: the shaders and mode definitions behind the built-in shader sets.
 - [DejaVu Sans](https://dejavu-fonts.github.io) 2.37, Bitstream Vera / DejaVu licence: the fallback font for ASS subtitles and BD-J text.
 - [Instrument Sans](https://github.com/Instrument/instrument-sans) (through `@fontsource-variable/instrument-sans`), SIL Open Font License 1.1: the app's typeface, bundled with the site.
 - libbluray's BD-J Java stack, as jars (`libbluray-j2se`, `libbluray-awt-j2se`), LGPL-2.1-or-later.
-- The `cacerts` keystore in the class library, generated from Ubuntu's ca-certificates ([src/bdj-classlib/NOTICE](src/bdj-classlib/NOTICE)).
+- The `cacerts` keystore in the class library, generated from Ubuntu's ca-certificates ([packages/bdj-classlib/NOTICE](packages/bdj-classlib/NOTICE)).
 - [TheDiscDB data](https://github.com/TheDiscDb/data), MIT: the server's disc index (`server/data/discdb-index.json`).
 - [React](https://react.dev) (with react-dom), MIT: the user interface.
 - [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator), MIT: pairing QR codes.
@@ -153,8 +153,8 @@ Documentation the design follows, beyond the upstream code above.
 
 LGPL-3.0-or-later for everything that doesn't carry its own licence (see [LICENSE](LICENSE), and [COPYING](COPYING) for the GNU GPL it supplements). Files ported from libbluray, libudfread and FFmpeg stay LGPL-2.1-or-later, as their upstreams released them, and the libass ports are `LGPL-2.1-or-later AND ISC`; their headers say so. Files marked LGPL-2.1-or-later are under the LGPL 2.1 ([LICENSES/LGPL-2.1.txt](LICENSES/LGPL-2.1.txt)) or, at your option, any later version, which lets the whole be distributed under version 3. Other third-party files keep their own licences (see Built on and the NOTICE files). Exceptions by directory:
 
-- `src/bdj-classlib/`: GPLv2 with the Classpath Exception, with the Apache, SAX and ICU notices its [NOTICE](src/bdj-classlib/NOTICE) lists.
-- `src/wasm/freetype/`: the FreeType License.
+- `packages/bdj-classlib/`: GPLv2 with the Classpath Exception, with the Apache, SAX and ICU notices its [NOTICE](packages/bdj-classlib/NOTICE) lists.
+- `packages/bdj/wasm/freetype/`: the FreeType License.
 - `src/ui/anime4k/` and `fixtures/shaders/anime4k/`: MIT (Anime4K).
 - `packages/ass/src/default-font.ttf` and `fixtures/ass/fonts/`: the DejaVu licence.
 - `fixtures/bdj-fonts/` and `fixtures/synthetic/disc-bdj-menu/` (Source Sans 3): SIL Open Font License 1.1.

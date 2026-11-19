@@ -1,6 +1,6 @@
 /*
  * Original code for Seikou: instantiates the standalone (WASI-flavoured) emscripten modules (audio.wasm in the
- * package's wasm/audio/, freetype.wasm in the app's src/wasm/freetype/) without emscripten's JS glue.
+ * package's wasm/audio/, freetype.wasm in @seikou/bdj's wasm/freetype/) without emscripten's JS glue.
  *
  * Copyright (C) 2026  Seikou contributors
  *

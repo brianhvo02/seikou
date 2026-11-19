@@ -6,7 +6,7 @@ on:
     paths:
       - 'tools/bdj-classlib/**'
       - 'tools/bdj-trace/**'
-      - 'src/bdj-classlib/**'
+      - 'packages/bdj-classlib/**'
       - 'tests/bdj/conformance/**'
       - 'tests/bdj/conformance.jar'
       - 'tests/bdj/xlets/**'
@@ -19,7 +19,7 @@ on:
     paths:
       - 'tools/bdj-classlib/**'
       - 'tools/bdj-trace/**'
-      - 'src/bdj-classlib/**'
+      - 'packages/bdj-classlib/**'
       - 'tests/bdj/conformance/**'
       - 'tests/bdj/conformance.jar'
       - 'tests/bdj/xlets/**'
@@ -42,7 +42,7 @@ jobs:
       - run: tools/bdj-trace/build.sh && tools/bdj-classlib/build.sh
       # pack.sh writes all of these; an untracked file (an .out never committed) fails too
       - run: |
-          OUT='src/bdj-classlib tests/bdj/conformance tests/bdj/conformance.jar tests/bdj/xlets/00000.jar tests/bdj/xlets/mixed.jar tests/bdj/xlets/background.jar tests/bdj/xlets/menu.jar'
+          OUT='packages/bdj-classlib tests/bdj/conformance tests/bdj/conformance.jar tests/bdj/xlets/00000.jar tests/bdj/xlets/mixed.jar tests/bdj/xlets/background.jar tests/bdj/xlets/menu.jar'
           git diff --exit-code $OUT
           test -z "$(git status --porcelain $OUT)"
       # fixture:synthetic (scripts/make-bdj-disc.ts, make-bdj-mixed-disc.ts, make-bdj-background-disc.ts,

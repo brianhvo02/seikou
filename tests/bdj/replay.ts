@@ -4,15 +4,15 @@ import { directoryEntries } from '../helpers/file-blob';
 import { normalizeDiscPaths } from '@seikou/engine/disc/paths';
 import { FileSource } from '@seikou/engine/disc/file-source';
 import { loadClips, openDisc, readBdid } from '@seikou/engine/disc/open-disc';
-import { RecordingHost } from '../../src/bdj/host';
+import { RecordingHost } from '@seikou/bdj/host';
 import { applyPlayerSettings, type PlayerSettings } from '@seikou/engine/disc/player-settings';
 import type { RegisterFile } from '@seikou/engine/hdmv/registers';
-import type { BdjHost, TraceEntry } from '../../src/bdj/host';
-import { BdjRuntime } from '../../src/bdj/runtime';
+import type { BdjHost, TraceEntry } from '@seikou/bdj/host';
+import { BdjRuntime } from '@seikou/bdj/runtime';
 import { testBdjFonts } from '../helpers/bdj-fonts';
 
 const FIRST_PLAY = 0xffff;
-const jar = (name: string): Uint8Array => new Uint8Array(readFileSync(fileURLToPath(new URL(`../../src/bdj-classlib/${name}`, import.meta.url))));
+const jar = (name: string): Uint8Array => new Uint8Array(readFileSync(fileURLToPath(new URL(`../../packages/bdj-classlib/${name}`, import.meta.url))));
 
 /** tools/bdj-trace/bdj_trace.c's bd_set_player_setting_str calls before bd_play: country us, languages eng. */
 export const HARNESS_SETTINGS: PlayerSettings = { audioLanguage: 'eng', pgLanguage: 'eng', menuLanguage: 'eng', country: 'us' };

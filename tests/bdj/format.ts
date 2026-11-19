@@ -1,4 +1,4 @@
-import type { TraceEntry } from '../../src/bdj/host';
+import type { TraceEntry } from '@seikou/bdj/host';
 
 export type { TraceEntry };
 

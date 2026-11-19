@@ -39,8 +39,8 @@ libbluray (https://www.videolan.org/developers/libbluray.html), LGPL-2.1-or-late
   bdj-provider.ts, bdj-types.ts, index.ts, worker.ts, worker-main.ts and controller/ are original.
 
 The ASS renderer and its bundled DejaVu font are in @seikou/ass (packages/ass, see its NOTICE). BD-J
-(the JVM, libbluray's BD-J glue and natives) is not part of this package: the app provides it, see
-src/bdj/NOTICE.
+(the JVM, libbluray's BD-J glue and natives) is not part of this package: it is in @seikou/bdj
+(packages/bdj, see its NOTICE).
 
 libplacebo (https://code.videolan.org/videolan/libplacebo), LGPL-2.1-or-later:
 semantics followed, not ported

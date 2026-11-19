@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-// Writes .cache/devsite/model.json: TypeDoc's JSON for the eight packages' public APIs.
+// Writes .cache/devsite/model.json: TypeDoc's JSON for the ten packages' public APIs.
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,7 +17,7 @@ const { Application, TSConfigReader } = typedoc;
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '../..');
-const packages = ['bdmv', 'nas', 'pg', 'ass', 'engine', 'titles', 'fansubs', 'matroska'];
+const packages = ['bdmv', 'nas', 'pg', 'ass', 'engine', 'titles', 'fansubs', 'matroska', 'bdj', 'bdj-classlib'];
 
 const app = await Application.bootstrapWithPlugins({
   tsconfig: resolve(here, 'tsconfig.json'),

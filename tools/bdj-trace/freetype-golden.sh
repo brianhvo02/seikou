@@ -2,7 +2,7 @@
 # Regenerates tests/bdj/fonts/freetype-golden.json: glyphs, advances, metrics and kerning of the bundled font
 # (packages/ass/src/default-font.ttf) from the system FreeType that libbluray links in the BD-J harness image, made with
 # the calls libbluray's BD-J text natives make (freetype_golden.c). The Vitest test freetype.test.ts compares
-# src/wasm/freetype/freetype.wasm with it byte for byte. Needs the harness image: npm run bdj-trace:build.
+# packages/bdj/wasm/freetype/freetype.wasm with it byte for byte. Needs the harness image: npm run bdj-trace:build.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"

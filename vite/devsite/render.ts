@@ -33,6 +33,11 @@ const PACKAGE_GROUPS: readonly {
     packages: ['bdmv', 'pg', 'ass', 'engine', 'matroska'],
   },
   {
+    title: 'Running BD-J menus',
+    id: 'bdj',
+    packages: ['bdj', 'bdj-classlib'],
+  },
+  {
     title: 'Running a disc library',
     id: 'library',
     packages: ['nas', 'titles', 'fansubs'],
@@ -110,7 +115,7 @@ function importLinks(site: readonly DevPackage[] | undefined, code: string): Map
   const out = new Map<string, string>();
   if (!site) return out;
   const idx = siteIndex(site);
-  const re = /\bimport\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"]@seikou\/([a-z]+)['"]/g;
+  const re = /\bimport\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"]@seikou\/([a-z-]+)['"]/g;
   for (let m = re.exec(code); m; m = re.exec(code)) {
     const pkg = m[2]!;
     for (const spec of m[1]!.split(',')) {
@@ -399,7 +404,7 @@ function linkTarget(link: string, fromFile: string, site: readonly DevPackage[] 
         const path = decodeURIComponent(target.pathname.slice(1));
         const hash = target.hash ? `#doc-${target.hash.slice(1)}` : '';
         if (path === 'docs/integrating.md') return GUIDE_PATH + hash;
-        const readme = /^packages\/([a-z]+)\/README\.md$/.exec(path);
+        const readme = /^packages\/([a-z-]+)\/README\.md$/.exec(path);
         if (readme && (site ? site.some((p) => p.name === readme[1]) : PACKAGE_ORDER.includes(readme[1]!))) return devHref(readme[1]!) + hash;
       }
     } catch {
@@ -927,7 +932,7 @@ export function renderIndex(site: readonly DevPackage[], assets: PageAssets = DE
     );
   }
   const main = `      <h1 class="index-title">Build on Seikou’s Blu-ray code</h1>
-      <p class="lede">Eight TypeScript packages that read a disc’s files, demux its streams, draw its subtitles and play it in a browser. Every function here has an example the tests run.</p>
+      <p class="lede">Ten TypeScript packages that read a disc’s files, demux its streams, draw its subtitles, run its BD-J menus and play it in a browser. Every function here has an example the tests run.</p>
 ${hero ? exampleFigure(hero, site, { pkg: 'bdmv', name: 'parseMpls' }, ' hero-example') : ''}
       <a class="guide-link" href="${GUIDE_PATH}"><span class="guide-link-name">Put the player in a page</span><span class="guide-link-text">The integration guide: the engine worker, the controller and a disc from files or a server.</span></a>
 ${groups.join('\n')}`;
@@ -1093,7 +1098,7 @@ export function render404(assets: PageAssets = DEFAULT_ASSETS): string {
   const main = `      <div class="not-found">
         <h1 class="page-title">No page at this address</h1>
         <p>It may name an export that was renamed or is no longer public. Search for it, or start from the packages.</p>
-        <a class="guide-link" href="/developers"><span class="guide-link-name">All packages</span><span class="guide-link-text">The eight packages and the integration guide.</span></a>
+        <a class="guide-link" href="/developers"><span class="guide-link-name">All packages</span><span class="guide-link-text">The ten packages and the integration guide.</span></a>
       </div>`;
   return page({
     title: `Not found · ${SITE_NAME}`,

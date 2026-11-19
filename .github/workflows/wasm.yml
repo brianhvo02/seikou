@@ -3,9 +3,9 @@ name: WASM
 on:
   push:
     branches: [main]
-    paths: ['src/wasm/**', 'packages/engine/wasm/**']
+    paths: ['packages/bdj/wasm/**', 'packages/engine/wasm/**']
   pull_request:
-    paths: ['src/wasm/**', 'packages/engine/wasm/**']
+    paths: ['packages/bdj/wasm/**', 'packages/engine/wasm/**']
 
 jobs:
   reproducible:
@@ -21,7 +21,7 @@ jobs:
           - module: video
             dir: packages/engine/wasm/video
           - module: freetype
-            dir: src/wasm/freetype
+            dir: packages/bdj/wasm/freetype
     steps:
       - uses: actions/checkout@v4
       - run: ${{ matrix.dir }}/build.sh

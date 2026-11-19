@@ -6,7 +6,7 @@ Everything named here is exported by a package under `packages/` in the Seikou r
 
 ## 1. The packages
 
-Seikou's reusable code is eight npm workspace packages, imported as `@seikou/<name>`. They ship TypeScript sources with no build step.
+Seikou's reusable code is ten npm workspace packages, imported as `@seikou/<name>`. They ship TypeScript sources with no build step.
 
 | Package | What it holds | Use it for |
 | --- | --- | --- |
@@ -15,11 +15,13 @@ Seikou's reusable code is eight npm workspace packages, imported as `@seikou/<na
 | `@seikou/pg` | The PG subtitle decoder and renderer. | Drawing disc subtitles yourself. |
 | `@seikou/ass` | The ASS renderer, ported from libass, with the DejaVu Sans fallback font. | Drawing ASS subtitles on a canvas. |
 | `@seikou/matroska` | Matroska and WebM writing and reading. | Reading or writing MKV files. |
+| `@seikou/bdj` | BD-J: a JVM written in TypeScript that runs libbluray's Java stack, as a provider for the engine. | Disc menus written in Java. |
+| `@seikou/bdj-classlib` | The Java class library BD-J boots (OpenJDK 8 classes and libbluray's jars), under its own licences. | With `@seikou/bdj`. |
 | `@seikou/nas` | The wire types shared by Seikou's NAS server, the app and the rendezvous Worker. | Talking to a Seikou server. |
 | `@seikou/titles` | Library naming and metadata: folder names, AniList, TMDB, MusicBrainz, Discogs, TheDiscDB. | A server that files discs under titles. |
 | `@seikou/fansubs` | Finding fansub releases and lining their subtitles up with a disc's audio. | A server or tool that fetches fansubs. |
 
-A player needs `@seikou/engine`, which brings `@seikou/bdmv`, `@seikou/pg`, `@seikou/ass`, `@seikou/matroska` and `@seikou/nas` as its own dependencies. Parsing alone needs `@seikou/bdmv` (and `@seikou/matroska` for MKV). Subtitles alone need `@seikou/pg` or `@seikou/ass`. A server uses `@seikou/nas`, `@seikou/titles` and `@seikou/fansubs`, as Seikou's own `server/` does. BD-J is not a package; section 6 says how to take it from the app.
+A player needs `@seikou/engine`, which brings `@seikou/bdmv`, `@seikou/pg`, `@seikou/ass`, `@seikou/matroska` and `@seikou/nas` as its own dependencies. Parsing alone needs `@seikou/bdmv` (and `@seikou/matroska` for MKV). Subtitles alone need `@seikou/pg` or `@seikou/ass`. A server uses `@seikou/nas`, `@seikou/titles` and `@seikou/fansubs`, as Seikou's own `server/` does. BD-J menus need `@seikou/bdj` and `@seikou/bdj-classlib` besides the engine; section 6 shows how.
 
 ## 2. Hosting
 
@@ -81,6 +83,8 @@ npm install --install-links \
   file:../seikou/packages/engine file:../seikou/packages/bdmv file:../seikou/packages/pg \
   file:../seikou/packages/ass file:../seikou/packages/matroska file:../seikou/packages/nas
 ```
+
+For BD-J, add `file:../seikou/packages/bdj file:../seikou/packages/bdj-classlib` (section 6).
 
 `npm run package-smoke` in the repository (`scripts/package-smoke.sh`) does exactly this in a temporary project, then typechecks and builds the example of the next section there.
 
@@ -204,7 +208,7 @@ The engine draws subtitles in its worker with the browser's fonts: an ASS family
 
 ## 6. BD-J
 
-BD-J discs run Java programs for their menus. Seikou runs them in a JVM written in TypeScript, and that JVM lives in the app, under `src/bdj/`, outside the packages.
+BD-J discs run Java programs for their menus. Seikou runs them in a JVM written in TypeScript, in the `@seikou/bdj` package, which boots the Java class library in `@seikou/bdj-classlib`.
 
 ### Without a provider
 
@@ -212,15 +216,15 @@ The engine reaches BD-J only through a `BdjProvider` passed to its worker. `crea
 
 ### Seikou's BD-J
 
-A `BdjProvider` (`packages/engine/src/bdj-provider.ts`) is a set of factories: the BD-J worker, the class library, the host that drives the player, the session, the graphics plane, the status block and the input helpers. The engine calls them from its worker and never imports BD-J code. Seikou builds one with `seikouBdjProvider` (`src/bdj/provider.ts`), and an integrator can use it as Seikou does.
+A `BdjProvider` (`packages/engine/src/bdj-provider.ts`) is a set of factories: the BD-J worker, the class library, the host that drives the player, the session, the graphics plane, the status block and the input helpers. The engine calls them from its worker and never imports BD-J code. `@seikou/bdj` builds one with `seikouBdjProvider`, as Seikou's app does.
 
-Copy these folders from the repository into your project, keeping their places beside each other:
+Install both packages beside the engine's:
 
-- `src/bdj/`: the JVM, the BD-J runtime, the provider and the BD-J worker. Its `*.test.ts` files are not needed.
-- `src/bdj-classlib/`: the Java class library (`rt-bdj.jar`, `libbluray-j2se.jar`, `libbluray-awt-j2se.jar`) and its TypeScript intrinsics, with its licence files.
-- `src/wasm/freetype/`: `freetype.wasm`, the FreeType build BD-J draws its text with, with its licence files.
+```sh
+npm install --install-links file:../seikou/packages/bdj file:../seikou/packages/bdj-classlib
+```
 
-These are every path `src/bdj` reaches outside itself. `src/bdj/bdj-worker-entry.ts` imports `../wasm/freetype/freetype.wasm?url` and `../bdj-classlib/intrinsics/index`, and the intrinsics import back into `src/bdj/jvm/`, so the three folders must keep their relative layout. Everything else they import comes from the packages, and much of it is package internals reached through subpaths of `@seikou/engine`, `@seikou/bdmv` and `@seikou/ass`, for example `@seikou/engine/bdj-types`, `@seikou/engine/nav/navigator`, `@seikou/bdmv/bdjo-parser` and `@seikou/ass/default-font.ttf`. `git grep -ho "from '@seikou/[^']*'" -- src/bdj | sort -u` lists them all. The packages' `./*` exports resolve those paths, but they are internal modules, so they can change between versions of the packages without notice.
+`@seikou/bdj` holds the JVM, the BD-J runtime, the provider, the BD-J worker and `freetype.wasm`, the FreeType build BD-J draws its text with. `@seikou/bdj-classlib` holds the Java class library (`rt-bdj.jar`, `libbluray-j2se.jar`, `libbluray-awt-j2se.jar`) and its TypeScript intrinsics. The BD-J worker's entry inside `@seikou/bdj` imports the intrinsics, FreeType and the fallback font itself, so the host only loads the jars, whose URLs `CLASS_LIBRARY_URLS` gives. The two packages are under different licences (section 7): `@seikou/bdj-classlib` is GPLv2 with the Classpath Exception, with libbluray's jars under LGPL-2.1-or-later and a few classes under Apache-2.0, ICU's licence and SAX's public-domain notice.
 
 Then write an engine worker entry like Seikou's `src/engine-worker.ts`. It calls `startEngineWorker` from `@seikou/engine/worker-main` with the package's assets and the provider:
 
@@ -231,10 +235,8 @@ import mpeg2BenchUrl from '@seikou/engine/bench/mpeg2-1080i.m2v?url';
 import vc1BenchUrl from '@seikou/engine/bench/vc1-1080i.vc1?url';
 import defaultFontUrl from '@seikou/ass/default-font.ttf?url';
 import { ASSET_FETCH_TIMEOUT_MS, startEngineWorker } from '@seikou/engine/worker-main';
-import rtJarUrl from './bdj-classlib/rt-bdj.jar?url';
-import libblurayJarUrl from './bdj-classlib/libbluray-j2se.jar?url';
-import libblurayAwtJarUrl from './bdj-classlib/libbluray-awt-j2se.jar?url';
-import { bdjMissing, seikouBdjProvider } from './bdj/provider';
+import { bdjMissing, seikouBdjProvider } from '@seikou/bdj';
+import { CLASS_LIBRARY_URLS } from '@seikou/bdj-classlib';
 
 const g = self as unknown as Record<string, unknown>;
 const fetchBytes = async (url: string): Promise<Uint8Array> => {
@@ -254,7 +256,8 @@ startEngineWorker({
       { inWorker: true },
     ),
     loadClassLibrary: async () => {
-      const [rt, libbluray, libblurayAwt] = await Promise.all([fetchBytes(rtJarUrl), fetchBytes(libblurayJarUrl), fetchBytes(libblurayAwtJarUrl)]);
+      const urls = CLASS_LIBRARY_URLS;
+      const [rt, libbluray, libblurayAwt] = await Promise.all([fetchBytes(urls.rt), fetchBytes(urls.libbluray), fetchBytes(urls.libblurayAwt)]);
       return { rt, libbluray, libblurayAwt };
     },
     decodeImage: (bytes) => createImageBitmap(new Blob([new Uint8Array(bytes)])),
@@ -262,7 +265,7 @@ startEngineWorker({
 });
 ```
 
-`videoWasmUrl` is the decoder for MPEG-1, MPEG-2 and VC-1 video, which the browsers don't decode; without it those discs play without a picture. `videoBenchUrls` are the two short clips the decode speed probe (`probeVideoDecoder`) times; without them it answers null. All three are fetched only when needed: the decoder when such a playlist starts, the clips when the probe runs. `missing` is what this browser lacks to run BD-J, seen from the engine worker; when it is not empty, BD-J discs open to the playlist list with a notice naming it. `loadClassLibrary` fetches the three jars, which Vite serves as assets through `?url` (`rt-bdj.jar` is about 4 MB). `decodeImage` decodes the background stills BD-J menus show under the video; without it they are not drawn. FreeType and the fallback font are not options: `src/bdj/bdj-worker-entry.ts` imports their URLs itself, and the BD-J worker fetches each the first time a menu draws text.
+`videoWasmUrl` is the decoder for MPEG-1, MPEG-2 and VC-1 video, which the browsers don't decode; without it those discs play without a picture. `videoBenchUrls` are the two short clips the decode speed probe (`probeVideoDecoder`) times; without them it answers null. All three are fetched only when needed: the decoder when such a playlist starts, the clips when the probe runs. `missing` is what this browser lacks to run BD-J, seen from the engine worker; when it is not empty, BD-J discs open to the playlist list with a notice naming it. `loadClassLibrary` fetches the three jars, which Vite serves as assets at `CLASS_LIBRARY_URLS` (`rt-bdj.jar` is about 4 MB). `decodeImage` decodes the background stills BD-J menus show under the video; without it they are not drawn. FreeType and the fallback font are not options: the BD-J worker's entry (`bdj-worker-entry.ts` in `@seikou/bdj`) imports their URLs itself, and the BD-J worker fetches each the first time a menu draws text.
 
 Start the controller with that worker as its factory:
 
@@ -275,7 +278,7 @@ const controller = createController({
 
 Keep the `new Worker(new URL(...), { type: 'module' })` literal as it is: Vite recognises that form and bundles the worker. The provider starts the BD-J worker the same way from the engine worker, so BD-J needs a browser that can start a worker from a worker. What a BD-J disc saves is kept in the browser's IndexedDB, which belongs to the page's origin; a disc opened from Seikou's NAS server keeps it in the viewer's store on the server instead, with a copy in IndexedDB.
 
-Taking BD-J this way means copying the app's files and keeping them in step with the packages by hand. Making it a package of its own is on the roadmap.
+`@seikou/bdj` reaches into the other packages through internal subpaths (`@seikou/engine/bdj-types`, `@seikou/bdmv/bdjo-parser` and others), so install all of them from the same checkout.
 
 ## 7. Licences
 
@@ -283,20 +286,21 @@ Each piece carries its own licence. The files named here are the record; this se
 
 | Piece | Licence | Where it is stated |
 | --- | --- | --- |
-| Seikou's own code, in the app and in every package | LGPL-3.0-or-later | `LICENSE` and `COPYING` (the GNU GPL it supplements), at the root and in each package |
-| Files ported from or derived from libbluray, libudfread and FFmpeg | LGPL-2.1-or-later, as their upstreams released them | Each file's header, the "Derived files" lists in `packages/*/NOTICE` and `src/bdj/NOTICE`, and `LICENSES/LGPL-2.1.txt` in each package that holds such files |
+| Seikou's own code, in the app and in every package but `@seikou/bdj-classlib` | LGPL-3.0-or-later | `LICENSE` and `COPYING` (the GNU GPL it supplements), at the root and in each package |
+| Files ported from or derived from libbluray, libudfread and FFmpeg | LGPL-2.1-or-later, as their upstreams released them | Each file's header, the "Derived files" lists in `packages/*/NOTICE` and `packages/bdj/NOTICE`, and `LICENSES/LGPL-2.1.txt` in each package that holds such files |
 | Files ported from libass (`@seikou/ass`) | LGPL-2.1-or-later AND ISC | Each file's header and `packages/ass/NOTICE` |
 | DejaVu Sans (`packages/ass/src/default-font.ttf`) | The DejaVu fonts licence | `packages/ass/src/LICENSE-DejaVu.txt` |
 | `audio.wasm` (FFmpeg's AC-3, E-AC-3 and DTS decoders with `shim.c`) | LGPL-2.1-or-later | `packages/engine/wasm/audio/NOTICE` |
 | `video.wasm` (FFmpeg's MPEG-1, MPEG-2 and VC-1 decoders and parsers with `shim.c`) | LGPL-2.1-or-later | `packages/engine/wasm/video/NOTICE` |
-| `freetype.wasm` (FreeType 2.13.2 with `shim.c`) | FreeType: the FreeType License (FTL); `shim.c`: LGPL-2.1-or-later | `src/wasm/freetype/NOTICE` and `src/wasm/freetype/FTL.TXT` |
-| `src/bdj-classlib/rt-bdj.jar` (OpenJDK 8 classes) | GPLv2 with the Classpath Exception | `src/bdj-classlib/LICENSE`, `ASSEMBLY_EXCEPTION` and `NOTICE` |
-| The Apache Xerces classes in `rt-bdj.jar` (`com/sun/org/apache/xerces/internal/**`, `com/sun/xml/internal/stream/Entity*`) | Apache-2.0 | `src/bdj-classlib/THIRD_PARTY_APACHE` |
-| The SAX classes in `rt-bdj.jar` (`org/xml/sax/**`) | GPLv2 with the Classpath Exception, plus the SAX project's public-domain notice | `src/bdj-classlib/SAX_NOTICE` |
-| `sun/text/normalizer/**` in `rt-bdj.jar`, derived from ICU4J | GPLv2 with the Classpath Exception, with ICU's notice | `src/bdj-classlib/THIRD_PARTY_ICU` |
-| `libbluray-j2se.jar` and `libbluray-awt-j2se.jar` | LGPL-2.1-or-later | `src/bdj-classlib/NOTICE` |
-| `src/bdj-classlib/intrinsics/` (TypeScript derived from OpenJDK) | GPLv2 with the Classpath Exception | `src/bdj-classlib/intrinsics/NOTICE` |
-| Other attributions of BD-J (DoppioJVM, fdlibm) | As each notice states | `src/bdj/NOTICE` |
+| `freetype.wasm` (FreeType 2.13.2 with `shim.c`) | FreeType: the FreeType License (FTL); `shim.c`: LGPL-2.1-or-later | `packages/bdj/wasm/freetype/NOTICE` and `packages/bdj/wasm/freetype/FTL.TXT` |
+| `@seikou/bdj-classlib` as a whole | `GPL-2.0-only WITH Classpath-exception-2.0 AND LGPL-2.1-or-later AND Apache-2.0 AND ICU AND SAX-PD` (its `package.json`) | `packages/bdj-classlib/README.md` and the files below |
+| `packages/bdj-classlib/rt-bdj.jar` (OpenJDK 8 classes) | GPLv2 with the Classpath Exception | `packages/bdj-classlib/LICENSE`, `ASSEMBLY_EXCEPTION` and `NOTICE` |
+| The Apache Xerces classes in `rt-bdj.jar` (`com/sun/org/apache/xerces/internal/**`, `com/sun/xml/internal/stream/Entity*`) | Apache-2.0 | `packages/bdj-classlib/THIRD_PARTY_APACHE` |
+| The SAX classes in `rt-bdj.jar` (`org/xml/sax/**`) | GPLv2 with the Classpath Exception, plus the SAX project's public-domain notice | `packages/bdj-classlib/SAX_NOTICE` |
+| `sun/text/normalizer/**` in `rt-bdj.jar`, derived from ICU4J | GPLv2 with the Classpath Exception, with ICU's notice | `packages/bdj-classlib/THIRD_PARTY_ICU` |
+| `libbluray-j2se.jar` and `libbluray-awt-j2se.jar` | LGPL-2.1-or-later | `packages/bdj-classlib/NOTICE` and `packages/bdj-classlib/LICENSES/LGPL-2.1.txt` |
+| `packages/bdj-classlib/intrinsics/` (TypeScript derived from OpenJDK) and `src/index.ts` | GPLv2 with the Classpath Exception | `packages/bdj-classlib/intrinsics/NOTICE` |
+| Other attributions of `@seikou/bdj` (DoppioJVM, fdlibm) | As each notice states | `packages/bdj/NOTICE` |
 
 ## 8. The parsers on their own
 

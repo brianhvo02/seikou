@@ -9,14 +9,14 @@ import { oldNameComments, privateHistoryComments, stackedDocComments, undocument
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
- * The tracked `.ts` and `.tsx` files that match the globs, without tests, declaration files and
- * `src/bdj-classlib/`, sorted, as absolute paths.
+ * The tracked `.ts` and `.tsx` files that match the globs, without tests and declaration files, sorted, as
+ * absolute paths.
  */
 export function scopeFiles(globs: readonly string[]): string[] {
   const out = execFileSync('git', ['ls-files', '--', ...globs.map((g) => `:(glob)${g}`)], { cwd: root, encoding: 'utf8' });
   return out
     .split('\n')
-    .filter((f) => /\.tsx?$/.test(f) && !/\.(test\.tsx?|d\.ts)$/.test(f) && !f.startsWith('src/bdj-classlib/'))
+    .filter((f) => /\.tsx?$/.test(f) && !/\.(test\.tsx?|d\.ts)$/.test(f))
     .sort()
     .map((f) => resolve(root, f));
 }
@@ -24,8 +24,9 @@ export function scopeFiles(globs: readonly string[]): string[] {
 /**
  * Glob patterns, relative to the repository root, of the source the documentation standard covers:
  * every package, the app, the NAS server, the rendezvous Worker and the encoder. `scopeFiles` leaves
- * out tests, declaration files and `src/bdj-classlib/`. `src/ui/anime4k/` holds only the vendored
- * Anime4K shaders and their configs, no TypeScript, so it adds no file.
+ * out tests and declaration files. The class library's intrinsics (`packages/bdj-classlib/intrinsics/`, GPLv2
+ * with the Classpath Exception) lie outside every glob. `src/ui/anime4k/` holds only the vendored Anime4K
+ * shaders and their configs, no TypeScript, so it adds no file.
  */
 export const SCOPE: readonly string[] = ['packages/*/src/**', 'src/**', 'server/src/**', 'rendezvous/src/**', 'encoder/src/**', 'encoder/web/src/**'];
 

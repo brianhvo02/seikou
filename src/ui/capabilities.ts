@@ -1,10 +1,10 @@
-import { bdjMissing } from '../bdj/requirements';
+import { bdjMissing } from '@seikou/bdj';
 
 /** What this browser can do, from feature checks on its globals (never its user agent), for gating features and explaining what is missing. */
 export interface CapabilityReport {
   readonly core: { readonly ok: boolean; readonly missing: readonly string[] };
   /**
-   * What BD-J menus need (`bdjMissing` in `src/bdj/requirements.ts`), as far as the page can see: whether a worker may start workers
+   * What BD-J menus need (`bdjMissing` from `@seikou/bdj`), as far as the page can see: whether a worker may start workers
    * is known only inside the engine worker, which checks again before it runs BD-J and names what it lacks.
    */
   readonly bdj: { readonly ok: boolean; readonly missing: readonly string[] };

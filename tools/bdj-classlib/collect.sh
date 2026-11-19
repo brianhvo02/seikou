@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Grows src/bdj-classlib/classes.txt and tests/bdj/natives.txt from real runs: each BD-J disc runs through libbluray up
+# Grows packages/bdj-classlib/classes.txt and tests/bdj/natives.txt from real runs: each BD-J disc runs through libbluray up
 # to its first playlist selection with -verbose:class and -verbose:jni, and a synthetic disc with key scripts
 # (tests/bdj/scripts/<disc>.<name>.keys, <disc> in lower case) runs each script to its end as well. A disc of the
 # library check (a folder under $BDJ_LIBRARY_DIR/discs, default `~/.cache/bluray-web/bdj-library/discs`) runs the
@@ -97,12 +97,12 @@ for out in "$T"/runs/*.out; do
     | sed -E 's/^\[(Dynamic-linking native method|Registering JNI native method) ([^] ]+).*/\2/' >> "$T/natives"
 done
 
-mkdir -p src/bdj-classlib tests/bdj
-touch src/bdj-classlib/classes.txt tests/bdj/natives.txt
+mkdir -p packages/bdj-classlib tests/bdj
+touch packages/bdj-classlib/classes.txt tests/bdj/natives.txt
 
 # The keep-list: classes added by hand, which no disc run or conformance program loads under HotSpot. Each line is a class name or, ending in
 # a regular expression after "re ", a whole family (matched against the class entries of rt.jar, jsse.jar and jce.jar;
-# nested classes come with their outer class in pack.sh anyway). The families are the ones src/bdj-classlib/NOTICE
+# nested classes come with their outer class in pack.sh anyway). The families are the ones packages/bdj-classlib/NOTICE
 # lists (text in pack.sh).
 cat > "$T/keep" <<'KEEP'
 # thrown by our interpreter (the VM's own errors), which HotSpot throws without a disc run loading them
@@ -157,13 +157,13 @@ for j in ("rt", "jsse", "jce"):
         if n.endswith(".class") and "$" not in n and any(r.search(n[:-6]) for r in res):
             print(n[:-6])
 ' >> "$T/keep-names"
-if [ "${BDJ_COLLECT_FRESH:-}" = 1 ]; then cp "$T/keep-names" "$T/base"; else cat src/bdj-classlib/classes.txt "$T/keep-names" > "$T/base"; fi
+if [ "${BDJ_COLLECT_FRESH:-}" = 1 ]; then cp "$T/keep-names" "$T/base"; else cat packages/bdj-classlib/classes.txt "$T/keep-names" > "$T/base"; fi
 # HotSpot's own java.awt.Font loads its platform font stack (sun/font, the X11 and fontconfig font managers); libbluray's
 # java/awt/Font takes its place in our JVM, so neither those classes nor their natives are collected
 PLATFORM_FONTS='sun/font/|sun/awt/(X11FontManager|FcFontManager|FontConfiguration|FontDescriptor|motif/)|sun/java2d/FontSupport'
 { cat "$T/base"; grep -vE '\$\$Lambda\$|LambdaForm\$|\$Proxy' "$T/loaded" | grep -vE "^($PLATFORM_FONTS)" || true; } \
   | grep -v '^$' | LC_ALL=C sort -u > "$T/classes.new"
-cp "$T/classes.new" src/bdj-classlib/classes.txt
+cp "$T/classes.new" packages/bdj-classlib/classes.txt
 
 # "class.method" -> "class method", minus the natives that are the Java side's own table (Task 13)
 sed -E 's/^(.*)\.([^.]+)$/\1 \2/' "$T/natives" | sort -u \
@@ -176,4 +176,4 @@ docker run --rm --network none --platform "$PLATFORM" -v "$T:/in:ro" -v "$ROOT/t
   bluray-web-bdj-trace bash /tools/resolve-natives.sh > "$T/natives.resolved"
 { cat tests/bdj/natives.txt; cat "$T/natives.resolved"; } | grep -v '^$' | LC_ALL=C sort -u > "$T/natives.new"
 cp "$T/natives.new" tests/bdj/natives.txt
-wc -l src/bdj-classlib/classes.txt tests/bdj/natives.txt >&2
+wc -l packages/bdj-classlib/classes.txt tests/bdj/natives.txt >&2
