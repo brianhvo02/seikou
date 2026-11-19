@@ -273,6 +273,47 @@ describe('PlaybackPipeline: a first play item whose IN time lies inside its clip
     expect(video.some((u) => u.ptsUs === -500_000)).toBe(true);
   });
 
+  it('past the head, reads only the head\'s graphics, then PG from 5 s before the IN time, then everything from its keyframe', async () => {
+    // a 40 s clip: IG at its first packet, PG at its start and at 33 s, LPCM throughout; the playlist starts 35.5 s in
+    const igUnits = simpleMenuSegments().map((payload) => ({ pts: CLIP_START_PTS, payload }));
+    const pgUnits = [...subtitleSegments({ x: 10 }).map((payload) => ({ pts: CLIP_START_PTS, payload })), ...subtitleSegments({ x: 20 }).map((payload) => ({ pts: CLIP_START_PTS + 33 * 90_000, payload }))];
+    const files = buildSyntheticDisc({
+      clips: [syntheticClip('00001', 40, { audio: CodingType.LPCM, igUnits, pgStreams: [{ pid: 0x1200, lang: 'eng', units: pgUnits }] })],
+      playlists: [{ id: '00000', clipIds: ['00001'], inSeconds: { 0: 35.5 } }],
+    });
+    const base = syntheticSource(files);
+    const reads: Array<[number, number]> = [];
+    const source = Object.assign(Object.create(base) as typeof base, {
+      read: (path: string, offset: number, length: number, signal?: AbortSignal) => {
+        if (path.endsWith('.m2ts')) reads.push([offset / 192, (offset + length) / 192]);
+        return base.read(path, offset, length, signal);
+      },
+    });
+    const mpls = parseMpls(await readWhole(source, 'BDMV/PLAYLIST/00000.MPLS'));
+    const clips = await loadClips(source, ['00001']);
+    const config: PipelineConfig = { source, timeline: new Timeline(mpls.playItems), clips, videoPid: VIDEO_PID, playItems: mpls.playItems, audioStream: 1, igStream: 1, midClipHeadBytes: 64 * 1024 };
+    const got = { video: [] as PipelineUnit[], audio: [] as PipelineAudioUnit[], ig: [] as PipelineUnit[], pg: [] as PipelineUnit[] };
+    let finish: () => void = () => undefined;
+    const done = new Promise<void>((r) => (finish = r));
+    const p = new PlaybackPipeline(config, { video: (u) => got.video.push(u), audio: (u) => got.audio.push(u), ig: (u) => got.ig.push(u), pg: (u) => got.pg.push(u), isFull: () => false, ended: () => finish(), failed: () => finish() });
+    p.setPgStream(0x1200);
+    p.start(0);
+    await done;
+    // the menu at the clip start and both subtitles arrive
+    expect(got.ig).toHaveLength(simpleMenuSegments().length);
+    expect(got.pg.filter((u) => u.ptsUs === -35_500_000)).toHaveLength(subtitleSegments({ x: 10 }).length);
+    expect(got.pg.filter((u) => u.ptsUs === -2_500_000)).toHaveLength(subtitleSegments({ x: 20 }).length);
+    // video from the keyframe at 35 s, audio from about there: nothing from the skipped middle of the clip
+    expect(got.video[0]!.ptsUs).toBe(-500_000);
+    expect(got.video).toHaveLength(Math.round(5 * 24));
+    expect(got.audio.every((u) => u.ptsUs >= -1_500_000)).toBe(true);
+    expect(got.audio.some((u) => u.inRange && u.ptsUs === 0)).toBe(true);
+    // the reads: the head, then from the PG lead's keyframe (30 s) on; the clip's 1 s to 30 s is never read
+    const ep = clips.get('00001')!.epMaps[0]!.entries;
+    const at = (s: number): number => ep.find((e) => e.pts === CLIP_START_PTS / 2 + s * 45_000)!.spn;
+    expect(reads.every(([from, to]) => to <= at(1) || from >= Math.floor(at(30) / 32) * 32)).toBe(true);
+  });
+
   it("a seamless item's video before its first EP entry is not cut", async () => {
     // the second clip (connection condition 5) opens with a second of pictures continuing the first clip's GOP: its first
     // EP entry is the IDR one second in, after its IN time, and nothing is at or before it

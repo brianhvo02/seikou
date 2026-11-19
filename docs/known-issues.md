@@ -118,13 +118,16 @@ what would change that decision.
   within 10 ms on average and 16 ms at most outside one brief 50 ms window, no decoder errors. The same device plays
   480i MPEG-2 with 0 dropped. *Revisit if* the decoder gets faster (threads, or a decoder that skips work for the
   field the frame-rate step doesn't show).
-- **A playlist that starts mid-clip reads the clip from its start first.** The first play item of a playlist is read
-  from the clip's first packet, as libbluray's `_fill_clip` does (`start_pkt = 0` for the first item), and only video
-  from the EP entry at or before the item's IN time reaches the decoder. From a local folder this costs nothing
-  noticeable; over the network (a NAS or the disc server) every byte before the IN point is downloaded first, for
-  every codec: a chapter playlist starting 31 minutes into a 480i MPEG-2 clip took 65 s to start over Wi-Fi. *Revisit
-  if* it bothers someone: start the read at the EP entry for IN, with what the first packets carry for navigation
-  (marks, PSRs) supplied another way.
+- **A playlist that starts mid-clip skips the clip's middle, unlike libbluray.** libbluray's `_fill_clip` reads the
+  first play item from the clip's first packet (`start_pkt = 0`). Over the network that downloaded every byte before
+  the IN point first: a chapter playlist starting 31 minutes into a 480i MPEG-2 clip took 65 s to start over Wi-Fi.
+  When the keyframe at or before the IN time lies more than 8 MB into the clip (`MID_CLIP_HEAD_BYTES`), the pipeline
+  now reads the clip's first 8 MB for its IG and PG PIDs only (an IG menu muxed at the clip start), then PG from the
+  keyframe 5 s before the IN time, then everything from the keyframe, and never reads the bytes between (measured on a
+  playlist starting 290 s into a 100 MB clip at 40 Mb/s: playing after 1.3 s instead of 20.3 s, 3.6 MB read instead of
+  100 MB). Navigation positions (marks, PSR8, `title_pkt`) still count from packet 0 as libbluray's do, since they come
+  from the CLPI, not from the bytes. *Revisit if* a disc carries an IG epoch or a subtitle muxed in the skipped middle
+  that is still on screen at the IN time.
 - **A playlist ends 100 ms after its last picture.** Even when its last play item lasts longer (a single-picture
   still at the end), the playlist ends 100 ms after that picture, so such a still can end early. *Revisit if* a disc's
   program waits on the full item.
