@@ -413,6 +413,27 @@ describe('signalling routes', () => {
     expect((await upgrade(`/signal/device?nasId=${NAS_ID}`)).status).toBe(200);
   });
 
+  it('code-live answers 204 only for a live code of that NAS', async () => {
+    const keys = await nasKey();
+    const nasId = await registerNas(keys);
+    const other = await registerNas(await nasKey());
+    await registerCode(keys, nasId, clock + 10 * MINUTE);
+    const live = (id: string): Promise<Response> =>
+      registry.fetch(new Request(`https://registry.internal/internal/code-live?nasId=${id}&codeHash=${CODE_HASH}`));
+    expect((await live(nasId)).status).toBe(204);
+    expect((await live(other)).status).toBe(404);
+    clock += 10 * MINUTE;
+    expect((await live(nasId)).status).toBe(404);
+  });
+
+  it('signal-proof-attempt allows 60 a minute per address', async () => {
+    const attempt = (ip: string): Promise<Response> =>
+      registry.fetch(new Request('https://registry.internal/internal/signal-proof-attempt', { method: 'POST', headers: { 'CF-Connecting-IP': ip } }));
+    for (let i = 0; i < 60; i++) expect((await attempt('203.0.113.7')).status).toBe(204);
+    expect((await attempt('203.0.113.7')).status).toBe(429);
+    expect((await attempt('198.51.100.3')).status).toBe(204);
+  });
+
   it('never routes the registry\'s internal paths from outside', async () => {
     const keys = await nasKey();
     const nasId = await registerNas(keys);
