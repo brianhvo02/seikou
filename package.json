@@ -82,5 +82,10 @@
   "allowScripts": {
     "esbuild@0.28.2": true,
     "fsevents": false
+  },
+  "overrides": {
+    "workbox-build": {
+      "glob": "^14.0.6"
+    }
   }
 }
