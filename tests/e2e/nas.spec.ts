@@ -720,6 +720,8 @@ test("a flood of unproven signalling can't keep a ticketed device off WebRTC", a
 
     // The flood: as many bare upgrades as the shared window holds, each from an address of its own, so the window is
     // full (the next one is refused) whatever earlier tests used of it.
+    // The window stays full for about 60 s after this test ends: a later test that connects without a ticket or code
+    // in that time would be refused (the lock above ends with this test; the window doesn't).
     for (let i = 0; i < SIGNAL_SHARED_PER_MINUTE; i++) expect([101, 429]).toContain(await bareUpgrade(nasId!));
     expect(await bareUpgrade(nasId!)).toBe(429);
     const full = Date.now();
