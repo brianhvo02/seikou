@@ -475,12 +475,12 @@ describe('HTTP', () => {
   afterEach(() => close?.());
 
   async function start(
-    opts: { registrar?: CodeRegistrar; registrarDeadlineMs?: number; trustProxy?: (address: string) => boolean } = {},
+    opts: { registrar?: CodeRegistrar; registrarDeadlineMs?: number; trustProxy?: (address: string) => boolean; issueTicket?: (deviceId: string) => Promise<string | null> } = {},
   ): Promise<void> {
     auth = new Auth(new Store(join(tmp, 'data')), now);
     library = new Library([], join(tmp, 'data', 'library.json'), { scanPauseMs: 0 });
     const server = createServer(
-      appHandlers({ auth, library, bdjStore: new BdjStore(join(tmp, 'data')), now, publicBase: 'https://nas.example/bluray/api/', registrar: opts.registrar, registrarDeadlineMs: opts.registrarDeadlineMs, trustProxy: opts.trustProxy }),
+      appHandlers({ auth, library, bdjStore: new BdjStore(join(tmp, 'data')), now, publicBase: 'https://nas.example/bluray/api/', registrar: opts.registrar, registrarDeadlineMs: opts.registrarDeadlineMs, trustProxy: opts.trustProxy, issueTicket: opts.issueTicket }),
     );
     await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
     base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -512,6 +512,29 @@ describe('HTTP', () => {
     await start();
     expect((await fetch(`${base}/api/health`)).status).toBe(200);
     await pairedToken(false);
+  });
+
+  it('gives a redeemed device its signalling ticket, or null when the NAS issues none', async () => {
+    const issueTicket = vi.fn(async (deviceId: string): Promise<string | null> => `ticket-for-${deviceId}`);
+    await start({ issueTicket });
+    const redeem = async () => {
+      const res = await post('/api/pair/redeem', { code: mint(auth, false).code, deviceName: 'Phone', publicKeyJwk: (await deviceKey()).jwk });
+      expect(res.status).toBe(200);
+      return (await res.json()) as { deviceId: string; signalTicket: unknown };
+    };
+    const first = await redeem();
+    expect(first.signalTicket).toBe(`ticket-for-${first.deviceId}`);
+    expect(issueTicket).toHaveBeenCalledWith(first.deviceId);
+    issueTicket.mockResolvedValueOnce(null);
+    expect((await redeem()).signalTicket).toBeNull();
+    issueTicket.mockRejectedValueOnce(new Error('no key'));
+    expect((await redeem()).signalTicket).toBeNull();
+  });
+
+  it('answers redeem with signalTicket null without an issuer', async () => {
+    await start();
+    const res = await post('/api/pair/redeem', { code: mint(auth, false).code, deviceName: 'Phone', publicKeyJwk: (await deviceKey()).jwk });
+    expect(await res.json()).toEqual({ deviceId: expect.any(String), owner: false, personId: expect.any(String), personName: 'Guest', signalTicket: null });
   });
 
   it('answers 401 to the library without a valid token, and the listing with one', async () => {

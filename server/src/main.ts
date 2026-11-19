@@ -37,6 +37,7 @@ import { RendezvousClient } from './rendezvous-client';
 import { RtcPeers } from './rtc/peer';
 import { RelayState, turnResponder } from './rtc/relay';
 import { AddressAdvertiser } from './rtc/public-address';
+import { checkOfferProof, ticketIssuer } from './rtc/signal-proof';
 import { SignallingClient } from './rtc/signalling-client';
 import { listDir } from './manifest';
 import { ISO_TREES } from './routes/discs';
@@ -157,7 +158,8 @@ function startRtc(config: Config, rendezvousUrl: string, rendezvous: RendezvousC
     relay, auth, credentials: () => rendezvous.turnServers(), now: Date.now,
     onServers: (sid, ips) => peers.noteTurnServers(sid, ips),
   });
-  const signalling = new SignallingClient({ url: rendezvousUrl, signer: rendezvous, peers, onTurnRequest });
+  const checkOffer = (sid: string, proof: unknown): boolean => checkOfferProof(auth, sid, proof) !== null;
+  const signalling = new SignallingClient({ url: rendezvousUrl, signer: rendezvous, peers, onTurnRequest, checkOffer });
   signalling.start();
   void advertiser.start();
   return async () => {
@@ -224,6 +226,7 @@ async function serve(config: Config): Promise<void> {
   const relay = new RelayState(config.dataDir, Date.now);
   // the key's thumbprint, read (or made) locally: `me` gives it to pairings made before the WebRTC route
   const nasId = rendezvous ? await rendezvous.localNasId() : null;
+  const issueTicket = rendezvous ? ticketIssuer({ sign: (m) => rendezvous.sign(m), nasId, now: Date.now }) : undefined;
   const isoTrees = new IsoTrees(ISO_TREES);
   const levels = await levelService(config, library, isoTrees);
   const subtitleStore = new SubtitleStore(config.dataDir, { maxFansubBytes: config.fansubs.storeBytes });
@@ -247,7 +250,7 @@ async function serve(config: Config): Promise<void> {
   });
   const encodes = config.encodesDir === null ? undefined : new EncodeIndex({ dir: config.encodesDir, dataDir: config.dataDir, log: console.log });
   const encodeUploads = encodes && config.encodesDir !== null ? new UploadStore({ dir: config.encodesDir, index: encodes, log: console.log }) : undefined;
-  const handlers = appHandlers({ auth, library, ...(encodes ? { encodes } : {}), ...(encodeUploads ? { encodeUploads } : {}), bdjStore: new BdjStore(config.dataDir), playbackStore: new PlaybackStore(config.dataDir), playerSettingsStore: new PlayerSettingsStore(config.dataDir), subtitleStore, publicBase: config.publicBase, appUrl: config.appUrl, ...(config.rendezvousUrl !== undefined ? { rendezvousUrl: config.rendezvousUrl } : {}), registrar: rendezvous, trustProxy, titles: { service: titles, owner }, relay, nasId, isoTrees, ...(levels ? { levels } : {}), activity, fansubs: { service: fansubs, state: fansubState, seadex, tosho, picks, lookup } });
+  const handlers = appHandlers({ auth, library, ...(encodes ? { encodes } : {}), ...(encodeUploads ? { encodeUploads } : {}), bdjStore: new BdjStore(config.dataDir), playbackStore: new PlaybackStore(config.dataDir), playerSettingsStore: new PlayerSettingsStore(config.dataDir), subtitleStore, publicBase: config.publicBase, appUrl: config.appUrl, ...(config.rendezvousUrl !== undefined ? { rendezvousUrl: config.rendezvousUrl } : {}), registrar: rendezvous, ...(issueTicket ? { issueTicket } : {}), trustProxy, titles: { service: titles, owner }, relay, nasId, isoTrees, ...(levels ? { levels } : {}), activity, fansubs: { service: fansubs, state: fansubState, seadex, tosho, picks, lookup } });
   const server = createServer(handlers);
   const stopRtc = rendezvous && config.rendezvousUrl !== undefined ? startRtc(config, config.rendezvousUrl, rendezvous, handlers, auth, relay) : async () => {};
 

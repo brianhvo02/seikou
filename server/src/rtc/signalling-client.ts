@@ -1,4 +1,4 @@
-import { SIGNAL_PING_INTERVAL_MS, SIGNAL_PING_MESSAGE, SIGNAL_PONG_TIMEOUT_MS, signalAuthMessage } from '../../../rendezvous/src/protocol';
+import { SIGNAL_DEVICE_LIFETIME_MS, SIGNAL_PING_INTERVAL_MS, SIGNAL_PING_MESSAGE, SIGNAL_PONG_TIMEOUT_MS, signalAuthMessage } from '../../../rendezvous/src/protocol';
 import { RtcRefused } from './peer';
 
 /** The part of a WebSocket the client uses; Node's global `WebSocket` by default. */
@@ -40,6 +40,11 @@ export interface SignallingOptions {
   signer: NasSigner;
   /** Receives each device's offers and candidates. */
   peers: SignalPeers;
+  /**
+   * Whether an offer's `proof` checks out for its socket `sid` (`checkOfferProof`). An offer it refuses is answered
+   * `unauthorized` with no SDP, no peer is opened for it and its candidates are dropped. Without it every offer is answered.
+   */
+  checkOffer?: (sid: string, proof: unknown) => boolean;
   /** Answers a device's `turn-request` (the relay); until there is one, no servers with reason `off`. */
   onTurnRequest?: (sid: string, request: Record<string, unknown>) => Promise<Record<string, unknown>>;
   /** Opens the socket; Node's global `WebSocket` by default (tests inject one). */
@@ -64,6 +69,8 @@ export interface SignallingOptions {
 const MAX_MESSAGE_BYTES = 64 * 1024;
 const DEFAULT_BACKOFF: Backoff = { initialMs: 1_000, maxMs: 60_000 };
 const SID = /^[A-Za-z0-9_-]{1,64}$/;
+/** How long a refused sid's candidates are dropped: a device socket's whole life. */
+const REFUSED_SID_MS = SIGNAL_DEVICE_LIFETIME_MS;
 
 /** The wait before reconnect attempt `attempt` (0-based): `initialMs` doubling to `maxMs`, ±25 % jitter, at most `maxMs`. */
 export function backoffDelay(attempt: number, backoff: Backoff, random: () => number): number {
@@ -96,6 +103,8 @@ export class SignallingClient {
   private stopped = true;
   private attempt = 0;
   private reregisterNext = false;
+  /** Sids whose offer was refused, so their candidates never reach the peers. */
+  private readonly refused = new Map<string, NodeJS.Timeout>();
   private readonly backoff: Backoff;
   private readonly now: () => number;
 
@@ -210,6 +219,14 @@ export class SignallingClient {
     this.timer.unref();
   }
 
+  /** Remembers a refused sid for a device socket's life, then forgets it. */
+  private refuse(sid: string): void {
+    clearTimeout(this.refused.get(sid));
+    const timer = setTimeout(() => this.refused.delete(sid), REFUSED_SID_MS);
+    timer.unref();
+    this.refused.set(sid, timer);
+  }
+
   private send(socket: WebSocketLike, message: Record<string, unknown>): void {
     this.sendRaw(socket, JSON.stringify(message));
   }
@@ -256,6 +273,13 @@ export class SignallingClient {
     if (typeof sid !== 'string' || !SID.test(sid)) return;
     if (m.t === 'offer') {
       if (typeof m.sdp !== 'string') return;
+      if (this.opts.checkOffer && !this.opts.checkOffer(sid, m.proof)) {
+        this.refuse(sid);
+        this.send(socket, { t: 'answer', sid, error: 'unauthorized' });
+        return;
+      }
+      clearTimeout(this.refused.get(sid));
+      this.refused.delete(sid);
       try {
         const { answer } = await this.opts.peers.answer(sid, m.sdp);
         this.send(socket, { t: 'answer', sid, sdp: answer });
@@ -264,7 +288,7 @@ export class SignallingClient {
         this.send(socket, { t: 'answer', sid, error: err instanceof RtcRefused ? err.reason : 'failed' });
       }
     } else if (m.t === 'candidate') {
-      this.opts.peers.candidate(sid, m.candidate);
+      if (!this.refused.has(sid)) this.opts.peers.candidate(sid, m.candidate);
     } else if (m.t === 'turn-request') {
       let response: Record<string, unknown>;
       try {

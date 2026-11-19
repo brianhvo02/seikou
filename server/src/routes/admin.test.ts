@@ -297,7 +297,7 @@ describe('admin codes', () => {
     const { code } = (await (await send('POST', '/api/admin/codes', owner, { newPerson: { name: 'Mika', owner: false } })).json()) as { code: string };
     const { redeemed } = await redeem(code, 'Phone');
     const mika = auth.people().find((p) => p.name === 'Mika')!;
-    expect(redeemed).toEqual({ deviceId: expect.any(String), owner: false, personId: mika.id, personName: 'Mika' });
+    expect(redeemed).toEqual({ deviceId: expect.any(String), owner: false, personId: mika.id, personName: 'Mika', signalTicket: null });
   });
 
   it('prunes people made for codes that were never used, once the codes are gone', async () => {

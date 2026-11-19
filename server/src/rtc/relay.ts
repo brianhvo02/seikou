@@ -5,6 +5,7 @@ import { TURN_MAX_SKEW_MS, turnProofMessage } from '../../../rendezvous/src/prot
 import type { IceServerInfo, TurnRefusal } from '../../../rendezvous/src/protocol';
 import { isCode, replaceAtomically } from '@seikou/titles/atomic-json';
 import type { Auth } from '../auth';
+import { deviceSigned, liveCode } from './signal-proof';
 
 /** Cloudflare's free relay allowance a month (1,000 GB, shared by TURN and its SFU; checked 2026-10-19). */
 export const FREE_BYTES = 1e12;
@@ -187,10 +188,10 @@ export function turnResponder(opts: TurnResponderOptions): (sid: string, request
     const { deviceId, ts, signature, inviteHash } = request;
     if (typeof deviceId === 'string' && typeof ts === 'number' && typeof signature === 'string') {
       if (!Number.isSafeInteger(ts) || Math.abs(opts.now() - ts) > TURN_MAX_SKEW_MS) return null;
-      return opts.auth.signedBy(deviceId, turnProofMessage({ sid, ts }), signature) === null ? null : `device:${deviceId}`;
+      return deviceSigned(opts.auth, deviceId, turnProofMessage({ sid, ts }), signature) ? `device:${deviceId}` : null;
     }
-    if (typeof inviteHash === 'string' && opts.auth.codes().some((c) => c.invite && c.hash === inviteHash)) return `invite:${inviteHash}`;
-    return null;
+    // TURN takes only an invite's hash; any live code proves an offer (signal-proof.ts).
+    return liveCode(opts.auth, inviteHash)?.invite === true ? `invite:${inviteHash as string}` : null;
   };
   /** Counts a request for `key`; false once it has had its 10 this hour. Only checked requests count, so a forger can't use up a device's. */
   const allowed = (key: string): boolean => {

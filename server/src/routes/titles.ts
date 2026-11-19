@@ -4,6 +4,7 @@ import type { Auth, Device } from '../auth';
 import { HttpError, json } from '../http';
 import type { Handler, Response } from '../http';
 import type { RelayState } from '../rtc/relay';
+import { signalTicketFor } from '../rtc/signal-proof';
 import type { OwnerStore } from '@seikou/titles/owner-store';
 import type { TitleService } from '../titles/service';
 import { bearerToken } from './admin';
@@ -40,9 +41,17 @@ export function decodeSegment(segment: string): string {
  * token guard (401 `unauthorized` otherwise; 404 `not found` for an unknown title, art id, or a bad `size`). While the gate is `owners`, a guest gets 404 from every title route, so the library's existence isn't
  * revealed; `me` answers every paired device, with the relay's usage while the relay is on (else null)
  * and the NAS's rendezvous id (`nasId`, null without a rendezvous), so a pairing made before the WebRTC route learns it,
- * and whether the NAS offers quality levels (`levels`: false when `LEVELS_BACKEND` is off or the GPU self-test failed).
+ * whether the NAS offers quality levels (`levels`: false when `LEVELS_BACKEND` is off or the GPU self-test failed),
+ * and the device's signalling ticket from `issueTicket` (`signalTicket`, null without a rendezvous or an issuer).
  */
-export function titleRoutes(auth: Auth, library: TitleLibrary, relay?: RelayState, nasId: string | null = null, levels = false): Handler {
+export function titleRoutes(
+  auth: Auth,
+  library: TitleLibrary,
+  relay?: RelayState,
+  nasId: string | null = null,
+  levels = false,
+  issueTicket?: (deviceId: string) => Promise<string | null>,
+): Handler {
   const { service } = library;
   return async (req, url) => {
     if (req.method !== 'GET') return null;
@@ -56,7 +65,8 @@ export function titleRoutes(auth: Auth, library: TitleLibrary, relay?: RelayStat
     const open = device.owner || service.gate() === 'everyone';
     if (isMe) {
       const usage = relay?.settings().enabled ? relay.usage() : null;
-      return json(200, { owner: device.owner, titleLibrary: open, personId: device.personId, personName: device.personName, relay: usage, nasId, levels });
+      const signalTicket = await signalTicketFor(issueTicket, device.id);
+      return json(200, { owner: device.owner, titleLibrary: open, personId: device.personId, personName: device.personName, relay: usage, nasId, levels, signalTicket });
     }
     if (!open) return notFound();
 

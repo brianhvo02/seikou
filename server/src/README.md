@@ -51,7 +51,7 @@ The request and response types are in `@seikou/nas` (`packages/nas/src/nas-api.t
 - HTTP plumbing: `http.ts` (handlers, `HttpError`, bounded body reads, the server), `ranges.ts` (`Range` headers), `cors.ts`.
 - Discs: `library.ts`, `manifest.ts` (a disc's file list with its metadata inlined), `disc-id.ts`, `iso.ts`.
 - Titles: `titles/evidence.ts` (what a disc says about itself), `titles/folder-cover.ts` (a music release's own cover), `titles/service.ts`.
-- Pairing beyond the home network: `rendezvous-client.ts` (registers codes with the [rendezvous Worker](../../rendezvous/README.md)) and `rtc/` (`peer.ts` runs the peers on werift, `udp-mux.ts` puts them all on one UDP port, `public-address.ts`, `signalling-client.ts`, `relay.ts` for the TURN relay switch and allowance).
+- Pairing beyond the home network: `rendezvous-client.ts` (registers codes with the [rendezvous Worker](../../rendezvous/README.md)) and `rtc/` (`peer.ts` runs the peers on werift, `udp-mux.ts` puts them all on one UDP port, `public-address.ts`, `signalling-client.ts`, `signal-proof.ts` for the offer proofs and signalling tickets, `relay.ts` for the TURN relay switch and allowance).
 - Quality levels: `levels/levels.ts` (the levels and the byte plan), `clpi-writer.ts` and `mpls-writer.ts`, `encoder.ts` (ffmpeg), `remux.ts`, `clip-run.ts`, `capacity.ts` (GPU leases), `backend-check.ts`, all tied together by `level-service.ts`.
 - Encodes: `encodes/index-store.ts` (the folder index, reading Matroska tags through `node-reader.ts`) and `encodes/uploads.ts` (resumable uploads).
 - Fansubs: `fansubs/service.ts`, `state.ts`, `picks.ts`, and `ffmpeg-decoder.ts`, the audio decoder the server injects into `@seikou/fansubs`.
