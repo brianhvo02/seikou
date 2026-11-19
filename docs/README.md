@@ -7,7 +7,7 @@ Seikou's documentation, by module. The player pages are also on the site under [
 For people watching discs in the browser.
 
 - [Getting started](getting-started.md): supported browsers, opening a disc, installing the app, offline use.
-- [Playing discs](playing-discs.md): menus, audio and subtitles, shaders, controls, resume.
+- [Playing discs](playing-discs.md): menus, audio and subtitles, disc preferences, shaders, HDR video, deinterlacing, controls, resume.
 - [Troubleshooting](troubleshooting.md): the notices the player shows and what to do about each.
 - [Credits](credits.md): the work Seikou is built on, and its licences.
 - Code: [src/README.md](../src/README.md), and the engine packages below.

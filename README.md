@@ -29,7 +29,7 @@ Supported browsers: Safari 26 (macOS, iOS, iPadOS), Chrome and Firefox on deskto
 | --- | --- | --- |
 | Player app ([`src/`](src)) | The web app at bluray.pages.dev: screens, the NAS client, help pages, the service worker, and the BD-J runtime (a JVM in TypeScript that runs a disc's Java menus). | [src/README.md](src/README.md) |
 | [`@seikou/bdmv`](packages/bdmv) | Reads the Blu-ray format: index, playlists, clip info, movie and BD-J objects, ISO images (UDF), and the M2TS demuxer. | [README](packages/bdmv/README.md) |
-| [`@seikou/engine`](packages/engine) | The player engine: navigation, HDMV menus, decoding with WebCodecs, audio, subtitles and shaders, in a worker. | [README](packages/engine/README.md) |
+| [`@seikou/engine`](packages/engine) | The player engine: navigation, HDMV menus, decoding with WebCodecs and, for MPEG-2 and VC-1, FFmpeg in WASM, deinterlacing, HDR through the page's video element, audio, subtitles and shaders, in a worker. | [README](packages/engine/README.md) |
 | [`@seikou/pg`](packages/pg) | Blu-ray PG (bitmap) subtitles: decoding and drawing. | [README](packages/pg/README.md) |
 | [`@seikou/ass`](packages/ass) | An ASS/SSA subtitle renderer ported from libass. | [README](packages/ass/README.md) |
 | [`@seikou/matroska`](packages/matroska) | Writes and reads Matroska and WebM files. | [README](packages/matroska/README.md) |
@@ -85,6 +85,7 @@ Followed, with no code copied: [libplacebo](https://code.videolan.org/videolan/l
 Shipped inside the app, the server image or the Worker.
 
 - [FFmpeg](https://ffmpeg.org) n9.0.2 AC-3, E-AC-3 and DTS decoders, LGPL-2.1-or-later, compiled to `audio.wasm`.
+- [FFmpeg](https://ffmpeg.org) n9.0.2 MPEG-1, MPEG-2 and VC-1 decoders, LGPL-2.1-or-later, compiled to `video.wasm`.
 - [FreeType](https://freetype.org) 2.13.2, FreeType License, compiled to `freetype.wasm` for BD-J text.
 - The OpenJDK 8 class library (GPLv2 with the Classpath Exception), trimmed for BD-J, with [Apache Xerces](https://xerces.apache.org) (Apache-2.0), the [SAX](http://www.saxproject.org) classes (public domain notice) and ICU4J-derived classes ([ICU](https://icu.unicode.org)), as listed in [src/bdj-classlib/NOTICE](src/bdj-classlib/NOTICE).
 - [Anime4K](https://github.com/bloc97/Anime4K) v4.0.1, MIT: the shaders and mode definitions behind the built-in shader sets.
@@ -144,7 +145,7 @@ Documentation the design follows, beyond the upstream code above.
 ### Tools
 
 - [Vite](https://vite.dev) with [vite-plugin-pwa](https://github.com/vite-pwa/vite-plugin-pwa) and [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react), [TypeScript](https://www.typescriptlang.org), [esbuild](https://esbuild.github.io), [tsx](https://github.com/privatenumber/tsx) and [marked](https://marked.js.org) (the help pages): the build.
-- [Emscripten](https://emscripten.org) (`emscripten/emsdk`): builds the two WASM modules.
+- [Emscripten](https://emscripten.org) (`emscripten/emsdk`): builds the three WASM modules.
 - [Docker](https://www.docker.com) with Ubuntu 24.04 images, and [OpenJDK 8](https://openjdk.org) (HotSpot): the libbluray, libass and class library harnesses.
 - [Wrangler](https://developers.cloudflare.com/workers/wrangler/): deploys the Worker.
 
@@ -158,6 +159,7 @@ LGPL-3.0-or-later for everything that doesn't carry its own licence (see [LICENS
 - `packages/ass/src/default-font.ttf` and `fixtures/ass/fonts/`: the DejaVu licence.
 - `fixtures/bdj-fonts/` and `fixtures/synthetic/disc-bdj-menu/` (Source Sans 3): SIL Open Font License 1.1.
 - `server/data/discdb-index.json`: MIT (TheDiscDB data).
+- `fixtures/vc1-sample/interlaced.vc1`, `packages/engine/wasm/video/bench/vc1-1080i.vc1` and `fixtures/synthetic/disc-vc1/` (cut from it): CC BY 2.5 (Microdac, 2008).
 - `public/tmdb-logo.svg`: TMDB's logo, used for attribution only.
 - `public/logo.svg` and `public/favicon.svg`: the lettering is outlines of [Noto Serif CJK JP](https://github.com/notofonts/noto-cjk) Black (青光) and Noto Sans CJK JP Bold (Seikou), SIL Open Font License 1.1.
 

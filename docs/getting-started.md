@@ -57,6 +57,6 @@ A few things need a network: a NAS, the first use of a built-in video shader, an
 
 ## Next
 
-- [Playing discs](playing-discs.md): menus, tracks, subtitles, shaders, controls.
+- [Playing discs](playing-discs.md): menus, tracks, subtitles, disc preferences, shaders, HDR video, deinterlacing, controls.
 - [NAS](nas.md): play from a server that holds your library.
 - [Troubleshooting](troubleshooting.md)
