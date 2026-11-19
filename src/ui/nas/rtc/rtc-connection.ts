@@ -3,7 +3,7 @@ import { NAS_LOST_MESSAGE } from '@seikou/engine/disc/http-transport';
 import { WireClient } from '@seikou/nas/rtc-wire';
 import type { WireChannel } from '@seikou/nas/rtc-wire';
 import { iceServersOf } from '../../../../rendezvous/src/protocol';
-import type { TurnRefusal } from '../../../../rendezvous/src/protocol';
+import type { OfferProof, TurnRefusal } from '../../../../rendezvous/src/protocol';
 import { SignallingClient } from './signalling-client';
 
 /** Cloudflare's public STUN server: the only ICE server of the direct attempt. */
@@ -23,9 +23,16 @@ export { relayLimitMessage };
 /** The API base of a NAS reached over WebRTC; `NasClient` sends URLs under it through the connection. */
 export const RTC_BASE = (nasId: string): string => `rtc://${nasId}/api/`;
 
-/** The device's signalling socket on the rendezvous service at `service` (http(s) or ws(s)). */
-export function signallingUrlOf(service: string, nasId: string): string {
-  return `${service.trim().replace(/\/+$/, '').replace(/^http/i, 'ws')}/signal/device?nasId=${encodeURIComponent(nasId)}`;
+/**
+ * The device's signalling socket on the rendezvous service at `service` (http(s) or ws(s)). A paired device's
+ * signalling `ticket` goes on the URL, else a pairing code's hash (`codeHash`), so the Worker gives the socket that
+ * device's or that code's own allowance; with neither the socket shares the NAS's window.
+ */
+export function signallingUrlOf(service: string, nasId: string, pass: { readonly ticket?: string; readonly codeHash?: string } = {}): string {
+  const url = `${service.trim().replace(/\/+$/, '').replace(/^http/i, 'ws')}/signal/device?nasId=${encodeURIComponent(nasId)}`;
+  if (pass.ticket !== undefined) return `${url}&ticket=${encodeURIComponent(pass.ticket)}`;
+  if (pass.codeHash !== undefined) return `${url}&codeHash=${encodeURIComponent(pass.codeHash)}`;
+  return url;
 }
 
 /** What requests in flight (and response bodies being read) fail with when the connection closes: a fetch-like TypeError. */
@@ -59,7 +66,14 @@ export interface RtcOpenOptions {
   readonly signallingUrl: string;
   /** A paired device signs its TURN request on the signalling socket `sid`. */
   readonly deviceProof?: (sid: string) => Promise<DeviceProof>;
-  /** An unpaired device redeeming an invite sends the code's hash instead (`codeHashOf`). */
+  /** A paired device's proof for an offer on the signalling socket `sid`: its signature over `offerProofMessage({ sid })`. */
+  readonly offerProof?: (sid: string) => Promise<OfferProof>;
+  /** A paired device's signalling ticket from the NAS, sent on the socket's URL. */
+  readonly ticket?: string;
+  /**
+   * An unpaired device redeeming a code sends the code's hash instead (`codeHashOf`): as the offer's proof, on the
+   * socket's URL, and in a TURN request.
+   */
   readonly inviteHash?: string;
   readonly createPeer?: (config: RTCConfiguration) => RTCPeerConnection;
   readonly openSocket?: (url: string) => WebSocket;
@@ -215,7 +229,10 @@ class Setup {
   private readonly openSocket: (url: string) => WebSocket;
 
   constructor(private readonly opts: RtcOpenOptions) {
-    this.url = signallingUrlOf(opts.signallingUrl, opts.nasId);
+    this.url = signallingUrlOf(opts.signallingUrl, opts.nasId, {
+      ...(opts.ticket === undefined ? {} : { ticket: opts.ticket }),
+      ...(opts.inviteHash === undefined ? {} : { codeHash: opts.inviteHash }),
+    });
     this.createPeer = opts.createPeer ?? ((config) => new RTCPeerConnection(config));
     this.openSocket = opts.openSocket ?? ((url) => new WebSocket(url));
   }
@@ -272,7 +289,8 @@ class Setup {
     const connect = async (): Promise<boolean> => {
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      if (givenUp.signal.aborted || !sig.send({ t: 'offer', sdp: offer.sdp })) return false;
+      const proof = await this.offerProof(sig.sid);
+      if (givenUp.signal.aborted || !sig.send({ t: 'offer', sdp: offer.sdp, ...(proof === undefined ? {} : { proof }) })) return false;
       offered = true;
       let answer;
       try {
@@ -314,6 +332,13 @@ class Setup {
     pc.onconnectionstatechange = null;
     channel.onopen = channel.onclose = null;
     return { pc, channel };
+  }
+
+  /** What proves this device to the NAS with an offer on the socket `sid`: its signature, else the code's hash. */
+  private async offerProof(sid: string): Promise<OfferProof | undefined> {
+    const { offerProof, inviteHash } = this.opts;
+    if (offerProof) return offerProof(sid);
+    return inviteHash === undefined ? undefined : { codeHash: inviteHash };
   }
 
   /** Asks the NAS for TURN servers; rejects with RtcUnreachable (with the refusal's reason) when there are none. */

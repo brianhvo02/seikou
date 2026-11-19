@@ -19,6 +19,11 @@ export interface NasPairing {
   readonly personName?: string;
   readonly owner: boolean;
   readonly key: CryptoKeyPair;
+  /**
+   * The NAS's signalling ticket for this device (base64url, `decodeTicket`), sent when signalling so the rendezvous
+   * Worker gives this device its own allowance; absent until the NAS gives one, and renewed through `me`.
+   */
+  readonly signalTicket?: string;
 }
 
 /**
