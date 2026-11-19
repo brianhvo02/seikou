@@ -11,7 +11,6 @@ Short tasks that unblock or protect what is already deployed.
 | Item | Size | Notes |
 | --- | --- | --- |
 | **Owner set-up still pending:** the first real "Find fansubs" run on a title. | S | owner |
-| **Deploy the NAS server,** so Original is offered for MPEG-2 and VC-1 discs and the HDR labels show in the library. | S | owner |
 | **Device check of the tools' touch timing:** `tools/devices/tap.ts` (settle, hold, check where each touch landed) has not run on an iPhone yet. Run it at the next device gate. | S | needs a device |
 
 ## Next: finish what was planned
