@@ -105,13 +105,15 @@ async function signal(request: Request, env: Env): Promise<Response> {
     return response;
   }
   if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return json(426, { error: 'expected a WebSocket upgrade' });
-  const params = new URL(request.url).searchParams;
+  const url = new URL(request.url);
+  const params = url.searchParams;
   const nasId = params.get('nasId');
   if (!isNasId(nasId)) return json(400, { error: 'bad request' });
   if (!nasAllowed(env.NAS_IDS, nasId)) return json(403, NOT_ALLOWED);
   // An upgrade with a proof counts in the address's larger proof window; the Signalling object checks the proof and
   // counts a failed one in the unproven window as well.
-  const proof = Boolean(params.get('ticket')) || Boolean(params.get('codeHash'));
+  // Only a device upgrade carries a proof; the NAS's own socket is never checked for one.
+  const proof = url.pathname === '/signal/device' && (Boolean(params.get('ticket')) || Boolean(params.get('codeHash')));
   const registry = env.CODE_REGISTRY;
   const attempt = await registry.get(registry.idFromName(REGISTRY_NAME)).fetch(
     new Request(`https://registry.internal${proof ? INTERNAL.signalProofAttempt : INTERNAL.signalAttempt}`, {
