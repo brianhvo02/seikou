@@ -186,6 +186,8 @@ Losing the volume unpairs every device and loses resume points and saved data (t
 docker compose pull && docker compose up -d      # add -f compose.gpu.yaml where you use it
 ```
 
+If you run your own rendezvous Worker, update it first (`npx wrangler@4.148.0 deploy` from `rendezvous/` of an up-to-date clone), then the server. A newer server answers WebRTC only to devices that prove they are paired or hold a live code, and a newer Worker understands the proofs and tickets that go with that; an older Worker still works with a newer server, but gives paired devices no allowance of their own.
+
 CI publishes `ghcr.io/brianhvo02/bluray-server` for linux/amd64 on every passing push to main, tagged `latest` and the short commit hash. To build it yourself: `npm ci && npm run server:build && docker build -f server/Dockerfile server`.
 
 ## Licences
