@@ -92,7 +92,10 @@ export const SIGNAL_CLOSE = {
   tooManyMessages: { code: 1008, reason: 'too-many-messages' },
   /** A device socket `SIGNAL_DEVICE_LIFETIME_MS` after it opened. */
   expired: { code: 4408, reason: 'expired' },
-  /** A device socket while `SIGNAL_DEVICES_PER_NAS` are already open to that NAS. */
+  /**
+   * A device socket while `SIGNAL_DEVICES_PER_NAS` are already open to that NAS, or, without a checked proof, while
+   * `SIGNAL_UNPROVEN_SOCKETS_PER_NAS` unproven ones are.
+   */
   busy: { code: 4429, reason: 'busy' },
 } as const;
 
@@ -102,6 +105,11 @@ export const SIGNAL_DEVICE_LIFETIME_MS = 60_000;
 export const SIGNAL_DEVICE_MESSAGES = 64;
 /** Device sockets open to one NAS at once. */
 export const SIGNAL_DEVICES_PER_NAS = 32;
+/**
+ * Of `SIGNAL_DEVICES_PER_NAS`, the device sockets without a checked ticket or live code that may be open at once, so
+ * unproven upgrades can't take every place from paired devices.
+ */
+export const SIGNAL_UNPROVEN_SOCKETS_PER_NAS = 16;
 
 /** The types a device may send; the Worker forwards them to the NAS with the device's `sid` added. */
 export const DEVICE_SIGNAL_TYPES = ['offer', 'candidate', 'turn-request'] as const;

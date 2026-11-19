@@ -112,7 +112,8 @@ async function signal(request: Request, env: Env): Promise<Response> {
   if (!nasAllowed(env.NAS_IDS, nasId)) return json(403, NOT_ALLOWED);
   // An upgrade with a proof counts in the address's larger proof window; the Signalling object checks the proof and
   // counts a failed one in the unproven window as well.
-  // Only a device upgrade carries a proof; the NAS's own socket is never checked for one.
+  // Only a device upgrade carries a proof; the NAS's own socket is never checked for one. The path here must stay the
+  // one `Signalling.fetch` takes as its device route, or proof-bearing upgrades would skip the address's proof window.
   const proof = url.pathname === '/signal/device' && (Boolean(params.get('ticket')) || Boolean(params.get('codeHash')));
   const registry = env.CODE_REGISTRY;
   const attempt = await registry.get(registry.idFromName(REGISTRY_NAME)).fetch(

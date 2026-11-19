@@ -7,6 +7,7 @@ import {
   SIGNAL_PING_MESSAGE,
   SIGNAL_PONG_MESSAGE,
   SIGNAL_TICKET_MAX_AHEAD_MS,
+  SIGNAL_UNPROVEN_SOCKETS_PER_NAS,
   base64url,
   encodeTicket,
   signalAuthMessage,
@@ -486,6 +487,28 @@ describe('device socket', () => {
     expect((await device(33)).closed).toBeUndefined();
   });
 
+  it('holds unproven sockets to 16 open at once, while a proven upgrade still gets its hello', async () => {
+    await nasSocket();
+    const unproven: FakeSocket[] = [];
+    for (let i = 0; i < SIGNAL_UNPROVEN_SOCKETS_PER_NAS; i++) unproven.push(await deviceSocket());
+    expect(unproven.every((d) => d.closed === undefined)).toBe(true);
+    expect((await deviceSocket()).closed).toEqual({ code: 4429, reason: 'busy' });
+    // A failed proof counts as unproven too.
+    expect((await deviceSocket({ ticket: 'not-a-ticket' })).closed).toEqual({ code: 4429, reason: 'busy' });
+    expect((await deviceSocket({ ticket: await ticket({ deviceId: 'device-a' }) })).closed).toBeUndefined();
+    await registerCode('c'.repeat(64));
+    expect((await deviceSocket({ codeHash: 'c'.repeat(64) })).closed).toBeUndefined();
+    await peerCloses(unproven[0]!);
+    expect((await deviceSocket()).closed).toBeUndefined();
+  });
+
+  it('counts proven sockets against the overall 32 but not against the unproven 16', async () => {
+    await nasSocket();
+    for (let i = 0; i < 16; i++) expect((await deviceSocket({ ticket: await ticket({ deviceId: `device-${i}` }) })).closed).toBeUndefined();
+    for (let i = 0; i < 16; i++) expect((await deviceSocket()).closed).toBeUndefined();
+    expect((await deviceSocket({ ticket: await ticket({ deviceId: 'device-x' }) })).closed).toEqual({ code: 4429, reason: 'busy' });
+  });
+
   it('deletes the stale attempt log in the alarm', async () => {
     await open('device');
     expect(state.storage.data.size).toBe(1);
@@ -600,6 +623,17 @@ describe('device allowances', () => {
     expect((await open('device', nasId, { ticket: 'not-a-ticket', codeHash: HASH_B })).res.status).toBe(200);
     expect(registryCalls.filter((p) => p === '/internal/signal-attempt')).toHaveLength(1);
     expect(await hits('rate:device')).toBe(1);
+  });
+
+  it('a failed proof is refused when the address check throws', async () => {
+    await nasSocket();
+    const failing = { ...env, CODE_REGISTRY: { idFromName: env.CODE_REGISTRY.idFromName, get: () => ({ fetch: async (r: Request) => {
+      if (new URL(r.url).pathname === '/internal/signal-attempt') throw new Error('registry down');
+      return registry.fetch(r);
+    } }) } };
+    signalling = new Signalling(state, failing, deps);
+    expect((await open('device', nasId, { ticket: 'not-a-ticket' })).res.status).toBe(429);
+    expect(await hits('rate:device')).toBe(0);
   });
 
   it('deletes stale ticket and code windows in the alarm', async () => {

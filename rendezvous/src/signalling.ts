@@ -27,6 +27,7 @@ import {
   SIGNAL_SHARED_PER_MINUTE,
   SIGNAL_TICKET_MAX_AHEAD_MS,
   SIGNAL_TICKET_PER_MINUTE,
+  SIGNAL_UNPROVEN_SOCKETS_PER_NAS,
   base64url,
   decodeTicket,
   fromBase64url,
@@ -95,6 +96,11 @@ interface DeviceAttachment {
   role: 'device';
   sid: string;
   openedAt: number;
+  /**
+   * Whether the upgrade carried a ticket or live code that checked out; unproven sockets also count against
+   * `SIGNAL_UNPROVEN_SOCKETS_PER_NAS`. Missing on a socket accepted before the field existed, which counts as unproven.
+   */
+  proven?: boolean;
   /** Messages received so far, against `SIGNAL_DEVICE_MESSAGES`. */
   messages: number;
   closed: boolean;
@@ -164,7 +170,8 @@ function parse(message: string | ArrayBuffer): { value: Record<string, unknown> 
  * by the NAS's registered key (closed `bad-auth` or `auth-timeout` otherwise); a device socket needs no proof here
  * (the NAS checks a device's `turn-request` itself), though one with a NAS-signed `ticket` or a live `codeHash` in its
  * upgrade URL gets an allowance of its own instead of the shared one, and it is closed `nas-offline` while no authenticated NAS socket is
- * live, `busy` past `SIGNAL_DEVICES_PER_NAS` open sockets, `too-many-messages`, `expired` and so on as `SIGNAL_CLOSE` lists.
+ * live, `busy` past `SIGNAL_DEVICES_PER_NAS` open sockets (or, without a checked proof, past
+ * `SIGNAL_UNPROVEN_SOCKETS_PER_NAS` unproven ones), `too-many-messages`, `expired` and so on as `SIGNAL_CLOSE` lists.
  */
 export class Signalling {
   private readonly deps: SignallingDeps;
@@ -201,14 +208,17 @@ export class Signalling {
       return response;
     }
 
-    if (!(await this.allowDevice(request, nasId, url.searchParams))) return new Response('too many requests', { status: 429 });
-    const open = this.state.getWebSockets(DEVICE_TAG).filter((ws) => attachmentOf(ws)?.closed === false).length;
+    const allowed = await this.allowDevice(request, nasId, url.searchParams);
+    if (allowed === null) return new Response('too many requests', { status: 429 });
+    const proven = allowed === 'proven';
+    const openDevices = this.state.getWebSockets(DEVICE_TAG).map(attachmentOf).filter((a): a is DeviceAttachment => a?.role === 'device' && !a.closed);
+    const full = openDevices.length >= SIGNAL_DEVICES_PER_NAS || (!proven && openDevices.filter((a) => a.proven !== true).length >= SIGNAL_UNPROVEN_SOCKETS_PER_NAS);
     const { server, response } = this.deps.upgrade();
     const sid = randomId(16);
     const openedAt = this.deps.now();
     this.state.acceptWebSocket(server, [DEVICE_TAG, sidTag(sid)]);
-    server.serializeAttachment({ role: 'device', sid, openedAt, messages: 0, closed: false } satisfies DeviceAttachment);
-    if (open >= SIGNAL_DEVICES_PER_NAS) this.shut(server, SIGNAL_CLOSE.busy);
+    server.serializeAttachment({ role: 'device', sid, openedAt, proven, messages: 0, closed: false } satisfies DeviceAttachment);
+    if (full) this.shut(server, SIGNAL_CLOSE.busy);
     else if (this.liveNas() === undefined) this.shut(server, SIGNAL_CLOSE.nasOffline);
     else {
       const hello: SignalHello = { t: 'hello', sid };
@@ -377,17 +387,24 @@ export class Signalling {
     }
   }
 
-  /** Counts a failed proof against the client's address, as an upgrade without one would have been. */
+  /**
+   * Counts a failed proof against the client's address, as an upgrade without one would have been; a registry that
+   * fails counts as a refusal.
+   */
   private async addressAllowsUnproven(request: Request): Promise<boolean> {
     const registry = this.env.CODE_REGISTRY;
-    const res = await registry.get(registry.idFromName(REGISTRY_NAME)).fetch(
-      new Request(`https://registry.internal${INTERNAL.signalAttempt}`, {
-        method: 'POST',
-        headers: { 'CF-Connecting-IP': request.headers.get('CF-Connecting-IP') ?? '' },
-      }),
-    );
-    await res.body?.cancel();
-    return res.status === 204;
+    try {
+      const res = await registry.get(registry.idFromName(REGISTRY_NAME)).fetch(
+        new Request(`https://registry.internal${INTERNAL.signalAttempt}`, {
+          method: 'POST',
+          headers: { 'CF-Connecting-IP': request.headers.get('CF-Connecting-IP') ?? '' },
+        }),
+      );
+      await res.body?.cancel();
+      return res.status === 204;
+    } catch {
+      return false;
+    }
   }
 
   /** Tells the registry the NAS was seen, so its record doesn't expire while it only signals. */
@@ -442,18 +459,20 @@ export class Signalling {
 
   /**
    * Counts a device upgrade in exactly one window: its ticket's when the ticket checks out, else its live code's, else
-   * the shared one (after a failed proof is also counted against the client's address).
+   * the shared one (after a failed proof is also counted against the client's address). Answers whether the upgrade
+   * was proven, or null when its window refused it.
    */
-  private async allowDevice(request: Request, nasId: string, params: URLSearchParams): Promise<boolean> {
+  private async allowDevice(request: Request, nasId: string, params: URLSearchParams): Promise<'proven' | 'unproven' | null> {
     const ticketText = params.get('ticket');
     const codeHash = params.get('codeHash');
+    const verdict = (allowed: boolean, kind: 'proven' | 'unproven'): 'proven' | 'unproven' | null => (allowed ? kind : null);
     if (ticketText) {
       const ticket = await this.checkTicket(ticketText, nasId);
-      if (ticket !== null) return this.allow(ticketKey(ticket.deviceId), SIGNAL_TICKET_PER_MINUTE);
+      if (ticket !== null) return verdict(await this.allow(ticketKey(ticket.deviceId), SIGNAL_TICKET_PER_MINUTE), 'proven');
     }
-    if (codeHash && (await this.codeIsLive(codeHash, nasId))) return this.allow(codeKey(codeHash), SIGNAL_CODE_PER_MINUTE);
-    if ((ticketText || codeHash) && !(await this.addressAllowsUnproven(request))) return false;
-    return this.allow(ATTEMPTS_KEY, SIGNAL_SHARED_PER_MINUTE);
+    if (codeHash && (await this.codeIsLive(codeHash, nasId))) return verdict(await this.allow(codeKey(codeHash), SIGNAL_CODE_PER_MINUTE), 'proven');
+    if ((ticketText || codeHash) && !(await this.addressAllowsUnproven(request))) return null;
+    return verdict(await this.allow(ATTEMPTS_KEY, SIGNAL_SHARED_PER_MINUTE), 'unproven');
   }
 
   /** A sliding-window log under `key`: records this attempt unless `max` fell within the last minute. */
