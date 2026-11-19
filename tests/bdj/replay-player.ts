@@ -1,19 +1,19 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createRing, renderQuantum, ringViews } from '@seikou/engine/audio/ring';
-import { registerClassLibraryIntrinsics } from '../../src/bdj-classlib/intrinsics/index';
-import { runBdjWorker, type BdjPort, type BdjWorkerHandle } from '../../src/bdj/bdj-worker';
-import { GraphicsPlaneReader, GraphicsPlaneWriter, planeHash } from '../../src/bdj/graphics-plane';
-import type { TraceEntry } from '../../src/bdj/host';
-import type { ClassLibrarySource } from '../../src/bdj/runtime';
-import { seikouBdjProvider } from '../../src/bdj/provider';
-import { MemoryBdjStore, type BdjStore } from '../../src/bdj/store/bdj-store';
-import type { WorkerLike } from '../../src/bdj/session';
-import type { BdjCallName, BdjWireValue, FromBdj, ToBdj } from '../../src/bdj/worker-protocol';
+import { registerClassLibraryIntrinsics } from '@seikou/bdj-classlib/intrinsics';
+import { runBdjWorker, type BdjPort, type BdjWorkerHandle } from '@seikou/bdj/bdj-worker';
+import { GraphicsPlaneReader, GraphicsPlaneWriter, planeHash } from '@seikou/bdj/graphics-plane';
+import type { TraceEntry } from '@seikou/bdj/host';
+import type { ClassLibrarySource } from '@seikou/bdj/runtime';
+import { seikouBdjProvider } from '@seikou/bdj/provider';
+import { MemoryBdjStore, type BdjStore } from '@seikou/bdj/store/bdj-store';
+import type { WorkerLike } from '@seikou/bdj/session';
+import type { BdjCallName, BdjWireValue, FromBdj, ToBdj } from '@seikou/bdj/worker-protocol';
 import { createAudioDecoderFactory } from '@seikou/engine/decode/audio-decoder';
 import { Player } from '@seikou/engine/player';
 import type { CompositorLike } from '@seikou/engine/render/compositor';
-import type { DecodeImage } from '../../src/bdj/background';
+import type { DecodeImage } from '@seikou/bdj/background';
 import type { EngineEvent } from '@seikou/engine/protocol';
 import type { MemoryProfileName } from '@seikou/engine/memory-profile';
 import { fakeVideoCodecApi } from '../helpers/fake-video-decoder';
@@ -22,7 +22,7 @@ import { HARNESS_SETTINGS } from './replay';
 import { testBdjFonts } from '../helpers/bdj-fonts';
 import type { KeyStep, SettledStep } from './key-script';
 
-const jar = (name: string): Uint8Array => new Uint8Array(readFileSync(fileURLToPath(new URL(`../../src/bdj-classlib/${name}`, import.meta.url))));
+const jar = (name: string): Uint8Array => new Uint8Array(readFileSync(fileURLToPath(new URL(`../../packages/bdj-classlib/${name}`, import.meta.url))));
 
 /** `wait menu`: how long a visible plane may go on flushing before the step holds anyway (bdj_trace.c MENU_ANIMATED_S). */
 const MENU_ANIMATED_MS = 30_000;

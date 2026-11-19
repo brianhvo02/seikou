@@ -1,16 +1,16 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { Jvm } from '../../src/bdj/jvm/jvm';
-import { Vfs } from '../../src/bdj/jvm/vfs';
-import { ZipArchive } from '../../src/bdj/jvm/zip';
-import type { JObject } from '../../src/bdj/jvm/values';
-import { NativeTable, registerBootstrapNatives, registerJdkNatives, registerSchedulerNatives } from '../../src/bdj/jvm/natives/index';
+import { Jvm } from '@seikou/bdj/jvm/jvm';
+import { Vfs } from '@seikou/bdj/jvm/vfs';
+import { ZipArchive } from '@seikou/bdj/jvm/zip';
+import type { JObject } from '@seikou/bdj/jvm/values';
+import { NativeTable, registerBootstrapNatives, registerJdkNatives, registerSchedulerNatives } from '@seikou/bdj/jvm/natives/index';
 import { assembleClass } from '../helpers/jvm-asm';
 import type { Const } from '../helpers/jvm-asm';
 
 const file = (rel: string): Uint8Array => readFileSync(fileURLToPath(new URL(rel, import.meta.url)));
-const RT = file('../../src/bdj-classlib/rt-bdj.jar');
+const RT = file('../../packages/bdj-classlib/rt-bdj.jar');
 
 const ICONST_0 = 0x03, ICONST_1 = 0x04, ICONST_5 = 0x08, BIPUSH = 0x10, LDC_W = 0x13;
 const ILOAD_0 = 0x1a, ILOAD_1 = 0x1b, ALOAD_0 = 0x2a, ASTORE_0 = 0x4b, ALOAD_2 = 0x2c, ISTORE_0 = 0x3b, ISTORE_1 = 0x3c;
@@ -31,7 +31,7 @@ describe('method handles and invokedynamic', () => {
 
   beforeAll(async () => {
     jvm = new Jvm({
-      bootJars: [file('../../src/bdj-classlib/libbluray-j2se.jar'), file('../../src/bdj-classlib/libbluray-awt-j2se.jar'), RT],
+      bootJars: [file('../../packages/bdj-classlib/libbluray-j2se.jar'), file('../../packages/bdj-classlib/libbluray-awt-j2se.jar'), RT],
       nowMs: () => Date.now(),
       setTimer: (ms, fn) => {
         const id = setTimeout(fn, ms);

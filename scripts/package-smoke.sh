@@ -2,7 +2,8 @@
 # Consumes the packages as an outside project would: a clean temp project installs them as file: dependencies (copied,
 # not linked, so only what each package's "files" lists arrives), typechecks a file importing every barrel and the
 # integration guide's example player (docs/integrating/) with a strict tsc, parses a disc and an ASS script with tsx,
-# and builds the example's page with Vite, whose output must carry the engine worker's wasm and font assets.
+# and builds the example's page with Vite, whose output must carry the engine worker's wasm and font assets, and an
+# engine worker entry with BD-J (@seikou/bdj and @seikou/bdj-classlib), whose output must carry the jars and FreeType.
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 bin="$repo/node_modules/.bin"
@@ -15,7 +16,8 @@ npm init -y >/dev/null
 # The engine's own @seikou dependencies are unpublished, so they are installed from the repo as well.
 npm install --no-audit --no-fund --install-links \
   "file:$repo/packages/bdmv" "file:$repo/packages/ass" "file:$repo/packages/nas" "file:$repo/packages/pg" "file:$repo/packages/matroska" \
-  "file:$repo/packages/engine" "file:$repo/packages/titles" "file:$repo/packages/fansubs" >/dev/null
+  "file:$repo/packages/engine" "file:$repo/packages/titles" "file:$repo/packages/fansubs" \
+  "file:$repo/packages/bdj" "file:$repo/packages/bdj-classlib" >/dev/null
 
 # Every barrel under a strict tsc, as a TypeScript consumer compiles them. The packages ship sources, so their own
 # type gaps (an ambient module declaration the program never sees) surface here and not in the repo's own tsconfigs,
@@ -26,6 +28,8 @@ ln -s "$repo/node_modules/@types/node" node_modules/@types/node
 ln -s "$repo/node_modules/vite" node_modules/vite
 cat > barrels.ts <<'TS'
 import * as ass from '@seikou/ass';
+import * as bdj from '@seikou/bdj';
+import * as bdjClasslib from '@seikou/bdj-classlib';
 import * as bdmv from '@seikou/bdmv';
 import * as engine from '@seikou/engine';
 import * as fansubs from '@seikou/fansubs';
@@ -33,7 +37,7 @@ import * as matroska from '@seikou/matroska';
 import * as nas from '@seikou/nas';
 import * as pg from '@seikou/pg';
 import * as titles from '@seikou/titles';
-export const barrels = [ass, bdmv, engine, fansubs, matroska, nas, pg, titles];
+export const barrels = [ass, bdj, bdjClasslib, bdmv, engine, fansubs, matroska, nas, pg, titles];
 // What the integration guide names beyond the barrels: the folder walk, the NAS source and the worker entry for a host's own worker.
 import { RemoteSource, walkEntries } from '@seikou/engine';
 import { startEngineWorker } from '@seikou/engine/worker-main';
@@ -41,6 +45,35 @@ export const guide = [RemoteSource, walkEntries, startEngineWorker];
 TS
 # The integration guide's example player, which the guide shows verbatim (tests/documentation.test.ts).
 cp "$repo/docs/integrating/minimal-player.ts" "$repo/docs/integrating/index.html" .
+# An engine worker entry with BD-J, as the guide's BD-J section writes one, and a page that starts it.
+cat > bdj-engine-worker.ts <<'TS'
+import audioWasmUrl from '@seikou/engine/audio.wasm?url';
+import defaultFontUrl from '@seikou/ass/default-font.ttf?url';
+import { startEngineWorker } from '@seikou/engine/worker-main';
+import { bdjMissing, seikouBdjProvider } from '@seikou/bdj';
+import { CLASS_LIBRARY_URLS } from '@seikou/bdj-classlib';
+
+const bytes = async (url: string): Promise<Uint8Array> => new Uint8Array(await (await fetch(url)).arrayBuffer());
+startEngineWorker({
+  audioWasmUrl,
+  defaultFontUrl,
+  bdj: seikouBdjProvider({
+    missing: bdjMissing(self as unknown as Record<string, unknown>, { inWorker: true }),
+    loadClassLibrary: async () => ({
+      rt: await bytes(CLASS_LIBRARY_URLS.rt),
+      libbluray: await bytes(CLASS_LIBRARY_URLS.libbluray),
+      libblurayAwt: await bytes(CLASS_LIBRARY_URLS.libblurayAwt),
+    }),
+  }),
+});
+TS
+cat > bdj-page.ts <<'TS'
+export const worker = new Worker(new URL('./bdj-engine-worker.ts', import.meta.url), { type: 'module' });
+TS
+printf '<!doctype html>\n<script type="module" src="./bdj-page.ts"></script>\n' > bdj.html
+cat > vite.config.mjs <<'JS'
+export default { worker: { format: 'es' }, build: { rollupOptions: { input: { index: 'index.html', bdj: 'bdj.html' } } } };
+JS
 cat > tsconfig.json <<'JSON'
 {
   "compilerOptions": {
@@ -54,7 +87,7 @@ cat > tsconfig.json <<'JSON'
     "strict": true,
     "types": ["node", "vite/client"]
   },
-  "files": ["barrels.ts", "minimal-player.ts"]
+  "files": ["barrels.ts", "minimal-player.ts", "bdj-engine-worker.ts", "bdj-page.ts"]
 }
 JSON
 "$bin/tsc" --noEmit --strict -p tsconfig.json || fail 'a strict tsc over every package barrel and the guide example failed'
@@ -76,7 +109,7 @@ echo "$parsed"
 
 # The example's page (index.html loads minimal-player.ts, which starts the engine's worker), built by Vite.
 "$bin/vite" build --logLevel warn >/dev/null || fail 'vite build of the integration guide example failed'
-for asset in audio.wasm default-font.ttf; do
+for asset in audio.wasm default-font.ttf rt-bdj.jar libbluray-j2se.jar libbluray-awt-j2se.jar freetype.wasm; do
   ls dist/assets | grep -Eq "^${asset%.*}-.*\.${asset##*.}$" || fail "dist/assets has no $asset: $(ls dist/assets | tr '\n' ' ')"
 done
 echo 'package-smoke: ok'

@@ -575,7 +575,7 @@ export function exampleProblems(site: readonly DevPackage[], repoRoot: string = 
   for (const file of exampleFiles(repoRoot)) {
     if (named.has(file.split('/')[1]!) && !used.has(file)) problems.push(`${file} is named by no export`);
     for (const spec of importsOf(readFileSync(join(repoRoot, file), 'utf8'))) {
-      if (spec.startsWith('node:') || /^@seikou\/[a-z]+$/.test(spec)) continue;
+      if (spec.startsWith('node:') || /^@seikou\/[a-z-]+$/.test(spec)) continue;
       problems.push(`${file} imports ${spec}; an example imports only a @seikou/<package> root`);
     }
   }

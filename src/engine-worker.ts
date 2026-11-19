@@ -6,10 +6,8 @@ import mpeg2BenchUrl from '@seikou/engine/bench/mpeg2-1080i.m2v?url';
 import vc1BenchUrl from '@seikou/engine/bench/vc1-1080i.vc1?url';
 import defaultFontUrl from '@seikou/ass/default-font.ttf?url';
 import { ASSET_FETCH_TIMEOUT_MS, engineWorkerTestFlags, startEngineWorker } from '@seikou/engine/worker-main';
-import rtJarUrl from './bdj-classlib/rt-bdj.jar?url';
-import libblurayJarUrl from './bdj-classlib/libbluray-j2se.jar?url';
-import libblurayAwtJarUrl from './bdj-classlib/libbluray-awt-j2se.jar?url';
-import { bdjMissing, seikouBdjProvider } from './bdj/provider';
+import { CLASS_LIBRARY_URLS } from '@seikou/bdj-classlib';
+import { bdjMissing, seikouBdjProvider } from '@seikou/bdj';
 
 // Test-only flags (engineWorkerTestFlags): bdjfail makes the libbluray jar unreadable, nonestedworkers hides Worker.
 const testFlags = engineWorkerTestFlags();
@@ -41,7 +39,8 @@ startEngineWorker({
       { inWorker: true },
     ),
     loadClassLibrary: async () => {
-      const [rt, libbluray, libblurayAwt] = await Promise.all([fetchBytes(rtJarUrl), fetchBytes(libblurayJarUrl), fetchBytes(libblurayAwtJarUrl)]);
+      const { rt: rtUrl, libbluray: libblurayUrl, libblurayAwt: libblurayAwtUrl } = CLASS_LIBRARY_URLS;
+      const [rt, libbluray, libblurayAwt] = await Promise.all([fetchBytes(rtUrl), fetchBytes(libblurayUrl), fetchBytes(libblurayAwtUrl)]);
       return { rt, libbluray: brokenClassLibrary ? new Uint8Array(0) : libbluray, libblurayAwt };
     },
     // BD-J background stills: the browser sniffs the format (PNG, JPEG, GIF) from the bytes

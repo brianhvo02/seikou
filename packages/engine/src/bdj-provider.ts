@@ -1,6 +1,6 @@
 /*
  * Original code for Seikou: BD-J as an optional provider of the engine. The player takes everything BD-J from a
- * BdjProvider (PlayerDeps.bdj) and never imports BD-J; the app assembles the provider (src/bdj/provider.ts) in
+ * BdjProvider (PlayerDeps.bdj) and never imports BD-J; @seikou/bdj assembles the provider (seikouBdjProvider) in
  * its worker entry. Without one, BD-J discs and titles open to the playlist picker with the missing requirement named
  * BDJ_RUNTIME.
  *
@@ -69,7 +69,7 @@ export interface BdjInputProvider {
 
 /**
  * Everything BD-J the engine takes from its host, as factories so the engine never imports BD-J code. The app assembles
- * one in `src/bdj/provider.ts` and passes it to `startEngineWorker`; the engine calls these from the engine worker.
+ * one with `@seikou/bdj`'s `seikouBdjProvider` and passes it to `startEngineWorker`; the engine calls these from the engine worker.
  */
 export interface BdjProvider {
   /**

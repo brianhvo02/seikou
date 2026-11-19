@@ -12,12 +12,14 @@ function recordRequests(page: Page): string[] {
   return urls;
 }
 
-test('the index lists the eight packages', async ({ page }) => {
+test('the index lists the ten packages', async ({ page }) => {
   await page.goto('/developers');
   await expect(page.locator('h1')).toHaveCount(1);
-  await expect(page.locator('a.pkg-row')).toHaveCount(8);
-  for (const name of ['bdmv', 'pg', 'ass', 'engine', 'matroska', 'nas', 'titles', 'fansubs']) {
-    await expect(page.locator('a.pkg-row', { hasText: `@seikou/${name}` })).toHaveAttribute('href', `/developers/${name}`);
+  await expect(page.locator('a.pkg-row')).toHaveCount(10);
+  for (const name of ['bdmv', 'pg', 'ass', 'engine', 'matroska', 'bdj', 'bdj-classlib', 'nas', 'titles', 'fansubs']) {
+    // by the row's name alone: a summary may name another package (@seikou/bdj's names @seikou/engine)
+    const row = page.locator('a.pkg-row', { has: page.locator('code.pkg-name', { hasText: new RegExp(`^@seikou/${name}$`) }) });
+    await expect(row).toHaveAttribute('href', `/developers/${name}`);
   }
 });
 

@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import type { GraphicsPlaneReader } from '../../src/bdj/graphics-plane';
+import type { GraphicsPlaneReader } from '@seikou/bdj/graphics-plane';
 import { replayPlayerBdj } from '../bdj/replay-player';
 
 const BDJ_DISC_A = fileURLToPath(new URL('../../fixtures/local/BDJ_DISC_A', import.meta.url));

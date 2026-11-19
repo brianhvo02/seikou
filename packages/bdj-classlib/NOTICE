@@ -1,0 +1,39 @@
+rt-bdj.jar holds classes and files of the OpenJDK 8 runtime (GPLv2 with the Classpath Exception; see LICENSE and
+ASSEMBLY_EXCEPTION), unmodified, selected by packages/bdj-classlib/classes.txt and tools/bdj-classlib/resources.txt.
+The one exception is lib/security/cacerts, the keystore ca-certificates-java 20240118
+generates from ca-certificates 20260601~24.04.1: its entries' creation dates are set to
+2026-10-15T00:00:00Z (tools/bdj-classlib/normalize-jks.py) so the jar is reproducible.
+
+Third-party code among those classes:
+- com/sun/org/apache/xerces/internal/** (Apache Xerces Java, as bundled in OpenJDK's JAXP) and
+  com/sun/xml/internal/stream/Entity*: Apache License 2.0. The JDK's notice for its Apache components, with the
+  license text, is THIRD_PARTY_APACHE (from the JDK's THIRD_PARTY_README; it carries no separate Xerces NOTICE
+  file). The other JAXP classes (javax/xml/parsers, jdk/xml/internal, the rest of com/sun/xml/internal/stream) are
+  GPLv2 with the Classpath Exception.
+- org/xml/sax/**: SAX, GPLv2 with the Classpath Exception in OpenJDK plus the SAX project's public-domain
+  notice (SAX_NOTICE).
+- sun/text/normalizer/** (behind java/text/Normalizer): derived from ICU4J, (C) Copyright IBM Corp. and others,
+  GPLv2 with the Classpath Exception in OpenJDK; the JDK's notice for ICU, with its permission notice, is
+  THIRD_PARTY_ICU (from the JDK's THIRD_PARTY_README).
+
+How classes.txt is collected: from HotSpot's -verbose:class in the libbluray harness (tools/bdj-classlib/collect.sh),
+run with no network, over the synthetic and local BD-J discs, the JVM conformance programs and, with the library
+check's generic key script, the start-up files of every BD-J disc of the developer's library, plus a keep-list of
+classes added by hand (in collect.sh). HotSpot's own platform font stack (sun/font, the X11 and fontconfig
+font managers), which its java.awt.Font loads, is left out: libbluray's java/awt/Font takes its place here. A few
+class families are listed whole, because a disc's use of them is open-ended:
+- sun/reflect/Unsafe*FieldAccessorImpl: reflection on a field picks one by the field's type and modifiers.
+- sun/reflect/generics/**: the parser and model of generic signatures, behind java.lang.reflect's generic types.
+- sun/util/locale/provider/{DateFormat,DateFormatSymbols,DecimalFormatSymbols,NumberFormat}ProviderImpl: the
+  JRE providers behind java.text's date and number formats.
+- java/rmi/registry/Registry with java/rmi/Remote and the exceptions its methods declare (AccessException,
+  AlreadyBoundException, NotBoundException, RemoteException): discs name the interface; no RMI runs.
+
+OpenJDK binary package: openjdk-8-jre-headless:amd64	8u504-ga-1ubuntu1~24.04.3
+Corresponding source:   Ubuntu source package openjdk-8 8u504-ga-1ubuntu1~24.04.3,
+  https://snapshot.ubuntu.com/ubuntu/20261015T000000Z/pool/universe/o/openjdk-8/openjdk-8_8u504-ga-1ubuntu1~24.04.3.dsc
+Apt snapshot:           20261015T000000Z (ubuntu 24.04)
+
+libbluray-j2se.jar and libbluray-awt-j2se.jar are libbluray's BD-J Java stack, LGPL-2.1-or-later (the license
+text is in LICENSES/LGPL-2.1.txt), built from libbluray commit 448f896,
+https://code.videolan.org/videolan/libbluray (source: https://code.videolan.org/videolan/libbluray/-/tree/448f896).

@@ -36,7 +36,7 @@ maybe('devsite model (run npm run devsite:model to build it)', () => {
   };
 
   it('has a module per package', () =>
-    expect(model.children?.map((c) => c.name).sort()).toEqual(['ass', 'bdmv', 'engine', 'fansubs', 'matroska', 'nas', 'pg', 'titles']));
+    expect(model.children?.map((c) => c.name).sort()).toEqual(['ass', 'bdj', 'bdj-classlib', 'bdmv', 'engine', 'fansubs', 'matroska', 'nas', 'pg', 'titles']));
 
   it('documents bdmv parseMpls with a summary and a parameter', () => {
     const fn = mod('bdmv').children?.find((c) => c.name === 'parseMpls');
