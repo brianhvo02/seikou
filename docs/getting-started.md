@@ -33,11 +33,11 @@ Notes:
 
 - Dropping a folder needs a browser that supports it. If a drop is refused with "Drop the disc folder itself (the folder that contains BDMV), or one .iso image.", drop the folder or one image, not a file inside the folder.
 - On iPhone and iPad, Safari copies the whole folder before the player can read it. A full disc from a USB drive can take an hour or more, and the page says "Waiting for the files…" meanwhile.
-- An image opens in place: nothing is copied or unpacked. It isn't listed under Recent discs, so pick it again next time; its place is remembered all the same. On iPhone and iPad, Safari copies the whole image first, as it does a folder.
+- An image opens in place: nothing is copied or unpacked. Chrome lists it under Recent discs like a folder. On iPhone and iPad, Safari copies the whole image first, as it does a folder.
 
 ## Recent discs and resume
 
-Chrome (and other browsers that let sites keep folder permissions) list **Recent discs** on the first screen. A disc you stopped part-way shows "Resume at m:ss". Choosing it offers **Resume** or **Start from beginning**.
+Chrome (and other browsers that let sites keep folder permissions) list **Recent discs**, folders and images, on the first screen. A disc you stopped part-way shows "Resume at m:ss". Choosing it offers **Resume** or **Start from beginning**.
 
 Safari and Firefox do not keep folder permissions, so you pick the folder each time. Safari also clears a site's data after 7 days without a visit, which would clear your saved places. Adding the player to your Home Screen or Dock avoids that, and the first screen reminds you.
 

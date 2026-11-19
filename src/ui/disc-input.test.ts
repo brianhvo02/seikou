@@ -76,8 +76,12 @@ describe('disc input', () => {
   it('takes one dropped .iso as a disc image, and two as nothing', async () => {
     const iso = new File([], 'Disc.ISO');
     const item = { kind: 'file', getAsFile: () => iso, webkitGetAsEntry: () => ({ isFile: true, isDirectory: false, name: 'Disc.ISO' }) };
-    expect(await discFromDataTransfer({ items: [item] } as unknown as DataTransfer)).toEqual({ kind: 'iso', file: iso });
+    expect(await discFromDataTransfer({ items: [item] } as unknown as DataTransfer)).toEqual({ kind: 'iso', file: iso, handle: null });
     expect(await discFromDataTransfer({ items: [item, item] } as unknown as DataTransfer)).toBeNull();
+    // Chromium: the image's file handle comes too, for Recent discs
+    const fileHandle = { kind: 'file', name: 'Disc.ISO' } as unknown as FileSystemFileHandle;
+    const withHandle = { ...item, getAsFileSystemHandle: async () => fileHandle };
+    expect(await discFromDataTransfer({ items: [withHandle] } as unknown as DataTransfer)).toEqual({ kind: 'iso', file: iso, handle: fileHandle });
   });
 
   describe('fixtures/synthetic/disc1 picked from a file list', () => {

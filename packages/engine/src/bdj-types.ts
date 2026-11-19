@@ -1,5 +1,5 @@
 /*
- * Original code for Seikou: the shapes the engine and BD-J share. BD-J (the app's src/bdj) is an optional provider of
+ * Original code for Seikou: the shapes the engine and BD-J share. BD-J (@seikou/bdj) is an optional provider of
  * the engine (bdj-provider.ts); these are the types its modules implement and the engine is written against, declared
  * here so the engine never imports BD-J. The BD-J modules import (and re-export) them from here.
  *
@@ -414,7 +414,7 @@ export interface BdjSessionDeps {
 }
 
 /**
- * What the player uses of a BD-J worker's session (the app's `BdjSession`, in `src/bdj/session.ts`).
+ * What the player uses of a BD-J worker's session (`BdjSession` in @seikou/bdj's `session.ts`).
  * @internal
  */
 export interface BdjSessionLike {

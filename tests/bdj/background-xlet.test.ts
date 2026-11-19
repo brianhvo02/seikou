@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import type { ShownStill } from '../../src/bdj/background';
+import type { ShownStill } from '@seikou/bdj/background';
 import type { CompositorLike } from '@seikou/engine/render/compositor';
 import { replayPlayerBdj } from './replay-player';
 

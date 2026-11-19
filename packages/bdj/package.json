@@ -1,0 +1,19 @@
+{
+  "name": "@seikou/bdj",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "LGPL-3.0-or-later",
+  "exports": {
+    ".": "./src/index.ts",
+    "./freetype.wasm": "./wasm/freetype/freetype.wasm",
+    "./*": "./src/*.ts"
+  },
+  "files": ["src", "!src/**/*.test.ts", "wasm", "LICENSE", "COPYING", "LICENSES", "NOTICE"],
+  "dependencies": {
+    "@seikou/ass": "*",
+    "@seikou/bdj-classlib": "*",
+    "@seikou/bdmv": "*",
+    "@seikou/engine": "*",
+    "@seikou/nas": "*"
+  }
+}

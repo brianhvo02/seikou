@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { compareBdjTraces } from './compare';
 import { parseBdjTrace, traceThrough } from './format';
-import type { BdjHost, RecordingHost, TraceEntry } from '../../src/bdj/host';
+import type { BdjHost, RecordingHost, TraceEntry } from '@seikou/bdj/host';
 import { RegisterFile } from '@seikou/engine/hdmv/registers';
 import { applyHarnessSettings, replayBdj } from './replay';
 import { replayPlayerBdj, traceEntryOf } from './replay-player';

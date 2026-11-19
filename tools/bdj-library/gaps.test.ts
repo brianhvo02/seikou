@@ -1,18 +1,18 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { Jvm } from '../../src/bdj/jvm/jvm';
-import type { JObject } from '../../src/bdj/jvm/values';
-import { byteArray } from '../../src/bdj/jvm/natives/util';
-import { Vfs } from '../../src/bdj/jvm/vfs';
-import { ZipArchive } from '../../src/bdj/jvm/zip';
+import { Jvm } from '@seikou/bdj/jvm/jvm';
+import type { JObject } from '@seikou/bdj/jvm/values';
+import { byteArray } from '@seikou/bdj/jvm/natives/util';
+import { Vfs } from '@seikou/bdj/jvm/vfs';
+import { ZipArchive } from '@seikou/bdj/jvm/zip';
 import { assembleClass } from '../../tests/helpers/jvm-asm';
 import { gapExempt } from './classify';
 import { trackGaps, type GapTracker } from './gaps';
 
 const file = (rel: string): Uint8Array => new Uint8Array(readFileSync(fileURLToPath(new URL(rel, import.meta.url))));
-const RT = file('../../src/bdj-classlib/rt-bdj.jar');
-const BOOT = [file('../../src/bdj-classlib/libbluray-j2se.jar'), file('../../src/bdj-classlib/libbluray-awt-j2se.jar'), RT];
+const RT = file('../../packages/bdj-classlib/rt-bdj.jar');
+const BOOT = [file('../../packages/bdj-classlib/libbluray-j2se.jar'), file('../../packages/bdj-classlib/libbluray-awt-j2se.jar'), RT];
 
 const NEW = 0xbb, DUP = 0x59, LDC_W = 0x13, INVOKESPECIAL = 0xb7, INVOKESTATIC = 0xb8, INVOKEVIRTUAL = 0xb6;
 const POP = 0x57, RETURN = 0xb1, ALOAD_0 = 0x2a, ALOAD_1 = 0x2b, ACONST_NULL = 0x01, ICONST_0 = 0x03, ANEWARRAY = 0xbd;

@@ -19,7 +19,6 @@ Short tasks that unblock or protect what is already deployed.
 | --- | --- | --- |
 | **Subtitles from picked `.mkv` files.** Extract ASS and SRT tracks and attached fonts from an `.mkv` the viewer picks or drops (the Encodes library's own MKVs already load theirs), deferred since M4b. This pairs with episode subtitle sets and the subtitle store. | M | |
 | **HDMV TextST and sub-path PG** decoding. | M | needs a disc |
-| **Probe the MPEG-2 and VC-1 decode speed before the first pre-flight,** so a first NAS open of such a disc doesn't wait up to about 20 s. | S | |
 | **Playlist ends:** a playlist ends 100 ms after its last picture, so a still at the end can end early; picking a PG stream re-reads the playlist, which shows the next picture of a slideshow early. | S–M | needs a disc |
 | **Device coverage:** iPad over the NAS, real Android Chrome (HEVC, USB OTG), the iPhone row of the probe table, Blob slicing over 4 GiB on iOS, long press on real hardware, and the alphabet bar on a later iOS build. | M | needs a device |
 | **A friend abroad over WebRTC.** The route has only been measured through a VPN. Record a real friend's throughput and start-up time. | S | needs a person |
@@ -30,16 +29,14 @@ Short tasks that unblock or protect what is already deployed.
 | Item | Size | Notes |
 | --- | --- | --- |
 | **BD-J JIT** (stage 2 of 5c §4.7). This is the start-up lever: iPhone and iPad miss the 10 s cold-start target by 0.8 to 1.6 s, and desktop has little margin on its 5 s bar. A compact constant-pool form is the matching memory lever. | L | owner's call (deferred by choice) |
-| **Faster WASM video decoding:** threads, or skipping the field the frame-rate step doesn't show, so 1080i VC-1 plays at field rate on an iPhone. | M | |
+| **Field rate on an iPhone:** fewer hand-offs per picture in WebKit, so 1080i (VC-1 first) plays at field rate. Neither decoding nor the shaders are the limit; the deinterlaced picture's trip to the screen is (an ImageBitmap, the 2D canvas, the commit; known issues). The candidate is drawing video and overlays in one WebGL canvas, measured on the same film before and after. | M | needs the phone |
 | **Deinterlacing gaps:** RGB frames from Firefox on macOS (interlaced H.264 shows woven there) and a cheaper deinterlacer for software WebGL. | M | |
 | **HDR overlays at graphics white:** subtitles and menus over HDR video are drawn SDR; try a float16 or WebGPU canvas on an HDR display. | M | needs a device, owner's call |
 | **Element path start in WebKit,** which begins about 33 ms behind the sound. | S | owner's call |
-| **Hold the first GOP** on H.264 streams that redefine the PPS, so a playlist start loses no frames. | M | |
 | **Lossless and multichannel audio:** full TrueHD and DTS-HD instead of their cores, and output beyond a stereo downmix (multichannel PCM where the browser offers it; no Atmos or DTS:X height channels, since a page can't pass a stream through). | L | deferred by the owner (2026-11-16) |
 | **Encoders beyond Intel QSV** (NVENC, AMD VAAPI) for self-hosters. The self-hosting spec puts this last, after everything else. | L | |
 | **Quality-level ideas:** pre-encode while the GPU is idle, re-encode audio, and an "auto" level that labels itself. Known gaps to close: the disc's PSR1 audio choice at a level, the `primaryAudioChange` UO mask, and the BD-J still timer restarting on a switch. | L | |
 | **Per-person shelves,** and hiding titles from a person. | M | |
-| **BD-J as a package.** An integrator who wants BD-J copies `src/bdj/`, `src/bdj-classlib/` and `src/wasm/freetype/` from the app and writes their own engine worker entry, and those files reach engine, bdmv and ass internals through `@seikou/engine/*`, `@seikou/bdmv/*` and `@seikou/ass/*` subpaths (see [integrating.md](integrating.md)). A `@seikou/bdj` package with a declared entry would replace the copy. | M | |
 | **Signalling hardening:** a lockout for hostile clients, and not showing the NAS's addresses in the answer SDP to anyone who holds its id. | M | |
 | **Read-ahead cache per tab:** a Web Lock per disc, since the cache is shared by the origin. | S | |
 | **ASS fidelity:** legacy `Effect`, FriBidi across style runs, line breaking (libunibreak), the auto-hinter, and approximations of BorderStyle 4, vertical `@font` and `\be`. | M–L | |

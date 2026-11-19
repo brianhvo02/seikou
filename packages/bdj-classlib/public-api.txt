@@ -1,0 +1,5 @@
+# @seikou/bdj-classlib public API: where the three jars are served from, for an engine worker entry's
+# loadClassLibrary. The intrinsics (@seikou/bdj-classlib/intrinsics) are internal: only @seikou/bdj imports them.
+# index
+CLASS_LIBRARY_URLS
+ClassLibraryUrls

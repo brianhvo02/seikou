@@ -3,6 +3,12 @@
 // delete that line here.
 interface Window {
   showDirectoryPicker?(options?: { id?: string; mode?: 'read' | 'readwrite' }): Promise<FileSystemDirectoryHandle>;
+  showOpenFilePicker?(options?: {
+    id?: string;
+    multiple?: boolean;
+    excludeAcceptAllOption?: boolean;
+    types?: Array<{ description?: string; accept: Record<string, string[]> }>;
+  }): Promise<FileSystemFileHandle[]>;
 }
 
 interface DataTransferItem {

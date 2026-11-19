@@ -1,0 +1,9 @@
+# @seikou/bdj public API: what an engine worker entry needs to give the engine BD-J (seikouBdjProvider and its
+# options) and to check the browser first (bdjMissing), with the types their signatures reach.
+# provider
+seikouBdjProvider
+SeikouBdjOptions
+# requirements
+bdjMissing
+BDJ_REQUIREMENTS
+BdjRequirementOptions

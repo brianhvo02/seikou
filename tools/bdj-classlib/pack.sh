@@ -2,7 +2,7 @@
 # Runs inside the image with the repo mounted at /work (cwd). Called by build.sh.
 set -euo pipefail
 
-OUT=src/bdj-classlib
+OUT=packages/bdj-classlib
 MK="python3 -I tools/bdj-classlib/make-jar.py"
 LB=/usr/local/share/java
 JRE="$JAVA_HOME/jre"
@@ -141,7 +141,7 @@ SRC_VER="$(dpkg-query -W -f='${source:Version}' openjdk-8-jre-headless)"
 SNAPSHOT=20261015T000000Z
 {
   echo "rt-bdj.jar holds classes and files of the OpenJDK 8 runtime (GPLv2 with the Classpath Exception; see LICENSE and"
-  echo "ASSEMBLY_EXCEPTION), unmodified, selected by src/bdj-classlib/classes.txt and tools/bdj-classlib/resources.txt."
+  echo "ASSEMBLY_EXCEPTION), unmodified, selected by packages/bdj-classlib/classes.txt and tools/bdj-classlib/resources.txt."
   echo "The one exception is lib/security/cacerts, the keystore ca-certificates-java $(dpkg-query -W -f='${Version}' ca-certificates-java)"
   echo "generates from ca-certificates $(dpkg-query -W -f='${Version}' ca-certificates): its entries' creation dates are set to"
   echo "2026-10-15T00:00:00Z (tools/bdj-classlib/normalize-jks.py) so the jar is reproducible."
@@ -177,6 +177,6 @@ SNAPSHOT=20261015T000000Z
   echo "Apt snapshot:           $SNAPSHOT (ubuntu 24.04)"
   echo
   echo "libbluray-j2se.jar and libbluray-awt-j2se.jar are libbluray's BD-J Java stack, LGPL-2.1-or-later (the license"
-  echo "text is in LICENSE), built from libbluray commit 448f896,"
+  echo "text is in LICENSES/LGPL-2.1.txt), built from libbluray commit 448f896,"
   echo "https://code.videolan.org/videolan/libbluray (source: https://code.videolan.org/videolan/libbluray/-/tree/448f896)."
 } > $OUT/NOTICE

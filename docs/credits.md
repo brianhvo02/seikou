@@ -1,6 +1,6 @@
 # Credits
 
-Seikou is free software under the [GNU Lesser General Public License, version 3 or later](https://www.gnu.org/licenses/lgpl-3.0.html). The source is on [GitHub](https://github.com/brianhvo02/seikou). It stands on other people's work, and this page names it: what each piece does here, who made it and the licence it comes under. The full licence text of every package bundled into this site, and the notices of the ported and vendored works, are in [third-party-licenses.txt](https://bluray.pages.dev/third-party-licenses.txt) (the NAS server's image carries its own copy). The same notices are in the NOTICE files in the source (`packages/*/NOTICE`, `src/bdj/NOTICE`, `src/bdj-classlib/NOTICE`, `src/wasm/freetype/NOTICE`, `server/NOTICE`, `fixtures/NOTICE`).
+Seikou is free software under the [GNU Lesser General Public License, version 3 or later](https://www.gnu.org/licenses/lgpl-3.0.html). The source is on [GitHub](https://github.com/brianhvo02/seikou). It stands on other people's work, and this page names it: what each piece does here, who made it and the licence it comes under. The full licence text of every package bundled into this site, and the notices of the ported and vendored works, are in [third-party-licenses.txt](https://bluray.pages.dev/third-party-licenses.txt) (the NAS server's image carries its own copy). The same notices are in the NOTICE files in the source (`packages/*/NOTICE`, `packages/bdj/NOTICE`, `packages/bdj-classlib/NOTICE`, `packages/bdj/wasm/freetype/NOTICE`, `server/NOTICE`, `fixtures/NOTICE`).
 
 ## Playing discs
 
@@ -15,7 +15,7 @@ Seikou is free software under the [GNU Lesser General Public License, version 3 
 - [OpenJDK 8](https://openjdk.org), by Oracle and the OpenJDK contributors, [GPL version 2 with the Classpath Exception](https://openjdk.org/legal/gplv2+ce.html). The part of Java's class library BD-J discs need.
 - [Apache Xerces](https://xerces.apache.org), by the Apache Software Foundation, [Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0). The XML reader inside that class library.
 - [SAX](http://www.saxproject.org), by David Megginson and the SAX project, public domain. The XML interfaces inside it.
-- [ICU4J](https://icu.unicode.org), by IBM and others, under the [Unicode licence](https://github.com/unicode-org/icu/blob/main/icu4c/LICENSE) today and, for the ICU4J 4.4 classes bundled here, the ICU permission notice kept in `src/bdj-classlib/THIRD_PARTY_ICU` in the source. Text normalisation inside it.
+- [ICU4J](https://icu.unicode.org), by IBM and others, under the [Unicode licence](https://github.com/unicode-org/icu/blob/main/icu4c/LICENSE) today and, for the ICU4J 4.4 classes bundled here, the ICU permission notice kept in `packages/bdj-classlib/THIRD_PARTY_ICU` in the source. Text normalisation inside it.
 - [FreeType](https://freetype.org), under the [FreeType License](https://freetype.org/license.html). Draws the text in BD-J menus.
 
 Portions of this software are copyright © 2023 The FreeType Project (www.freetype.org). All rights reserved.

@@ -78,12 +78,16 @@ what would change that decision.
   `frame_mbs_only_flag` 0 ("Decoding error"; HDMV_DISC_A's 1080i logo is MBAFF), so those streams are configured with
   `prefer-software`. The decoded fields are then deinterlaced (see Deinterlacing below). *Revisit if* software decoding
   can't keep up with a disc's 1080i on a device.
-- **H.264 that redefines a PPS id switches to software decoding, dropping up to one GOP once.** Some encoders resend
+- **H.264 that redefines a PPS id switches to software decoding, losing a few pictures at most.** Some encoders resend
   PPS 0 with other content on nearly every picture. Chrome's hardware decoder on macOS fails on such a stream every
   few seconds ("Decoding error", then frames lost to the next keyframe); ffmpeg and Chrome's software decoder decode
   it cleanly. The first PPS only shows up after `configure()`, so the decoder reopens with `prefer-software` when it
-  sees the redefinition and resumes at the next key unit. That costs about a second of frames at the start of each
-  playlist. *Revisit if* that gap shows (holding the first GOP until the PPS pattern is known would remove it).
+  sees the redefinition. It keeps the units fed since the last key unit (at most 120) and replays them into the
+  software decoder: pictures already handed out are decoded for reference only, the rest as they were fed. On
+  HDMV_DISC_A's clip that redefines PPS 0, the first 12 s presented 281 to 286 of about 289 pictures (248 when the
+  switch resumed at the next key unit; 279 of 278 on a clip of the same disc without a redefinition). The few still
+  lost are, it seems, pictures the hardware decoder held when it closed, whose software decode comes too late to show.
+  *Revisit if* that shows: hold the first units until the PPS pattern is known.
 - **MPEG-2 and VC-1 video is decoded in WASM, on the CPU.** The browsers decode neither, so FFmpeg's decoders run
   in `video.wasm` in a worker of their own, single-threaded. Measured on the synthetic discs in Chrome, Firefox and
   WebKit on an Apple silicon Mac: 1.2 to 1.6 ms a 1080 picture for MPEG-2 and 3.1 to 4.0 ms for VC-1. Phones are
@@ -102,22 +106,33 @@ what would change that decision.
   disc. A playlist with such video and nothing else playable still runs, silent and black on the wall clock, to its
   end: libbluray does the same, and some HDMV programs rely on it. `UnsupportedCodecError` is left for a
   decoder that fails to configure. *Revisit if* a precached decoder is worth its 1 MB to every visitor.
-- **The first NAS pre-flight of an MPEG-2 or VC-1 disc may wait up to about 20 s.** The decode speed probe runs once
-  a device (its answer is kept 30 days), raced against the pre-flight's own 10 s bound; the levels request, which
-  needs its answer, starts only then, with its own 10 s bound. Play waits for both, and the pre-flight says "Checking
-  this device can play this disc…" meanwhile. A probe asked while the page is hidden or another disc plays answers
-  unknown, and that open gets no Original. *Revisit if* the wait is noticed: probe ahead of the first pre-flight, or
-  ask the levels with a provisional answer while the probe runs.
+- **The decode speed probe runs ahead of the first pre-flight, but can still be waited for.** A paired device with no
+  disc open measures 5 s after the landing screen shows, when the browser is idle and the page visible
+  (`src/ui/early-speed-probe.ts`); the answer is kept 30 days. The engine discards a measurement that a disc's loading
+  or playing or the page hiding overlapped, since its numbers would be too low. A pre-flight opened before the early
+  probe finished shares it, and one opened with no answer yet still measures, raced against its own 10 s bound, and
+  the levels request, which needs its answer, starts only then, so that first open can still wait up to about 20 s.
+  A probe asked while the page is hidden or another disc plays answers unknown, and that open gets no Original.
+  *Revisit if* the wait is still noticed: ask the levels with a provisional answer while the probe runs.
 - **No progressive VC-1 is tested, nor VC-1 pulldown.** ffmpeg can't encode VC-1, so the one VC-1 fixture
   (`disc-vc1`) is a CC BY 1080i sample; progressive VC-1 and VC-1 with pulldown flags are untested until a disc or a
   licensed sample has them.
-- **1080i VC-1 on an iPhone 17 Pro plays at frame rate, not field rate.** Decoding takes 13 to 20 ms a picture there,
-  too slow for field-rate deinterlacing alongside it, so the deinterlacer's frame pacing steps down within the first
-  half minute of video and shows one picture a frame, a steady 29.97 a second. Measured 2026-11-18 over a 10-minute
-  play of a 1080i VC-1 film with five seeks: 132 pictures dropped in all, nearly all around the seeks, A/V offset
-  within 10 ms on average and 16 ms at most outside one brief 50 ms window, no decoder errors. The same device plays
-  480i MPEG-2 with 0 dropped. *Revisit if* the decoder gets faster (threads, or a decoder that skips work for the
-  field the frame-rate step doesn't show).
+- **1080i VC-1 on an iPhone 17 Pro plays at frame rate, not field rate, and the decoder is not why.** The deinterlacer's
+  frame pacing steps down within the first half minute of video and shows one picture a frame, a steady 29.97 a
+  second. Measured 2026-11-18 over a 10-minute play of a 1080i VC-1 film with five seeks: 132 pictures dropped in all,
+  nearly all around the seeks, A/V offset within 10 ms on average and 16 ms at most outside one brief 50 ms window, no
+  decoder errors. The same device plays 480i MPEG-2 with 0 dropped. A profile of the same film on 2026-11-19 put the
+  cause in WebKit's GPU process, not the WASM decoder:
+  - **Decoding** takes about 10 ms a picture, 15 to 17 ms in heavy scenes, in its own worker, inside the 33 ms a frame allows.
+  - **The engine worker's own work** is about 3 ms a display tick in all: the tick itself, demuxing, plane uploads, the metric readback and the decoder's messages.
+  - **The worker blocks after each tick** while its canvas is committed. That's about 4 ms for film and 4 to 6 ms at field rate in one stretch of video, but 11 to 14 ms through another stretch from its first second (a cool phone on a clean link, 2026-11-19; up to 24 ms when warm). At that cost only about 50 ticks fit in a second, so pictures drop and the step comes. It is not a spike at the switch into video.
+  - **`transferToImageBitmap`**, which hands the deinterlaced picture to the compositor, stalls up to 17 to 22 ms in the costly stretch, against 3 ms elsewhere.
+  - **The GPU work itself is small:** waiting for the GPU after the upload, the bwdif pass and the colour conversion each takes under 0.3 ms.
+  - **The fall-back shader** changes nothing.
+  - **Leaving out the 2D compositor's draw of the picture** halves the cost of a cheap stretch, but not of a costly one.
+  - **Runs on a warm phone cost more,** even at frame rate.
+
+  So the time goes to WebKit handing pictures across: the WebGL canvas's image moved out as an ImageBitmap, drawn on the 2D canvas, and that canvas committed to the page. The shaders and the decoder take little of it. *Revisit when* the pictures reach the screen with fewer hand-offs (the deinterlacer drawing straight into the visible canvas, with video and overlays in one WebGL canvas), measured on the same film.
 - **A playlist that starts mid-clip skips the clip's middle, unlike libbluray.** libbluray's `_fill_clip` reads the
   first play item from the clip's first packet (`start_pkt = 0`). Over the network that downloaded every byte before
   the IN point first: a chapter playlist starting 31 minutes into a 480i MPEG-2 clip took 65 s to start over Wi-Fi.
@@ -758,7 +773,7 @@ what would change that decision.
 - **The iPadOS detection is the one user-agent exception.** `navigator.platform === 'MacIntel'` with touch points in `src/ui/memory-profile.ts`, because iPadOS reports a Mac.
 - **Constrained memory profile: IG sub-paths over 64 MB don't preload.** The user sees "This disc's menus need more memory than this device allows." and the disc plays without menus.
 - **`<video>` fullscreen/PiP experiment, left open.** A `<video>` might give iPhone fullscreen and Picture-in-Picture; not tried. The element path (HDR and other streams played in the page's `<video>`) is the natural place to start, rather than capturing the canvas.
-- **A local `.iso` isn't in Recent discs.** An image is picked through a file input (`src/ui/iso-input.ts`), and Recent discs keeps directory handles only; its place is kept under its fingerprint all the same. *Revisit if* reopening images matters: keep a `FileSystemFileHandle` from `showOpenFilePicker` where there is one. A file with an unrecorded run longer than 64 MB (`MAX_ZERO_RUN_BYTES`) is refused, since the zeros would be held in memory; real discs have none.
+- **A local `.iso` is in Recent discs only in Chromium.** Open .iso uses `showOpenFilePicker` there (and a dropped image gives its file handle), so Recent discs keeps the image's `FileSystemFileHandle` beside folders; Safari and Firefox pick through a file input, with no handle to keep, as for folders. A file with an unrecorded run longer than 64 MB (`MAX_ZERO_RUN_BYTES`) is refused, since the zeros would be held in memory; real discs have none.
 - **Full discs can't practically be opened from a folder on iPhone or iPad.** Safari copies every picked file out of the Files provider before the page sees it: measured on iPadOS 27, a 0.40 GiB clip from a USB drive took 61 s (about 7 MB/s), so a full disc takes an hour or more on every open. No web API avoids it. The landing screen explains the wait after 1.5 s; iOS watching goes through the NAS (spec steps 2–3).
 - **Offline when the network answers with an error page (fixed).** Found in the tailnet offline test: an origin that had stopped serving still answered the reload with "404 page not found" over the open connection, and the service worker passed it through. A 404 or 5xx answer to a navigation now gets the cached app, as a network failure does (`src/sw.ts`, `tests/e2e/offline.spec.ts`).
 - **Touch pointerup at (0, 0) on the iPad (fixed).** Under remote automation, iPadOS 27 Safari reported a touch's `pointerup` at clientX/clientY 0,0 while `pointerdown` and the synthesized `click` had the real position; taps on menu buttons missed and double taps all fell in the left third. Taps now take their position from the matching `pointerdown` (`tapPoint` in `src/ui/touch.ts`). Whether real fingers do the same is unconfirmed; the fix holds either way.
@@ -853,6 +868,12 @@ Fill in from `probe.html` on each device.
   resolve from the registry) and compiles them with its own TypeScript or Vite. `npm run package-smoke` does exactly
   that in a temporary project. *Revisit if* a project outside this repo needs them from a registry: that needs a build
   step to JavaScript and `.d.ts`, real version ranges between the packages, and publishing.
+- **`@seikou/bdj` imports the other packages' internals.** It reaches `@seikou/engine`, `@seikou/bdmv`, `@seikou/nas`
+  and `@seikou/ass` through their `./*` subpaths (`@seikou/engine/bdj-types`, `@seikou/bdmv/bdjo-parser` and
+  others), not their roots, so it works only with packages from the same checkout. `@seikou/bdj-classlib`'s
+  intrinsics import `@seikou/bdj`'s JVM the same way, which is why it lists `@seikou/bdj` as a peer dependency
+  rather than a dependency (the two would otherwise depend on each other). *Revisit if* the packages are published:
+  the BD-J interface would then need a declared surface in the engine's root.
 
 ## Resolved (for reference)
 

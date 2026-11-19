@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Seikou's own code is LGPL-3.0-or-later. A source file keeps LGPL-2.1-or-later only when it ports or derives from an
-# upstream released under that licence, and its header says so. src/bdj-classlib/ (GPLv2 with the Classpath Exception)
-# is not checked. This fails when:
+# upstream released under that licence, and its header says so. packages/bdj-classlib/ (the BD-J class library, GPLv2
+# with the Classpath Exception and the licences its NOTICE names) is not checked, except its package.json. This fails
+# when:
 # - a file carries LGPL-2.1 but its leading comment block (within its first 15 lines) has no porting line ("Ported
 #   from", "Derived from", "Port of", "Based on", "Adapted from"), no upstream's copyright line, and no stated reason
 #   ("LGPL-2.1-or-later because"); naming an upstream in running text is not enough;
 # - a file a NOTICE lists as derived from libbluray, libudfread, FFmpeg or libass is missing or does not carry
 #   LGPL-2.1-or-later in its header (the NOTICE lists are the one record of derived files; the check reads them);
 # - a package holding LGPL-2.1 files does not ship the LGPL-2.1 text (LICENSES/LGPL-2.1.txt, listed in "files");
-# - a package.json states a licence other than LGPL-3.0-or-later.
+# - a package.json states a licence other than LGPL-3.0-or-later; the one exception is packages/bdj-classlib/package.json,
+#   which must state exactly the class library's expression (CLASSLIB_LICENCE).
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
@@ -17,6 +19,10 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 upstream='^[[:space:]]*(\*|//)?[[:space:]]*(ported( to typescript)? from|derived from|port of|based on|adapted from)\b|lgpl-2\.1-or-later because'
 own_holder='seikou (authors|contributors)'
 lgpl21='SPDX-License-Identifier: LGPL-2\.1'
+# @seikou/bdj-classlib: OpenJDK 8's classes and the intrinsics derived from them (GPLv2 with the Classpath Exception),
+# libbluray's jars (LGPL-2.1-or-later), and in rt-bdj.jar Apache Xerces (Apache-2.0), ICU4J's normalizer (ICU) and SAX
+# (public domain, SAX-PD); see packages/bdj-classlib/NOTICE.
+CLASSLIB_LICENCE='GPL-2.0-only WITH Classpath-exception-2.0 AND LGPL-2.1-or-later AND Apache-2.0 AND ICU AND SAX-PD'
 
 status=0
 problem() { echo "licence-check: $*" >&2; status=1; }
@@ -39,7 +45,7 @@ while IFS= read -r file; do
   grep -qiE "$upstream" <<<"$header" && continue
   grep -i 'copyright' <<<"$header" | grep -qviE "$own_holder" && continue
   problem "$file is LGPL-2.1 but has no porting line, upstream copyright or stated reason; Seikou's own code is LGPL-3.0-or-later"
-done < <(git ls-files -- '*.ts' '*.tsx' '*.c' ':!src/bdj-classlib/**')
+done < <(git ls-files -- '*.ts' '*.tsx' '*.c' ':!packages/bdj-classlib/**')
 
 # Derived files, as each NOTICE lists them: under a libbluray, libudfread, FFmpeg or libass heading, the lines after
 # "Derived file(s)" up to a blank line whose first word is a .ts path followed (perhaps after a note) by "from".
@@ -52,10 +58,10 @@ derived() {
       split(substr($0, RSTART, RLENGTH), f, /[ \t]+/); print f[2]
     }' "$1" | sort -u
 }
-# Each NOTICE with its paths' base: a package's are relative to its src/, src/bdj/NOTICE's to src/.
+# Each NOTICE with its paths' base: a package's are relative to its src/.
 count=0
 for pair in packages/ass/NOTICE:packages/ass/src packages/bdmv/NOTICE:packages/bdmv/src \
-  packages/engine/NOTICE:packages/engine/src packages/pg/NOTICE:packages/pg/src src/bdj/NOTICE:src; do
+  packages/engine/NOTICE:packages/engine/src packages/pg/NOTICE:packages/pg/src packages/bdj/NOTICE:packages/bdj/src; do
   notice="${pair%%:*}" base="${pair#*:}"
   while IFS= read -r path; do
     count=$((count + 1))
@@ -80,7 +86,9 @@ done
 
 while IFS= read -r manifest; do
   licence="$(node -p "require('./$manifest').license")"
-  [ "$licence" = 'LGPL-3.0-or-later' ] || problem "$manifest states \"$licence\"; expected LGPL-3.0-or-later"
+  expected='LGPL-3.0-or-later'
+  [ "$manifest" = 'packages/bdj-classlib/package.json' ] && expected="$CLASSLIB_LICENCE"
+  [ "$licence" = "$expected" ] || problem "$manifest states \"$licence\"; expected $expected"
 done < <(git ls-files -- 'package.json' '**/package.json' ':!**/node_modules/**')
 
 [ "$status" -eq 0 ] && echo "licence-check: ok ($count derived files checked against the NOTICEs)"

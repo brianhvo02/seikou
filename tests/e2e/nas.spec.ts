@@ -566,6 +566,18 @@ test('an MPEG-2 disc on the NAS opens at Original with a picture where the probe
   expect(levelManifests).toEqual([]);
 });
 
+test('a paired device measures the MPEG-2 and VC-1 decode speed while idle, before any pre-flight asks', async ({ page, browserName }) => {
+  test.setTimeout(90_000);
+  await openLibrary(page, browserName);
+  // no disc opened: the speed is stored once the landing screen has been idle a few seconds
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('bluray-web:wasm-video-speed')), { timeout: 60_000 })
+    .not.toBeNull();
+  const stored = JSON.parse((await page.evaluate(() => localStorage.getItem('bluray-web:wasm-video-speed')))!) as { mpeg2Fps: number; vc1Fps: number };
+  expect(stored.mpeg2Fps).toBeGreaterThan(0);
+  expect(stored.vc1Fps).toBeGreaterThan(0);
+});
+
 test('opens disc-menu from the NAS into its menu', async ({ page, browserName }) => {
   await openLibrary(page, browserName);
   await skipWithoutH264(page, { realtime: false });

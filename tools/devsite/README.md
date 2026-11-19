@@ -1,6 +1,6 @@
 # tools/devsite
 
-TypeDoc on its own TypeScript 5.9 (the repository is on TypeScript 7, which has no JavaScript compiler API). `model.mjs` converts the eight `@seikou` packages' entry points (`packages/<name>/src/index.ts`) and writes `.cache/devsite/model.json`: TypeDoc's JSON with one module per package, internal and private members left out, and a top-level `seikouSourceHash`.
+TypeDoc on its own TypeScript 5.9 (the repository is on TypeScript 7, which has no JavaScript compiler API). `model.mjs` converts the ten `@seikou` packages' entry points (`packages/<name>/src/index.ts`) and writes `.cache/devsite/model.json`: TypeDoc's JSON with one module per package, internal and private members left out, and a top-level `seikouSourceHash`.
 
 ```
 npm run devsite:install   # npm ci --prefix tools/devsite

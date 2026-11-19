@@ -1,5 +1,5 @@
 /*
- * Golden values for Seikou's freetype.wasm (src/wasm/freetype/), from the system FreeType that the libbluray
+ * Golden values for Seikou's freetype.wasm (packages/bdj/wasm/freetype/), from the system FreeType that the libbluray
  * BD-J harness links. It makes the FreeType calls libbluray's BD-J text natives make
  * (bdj/native/java_awt_BDFontMetrics.c loadFontN, charWidthN, getFontFamilyAndStyleN; java_awt_BDGraphics.c
  * drawStringN) and prints their results as JSON. Run by freetype-golden.sh; the output is
@@ -8,7 +8,7 @@
  * Usage: freetype_golden <font file>
  *
  * Copyright (C) 2026  Seikou contributors
- * Original code, kept LGPL-2.1-or-later because it repeats src/wasm/freetype/shim.c's calls for comparison.
+ * Original code, kept LGPL-2.1-or-later because it repeats packages/bdj/wasm/freetype/shim.c's calls for comparison.
  * SPDX-License-Identifier: LGPL-2.1-or-later
  */
 

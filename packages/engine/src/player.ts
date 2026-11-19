@@ -805,6 +805,7 @@ export class Player {
     // a hidden page pauses the BD-J start-up timeout at once, whatever the queue holds: the timeout counts only the time the page is visible
     if (cmd.type === 'visibility') {
       this.pageHidden = cmd.hidden;
+      if (cmd.hidden && this.speedProbeRun) this.speedProbeRun.disturbed = true;
       this.interlacedVideo?.settlePacing();
       this.bdj?.session.setHidden(cmd.hidden);
       return Promise.resolve();
@@ -4323,12 +4324,16 @@ export class Player {
 
   /** The measurement probeVideoDecoder has in progress, or the successful one the Player keeps; a failed one is forgotten. */
   private speedProbe: Promise<VideoDecoderSpeed | null> | null = null;
+  /** The measurement in flight: `disturbed` once a disc loads or plays or the page hides before it ends (it then counts as failed). */
+  private speedProbeRun: { disturbed: boolean } | null = null;
 
   /**
    * Answers probeVideoDecoder with videoDecoderSpeed. A successful measurement is kept and answers every later ask; a
    * failed or timed-out one is answered null once and forgotten, so the next ask measures again (at most one is in flight
    * at a time: asks meanwhile get its answer). Null, measuring nothing, without a decoder or bench, and while the page is
-   * hidden or a disc loads or plays (the measurement would share the device with it).
+   * hidden or a disc loads or plays (the measurement would share the device with it). One that a disc's loading or
+   * playing, or the page hiding, overlapped is answered null too: its numbers would be too low (an early probe races
+   * the person opening a disc).
    */
   private probeSpeed(): void {
     const wasm = this.deps.videoWasm;
@@ -4337,7 +4342,15 @@ export class Player {
       this.deps.emit({ type: 'videoDecoderSpeed', speed: null });
       return;
     }
-    const probe = (this.speedProbe ??= probeVideoDecoderSpeed({ videoWasm: wasm, nowMs: () => this.deps.nowMs(), ...(this.deps.setTimer ? { setTimer: this.deps.setTimer } : {}) }));
+    if (!this.speedProbe) {
+      const run = { disturbed: false };
+      this.speedProbeRun = run;
+      this.speedProbe = probeVideoDecoderSpeed({ videoWasm: wasm, nowMs: () => this.deps.nowMs(), ...(this.deps.setTimer ? { setTimer: this.deps.setTimer } : {}) }).then((speed) => {
+        if (this.speedProbeRun === run) this.speedProbeRun = null;
+        return run.disturbed ? null : speed;
+      });
+    }
+    const probe = this.speedProbe;
     void probe.then((speed) => {
       if (speed === null && this.speedProbe === probe) this.speedProbe = null;
       this.deps.emit({ type: 'videoDecoderSpeed', speed });
@@ -4658,6 +4671,7 @@ export class Player {
   private setState(state: PlaybackState): void {
     if (state === this.state) return;
     this.state = state;
+    if (this.speedProbeRun && (state === 'loading' || state === 'buffering' || state === 'playing')) this.speedProbeRun.disturbed = true;
     this.deps.emit({ type: 'state', state });
   }
 
