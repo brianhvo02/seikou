@@ -24,8 +24,9 @@ import { discKeyOf } from '@seikou/nas/disc-key';
 import { mainPlaylistId } from './nas/library-model';
 import { LOCAL_DEVICE_NAME, type LaunchSettings, type PlaceSaver } from './place-saver';
 import { ResumePrompt } from './nas/ResumePrompt';
-import { playlistsOf, startOver } from './nas/resume-model';
+import { playlistsOf } from './nas/resume-model';
 import { askOrOpen, localKeyOf, recentResumeLabel, type AskOffer } from './local-resume';
+import { entriesFromIso, IsoError } from './iso-input';
 import type { StartPoint } from '@seikou/engine/protocol';
 import type { DiscEntry } from '@seikou/nas/nas-api';
 import { listRecentDiscs, reopenRecentDisc, saveRecentDisc, type RecentDisc } from './recent-discs';
@@ -171,6 +172,7 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
   const [dragging, setDragging] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const isoInputRef = useRef<HTMLInputElement>(null);
   // tools/disc-server: ?disc=<disc API base>&token= or ?token= (see `tools/disc-server`). Each disc's manifest is fetched
   // before its button is enabled, so the tap opens it at once (audio starts inside the tap), as the NAS pre-flight does.
   const [serverLink] = useState<ServerLink | null>(() => serverLinkFromLocation(window.location.href));
@@ -399,6 +401,34 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
     run(pickFolder());
   };
 
+  /** A disc image's files open as a folder's do, its place saved on this device under the same fingerprint. */
+  const openIso = async (file: File): Promise<void> => {
+    let entries: Awaited<ReturnType<typeof entriesFromIso>>;
+    try {
+      entries = await entriesFromIso(file);
+    } catch (err) {
+      if (err instanceof IsoError) {
+        setLocalError(err.message);
+        return;
+      }
+      throw err;
+    }
+    await openLocal(entries);
+  };
+
+  const onPickIso = (): void => {
+    setLocalError(null);
+    controller.startAudio(); // must happen inside the click gesture
+    isoInputRef.current?.click();
+  };
+
+  const onIsoInput = (e: ChangeEvent<HTMLInputElement>): void => {
+    setLocalError(null);
+    const file = e.target.files?.[0];
+    if (file) run(openIso(file));
+    e.target.value = '';
+  };
+
   const onInput = (e: ChangeEvent<HTMLInputElement>): void => {
     setAwaitingFiles(false);
     setLocalError(null);
@@ -416,10 +446,11 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
     run(
       dropPending.then(async (dropped) => {
         if (!dropped) {
-          setLocalError('Drop the disc folder itself (the folder that contains BDMV).');
+          setLocalError('Drop the disc folder itself (the folder that contains BDMV), or one .iso image.');
           return;
         }
         if (dropped.kind === 'entries') await openLocal(dropped.entries);
+        else if (dropped.kind === 'iso') await openIso(dropped.file);
         else await openHandle(dropped.handle);
       }),
     );
@@ -455,16 +486,18 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
     );
   };
 
-  /** Resume at the place, or Start from beginning (its playlist from 0); either way with the place's settings. */
+  /** Resume at the place with its settings, or Start from beginning: the disc as it starts (First Play), carrying nothing, the place forgotten. */
   const answerPending = (resume: boolean): void => {
     if (!pending) return;
     const { offer, open } = pending;
     controller.startAudio(); // inside the tap
     openSeq.current++;
     setPending(null);
-    const launch: LaunchSettings = { settings: offer.place.settings, byLanguage: false };
-    if (resume && offer.kind === 'ask') open(offer.start, launch);
-    else open(startOver(offer.place), launch);
+    if (resume && offer.kind === 'ask') open(offer.start, { settings: offer.place.settings, byLanguage: false });
+    else {
+      void places.forget(offer.place);
+      open(undefined, undefined); // a local disc's offer is never for a requested playlist (startFromBeginning)
+    }
   };
 
   const error = localError ?? snapshot.error?.message ?? null;
@@ -524,7 +557,7 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
           {!browsing && <div className="drop-disc" aria-hidden="true" />}
           <div className="drop-text">
             {!browsing && <h2 className="drop-title">Play a disc</h2>}
-            {!browsing && <p>Drop a decrypted Blu-ray folder here: the disc folder, or the BDMV folder inside it.</p>}
+            {!browsing && <p>Drop a decrypted Blu-ray folder here (the disc folder, or the BDMV folder inside it), or an .iso image.</p>}
             {!browsing && capabilities.core.ok && !capabilities.bdj.ok && (
               <p className="hint" data-testid="bdj-capability-hint">
                 BD-J (Java) menus can't run in this browser: it lacks {capabilities.bdj.missing.join(', ')}. Discs with them open to their playlists.
@@ -534,9 +567,15 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
             <button type="button" className={browsing ? undefined : 'primary'} data-testid="open-folder" disabled={!capabilities.core.ok} onClick={onPickFolder}>
               Open disc folder
             </button>
+            {!browsing && (
+              <button type="button" data-testid="open-iso" disabled={!capabilities.core.ok} onClick={onPickIso}>
+                Open .iso
+              </button>
+            )}
           </div>
           {/* webkitdirectory is rendered, not set in an effect: the input must pick folders from the moment it exists */}
           <input ref={inputRef} type="file" multiple hidden data-testid="folder-input" {...{ webkitdirectory: '' }} onChange={onInput} />
+          <input ref={isoInputRef} type="file" accept=".iso" hidden data-testid="iso-input" onChange={onIsoInput} />
         </div>
         <div className="app-tools">
           <ThemeSwitch theme={theme} />

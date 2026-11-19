@@ -79,6 +79,43 @@ describe('M2tsReader', () => {
     expect(audio.length).toBeGreaterThan(plain.filter((p) => p.pid === AUDIO).length);
   });
 
+  it('with a head reads only its PIDs there, then jumps to the lead without reading the packets between', async () => {
+    const { source, units, unitSpns } = clip(true);
+    const reads: Array<[number, number]> = [];
+    const counting: ByteSource = Object.assign(Object.create(source) as ByteSource, {
+      read: (path: string, offset: number, length: number, signal?: AbortSignal) => {
+        reads.push([offset / 192, (offset + length) / 192]);
+        return source.read(path, offset, length, signal);
+      },
+    });
+    const startSpn = unitSpns[60]!; // unit 30's video
+    const lead = { fromSpn: unitSpns[50]!, pids: new Set([AUDIO]) };
+    const head = { fromSpn: 0, toSpn: unitSpns[10]!, pids: new Set([AUDIO]) };
+    const pids = new Set([VIDEO, AUDIO]);
+    const plain = await readAll({ source, path: PATH, startSpn, pids, lead, chunkPackets: 32 });
+    const out = await readAll({ source: counting, path: PATH, startSpn, pids, lead, head, chunkPackets: 32 });
+    const headEnd = Math.floor(head.toSpn / 32) * 32;
+    const leadFrom = Math.floor(lead.fromSpn / 32) * 32;
+    // nothing between the head and the lead was read
+    expect(reads.every(([from, to]) => to <= headEnd || from >= leadFrom)).toBe(true);
+    // the head's audio (whole PES only), then exactly what the read without a head gives
+    const headAudio = units.filter((u, i) => u.pid === AUDIO && unitSpns[i]! < headEnd).map((u) => u.pts);
+    const fromHead = out.slice(0, out.length - plain.length);
+    expect(out.slice(fromHead.length).map((p) => [p.pid, p.pts])).toEqual(plain.map((p) => [p.pid, p.pts]));
+    expect(fromHead.every((p) => p.pid === AUDIO)).toBe(true);
+    expect(fromHead.length).toBeGreaterThan(0);
+    expect(headAudio.slice(0, fromHead.length)).toEqual(fromHead.map((p) => p.pts));
+  });
+
+  it('ignores a head that reaches the lead', async () => {
+    const { source, unitSpns } = clip(true);
+    const startSpn = unitSpns[40]!;
+    const pids = new Set([VIDEO, AUDIO]);
+    const plain = await readAll({ source, path: PATH, startSpn, pids, chunkPackets: 32 });
+    const out = await readAll({ source, path: PATH, startSpn, pids, head: { fromSpn: 0, toSpn: startSpn + 64, pids: new Set([AUDIO]) }, chunkPackets: 32 });
+    expect(out.map((p) => p.pts)).toEqual(plain.map((p) => p.pts));
+  });
+
   it('stops at endSpn', async () => {
     const { source, units, unitSpns } = clip(false);
     const out = await readAll({ source, path: PATH, startSpn: 0, endSpn: unitSpns[10], pids: new Set([VIDEO]) });

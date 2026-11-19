@@ -5,7 +5,7 @@ import type { PlayerSnapshot } from '@seikou/engine/controller/player-controller
 import { NasHttpError, type NasClient } from './nas/nas-client';
 import { buildPlace, PLACE_MIN_DURATION_US, qualifies, type StoredSubtitleNote, type TrackNames } from './place-model';
 import { pairingKey } from './nas/nas-store';
-import { MAX_TEXT_FILE_BYTES, MAX_TEXT_FILES_BYTES, placeKey, type PlaceStore, type StoredTextFile } from './place-store';
+import { isRemote, MAX_TEXT_FILE_BYTES, MAX_TEXT_FILES_BYTES, placeKey, type PlaceStore, type StoredTextFile } from './place-store';
 
 /** A local disc's places name their device this way ("Stopped at 3:12 of 24:00 on this device"). */
 export const LOCAL_DEVICE_NAME = 'this device';
@@ -66,7 +66,7 @@ export interface PlaceSaverDeps {
   /** The device-side store (IndexedDB); a local disc's places and every NAS place's outbox live in it. */
   readonly store: PlaceStore;
   /** Where a NAS disc's places go; null with no NAS paired. */
-  readonly nas: Pick<NasClient, 'putPlace' | 'pairing'> | null;
+  readonly nas: Pick<NasClient, 'putPlace' | 'deletePlace' | 'pairing'> | null;
   /** The engine's registers (PlayerController.readPlace): answered in command order. */
   readonly readPlace: () => Promise<PlaceState>;
   /** PlayerController.discOpens: a read made under another open is not this disc's. */
@@ -298,6 +298,24 @@ export class PlaceSaver {
       })
       .catch((err: unknown) => this.log('saving the place failed', err));
     return this.chain.then(() => saved);
+  }
+
+  /**
+   * Forgets a place (Start from beginning on a whole disc): after the saves already started, it leaves this device's
+   * store and outbox, and a NAS disc's is deleted on the NAS once any send in flight has finished, so that send can't
+   * bring it back. Failures are logged, not thrown: a NAS that can't be reached keeps the place.
+   */
+  forget(place: Pick<PlaybackPlace, 'discKey' | 'playlistId' | 'discId'>): Promise<void> {
+    this.chain = this.chain
+      .then(async () => {
+        await this.deps.store.forget(placeKey(place));
+        const nas = this.deps.nas;
+        if (!isRemote(place) || !nas) return;
+        await this.draining;
+        await nas.deletePlace(place.discKey, place.playlistId);
+      })
+      .catch((err: unknown) => this.log('forgetting the place failed', err));
+    return this.chain;
   }
 
   /** Sends the places waiting in the outbox, oldest first; one that can't go stops the rest until the next try. */

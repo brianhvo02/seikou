@@ -51,6 +51,10 @@ function memoryStore(): PlaceStore & { puts: PlaybackPlace[]; saves: PlaybackPla
     async clearOutbox() {
       queued.clear();
     },
+    async forget(key) {
+      places.delete(key);
+      queued.delete(key);
+    },
     async putTextFiles(discKey, list) {
       files.set(discKey, [...list]);
     },
@@ -70,10 +74,14 @@ const KEY_A = 'devA@https://nas.example/bluray/api/';
 function fakeNas() {
   const nas = {
     sent: [] as { place: PlaybackPlace; keepalive: boolean }[],
+    deleted: [] as Array<[string, string | undefined]>,
     answer: 'stored' as Answer,
     paired: PAIRING_A as NasPairing | null,
     async pairing() {
       return nas.paired;
+    },
+    async deletePlace(discKey: string, playlistId?: string): Promise<void> {
+      nas.deleted.push([discKey, playlistId]);
     },
     async putPlace(place: PlaybackPlace, opts: { keepalive?: boolean } = {}): Promise<'stored' | 'stale'> {
       nas.sent.push({ place, keepalive: opts.keepalive === true });
@@ -657,5 +665,31 @@ describe('PlaceSaver', () => {
     // with no disc being saved, a note is ignored
     t.saver.noteStoredSubtitle('ep1.ass', 'sub-1', 120, 'en');
     expect([...t.saver.storedSubtitleNotes()]).toEqual([]);
+  });
+
+  it('forgets a NAS place: out of the outbox, then deleted on the NAS after any send in flight', async () => {
+    const t = setup();
+    await t.store.queue({ discKey: KEY, playlistId: '00001', discId: '0123456789abcdef', updatedAt: 1 } as PlaybackPlace, 'pairing');
+    await t.saver.forget({ discKey: KEY, playlistId: '00001', discId: '0123456789abcdef' });
+    expect(t.store.queued.size).toBe(0);
+    expect(t.nas.deleted).toEqual([[KEY, '00001']]);
+  });
+
+  it("forgets a local disc's place on this device only", async () => {
+    const t = setup({ remote: false });
+    await t.store.put({ discKey: KEY, playlistId: '00002', discId: '', updatedAt: 1 } as PlaybackPlace);
+    await t.saver.forget({ discKey: KEY, playlistId: '00002', discId: '' });
+    expect((await t.store.get(KEY)).places['00002']).toBeUndefined();
+    expect(t.nas.deleted).toEqual([]);
+  });
+
+  it('logs a NAS delete that fails instead of throwing', async () => {
+    const logged: string[] = [];
+    const t = setup({ log: (m) => logged.push(m) });
+    t.nas.deletePlace = async () => {
+      throw new Error('unreachable');
+    };
+    await t.saver.forget({ discKey: KEY, playlistId: '00001', discId: '0123456789abcdef' });
+    expect(logged).toContain('forgetting the place failed');
   });
 });

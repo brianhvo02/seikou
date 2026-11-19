@@ -25,6 +25,15 @@ import { audioEntryFor, igEntryFor } from './stream-selection';
  */
 export const PG_SEEK_LEAD_US = 5_000_000;
 
+/**
+ * The head of a clip read for a first play item that starts mid-clip (bytes): its graphics muxed ahead of the first
+ * keyframe (an IG menu's display set at the clip start) lie in it. When the keyframe at the IN time is further in than
+ * this, only the head's graphics are read and the read jumps to that keyframe, instead of reading every byte before it
+ * as libbluray does: over the network those bytes are all downloaded first, a minute or more for a chapter playlist
+ * deep into a film's clip.
+ */
+export const MID_CLIP_HEAD_BYTES = 8 * 1024 * 1024;
+
 /** One access unit or PES payload the pipeline hands to a sink. */
 export interface PipelineUnit {
   /** The payload bytes. */
@@ -115,6 +124,8 @@ export interface PipelineConfig {
   readonly audioStream: number | null;
   /** 1-based IG stream number (PSR0), or null/absent for no IG. */
   readonly igStream?: number | null;
+  /** The head of a clip read before a mid-clip first item's keyframe; default MID_CLIP_HEAD_BYTES (tests make it small). */
+  readonly midClipHeadBytes?: number;
 }
 
 /**
@@ -287,14 +298,28 @@ export class PlaybackPipeline implements SessionPipeline {
       // keyframe at or before the IN time, where a decode can start, so the clip's earlier pictures are not decoded for
       // nothing (a software decoder would spend minutes on them before the first picture). Audio and graphics still come
       // from packet 0. A seamless item (connection 5, 6) is never cut: its first pictures may continue the previous clip.
-      if (fromClipStart && i === 0 && i === startPos.item.index && readVideo && ep) {
+      // When that keyframe lies past the clip's head (MID_CLIP_HEAD_BYTES), only the head's graphics are read, then PG
+      // from a few seconds before the IN time as on a seek, then everything from the keyframe: the bytes between are skipped.
+      let head: { fromSpn: number; toSpn: number; pids: ReadonlySet<number> } | undefined;
+      if (fromClipStart && i === 0 && i === startPos.item.index && ep) {
         const key = findEpBefore(ep, item.inTime, range);
-        if (key && key.pts <= item.inTime && alignedUnit(key.spn) > alignedUnit(startSpn)) {
+        const headEnd = startSpn + Math.ceil((this.config.midClipHeadBytes ?? MID_CLIP_HEAD_BYTES) / SOURCE_PACKET_SIZE);
+        if (key && key.pts <= item.inTime && alignedUnit(key.spn) > alignedUnit(headEnd)) {
+          readerStartSpn = key.spn;
+          const graphics = new Set([...pids].filter((pid) => pid === pgPid || pid === igEntry?.pid));
+          if (graphics.size > 0) head = { fromSpn: startSpn, toSpn: headEnd, pids: graphics };
+          if (pgPid !== null) {
+            // a subtitle on screen at the IN time may have begun before it, inside the same clip (a read from packet 0 had it)
+            const leadTarget = item.inTime - Math.round((PG_SEEK_LEAD_US * 45) / 1000);
+            const fromSpn = findEpBefore(ep, leadTarget, range)?.spn ?? key.spn;
+            if (fromSpn < key.spn) lead = { fromSpn, pids: new Set([pgPid]) };
+          }
+        } else if (readVideo && key && key.pts <= item.inTime && alignedUnit(key.spn) > alignedUnit(startSpn)) {
           readerStartSpn = key.spn;
           lead = { fromSpn: startSpn, pids: new Set([...pids].filter((pid) => pid !== videoPid)) };
         }
       }
-      const reader = new M2tsReader({ source, path: streamPath(item.clipId), startSpn: readerStartSpn, endSpn, pids, lead });
+      const reader = new M2tsReader({ source, path: streamPath(item.clipId), startSpn: readerStartSpn, endSpn, pids, lead, head });
       this.current?.cancel();
       this.retire(this.current); // a stopped earlier read keeps its counts
       this.current = reader;

@@ -47,6 +47,16 @@ describe('idbPlaceStore', () => {
     expect(await store.outbox()).toEqual([]);
   });
 
+  it("forgets one playlist's place, stored and queued, and leaves the others", async () => {
+    const store = idbPlaceStore(new IDBFactory(), IDBKeyRange);
+    await store.put(place());
+    await store.put(place({ playlistId: '00002' }));
+    await store.queue(place({ discId: 'nas' }), 'dev1@https://nas/');
+    await store.forget(`${KEY}/00001`);
+    expect(Object.keys((await store.get(KEY)).places)).toEqual(['00002']);
+    expect(await store.outbox()).toEqual([]);
+  });
+
   it('counts refusals and lets a place go after the fifth; clears the outbox on demand', async () => {
     const store = idbPlaceStore(new IDBFactory(), IDBKeyRange);
     await store.queue(place(), 'p');

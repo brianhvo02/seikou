@@ -41,7 +41,7 @@ describe('disc input', () => {
 
   it('finds a dropped directory handle', async () => {
     const handle = dir('Movie', {});
-    const dt = { items: [{ kind: 'file', getAsFileSystemHandle: async () => handle }] } as unknown as DataTransfer;
+    const dt = { items: [{ kind: 'file', getAsFile: () => new File([], 'Movie'), getAsFileSystemHandle: async () => handle }] } as unknown as DataTransfer;
     expect(await discFromDataTransfer(dt)).toEqual({ kind: 'handle', handle });
     const noHandles = { items: [{ kind: 'string' }] } as unknown as DataTransfer;
     expect(await discFromDataTransfer(noHandles)).toBeNull();
@@ -63,14 +63,21 @@ describe('disc input', () => {
         };
       },
     };
-    const dt = { items: [{ kind: 'file', webkitGetAsEntry: () => bdmv }] } as unknown as DataTransfer;
+    const dt = { items: [{ kind: 'file', getAsFile: () => new File([], 'BDMV'), webkitGetAsEntry: () => bdmv }] } as unknown as DataTransfer;
     expect(await discFromDataTransfer(dt)).toEqual({ kind: 'entries', entries: [['BDMV/index.bdmv', idx]] });
   });
 
   it('returns null when only plain files are dropped', async () => {
     const f = new File([], 'a.srt');
-    const dt = { items: [{ kind: 'file', webkitGetAsEntry: () => ({ isFile: true, isDirectory: false, name: 'a.srt', file: (cb: (x: File) => void) => cb(f) }) }] } as unknown as DataTransfer;
+    const dt = { items: [{ kind: 'file', getAsFile: () => f, webkitGetAsEntry: () => ({ isFile: true, isDirectory: false, name: 'a.srt', file: (cb: (x: File) => void) => cb(f) }) }] } as unknown as DataTransfer;
     expect(await discFromDataTransfer(dt)).toBeNull();
+  });
+
+  it('takes one dropped .iso as a disc image, and two as nothing', async () => {
+    const iso = new File([], 'Disc.ISO');
+    const item = { kind: 'file', getAsFile: () => iso, webkitGetAsEntry: () => ({ isFile: true, isDirectory: false, name: 'Disc.ISO' }) };
+    expect(await discFromDataTransfer({ items: [item] } as unknown as DataTransfer)).toEqual({ kind: 'iso', file: iso });
+    expect(await discFromDataTransfer({ items: [item, item] } as unknown as DataTransfer)).toBeNull();
   });
 
   describe('fixtures/synthetic/disc1 picked from a file list', () => {

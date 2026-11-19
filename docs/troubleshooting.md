@@ -10,8 +10,14 @@ The browser lacks a feature the player needs (WebCodecs, AudioWorklet, Offscreen
 **"This disc can't be played because these files are missing."**
 You picked a folder without all of the disc. Choose the whole disc folder, including `BDMV/STREAM` and `BDMV/CLIPINF`.
 
-**"Drop the disc folder itself (the folder that contains BDMV)."**
-You dropped files and no folder. Drop the disc folder, or the `BDMV` folder.
+**"Drop the disc folder itself (the folder that contains BDMV), or one .iso image."**
+You dropped files and no folder. Drop the disc folder, the `BDMV` folder, or a single `.iso` image.
+
+**"… is not a Blu-ray image" or "… can't be read as a Blu-ray image"**
+The `.iso` you picked isn't a Blu-ray disc (it has no `BDMV` folder, or it isn't a UDF image), or it was cut short while copying. Copy it again, or open the disc folder instead.
+
+**"… has a file this player can't read"**
+A file in the image has a long unrecorded stretch the player won't fill in. Extract the image to a folder and open that.
 
 **"Waiting for the files…" on iPhone or iPad**
 Safari copies the whole folder before the player can read it. A full disc from a USB drive can take an hour or more. The player needs the whole disc folder, so copy it to faster storage first, or use a [NAS](nas.md).
@@ -22,10 +28,13 @@ For a disc in Recent discs, the browser asked for permission and it was refused.
 ## Picture and sound
 
 **"This disc's video can't be played here yet, so it will play without a picture."**
-The disc's video is MPEG-2 or VC-1, which browsers cannot decode, and the player's own decoder for them couldn't start on this device (the browser can't start it, or it is offline and the decoder was never downloaded: play such a disc once while online and it is kept). Sound, subtitles and menus still work over black. The notice shows once per disc and clears when something with a picture starts. On a NAS with quality levels, a level that re-encodes the disc gives a picture.
+The disc's video is MPEG-2 or VC-1, which browsers cannot decode, and the player's own decoder for them couldn't start on this device or failed on this disc (the browser can't start it, or it is offline and the decoder was never downloaded: play such a disc once while online and it is kept). Sound, subtitles and menus still work over black. The notice shows once per disc and clears when something with a picture starts. On a NAS with quality levels, a level that re-encodes the disc gives a picture.
 
 **An MPEG-2 or VC-1 disc stutters, or its picture lags behind the sound**
 The player decodes these formats itself, on the device's processor. A slow device skips some pictures to keep up. On a NAS disc the player switches to a re-encoded level by itself when its decoder fails or can't keep up; for a local folder, close other tabs, or play the disc from a NAS with quality levels.
+
+**Moving edges show combing (fine horizontal lines)**
+The disc is interlaced and is drawn as it was recorded: Deinterlacing is Off, the browser has no WebGL2 or draws it in software, or the graphics chip failed. Set **Deinterlacing** to **Auto** in Video output, or see [Deinterlacing](playing-discs.md#deinterlacing).
 
 **"This device can't decode HEVC (4K) video."**
 The disc's video is HEVC and this device cannot decode it. Try another browser or device.

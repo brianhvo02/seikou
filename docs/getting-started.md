@@ -23,17 +23,17 @@ The switch at the top of the page, beside **Help**, sets the look: **Auto** foll
 
 ## Open a disc
 
-You need a Blu-ray disc as a folder, already decrypted (the player does not remove copy protection). The folder is the one that contains `BDMV`. The `BDMV` folder itself works too.
+You need a Blu-ray disc as a folder or an `.iso` image, already decrypted (the player does not remove copy protection). The folder is the one that contains `BDMV`. The `BDMV` folder itself works too.
 
-1. Open the player and choose **Open disc folder**, or drag the folder onto the page.
+1. Open the player and choose **Open disc folder** (or **Open .iso** for an image), or drag the folder or the image onto the page.
 2. Pick the whole disc folder, including `BDMV/STREAM` and `BDMV/CLIPINF`. If files are missing the player lists them.
 3. The disc's own menu appears, as it would on a player. If the disc has no usable menu, you get a list to choose from (see [Playing discs](playing-discs.md)).
 
 Notes:
 
-- Dropping a folder needs a browser that supports it. If a drop is refused with "Drop the disc folder itself (the folder that contains BDMV).", drop the folder, not a file inside it.
+- Dropping a folder needs a browser that supports it. If a drop is refused with "Drop the disc folder itself (the folder that contains BDMV), or one .iso image.", drop the folder or one image, not a file inside the folder.
 - On iPhone and iPad, Safari copies the whole folder before the player can read it. A full disc from a USB drive can take an hour or more, and the page says "Waiting for the files…" meanwhile.
-- Pick a folder, not an `.iso` file. A NAS can serve `.iso` discs (see [NAS](nas.md)).
+- An image opens in place: nothing is copied or unpacked. It isn't listed under Recent discs, so pick it again next time; its place is remembered all the same. On iPhone and iPad, Safari copies the whole image first, as it does a folder.
 
 ## Recent discs and resume
 
@@ -57,6 +57,6 @@ A few things need a network: a NAS, the first use of a built-in video shader, an
 
 ## Next
 
-- [Playing discs](playing-discs.md): menus, tracks, subtitles, shaders, controls.
+- [Playing discs](playing-discs.md): menus, tracks, subtitles, disc preferences, shaders, HDR video, deinterlacing, controls.
 - [NAS](nas.md): play from a server that holds your library.
 - [Troubleshooting](troubleshooting.md)

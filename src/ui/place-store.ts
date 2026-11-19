@@ -42,6 +42,8 @@ export interface PlaceStore {
   failed(key: string, updatedAt: number): Promise<void>;
   /** Empties the outbox (the pairing changed: nothing in it may go to the new one). */
   clearOutbox(): Promise<void>;
+  /** Removes the place `key` (`placeKey`) from this device: the stored place and any copy waiting in the outbox. */
+  forget(key: string): Promise<void>;
   /** Replaces a disc's files; a file over 5 MB is left out, and a set over 50 MB is not stored. */
   putTextFiles(discKey: string, files: readonly StoredTextFile[]): Promise<void>;
   textFiles(discKey: string): Promise<StoredTextFile[]>;
@@ -128,6 +130,14 @@ export function idbPlaceStore(factory: IDBFactory = indexedDB, keyRange: typeof 
     async clearOutbox() {
       await withStore(factory, STORES.placeOutbox, 'readwrite', (s) => {
         s.clear();
+      });
+    },
+    async forget(key) {
+      await withStore(factory, STORES.places, 'readwrite', (s) => {
+        s.delete(key);
+      });
+      await withStore(factory, STORES.placeOutbox, 'readwrite', (s) => {
+        s.delete(key);
       });
     },
     async putTextFiles(discKey, files) {

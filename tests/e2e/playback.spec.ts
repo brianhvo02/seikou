@@ -142,6 +142,21 @@ test('plays a B-frame, open-GOP disc in sync and seeks without decoder errors', 
   await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'playing');
 });
 
+test('opens and plays a disc image (.iso) picked from the landing screen', async ({ page }) => {
+  await page.goto('/?telemetry=1');
+  await page.getByTestId('iso-input').setInputFiles('fixtures/synthetic/disc1.iso');
+  await expect(page.getByTestId('playlist-00000')).toContainText('Main feature', { timeout: 10_000 });
+  await startPlaylist(page, '00000');
+  await expect.poll(async () => (await telemetry(page))?.clockUs ?? 0, { timeout: 10_000 }).toBeGreaterThan(1_000_000);
+  expect((await telemetry(page))?.decoderErrors).toBe(0);
+});
+
+test('says why an .iso that is not a disc image does not open', async ({ page }) => {
+  await page.goto('/');
+  await page.getByTestId('iso-input').setInputFiles({ name: 'blank.iso', mimeType: 'application/octet-stream', buffer: Buffer.alloc(1 << 20) });
+  await expect(page.getByTestId('landing')).toContainText("\"blank.iso\" can't be read as a Blu-ray image");
+});
+
 test('a local disc remembers its place on this device', async ({ page }) => {
   await recordTelemetrySamples(page);
   await page.goto('/?telemetry=1&placemin=1');
@@ -168,12 +183,18 @@ test('a local disc remembers its place on this device', async ({ page }) => {
   await page.getByTestId('resume-at').click();
   await expect(page.getByTestId('player')).toHaveAttribute('data-playlist', '00000', { timeout: 15_000 });
   await expect.poll(async () => (await telemetry(page))?.clockUs ?? 0, { timeout: 5_000 }).toBeGreaterThanOrEqual(3_000_000);
-  // Start from beginning plays the same playlist from 0
+  // Start from beginning opens the disc as it starts (disc1 has no First Play: its title picker), not the place's playlist
   await page.reload();
   await setFolder(page.getByTestId('folder-input'), DISC);
   await page.getByTestId('resume-start-over').click({ timeout: 10_000 });
-  await expect(page.getByTestId('player')).toHaveAttribute('data-playlist', '00000', { timeout: 15_000 });
-  await expect.poll(async () => (await telemetry(page))?.clockUs ?? Infinity, { timeout: 5_000 }).toBeLessThan(1_500_000);
+  await expect(page.getByTestId('playlist-00000')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('player')).not.toHaveAttribute('data-playlist', '00000');
+  // and the place is forgotten: the next open asks nothing
+  await page.waitForTimeout(500);
+  await page.reload();
+  await setFolder(page.getByTestId('folder-input'), DISC);
+  await expect(page.getByTestId('playlist-00000')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId('resume-prompt')).toHaveCount(0);
 });
 
 test('arrow keys on a focused seek bar seek by 10 s instead of stepping the slider', async ({ page }) => {
