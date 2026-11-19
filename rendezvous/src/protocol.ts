@@ -261,3 +261,64 @@ export function iceServersOf(value: unknown): IceServerInfo[] | null {
   }
   return out;
 }
+
+/** The bytes a device signs for an `offer` on the socket `sid`; no timestamp, since the socket's id is already fresh. The type tag keeps a TURN proof from verifying here. */
+export function offerProofMessage(fields: { sid: string }): Uint8Array<ArrayBuffer> {
+  return new Uint8Array(new TextEncoder().encode(JSON.stringify({ type: 'offer', sid: fields.sid })));
+}
+
+/** A NAS-signed pass for one device: `signature` is over `signalTicketMessage({ nasId, deviceId, exp })`, `exp` in ms since the epoch. */
+export interface SignalTicket {
+  readonly nasId: string;
+  readonly deviceId: string;
+  readonly exp: number;
+  readonly signature: string;
+}
+
+/** The bytes a NAS signs for a signalling ticket; the type tag keeps any other signed message from verifying here. */
+export function signalTicketMessage(fields: { nasId: string; deviceId: string; exp: number }): Uint8Array<ArrayBuffer> {
+  return new Uint8Array(new TextEncoder().encode(JSON.stringify({ type: 'signal-ticket', nasId: fields.nasId, deviceId: fields.deviceId, exp: fields.exp })));
+}
+
+/** A ticket as it travels in a URL or a response: base64url of its JSON. */
+export function encodeTicket(ticket: SignalTicket): string {
+  const { nasId, deviceId, exp, signature } = ticket;
+  return base64url(new TextEncoder().encode(JSON.stringify({ nasId, deviceId, exp, signature })));
+}
+
+/** The ticket in `text`, or null for bad base64, bad JSON, a field of the wrong type, or a string over 1024 characters. */
+export function decodeTicket(text: string): SignalTicket | null {
+  if (text.length > 1024) return null;
+  const bytes = fromBase64url(text);
+  if (bytes === null) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    return null;
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const { nasId, deviceId, exp, signature } = value as Record<string, unknown>;
+  if (typeof nasId !== 'string' || typeof deviceId !== 'string' || typeof signature !== 'string') return null;
+  if (typeof exp !== 'number' || !Number.isFinite(exp)) return null;
+  return { nasId, deviceId, exp, signature };
+}
+
+/** What a device sends with an `offer` to prove itself: a paired device's signature over `offerProofMessage`, or the hash of a live code. */
+export type OfferProof = { readonly deviceId: string; readonly signature: string } | { readonly codeHash: string };
+
+const DAY_MS = 24 * 60 * 60_000;
+/** A signalling ticket is valid this long after the NAS signs it. */
+export const SIGNAL_TICKET_TTL_MS = 90 * DAY_MS;
+/** A device asks for a new ticket once less than this is left on its own. */
+export const SIGNAL_TICKET_RENEW_MS = 60 * DAY_MS;
+/** The Worker refuses a ticket whose `exp` is further ahead than this. */
+export const SIGNAL_TICKET_MAX_AHEAD_MS = 121 * DAY_MS;
+/** Device upgrades per minute in the window all of a NAS's unticketed devices share. */
+export const SIGNAL_SHARED_PER_MINUTE = 30;
+/** Upgrades per minute for one ticketed device. */
+export const SIGNAL_TICKET_PER_MINUTE = 10;
+/** Upgrades per minute for one live pairing code. */
+export const SIGNAL_CODE_PER_MINUTE = 10;
+/** Proof-bearing upgrades per minute from one address. */
+export const SIGNAL_PROOF_PER_ADDRESS = 60;
