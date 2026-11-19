@@ -95,7 +95,9 @@ code { font-family: var(--mono); font-size: 0.9em; }
 }
 /* the one motion: the disc turns while a folder is held over it */
 @media (prefers-reduced-motion: no-preference) { .drop-zone.dragging .drop-disc { animation: spin 3s linear infinite; } }
-.drop-text { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; max-width: 34rem; }
+/* a row that wraps: the text takes whole lines, the open buttons sit side by side */
+.drop-text { display: flex; flex-flow: row wrap; align-items: flex-start; gap: 12px; max-width: 34rem; }
+.drop-text > :not(button) { flex-basis: 100%; }
 .drop-text p { margin: 0; }
 .drop-text .hint { margin: 0; }
 .drop-title { margin: 0; font-size: clamp(2rem, 4.2vw, 3.2rem); }
@@ -579,7 +581,7 @@ code { font-family: var(--mono); font-size: 0.9em; }
   .pair label:first-child input { width: auto; }
   .drop-zone { grid-template-columns: minmax(0, 1fr); gap: 24px; padding: 28px 22px; border-radius: 22px; background: radial-gradient(140% 90% at 50% 0%, var(--hero-glow) 0%, var(--deep) 50%, var(--night) 100%); }
   .drop-disc { width: 168px; }
-  .drop-text > button { align-self: stretch; }
+  .drop-text > button { flex-basis: 100%; }
   .pair, .preflight, .owner-card { padding: 16px; }
   .title-grid, .artist-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 18px 12px; }
   .artist-head-art { width: 96px; }

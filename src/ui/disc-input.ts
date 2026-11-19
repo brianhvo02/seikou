@@ -1,4 +1,5 @@
 import { walkEntries, type EntryLike } from '@seikou/engine/controller/entry-walk';
+import { isIsoFile } from './iso-input';
 
 /** A picked or dropped folder as `[path, file]` pairs, the paths relative to the folder's parent. */
 export type DiscEntries = Array<[string, File]>;
@@ -26,18 +27,21 @@ export async function collectFromDirectoryHandle(handle: FileSystemDirectoryHand
   return out;
 }
 
-/** What a drop gives: a live directory handle (Chromium, so the folder can be remembered) or the walked entries (other browsers). */
+/** What a drop gives: a live directory handle (Chromium, so the folder can be remembered), the walked entries (other browsers), or a disc image (`.iso`). */
 export type DroppedDisc =
   | { readonly kind: 'handle'; readonly handle: FileSystemDirectoryHandle }
-  | { readonly kind: 'entries'; readonly entries: DiscEntries };
+  | { readonly kind: 'entries'; readonly entries: DiscEntries }
+  | { readonly kind: 'iso'; readonly file: File };
 
 /**
- * Turns a drop into a disc: a directory handle when the browser offers one, else the entries of the dropped folder. Returns
- * null when no folder was dropped (plain files). Must be called synchronously from the drop handler: items become unusable
- * after the event returns.
+ * Turns a drop into a disc: a directory handle when the browser offers one, else the entries of the dropped folder, or
+ * a lone `.iso` file. Returns null when neither a folder nor one image was dropped (other files). Must be called
+ * synchronously from the drop handler: items become unusable after the event returns.
  */
 export async function discFromDataTransfer(dt: DataTransfer): Promise<DroppedDisc | null> {
   const items = Array.from(dt.items).filter((item) => item.kind === 'file');
+  const image = items.length === 1 ? items[0]!.getAsFile() : null;
+  if (image && isIsoFile(image)) return { kind: 'iso', file: image };
   const handles = items.filter((item) => typeof item.getAsFileSystemHandle === 'function').map((item) => item.getAsFileSystemHandle?.());
   const entries = handles.length > 0 ? [] : items.map((item) => item.webkitGetAsEntry?.() as EntryLike | null | undefined).filter((e): e is EntryLike => !!e);
   for (const promise of handles) {

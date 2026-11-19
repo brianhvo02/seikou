@@ -192,7 +192,7 @@ The engine builds the reader itself: a `RemoteSource` (read-ahead in chunks, a b
 
 ### ISO images
 
-Seikou plays an ISO image only through a server. The NAS server reads the image with `readUdf` from `@seikou/bdmv` (`server/src/iso.ts`) and serves its files through the same disc API, so the player sees an ordinary disc. The browser cannot open a local ISO today; that is on the roadmap. `readUdf` itself is a parser like the others (section 8).
+The NAS server reads an image with `readUdf` from `@seikou/bdmv` (`server/src/iso.ts`) and serves its files through the same disc API, so the player sees an ordinary disc. The app opens a local image the same way without a server: `src/ui/iso-input.ts` reads the UDF tree through `Blob.slice` and turns each file into a `File` of slices of the image, which `controller.open` takes like a picked folder's files. `readUdf` itself is a parser like the others (section 8).
 
 ## 5. Subtitles
 

@@ -18,7 +18,6 @@ Short tasks that unblock or protect what is already deployed.
 
 | Item | Size | Notes |
 | --- | --- | --- |
-| **Open a local `.iso`** from the landing screen. The UDF reader (`packages/bdmv/src/udf.ts`) already serves NAS ISOs; this is the local half of cross-browser spec §4, deferred in the nas-server spec §10. | M | |
 | **Subtitles from picked `.mkv` files.** Extract ASS and SRT tracks and attached fonts from an `.mkv` the viewer picks or drops (the Encodes library's own MKVs already load theirs), deferred since M4b. This pairs with episode subtitle sets and the subtitle store. | M | |
 | **HDMV TextST and sub-path PG** decoding. | M | needs a disc |
 | **Probe the MPEG-2 and VC-1 decode speed before the first pre-flight,** so a first NAS open of such a disc doesn't wait up to about 20 s. | S | |

@@ -25,7 +25,7 @@ The folder has no public API for other packages; `src/main.tsx` mounts `App` and
 
 ## Where to look
 
-- Opening a disc: `disc-input.ts` (a picked or dropped folder as path and file pairs), `recent-discs.ts`, `local-resume.ts` (Resume or Start from beginning for a local disc), `disc-server.ts` (discs from the development disc server).
+- Opening a disc: `disc-input.ts` (a picked or dropped folder as path and file pairs), `iso-input.ts` (a picked or dropped `.iso` as the same pairs, each file a Blob of slices of the image), `recent-discs.ts`, `local-resume.ts` (Resume or Start from beginning for a local disc), `disc-server.ts` (discs from the development disc server).
 - Video shaders: `shader-sets.ts` (the built-in Anime4K sets and `input.conf` imports), `bundled-shaders.ts` (the shader files that ship in [`anime4k/`](anime4k), vendored from Anime4K under its own licence), `shader-library.ts` and `shader-model.ts`.
 - Subtitles: `SubtitleMenu.tsx`, `subtitle-starts.ts`, `EncodingPrompt.tsx` (the encoding asked for a file that is not UTF-8).
 - Encodes in the player: `chapter-actions.ts` (Skip opening, Skip ending, Next episode from chapter names), `ChapterActionButton.tsx`, `NextEpisodeButton.tsx`, `EncodeMenus.tsx`.

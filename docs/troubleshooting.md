@@ -10,8 +10,14 @@ The browser lacks a feature the player needs (WebCodecs, AudioWorklet, Offscreen
 **"This disc can't be played because these files are missing."**
 You picked a folder without all of the disc. Choose the whole disc folder, including `BDMV/STREAM` and `BDMV/CLIPINF`.
 
-**"Drop the disc folder itself (the folder that contains BDMV)."**
-You dropped files and no folder. Drop the disc folder, or the `BDMV` folder.
+**"Drop the disc folder itself (the folder that contains BDMV), or one .iso image."**
+You dropped files and no folder. Drop the disc folder, the `BDMV` folder, or a single `.iso` image.
+
+**"… is not a Blu-ray image" or "… can't be read as a Blu-ray image"**
+The `.iso` you picked isn't a Blu-ray disc (it has no `BDMV` folder, or it isn't a UDF image), or it was cut short while copying. Copy it again, or open the disc folder instead.
+
+**"… has a file this player can't read"**
+A file in the image has a long unrecorded stretch the player won't fill in. Extract the image to a folder and open that.
 
 **"Waiting for the files…" on iPhone or iPad**
 Safari copies the whole folder before the player can read it. A full disc from a USB drive can take an hour or more. The player needs the whole disc folder, so copy it to faster storage first, or use a [NAS](nas.md).

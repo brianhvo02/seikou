@@ -142,6 +142,21 @@ test('plays a B-frame, open-GOP disc in sync and seeks without decoder errors', 
   await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'playing');
 });
 
+test('opens and plays a disc image (.iso) picked from the landing screen', async ({ page }) => {
+  await page.goto('/?telemetry=1');
+  await page.getByTestId('iso-input').setInputFiles('fixtures/synthetic/disc1.iso');
+  await expect(page.getByTestId('playlist-00000')).toContainText('Main feature', { timeout: 10_000 });
+  await startPlaylist(page, '00000');
+  await expect.poll(async () => (await telemetry(page))?.clockUs ?? 0, { timeout: 10_000 }).toBeGreaterThan(1_000_000);
+  expect((await telemetry(page))?.decoderErrors).toBe(0);
+});
+
+test('says why an .iso that is not a disc image does not open', async ({ page }) => {
+  await page.goto('/');
+  await page.getByTestId('iso-input').setInputFiles({ name: 'blank.iso', mimeType: 'application/octet-stream', buffer: Buffer.alloc(1 << 20) });
+  await expect(page.getByTestId('landing')).toContainText("\"blank.iso\" can't be read as a Blu-ray image");
+});
+
 test('a local disc remembers its place on this device', async ({ page }) => {
   await recordTelemetrySamples(page);
   await page.goto('/?telemetry=1&placemin=1');
