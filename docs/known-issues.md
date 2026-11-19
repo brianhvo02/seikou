@@ -117,13 +117,20 @@ what would change that decision.
 - **No progressive VC-1 is tested, nor VC-1 pulldown.** ffmpeg can't encode VC-1, so the one VC-1 fixture
   (`disc-vc1`) is a CC BY 1080i sample; progressive VC-1 and VC-1 with pulldown flags are untested until a disc or a
   licensed sample has them.
-- **1080i VC-1 on an iPhone 17 Pro plays at frame rate, not field rate.** Decoding takes 13 to 20 ms a picture there,
-  too slow for field-rate deinterlacing alongside it, so the deinterlacer's frame pacing steps down within the first
-  half minute of video and shows one picture a frame, a steady 29.97 a second. Measured 2026-11-18 over a 10-minute
-  play of a 1080i VC-1 film with five seeks: 132 pictures dropped in all, nearly all around the seeks, A/V offset
-  within 10 ms on average and 16 ms at most outside one brief 50 ms window, no decoder errors. The same device plays
-  480i MPEG-2 with 0 dropped. *Revisit if* the decoder gets faster (threads, or a decoder that skips work for the
-  field the frame-rate step doesn't show).
+- **1080i VC-1 on an iPhone 17 Pro plays at frame rate, not field rate, and the decoder is not why.** The deinterlacer's
+  frame pacing steps down within the first half minute of video and shows one picture a frame, a steady 29.97 a
+  second. Measured 2026-11-18 over a 10-minute play of a 1080i VC-1 film with five seeks: 132 pictures dropped in all,
+  nearly all around the seeks, A/V offset within 10 ms on average and 16 ms at most outside one brief 50 ms window, no
+  decoder errors. The same device plays 480i MPEG-2 with 0 dropped. A profile of the same film on 2026-11-19 put the
+  cause in WebKit's GPU process, not the WASM decoder:
+  - **Decoding** takes about 10 ms a picture, 15 to 17 ms in heavy scenes, in its own worker, inside the 33 ms a frame allows.
+  - **The engine worker's own work** is about 3 ms a display tick in all: the tick itself, demuxing, plane uploads, the metric readback and the decoder's messages.
+  - **The worker blocks after each tick** while its canvas is committed. That's about 4 ms for film, about 10 ms at field rate, and 21 to 24 ms from a switch between film and video sections onwards. At that cost only about 40 ticks fit in a second, so pictures drop and the step comes.
+  - **The fall-back shader** changes nothing.
+  - **Leaving out the 2D compositor's draw of the picture** (the WebGL picture moved out as an ImageBitmap, then drawn on the 2D canvas) halves the field-rate cost, but the spikes at the switches remain.
+  - **Back-to-back runs got worse,** so heat may add to it.
+
+  *Revisit when* the per-picture GPU work on WebKit is cut: first find what costs so much at a cadence switch (the switch itself, the readback, or shader compilation), then, if field rate still runs close to the limit, draw video and overlays in one WebGL canvas.
 - **A playlist that starts mid-clip skips the clip's middle, unlike libbluray.** libbluray's `_fill_clip` reads the
   first play item from the clip's first packet (`start_pkt = 0`). Over the network that downloaded every byte before
   the IN point first: a chapter playlist starting 31 minutes into a 480i MPEG-2 clip took 65 s to start over Wi-Fi.
