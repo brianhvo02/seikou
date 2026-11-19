@@ -33,7 +33,6 @@ Short tasks that unblock or protect what is already deployed.
 | **Deinterlacing gaps:** RGB frames from Firefox on macOS (interlaced H.264 shows woven there) and a cheaper deinterlacer for software WebGL. | M | |
 | **HDR overlays at graphics white:** subtitles and menus over HDR video are drawn SDR; try a float16 or WebGPU canvas on an HDR display. | M | needs a device, owner's call |
 | **Element path start in WebKit,** which begins about 33 ms behind the sound. | S | owner's call |
-| **Hold the first GOP** on H.264 streams that redefine the PPS, so a playlist start loses no frames. | M | |
 | **Lossless and multichannel audio:** full TrueHD and DTS-HD instead of their cores, and output beyond a stereo downmix (multichannel PCM where the browser offers it; no Atmos or DTS:X height channels, since a page can't pass a stream through). | L | deferred by the owner (2026-11-16) |
 | **Encoders beyond Intel QSV** (NVENC, AMD VAAPI) for self-hosters. The self-hosting spec puts this last, after everything else. | L | |
 | **Quality-level ideas:** pre-encode while the GPU is idle, re-encode audio, and an "auto" level that labels itself. Known gaps to close: the disc's PSR1 audio choice at a level, the `primaryAudioChange` UO mask, and the BD-J still timer restarting on a switch. | L | |

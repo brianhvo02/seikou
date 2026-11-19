@@ -78,12 +78,16 @@ what would change that decision.
   `frame_mbs_only_flag` 0 ("Decoding error"; HDMV_DISC_A's 1080i logo is MBAFF), so those streams are configured with
   `prefer-software`. The decoded fields are then deinterlaced (see Deinterlacing below). *Revisit if* software decoding
   can't keep up with a disc's 1080i on a device.
-- **H.264 that redefines a PPS id switches to software decoding, dropping up to one GOP once.** Some encoders resend
+- **H.264 that redefines a PPS id switches to software decoding, losing a few pictures at most.** Some encoders resend
   PPS 0 with other content on nearly every picture. Chrome's hardware decoder on macOS fails on such a stream every
   few seconds ("Decoding error", then frames lost to the next keyframe); ffmpeg and Chrome's software decoder decode
   it cleanly. The first PPS only shows up after `configure()`, so the decoder reopens with `prefer-software` when it
-  sees the redefinition and resumes at the next key unit. That costs about a second of frames at the start of each
-  playlist. *Revisit if* that gap shows (holding the first GOP until the PPS pattern is known would remove it).
+  sees the redefinition. It keeps the units fed since the last key unit (at most 120) and replays them into the
+  software decoder: pictures already handed out are decoded for reference only, the rest as they were fed. On
+  HDMV_DISC_A's clip that redefines PPS 0, the first 12 s presented 281 to 286 of about 289 pictures (248 when the
+  switch resumed at the next key unit; 279 of 278 on a clip of the same disc without a redefinition). The few still
+  lost are, it seems, pictures the hardware decoder held when it closed, whose software decode comes too late to show.
+  *Revisit if* that shows: hold the first units until the PPS pattern is known.
 - **MPEG-2 and VC-1 video is decoded in WASM, on the CPU.** The browsers decode neither, so FFmpeg's decoders run
   in `video.wasm` in a worker of their own, single-threaded. Measured on the synthetic discs in Chrome, Firefox and
   WebKit on an Apple silicon Mac: 1.2 to 1.6 ms a 1080 picture for MPEG-2 and 3.1 to 4.0 ms for VC-1. Phones are

@@ -82,6 +82,8 @@ function av1Unit(data: Uint8Array, key?: boolean): AccessUnitInfo {
 }
 
 const HEVC_UNSUPPORTED_MESSAGE = "This device can't decode HEVC (4K) video.";
+/** The most units since a key unit kept for a replay into the software decoder (5 s at 24 pictures a second). */
+const MAX_REPLAY_UNITS = 120;
 const MAX_CONSECUTIVE_ERRORS = 3;
 /** Above this many fed-but-unseen timestamps, forget ones far behind the newest output (the decoder dropped them). */
 const PENDING_PRUNE_SIZE = 64;
@@ -179,6 +181,15 @@ export class WebCodecsVideoDecoder implements CanvasVideoDecoder {
   private readonly ppsById = new Map<number, Uint8Array>();
   /** The switch to software decoding was tried since configure(). */
   private softwareTried = false;
+  /**
+   * The units fed since the last key unit while a switch to software decoding may still come (CodecOps.ppsId, hardware
+   * decoding): the software decoder replays them from that key unit, so the switch loses no pictures.
+   */
+  private gop: VideoUnit[] = [];
+  /** A replay into the software decoder is being fed: its units aren't kept again. */
+  private replaying = false;
+  /** The switch to software decoding was made or given up since configure(): nothing more is kept for it. */
+  private switchSettled = false;
   /** The picture timing facts of the stream's latest SPS, for reading pic_struct. */
   private timing: AvcTiming | null = null;
   /** The field flags of the units fed, by timestamp, until their frames come out. */
@@ -281,6 +292,7 @@ export class WebCodecsVideoDecoder implements CanvasVideoDecoder {
     this.requireIdr = false;
     this.ppsById.clear();
     this.softwareTried = false;
+    this.switchSettled = false;
     this.lastKeyWasIdr = true;
     this.timing = config.codingType === CodingType.AVC ? avcTiming(params) : null;
     this.open();
@@ -308,6 +320,7 @@ export class WebCodecsVideoDecoder implements CanvasVideoDecoder {
       }
       this.leadingKeyPtsUs = null;
     }
+    this.keepForSwitch(unit, startsSequence || info.key);
     this.pending.set(unit.ptsUs, unit.discard);
     if (this.onFieldInput && this.codingType === CodingType.AVC) {
       if (info.sps) this.timing = avcTiming(info.sps);
@@ -335,6 +348,7 @@ export class WebCodecsVideoDecoder implements CanvasVideoDecoder {
 
   reset(): void {
     this.generation++;
+    this.gop = [];
     this.pending.clear();
     this.fieldFlags.clear();
     this.needKey = true;
@@ -379,7 +393,20 @@ export class WebCodecsVideoDecoder implements CanvasVideoDecoder {
     }
   }
 
-  /** Reopens the decoder with software decoding when the browser has it; decoding resumes at the next key unit. */
+  /** Keeps `unit` for a replay after a switch to software decoding (see `gop`), while one may still come. */
+  private keepForSwitch(unit: VideoUnit, key: boolean): void {
+    // kept until the switch settles: the units fed while the browser is asked about software decoding are replayed too
+    if (this.replaying || this.switchSettled || !this.ops?.ppsId || this.config?.hardwareAcceleration === 'prefer-software') return;
+    if (key) this.gop = [unit];
+    else if (this.gop.length > 0 && this.gop.length < MAX_REPLAY_UNITS) this.gop.push(unit);
+    else this.gop = []; // no key unit kept, or a GOP too long to replay: the switch resumes at the next key unit
+  }
+
+  /**
+   * Reopens the decoder with software decoding when the browser has it, and replays the units since the last key unit
+   * into it: the pictures the hardware decoder already handed out are decoded for reference only, the rest as they were
+   * fed, so the switch loses no pictures. With nothing to replay, decoding resumes at the next key unit.
+   */
   private switchToSoftware(): void {
     const config = this.config;
     if (!config) return;
@@ -390,9 +417,21 @@ export class WebCodecsVideoDecoder implements CanvasVideoDecoder {
       .catch(() => ({ supported: false }))
       .then((support) => {
         // closed, reconfigured or failed for good meanwhile: nothing to switch
-        if (!support.supported || this.closed || this.config !== config || !this.decoder) return;
+        this.switchSettled = true;
+        if (!support.supported || this.closed || this.config !== config || !this.decoder) {
+          this.gop = [];
+          return;
+        }
+        // a unit still pending was never handed out: it keeps its own discard flag; one handed out is reference only
+        const replay = this.gop.map((u) => ({ ...u, discard: this.pending.get(u.ptsUs) ?? true }));
         this.config = software;
         this.open();
+        this.replaying = true;
+        try {
+          for (const unit of replay) this.decode(unit);
+        } finally {
+          this.replaying = false;
+        }
       });
   }
 
@@ -408,6 +447,7 @@ export class WebCodecsVideoDecoder implements CanvasVideoDecoder {
     this.decoder = decoder;
     this.needKey = true;
     this.leadingKeyPtsUs = null;
+    this.gop = [];
     this.pending.clear();
     this.fieldFlags.clear();
     try {

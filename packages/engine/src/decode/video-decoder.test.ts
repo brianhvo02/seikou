@@ -192,17 +192,39 @@ describe('WebCodecsVideoDecoder', () => {
       return { dec, created, checked };
     }
 
-    it('reopens the decoder in software and resumes at the next key unit', async () => {
+    it('reopens the decoder in software and replays the GOP from its key unit, so no picture is lost', async () => {
       const { dec, created, checked } = await hardware();
+      const shown: number[] = [];
+      dec.onOutput = (frame) => {
+        shown.push(frame.timestamp);
+        frame.close();
+      };
       dec.decode({ data: avcAu({ ppsNal: OTHER_PPS_0 }), ptsUs: 41_708, discard: false });
       await settled();
       expect(checked.at(-1)).toEqual({ codec: 'avc1.640029', hardwareAcceleration: 'prefer-software' });
       expect(created).toHaveLength(2);
       expect(created[1].config?.hardwareAcceleration).toBe('prefer-software');
+      // the GOP so far goes into the software decoder from its key unit; the pictures already shown aren't shown again
+      expect(created[1].chunks.map((c) => [c.type, c.timestamp])).toEqual([['key', 0], ['delta', 41_708]]);
+      expect(shown).toEqual([41_708]);
       dec.decode({ data: avcAu(), ptsUs: 83_416, discard: false });
-      expect(created[1].chunks).toHaveLength(0);
-      dec.decode({ data: avcAu({ idr: true, spsNal: PROGRESSIVE_SPS }), ptsUs: 125_125, discard: false });
-      expect(created[1].chunks.map((c) => c.type)).toEqual(['key']);
+      expect(created[1].chunks.at(-1)).toMatchObject({ type: 'delta', timestamp: 83_416 });
+      expect(shown).toEqual([41_708, 83_416]);
+    });
+
+    it('shows a picture the hardware decoder had not handed out yet, once, from the software decoder', async () => {
+      const { dec, created } = await hardware();
+      const shown: number[] = [];
+      dec.onOutput = (frame) => {
+        shown.push(frame.timestamp);
+        frame.close();
+      };
+      created[0].asyncOutput = true; // the hardware decoder holds the redefining unit's picture
+      dec.decode({ data: avcAu({ ppsNal: OTHER_PPS_0 }), ptsUs: 41_708, discard: false });
+      await settled();
+      created[0].deliver(); // too late: that decoder is closed
+      expect(created[1].chunks.map((c) => c.timestamp)).toEqual([0, 41_708]);
+      expect(shown).toEqual([41_708]);
     });
 
     it('keeps the hardware decoder for a repeated PPS or a new id', async () => {
