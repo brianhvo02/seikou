@@ -10,7 +10,7 @@ import { codeHash } from '../../../server/src/codes';
 import { HttpError, json } from '../../../server/src/http';
 import type { Handler, Response as ServerResponse } from '../../../server/src/http';
 import { serveChannel } from '../../../server/src/rtc/dispatch';
-import { codeHashOf, encodeTicket, fromBase64url, offerProofMessage, turnProofMessage } from '../../../rendezvous/src/protocol';
+import { SIGNAL_TICKET_MAX_AHEAD_MS, codeHashOf, encodeTicket, fromBase64url, offerProofMessage, turnProofMessage } from '../../../rendezvous/src/protocol';
 import { FakeRtcWorld } from '../../../tests/helpers/rtc-fakes';
 import type { FakeRtcOptions } from '../../../tests/helpers/rtc-fakes';
 import { NAS_LOST_MESSAGE } from '@seikou/engine/disc/http-transport';
@@ -34,7 +34,7 @@ const MINUTE = 60_000;
 const DAY = 24 * 60 * MINUTE;
 
 /** A ticket as the NAS would give one; the client never checks its signature. */
-const ticketFor = (deviceId: string, exp: number): string => encodeTicket({ nasId: 'n'.repeat(43), deviceId, exp, signature: 'sig' });
+const ticketFor = (deviceId: string, exp: number, nasId = 'n'.repeat(43)): string => encodeTicket({ nasId, deviceId, exp, signature: 'sig' });
 
 let tmp: string;
 let clock: number;
@@ -732,6 +732,9 @@ const settle = async (): Promise<void> => {
 };
 
 describe('NasClient signal tickets', () => {
+  /** A code whose NAS has a rendezvous, so the pairing has the NAS id its tickets name. */
+  const signalling = (): CodeRoutes => ({ https: BASE, webrtc: { nasId: NAS_ID } });
+
   it("keeps the redeem's signalTicket on the new pairing", async () => {
     const issued: string[] = [];
     const server = fakeServer({
@@ -742,7 +745,7 @@ describe('NasClient signal tickets', () => {
       },
     });
     const store = memoryStore();
-    await client(server, store).pair(await server.code(), 'iPad');
+    await client(server, store).pair(await server.code(signalling()), 'iPad');
     expect(issued).toHaveLength(1);
     expect(store.value?.signalTicket).toBe(issued[0]);
   });
@@ -751,7 +754,7 @@ describe('NasClient signal tickets', () => {
     const server = fakeServer({ issueTicket: async () => null });
     const store = memoryStore();
     const nas = client(server, store);
-    await nas.pair(await server.code(), 'iPad');
+    await nas.pair(await server.code(signalling()), 'iPad');
     expect(store.value?.signalTicket).toBeUndefined();
     const ticket = ticketFor(store.value!.deviceId, clock + 90 * DAY);
     server.meTicket = ticket;
@@ -768,7 +771,7 @@ describe('NasClient signal tickets', () => {
   it('asks me only once when it fails', async () => {
     const server = fakeServer({ issueTicket: async () => null });
     const nas = client(server);
-    await nas.pair(await server.code(), 'iPad');
+    await nas.pair(await server.code(signalling()), 'iPad');
     const real = server.fetch;
     const answer = async (url: URL, init?: RequestInit): Promise<Response> => {
       const route = url.pathname.slice(new URL(BASE).pathname.length);
@@ -795,7 +798,7 @@ describe('NasClient signal tickets', () => {
   it('asks nothing while the ticket has more than 60 days left', async () => {
     const server = fakeServer({ issueTicket: async (deviceId) => ticketFor(deviceId, clock + 61 * DAY) });
     const nas = client(server);
-    await nas.pair(await server.code(), 'iPad');
+    await nas.pair(await server.code(signalling()), 'iPad');
     await nas.session();
     await nas.library('media5');
     await settle();
@@ -806,7 +809,7 @@ describe('NasClient signal tickets', () => {
     const server = fakeServer({ issueTicket: async (deviceId) => ticketFor(deviceId, clock + 50 * DAY) });
     const store = memoryStore();
     const nas = client(server, store);
-    await nas.pair(await server.code(), 'iPad');
+    await nas.pair(await server.code(signalling()), 'iPad');
     const stored = store.value!.signalTicket;
     server.meTicket = ticketFor(store.value!.deviceId, clock + 40 * DAY);
     await nas.session();
@@ -819,7 +822,7 @@ describe('NasClient signal tickets', () => {
     const server = fakeServer({ issueTicket: async () => 'not a ticket' });
     const store = memoryStore();
     const nas = client(server, store);
-    await nas.pair(await server.code(), 'iPad');
+    await nas.pair(await server.code(signalling()), 'iPad');
     expect(store.value?.signalTicket).toBeUndefined();
     const ticket = ticketFor(store.value!.deviceId, clock + 90 * DAY);
     server.meTicket = ticket;
@@ -831,7 +834,7 @@ describe('NasClient signal tickets', () => {
     const server = fakeServer({ issueTicket: async () => null });
     const store = memoryStore();
     const nas = client(server, store);
-    await nas.pair(await server.code(), 'iPad');
+    await nas.pair(await server.code(signalling()), 'iPad');
     const before = store.value;
     server.meTicket = null;
     await nas.session();
@@ -839,6 +842,54 @@ describe('NasClient signal tickets', () => {
     expect(server.hits.me).toBe(1);
     expect(store.value).toEqual(before);
     expect(store.value?.signalTicket).toBeUndefined();
+  });
+
+  it('asks no ticket after a session when the pairing has no NAS id, or was made straight at the server', async () => {
+    const server = fakeServer({ issueTicket: async () => null });
+    const nas = client(server);
+    await nas.pair(await server.code(), 'iPad');
+    await nas.session();
+    await settle();
+    expect(server.hits.me).toBeUndefined();
+    const direct = client(server);
+    await direct.pair(await server.code(), 'iPad', { nas: BASE });
+    await direct.session();
+    await settle();
+    expect(server.hits.me).toBeUndefined();
+  });
+
+  it("takes a ticket for the NAS id me moves the pairing to, though the old NAS's one ends later", async () => {
+    const server = fakeServer();
+    const store = memoryStore();
+    const otherId = 'm'.repeat(43);
+    const moved = (async (input: string | URL | Request, init?: RequestInit) => {
+      const res = await server.fetch(input, init);
+      if (!String(input).endsWith('/api/me')) return res;
+      return Response.json({ ...((await res.json()) as object), nasId: otherId });
+    }) as typeof server.fetch;
+    const nas = new NasClient({ fetch: moved, subtle: crypto.subtle, store, now, rendezvousUrl: RENDEZVOUS });
+    await nas.pair(await server.code(signalling()), 'iPad');
+    expect(store.value?.signalTicket).toBeTypeOf('string');
+    const ticket = ticketFor(store.value!.deviceId, clock + 70 * DAY, otherId);
+    server.meTicket = ticket;
+    await nas.me();
+    expect(store.value).toMatchObject({ nasId: otherId, signalTicket: ticket });
+  });
+
+  it('ignores a ticket for another NAS id or one too far ahead, from the redeem and from me', async () => {
+    for (const offered of [
+      (deviceId: string) => ticketFor(deviceId, clock + 90 * DAY, 'm'.repeat(43)),
+      (deviceId: string) => ticketFor(deviceId, clock + SIGNAL_TICKET_MAX_AHEAD_MS + 1),
+    ]) {
+      const server = fakeServer({ issueTicket: async (deviceId) => offered(deviceId) });
+      const store = memoryStore();
+      const nas = client(server, store);
+      await nas.pair(await server.code(signalling()), 'iPad');
+      expect(store.value?.signalTicket).toBeUndefined();
+      server.meTicket = offered(store.value!.deviceId);
+      await nas.me();
+      expect(store.value?.signalTicket).toBeUndefined();
+    }
   });
 });
 

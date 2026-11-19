@@ -2,7 +2,7 @@ import type { CodeLookup, ContinueItem, DiscEntry, DiscManifest, DiscPlaces, Dis
 import { PAIRING_CODE_LENGTH, formatCode, normalizeCode } from '@seikou/nas/pairing-code';
 import { pairingKey } from './nas-store';
 import type { NasPairing, NasStore } from './nas-store';
-import { SIGNAL_TICKET_RENEW_MS, codeHashOf, decodeTicket, isNasId, offerProofMessage, turnProofMessage } from '../../../rendezvous/src/protocol';
+import { SIGNAL_TICKET_MAX_AHEAD_MS, SIGNAL_TICKET_RENEW_MS, codeHashOf, decodeTicket, isNasId, offerProofMessage, turnProofMessage } from '../../../rendezvous/src/protocol';
 import type { OfferProof } from '../../../rendezvous/src/protocol';
 import { NAS_LOST_MESSAGE } from '@seikou/engine/disc/http-transport';
 import { RTC_BASE, RTC_UNREACHABLE, RtcConnection } from './rtc/rtc-connection';
@@ -244,12 +244,17 @@ function ticketExp(ticket: unknown): number | null {
   return typeof ticket === 'string' ? (decodeTicket(ticket)?.exp ?? null) : null;
 }
 
-/** The ticket to keep: `offered` when it decodes and ends later than `stored`, else `stored`. */
-function laterTicket(stored: string | undefined, offered: unknown): string | undefined {
-  const exp = ticketExp(offered);
-  if (exp === null) return stored;
-  const storedExp = ticketExp(stored);
-  return storedExp === null || exp > storedExp ? (offered as string) : stored;
+/**
+ * The ticket to keep: `offered` when it decodes, names the pairing's NAS id `nasId`, ends no further ahead of `now`
+ * than the Worker accepts (`SIGNAL_TICKET_MAX_AHEAD_MS`) and ends later than `stored` (or `stored` names another NAS
+ * id); else `stored`. A pairing with no NAS id keeps none it is offered.
+ */
+function laterTicket(stored: string | undefined, offered: unknown, nasId: string | undefined, now: number): string | undefined {
+  const ticket = typeof offered === 'string' ? decodeTicket(offered) : null;
+  if (ticket === null || nasId === undefined || ticket.nasId !== nasId || ticket.exp > now + SIGNAL_TICKET_MAX_AHEAD_MS) return stored;
+  // a stored ticket for another NAS id (the pairing's changed) counts as none
+  const kept = stored === undefined ? null : decodeTicket(stored);
+  return kept === null || kept.nasId !== nasId || ticket.exp > kept.exp ? (offered as string) : stored;
 }
 
 /**
@@ -507,7 +512,7 @@ export class NasClient {
       if (!res.ok) throw new NasHttpError(res.status, await errorCode(res));
       // An older NAS answers without a person or a ticket.
       const { deviceId, owner, personName, signalTicket } = (await res.json()) as { deviceId: string; owner: boolean; personName?: string; signalTicket?: unknown };
-      const ticket = laterTicket(undefined, signalTicket);
+      const ticket = laterTicket(undefined, signalTicket, target.nasId, this.deps.now());
       pairing = {
         ...target,
         deviceId,
@@ -569,7 +574,7 @@ export class NasClient {
     // a pairing made before the WebRTC route has no NAS id, so route choice could only ever pick HTTPS; one made
     // straight at the server (`direct`) keeps none, so it never signals through a Worker nobody chose for it
     const nasId = isNasId(me.nasId) && pairing.direct !== true ? me.nasId : pairing.nasId;
-    const signalTicket = laterTicket(pairing.signalTicket, me.signalTicket);
+    const signalTicket = laterTicket(pairing.signalTicket, me.signalTicket, nasId, this.deps.now());
     if (personName !== pairing.personName || owner !== pairing.owner || nasId !== pairing.nasId || signalTicket !== pairing.signalTicket) {
       const updated: NasPairing = {
         ...pairing,
@@ -1063,10 +1068,12 @@ export class NasClient {
 
   /**
    * Once per pairing in this client's life, after a session starts: when the pairing's signalling ticket is missing
-   * (or doesn't decode) or has under 60 days left, asks `me`, which keeps a later one. It never holds up or fails the
-   * session; a failure is logged once.
+   * (or doesn't decode) or has under 60 days left, asks `me`, which keeps a later one. A pairing with no NAS id, or one
+   * made straight at the server, never signals, so it is never asked for. It never holds up or fails the session; a
+   * failure is logged once.
    */
   private checkTicket(pairing: NasPairing): void {
+    if (pairing.nasId === undefined || pairing.direct === true) return;
     const key = pairingKey(pairing);
     if (this.ticketsAsked.has(key)) return;
     const exp = ticketExp(pairing.signalTicket);
