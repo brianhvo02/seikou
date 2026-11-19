@@ -93,6 +93,7 @@ function start(extra: Partial<ConstructorParameters<typeof SignallingClient>[0]>
     },
     backoff: { initialMs: 10, maxMs: 40 },
     log: () => {},
+    checkOffer: () => true,
     ...extra,
   });
   client.start();
@@ -169,6 +170,17 @@ describe('SignallingClient', () => {
     expect(peers.answer).toHaveBeenCalledWith('sid-ok', 'v=0 offer');
     socket.deliver({ t: 'candidate', sid: 'sid-ok', candidate: { candidate: 'c' } });
     expect(peers.candidate).toHaveBeenCalledWith('sid-ok', { candidate: 'c' });
+  });
+
+  it('refuses every offer when no proof check was given (it is required, so this only happens around the types)', async () => {
+    // The cast stands for a caller that got around the required option.
+    start({ checkOffer: undefined as unknown as (sid: string, proof: unknown) => boolean });
+    await vi.waitFor(() => expect(sockets).toHaveLength(1));
+    const socket = sockets[0]!;
+    await authenticate(socket);
+    socket.deliver({ t: 'offer', sid: 'sid-1', sdp: 'v=0 offer' });
+    await vi.waitFor(() => expect(socket.sent).toEqual([{ t: 'answer', sid: 'sid-1', error: 'unauthorized' }]));
+    expect(peers.answer).not.toHaveBeenCalled();
   });
 
   it('forgets a refused sid after the device socket has had its 60 s', async () => {

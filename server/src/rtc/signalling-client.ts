@@ -42,9 +42,10 @@ export interface SignallingOptions {
   peers: SignalPeers;
   /**
    * Whether an offer's `proof` checks out for its socket `sid` (`checkOfferProof`). An offer it refuses is answered
-   * `unauthorized` with no SDP, no peer is opened for it and its candidates are dropped. Without it every offer is answered.
+   * `unauthorized` with no SDP, no peer is opened for it and its candidates are dropped. Required, so no NAS answers
+   * offers unchecked; should it be missing all the same, every offer is refused.
    */
-  checkOffer?: (sid: string, proof: unknown) => boolean;
+  checkOffer: (sid: string, proof: unknown) => boolean;
   /** Answers a device's `turn-request` (the relay); until there is one, no servers with reason `off`. */
   onTurnRequest?: (sid: string, request: Record<string, unknown>) => Promise<Record<string, unknown>>;
   /** Opens the socket; Node's global `WebSocket` by default (tests inject one). */
@@ -273,7 +274,7 @@ export class SignallingClient {
     if (typeof sid !== 'string' || !SID.test(sid)) return;
     if (m.t === 'offer') {
       if (typeof m.sdp !== 'string') return;
-      if (this.opts.checkOffer && !this.opts.checkOffer(sid, m.proof)) {
+      if (this.opts.checkOffer?.(sid, m.proof) !== true) {
         this.refuse(sid);
         this.send(socket, { t: 'answer', sid, error: 'unauthorized' });
         return;
