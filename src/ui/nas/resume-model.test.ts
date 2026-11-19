@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ContinueItem, DiscPlaces, PlaceSettings, PlaybackPlace } from '@seikou/nas/nas-api';
-import { carriedSettings, continueCard, episodeProgress, resumeOffer, startOver, UNTITLED_DISC, within } from './resume-model';
+import { carriedSettings, continueCard, episodeProgress, resumeOffer, startFromBeginning, startOver, UNTITLED_DISC, within } from './resume-model';
 
 const settings: PlaceSettings = {
   audioLanguage: 'jpn', pgLanguage: 'eng', textFiles: [], psr1: 2, psr2: 0x80000001, psr3: 1, textOn: false, textScale: 1, shaderSet: null, volume: 0.8, muted: false,
@@ -54,6 +54,16 @@ describe('resumeOffer', () => {
 
 it("starts over at the place's playlist with its audio, subtitle and angle", () => {
   expect(startOver(place('00002'))).toEqual({ playlistId: '00002', timeUs: 0, hdmv: null, playback: { psr1: 2, psr2: 0x80000001, psr3: 1 } });
+});
+
+describe('startFromBeginning', () => {
+  it('starts a requested playlist over from 0', () => {
+    expect(startFromBeginning(place('00002'), '00002')).toEqual(startOver(place('00002')));
+  });
+
+  it('opens the disc as it starts when no playlist was requested', () => {
+    expect(startFromBeginning(place('00002'), null)).toBeNull();
+  });
 });
 
 const item = (over: Partial<ContinueItem> = {}): ContinueItem => ({

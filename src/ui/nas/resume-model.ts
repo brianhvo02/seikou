@@ -75,10 +75,19 @@ export function resumeOffer(
   return 'problem' in start ? { kind: 'changed', place } : { kind: 'ask', place, start };
 }
 
-/** Start from beginning: the place's playlist at 0, played directly with its audio, subtitle and angle (PSR 1–3). */
+/** The place's playlist at 0, played directly with its audio, subtitle and angle (PSR 1–3). */
 export function startOver(place: PlaybackPlace): StartPoint {
   const { psr1, psr2, psr3 } = place.settings;
   return { playlistId: place.playlistId, timeUs: 0, hdmv: null, playback: { psr1, psr2, psr3 } };
+}
+
+/**
+ * Where Start from beginning opens: for a requested playlist (an episode, a link's playlist) that playlist from 0 with
+ * the place's audio, subtitle and angle (`startOver`); with none requested, null: the disc as it starts, through
+ * First Play and its menus, carrying nothing from the place.
+ */
+export function startFromBeginning(place: PlaybackPlace, requestedPlaylist: string | null): StartPoint | null {
+  return requestedPlaylist === null ? null : startOver(place);
 }
 
 /**

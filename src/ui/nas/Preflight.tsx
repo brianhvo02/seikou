@@ -19,7 +19,7 @@ import type { PlayingRoute } from './playing-route';
 import { LOCAL_DEVICE_NAME, type LaunchSettings, type PlaceSaver } from '../place-saver';
 import { pairingKey } from './nas-store';
 import { ResumePrompt } from './ResumePrompt';
-import { carriedSettings, playlistsOf, resumeOffer, startOver, within, type ResumeOffer } from './resume-model';
+import { carriedSettings, playlistsOf, resumeOffer, startFromBeginning, within, type ResumeOffer } from './resume-model';
 
 /** The disc to open: a folder listing's row, or a title's disc, whose size is only known from its manifest. */
 export type PreflightDisc = Pick<DiscEntry, 'id' | 'name' | 'kind'> & { readonly sizeBytes: number | null };
@@ -342,8 +342,12 @@ export function Preflight({ nas, controller, disc, playlistId, title, startTimeS
   };
   /** Resume at: the place's own playlist, time and registers (resumeStart), with its settings. */
   const resumeLaunch = (): Launch => (offer.kind === 'ask' ? { start: offer.start, settings: { settings: offer.place.settings, byLanguage: false } } : plainLaunch());
-  /** Start from beginning: the place's playlist from 0, with the same settings. */
-  const startOverLaunch = (): Launch => (offer.kind === 'none' ? plainLaunch() : { start: startOver(offer.place), settings: { settings: offer.place.settings, byLanguage: false } });
+  /** Start from beginning: a requested playlist from 0 with the place's settings, else the disc as it starts (First Play), carrying nothing. */
+  const startOverLaunch = (): Launch => {
+    if (offer.kind === 'none') return plainLaunch();
+    const start = startFromBeginning(offer.place, playlistId ?? null);
+    return start === null ? { start: undefined, settings: undefined } : { start, settings: { settings: offer.place.settings, byLanguage: false } };
+  };
   /** Play: as the disc starts, or for a place near its start, its playlist from 0 with its settings. */
   const playLaunch = (): Launch =>
     offer.kind === 'short' && offer.start !== null ? { start: offer.start, settings: { settings: offer.place.settings, byLanguage: false } } : plainLaunch();

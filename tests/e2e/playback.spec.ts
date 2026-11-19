@@ -168,12 +168,12 @@ test('a local disc remembers its place on this device', async ({ page }) => {
   await page.getByTestId('resume-at').click();
   await expect(page.getByTestId('player')).toHaveAttribute('data-playlist', '00000', { timeout: 15_000 });
   await expect.poll(async () => (await telemetry(page))?.clockUs ?? 0, { timeout: 5_000 }).toBeGreaterThanOrEqual(3_000_000);
-  // Start from beginning plays the same playlist from 0
+  // Start from beginning opens the disc as it starts (disc1 has no First Play: its title picker), not the place's playlist
   await page.reload();
   await setFolder(page.getByTestId('folder-input'), DISC);
   await page.getByTestId('resume-start-over').click({ timeout: 10_000 });
-  await expect(page.getByTestId('player')).toHaveAttribute('data-playlist', '00000', { timeout: 15_000 });
-  await expect.poll(async () => (await telemetry(page))?.clockUs ?? Infinity, { timeout: 5_000 }).toBeLessThan(1_500_000);
+  await expect(page.getByTestId('playlist-00000')).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId('player')).not.toHaveAttribute('data-playlist', '00000');
 });
 
 test('arrow keys on a focused seek bar seek by 10 s instead of stepping the slider', async ({ page }) => {

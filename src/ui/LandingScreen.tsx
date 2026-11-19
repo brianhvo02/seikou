@@ -24,7 +24,7 @@ import { discKeyOf } from '@seikou/nas/disc-key';
 import { mainPlaylistId } from './nas/library-model';
 import { LOCAL_DEVICE_NAME, type LaunchSettings, type PlaceSaver } from './place-saver';
 import { ResumePrompt } from './nas/ResumePrompt';
-import { playlistsOf, startOver } from './nas/resume-model';
+import { playlistsOf } from './nas/resume-model';
 import { askOrOpen, localKeyOf, recentResumeLabel, type AskOffer } from './local-resume';
 import type { StartPoint } from '@seikou/engine/protocol';
 import type { DiscEntry } from '@seikou/nas/nas-api';
@@ -455,16 +455,15 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
     );
   };
 
-  /** Resume at the place, or Start from beginning (its playlist from 0); either way with the place's settings. */
+  /** Resume at the place with its settings, or Start from beginning: the disc as it starts (First Play), carrying nothing. */
   const answerPending = (resume: boolean): void => {
     if (!pending) return;
     const { offer, open } = pending;
     controller.startAudio(); // inside the tap
     openSeq.current++;
     setPending(null);
-    const launch: LaunchSettings = { settings: offer.place.settings, byLanguage: false };
-    if (resume && offer.kind === 'ask') open(offer.start, launch);
-    else open(startOver(offer.place), launch);
+    if (resume && offer.kind === 'ask') open(offer.start, { settings: offer.place.settings, byLanguage: false });
+    else open(undefined, undefined); // a local disc's offer is never for a requested playlist (startFromBeginning)
   };
 
   const error = localError ?? snapshot.error?.message ?? null;
