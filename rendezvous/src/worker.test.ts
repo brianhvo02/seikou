@@ -413,6 +413,19 @@ describe('signalling routes', () => {
     expect((await upgrade(`/signal/device?nasId=${NAS_ID}`)).status).toBe(200);
   });
 
+  it('an upgrade carrying a ticket is counted as a proof attempt, not a plain signal attempt', async () => {
+    for (let i = 0; i < 10; i++) expect((await upgrade(`/signal/device?nasId=${NAS_ID}`)).status).toBe(200);
+    expect((await upgrade(`/signal/device?nasId=${NAS_ID}`)).status).toBe(429);
+    const ticketed = await upgrade(`/signal/device?nasId=${NAS_ID}&ticket=abc`);
+    expect(ticketed.status).toBe(200);
+    expect(await upgrade(`/signal/device?nasId=${NAS_ID}&codeHash=${CODE_HASH}`).then((r) => r.status)).toBe(200);
+    expect(keys_('rate:signalProof:')).toEqual(['rate:signalProof:203.0.113.7']);
+    expect(((await storage.get<number[]>('rate:signalProof:203.0.113.7')) ?? []).length).toBe(2);
+    expect(((await storage.get<number[]>('rate:signal:203.0.113.7')) ?? []).length).toBe(10);
+    // The object reads the address itself on a failed proof, so it must arrive unchanged.
+    expect(signalled.at(-1)!.request.headers.get('CF-Connecting-IP')).toBe('203.0.113.7');
+  });
+
   it('code-live answers 204 only for a live code of that NAS', async () => {
     const keys = await nasKey();
     const nasId = await registerNas(keys);

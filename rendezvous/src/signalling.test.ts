@@ -2,7 +2,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CodeRegistry } from './code-registry';
 import type { MemoryStorage } from './memory-state';
 import { fireAlarm, memoryState } from './memory-state';
-import { SIGNAL_MAX_MESSAGE_BYTES, SIGNAL_PING_MESSAGE, SIGNAL_PONG_MESSAGE, base64url, signalAuthMessage, signedMessage } from './protocol';
+import {
+  SIGNAL_MAX_MESSAGE_BYTES,
+  SIGNAL_PING_MESSAGE,
+  SIGNAL_PONG_MESSAGE,
+  SIGNAL_TICKET_MAX_AHEAD_MS,
+  base64url,
+  encodeTicket,
+  signalAuthMessage,
+  signalTicketMessage,
+  signedMessage,
+} from './protocol';
 import { Signalling } from './signalling';
 import type { AutoResponse, SignalSocket, SignallingState } from './signalling';
 
@@ -74,6 +84,8 @@ let env: ConstructorParameters<typeof Signalling>[1];
 let deps: ConstructorParameters<typeof Signalling>[2];
 let keys: CryptoKeyPair;
 let nasId: string;
+/** The registry paths the Signalling object called, in order. */
+let registryCalls: string[];
 
 beforeEach(async () => {
   clock = 1_800_000_000_000;
@@ -81,7 +93,18 @@ beforeEach(async () => {
   registryStorage = registryState.storage;
   registry = new CodeRegistry(registryState, undefined, () => clock);
   state = new FakeState();
-  env = { CODE_REGISTRY: { idFromName: (name: string) => ({ name }), get: () => ({ fetch: (r: Request) => registry.fetch(r) }) } };
+  registryCalls = [];
+  env = {
+    CODE_REGISTRY: {
+      idFromName: (name: string) => ({ name }),
+      get: () => ({
+        fetch: (r: Request) => {
+          registryCalls.push(new URL(r.url).pathname);
+          return registry.fetch(r);
+        },
+      }),
+    },
+  };
   deps = {
     now: () => clock,
     upgrade: () => ({ server: new FakeSocket(), response: new Response(null, { status: 200, headers: { 'X-Upgraded': '1' } }) }),
@@ -102,11 +125,34 @@ async function sign(pair: CryptoKeyPair, bytes: Uint8Array<ArrayBuffer>): Promis
   return base64url(new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, pair.privateKey, bytes)));
 }
 
-/** Opens a socket on `/signal/<role>`; the socket is undefined when the upgrade was refused. */
-async function open(role: 'nas' | 'device', id = nasId): Promise<{ res: Response; ws: FakeSocket | undefined }> {
+/** Opens a socket on `/signal/<role>`, with `query` added to the URL; the socket is undefined when the upgrade was refused. */
+async function open(role: 'nas' | 'device', id = nasId, query: Record<string, string> = {}): Promise<{ res: Response; ws: FakeSocket | undefined }> {
   const before = state.accepted.length;
-  const res = await signalling.fetch(new Request(`https://rendezvous.example/signal/${role}?nasId=${id}`, { headers: { Upgrade: 'websocket' } }));
+  const params = new URLSearchParams({ nasId: id, ...query });
+  const res = await signalling.fetch(
+    new Request(`https://rendezvous.example/signal/${role}?${params}`, { headers: { Upgrade: 'websocket', 'CF-Connecting-IP': '203.0.113.7' } }),
+  );
   return { res, ws: state.accepted[before]?.ws };
+}
+
+/** A ticket signed by `pair` (the NAS's key unless given), for this NAS, valid for a day unless overridden. */
+async function ticket(fields: { deviceId: string; nasId?: string; exp?: number }, pair = keys): Promise<string> {
+  const body = { nasId: fields.nasId ?? nasId, deviceId: fields.deviceId, exp: fields.exp ?? clock + DAY };
+  return encodeTicket({ ...body, signature: await sign(pair, signalTicketMessage(body)) });
+}
+
+/** Registers a live code with `codeHash` for this NAS, signed by its key. */
+async function registerCode(codeHash: string): Promise<void> {
+  const fields = { nasId, codeHash, routes: {}, expiresAt: clock + 10 * MINUTE };
+  const res = await registry.fetch(
+    new Request('https://rendezvous.example/codes', { method: 'POST', body: JSON.stringify({ ...fields, signature: await sign(keys, signedMessage(fields)) }) }),
+  );
+  expect(res.status).toBe(204);
+}
+
+/** The attempts recorded under a window key. */
+async function hits(key: string): Promise<number> {
+  return ((await state.storage.get<number[]>(key)) ?? []).length;
 }
 
 async function nasSocket(pair = keys): Promise<FakeSocket> {
@@ -120,8 +166,8 @@ async function nasSocket(pair = keys): Promise<FakeSocket> {
 }
 
 /** An accepted device socket, its `hello` (which names its sid) checked and cleared; a refused one as it is. */
-async function deviceSocket(): Promise<FakeSocket> {
-  const { res, ws } = await open('device');
+async function deviceSocket(query: Record<string, string> = {}): Promise<FakeSocket> {
+  const { res, ws } = await open('device', nasId, query);
   expect(res.headers.get('X-Upgraded')).toBe('1');
   if (ws!.closed === undefined) {
     const [hello] = ws!.messages();
@@ -386,9 +432,9 @@ describe('device socket', () => {
     expect(device.sent).toEqual([]);
   });
 
-  it('allows 100 device connection attempts per minute per NAS; the NAS itself still connects', async () => {
+  it('allows 30 device connection attempts per minute per NAS; the NAS itself still connects', async () => {
     await nasSocket();
-    for (let i = 0; i < 100; i++) expect((await open('device')).res.status).toBe(200);
+    for (let i = 0; i < 30; i++) expect((await open('device')).res.status).toBe(200);
     const limited = await open('device');
     expect(limited.res.status).toBe(429);
     expect(limited.ws).toBeUndefined();
@@ -430,12 +476,14 @@ describe('device socket', () => {
 
   it('refuses a 33rd open device socket with 4429 busy, and takes one again once a place frees', async () => {
     await nasSocket();
+    // Ticketed, so the 34 attempts fit the allowances (one device's window of 10, the shared one of 30).
+    const device = async (i: number): Promise<FakeSocket> => deviceSocket({ ticket: await ticket({ deviceId: `device-${i}` }) });
     const devices: FakeSocket[] = [];
-    for (let i = 0; i < 32; i++) devices.push(await deviceSocket());
+    for (let i = 0; i < 32; i++) devices.push(await device(i));
     expect(devices.every((d) => d.closed === undefined)).toBe(true);
-    expect((await deviceSocket()).closed).toEqual({ code: 4429, reason: 'busy' });
+    expect((await device(32)).closed).toEqual({ code: 4429, reason: 'busy' });
     await peerCloses(devices[0]!);
-    expect((await deviceSocket()).closed).toBeUndefined();
+    expect((await device(33)).closed).toBeUndefined();
   });
 
   it('deletes the stale attempt log in the alarm', async () => {
@@ -452,5 +500,118 @@ describe('device socket', () => {
     expect((await signalling.fetch(new Request(`https://rendezvous.example/signal/device?nasId=${nasId}`))).status).toBe(426);
     expect((await signalling.fetch(new Request(`https://rendezvous.example/elsewhere?nasId=${nasId}`, { headers: { Upgrade: 'websocket' } }))).status).toBe(404);
     expect((await signalling.fetch(new Request('https://rendezvous.example/signal/device?nasId=x', { headers: { Upgrade: 'websocket' } }))).status).toBe(400);
+  });
+});
+
+describe('device allowances', () => {
+  const HASH_A = 'a'.repeat(64);
+  const HASH_B = 'b'.repeat(64);
+
+  it('a valid ticket connects while the shared window is full', async () => {
+    await nasSocket();
+    for (let i = 0; i < 30; i++) expect((await open('device')).res.status).toBe(200);
+    expect((await open('device')).res.status).toBe(429);
+    const ticketed = await open('device', nasId, { ticket: await ticket({ deviceId: 'device-a' }) });
+    expect(ticketed.res.status).toBe(200);
+    expect(ticketed.ws!.closed).toBeUndefined();
+    expect(await hits('rate:device')).toBe(30);
+    expect(await hits('rate:ticket:device-a')).toBe(1);
+  });
+
+  it('a ticketed device gets 10 a minute', async () => {
+    await nasSocket();
+    const mine = await ticket({ deviceId: 'device-a' });
+    for (let i = 0; i < 10; i++) expect((await open('device', nasId, { ticket: mine })).res.status).toBe(200);
+    expect((await open('device', nasId, { ticket: mine })).res.status).toBe(429);
+    expect((await open('device', nasId, { ticket: await ticket({ deviceId: 'device-b' }) })).res.status).toBe(200);
+    expect(await hits('rate:device')).toBe(0);
+    expect(registryCalls).not.toContain('/internal/signal-attempt');
+    clock += MINUTE;
+    expect((await open('device', nasId, { ticket: mine })).res.status).toBe(200);
+  });
+
+  it('keeps the NAS key in memory for 10 minutes', async () => {
+    const mine = await ticket({ deviceId: 'device-a', exp: clock + 30 * DAY });
+    await open('device', nasId, { ticket: mine });
+    await open('device', nasId, { ticket: mine });
+    expect(registryCalls.filter((p) => p === '/internal/nas-key')).toHaveLength(1);
+    clock += 10 * MINUTE;
+    await open('device', nasId, { ticket: mine });
+    expect(registryCalls.filter((p) => p === '/internal/nas-key')).toHaveLength(2);
+  });
+
+  it('a ticket for another NAS, an expired one, one too far ahead, or a forged one counts as shared and per address', async () => {
+    await nasSocket();
+    const other = (await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])) as CryptoKeyPair;
+    const otherId = await registerNas(other);
+    const bad = [
+      await ticket({ deviceId: 'device-a', nasId: otherId }, other),
+      await ticket({ deviceId: 'device-a', nasId: otherId }),
+      await ticket({ deviceId: 'device-a', exp: clock }),
+      await ticket({ deviceId: 'device-a', exp: clock + SIGNAL_TICKET_MAX_AHEAD_MS + 1 }),
+      await ticket({ deviceId: 'device-a' }, other),
+      'not-a-ticket',
+    ];
+    for (const [i, t] of bad.entries()) {
+      registryCalls.length = 0;
+      expect((await open('device', nasId, { ticket: t })).res.status).toBe(200);
+      expect(registryCalls.filter((p) => p === '/internal/signal-attempt')).toHaveLength(1);
+      expect(await hits('rate:device')).toBe(i + 1);
+    }
+    expect(await hits('rate:ticket:device-a')).toBe(0);
+  });
+
+  it('a failed proof is refused when the address has used its unproven attempts', async () => {
+    await nasSocket();
+    const forged = await ticket({ deviceId: 'device-a' }, (await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify'])) as CryptoKeyPair);
+    for (let i = 0; i < 10; i++) expect((await open('device', nasId, { ticket: forged })).res.status).toBe(200);
+    expect((await open('device', nasId, { ticket: forged })).res.status).toBe(429);
+    expect(await hits('rate:device')).toBe(10);
+  });
+
+  it('a live code hash gets its own window; an unknown one shares the pool', async () => {
+    await nasSocket();
+    await registerCode(HASH_A);
+    for (let i = 0; i < 10; i++) expect((await open('device', nasId, { codeHash: HASH_A })).res.status).toBe(200);
+    expect((await open('device', nasId, { codeHash: HASH_A })).res.status).toBe(429);
+    expect(await hits(`rate:code:${HASH_A}`)).toBe(10);
+    expect(await hits('rate:device')).toBe(0);
+    registryCalls.length = 0;
+    expect((await open('device', nasId, { codeHash: HASH_B })).res.status).toBe(200);
+    expect(registryCalls).toContain('/internal/signal-attempt');
+    expect(await hits(`rate:code:${HASH_B}`)).toBe(0);
+    expect(await hits('rate:device')).toBe(1);
+  });
+
+  it('ticket and codeHash together: only the ticket\'s window is counted when it checks out, only the code\'s when the ticket fails', async () => {
+    await nasSocket();
+    await registerCode(HASH_A);
+    expect((await open('device', nasId, { ticket: await ticket({ deviceId: 'device-a' }), codeHash: HASH_A })).res.status).toBe(200);
+    expect(await hits('rate:ticket:device-a')).toBe(1);
+    expect(await hits(`rate:code:${HASH_A}`)).toBe(0);
+    registryCalls.length = 0;
+    expect((await open('device', nasId, { ticket: await ticket({ deviceId: 'device-a', exp: clock }), codeHash: HASH_A })).res.status).toBe(200);
+    expect(await hits('rate:ticket:device-a')).toBe(1);
+    expect(await hits(`rate:code:${HASH_A}`)).toBe(1);
+    expect(await hits('rate:device')).toBe(0);
+    expect(registryCalls).not.toContain('/internal/signal-attempt');
+    // Both fail: one address count, one shared slot.
+    registryCalls.length = 0;
+    expect((await open('device', nasId, { ticket: 'not-a-ticket', codeHash: HASH_B })).res.status).toBe(200);
+    expect(registryCalls.filter((p) => p === '/internal/signal-attempt')).toHaveLength(1);
+    expect(await hits('rate:device')).toBe(1);
+  });
+
+  it('deletes stale ticket and code windows in the alarm', async () => {
+    await registerCode(HASH_A);
+    await open('device', nasId, { ticket: await ticket({ deviceId: 'device-a' }) });
+    await open('device', nasId, { codeHash: HASH_A });
+    expect(await hits('rate:ticket:device-a')).toBe(1);
+    expect(await hits(`rate:code:${HASH_A}`)).toBe(1);
+    clock += MINUTE;
+    state.storage.alarm = null;
+    await signalling.alarm();
+    expect(state.storage.data.size).toBe(0);
+    expect(state.storage.alarm).toBeNull();
   });
 });
