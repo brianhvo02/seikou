@@ -27,6 +27,8 @@ import { ResumePrompt } from './nas/ResumePrompt';
 import { playlistsOf } from './nas/resume-model';
 import { askOrOpen, localKeyOf, recentResumeLabel, type AskOffer } from './local-resume';
 import { entriesFromIso, IsoError } from './iso-input';
+import { browserEarlyProbeEnv, scheduleEarlySpeedProbe } from './early-speed-probe';
+import { wasmVideoPlayability } from './video-caps';
 import type { StartPoint } from '@seikou/engine/protocol';
 import type { DiscEntry } from '@seikou/nas/nas-api';
 import { listRecentDiscs, reopenRecentDisc, saveRecentDisc, type RecentDisc } from './recent-discs';
@@ -503,6 +505,12 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
   const error = localError ?? snapshot.error?.message ?? null;
   const nasWaiting = snapshot.engineState === 'loading' ? snapshot.notices.find((n) => n.code === 'nas-waiting') : undefined;
   const paired = pairing !== undefined && pairing !== null && !pairRequested;
+  // Paired and idle: the MPEG-2 and VC-1 decode speed is measured now, so the first pre-flight of such a NAS disc needn't wait for it.
+  const idle = snapshot.engineState === 'idle';
+  useEffect(() => {
+    if (!paired || !idle) return;
+    return scheduleEarlySpeedProbe(browserEarlyProbeEnv(() => void wasmVideoPlayability(() => controller.probeVideoDecoder())));
+  }, [paired, idle, controller]);
   const errorPaths = localError ? [] : (snapshot.error?.paths ?? []);
 
   /** Discs and Encodes, on every NAS screen of a paired device the title library is open to (a link's pre-flight has none). */

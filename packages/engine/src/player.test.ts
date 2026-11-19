@@ -4787,6 +4787,34 @@ describe('Player with MPEG-2 and VC-1 video through the WASM decoder', () => {
     expect(reads).toBe(readsAfter);
   });
 
+  it('a probe the page hiding overlapped answers null and is not kept: its numbers would be too low', async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const wasm = fakeVideoWasm(scriptedPictures({ interlaced: true }), { picture: 20, skipped: 20 });
+    const h = await harness(undefined, {
+      noOpen: true,
+      videoWasm: (nowMs) => ({
+        ...wasm.deps(nowMs),
+        bench: { mpeg2Url: 'a', vc1Url: 'b', fetchBytes: async (url) => (await gate, url === 'a' ? benchClip(0x00, 15) : benchClip(0x0d, 15)) },
+      }),
+    });
+    await h.player.handle({ type: 'probeVideoDecoder' });
+    await h.player.handle({ type: 'visibility', hidden: true });
+    await h.player.handle({ type: 'visibility', hidden: false });
+    release();
+    await vi.waitFor(async () => {
+      await h.play(20, { render: false, audio: false });
+      expect(speedEvents(h)).toEqual([null]);
+    }, { timeout: 5000 });
+    // asked again with nothing in the way, it measures
+    await h.player.handle({ type: 'probeVideoDecoder' });
+    await vi.waitFor(async () => {
+      await h.play(20, { render: false, audio: false });
+      expect(speedEvents(h)).toHaveLength(2);
+    }, { timeout: 5000 });
+    expect(speedEvents(h)[1]).toMatchObject({ clips: 'a|b' });
+  }, 15_000);
+
   it('a timed-out probe is not kept either: the next ask measures again', async () => {
     const timers: Array<{ ms: number; fn: () => void; live: boolean }> = [];
     let reads = 0;

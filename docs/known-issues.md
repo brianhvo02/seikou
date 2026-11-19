@@ -102,12 +102,14 @@ what would change that decision.
   disc. A playlist with such video and nothing else playable still runs, silent and black on the wall clock, to its
   end: libbluray does the same, and some HDMV programs rely on it. `UnsupportedCodecError` is left for a
   decoder that fails to configure. *Revisit if* a precached decoder is worth its 1 MB to every visitor.
-- **The first NAS pre-flight of an MPEG-2 or VC-1 disc may wait up to about 20 s.** The decode speed probe runs once
-  a device (its answer is kept 30 days), raced against the pre-flight's own 10 s bound; the levels request, which
-  needs its answer, starts only then, with its own 10 s bound. Play waits for both, and the pre-flight says "Checking
-  this device can play this disc…" meanwhile. A probe asked while the page is hidden or another disc plays answers
-  unknown, and that open gets no Original. *Revisit if* the wait is noticed: probe ahead of the first pre-flight, or
-  ask the levels with a provisional answer while the probe runs.
+- **The decode speed probe runs ahead of the first pre-flight, but can still be waited for.** A paired device with no
+  disc open measures 5 s after the landing screen shows, when the browser is idle and the page visible
+  (`src/ui/early-speed-probe.ts`); the answer is kept 30 days. The engine discards a measurement that a disc's loading
+  or playing or the page hiding overlapped, since its numbers would be too low. A pre-flight opened before the early
+  probe finished shares it, and one opened with no answer yet still measures, raced against its own 10 s bound, and
+  the levels request, which needs its answer, starts only then, so that first open can still wait up to about 20 s.
+  A probe asked while the page is hidden or another disc plays answers unknown, and that open gets no Original.
+  *Revisit if* the wait is still noticed: ask the levels with a provisional answer while the probe runs.
 - **No progressive VC-1 is tested, nor VC-1 pulldown.** ffmpeg can't encode VC-1, so the one VC-1 fixture
   (`disc-vc1`) is a CC BY 1080i sample; progressive VC-1 and VC-1 with pulldown flags are untested until a disc or a
   licensed sample has them.
