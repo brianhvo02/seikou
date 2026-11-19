@@ -5,10 +5,19 @@ import { listRecentDiscs, removeRecentDisc, reopenRecentDisc, saveRecentDisc, ty
 // Plain objects survive IndexedDB's structured clone; `path` stands in for the folder's identity.
 const handle = (name: string, path = name): FileSystemDirectoryHandle =>
   ({ kind: 'directory', name, path }) as unknown as FileSystemDirectoryHandle;
-const samePath = async (a: FileSystemDirectoryHandle, b: FileSystemDirectoryHandle): Promise<boolean> =>
+const samePath = async (a: FileSystemHandle, b: FileSystemHandle): Promise<boolean> =>
   (a as unknown as { path: string }).path === (b as unknown as { path: string }).path;
 
 describe('recent discs', () => {
+  it("keeps an image's file handle beside folders, by its own name", async () => {
+    const factory = new IDBFactory();
+    await saveRecentDisc(handle('Disc A'), 1, factory, samePath);
+    const image = { kind: 'file', name: 'Disc B.iso', path: '/Movies/Disc B.iso' } as unknown as FileSystemFileHandle;
+    await saveRecentDisc(image, 2, factory, samePath, 'f.KEY');
+    const list = await listRecentDiscs(factory);
+    expect(list.map((d) => [d.name, d.handle.kind, d.discKey])).toEqual([['Disc B.iso', 'file', 'f.KEY'], ['Disc A', 'directory', null]]);
+  });
+
   it('keeps the five most recent, newest first, moving a reopened disc to the front', async () => {
     const factory = new IDBFactory();
     for (let i = 0; i < 7; i++) await saveRecentDisc(handle(`Disc ${i}`), 1000 + i, factory, samePath);

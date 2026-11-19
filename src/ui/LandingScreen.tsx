@@ -403,8 +403,11 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
     run(pickFolder());
   };
 
-  /** A disc image's files open as a folder's do, its place saved on this device under the same fingerprint. */
-  const openIso = async (file: File): Promise<void> => {
+  /**
+   * A disc image's files open as a folder's do, its place saved on this device under the same fingerprint; with its
+   * file handle (Chromium), the image joins Recent discs.
+   */
+  const openIso = async (file: File, handle: FileSystemFileHandle | null = null): Promise<void> => {
     let entries: Awaited<ReturnType<typeof entriesFromIso>>;
     try {
       entries = await entriesFromIso(file);
@@ -415,13 +418,34 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
       }
       throw err;
     }
-    await openLocal(entries);
+    const discKey = localKeyOf(entries);
+    run(openLocal(entries, discKey));
+    if (!handle) return;
+    try {
+      await saveRecentDisc(handle, Date.now(), undefined, undefined, discKey);
+      setRecent(await listRecentDiscs());
+    } catch {
+      // The recent-discs list is a convenience; failing to update it must not block playback.
+    }
+  };
+
+  /** Chromium's file picker, which gives a handle Recent discs can keep. */
+  const pickIso = async (): Promise<void> => {
+    let handle: FileSystemFileHandle | undefined;
+    try {
+      [handle] = (await window.showOpenFilePicker?.({ id: 'bluray-iso', types: [{ description: 'Blu-ray image', accept: { 'application/x-iso9660-image': ['.iso'] } }] })) ?? [];
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      throw err;
+    }
+    if (handle) await openIso(await handle.getFile(), handle);
   };
 
   const onPickIso = (): void => {
     setLocalError(null);
     controller.startAudio(); // must happen inside the click gesture
-    isoInputRef.current?.click();
+    if (typeof window.showOpenFilePicker === 'function') run(pickIso());
+    else isoInputRef.current?.click();
   };
 
   const onIsoInput = (e: ChangeEvent<HTMLInputElement>): void => {
@@ -452,7 +476,7 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
           return;
         }
         if (dropped.kind === 'entries') await openLocal(dropped.entries);
-        else if (dropped.kind === 'iso') await openIso(dropped.file);
+        else if (dropped.kind === 'iso') await openIso(dropped.file, dropped.handle);
         else await openHandle(dropped.handle);
       }),
     );
@@ -467,7 +491,8 @@ export function LandingScreen({ controller, theme, snapshot, nas, places, histor
           setLocalError(`Permission to read "${disc.name}" was not granted.`);
           return;
         }
-        await openHandle(handle);
+        if (handle.kind === 'file') await openIso(await (handle as FileSystemFileHandle).getFile(), handle as FileSystemFileHandle);
+        else await openHandle(handle as FileSystemDirectoryHandle);
       }),
     );
   };

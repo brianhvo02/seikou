@@ -151,6 +151,28 @@ test('opens and plays a disc image (.iso) picked from the landing screen', async
   expect((await telemetry(page))?.decoderErrors).toBe(0);
 });
 
+test('an .iso picked through the file picker joins Recent discs and reopens from there', async ({ page, browserName }) => {
+  test.skip(browserName !== 'chromium', 'File System Access file handles are Chromium only');
+  await page.goto('/?telemetry=1');
+  // the native picker can't be driven: it is stood in for by a real file handle, disc1.iso written to the origin's private storage
+  const iso = [...(await import('node:fs')).readFileSync('fixtures/synthetic/disc1.iso')];
+  await page.evaluate(async (bytes) => {
+    const root = await navigator.storage.getDirectory();
+    const handle = await root.getFileHandle('disc1.iso', { create: true });
+    const w = await handle.createWritable();
+    await w.write(new Uint8Array(bytes));
+    await w.close();
+    (window as unknown as { showOpenFilePicker: () => Promise<FileSystemFileHandle[]> }).showOpenFilePicker = async () => [handle];
+  }, iso);
+  await page.getByTestId('open-iso').click();
+  await expect(page.getByTestId('playlist-00000')).toContainText('Main feature', { timeout: 10_000 });
+  await page.reload();
+  const row = page.locator('.recent li button', { hasText: 'disc1.iso' });
+  await expect(row).toBeVisible({ timeout: 10_000 });
+  await row.click();
+  await expect(page.getByTestId('playlist-00000')).toContainText('Main feature', { timeout: 10_000 });
+});
+
 test('says why an .iso that is not a disc image does not open', async ({ page }) => {
   await page.goto('/');
   await page.getByTestId('iso-input').setInputFiles({ name: 'blank.iso', mimeType: 'application/octet-stream', buffer: Buffer.alloc(1 << 20) });

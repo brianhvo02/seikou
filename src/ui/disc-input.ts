@@ -31,7 +31,7 @@ export async function collectFromDirectoryHandle(handle: FileSystemDirectoryHand
 export type DroppedDisc =
   | { readonly kind: 'handle'; readonly handle: FileSystemDirectoryHandle }
   | { readonly kind: 'entries'; readonly entries: DiscEntries }
-  | { readonly kind: 'iso'; readonly file: File };
+  | { readonly kind: 'iso'; readonly file: File; readonly handle: FileSystemFileHandle | null };
 
 /**
  * Turns a drop into a disc: a directory handle when the browser offers one, else the entries of the dropped folder, or
@@ -41,7 +41,11 @@ export type DroppedDisc =
 export async function discFromDataTransfer(dt: DataTransfer): Promise<DroppedDisc | null> {
   const items = Array.from(dt.items).filter((item) => item.kind === 'file');
   const image = items.length === 1 ? items[0]!.getAsFile() : null;
-  if (image && isIsoFile(image)) return { kind: 'iso', file: image };
+  if (image && isIsoFile(image)) {
+    // Chromium: the image's file handle too, so it can be listed in Recent discs
+    const handle = await items[0]!.getAsFileSystemHandle?.().catch(() => null);
+    return { kind: 'iso', file: image, handle: handle?.kind === 'file' ? (handle as FileSystemFileHandle) : null };
+  }
   const handles = items.filter((item) => typeof item.getAsFileSystemHandle === 'function').map((item) => item.getAsFileSystemHandle?.());
   const entries = handles.length > 0 ? [] : items.map((item) => item.webkitGetAsEntry?.() as EntryLike | null | undefined).filter((e): e is EntryLike => !!e);
   for (const promise of handles) {
