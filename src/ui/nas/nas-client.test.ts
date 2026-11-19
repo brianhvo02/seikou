@@ -10,7 +10,7 @@ import { codeHash } from '../../../server/src/codes';
 import { HttpError, json } from '../../../server/src/http';
 import type { Handler, Response as ServerResponse } from '../../../server/src/http';
 import { serveChannel } from '../../../server/src/rtc/dispatch';
-import { codeHashOf, fromBase64url, turnProofMessage } from '../../../rendezvous/src/protocol';
+import { SIGNAL_TICKET_MAX_AHEAD_MS, codeHashOf, encodeTicket, fromBase64url, offerProofMessage, turnProofMessage } from '../../../rendezvous/src/protocol';
 import { FakeRtcWorld } from '../../../tests/helpers/rtc-fakes';
 import type { FakeRtcOptions } from '../../../tests/helpers/rtc-fakes';
 import { NAS_LOST_MESSAGE } from '@seikou/engine/disc/http-transport';
@@ -30,6 +30,11 @@ import type { NasPairing, NasStore } from './nas-store';
 const RENDEZVOUS = 'https://rendezvous.example';
 const BASE = 'https://nas.example/bluray/api/';
 const MINUTE = 60_000;
+
+const DAY = 24 * 60 * MINUTE;
+
+/** A ticket as the NAS would give one; the client never checks its signature. */
+const ticketFor = (deviceId: string, exp: number, nasId = 'n'.repeat(43)): string => encodeTicket({ nasId, deviceId, exp, signature: 'sig' });
 
 let tmp: string;
 let clock: number;
@@ -77,13 +82,18 @@ interface FakeServer {
   holdLibrary: Promise<void> | null;
   /** Art requests that reached the channel's handlers, as `<artId> <size>`. */
   readonly artFetched: string[];
+  /** `GET me`'s `signalTicket`; left out of the answer while undefined, as an older NAS does. */
+  meTicket?: string | null;
 }
 
 /**
  * The rendezvous Worker's lookup (a map of code hashes), and the NAS server's real handlers (`appHandlers`:
- * pairing, sessions, the token guard, library) over a real `Auth`, with Caddy's `/bluray` prefix stripped.
+ * pairing, sessions, the token guard, library, plus a `me`) over a real `Auth`, with Caddy's `/bluray` prefix
+ * stripped. A redeem gives a 90-day signalling ticket, as a NAS with a rendezvous does, unless `issueTicket` says
+ * otherwise, so a session doesn't ask `me` for one.
  */
-function fakeServer(): FakeServer {
+function fakeServer(opts: { issueTicket?: (deviceId: string) => Promise<string | null> } = {}): FakeServer {
+  const issueTicket = opts.issueTicket ?? (async (deviceId: string) => ticketFor(deviceId, clock + 90 * DAY));
   const auth = new Auth(new Store(tmp), now);
   const codes = new Map<string, CodeLookup>();
   const hits: Record<string, number> = {};
@@ -96,10 +106,12 @@ function fakeServer(): FakeServer {
     },
     evidence: () => [],
   } as unknown as Library;
-  const handlers = appHandlers({ auth, library, bdjStore: new BdjStore(tmp), playbackStore: new PlaybackStore(tmp, { now }), playerSettingsStore: new PlayerSettingsStore(tmp), publicBase: BASE, now });
+  const handlers = appHandlers({ auth, library, bdjStore: new BdjStore(tmp), playbackStore: new PlaybackStore(tmp, { now }), playerSettingsStore: new PlayerSettingsStore(tmp), publicBase: BASE, now, issueTicket });
   /** `GET /api/me` (the title routes need a title service), behind the token like the rest. */
   const me: Handler = async (_req, url) => {
-    if (url.pathname === '/api/me') return json(200, { owner: true, titleLibrary: true, personName: 'Owner' });
+    if (url.pathname === '/api/me') {
+      return json(200, { owner: true, titleLibrary: true, personName: 'Owner', ...(server.meTicket === undefined ? {} : { signalTicket: server.meTicket }) });
+    }
     const art = /^\/api\/art\/([^/]+)$/.exec(url.pathname);
     if (!art) return null;
     server.artFetched.push(`${art[1]} ${url.searchParams.get('size')}`);
@@ -125,7 +137,7 @@ function fakeServer(): FakeServer {
     }) as unknown as IncomingMessage;
     let res: ServerResponse | null = null;
     try {
-      for (const handler of handlers) if ((res = await handler(req, new URL(path, 'http://localhost')))) break;
+      for (const handler of server.handlers) if ((res = await handler(req, new URL(path, 'http://localhost')))) break;
     } catch (err) {
       if (!(err instanceof HttpError)) throw err;
       res = json(err.status, { error: err.message }, err.headers);
@@ -714,6 +726,173 @@ describe('NasClient', () => {
   });
 });
 
+/** Lets background work (the ticket check after a session) run. */
+const settle = async (): Promise<void> => {
+  for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0));
+};
+
+describe('NasClient signal tickets', () => {
+  /** A code whose NAS has a rendezvous, so the pairing has the NAS id its tickets name. */
+  const signalling = (): CodeRoutes => ({ https: BASE, webrtc: { nasId: NAS_ID } });
+
+  it("keeps the redeem's signalTicket on the new pairing", async () => {
+    const issued: string[] = [];
+    const server = fakeServer({
+      issueTicket: async (deviceId) => {
+        const ticket = ticketFor(deviceId, clock + 90 * DAY);
+        issued.push(ticket);
+        return ticket;
+      },
+    });
+    const store = memoryStore();
+    await client(server, store).pair(await server.code(signalling()), 'iPad');
+    expect(issued).toHaveLength(1);
+    expect(store.value?.signalTicket).toBe(issued[0]);
+  });
+
+  it('asks me once after a session when the pairing has no ticket, and keeps the one it gives', async () => {
+    const server = fakeServer({ issueTicket: async () => null });
+    const store = memoryStore();
+    const nas = client(server, store);
+    await nas.pair(await server.code(signalling()), 'iPad');
+    expect(store.value?.signalTicket).toBeUndefined();
+    const ticket = ticketFor(store.value!.deviceId, clock + 90 * DAY);
+    server.meTicket = ticket;
+    const { token } = await nas.session();
+    await vi.waitFor(() => expect(store.value?.signalTicket).toBe(ticket));
+    expect(server.hits.me).toBe(1);
+    expect((await nas.pairing())?.signalTicket).toBe(ticket);
+    // once per pairing in this client's life, even as sessions renew
+    await nas.freshSession(token);
+    await settle();
+    expect(server.hits.me).toBe(1);
+  });
+
+  it('asks me only once when it fails', async () => {
+    const server = fakeServer({ issueTicket: async () => null });
+    const nas = client(server);
+    await nas.pair(await server.code(signalling()), 'iPad');
+    const real = server.fetch;
+    const answer = async (url: URL, init?: RequestInit): Promise<Response> => {
+      const route = url.pathname.slice(new URL(BASE).pathname.length);
+      if (route === 'me') {
+        server.hits.me = (server.hits.me ?? 0) + 1;
+        return Response.json({ error: 'failed' }, { status: 500 });
+      }
+      server.nas = undefined;
+      try {
+        return await real(url, init);
+      } finally {
+        server.nas = answer;
+      }
+    };
+    server.nas = answer;
+    const { token } = await nas.session();
+    await settle();
+    clock += 1_000;
+    await nas.freshSession(token);
+    await settle();
+    expect(server.hits.me).toBe(1);
+  });
+
+  it('asks nothing while the ticket has more than 60 days left', async () => {
+    const server = fakeServer({ issueTicket: async (deviceId) => ticketFor(deviceId, clock + 61 * DAY) });
+    const nas = client(server);
+    await nas.pair(await server.code(signalling()), 'iPad');
+    await nas.session();
+    await nas.library('media5');
+    await settle();
+    expect(server.hits.me).toBeUndefined();
+  });
+
+  it('keeps a stored ticket when me gives one that ends sooner', async () => {
+    const server = fakeServer({ issueTicket: async (deviceId) => ticketFor(deviceId, clock + 50 * DAY) });
+    const store = memoryStore();
+    const nas = client(server, store);
+    await nas.pair(await server.code(signalling()), 'iPad');
+    const stored = store.value!.signalTicket;
+    server.meTicket = ticketFor(store.value!.deviceId, clock + 40 * DAY);
+    await nas.session();
+    await settle();
+    expect(server.hits.me).toBe(1);
+    expect(store.value?.signalTicket).toBe(stored);
+  });
+
+  it('treats a stored ticket that does not decode as missing', async () => {
+    const server = fakeServer({ issueTicket: async () => 'not a ticket' });
+    const store = memoryStore();
+    const nas = client(server, store);
+    await nas.pair(await server.code(signalling()), 'iPad');
+    expect(store.value?.signalTicket).toBeUndefined();
+    const ticket = ticketFor(store.value!.deviceId, clock + 90 * DAY);
+    server.meTicket = ticket;
+    await nas.session();
+    await vi.waitFor(() => expect(store.value?.signalTicket).toBe(ticket));
+  });
+
+  it('leaves the pairing as it was when the NAS answers signalTicket null', async () => {
+    const server = fakeServer({ issueTicket: async () => null });
+    const store = memoryStore();
+    const nas = client(server, store);
+    await nas.pair(await server.code(signalling()), 'iPad');
+    const before = store.value;
+    server.meTicket = null;
+    await nas.session();
+    await settle();
+    expect(server.hits.me).toBe(1);
+    expect(store.value).toEqual(before);
+    expect(store.value?.signalTicket).toBeUndefined();
+  });
+
+  it('asks no ticket after a session when the pairing has no NAS id, or was made straight at the server', async () => {
+    const server = fakeServer({ issueTicket: async () => null });
+    const nas = client(server);
+    await nas.pair(await server.code(), 'iPad');
+    await nas.session();
+    await settle();
+    expect(server.hits.me).toBeUndefined();
+    const direct = client(server);
+    await direct.pair(await server.code(), 'iPad', { nas: BASE });
+    await direct.session();
+    await settle();
+    expect(server.hits.me).toBeUndefined();
+  });
+
+  it("takes a ticket for the NAS id me moves the pairing to, though the old NAS's one ends later", async () => {
+    const server = fakeServer();
+    const store = memoryStore();
+    const otherId = 'm'.repeat(43);
+    const moved = (async (input: string | URL | Request, init?: RequestInit) => {
+      const res = await server.fetch(input, init);
+      if (!String(input).endsWith('/api/me')) return res;
+      return Response.json({ ...((await res.json()) as object), nasId: otherId });
+    }) as typeof server.fetch;
+    const nas = new NasClient({ fetch: moved, subtle: crypto.subtle, store, now, rendezvousUrl: RENDEZVOUS });
+    await nas.pair(await server.code(signalling()), 'iPad');
+    expect(store.value?.signalTicket).toBeTypeOf('string');
+    const ticket = ticketFor(store.value!.deviceId, clock + 70 * DAY, otherId);
+    server.meTicket = ticket;
+    await nas.me();
+    expect(store.value).toMatchObject({ nasId: otherId, signalTicket: ticket });
+  });
+
+  it('ignores a ticket for another NAS id or one too far ahead, from the redeem and from me', async () => {
+    for (const offered of [
+      (deviceId: string) => ticketFor(deviceId, clock + 90 * DAY, 'm'.repeat(43)),
+      (deviceId: string) => ticketFor(deviceId, clock + SIGNAL_TICKET_MAX_AHEAD_MS + 1),
+    ]) {
+      const server = fakeServer({ issueTicket: async (deviceId) => offered(deviceId) });
+      const store = memoryStore();
+      const nas = client(server, store);
+      await nas.pair(await server.code(signalling()), 'iPad');
+      expect(store.value?.signalTicket).toBeUndefined();
+      server.meTicket = offered(store.value!.deviceId);
+      await nas.me();
+      expect(store.value?.signalTicket).toBeUndefined();
+    }
+  });
+});
+
 const NAS_ID = 'n'.repeat(43);
 
 /** A NAS reachable over WebRTC (fake peers and sockets) serving the fake server's handlers through `serveChannel`. */
@@ -805,6 +984,29 @@ describe('NasClient over WebRTC', () => {
     expect(world.opened[1].deviceProof).toBeTypeOf('function');
     expect(await nas.discBase('d/1')).toBe(`rtc://${NAS_ID}/api/discs/d%2F1/`);
     expect(Object.keys(server.hits)).toEqual([]); // nothing went over HTTPS
+  });
+
+  it("sends the code's hash with the pairing offer, then the device's signed proof and its ticket", async () => {
+    const server = fakeServer({ issueTicket: async (deviceId) => ticketFor(deviceId, clock + 90 * DAY) });
+    const world = rtcWorld(server);
+    const store = memoryStore();
+    const nas = rtcClient(server, world, store);
+    const code = await server.code({ webrtc: { nasId: NAS_ID } });
+    const hash = await codeHashOf(code);
+    await nas.pair(code, 'iPhone');
+    const ticket = store.value!.signalTicket!;
+    expect(ticket).toBeTypeOf('string');
+    expect(world.sockets[0].url).toBe(`wss://rendezvous.example/signal/device?nasId=${NAS_ID}&codeHash=${hash}`);
+    expect(world.sent.find((m) => m.t === 'offer')?.proof).toEqual({ codeHash: hash });
+
+    await nas.library('media5');
+    expect(world.opened[1].ticket).toBe(ticket);
+    expect(world.sockets[1].url).toBe(`wss://rendezvous.example/signal/device?nasId=${NAS_ID}&ticket=${ticket}`);
+    const offer = world.sent.filter((m) => m.t === 'offer')[1];
+    const proof = offer.proof as { deviceId: string; signature: string };
+    expect(proof.deviceId).toBe(store.value!.deviceId);
+    const message = offerProofMessage({ sid: String(offer.sid) });
+    expect(await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, store.value!.key.publicKey, fromBase64url(proof.signature)!, message)).toBe(true);
   });
 
   it('pairs over WebRTC when HTTPS fails its check, and keeps the HTTPS base', async () => {

@@ -61,6 +61,8 @@ export interface AppOptions {
   relay?: RelayState;
   /** This NAS's rendezvous id, given in `me`; null (the default) without a rendezvous. */
   nasId?: string | null;
+  /** Issues a paired device's signalling ticket, given out by `me` and `pair/redeem`; absent (no ticket, `null`) without a rendezvous. */
+  issueTicket?: (deviceId: string) => Promise<string | null>;
   /** How long an owner's lookup may take. Default 10 s. */
   lookupTimeoutMs?: number;
   /** The quality levels; without them (`LEVELS_BACKEND=off` or a failed GPU self-test) only the original is served. */
@@ -91,7 +93,7 @@ export function requireToken(auth: Auth): Handler {
 export function appHandlers(opts: AppOptions): Handler[] {
   const { auth } = opts;
   return [
-    pairRoutes(auth, { now: opts.now ?? Date.now, trustProxy: opts.trustProxy ?? (() => false), registrar: opts.registrar }),
+    pairRoutes(auth, { now: opts.now ?? Date.now, trustProxy: opts.trustProxy ?? (() => false), registrar: opts.registrar, issueTicket: opts.issueTicket }),
     requireToken(auth),
     bdjStoreRoutes(auth, opts.bdjStore),
     ...(opts.playbackStore ? [playbackRoutes(auth, opts.playbackStore, { titles: opts.titles, library: opts.library, encodes: opts.encodes, encodesWaitMs: opts.encodesWaitMs })] : []),
@@ -103,7 +105,7 @@ export function appHandlers(opts: AppOptions): Handler[] {
       titles: opts.titles, relay: opts.relay, levels: opts.levels, now: opts.now, lookupTimeoutMs: opts.lookupTimeoutMs,
     }),
     libraryRoute(opts.library),
-    ...(opts.titles ? [titleRoutes(auth, opts.titles, opts.relay, opts.nasId ?? null, opts.levels !== undefined)] : []),
+    ...(opts.titles ? [titleRoutes(auth, opts.titles, opts.relay, opts.nasId ?? null, opts.levels !== undefined, opts.issueTicket)] : []),
     encodeRoutes(opts.auth, opts.encodes, opts.titles, opts.encodesWaitMs, opts.encodeUploads),
     discRoutes(opts.library, opts.levels && { service: opts.levels, auth }, opts.isoTrees, opts.activity),
   ];

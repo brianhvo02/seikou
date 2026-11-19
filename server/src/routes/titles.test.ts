@@ -113,7 +113,7 @@ afterEach(() => {
   rmSync(tmp, { recursive: true, force: true });
 });
 
-async function start(opts: { gate?: 'owners' | 'everyone'; lookupTimeoutMs?: number; nasId?: string | null; more?: DiscEvidence[]; folderCover?: (dir: string) => Promise<FolderCover | null> } = {}): Promise<void> {
+async function start(opts: { gate?: 'owners' | 'everyone'; lookupTimeoutMs?: number; nasId?: string | null; issueTicket?: (deviceId: string) => Promise<string | null>; more?: DiscEvidence[]; folderCover?: (dir: string) => Promise<FolderCover | null> } = {}): Promise<void> {
   const data = join(tmp, 'data');
   auth = new Auth(new Store(data), () => clock);
   relay = new RelayState(data, () => clock);
@@ -130,7 +130,7 @@ async function start(opts: { gate?: 'owners' | 'everyone'; lookupTimeoutMs?: num
     now: () => clock, setTimer: () => () => {},
   });
   await service.runNow();
-  const server = createServer(appHandlers({ auth, library, bdjStore: new BdjStore(data), now: () => clock, publicBase: 'https://nas.example/bluray/api/', titles: { service, owner }, relay, lookupTimeoutMs: opts.lookupTimeoutMs, nasId: opts.nasId }));
+  const server = createServer(appHandlers({ auth, library, bdjStore: new BdjStore(data), now: () => clock, publicBase: 'https://nas.example/bluray/api/', titles: { service, owner }, relay, lookupTimeoutMs: opts.lookupTimeoutMs, nasId: opts.nasId, issueTicket: opts.issueTicket }));
   await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   close = () => {
@@ -234,10 +234,10 @@ describe('title routes', () => {
   it('reports both flags and the person on GET /api/me', async () => {
     await start();
     const person = expect.any(String);
-    expect(await (await get('/api/me', await token(false))).json()).toEqual({ owner: false, titleLibrary: false, personId: person, personName: 'Guest', relay: null, nasId: null, levels: false });
-    expect(await (await get('/api/me', await token(true))).json()).toEqual({ owner: true, titleLibrary: true, personId: auth.firstOwnerPerson().id, personName: 'Owner', relay: null, nasId: null, levels: false });
+    expect(await (await get('/api/me', await token(false))).json()).toEqual({ owner: false, titleLibrary: false, personId: person, personName: 'Guest', relay: null, nasId: null, levels: false, signalTicket: null });
+    expect(await (await get('/api/me', await token(true))).json()).toEqual({ owner: true, titleLibrary: true, personId: auth.firstOwnerPerson().id, personName: 'Owner', relay: null, nasId: null, levels: false, signalTicket: null });
     owner.setGate('everyone');
-    expect(await (await get('/api/me', await token(false))).json()).toEqual({ owner: false, titleLibrary: true, personId: person, personName: 'Guest', relay: null, nasId: null, levels: false });
+    expect(await (await get('/api/me', await token(false))).json()).toEqual({ owner: false, titleLibrary: true, personId: person, personName: 'Guest', relay: null, nasId: null, levels: false, signalTicket: null });
     expect((await fetch(`${base}/api/me`)).status).toBe(401);
   });
 
@@ -245,6 +245,22 @@ describe('title routes', () => {
     await start({ nasId: 'N'.repeat(43) });
     const me = (await (await get('/api/me', await token(false))).json()) as { nasId: unknown };
     expect(me.nasId).toBe('N'.repeat(43));
+  });
+
+  it("gives the device a signalling ticket in GET /api/me, or null when the NAS issues none", async () => {
+    const issueTicket = vi.fn(async (deviceId: string): Promise<string | null> => `ticket-for-${deviceId}`);
+    await start({ nasId: 'N'.repeat(43), issueTicket });
+    const t = await token(false);
+    const me = (await (await get('/api/me', t)).json()) as { signalTicket: unknown };
+    const deviceId = auth.verify(t)!.id;
+    expect(me.signalTicket).toBe(`ticket-for-${deviceId}`);
+    expect(issueTicket).toHaveBeenCalledWith(deviceId);
+    issueTicket.mockResolvedValueOnce(null);
+    expect(((await (await get('/api/me', t)).json()) as { signalTicket: unknown }).signalTicket).toBeNull();
+    issueTicket.mockRejectedValueOnce(new Error('no key'));
+    const failed = await get('/api/me', t);
+    expect(failed.status).toBe(200);
+    expect(((await failed.json()) as { signalTicket: unknown }).signalTicket).toBeNull();
   });
 
   it("adds the relay's usage to GET /api/me while the relay is on", async () => {

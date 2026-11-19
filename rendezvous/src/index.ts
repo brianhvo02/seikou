@@ -94,8 +94,9 @@ async function nasRegistrationAllowed(body: Uint8Array | ArrayBuffer | null, raw
 }
 
 /**
- * A signalling WebSocket upgrade: checked, counted against the client's attempts, then handed to the NAS's
- * Signalling object. Its 101 response goes back as it is (copying it would drop the socket).
+ * A signalling WebSocket upgrade: checked, counted against the client's attempts (proof-bearing ones, with `ticket` or
+ * `codeHash`, apart from the rest), then handed to the NAS's Signalling object with `CF-Connecting-IP` as it came.
+ * Its 101 response goes back as it is (copying it would drop the socket).
  */
 async function signal(request: Request, env: Env): Promise<Response> {
   if (request.method !== 'GET') {
@@ -104,12 +105,19 @@ async function signal(request: Request, env: Env): Promise<Response> {
     return response;
   }
   if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return json(426, { error: 'expected a WebSocket upgrade' });
-  const nasId = new URL(request.url).searchParams.get('nasId');
+  const url = new URL(request.url);
+  const params = url.searchParams;
+  const nasId = params.get('nasId');
   if (!isNasId(nasId)) return json(400, { error: 'bad request' });
   if (!nasAllowed(env.NAS_IDS, nasId)) return json(403, NOT_ALLOWED);
+  // An upgrade with a proof counts in the address's larger proof window; the Signalling object checks the proof and
+  // counts a failed one in the unproven window as well.
+  // Only a device upgrade carries a proof; the NAS's own socket is never checked for one. The path here must stay the
+  // one `Signalling.fetch` takes as its device route, or proof-bearing upgrades would skip the address's proof window.
+  const proof = url.pathname === '/signal/device' && (Boolean(params.get('ticket')) || Boolean(params.get('codeHash')));
   const registry = env.CODE_REGISTRY;
   const attempt = await registry.get(registry.idFromName(REGISTRY_NAME)).fetch(
-    new Request(`https://registry.internal${INTERNAL.signalAttempt}`, {
+    new Request(`https://registry.internal${proof ? INTERNAL.signalProofAttempt : INTERNAL.signalAttempt}`, {
       method: 'POST',
       headers: { 'CF-Connecting-IP': request.headers.get('CF-Connecting-IP') ?? '' },
     }),
@@ -126,7 +134,7 @@ export default {
    * Routes: `POST /nas`, `POST /codes`, `DELETE /codes` and `POST /codes/lookup` (to the registry; 404 for another
    * path, 405 for another method, 413 for a body over `MAX_BODY_BYTES`, 403 `nas-not-allowed` on `POST /nas` for a
    * key whose NAS id is off `NAS_IDS`, and 404 `unknown code` from the lookup for a code of such a NAS); `GET /signal/nas` and `GET /signal/device` (WebSocket upgrades: 426 without the upgrade header, 400
-   * for a bad `nasId`, 403 `nas-not-allowed`, 429 past the per-address attempt limit); `POST /turn` (see `turnRoute`).
+   * for a bad `nasId`, 403 `nas-not-allowed`, 429 past the per-address attempt limit; a device may add `ticket` or `codeHash`); `POST /turn` (see `turnRoute`).
    */
   async fetch(request: Request, env: Env): Promise<Response> {
     const path = new URL(request.url).pathname;

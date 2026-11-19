@@ -23,10 +23,17 @@ import {
   SIGNAL_MAX_MESSAGE_BYTES,
   SIGNAL_PING_MESSAGE,
   SIGNAL_PONG_MESSAGE,
+  SIGNAL_CODE_PER_MINUTE,
+  SIGNAL_SHARED_PER_MINUTE,
+  SIGNAL_TICKET_MAX_AHEAD_MS,
+  SIGNAL_TICKET_PER_MINUTE,
+  SIGNAL_UNPROVEN_SOCKETS_PER_NAS,
   base64url,
+  decodeTicket,
   fromBase64url,
   isNasId,
   signalAuthMessage,
+  signalTicketMessage,
 } from './protocol';
 import type { DeviceSignalForNas, NasSignalForDevice, SignalChallenge, SignalHello } from './protocol';
 import type { EcPublicJwk } from '@seikou/nas/nas-api';
@@ -45,9 +52,9 @@ export interface AutoResponse {
   readonly response: string;
 }
 
-/** The part of `DurableObjectState` the object uses: storage for the attempt log and the hibernation API. */
+/** The part of `DurableObjectState` the object uses: storage for the attempt logs and the hibernation API. */
 export interface SignallingState {
-  readonly storage: Pick<RegistryStorage, 'get' | 'put' | 'delete' | 'getAlarm' | 'setAlarm'>;
+  readonly storage: Pick<RegistryStorage, 'get' | 'put' | 'delete' | 'list' | 'getAlarm' | 'setAlarm'>;
   acceptWebSocket(ws: SignalSocket, tags?: string[]): void;
   getWebSockets(tag?: string): SignalSocket[];
   setWebSocketAutoResponse(pair: AutoResponse): void;
@@ -89,6 +96,11 @@ interface DeviceAttachment {
   role: 'device';
   sid: string;
   openedAt: number;
+  /**
+   * Whether the upgrade carried a ticket or live code that checked out; unproven sockets also count against
+   * `SIGNAL_UNPROVEN_SOCKETS_PER_NAS`. Missing on a socket accepted before the field existed, which counts as unproven.
+   */
+  proven?: boolean;
   /** Messages received so far, against `SIGNAL_DEVICE_MESSAGES`. */
   messages: number;
   closed: boolean;
@@ -99,9 +111,19 @@ type Attachment = NasAttachment | DeviceAttachment;
 const MINUTE = 60_000;
 /** A NAS socket that hasn't answered its challenge by then is closed. */
 const AUTH_TIMEOUT_MS = 10_000;
-/** Device connection attempts per NAS per minute (the NAS's own socket isn't counted, so a flood can't lock it out). */
-const DEVICE_ATTEMPTS = { max: 100, windowMs: MINUTE };
+/**
+ * Device connection attempts per minute: the window every device without a proof shares (the NAS's own socket isn't
+ * counted, so a flood can't lock it out), and the windows of one ticketed device and of one live pairing code.
+ */
+const WINDOW_MS = MINUTE;
+const RATE_PREFIX = 'rate:';
 const ATTEMPTS_KEY = 'rate:device';
+const ticketKey = (deviceId: string): string => `rate:ticket:${deviceId}`;
+const codeKey = (codeHash: string): string => `rate:code:${codeHash}`;
+/** A code hash as `codeHashOf` writes it. */
+const CODE_HASH = /^[0-9a-f]{64}$/;
+/** How long the NAS's public key is kept in memory between registry lookups. */
+const KEY_CACHE_MS = 10 * MINUTE;
 const NAS_TAG = 'nas';
 const DEVICE_TAG = 'device';
 const sidTag = (sid: string): string => `sid:${sid}`;
@@ -146,11 +168,15 @@ function parse(message: string | ArrayBuffer): { value: Record<string, unknown> 
 /**
  * The Durable Object for one NAS's signalling. Who may connect: a NAS socket must answer its challenge with a signature
  * by the NAS's registered key (closed `bad-auth` or `auth-timeout` otherwise); a device socket needs no proof here
- * (the NAS checks a device's `turn-request` itself) but is closed `nas-offline` while no authenticated NAS socket is
- * live, `busy` past `SIGNAL_DEVICES_PER_NAS` open sockets, `too-many-messages`, `expired` and so on as `SIGNAL_CLOSE` lists.
+ * (the NAS checks a device's `turn-request` itself), though one with a NAS-signed `ticket` or a live `codeHash` in its
+ * upgrade URL gets an allowance of its own instead of the shared one, and it is closed `nas-offline` while no authenticated NAS socket is
+ * live, `busy` past `SIGNAL_DEVICES_PER_NAS` open sockets (or, without a checked proof, past
+ * `SIGNAL_UNPROVEN_SOCKETS_PER_NAS` unproven ones), `too-many-messages`, `expired` and so on as `SIGNAL_CLOSE` lists.
  */
 export class Signalling {
   private readonly deps: SignallingDeps;
+  /** The NAS's public key as the registry last answered it, for checking tickets. */
+  private keyCache: { jwk: EcPublicJwk; at: number } | null = null;
 
   constructor(
     private readonly state: SignallingState,
@@ -182,14 +208,17 @@ export class Signalling {
       return response;
     }
 
-    if (!(await this.allowDevice())) return new Response('too many requests', { status: 429 });
-    const open = this.state.getWebSockets(DEVICE_TAG).filter((ws) => attachmentOf(ws)?.closed === false).length;
+    const allowed = await this.allowDevice(request, nasId, url.searchParams);
+    if (allowed === null) return new Response('too many requests', { status: 429 });
+    const proven = allowed === 'proven';
+    const openDevices = this.state.getWebSockets(DEVICE_TAG).map(attachmentOf).filter((a): a is DeviceAttachment => a?.role === 'device' && !a.closed);
+    const full = openDevices.length >= SIGNAL_DEVICES_PER_NAS || (!proven && openDevices.filter((a) => a.proven !== true).length >= SIGNAL_UNPROVEN_SOCKETS_PER_NAS);
     const { server, response } = this.deps.upgrade();
     const sid = randomId(16);
     const openedAt = this.deps.now();
     this.state.acceptWebSocket(server, [DEVICE_TAG, sidTag(sid)]);
-    server.serializeAttachment({ role: 'device', sid, openedAt, messages: 0, closed: false } satisfies DeviceAttachment);
-    if (open >= SIGNAL_DEVICES_PER_NAS) this.shut(server, SIGNAL_CLOSE.busy);
+    server.serializeAttachment({ role: 'device', sid, openedAt, proven, messages: 0, closed: false } satisfies DeviceAttachment);
+    if (full) this.shut(server, SIGNAL_CLOSE.busy);
     else if (this.liveNas() === undefined) this.shut(server, SIGNAL_CLOSE.nasOffline);
     else {
       const hello: SignalHello = { t: 'hello', sid };
@@ -239,9 +268,11 @@ export class Signalling {
       if (deadline <= now) this.shut(ws, SIGNAL_CLOSE.expired);
       else next = Math.min(next, deadline);
     }
-    const hits = await this.recentAttempts(now);
-    if (hits.length === 0) await this.state.storage.delete(ATTEMPTS_KEY);
-    else next = Math.min(next, Math.max(...hits) + DEVICE_ATTEMPTS.windowMs);
+    for (const [key, logged] of await this.state.storage.list<number[]>({ prefix: RATE_PREFIX })) {
+      const hits = logged.filter((t) => t > now - WINDOW_MS);
+      if (hits.length === 0) await this.state.storage.delete(key);
+      else next = Math.min(next, Math.max(...hits) + WINDOW_MS);
+    }
     if (next !== Infinity) await this.armAlarm(next);
   }
 
@@ -296,18 +327,84 @@ export class Signalling {
   }
 
   private async verify(attachment: NasAttachment, signature: string): Promise<boolean> {
-    const sig = fromBase64url(signature);
-    if (sig === null || sig.length !== 64) return false;
+    if (fromBase64url(signature)?.length !== 64) return false;
+    // Always asked afresh, so a NAS whose record has expired can't authenticate.
+    const publicKeyJwk = await this.fetchNasKey(attachment.nasId);
+    if (publicKeyJwk === null) return false;
+    return verifySignature(publicKeyJwk, signature, signalAuthMessage({ nasId: attachment.nasId, nonce: attachment.nonce }));
+  }
+
+  /** The NAS's public key from the registry, or null when it doesn't know a live NAS by that id. */
+  private async fetchNasKey(nasId: string): Promise<EcPublicJwk | null> {
     const registry = this.env.CODE_REGISTRY;
-    const url = `https://registry.internal${INTERNAL.nasKey}?nasId=${encodeURIComponent(attachment.nasId)}`;
+    const url = `https://registry.internal${INTERNAL.nasKey}?nasId=${encodeURIComponent(nasId)}`;
     const res = await registry.get(registry.idFromName(REGISTRY_NAME)).fetch(new Request(url));
     if (res.status !== 200) {
       await res.body?.cancel();
+      return null;
+    }
+    return ((await res.json()) as { publicKeyJwk: EcPublicJwk }).publicKeyJwk;
+  }
+
+  /** The NAS's public key, from memory when the registry answered it within `KEY_CACHE_MS`. */
+  private async cachedNasKey(nasId: string): Promise<EcPublicJwk | null> {
+    const now = this.deps.now();
+    if (this.keyCache !== null && now - this.keyCache.at < KEY_CACHE_MS) return this.keyCache.jwk;
+    const jwk = await this.fetchNasKey(nasId);
+    this.keyCache = jwk === null ? null : { jwk, at: now };
+    return jwk;
+  }
+
+  /**
+   * Whether `text` is a ticket for this NAS, unexpired, no further ahead than `SIGNAL_TICKET_MAX_AHEAD_MS`, and signed
+   * by the NAS's key; the ticket when it is.
+   */
+  private async checkTicket(text: string, nasId: string): Promise<{ deviceId: string } | null> {
+    const ticket = decodeTicket(text);
+    const now = this.deps.now();
+    if (ticket === null || ticket.nasId !== nasId || !(now < ticket.exp) || ticket.exp > now + SIGNAL_TICKET_MAX_AHEAD_MS) return null;
+    try {
+      const jwk = await this.cachedNasKey(nasId);
+      if (jwk === null) return null;
+      const message = signalTicketMessage({ nasId: ticket.nasId, deviceId: ticket.deviceId, exp: ticket.exp });
+      return (await verifySignature(jwk, ticket.signature, message)) ? { deviceId: ticket.deviceId } : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Whether the registry holds a live pairing code of this NAS with that hash. */
+  private async codeIsLive(codeHash: string, nasId: string): Promise<boolean> {
+    if (!CODE_HASH.test(codeHash)) return false;
+    const registry = this.env.CODE_REGISTRY;
+    const url = `https://registry.internal${INTERNAL.codeLive}?nasId=${encodeURIComponent(nasId)}&codeHash=${codeHash}`;
+    try {
+      const res = await registry.get(registry.idFromName(REGISTRY_NAME)).fetch(new Request(url));
+      await res.body?.cancel();
+      return res.status === 204;
+    } catch {
       return false;
     }
-    const { publicKeyJwk } = (await res.json()) as { publicKeyJwk: EcPublicJwk };
-    const key = await crypto.subtle.importKey('jwk', publicKeyJwk, ECDSA_KEY, false, ['verify']);
-    return crypto.subtle.verify(ECDSA_SIGN, key, sig, signalAuthMessage({ nasId: attachment.nasId, nonce: attachment.nonce }));
+  }
+
+  /**
+   * Counts a failed proof against the client's address, as an upgrade without one would have been; a registry that
+   * fails counts as a refusal.
+   */
+  private async addressAllowsUnproven(request: Request): Promise<boolean> {
+    const registry = this.env.CODE_REGISTRY;
+    try {
+      const res = await registry.get(registry.idFromName(REGISTRY_NAME)).fetch(
+        new Request(`https://registry.internal${INTERNAL.signalAttempt}`, {
+          method: 'POST',
+          headers: { 'CF-Connecting-IP': request.headers.get('CF-Connecting-IP') ?? '' },
+        }),
+      );
+      await res.body?.cancel();
+      return res.status === 204;
+    } catch {
+      return false;
+    }
   }
 
   /** Tells the registry the NAS was seen, so its record doesn't expire while it only signals. */
@@ -360,18 +457,32 @@ export class Signalling {
     }
   }
 
-  private async recentAttempts(now: number): Promise<number[]> {
-    return ((await this.state.storage.get<number[]>(ATTEMPTS_KEY)) ?? []).filter((t) => t > now - DEVICE_ATTEMPTS.windowMs);
+  /**
+   * Counts a device upgrade in exactly one window: its ticket's when the ticket checks out, else its live code's, else
+   * the shared one (after a failed proof is also counted against the client's address). Answers whether the upgrade
+   * was proven, or null when its window refused it.
+   */
+  private async allowDevice(request: Request, nasId: string, params: URLSearchParams): Promise<'proven' | 'unproven' | null> {
+    const ticketText = params.get('ticket');
+    const codeHash = params.get('codeHash');
+    const verdict = (allowed: boolean, kind: 'proven' | 'unproven'): 'proven' | 'unproven' | null => (allowed ? kind : null);
+    if (ticketText) {
+      const ticket = await this.checkTicket(ticketText, nasId);
+      if (ticket !== null) return verdict(await this.allow(ticketKey(ticket.deviceId), SIGNAL_TICKET_PER_MINUTE), 'proven');
+    }
+    if (codeHash && (await this.codeIsLive(codeHash, nasId))) return verdict(await this.allow(codeKey(codeHash), SIGNAL_CODE_PER_MINUTE), 'proven');
+    if ((ticketText || codeHash) && !(await this.addressAllowsUnproven(request))) return null;
+    return verdict(await this.allow(ATTEMPTS_KEY, SIGNAL_SHARED_PER_MINUTE), 'unproven');
   }
 
-  /** A sliding-window log of device attempts: records this one unless the window is full. */
-  private async allowDevice(): Promise<boolean> {
+  /** A sliding-window log under `key`: records this attempt unless `max` fell within the last minute. */
+  private async allow(key: string, max: number): Promise<boolean> {
     const now = this.deps.now();
-    const hits = await this.recentAttempts(now);
-    if (hits.length >= DEVICE_ATTEMPTS.max) return false;
+    const hits = ((await this.state.storage.get<number[]>(key)) ?? []).filter((t) => t > now - WINDOW_MS);
+    if (hits.length >= max) return false;
     hits.push(now);
-    await this.state.storage.put(ATTEMPTS_KEY, hits);
-    await this.armAlarm(now + DEVICE_ATTEMPTS.windowMs);
+    await this.state.storage.put(key, hits);
+    await this.armAlarm(now + WINDOW_MS);
     return true;
   }
 
@@ -380,6 +491,14 @@ export class Signalling {
     const current = await this.state.storage.getAlarm();
     if (current === null || current > time) await this.state.storage.setAlarm(time);
   }
+}
+
+/** Whether `signature` (base64url, 64 bytes) over `message` verifies with the P-256 key `jwk`. */
+async function verifySignature(jwk: EcPublicJwk, signature: string, message: Uint8Array<ArrayBuffer>): Promise<boolean> {
+  const sig = fromBase64url(signature);
+  if (sig === null || sig.length !== 64) return false;
+  const key = await crypto.subtle.importKey('jwk', jwk, ECDSA_KEY, false, ['verify']);
+  return crypto.subtle.verify(ECDSA_SIGN, key, sig, message);
 }
 
 function attachmentOf(ws: SignalSocket): Attachment | null {

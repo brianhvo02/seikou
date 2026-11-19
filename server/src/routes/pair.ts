@@ -7,6 +7,7 @@ import type { Auth } from '../auth';
 import { codeHash, unregisterCodes } from '../codes';
 import type { CodeRegistrar } from '../codes';
 import { HttpError, json, readJson, viaChannel } from '../http';
+import { signalTicketFor } from '../rtc/signal-proof';
 import type { Handler } from '../http';
 
 type JsonWebKey = webcrypto.JsonWebKey;
@@ -124,12 +125,15 @@ const unauthorized = () => json(401, { error: 'unauthorized' });
 
 /**
  * `POST /api/pair/redeem {code, deviceName, publicKeyJwk}` (a device's P-256 public key; 200 `{deviceId, owner, personId,
- * personName}`), `POST /api/session/challenge {deviceId}` (200 `{challenge}`) and `POST /api/session {deviceId, challenge,
- * signature}` (200 the session): the only routes open to unpaired devices. A wrong code is 401 `invalid code`; after ten
+ * personName, signalTicket}`, the ticket from `issueTicket` or null), `POST /api/session/challenge {deviceId}` (200
+ * `{challenge}`) and `POST /api/session {deviceId, challenge, signature}` (200 the session): the only routes open to unpaired devices. A wrong code is 401 `invalid code`; after ten
  * failures from one client address in a minute (attempts in flight count too) the next is 429 `too many tries` with `Retry-After: 60`; a malformed body is
  * 400 `bad request`; an unknown device, challenge or signature is 401 `unauthorized`.
  */
-export function pairRoutes(auth: Auth, opts: { now: () => number; trustProxy: (address: string) => boolean; registrar?: CodeRegistrar }): Handler {
+export function pairRoutes(
+  auth: Auth,
+  opts: { now: () => number; trustProxy: (address: string) => boolean; registrar?: CodeRegistrar; issueTicket?: (deviceId: string) => Promise<string | null> },
+): Handler {
   const limiter = new FailureLimiter(opts.now);
   return async (req, url) => {
     if (req.method !== 'POST') return null;
@@ -154,7 +158,8 @@ export function pairRoutes(auth: Auth, opts: { now: () => number; trustProxy: (a
           }
           // the code is spent: free its place with the rendezvous service
           unregisterCodes(opts.registrar, [codeHash(code)]);
-          return json(200, { deviceId: device.id, owner: device.owner, personId: device.personId, personName: device.personName });
+          const signalTicket = await signalTicketFor(opts.issueTicket, device.id);
+          return json(200, { deviceId: device.id, owner: device.owner, personId: device.personId, personName: device.personName, signalTicket });
         } finally {
           attempt.release();
         }

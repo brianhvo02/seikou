@@ -1,5 +1,5 @@
 import type { CodeLookup, CodeRoutes, EcPublicJwk } from '@seikou/nas/nas-api';
-import { ECDSA_KEY, ECDSA_SIGN, MAX_CODE_AHEAD_MS, codeHashOf, fromBase64url, isNasId, nasIdOf, signedMessage, unregisterMessage } from './protocol';
+import { ECDSA_KEY, ECDSA_SIGN, MAX_CODE_AHEAD_MS, SIGNAL_PROOF_PER_ADDRESS, codeHashOf, fromBase64url, isNasId, nasIdOf, signedMessage, unregisterMessage } from './protocol';
 
 /** The part of a Durable Object's storage API the registry uses (the KV-style API, on SQLite-backed storage). */
 export interface RegistryStorage {
@@ -42,13 +42,15 @@ const LIMITS = {
   unregister: { max: 60, windowMs: HOUR },
   /** Signalling WebSocket attempts, NAS and device sockets alike, counted here for every NAS id at once. */
   signal: { max: 10, windowMs: MINUTE },
+  /** Signalling upgrades that carry a proof (a ticket or a live code), counted per address apart from the unproven ones. */
+  signalProof: { max: SIGNAL_PROOF_PER_ADDRESS, windowMs: MINUTE },
   /** TURN credentials minted for one NAS (`POST /turn`), after its signature checked. */
   turn: { max: 30, windowMs: HOUR },
   /** TURN credentials minted for every NAS at once, a cap on what the Worker's key can cost. */
   turnDay: { max: 500, windowMs: DAY },
 } as const;
 type Route = keyof typeof LIMITS;
-const ROUTES: Readonly<Record<string, Exclude<Route, 'unregister' | 'signal' | 'turn' | 'turnDay'>>> = { '/nas': 'nas', '/codes': 'codes', '/codes/lookup': 'lookup' };
+const ROUTES: Readonly<Record<string, Exclude<Route, 'unregister' | 'signal' | 'signalProof' | 'turn' | 'turnDay'>>> = { '/nas': 'nas', '/codes': 'codes', '/codes/lookup': 'lookup' };
 
 /** Failed lookups allowed per hour across all clients; successful ones need a valid 60-bit code and don't count. */
 const FAILED_LOOKUPS_PER_HOUR = 1_000;
@@ -70,6 +72,8 @@ export const INTERNAL = {
   nasKey: '/internal/nas-key',
   nasTouch: '/internal/nas-touch',
   signalAttempt: '/internal/signal-attempt',
+  codeLive: '/internal/code-live',
+  signalProofAttempt: '/internal/signal-proof-attempt',
   turnAttempt: '/internal/turn-attempt',
 } as const;
 
@@ -164,6 +168,11 @@ export class CodeRegistry {
       const allowed = await this.allow(rateKey('signal', clientBucket(request.headers.get('CF-Connecting-IP'))), LIMITS.signal);
       return allowed ? new Response(null, { status: 204 }) : json(429, { error: 'too many requests' });
     }
+    if (url.pathname === INTERNAL.signalProofAttempt) {
+      const allowed = await this.allow(rateKey('signalProof', clientBucket(request.headers.get('CF-Connecting-IP'))), LIMITS.signalProof);
+      return allowed ? new Response(null, { status: 204 }) : json(429, { error: 'too many requests' });
+    }
+    if (url.pathname === INTERNAL.codeLive) return this.codeLive(url.searchParams.get('nasId'), url.searchParams.get('codeHash'));
     if (url.pathname === INTERNAL.turnAttempt) return this.turnAttempt(url.searchParams.get('nasId'));
     const path = ROUTES[url.pathname];
     if (path === undefined) return json(404, { error: 'not found' });
@@ -350,6 +359,12 @@ export class CodeRegistry {
       await this.storage.put<NasRecord>(nasKey(nasId), { ...nas, codes });
     }
     return new Response(null, { status: 204 });
+  }
+
+  /** `GET ?nasId=&codeHash=`: 204 when that NAS holds a registered code with that hash that hasn't expired, else 404. */
+  private async codeLive(nasId: string | null, codeHash: string | null): Promise<Response> {
+    const record = nasId === null || codeHash === null ? undefined : await this.storage.get<CodeRecord>(codeKey(codeHash));
+    return record !== undefined && record.nasId === nasId && record.expiresAt > this.now() ? new Response(null, { status: 204 }) : json(404, { error: 'unknown code' });
   }
 
   /**

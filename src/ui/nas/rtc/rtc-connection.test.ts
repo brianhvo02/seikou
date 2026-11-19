@@ -60,6 +60,31 @@ describe('RtcConnection', () => {
     conn.close();
   });
 
+  it("puts a paired device's ticket on the socket's URL, else a code's hash", () => {
+    const ticket = 'eyJuYXNJZCI6Im4ifQ';
+    const hash = 'ab'.repeat(32);
+    expect(signallingUrlOf('https://rendezvous.example/', NAS_ID, { ticket })).toBe(`wss://rendezvous.example/signal/device?nasId=${NAS_ID}&ticket=${ticket}`);
+    expect(signallingUrlOf('https://rendezvous.example/', NAS_ID, { codeHash: hash })).toBe(`wss://rendezvous.example/signal/device?nasId=${NAS_ID}&codeHash=${hash}`);
+    expect(signallingUrlOf('https://rendezvous.example/', NAS_ID, { ticket, codeHash: hash })).toBe(`wss://rendezvous.example/signal/device?nasId=${NAS_ID}&ticket=${ticket}`);
+  });
+
+  it("sends the offer with the device's proof for its socket, and its ticket on the URL", async () => {
+    const w = world();
+    const conn = await open(w, { offerProof: async (sid) => ({ deviceId: 'dev1', signature: `offer-sig-${sid}` }), ticket: 'tkt_1-2' });
+    expect(w.sockets[0].url).toBe(`wss://rendezvous.example/signal/device?nasId=${NAS_ID}&ticket=tkt_1-2`);
+    expect(w.sent[0]).toEqual({ t: 'offer', sdp: 'offer1', proof: { deviceId: 'dev1', signature: 'offer-sig-sid1' }, sid: 'sid1' });
+    conn.close();
+  });
+
+  it("sends an invite's hash as the offer's proof and on the URL when unpaired", async () => {
+    const w = world();
+    const hash = 'ab'.repeat(32);
+    const conn = await open(w, { deviceProof: undefined, inviteHash: hash });
+    expect(w.sockets[0].url).toBe(`wss://rendezvous.example/signal/device?nasId=${NAS_ID}&codeHash=${hash}`);
+    expect(w.sent[0]).toEqual({ t: 'offer', sdp: 'offer1', proof: { codeHash: hash }, sid: 'sid1' });
+    conn.close();
+  });
+
   it('asks for TURN when the direct path fails, retries with the servers, and is relayed', async () => {
     const turn = vi.fn((_m: Record<string, unknown>) => ({ iceServers: TURN }));
     const w = world({ direct: false, relay: true, turn });

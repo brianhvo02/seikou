@@ -16,4 +16,13 @@ describe('idbNasStore', () => {
     await store.clear();
     expect(await store.get()).toBeNull();
   });
+
+  it("keeps a pairing's signalling ticket, and forgets it with the pairing", async () => {
+    const store = idbNasStore(new IDBFactory());
+    const key = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
+    await store.put({ base: '', nasId: 'n'.repeat(43), deviceId: 'd1', deviceName: 'iPad', owner: false, key, signalTicket: 'tkt' });
+    expect((await store.get())?.signalTicket).toBe('tkt');
+    await store.clear();
+    expect(await store.get()).toBeNull();
+  });
 });

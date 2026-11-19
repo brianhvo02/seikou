@@ -1,7 +1,9 @@
 import type { CodeLookup, ContinueItem, DiscEntry, DiscManifest, DiscPlaces, DiscRef, EncodeDetail, EncodeShow, EncodeShowList, EncodesStatus, EncodingNow, FansubPick, FansubPickRequest, FansubTitleState, FolderEntry, LevelAt, LevelInfo, NasDrive, OwnerChoice, OwnTitle, PlaybackPlace, PlayerSettings, PlayerSettingsBody, PlaylistProgress, StoredSubtitle, SubtitleCreate, SubtitlePatch, TitleDetail, TitleKind, TitleSummary, ToshoReleaseFiles, ToshoSearchResult, UnsortedItem } from '@seikou/nas/nas-api';
 import { PAIRING_CODE_LENGTH, formatCode, normalizeCode } from '@seikou/nas/pairing-code';
+import { pairingKey } from './nas-store';
 import type { NasPairing, NasStore } from './nas-store';
-import { codeHashOf, isNasId, turnProofMessage } from '../../../rendezvous/src/protocol';
+import { SIGNAL_TICKET_MAX_AHEAD_MS, SIGNAL_TICKET_RENEW_MS, codeHashOf, decodeTicket, isNasId, offerProofMessage, turnProofMessage } from '../../../rendezvous/src/protocol';
+import type { OfferProof } from '../../../rendezvous/src/protocol';
 import { NAS_LOST_MESSAGE } from '@seikou/engine/disc/http-transport';
 import { RTC_BASE, RTC_UNREACHABLE, RtcConnection } from './rtc/rtc-connection';
 import type { DeviceProof, RtcLink, RtcOpenOptions } from './rtc/rtc-connection';
@@ -118,6 +120,8 @@ export interface NasMe {
   readonly relay?: NasRelayUsage | null;
   /** The NAS's rendezvous id, null when it has no rendezvous (older servers leave it out). */
   readonly nasId?: string | null;
+  /** This device's signalling ticket, null when the NAS gives none (no rendezvous); older servers leave it out. */
+  readonly signalTicket?: string | null;
 }
 
 /** `GET admin/metadata/status`: the title matcher's progress and counts. */
@@ -235,6 +239,24 @@ export interface SkippedDisc {
   readonly reason: 'direct' | 'copy' | 'no-number' | 'conflict';
 }
 
+/** The `exp` of a signalling ticket, or null when there is none or it doesn't decode (which counts as none). */
+function ticketExp(ticket: unknown): number | null {
+  return typeof ticket === 'string' ? (decodeTicket(ticket)?.exp ?? null) : null;
+}
+
+/**
+ * The ticket to keep: `offered` when it decodes, names the pairing's NAS id `nasId`, ends no further ahead of `now`
+ * than the Worker accepts (`SIGNAL_TICKET_MAX_AHEAD_MS`) and ends later than `stored` (or `stored` names another NAS
+ * id); else `stored`. A pairing with no NAS id keeps none it is offered.
+ */
+function laterTicket(stored: string | undefined, offered: unknown, nasId: string | undefined, now: number): string | undefined {
+  const ticket = typeof offered === 'string' ? decodeTicket(offered) : null;
+  if (ticket === null || nasId === undefined || ticket.nasId !== nasId || ticket.exp > now + SIGNAL_TICKET_MAX_AHEAD_MS) return stored;
+  // a stored ticket for another NAS id (the pairing's changed) counts as none
+  const kept = stored === undefined ? null : decodeTicket(stored);
+  return kept === null || kept.nasId !== nasId || ticket.exp > kept.exp ? (offered as string) : stored;
+}
+
 /**
  * A stored record usable as a pairing: a missing or damaged key pair (say, after storage was tampered with) is not.
  * A pairing stored before people has no `personName`, and stays usable.
@@ -278,6 +300,10 @@ export class NasClient {
   private readonly sessionLinks = new WeakMap<NasSession, RtcLink>();
   /** Object URLs of art fetched over WebRTC, least recently used first. */
   private readonly artUrls = new Map<string, string>();
+  /** Pairings (by `pairingKey`) whose ticket this client has asked `me` about, so a failing `me` isn't asked again. */
+  private readonly ticketsAsked = new Set<string>();
+  /** A failed ticket check has been logged; later ones aren't. */
+  private ticketFailureLogged = false;
 
   readonly admin = {
     people: async (): Promise<NasPerson[]> => ((await this.json('admin/people')) as { people: NasPerson[] }).people,
@@ -484,9 +510,18 @@ export class NasClient {
       if (res.status === 401) throw new Error(NAS_MESSAGES.invalidCode);
       if (res.status === 429) throw new Error(NAS_MESSAGES.tooMany);
       if (!res.ok) throw new NasHttpError(res.status, await errorCode(res));
-      // An older NAS answers without a person.
-      const { deviceId, owner, personName } = (await res.json()) as { deviceId: string; owner: boolean; personName?: string };
-      pairing = { ...target, deviceId, deviceName: name, ...(typeof personName === 'string' ? { personName } : {}), owner, key };
+      // An older NAS answers without a person or a ticket.
+      const { deviceId, owner, personName, signalTicket } = (await res.json()) as { deviceId: string; owner: boolean; personName?: string; signalTicket?: unknown };
+      const ticket = laterTicket(undefined, signalTicket, target.nasId, this.deps.now());
+      pairing = {
+        ...target,
+        deviceId,
+        deviceName: name,
+        ...(typeof personName === 'string' ? { personName } : {}),
+        owner,
+        key,
+        ...(ticket === undefined ? {} : { signalTicket: ticket }),
+      };
     } finally {
       if (route.kind === 'webrtc') route.connection.close();
     }
@@ -523,10 +558,14 @@ export class NasClient {
    * Whether this device is an owner, whether it may browse by title (the release gate), and whose device it is. When
    * the owner status or person name differs from the stored pairing's (changed by an owner, or a pairing stored before
    * people), the stored pairing takes the NAS's, so `pairing()` gives it from then on; so does the NAS's rendezvous id
-   * when the pairing lacks it (made before the WebRTC route) or holds another.
+   * when the pairing lacks it (made before the WebRTC route) or holds another, and the NAS's signalling ticket when it
+   * ends later than the stored one.
    */
   async me(): Promise<NasMe> {
     const generation = this.generation;
+    const asking = await this.pairing();
+    // this answer carries the ticket, so the session it may start doesn't ask again
+    if (asking) this.ticketsAsked.add(pairingKey(asking));
     const me = (await this.json('me')) as NasMe;
     const pairing = this.current;
     if (!pairing || generation !== this.generation) return me;
@@ -535,12 +574,14 @@ export class NasClient {
     // a pairing made before the WebRTC route has no NAS id, so route choice could only ever pick HTTPS; one made
     // straight at the server (`direct`) keeps none, so it never signals through a Worker nobody chose for it
     const nasId = isNasId(me.nasId) && pairing.direct !== true ? me.nasId : pairing.nasId;
-    if (personName !== pairing.personName || owner !== pairing.owner || nasId !== pairing.nasId) {
+    const signalTicket = laterTicket(pairing.signalTicket, me.signalTicket, nasId, this.deps.now());
+    if (personName !== pairing.personName || owner !== pairing.owner || nasId !== pairing.nasId || signalTicket !== pairing.signalTicket) {
       const updated: NasPairing = {
         ...pairing,
         owner,
         ...(personName === undefined ? {} : { personName }),
         ...(nasId === undefined ? {} : { nasId }),
+        ...(signalTicket === undefined ? {} : { signalTicket }),
       };
       this.current = updated;
       await this.deps.store.put(updated);
@@ -972,11 +1013,17 @@ export class NasClient {
     return route.kind === 'https' ? route.base : RTC_BASE(pairing.nasId!);
   }
 
-  /** The route choice's dependencies for a paired device: its proof for TURN, and this client's cache. */
+  /** The route choice's dependencies for a paired device: its proofs for offers and TURN, its ticket, and this client's cache. */
   private routeDeps(pairing: NasPairing): RouteDeps {
+    const ticket = ticketExp(pairing.signalTicket) === null ? {} : { ticket: pairing.signalTicket };
     return {
       fetch: this.deps.fetch,
-      connect: (nasId) => this.connect(nasId, { deviceProof: (sid) => this.deviceProof(pairing, sid) }, pairing.rendezvousUrl),
+      connect: (nasId) =>
+        this.connect(
+          nasId,
+          { deviceProof: (sid) => this.deviceProof(pairing, sid), offerProof: (sid) => this.offerProof(pairing, sid), ...ticket },
+          pairing.rendezvousUrl,
+        ),
       cache: this.routes,
     };
   }
@@ -986,7 +1033,7 @@ export class NasClient {
    * and routes its `rtc://` URLs through it until it closes. The session is dropped, as the NAS lets a new channel's
    * requests through only after a session on it.
    */
-  private async connect(nasId: string, auth: Pick<RtcOpenOptions, 'deviceProof' | 'inviteHash'>, worker?: string): Promise<RtcLink> {
+  private async connect(nasId: string, auth: Pick<RtcOpenOptions, 'deviceProof' | 'offerProof' | 'ticket' | 'inviteHash'>, worker?: string): Promise<RtcLink> {
     const service = (worker ?? this.deps.rendezvousUrl)?.trim();
     if (!service) throw new Error(NAS_MESSAGES.noRoute);
     const generation = this.generation;
@@ -1011,6 +1058,32 @@ export class NasClient {
     const ts = this.deps.now();
     const signature = await this.deps.subtle.sign(ECDSA_SIGN, pairing.key.privateKey, turnProofMessage({ sid, ts }));
     return { deviceId: pairing.deviceId, ts, signature: base64url(new Uint8Array(signature)) };
+  }
+
+  /** A paired device's proof for an offer on the signalling socket `sid`. */
+  private async offerProof(pairing: NasPairing, sid: string): Promise<OfferProof> {
+    const signature = await this.deps.subtle.sign(ECDSA_SIGN, pairing.key.privateKey, offerProofMessage({ sid }));
+    return { deviceId: pairing.deviceId, signature: base64url(new Uint8Array(signature)) };
+  }
+
+  /**
+   * Once per pairing in this client's life, after a session starts: when the pairing's signalling ticket is missing
+   * (or doesn't decode) or has under 60 days left, asks `me`, which keeps a later one. A pairing with no NAS id, or one
+   * made straight at the server, never signals, so it is never asked for. It never holds up or fails the session; a
+   * failure is logged once.
+   */
+  private checkTicket(pairing: NasPairing): void {
+    if (pairing.nasId === undefined || pairing.direct === true) return;
+    const key = pairingKey(pairing);
+    if (this.ticketsAsked.has(key)) return;
+    const exp = ticketExp(pairing.signalTicket);
+    if (exp !== null && exp - this.deps.now() >= SIGNAL_TICKET_RENEW_MS) return;
+    this.ticketsAsked.add(key);
+    this.me().catch((err: unknown) => {
+      if (this.ticketFailureLogged) return;
+      this.ticketFailureLogged = true;
+      console.warn('Could not renew the signalling ticket:', err);
+    });
   }
 
   private async startSession(): Promise<NasSession> {
@@ -1041,6 +1114,7 @@ export class NasClient {
     if (generation === this.generation) {
       this.cached = session;
       for (const listener of this.sessionListeners) listener();
+      this.checkTicket(this.current ?? pairing);
     }
     return session;
   }

@@ -24,8 +24,9 @@ interface Waiter {
 const HELLO_TIMEOUT_MS = 10_000;
 
 /**
- * A device's signalling socket to the rendezvous Worker (`/signal/device?nasId=`): it opens on the Worker's `hello`,
- * which names the socket (`sid`), then carries offers, candidates and TURN requests to the NAS and its answers back.
+ * A device's signalling socket to the rendezvous Worker (`/signal/device?nasId=`, with `ticket` or `codeHash`): it
+ * opens on the Worker's `hello`, which names the socket (`sid`), then carries offers, candidates and TURN requests to
+ * the NAS and its answers back.
  */
 export class SignallingClient {
   private readonly queue: NasSignalForDevice[] = [];

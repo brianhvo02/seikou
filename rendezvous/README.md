@@ -10,11 +10,13 @@ The NAS server makes a P-256 ECDSA key pair and registers the public key once. I
 
 When the NAS mints a pairing code it registers the SHA-256 of the normalized code, with where the code leads (its HTTPS API base, if it has one) and when it expires: 10 minutes for a plain code, 3 days for an invite. The Worker never holds a code itself. The app sends the code its user typed to the lookup and gets the NAS id and its routes back; the Worker adds the WebRTC route (the NAS id to signal) to every answer. The NAS withdraws a code it no longer needs, which frees its place at once (a NAS holds at most 20 live codes).
 
-Each NAS has its own `Signalling` object for WebRTC signalling. The NAS keeps one WebSocket open there and proves it holds the key by signing a challenge. A device opens a short-lived socket (60 s, at most 64 messages, 32 devices per NAS at once) and sends SDP offers, ICE candidates and TURN requests; the object forwards those to the NAS with the device socket's id, and forwards the NAS's answers, candidates and TURN responses back. It forwards nothing else. The sockets are hibernatable, and the NAS's heartbeat (exactly `{"t":"ping"}` every 25 s) is answered by the runtime's WebSocket auto-response, so an idle NAS never wakes the object.
+Each NAS has its own `Signalling` object for WebRTC signalling. The NAS keeps one WebSocket open there and proves it holds the key by signing a challenge. A device opens a short-lived socket (60 s, at most 64 messages, 32 devices per NAS at once, of which at most 16 without a checked ticket or live code) and sends SDP offers, ICE candidates and TURN requests; the object forwards those to the NAS with the device socket's id, and forwards the NAS's answers, candidates and TURN responses back. It forwards nothing else. The sockets are hibernatable, and the NAS's heartbeat (exactly `{"t":"ping"}` every 25 s) is answered by the runtime's WebSocket auto-response, so an idle NAS never wakes the object.
 
 The TURN relay is paid for by whoever runs the Worker. Anyone can register a key, so a signature alone says nothing about who pays. The Worker mints TURN credentials only for NAS ids on the `TURN_NAS_IDS` allowlist, 30 times an hour per NAS and 500 times a day in all. The NAS decides first whether the device may use the relay at all.
 
-Rate limits are per client address (an IPv6 address counts by its /64): 10 lookups and 10 signalling attempts a minute, 5 key registrations, 30 code registrations and 60 withdrawals an hour, and at most 1,000 failed lookups an hour across all clients.
+Rate limits are per client address (an IPv6 address counts by its /64): 10 lookups a minute; 10 signalling attempts a minute without a proof, and 60 device upgrades a minute that carry a `ticket` or `codeHash` (one whose proof fails also counts against the 10); 5 key registrations, 30 code registrations and 60 withdrawals an hour; and at most 1,000 failed lookups an hour across all clients.
+
+Device upgrades are also counted per NAS, each in exactly one window: 10 a minute for a device whose NAS-signed ticket checks out, 10 a minute for a live pairing code of that NAS, and 30 a minute shared by every other device of that NAS (no proof, or one that failed). Of the 32 device sockets a NAS may have open, at most 16 may be unproven, so a flood of unproven upgrades leaves room for paired devices.
 
 ## Routes
 
@@ -25,7 +27,7 @@ Rate limits are per client address (an IPv6 address counts by its /64): 10 looku
 | `DELETE /codes` | the NAS, signed | Withdraws a code. |
 | `POST /codes/lookup` `{ code }` | the app | Answers `{ nasId, routes }` (`CodeLookup` in `@seikou/nas`), or 404 for an unknown or expired code. |
 | `GET /signal/nas?nasId=` | the NAS | WebSocket to the NAS's `Signalling` object: challenge, `auth`, then forwarding. |
-| `GET /signal/device?nasId=` | the app | WebSocket to the same object; it first hears its socket id (`hello`), which a paired device signs into a TURN request. |
+| `GET /signal/device?nasId=[&ticket=][&codeHash=]` | the app | WebSocket to the same object. An optional `ticket` (the NAS-signed signal ticket a paired device holds) or `codeHash` (of a live pairing code being redeemed) gives the upgrade its own allowance; the ticket is checked first. The device first hears its socket id (`hello`), which it signs into its offer proof and a paired device into a TURN request. |
 | `POST /turn` | the NAS, signed | Cloudflare TURN credentials for a device. 403 off the allowlist, 503 `turn-not-configured` without the key. |
 
 Every route answers 429 past its limit. Every answer but a signalling upgrade and `/turn` carries the CORS headers of `@seikou/nas`'s `cors-policy.ts`. The message formats, signed byte layouts, close codes and limits are in `src/protocol.ts`, which the NAS server's client (`server/src/rendezvous-client.ts`) imports too.

@@ -2,6 +2,9 @@
 
 Date: 2026-10-18
 Status: Approved by the user 2026-10-18. Release 1 (people, §4, and the BD-J store, §5) deployed 2026-10-18 (main c0be0f6). Spike done 2026-10-19 (§6.1 results below); release 2 (§6–§7, plan `docs/superpowers/plans/2026-10-19-webrtc-route.md`) deployed 2026-10-19 (main 9e9c0d9). Device run 2026-10-19 (iPhone 17 Pro, iOS 27.2, mobile data, Wi-Fi and Tailscale off): paired over WebRTC through the rendezvous, browsed the title library, pre-flight measured 18 Mbps against a 48 Mbps film and offered a 37-minute wait, played with pauses, two seeks resumed after buffering; the admin screen listed the device's route as WebRTC. BD-J over WebRTC was covered by the E2E only. Long-distance runs the same day through a VPN exit in Tokyo: a Mac on home internet (LAN candidates ignored, 222 ms round trip) measured 17 Mbps; the iPhone on mobile data through the VPN got 2 Mbps, the phone's own limit on that path (1 Mbps from Cloudflare).
+
+Signalling was hardened on 2026-11-19: offers carry a proof, paired devices present NAS-signed tickets, and the per-NAS window is shared only by unproven connections. See `docs/superpowers/specs/2026-11-19-signalling-hardening-design.md`; where it differs from §6 here, it wins.
+
 Parent spec: `2026-10-16-cross-browser-and-remote-design.md` §5 (step 3). Builds on `2026-10-17-nas-server-design.md` (pairing, rendezvous) and `2026-10-17-nas-library-titles-design.md` (the title library). Where this document and the parent disagree, this one wins for step 3.
 
 ## 1. Intent

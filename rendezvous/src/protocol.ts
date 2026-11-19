@@ -92,7 +92,10 @@ export const SIGNAL_CLOSE = {
   tooManyMessages: { code: 1008, reason: 'too-many-messages' },
   /** A device socket `SIGNAL_DEVICE_LIFETIME_MS` after it opened. */
   expired: { code: 4408, reason: 'expired' },
-  /** A device socket while `SIGNAL_DEVICES_PER_NAS` are already open to that NAS. */
+  /**
+   * A device socket while `SIGNAL_DEVICES_PER_NAS` are already open to that NAS, or, without a checked proof, while
+   * `SIGNAL_UNPROVEN_SOCKETS_PER_NAS` unproven ones are.
+   */
   busy: { code: 4429, reason: 'busy' },
 } as const;
 
@@ -102,6 +105,11 @@ export const SIGNAL_DEVICE_LIFETIME_MS = 60_000;
 export const SIGNAL_DEVICE_MESSAGES = 64;
 /** Device sockets open to one NAS at once. */
 export const SIGNAL_DEVICES_PER_NAS = 32;
+/**
+ * Of `SIGNAL_DEVICES_PER_NAS`, the device sockets without a checked ticket or live code that may be open at once, so
+ * unproven upgrades can't take every place from paired devices.
+ */
+export const SIGNAL_UNPROVEN_SOCKETS_PER_NAS = 16;
 
 /** The types a device may send; the Worker forwards them to the NAS with the device's `sid` added. */
 export const DEVICE_SIGNAL_TYPES = ['offer', 'candidate', 'turn-request'] as const;
@@ -261,3 +269,64 @@ export function iceServersOf(value: unknown): IceServerInfo[] | null {
   }
   return out;
 }
+
+/** The bytes a device signs for an `offer` on the socket `sid`; no timestamp, since the socket's id is already fresh. The type tag keeps a TURN proof from verifying here. */
+export function offerProofMessage(fields: { sid: string }): Uint8Array<ArrayBuffer> {
+  return new Uint8Array(new TextEncoder().encode(JSON.stringify({ type: 'offer', sid: fields.sid })));
+}
+
+/** A NAS-signed pass for one device: `signature` is over `signalTicketMessage({ nasId, deviceId, exp })`, `exp` in ms since the epoch. */
+export interface SignalTicket {
+  readonly nasId: string;
+  readonly deviceId: string;
+  readonly exp: number;
+  readonly signature: string;
+}
+
+/** The bytes a NAS signs for a signalling ticket; the type tag keeps any other signed message from verifying here. */
+export function signalTicketMessage(fields: { nasId: string; deviceId: string; exp: number }): Uint8Array<ArrayBuffer> {
+  return new Uint8Array(new TextEncoder().encode(JSON.stringify({ type: 'signal-ticket', nasId: fields.nasId, deviceId: fields.deviceId, exp: fields.exp })));
+}
+
+/** A ticket as it travels in a URL or a response: base64url of its JSON. */
+export function encodeTicket(ticket: SignalTicket): string {
+  const { nasId, deviceId, exp, signature } = ticket;
+  return base64url(new TextEncoder().encode(JSON.stringify({ nasId, deviceId, exp, signature })));
+}
+
+/** The ticket in `text`, or null for bad base64, bad JSON, a field of the wrong type, or a string over 1024 characters. */
+export function decodeTicket(text: string): SignalTicket | null {
+  if (text.length > 1024) return null;
+  const bytes = fromBase64url(text);
+  if (bytes === null) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    return null;
+  }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const { nasId, deviceId, exp, signature } = value as Record<string, unknown>;
+  if (typeof nasId !== 'string' || typeof deviceId !== 'string' || typeof signature !== 'string') return null;
+  if (typeof exp !== 'number' || !Number.isFinite(exp)) return null;
+  return { nasId, deviceId, exp, signature };
+}
+
+/** What a device sends with an `offer` to prove itself: a paired device's signature over `offerProofMessage`, or the hash of a live code. */
+export type OfferProof = { readonly deviceId: string; readonly signature: string } | { readonly codeHash: string };
+
+const DAY_MS = 24 * 60 * 60_000;
+/** A signalling ticket is valid this long after the NAS signs it. */
+export const SIGNAL_TICKET_TTL_MS = 90 * DAY_MS;
+/** A device asks for a new ticket once less than this is left on its own. */
+export const SIGNAL_TICKET_RENEW_MS = 60 * DAY_MS;
+/** The Worker refuses a ticket whose `exp` is further ahead than this. */
+export const SIGNAL_TICKET_MAX_AHEAD_MS = 121 * DAY_MS;
+/** Device upgrades per minute in the window all of a NAS's unticketed devices share. */
+export const SIGNAL_SHARED_PER_MINUTE = 30;
+/** Upgrades per minute for one ticketed device. */
+export const SIGNAL_TICKET_PER_MINUTE = 10;
+/** Upgrades per minute for one live pairing code. */
+export const SIGNAL_CODE_PER_MINUTE = 10;
+/** Proof-bearing upgrades per minute from one address. */
+export const SIGNAL_PROOF_PER_ADDRESS = 60;

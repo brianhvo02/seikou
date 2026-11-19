@@ -1,11 +1,14 @@
 import { execFileSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import { copyFileSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { request as httpRequest } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page, type Route } from '@playwright/test';
 import { CHANGED_FOLDER, NAS_E2E_DIR, NAS_ENV, NAS_PORT, NAS_SERVER_KEY, OWNER_SERIES, PROJECTS, RENDEZVOUS_PORT, RENDEZVOUS_URL, SERVER, ownerDiscs, ownerStray, restoreChangedDisc } from './nas-server';
 import { discKeyOf } from '@seikou/nas/disc-key';
 import { normalizeCode } from '@seikou/nas/pairing-code';
+import { SIGNAL_SHARED_PER_MINUTE } from '../../rendezvous/src/protocol';
 import { skipWithoutH264 } from './support';
 import { telemetry } from './telemetry';
 
@@ -44,7 +47,7 @@ async function exclusivelyAsync<T>(name: string, fn: () => Promise<T>): Promise<
       mkdirSync(lock);
       break;
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== 'EEXIST' || tries > 1200) throw err;
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST' || tries > 4800) throw err;
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
   }
@@ -333,7 +336,7 @@ test('a link whose address fails its check is refused, and its code goes nowhere
 
 test('a link carrying another Worker pairs through it', async ({ page, browserName }) => {
   test.skip(browserName === 'firefox' && process.platform === 'linux', 'Playwright Firefox on Linux gathers no ICE candidates');
-  test.setTimeout(120_000);
+  test.setTimeout(300_000); // with up to four minutes' wait for the other projects' WebRTC tests
   await libraryReady();
   await allowLocalNetwork(page, browserName);
   // The same stand-in Worker under another host: a Worker other than the app's built-in one (localhost) as far as the
@@ -348,16 +351,18 @@ test('a link carrying another Worker pairs through it', async ({ page, browserNa
   await webrtcOnlyLookup(page, other);
   const sockets: string[] = [];
   page.on('websocket', (ws) => sockets.push(new URL(ws.url()).host));
-  const code = serverOwnerCode();
-  await page.goto(`/?pair=${code}&rv=${encodeURIComponent(other)}`);
-  await expect(page.getByTestId('pair-confirm-hosts')).toHaveText(`127.0.0.1:${RENDEZVOUS_PORT}`);
-  await page.getByTestId('pair-confirm-continue').click();
-  await page.getByTestId('pair-button').click();
-  await expect(page.getByTestId('nas-paired')).toBeVisible({ timeout: 30_000 });
-  // after a reload too: the pairing remembers its Worker
-  await page.reload();
-  await page.getByTestId('nas-open').click();
-  await expect(page.getByTestId('title-library')).toBeVisible({ timeout: 30_000 });
+  await exclusivelyAsync('signalling-flood', async () => {
+    const code = serverOwnerCode();
+    await page.goto(`/?pair=${code}&rv=${encodeURIComponent(other)}`);
+    await expect(page.getByTestId('pair-confirm-hosts')).toHaveText(`127.0.0.1:${RENDEZVOUS_PORT}`);
+    await page.getByTestId('pair-confirm-continue').click();
+    await page.getByTestId('pair-button').click();
+    await expect(page.getByTestId('nas-paired')).toBeVisible({ timeout: 30_000 });
+    // after a reload too: the pairing remembers its Worker
+    await page.reload();
+    await page.getByTestId('nas-open').click();
+    await expect(page.getByTestId('title-library')).toBeVisible({ timeout: 30_000 });
+  });
   expect(sockets.length).toBeGreaterThanOrEqual(2); // the redeem's connection, then the library's
   expect(new Set(sockets)).toEqual(new Set([`127.0.0.1:${RENDEZVOUS_PORT}`]));
   expect(lookups).toEqual([]);
@@ -615,7 +620,7 @@ test('pairs, browses and plays over WebRTC when HTTPS to the NAS is unreachable:
   // ICE candidates at all, whatever the media.peerconnection.ice.* prefs, and fails before the answer arrives.
   // Firefox on macOS runs this test, and the device run covers real browsers.
   test.skip(browserName === 'firefox' && process.platform === 'linux', 'Playwright Firefox on Linux gathers no ICE candidates');
-  test.setTimeout(180_000);
+  test.setTimeout(300_000); // with up to four minutes' wait for the other projects' WebRTC tests
   await libraryReady();
   await allowLocalNetwork(page, browserName);
   const httpsTried: string[] = [];
@@ -625,56 +630,140 @@ test('pairs, browses and plays over WebRTC when HTTPS to the NAS is unreachable:
   });
   await webrtcOnlyLookup(page);
   await countChannelBytes(page);
-  const code = serverOwnerCode();
-  await page.goto(`/?pair=${code}&telemetry=1&rtcrelayed=1`);
-  await expect(page.getByTestId('pair-code')).toHaveValue(code);
-  await page.getByTestId('pair-button').click();
-  await expect(page.getByTestId('nas-paired')).toBeVisible({ timeout: 30_000 });
-  await skipWithoutH264(page);
-  const browse = async (): Promise<void> => {
+  await exclusivelyAsync('signalling-flood', async () => {
+    const code = serverOwnerCode();
+    await page.goto(`/?pair=${code}&telemetry=1&rtcrelayed=1`);
+    await expect(page.getByTestId('pair-code')).toHaveValue(code);
+    await page.getByTestId('pair-button').click();
+    await expect(page.getByTestId('nas-paired')).toBeVisible({ timeout: 30_000 });
+    await skipWithoutH264(page);
+    const browse = async (): Promise<void> => {
+      await page.getByTestId('nas-open').click();
+      await expect(page.getByTestId('title-library')).toBeVisible({ timeout: 30_000 });
+      await page.getByTestId('browse-folders').click();
+      await expect(page.getByTestId('nas-crumbs')).toHaveText('NAS');
+    };
+    await browse();
+    await playFromNas(page, 'disc1');
+    await expect(page.getByTestId('playlist-00000')).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId('playlist-00000').click();
+    await expect(playerState(page)).toHaveAttribute('data-state', 'playing', { timeout: 20_000 });
+    await expect.poll(async () => (await telemetry(page))?.clockUs ?? 0, { timeout: 20_000 }).toBeGreaterThanOrEqual(3_000_000);
+    await expect(page.getByTestId('relay-badge')).toContainText('Relayed'); // ?rtcrelayed=1 makes the connection count as relayed
+    expect(await channelBytes(page)).toBeGreaterThan(1_000_000); // most of disc1's first 1.3 MB clip, over the channel
+
+    // A new page load: the pairing has no HTTPS base, so it connects over WebRTC at once. The address bar kept the play
+    // link, so the load opens the disc's pre-flight (resolved over the channel); its Back returns to the folder browser.
+    await page.reload();
+    await expect(page.getByTestId('nas-preflight')).toBeVisible({ timeout: 30_000 });
+    // the pre-flight settles (the levels, the places) before it is clicked: it re-renders as each answer arrives over the channel
+    await expect(page.getByTestId('level-list')).toBeVisible({ timeout: 30_000 });
+    await page.getByTestId('nas-preflight').getByRole('button', { name: 'Back' }).click();
+    await expect(page.getByTestId('nas-crumbs')).toHaveText('NAS', { timeout: 30_000 });
+    await playFromNas(page, 'disc-bdj');
+    await page.waitForFunction(() => document.querySelector('[data-testid="player"]')?.getAttribute('data-state') === 'playing', undefined, { polling: 'raf', timeout: 45_000 });
+    await expect(playerState(page)).toHaveAttribute('data-playlist', '00000');
+    await expect.poll(() => channelBytes(page)).toBeGreaterThan(500_000); // disc-bdj's 0.66 MB clip, over the channel
+  });
+  expect(httpsTried).toEqual([]);
+});
+
+/**
+ * Opens a device signalling socket for NAS `nasId` at the stand-in Worker with no proof (no ticket, no code hash), as
+ * an old app or a stranger would, and answers its status: 101 when the Worker let it through (the socket is then
+ * dropped at once), 429 when the window was full. The stand-in gives every upgrade an address of its own, so only the
+ * NAS's shared window can refuse it.
+ */
+function bareUpgrade(nasId: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const req = httpRequest({
+      host: '127.0.0.1',
+      port: RENDEZVOUS_PORT,
+      path: `/signal/device?nasId=${encodeURIComponent(nasId)}`,
+      headers: { Connection: 'Upgrade', Upgrade: 'websocket', 'Sec-WebSocket-Version': '13', 'Sec-WebSocket-Key': randomBytes(16).toString('base64') },
+    });
+    req.on('upgrade', (res, socket) => {
+      socket.destroy();
+      resolve(res.statusCode ?? 0);
+    });
+    req.on('response', (res) => {
+      res.resume();
+      resolve(res.statusCode ?? 0);
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+test("a flood of unproven signalling can't keep a ticketed device off WebRTC", async ({ page, browserName }) => {
+  test.skip(browserName !== 'chromium', "one browser is enough: the windows are the Worker's, and unit-tested in rendezvous/");
+  test.setTimeout(300_000); // with up to four minutes' wait for the other projects' WebRTC tests
+  await libraryReady();
+  await allowLocalNetwork(page, browserName);
+  await page.context().route(`http://localhost:${NAS_PORT}/**`, (route) => route.abort('connectionrefused'));
+  await webrtcOnlyLookup(page);
+  await countChannelBytes(page);
+  const upgrades: { url: URL; at: number }[] = [];
+  page.on('websocket', (ws) => upgrades.push({ url: new URL(ws.url()), at: Date.now() }));
+  // Every project's WebRTC tests share the stand-in's Signalling object for the server's NAS id, so none runs while
+  // this one fills its shared window.
+  await exclusivelyAsync('signalling-flood', async () => {
+    // Paired over WebRTC: the redeem's connection shows the code's hash, and its answer carries the device's ticket.
+    const code = serverOwnerCode();
+    await page.goto(`/?pair=${code}&telemetry=1`);
+    await expect(page.getByTestId('pair-code')).toHaveValue(code);
+    await page.getByTestId('pair-button').click();
+    await expect(page.getByTestId('nas-paired')).toBeVisible({ timeout: 30_000 });
+    await skipWithoutH264(page);
+    const nasId = upgrades.find((u) => u.url.pathname === '/signal/device')?.url.searchParams.get('nasId');
+    expect(nasId).toBeTruthy();
+
+    // The flood: as many bare upgrades as the shared window holds, each from an address of its own, so the window is
+    // full (the next one is refused) whatever earlier tests used of it.
+    // The window stays full for about 60 s after this test ends: a later test that connects without a ticket or code
+    // in that time would be refused (the lock above ends with this test; the window doesn't).
+    for (let i = 0; i < SIGNAL_SHARED_PER_MINUTE; i++) expect([101, 429]).toContain(await bareUpgrade(nasId!));
+    expect(await bareUpgrade(nasId!)).toBe(429);
+    const full = Date.now();
+
+    // A new page load connects with the ticket, which the full window doesn't touch, and disc1 plays over the channel.
+    upgrades.length = 0;
+    await page.goto('/?telemetry=1');
     await page.getByTestId('nas-open').click();
     await expect(page.getByTestId('title-library')).toBeVisible({ timeout: 30_000 });
     await page.getByTestId('browse-folders').click();
     await expect(page.getByTestId('nas-crumbs')).toHaveText('NAS');
-  };
-  await browse();
-  await playFromNas(page, 'disc1');
-  await expect(page.getByTestId('playlist-00000')).toBeVisible({ timeout: 20_000 });
-  await page.getByTestId('playlist-00000').click();
-  await expect(playerState(page)).toHaveAttribute('data-state', 'playing', { timeout: 20_000 });
-  await expect.poll(async () => (await telemetry(page))?.clockUs ?? 0, { timeout: 20_000 }).toBeGreaterThanOrEqual(3_000_000);
-  await expect(page.getByTestId('relay-badge')).toContainText('Relayed'); // ?rtcrelayed=1 makes the connection count as relayed
-  expect(await channelBytes(page)).toBeGreaterThan(1_000_000); // most of disc1's first 1.3 MB clip, over the channel
-
-  // A new page load: the pairing has no HTTPS base, so it connects over WebRTC at once. The address bar kept the play
-  // link, so the load opens the disc's pre-flight (resolved over the channel); its Back returns to the folder browser.
-  await page.reload();
-  await expect(page.getByTestId('nas-preflight')).toBeVisible({ timeout: 30_000 });
-  // the pre-flight settles (the levels, the places) before it is clicked: it re-renders as each answer arrives over the channel
-  await expect(page.getByTestId('level-list')).toBeVisible({ timeout: 30_000 });
-  await page.getByTestId('nas-preflight').getByRole('button', { name: 'Back' }).click();
-  await expect(page.getByTestId('nas-crumbs')).toHaveText('NAS', { timeout: 30_000 });
-  await playFromNas(page, 'disc-bdj');
-  await page.waitForFunction(() => document.querySelector('[data-testid="player"]')?.getAttribute('data-state') === 'playing', undefined, { polling: 'raf', timeout: 45_000 });
-  await expect(playerState(page)).toHaveAttribute('data-playlist', '00000');
-  await expect.poll(() => channelBytes(page)).toBeGreaterThan(500_000); // disc-bdj's 0.66 MB clip, over the channel
-  expect(httpsTried).toEqual([]);
+    await playFromNas(page, 'disc1');
+    await expect(page.getByTestId('playlist-00000')).toBeVisible({ timeout: 20_000 });
+    await page.getByTestId('playlist-00000').click();
+    await expect(playerState(page)).toHaveAttribute('data-state', 'playing', { timeout: 20_000 });
+    await expect.poll(async () => (await telemetry(page))?.clockUs ?? 0, { timeout: 20_000 }).toBeGreaterThanOrEqual(1_000_000);
+    expect(await channelBytes(page)).toBeGreaterThan(500_000);
+    const sockets = upgrades.filter((u) => u.url.pathname === '/signal/device');
+    expect(sockets.length).toBeGreaterThanOrEqual(1);
+    for (const u of sockets) expect(u.url.searchParams.get('ticket')).toBeTruthy();
+    // within the minute the window stays full: the device got through beside it, not because it had emptied
+    expect(sockets[0]!.at - full).toBeLessThan(45_000);
+  });
 });
 
 test("a device that connects while the NAS's signalling socket is down is told it can't connect", async ({ page, browserName }) => {
+  test.setTimeout(300_000); // with up to four minutes' wait for the other projects' WebRTC tests
   await allowLocalNetwork(page, browserName);
   await webrtcOnlyLookup(page);
-  const code = ownerCode(); // under a NAS key of its own, whose signalling socket never opens
-  const closed: string[] = [];
-  page.on('websocket', (ws) => ws.on('close', () => closed.push(new URL(ws.url()).pathname)));
-  await page.goto(`/?pair=${code}`);
-  await expect(page.getByTestId('pair-code')).toHaveValue(code);
-  const started = Date.now();
-  await page.getByTestId('pair-button').click();
-  await expect(page.getByTestId('pair-error')).toHaveText("Can't connect to the NAS from this network. Try another Wi-Fi or mobile data.", { timeout: 15_000 });
-  // The Worker's offline close (4404), not the 10 s wait for its hello.
-  expect(Date.now() - started).toBeLessThan(8_000);
-  expect(closed).toContain('/signal/device');
+  await exclusivelyAsync('signalling-flood', async () => {
+    const code = ownerCode(); // under a NAS key of its own, whose signalling socket never opens
+    const closed: string[] = [];
+    page.on('websocket', (ws) => ws.on('close', () => closed.push(new URL(ws.url()).pathname)));
+    await page.goto(`/?pair=${code}`);
+    await expect(page.getByTestId('pair-code')).toHaveValue(code);
+    const started = Date.now();
+    await page.getByTestId('pair-button').click();
+    await expect(page.getByTestId('pair-error')).toHaveText("Can't connect to the NAS from this network. Try another Wi-Fi or mobile data.", { timeout: 15_000 });
+    // The Worker's offline close (4404), not the 10 s wait for its hello.
+    expect(Date.now() - started).toBeLessThan(8_000);
+    expect(closed).toContain('/signal/device');
+  });
 });
 
 test('plays disc1.iso from the NAS', async ({ page, browserName }) => {
