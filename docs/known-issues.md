@@ -134,7 +134,10 @@ what would change that decision.
 
   - **Drawing straight into a visible canvas doesn't fix it either.** A throwaway build (2026-11-19) had the deinterlacer draw into a WebGL canvas under the 2D one, with no ImageBitmap and no 2D draw, and the 2D canvas redrawn only when an overlay changed. It still dropped pictures from the same point in the film, stepped down to frame rate at 44 s, and dropped 41 in 100 s (45 to 52 before).
 
-  So moving pictures between canvases is not the whole cost. What remains is WebKit presenting a 1080 canvas 60 times a second in that stretch, while the decoder keeps a core busy; the cause of the difference between stretches is unknown. The frame-rate step stays the iPhone's answer: a steady 29.97 a second. *Revisit if* a WebKit release changes canvas presentation, or a profile from Safari's own Web Inspector timeline on the device shows where the GPU process spends the time.
+  - **The page's main thread is not it either.** A probe injected without Web Inspector found it idle through the costly stretch: 60 frames a second and 4 ms timer lag. A Web Inspector Timelines recording showed the page's own JavaScript small on every thread; the main thread's high CPU there was the inspector's own (its screenshots).
+  - **Heat matters.** A run straight after the inspector session, on a warm phone, dropped 197 pictures in 100 s, against about 45 on a cool one.
+
+  So moving pictures between canvases is not the whole cost. What remains is WebKit presenting a 1080 canvas 60 times a second in that stretch, while the decoder keeps a core busy; the cause of the difference between stretches is inside WebKit's GPU and compositing side, which a page can't see. The frame-rate step stays the iPhone's answer: a steady 29.97 a second. *Revisit if* a WebKit release changes canvas presentation, or a profile from Safari's own Web Inspector timeline on the device shows where the GPU process spends the time.
 - **A playlist that starts mid-clip skips the clip's middle, unlike libbluray.** libbluray's `_fill_clip` reads the
   first play item from the clip's first packet (`start_pkt = 0`). Over the network that downloaded every byte before
   the IN point first: a chapter playlist starting 31 minutes into a 480i MPEG-2 clip took 65 s to start over Wi-Fi.
