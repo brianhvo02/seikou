@@ -394,6 +394,8 @@ interface RestartPoint {
   readonly autoplay: boolean;
   readonly audio: number | null;
   readonly endReported: number | null;
+  /** A BD-J still the playlist was held in: met again at the same item, it keeps its end (null: an infinite still). */
+  readonly still: { readonly item: number; readonly untilMs: number | null } | null;
 }
 
 /** A video unit waiting for the decoder, or for the choice of path (the element path needs its decode time and range). */
@@ -624,6 +626,8 @@ export class Player {
    * lets it. Released by a new playlist, a seek and the end of BD-J.
    */
   private bdjStill: { readonly item: number; readonly untilMs: number | null } | null = null;
+  /** The BD-J still a restart let go (RestartPoint.still), until the reopened playlist meets it again or starts elsewhere. */
+  private stillCarried: { readonly item: number; readonly untilMs: number | null } | null = null;
   private menuActive = false;
   /** Draw operations of the last repaint of the IG plane. */
   private igDraws = 0;
@@ -2068,7 +2072,8 @@ export class Player {
    * Where the playing playlist `s` goes on when it opens again (another version of the disc, or another video path): its
    * caller, the current time, whether it plays, the audio stream (`audio` when given; else with a program its PSR1
    * decides in playPlaylist, and without one the track that plays) and the end of a still item already reported (which
-   * stays reported; a BD-J still the reopen lets go in teardownSession is met again at the same place, with no report to Java).
+   * stays reported; a BD-J still the reopen lets go in teardownSession is met again at the same place, with no report to
+   * Java, and keeps the end its time still had).
    */
   private restartPoint(s: Session, audio?: number): RestartPoint {
     return {
@@ -2078,6 +2083,7 @@ export class Player {
       autoplay: this.wantPlaying,
       audio: audio ?? (this.programRegs ? null : s.audioStream),
       endReported: this.bdjStill ? null : this.navEndReported,
+      still: this.bdjStill,
     };
   }
 
@@ -2089,7 +2095,7 @@ export class Player {
     const mpls = disc.playlists.get(point.playlistId);
     if (!mpls || mpls.playItems.length === 0) throw new DiscError('missing-file', `Playlist ${point.playlistId} is not available.`, [playlistPath(point.playlistId)]);
     const { item, clipTime45 } = new Timeline(mpls.playItems, mpls.marks).locate(point.timeUs);
-    return this.playPlaylist(point.playlistId, { item: item.index, clipTime45 }, point.owner, point.audio, { autoplay: point.autoplay, endReported: point.endReported });
+    return this.playPlaylist(point.playlistId, { item: item.index, clipTime45 }, point.owner, point.audio, { autoplay: point.autoplay, endReported: point.endReported, still: point.still });
   }
 
   /** How a new BD-J worker reads the disc: on the port route, through a fetch port relayed to the engine's own. */
@@ -2861,7 +2867,9 @@ export class Player {
     if (this.state === 'playing' && pi && pi.stillMode !== 0 && this.navEndReported !== item.index && now >= s.timeline.itemStartUs(item.index) + ticks45ToUs(item.outTime - item.inTime) - STILL_MARGIN_US) {
       this.navEndReported = item.index;
       // the time still's timer runs on wall time (nowMs): libbluray leaves it to the application (BD_EVENT_STILL_TIME)
-      this.bdjStill = { item: item.index, untilMs: pi.stillMode === STILL_TIME ? this.deps.nowMs() + pi.stillTime * 1000 : null };
+      const carried = this.stillCarried?.item === item.index ? this.stillCarried : null;
+      this.stillCarried = null;
+      this.bdjStill = carried ?? { item: item.index, untilMs: pi.stillMode === STILL_TIME ? this.deps.nowMs() + pi.stillTime * 1000 : null };
       this.setHold(true);
     }
   }
@@ -2936,7 +2944,7 @@ export class Player {
     at: PlayAt = {},
     caller: PlaylistCaller = 'user',
     audio: number | null = null,
-    restart: { readonly autoplay: boolean; readonly endReported: number | null } | null = null,
+    restart: Pick<RestartPoint, 'autoplay' | 'endReported' | 'still'> | null = null,
   ): Promise<boolean> {
     const viaNavigator = caller !== 'user';
     let source = this.source;
@@ -2954,6 +2962,7 @@ export class Player {
     // a restart goes on where presentation was: the end of a still item already reported is not reported again
     this.navEndReported = restart ? restart.endReported : null;
     this.releaseBdjStill();
+    this.stillCarried = restart?.still ?? null;
     const openPkt = this.openTitlePkt(mpls, timeline, at, startUs);
     if (!restart) {
       this.navItem = startItem;

@@ -399,6 +399,24 @@ describe('Player with BD-J titles (in-process BD-J worker)', () => {
     await until(h, () => bdjEvents(h, BdjEvent.END_OF_PLAYLIST).length > 0); // still_time (5 s) passed: on to the end
   }, 90_000);
 
+  it('a quality switch during a time still keeps its end: the still ends at its own time, not still_time after the switch', async () => {
+    const files = stillDisc({ mode: 1, time: 5 });
+    const h = await harness(files, { remote: true });
+    await until(h, () => lastState(h) === 'playing' && playlistsPlayed(h).length > 0);
+    await until(h, () => clockUs(h) >= 3_600_000);
+    await h.play(3000); // 3 s of the 5 s still gone
+    expect(bdjEvents(h, BdjEvent.END_OF_PLAYLIST)).toEqual([]);
+    const nas = fakeNas(files);
+    await h.player.handle({ type: 'setLevel', disc: { ...nas.spec, query: 'level=h264-1080&audio=1', original: nas.spec.manifest } });
+    expect(h.events).toContainEqual({ type: 'levelChanged', ok: true });
+    let steps = 0; // each `until` check plays 50 ms first
+    await until(h, () => {
+      steps++;
+      return bdjEvents(h, BdjEvent.END_OF_PLAYLIST).length > 0;
+    });
+    expect(steps * 50).toBeLessThan(3000); // about the 2 s left, where a fresh still_time takes longer
+  }, 90_000);
+
   it("refuses a menu call masked by Java's UO mask, with uo-masked and UO_MASKED to Java", async () => {
     const h = await playing();
     h.inject({ type: 'call', id: 9001, name: 'setUOMask', args: [true, false] });
