@@ -87,7 +87,7 @@ If the NAS has a graphics card for it, it can re-encode a disc to a lower qualit
 
 During playback the **Quality** menu switches level at the same place. A badge reads `<level> · re-encoded on the NAS`. If the NAS is busy re-encoding for others, the player says "The NAS is busy re-encoding for others. This will play at original quality." or "The NAS is busy. Try again in a few minutes."
 
-The audio track menu on a re-encoded level reopens the level with that track. When the disc itself changes the audio track (from its menu, for example), the level reopens with that track too.
+The audio track menu on a re-encoded level reopens the level with that track. When the disc itself changes the audio track (from its menu, for example), the level reopens with that track too. The track picked before playback is kept unless the disc chooses another.
 
 Discs with MPEG-2 or VC-1 video can play at **Original** too, decoded by the player itself. The player measures how fast the device decodes these formats once, a few seconds after the NAS library first shows on a paired device with no disc open, and keeps the answer on the device for 30 days. If a pre-flight needs the answer before then, it measures there (this can take up to about 20 seconds; the pre-flight says it is checking the device, and Play waits for it). A device fast enough starts at Original. A slower one starts on a re-encoded level, with Original still in the list to pick by hand. If the player's decoder fails or can't keep up during playback, it switches to a re-encoded level by itself, at the same place.
 

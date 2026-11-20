@@ -3654,6 +3654,19 @@ describe("Player switching a NAS disc's quality level (setLevel)", () => {
     expect(again?.type === 'placeState' && again.psrs[1]! & 0xfff).toBe(3);
   }, 30_000);
 
+  it("opened at a level, the program's PSR1 starts at the level's stream, so its language default asks for no switch", async () => {
+    const program = buildMovieObjects([{ cmds: [asm.playPl(imm(0))] }, { cmds: [] }, { cmds: [] }]);
+    const three = [lpcmStream(0x1100, 10), lpcmStream(0x1101, 10), lpcmStream(0x1102, 10)];
+    const lv = levelNas(disc({ audioStreams: three }).set('BDMV/MovieObject.bdmv', program), disc({ audioStreams: [lpcmStream(0x1100, 10)] }).set('BDMV/MovieObject.bdmv', program));
+    const h = await harness(undefined, { remote: () => ({ ...lv.nas, spec: { ...lv.levelSpec, query: 'level=h264-1080&audio=2' } }) });
+    await untilPlaying(h);
+    await h.play(300);
+    expect(h.events.filter((e) => e.type === 'levelAudioWanted')).toEqual([]);
+    await h.player.handle({ type: 'readPlace' });
+    const place = h.events.filter((e) => e.type === 'placeState').at(-1);
+    expect(place?.type === 'placeState' && place.psrs[1]! & 0xfff).toBe(2);
+  }, 30_000);
+
   it("a level switch with the Audio menu's pick sets the program's PSR1 to it", async () => {
     const program = buildMovieObjects([{ cmds: [asm.playPl(imm(0))] }, { cmds: [] }, { cmds: [] }]);
     const three = [lpcmStream(0x1100, 10), lpcmStream(0x1101, 10), lpcmStream(0x1102, 10)];

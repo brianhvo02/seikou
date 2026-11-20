@@ -2186,6 +2186,10 @@ export class Player {
     const shared = bdj ? new SharedArrayBuffer(bdj.REGISTER_WORDS * 4) : undefined;
     const regs = new RegisterFile(shared ? { shared } : {});
     this.initRegs(regs, index);
+    // At a level, PSR1 starts at the stream the level carries (the viewer's pick before playback), so the program's
+    // language default doesn't switch the level's audio at once; a stream the program sets itself still does.
+    const carried = levelAudioOf(this.discSpec);
+    if (carried !== null) regs.psrWrite(PSR.PRIMARY_AUDIO_ID, carried);
     regs.onPsrEvent((e) => this.onPsrEvent(e, regs));
     return regs;
   }
