@@ -251,8 +251,8 @@ what would change that decision.
   57 pictures a second for 1080i at 29.97, in sync with the sound (`deinterlace.spec.ts`). *Revisit if* film on such
   machines matters: the CPU cadence detector (`metrics-cpu.ts`) could pick the film frames.
 - **Firefox on macOS deinterlaces H.264 with softer colour at moving edges.** Its WebCodecs decoder gives H.264 frames
-  as BGRX (RGB), not YUV planes. `framePlanes` converts them back to I420 on the CPU (`rgbToI420`, about 5 ms a 1080
-  frame), taking each chroma row from one field, but Firefox has already blended the two fields' chroma in its RGB, as
+  as BGRX (RGB), not YUV planes. `framePlanes` converts them back to I420 on the CPU (`rgbToI420`: 7.6 ms a 1080
+  frame in Firefox on an Apple silicon Mac, about a quarter of a core at 29.97; an older Mac will take longer), taking each chroma row from one field, but Firefox has already blended the two fields' chroma in its RGB, as
   Safari's decoder does (below), so video at field rate scores 36.3 dB against the bwdif reference where Chrome scores
   50.9 (film 45.3, Chrome 46.3). Other browsers give I420 (Chrome) or NV12 (Safari); MPEG-2 and VC-1 come from the WASM
   decoder as I420 everywhere. *Revisit if* the colour fringes show on real discs: a GPU conversion would save the CPU
