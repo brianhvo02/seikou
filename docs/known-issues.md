@@ -617,24 +617,26 @@ what would change that decision.
 - **The BD-J library check (5e, `tools/bdj-library`).** Every BD-J disc in the developer's NAS library (166 of 2,340
   discs) runs one generic key script (`wait menu`, right, down, ok, `wait playlist any`) in our player and in
   libbluray's harness, from copied start-up files, with the real clips of the menu playlists where stub streams could
-  not decide (about 43 GB read once, gently; four discs whose menu playlist is the feature stay on stubs). The latest
-  full check (2026-10-21, no verdict changed from the check before): works 134, unconfirmed 14, libbluray-fails-too
-  18, missing-class 0, unsupported-video 0, stall 0, diverges 0, error 0, of 166. The discs are named only by hashed
-  ids, and the results stay outside the repo. What the verdicts can't say:
-  - **libbluray fails too (18 discs).** libbluray in the harness (HotSpot under amd64 emulation, offline, with these
-    keys) shows no menu, and neither do we. By cause: on 14 both players flush their plane but nothing on it is
-    visible within 60 s (one of them on stub video, its menu playlist being the feature); on 2 neither draws at all;
-    on 1 libbluray flushes an invisible plane while ours draws nothing (after the disc's failed BD-Live request its
-    own UI code throws in ours); on 1 HotSpot crashes in libzip under emulation on every run, while ours flushes
-    nothing visible. Some may be harness artefacts (emulation, no network, stub video on the capped disc) or need
-    input the generic script doesn't give; only a native amd64 libbluray run or a check by hand on the device can
-    tell.
-  - **Unconfirmed (14 discs).** The menu shows and ours agrees with libbluray wherever both ran, but a key step
-    was never compared: on 13 of them libbluray stops at its first step drawing nothing (with real video
-    on most), and ours shows the menu but no reaction to a key libbluray never got to; on one, both menus keep
-    repainting, so no key was tried (ruling R6). They are the list for the check by hand. On the real iPhone all 14 opened
-    and 13 reached their menu; in Chrome 13 react to the arrows and Enter, and one plays a long opening video before any
-    menu (in libbluray too), left for a check by hand (rulings R27, R34).
+  not decide (about 43 GB read once, gently; four discs whose menu playlist is the feature stay on stubs). The last
+  full check (2026-10-21): works 134, unconfirmed 14, libbluray-fails-too 18, missing-class 0, unsupported-video 0,
+  stall 0, diverges 0, error 0, of 166. On 2026-11-19 libbluray's harness ran natively on amd64 for the 32 discs
+  that were not `works`, and ours ran again on those whose stub clips (intros, warnings, looping menu backgrounds
+  played before or behind the menu) it had looped or restarted at once, now with those clips real: 19 of them work
+  as native libbluray does, which makes works 153, unconfirmed 5 and libbluray-fails-too 8 of 166. The copied menu
+  clips were lost on 2026-11-16 and are stubs again, so a full check run today reads lower; compare a change against
+  a run on the same data, not against these counts. The discs are named only by hashed ids, and the results stay
+  outside the repo. What the verdicts can't say:
+  - **libbluray fails too (8 discs).** Native libbluray with these keys and no network shows no menu, and neither
+    do we. They are genuine failures, or need input the generic script doesn't give or the network; a check by hand
+    on the device is what is left. The other 10 of the 18 were artefacts of the emulated harness and stub clips.
+  - **Unconfirmed (5 discs).** The menu shows and ours agrees with libbluray wherever both ran, but a key step was
+    never compared. On 3, ours shows the same divergence on playlist 1 that real clips resolved on 5 other discs; their
+    clip is about 3.5 GB each and was not copied, so they are most likely stub artefacts. On 1, native libbluray also
+    stops early, and its played clips are too large to copy (56 GB). On 1, a long opening video plays before any menu,
+    in libbluray too, left for a check by hand (rulings R27, R34). On the real iPhone all 14 discs then unconfirmed
+    opened (2026-10-22).
+  - When a disc fails, check first whether a playlist ours selects is a stub clip in the library cache before
+    suspecting the player.
   - The check compares settled planes and the calls that start something (5d R3), so a difference in animation
     frames, timing or register writes in between is not caught. A key that changes nothing in both players counts as
     agreement (R5).

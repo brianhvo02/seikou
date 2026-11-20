@@ -22,7 +22,7 @@ Short tasks that unblock or protect what is already deployed.
 | **Playlist ends:** a playlist ends 100 ms after its last picture, so a still at the end can end early; picking a PG stream re-reads the playlist, which shows the next picture of a slideshow early. | S–M | needs a disc |
 | **Device coverage:** iPad over the NAS, real Android Chrome (HEVC, USB OTG), the iPhone row of the probe table, Blob slicing over 4 GiB on iOS, long press on real hardware, and the alphabet bar on a later iOS build. | M | needs a device |
 | **A friend abroad over WebRTC.** The route has only been measured through a VPN. Record a real friend's throughput and start-up time. | S | needs a person |
-| **The BD-J library's open cases:** 18 discs that fail in libbluray too (a native amd64 libbluray run, or a check by hand) and 1 unconfirmed disc (a long opening video before the menu). | M | |
+| **The BD-J library's open cases:** 8 discs that fail in native libbluray too (a check by hand on the device) and 5 unconfirmed discs (3 that likely need their 3.5 GB menu clip copied, 1 too large to copy, 1 with a long opening video before the menu). | M | |
 
 ## Later: bigger pieces
 
