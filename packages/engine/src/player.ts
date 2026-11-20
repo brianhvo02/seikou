@@ -55,6 +55,7 @@ import { DiscError } from '@seikou/bdmv/byte-source';
 import { applyDiscProfile } from './disc/disc-profile';
 import { applyPlayerSettings, type PlayerSettings } from './disc/player-settings';
 import { createByteSource, type DiscSpec, type RemoteDiscSpec } from './disc/disc-spec';
+import { levelAudioOf, withOriginalAudio } from './disc/level-program';
 import { portFetch, serveFetch } from './disc/port-fetch';
 import type { FileSource } from './disc/file-source';
 import { RemoteDiscError, TokenRelay } from './disc/http-transport';
@@ -62,7 +63,7 @@ import { checkStreamReadable, loadClips, openDisc, peekIndex, playlistPath, read
 import { CacheFill } from './disc/cache-fill';
 import type { DiscManifest } from '@seikou/nas/nas-api';
 import type { OverlayPlane } from '@seikou/pg';
-import { ReadAheadCache, SEGMENT_BYTES } from './disc/read-ahead-cache';
+import { ReadAheadCache, SEGMENT_BYTES, type LocksLike } from './disc/read-ahead-cache';
 import { RemoteSource } from './disc/remote-source';
 import { BdVk } from './graphics/graphics-controller';
 import { PSR, RegisterFile, SETTING_PSRS, type PsrEvent } from './hdmv/registers';
@@ -88,7 +89,8 @@ import { PresentationClock } from './render/presentation-clock';
 import { elementStream } from './element/remux';
 import { elementQuery, frameRateOf } from './element/element-query';
 import { createGlDeinterlaceBackend, webglSoftwareRenderer } from './deinterlace/gl-backend';
-import { InterlacedVideo, WOVEN_NO_WEBGL2, WOVEN_OFF, wovenFrameFormat, wovenSoftwareRenderer, type DeinterlaceBackendFactory, type DeinterlaceSetting } from './deinterlace/interlaced-video';
+import { FieldBob, type MakeVideoFrame } from './deinterlace/cpu-bob';
+import { InterlacedVideo, WOVEN_NO_WEBGL2, WOVEN_OFF, wovenFrameFormat, type DeinterlaceBackendFactory, type DeinterlaceSetting } from './deinterlace/interlaced-video';
 import type { DeinterlaceStats, Picture } from './deinterlace/deinterlacer';
 import { isInterlacedFormat, type FieldInput } from './deinterlace/field-input';
 import type { Clpi } from '@seikou/bdmv/clpi-parser';
@@ -158,10 +160,12 @@ export interface PlayerDeps {
   readonly createDeinterlaceBackend?: DeinterlaceBackendFactory;
   /**
    * The WebGL renderer's name when it draws in software (SwiftShader, llvmpipe and the like), else null; asked once,
-   * at the first interlaced session. On a software renderer interlaced frames are drawn woven (webglSoftwareRenderer in
-   * gl-backend.ts by default).
+   * at the first interlaced session. On a software renderer interlaced frames are made whole on the CPU (FieldBob)
+   * instead of by the GPU deinterlacer (webglSoftwareRenderer in gl-backend.ts by default).
    */
   readonly webglSoftwareRenderer?: () => string | null;
+  /** Makes a video frame from planes (`new VideoFrame(data, init)` by default): the CPU deinterlacer's pictures. */
+  readonly makeVideoFrame?: MakeVideoFrame;
   /**
    * BD-J (bdj-provider.ts): its worker, class library, host and session. Without it, BD-J discs and titles open to the
    * picker with a notice naming the missing BD-J runtime, as when the provider says the browser lacks something.
@@ -205,6 +209,8 @@ export interface PlayerDeps {
   readonly epochMs?: () => number;
   /** The read-ahead cache's segment size (SEGMENT_BYTES by default; tests use smaller). */
   readonly readAheadSegmentBytes?: number;
+  /** The Web Locks that keep each tab's read-ahead folder its own (navigator.locks by default; null: none). */
+  readonly readAheadCacheLocks?: LocksLike | null;
   /**
    * Epoch milliseconds comparable between the worker and the page, stamped on the clock block the video element follows;
    * `performance.timeOrigin + performance.now()` by default.
@@ -394,6 +400,8 @@ interface RestartPoint {
   readonly autoplay: boolean;
   readonly audio: number | null;
   readonly endReported: number | null;
+  /** A BD-J still the playlist was held in: met again at the same item, it keeps its end (null: an infinite still). */
+  readonly still: { readonly item: number; readonly untilMs: number | null } | null;
 }
 
 /** A video unit waiting for the decoder, or for the choice of path (the element path needs its decode time and range). */
@@ -515,6 +523,8 @@ interface Session {
   readonly interlaced: boolean;
   /** Its frames go through the deinterlacer; null for progressive video, and for interlaced video drawn woven. */
   deinterlace: SessionDeinterlace | null;
+  /** Its fields are made whole on the CPU instead (WebGL draws in software); null otherwise. */
+  bob: FieldBob | null;
   /** The M2TS reader, or an encoded episode's Matroska reader. */
   readonly pipeline: SessionPipeline;
   /** The video track's CodecPrivate (an encode's av1C record), which its decoder is configured from; null for a disc. */
@@ -624,6 +634,8 @@ export class Player {
    * lets it. Released by a new playlist, a seek and the end of BD-J.
    */
   private bdjStill: { readonly item: number; readonly untilMs: number | null } | null = null;
+  /** The BD-J still a restart let go (RestartPoint.still), until the reopened playlist meets it again or starts elsewhere. */
+  private stillCarried: { readonly item: number; readonly untilMs: number | null } | null = null;
   private menuActive = false;
   /** Draw operations of the last repaint of the IG plane. */
   private igDraws = 0;
@@ -648,6 +660,8 @@ export class Player {
   private remote: RemoteSource | null = null;
   /** The NAS disc's on-disk read-ahead cache, opening (null: it has none). */
   private cache: Promise<ReadAheadCache | null> | null = null;
+  /** Settles once the last closed disc's cache has let go of its folder and lock. */
+  private cacheClosed: Promise<void> = Promise.resolve();
   /** The read-ahead cache's fill in progress. */
   private filling: CacheFill | null = null;
   private lastFillKickMs = Number.NEGATIVE_INFINITY;
@@ -670,6 +684,10 @@ export class Player {
   private videoWasmFailure: string | null = null;
   /** Audio streams asked for that the playing playlist's STN lacks (a quality level keeps one track), logged once per disc. */
   private missingAudioLogged = new Set<number>();
+  /** The original stream last asked for with levelAudioWanted on this version of the disc (asked once until a switch). */
+  private levelAudioAsked: number | null = null;
+  /** The program's view of the disc at a level (withOriginalAudio), for the model it was made from. */
+  private programView: { readonly disc: DiscModel; readonly view: DiscModel } | null = null;
   /** A setLevel under way: resolves once the new version is in place (source, cache, disc model), before its restart. */
   private switching: Promise<void> | null = null;
   /** Bumped by every setLevel: a playlist open that began on an older version goes on, once the switch is done, on the new one. */
@@ -778,7 +796,7 @@ export class Player {
       try {
         await root();
         available = true;
-        await ReadAheadCache.clearExpired(root, (this.deps.epochMs ?? Date.now)());
+        await ReadAheadCache.clearExpired(root, (this.deps.epochMs ?? Date.now)(), this.deps.readAheadCacheLocks);
       } catch {
         // no OPFS here (a private window): NAS discs read only the network
       }
@@ -1218,14 +1236,19 @@ export class Player {
   /** Telemetry's deinterlacing field: null unless the playing session is interlaced. */
   private deinterlaceTelemetry(s: Session | null): DeinterlaceTelemetry | null {
     if (!s?.interlaced) return null;
-    const { setting, woven, stats } = this.deinterlaceState;
-    return { setting, woven, stats };
+    const { setting, woven, stats, cpu } = this.deinterlaceState;
+    return { setting, woven, stats, cpu };
   }
 
-  /** The deinterlacing state: the setting, why the playing interlaced video is drawn woven (null when it isn't), and the deinterlacer's stats while it runs. */
-  get deinterlaceState(): { readonly setting: DeinterlaceSetting; readonly woven: string | null; readonly stats: DeinterlaceStats | null } {
-    const d = this.session?.deinterlace;
-    return { setting: this.deinterlaceSetting, woven: this.deinterlaceWoven, stats: d ? d.video.stats : null };
+  /**
+   * The deinterlacing state: the setting, why the playing interlaced video is drawn woven (null when it isn't), the
+   * deinterlacer's stats while it runs, and the software WebGL renderer whose device makes fields whole on the CPU
+   * instead (null otherwise).
+   */
+  get deinterlaceState(): { readonly setting: DeinterlaceSetting; readonly woven: string | null; readonly stats: DeinterlaceStats | null; readonly cpu: string | null } {
+    const s = this.session;
+    const d = s?.deinterlace;
+    return { setting: this.deinterlaceSetting, woven: this.deinterlaceWoven, stats: d ? d.video.stats : null, cpu: s?.bob ? (this.softwareRenderer ?? null) : null };
   }
 
   /**
@@ -1237,12 +1260,10 @@ export class Player {
       this.deinterlaceWoven = WOVEN_OFF;
       return null;
     }
-    // a software renderer can't keep up (about 400 ms behind the audio, measured): woven frames, as without WebGL2
+    // a software renderer can't keep up with the GPU deinterlacer (about 400 ms behind the audio, measured): the
+    // session makes its fields whole on the CPU instead (FieldBob; deinterlaceWoven stays null)
     if (this.softwareRenderer === undefined) this.softwareRenderer = (this.deps.webglSoftwareRenderer ?? webglSoftwareRenderer)();
-    if (this.softwareRenderer !== null) {
-      this.deinterlaceWoven = wovenSoftwareRenderer(this.softwareRenderer);
-      return null;
-    }
+    if (this.softwareRenderer !== null) return null;
     let video = this.interlacedVideo;
     if (video && video.ringSize !== this.memory.deinterlaceRing) {
       video.dispose(); // the memory profile changed
@@ -1306,18 +1327,33 @@ export class Player {
     if (!d.video.push(input)) this.deinterlaceFailed(s);
   }
 
+  /** A decoded interlaced frame of a session that makes its fields whole on the CPU: its pictures go to the presenter. */
+  private onBobInput(s: Session, bob: FieldBob, input: FieldInput): void {
+    if (this.session !== s) return;
+    this.codedWidth = input.planes.width;
+    let pictures: VideoFrame[];
+    try {
+      pictures = bob.pictures(input);
+    } catch (err) {
+      this.deinterlaceFailed(s, `The CPU deinterlacer stopped: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+    for (const p of pictures) this.presenter.push(p);
+  }
+
   /**
-   * The deinterlacer can't go on (its GPU failed, none could be made for the stream's size, or the browser decodes to
-   * RGB, which has no planes to read): the session's frames are drawn woven from now on, reread from the current time,
-   * and `deinterlaceWoven` says why.
+   * The deinterlacer can't go on (its GPU failed, none could be made for the stream's size, the CPU one failed, or the
+   * browser decodes to a pixel format it can't read): the session's frames are drawn woven from now on, reread from the
+   * current time, and `deinterlaceWoven` says why.
    */
   private deinterlaceFailed(s: Session, reason?: string): void {
     const d = s.deinterlace;
-    if (!d) return;
-    this.deinterlaceWoven = reason ?? `The deinterlacer stopped: ${d.video.error?.message ?? 'unknown error'}`;
+    if (!d && !s.bob) return;
+    this.deinterlaceWoven = reason ?? `The deinterlacer stopped: ${d?.video.error?.message ?? 'unknown error'}`;
     this.deps.log?.(`Deinterlacing off for this playlist: ${this.deinterlaceWoven}`);
     s.deinterlace = null;
-    d.video.reset();
+    s.bob = null;
+    d?.video.reset();
     if (s.decoder) s.decoder.onFieldInput = null;
     this.enqueue(async () => {
       if (this.session === s && this.state !== 'error') await this.startAt(this.clock.nowUs(), this.wantPlaying, 'keep');
@@ -1417,6 +1453,7 @@ export class Player {
     this.videoWasmFailed = false;
     this.videoWasmFailure = null;
     this.missingAudioLogged = new Set();
+    this.levelAudioAsked = null;
     this.bdjStorageNotice = false;
     this.stopBdj();
     this.dropEarlyBdj();
@@ -1495,6 +1532,7 @@ export class Player {
       this.videoWasmFailed = false;
       this.videoWasmFailure = null;
       this.missingAudioLogged = new Set();
+      this.levelAudioAsked = null;
       this.bdjStorageNotice = false;
       this.stopBdj();
       this.dropEarlyBdj();
@@ -1653,6 +1691,7 @@ export class Player {
       videoFormat: 0,
       interlaced: false,
       deinterlace: null,
+      bob: null,
     };
     ref.current = session;
     this.deinterlaceWoven = null;
@@ -1836,7 +1875,9 @@ export class Player {
       this.tokens = tokens;
       if (spec.kind === 'remote' && cache) this.cache = this.openCache(source, spec.manifest);
     } else if (this.deps.readAheadCacheRoot) {
-      void ReadAheadCache.clearAll(this.deps.readAheadCacheRoot).catch(() => undefined); // another disc opened
+      const root = this.deps.readAheadCacheRoot;
+      const locks = this.deps.readAheadCacheLocks;
+      void this.cacheClosed.then(() => ReadAheadCache.clearAll(root, locks)).catch(() => undefined); // another disc opened
     }
     return source;
   }
@@ -1850,21 +1891,27 @@ export class Player {
     const root = this.deps.readAheadCacheRoot;
     if (!root) return null;
     const sizes = new Map(manifest.files.map((f) => [f.path.toUpperCase(), f.size]));
+    let cache: ReadAheadCache | null = null;
     try {
-      const cache = await ReadAheadCache.open(manifest.discId, {
+      await this.cacheClosed; // the disc before let go of its folder: the same disc opened again finds it free
+      cache = await ReadAheadCache.open(manifest.discId, {
         root,
         now: this.deps.epochMs ?? Date.now,
         fileSize: (path) => sizes.get(path.toUpperCase()),
         ...(this.deps.readAheadSegmentBytes ? { segmentBytes: this.deps.readAheadSegmentBytes } : {}),
+        ...(this.deps.readAheadCacheLocks !== undefined ? { locks: this.deps.readAheadCacheLocks } : {}),
       });
       await cache.clearOthers();
       if (this.remote !== source) {
-        cache.close(); // the disc closed meanwhile
+        // the disc closed meanwhile: the next open waits for this folder too
+        const closing = cache.close();
+        this.cacheClosed = Promise.all([this.cacheClosed, closing]).then(() => undefined);
         return null;
       }
       source.setCache(cache);
       return cache;
     } catch {
+      void cache?.close();
       return null;
     }
   }
@@ -1974,7 +2021,8 @@ export class Player {
     this.nasWaiting = false;
     this.remote?.close();
     this.remote = null;
-    void this.cache?.then((cache) => cache?.close());
+    const closing = this.cache;
+    if (closing) this.cacheClosed = closing.then((cache) => cache?.close()).catch(() => undefined);
     this.cache = null;
     this.tokens = null;
     this.discSpec = { kind: 'files', entries: [] };
@@ -2032,14 +2080,19 @@ export class Player {
         this.deps.emit({ type: 'noticeCleared', code: 'nas-waiting' });
       }
       oldRemote.close();
-      (await oldCache)?.close();
+      await (await oldCache)?.close();
       const original = next.original ?? open.original;
       const source = this.createSource({ ...next, ...(original ? { original } : {}) });
       const disc = await openDisc(source);
       this.source = source;
       this.disc = disc;
-      this.navigator?.replaceDisc(disc);
-      this.bdj?.host.replaceDisc(disc);
+      this.levelAudioAsked = null;
+      this.navigator?.replaceDisc(this.programDisc(disc));
+      this.bdj?.host.replaceDisc(this.programDisc(disc));
+      // at a level the program's PSR1 names the stream the level carries (original numbering): the viewer's pick
+      const carried = levelAudioOf(this.discSpec);
+      const programRegs = this.programRegs;
+      if (carried !== null && programRegs && (programRegs.psrRead(PSR.PRIMARY_AUDIO_ID) & 0xfff) !== carried) programRegs.psrWrite(PSR.PRIMARY_AUDIO_ID, carried);
       // The program started (or stopped) a playlist meanwhile: that one plays. An open already current when the switch
       // began tore the session down, so there is nothing to resume then; a stale one (superseded before) gives up.
       const superseded = generation !== this.openGeneration;
@@ -2068,7 +2121,8 @@ export class Player {
    * Where the playing playlist `s` goes on when it opens again (another version of the disc, or another video path): its
    * caller, the current time, whether it plays, the audio stream (`audio` when given; else with a program its PSR1
    * decides in playPlaylist, and without one the track that plays) and the end of a still item already reported (which
-   * stays reported; a BD-J still the reopen lets go in teardownSession is met again at the same place, with no report to Java).
+   * stays reported; a BD-J still the reopen lets go in teardownSession is met again at the same place, with no report to
+   * Java, and keeps the end its time still had).
    */
   private restartPoint(s: Session, audio?: number): RestartPoint {
     return {
@@ -2078,6 +2132,7 @@ export class Player {
       autoplay: this.wantPlaying,
       audio: audio ?? (this.programRegs ? null : s.audioStream),
       endReported: this.bdjStill ? null : this.navEndReported,
+      still: this.bdjStill,
     };
   }
 
@@ -2089,7 +2144,7 @@ export class Player {
     const mpls = disc.playlists.get(point.playlistId);
     if (!mpls || mpls.playItems.length === 0) throw new DiscError('missing-file', `Playlist ${point.playlistId} is not available.`, [playlistPath(point.playlistId)]);
     const { item, clipTime45 } = new Timeline(mpls.playItems, mpls.marks).locate(point.timeUs);
-    return this.playPlaylist(point.playlistId, { item: item.index, clipTime45 }, point.owner, point.audio, { autoplay: point.autoplay, endReported: point.endReported });
+    return this.playPlaylist(point.playlistId, { item: item.index, clipTime45 }, point.owner, point.audio, { autoplay: point.autoplay, endReported: point.endReported, still: point.still });
   }
 
   /** How a new BD-J worker reads the disc: on the port route, through a fetch port relayed to the engine's own. */
@@ -2155,6 +2210,10 @@ export class Player {
     const shared = bdj ? new SharedArrayBuffer(bdj.REGISTER_WORDS * 4) : undefined;
     const regs = new RegisterFile(shared ? { shared } : {});
     this.initRegs(regs, index);
+    // At a level, PSR1 starts at the stream the level carries (the viewer's pick before playback), so the program's
+    // language default doesn't switch the level's audio at once; a stream the program sets itself still does.
+    const carried = levelAudioOf(this.discSpec);
+    if (carried !== null) regs.psrWrite(PSR.PRIMARY_AUDIO_ID, carried);
     regs.onPsrEvent((e) => this.onPsrEvent(e, regs));
     return regs;
   }
@@ -2260,7 +2319,7 @@ export class Player {
     const host: PlayerBdjHostLike = bdj.createPlayerHost({
       port: this.bdjPort(live),
       regs: programRegs,
-      disc,
+      disc: this.programDisc(disc),
       events,
       psrEvents: sink,
       startTitle: (t) => {
@@ -2446,6 +2505,27 @@ export class Player {
     this.deps.emit({ type: 'indexTitles', titles, hasTopMenu });
   }
 
+  /**
+   * The disc model a program reads: at a quality level, the level's with the original's audio streams (a level's
+   * playlists list only the stream it carries, as stream 1), so PSR1 keeps the disc's own numbering; else `disc` itself.
+   */
+  private programDisc(disc: DiscModel): DiscModel {
+    const spec = this.discSpec;
+    if (spec.kind !== 'remote' || !spec.original || levelAudioOf(spec) === null) return disc;
+    if (this.programView?.disc !== disc) this.programView = { disc, view: withOriginalAudio(disc, spec.original) };
+    return this.programView.view;
+  }
+
+  /**
+   * At a quality level, a stream the program or the viewer wants (original numbering) that the level doesn't carry: the
+   * page is asked to switch the level's audio (levelAudioWanted), once per stream and version of the disc.
+   */
+  private wantLevelAudio(stream: number): void {
+    if (stream <= 0 || stream === this.levelAudioAsked) return;
+    this.levelAudioAsked = stream;
+    this.deps.emit({ type: 'levelAudioWanted', stream });
+  }
+
   private createNavigator(disc: DiscModel, regs = this.newProgramRegs(disc.index, disc.usesBdj)): Navigator {
     this.navRegs = regs;
     this.bindPg(regs);
@@ -2453,7 +2533,7 @@ export class Player {
     this.popupAvailable = false;
     this.igDraws = 0;
     return new Navigator({
-      disc,
+      disc: this.programDisc(disc),
       regs,
       port: this.navigationPort(),
       emit: (e) => this.onNavigatorEvent(e),
@@ -2861,7 +2941,9 @@ export class Player {
     if (this.state === 'playing' && pi && pi.stillMode !== 0 && this.navEndReported !== item.index && now >= s.timeline.itemStartUs(item.index) + ticks45ToUs(item.outTime - item.inTime) - STILL_MARGIN_US) {
       this.navEndReported = item.index;
       // the time still's timer runs on wall time (nowMs): libbluray leaves it to the application (BD_EVENT_STILL_TIME)
-      this.bdjStill = { item: item.index, untilMs: pi.stillMode === STILL_TIME ? this.deps.nowMs() + pi.stillTime * 1000 : null };
+      const carried = this.stillCarried?.item === item.index ? this.stillCarried : null;
+      this.stillCarried = null;
+      this.bdjStill = carried ?? { item: item.index, untilMs: pi.stillMode === STILL_TIME ? this.deps.nowMs() + pi.stillTime * 1000 : null };
       this.setHold(true);
     }
   }
@@ -2936,7 +3018,7 @@ export class Player {
     at: PlayAt = {},
     caller: PlaylistCaller = 'user',
     audio: number | null = null,
-    restart: { readonly autoplay: boolean; readonly endReported: number | null } | null = null,
+    restart: Pick<RestartPoint, 'autoplay' | 'endReported' | 'still'> | null = null,
   ): Promise<boolean> {
     const viaNavigator = caller !== 'user';
     let source = this.source;
@@ -2954,6 +3036,7 @@ export class Player {
     // a restart goes on where presentation was: the end of a still item already reported is not reported again
     this.navEndReported = restart ? restart.endReported : null;
     this.releaseBdjStill();
+    this.stillCarried = restart?.still ?? null;
     const openPkt = this.openTitlePkt(mpls, timeline, at, startUs);
     if (!restart) {
       this.navItem = startItem;
@@ -3027,7 +3110,12 @@ export class Player {
       }
     }
     const wanted = (audio ?? this.programRegs?.psrRead(PSR.PRIMARY_AUDIO_ID) ?? this.preferredAudio(mpls.playItems[startItem]!) ?? 0) & 0xfff;
-    const wantedEntry = wanted > 0 ? audioEntryFor(mpls.playItems[startItem], wanted) : null;
+    // At a level the program's PSR1 counts the original's streams, and the level's one stream is its 1: the stream the
+    // level carries plays whatever PSR1 says, and another wanted one asks the page to switch the level's audio.
+    const carried = levelAudioOf(this.discSpec);
+    const programWants = carried !== null && audio === null && this.programRegs !== null;
+    if (programWants && wanted > 0 && wanted !== carried) this.wantLevelAudio(wanted);
+    const wantedEntry = wanted > 0 && !programWants ? audioEntryFor(mpls.playItems[startItem], wanted) : null;
     if (wantedEntry && PLAYABLE_AUDIO.has(wantedEntry.codingType)) {
       audioIndex = wanted;
       audioEntry = wantedEntry;
@@ -3122,10 +3210,15 @@ export class Player {
       videoFormat: choice.video.format,
       interlaced: decoder !== null && isInterlacedFormat(choice.video.format),
       deinterlace: null,
+      bob: null,
     };
     ref.current = session;
     this.deinterlaceWoven = null;
     if (session.interlaced) session.deinterlace = this.startDeinterlace(session);
+    if (session.interlaced && !session.deinterlace && this.deinterlaceWoven === null) {
+      // WebGL draws in software: the fields are made whole on the CPU, at field rate
+      session.bob = new FieldBob(1e6 / (frameRateOf(session.videoRate) ?? 30_000 / 1001) / 2, this.deps.makeVideoFrame);
+    }
     if (decoder) this.wireDecoder(session, decoder);
     this.session = session;
     this.audioDecodeErrors = 0;
@@ -3458,12 +3551,14 @@ export class Player {
         this.presenter.push(frame);
       } else frame.close();
     };
-    decoder.onFieldInput = session.deinterlace
-      ? (input) => {
-          this.followDecodeSpeed(session, input.timestampUs);
-          this.onFieldInput(session, input);
-        }
-      : null;
+    decoder.onFieldInput =
+      session.deinterlace || session.bob
+        ? (input) => {
+            this.followDecodeSpeed(session, input.timestampUs);
+            if (session.bob) this.onBobInput(session, session.bob, input);
+            else this.onFieldInput(session, input);
+          }
+        : null;
     decoder.onFieldsUnreadable = (format) => {
       if (this.session === session) this.deinterlaceFailed(session, wovenFrameFormat(format));
     };
@@ -3518,10 +3613,17 @@ export class Player {
 
   private async applyAudio(index: number): Promise<void> {
     const s = this.session;
-    if (!s || index === s.audioStream || this.state === 'error') return;
+    if (!s || this.state === 'error') return;
+    const carried = s.encode ? null : levelAudioOf(this.discSpec);
+    if (carried !== null) {
+      // a level carries one stream (original numbering `carried`, its own 1): another is the page's switch to make
+      if (index !== carried) this.wantLevelAudio(index);
+      return;
+    }
+    if (index === s.audioStream) return;
     const track = s.tracks.find((t) => t.index === index);
     if (!track && !this.missingAudioLogged.has(index)) {
-      // a PSR1 the playlist's STN lacks (a quality level carries one track): ignored
+      // a PSR1 the playlist's STN lacks: ignored
       this.missingAudioLogged.add(index);
       this.deps.log?.(`Playlist ${s.playlistId} has no audio stream ${index}: ignored`);
     }

@@ -8,6 +8,7 @@
 
 import { DiscError, type ByteSource } from '@seikou/bdmv/byte-source';
 import type { DiscManifest } from '@seikou/nas/nas-api';
+import { decodeBase64 } from './level-program';
 
 /** Byte ranges of the disc's files (HttpTransport). Paths are the manifest's. */
 export interface RangeTransport {
@@ -483,13 +484,6 @@ export class RemoteSource implements ByteSource {
 
 function chunkKey(path: string, index: number): string {
   return `${path}\n${index}`;
-}
-
-function decodeBase64(base64: string): Uint8Array {
-  const binary = atob(base64);
-  const out = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
-  return out;
 }
 
 /** `promise`, or a rejection with the signal's reason once it aborts (the work behind the promise goes on). */

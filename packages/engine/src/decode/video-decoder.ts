@@ -2,7 +2,7 @@ import { CodingType, codingName } from '@seikou/bdmv/stream-types';
 import { DecoderError, UnsupportedCodecError, type Decoder, type StreamConfig } from './decoder';
 import { analyzeAvc, avcCodecString, avcIsInterlaced, avcPicStruct, avcPpsId, avcTiming, type AccessUnitInfo, type AvcTiming } from '@seikou/bdmv/codecs/h264';
 import { analyzeHevc, hevcCodecStrings } from '@seikou/bdmv/codecs/hevc';
-import { flagsFromPicStruct, framePlanes, type FieldFlags, type FieldInput } from '../deinterlace/field-input';
+import { flagsFromPicStruct, framePlanes, readableFrameFormat, type FieldFlags, type FieldInput } from '../deinterlace/field-input';
 import { CODING_AV1, av1CodecString } from './av1';
 import { wasmVideoCodecFor } from './wasm-video';
 
@@ -474,7 +474,7 @@ export class WebCodecsVideoDecoder implements CanvasVideoDecoder {
     }
     this.prunePending(frame.timestamp);
     const sink = this.onFieldInput;
-    if (sink && flags && frame.format !== 'I420' && frame.format !== 'NV12') {
+    if (sink && flags && !readableFrameFormat(frame.format)) {
       this.onFieldsUnreadable?.(String(frame.format));
     } else if (sink && flags) {
       this.deliverFields(source, frame, flags, sink);

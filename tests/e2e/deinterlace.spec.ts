@@ -28,9 +28,10 @@ const PICTURE_AT_US = 2_000_000;
 const FIELD_US = 1_001_000 / 60;
 const FILM_FRAME_US = 1_001_000 / 24;
 /**
- * PSNR floors in dB. Measured on macOS (Apple silicon): video 50.9 in Chrome and 41.2 in WebKit (its decoder blends the
- * two fields' chroma, which colours the bar's moving edges; docs/known-issues.md), film 46.1-47.6 in both; Off 28.8 and
- * 29.2. Firefox on macOS decodes to RGB and draws these woven. Off must be more than OFF_MARGIN_DB worse than Auto on
+ * PSNR floors in dB. Measured on macOS (Apple silicon): video 50.9 in Chrome, 41.2 in WebKit (its decoder blends the
+ * two fields' chroma, which colours the bar's moving edges; docs/known-issues.md) and 36.3 in Firefox (it decodes to
+ * RGB, its chroma blended across the fields the same way, and the player converts back to I420), film 45.3-47.6 in all
+ * three; Off 28.8 and 29.2. Off must be more than OFF_MARGIN_DB worse than Auto on
  * the same picture.
  */
 const VIDEO_PSNR_DB = 30;
@@ -61,6 +62,7 @@ interface DeinterlaceSample extends TelemetrySample {
     setting: 'auto' | 'off';
     stats: { mode: 'progressive' | 'film' | 'video'; fieldOrder: 'tff' | 'bff'; fieldOrderSource: string; fallback: boolean; frameRate: boolean; locks: number; breaks: number } | null;
     woven: string | null;
+    cpu: string | null;
   } | null;
 }
 
@@ -133,14 +135,14 @@ async function openPlaylist(page: Page, id: string, { realtime = true }: { realt
 }
 
 /** Why the player draws frames woven though deinterlacing is on, where that is the browser's doing and not a fault. */
-const NO_DEINTERLACER = /^(The browser decodes to |WebGL2 is unavailable|A software WebGL renderer )/;
+const NO_DEINTERLACER = /^(The browser decodes to |WebGL2 is unavailable)/;
 
 /**
- * Skips the running test where the player doesn't deinterlace in this browser: it decodes to RGB (Firefox on macOS gives
- * BGRX frames, and the deinterlacer reads YUV planes), has no WebGL2, or draws WebGL in software (SwiftShader, llvmpipe:
- * CI's machines without a GPU), which can't keep up in real time. The player then draws the frames woven and
- * telemetry says why; the playlist still plays, which interlaced-decode.spec.ts checks. A deinterlacer that stopped
- * on a fault is not skipped.
+ * Skips the running test where the player has no GPU deinterlacer in this browser: it decodes to a pixel format the
+ * deinterlacer can't read (it reads YUV, and converts 4-byte RGB such as Firefox's BGRX on macOS) or has no WebGL2,
+ * when the player draws the frames woven and telemetry says why, or it draws WebGL in software (SwiftShader, llvmpipe:
+ * CI's machines without a GPU), when the fields are made whole on the CPU instead (telemetry's `cpu`; checked by the
+ * software renderer test below). A deinterlacer that stopped on a fault is not skipped.
  */
 async function skipWithoutDeinterlacer(page: Page): Promise<void> {
   // once a picture has been presented, the decoder's first frames have told which it is (one telemetry sample says both)
@@ -151,8 +153,10 @@ async function skipWithoutDeinterlacer(page: Page): Promise<void> {
       return (t?.framesPresented ?? 0) > 0;
     }, { timeout: 10_000 })
     .toBe(true);
-  const woven = (t as DeinterlaceSample | null)?.deinterlace?.woven ?? '';
+  const d = (t as DeinterlaceSample | null)?.deinterlace;
+  const woven = d?.woven ?? '';
   test.skip(NO_DEINTERLACER.test(woven), woven);
+  test.skip(d?.cpu != null, `a software WebGL renderer (${d?.cpu}): fields made whole on the CPU`);
 }
 
 /** Sets the seek bar as a user would by dragging it (see subtitles.spec.ts). */
@@ -269,22 +273,6 @@ test('Off draws the woven frames at once, combed where the picture moves', async
   expect(offDb).toBeLessThan(autoDb - OFF_MARGIN_DB);
 });
 
-test('where the browser decodes to RGB, interlaced video plays woven and telemetry says why', async ({ page }) => {
-  await page.goto('/?telemetry=1&videopath=canvas');
-  await skipWithoutH264(page);
-  await setFolder(page.getByTestId('folder-input'), DISC);
-  await page.getByTestId('playlist-00000').click();
-  await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'playing', { timeout: 10_000 });
-  await expect.poll(async () => (await telemetry(page))?.framesPresented ?? 0, { timeout: 10_000 }).toBeGreaterThan(0);
-  const woven = (await deinterlaceOf(page))?.woven ?? '';
-  test.skip(!/^The browser decodes to /.test(woven), 'this browser does not decode to RGB (the other tests cover what it does)');
-  await expect.poll(async () => (await telemetry(page))?.clockUs ?? 0, { timeout: 15_000 }).toBeGreaterThanOrEqual(3_000_000);
-  const t = await telemetry(page);
-  expect(t?.decoderErrors).toBe(0);
-  expect(t?.framesPresented ?? 0).toBeGreaterThanOrEqual(80);
-  expect(await deinterlaceOf(page)).toMatchObject({ setting: 'auto', stats: null });
-});
-
 test("the deinterlacer's GPU passes equal their CPU references: field measurements, bwdif and the fall-back's line averaging", async ({ page }) => {
   const bundle = await build({ entryPoints: ['tests/e2e/deinterlace-gpu.ts'], bundle: true, write: false, format: 'iife', platform: 'browser', target: 'es2022', logLevel: 'silent' });
   await page.setContent('<!doctype html><meta charset="utf-8"><title>deinterlace GPU checks</title>');
@@ -301,4 +289,33 @@ test("the deinterlacer's GPU passes equal their CPU references: field measuremen
   for (const c of checks) console.log(`${c.ok ? 'ok  ' : 'FAIL'} ${c.name}: ${c.detail}`);
   expect(checks.length).toBeGreaterThan(40);
   expect(checks.filter((c) => !c.ok)).toEqual([]);
+});
+
+test('on a software WebGL renderer, interlaced video is made whole field by field on the CPU, at field rate', async ({ playwright, browserName, baseURL }) => {
+  test.skip(browserName !== 'chromium', 'SwiftShader is forced through a Chrome switch');
+  // Chrome drawing WebGL with SwiftShader, as on a machine without a GPU (CI's runners, many virtual machines)
+  const browser = await playwright.chromium.launch({ channel: 'chrome', args: ['--autoplay-policy=no-user-gesture-required', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
+  try {
+    const page = await (await browser.newContext({ baseURL })).newPage();
+    await page.goto('/?telemetry=1&videopath=canvas');
+    await skipWithoutH264(page);
+    await setFolder(page.getByTestId('folder-input'), DISC);
+    await page.getByTestId('playlist-00000').click();
+    await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'playing', { timeout: 10_000 });
+    await expect.poll(async () => (await deinterlaceOf(page))?.cpu ?? null, { timeout: 10_000, message: 'telemetry names the software renderer' }).toMatch(/SwiftShader/i);
+    expect(await deinterlaceOf(page)).toMatchObject({ setting: 'auto', woven: null, stats: null });
+    // in sync with the sound, and two pictures a frame: close to 59.94 a second presented (29.97 when woven)
+    const windows = await collectWindows(page, 3_800_000);
+    expect(windows.length).toBeGreaterThan(3);
+    for (const w of windows) expect(w.clockMode).toBe('audio');
+    expectInSync(windows);
+    const a = windows[0]!;
+    const b = windows.at(-1)!;
+    const rate = ((b.framesPresented ?? 0) - (a.framesPresented ?? 0)) / ((b.clockUs - a.clockUs) / 1e6);
+    console.log(`software renderer: ${rate.toFixed(1)} pictures a second presented`);
+    expect(rate).toBeGreaterThan(45);
+    expect(b.decoderErrors).toBe(0);
+  } finally {
+    await browser.close();
+  }
 });

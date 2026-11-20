@@ -25,7 +25,7 @@ interface AudioMenuProps {
  * The control bar's Audio button and its list of tracks. It renders nothing unless there is more than one track to pick
  * (`tracks`, or `levelAudio.tracks` at a re-encoded level, where a pick switches the level's audio instead of calling
  * `onSelect`). `selected` is the checked track's index; `disabledReason` greys the button with a tooltip when the disc's
- * UO mask forbids the change. `onOpenChange` tells the player to keep its controls up while the list is open.
+ * UO mask forbids the change, at a level as at the original. `onOpenChange` tells the player to keep its controls up while the list is open.
  */
 export function AudioMenu({ tracks, selected, disabledReason, levelAudio = null, onSelect, onOpenChange }: AudioMenuProps): ReactElement | null {
   const [open, setOpen] = useState(false);
@@ -41,8 +41,8 @@ export function AudioMenu({ tracks, selected, disabledReason, levelAudio = null,
   };
 
   useEffect(() => {
-    if (!shown || (!levelAudio && disabledReason)) setOpen(false);
-  }, [shown, disabledReason, levelAudio]);
+    if (!shown || disabledReason) setOpen(false);
+  }, [shown, disabledReason]);
 
   useEffect(() => onOpenChange(open), [open, onOpenChange]);
 
@@ -81,7 +81,7 @@ export function AudioMenu({ tracks, selected, disabledReason, levelAudio = null,
   if (!shown) return null;
   return (
     <div className="audio-menu" ref={rootRef}>
-      <button ref={buttonRef} type="button" aria-haspopup="menu" aria-expanded={open} data-testid="audio-menu" disabled={!levelAudio && disabledReason !== undefined} title={levelAudio ? undefined : disabledReason} onClick={() => setOpen((o) => !o)}>
+      <button ref={buttonRef} type="button" aria-haspopup="menu" aria-expanded={open} data-testid="audio-menu" disabled={disabledReason !== undefined} title={disabledReason} onClick={() => setOpen((o) => !o)}>
         Audio
       </button>
       {open && (

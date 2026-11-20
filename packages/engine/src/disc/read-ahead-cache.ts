@@ -7,8 +7,14 @@
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
-/** The cache's folder in the origin's private file system; one folder per disc below it. */
+/**
+ * The cache's folder in the origin's private file system; one folder per disc below it, or per tab when several tabs
+ * open the same disc (`<disc>`, then `<disc>.1`, `<disc>.2`…). Each folder has a Web Lock, held while a tab has it open,
+ * so no tab writes into or removes a folder another tab is using.
+ */
 export const CACHE_DIR = 'read-ahead';
+/** Folders one disc can have at once (tabs open on it); a tab past them plays without a cache. */
+export const MAX_DISC_FOLDERS = 8;
 /** A disc's cache is cleared once it is this old (counted from its first byte). */
 export const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 /**
@@ -31,6 +37,13 @@ export interface ReadAheadCacheDeps {
   readonly fileSize: (path: string) => number | undefined;
   /** SEGMENT_BYTES by default (tests use smaller). */
   readonly segmentBytes?: number;
+  /** The origin's Web Locks (navigator.locks by default); null where there are none, and then every tab shares the folders. */
+  readonly locks?: LocksLike | null;
+}
+
+/** The part of the Web Locks API used here (navigator.locks): a request that is granted only when the lock is free. */
+export interface LocksLike {
+  request<T>(name: string, options: { ifAvailable: true }, callback: (lock: unknown) => T | Promise<T>): Promise<T>;
 }
 
 /** A half-open range of bytes in one disc file. */
@@ -88,6 +101,8 @@ export class ReadAheadCache {
   private readonly segmentBytes: number;
   private closed = false;
   private creating: Promise<void> | null = null;
+  /** Settles once close has let go of the files and the lock. */
+  private released: Promise<void> = Promise.resolve();
 
   private constructor(
     private readonly top: DirHandle,
@@ -96,53 +111,73 @@ export class ReadAheadCache {
     private readonly deps: ReadAheadCacheDeps,
     /** When the disc's cache got its first byte (meta.json), or null. */
     private created: number | null,
+    /** Lets go of the folder's Web Lock. */
+    private readonly release: () => void,
   ) {
     this.segmentBytes = deps.segmentBytes ?? SEGMENT_BYTES;
   }
 
-  /** Opens (creating when needed) the disc's cache folder and loads what it holds, dropping files whose size no longer matches the manifest's. */
+  /**
+   * Opens (creating when needed) the disc's cache folder and loads what it holds, dropping files whose size no longer
+   * matches the manifest's. The folder is the first of the disc's whose lock is free (another tab on the same disc has
+   * the one before), held until close. Throws when every one of them is held.
+   */
   static async open(discId: string, deps: ReadAheadCacheDeps): Promise<ReadAheadCache> {
+    const locks = locksOf(deps.locks);
     const root = (await deps.root()) as unknown as DirHandle;
     const top = await root.getDirectoryHandle(CACHE_DIR, { create: true });
-    const name = safeName(discId);
-    const dir = await top.getDirectoryHandle(name, { create: true });
-    const meta = await readJson(dir, META);
-    const cache = new ReadAheadCache(top, name, dir, deps, createdOf(meta));
-    await cache.load();
-    return cache;
+    const base = safeName(discId);
+    for (let n = 0; n < MAX_DISC_FOLDERS; n++) {
+      const name = n === 0 ? base : `${base}.${n}`;
+      const release = await tryLock(locks, name);
+      if (!release) continue; // another tab's
+      try {
+        const dir = await top.getDirectoryHandle(name, { create: true });
+        const meta = await readJson(dir, META);
+        const cache = new ReadAheadCache(top, name, dir, deps, createdOf(meta), release);
+        await cache.load();
+        return cache;
+      } catch (err) {
+        release();
+        throw err;
+      }
+    }
+    throw new Error(`Every read-ahead folder of disc ${discId} is in use by another tab.`);
   }
 
-  /** Removes every disc's cache (a disc not on the NAS opened). */
-  static async clearAll(root: () => Promise<FileSystemDirectoryHandle>): Promise<void> {
-    const dir = (await root()) as unknown as DirHandle;
-    await dir.removeEntry(CACHE_DIR, { recursive: true }).catch(() => undefined); // none yet, or in use
+  /** Removes every disc's cache no other tab is using (a disc not on the NAS opened). */
+  static async clearAll(root: () => Promise<FileSystemDirectoryHandle>, locks?: LocksLike | null): Promise<void> {
+    await ReadAheadCache.clearFolders(root, locks, async () => true);
   }
 
-  /** Removes every disc's cache that is over 24 hours old (the engine worker's start). */
-  static async clearExpired(root: () => Promise<FileSystemDirectoryHandle>, now: number): Promise<void> {
+  /** Removes every disc's cache that is over 24 hours old and no other tab is using (the engine worker's start). */
+  static async clearExpired(root: () => Promise<FileSystemDirectoryHandle>, now: number, locks?: LocksLike | null): Promise<void> {
+    await ReadAheadCache.clearFolders(root, locks, async (dir) => {
+      const created = createdOf(await readJson(dir, META));
+      return created !== null && now - created > CACHE_MAX_AGE_MS;
+    });
+  }
+
+  /** Removes each folder `doomed` says to, under its lock: one another tab holds is left alone. */
+  private static async clearFolders(root: () => Promise<FileSystemDirectoryHandle>, locks: LocksLike | null | undefined, doomed: (dir: DirHandle) => Promise<boolean>): Promise<void> {
     let top: DirHandle;
     try {
       top = await ((await root()) as unknown as DirHandle).getDirectoryHandle(CACHE_DIR);
     } catch {
       return; // none yet
     }
+    const held = locksOf(locks);
     const names: string[] = [];
     for await (const name of top.keys()) names.push(name);
-    for (const name of names) {
-      try {
-        const created = createdOf(await readJson(await top.getDirectoryHandle(name), META));
-        if (created !== null && now - created > CACHE_MAX_AGE_MS) await top.removeEntry(name, { recursive: true });
-      } catch {
-        // in use by another tab, or not a disc's folder
-      }
-    }
+    for (const name of names) await removeIfFree(top, name, held, doomed);
   }
 
-  /** Removes every other disc's cache, and this disc's once it is over 24 hours old. */
+  /** Removes every other folder no other tab is using (other discs, and this disc's other tabs' left behind), and this disc's own bytes once they are over 24 hours old. */
   async clearOthers(): Promise<void> {
     const others: string[] = [];
     for await (const entry of this.top.keys()) if (entry !== this.name) others.push(entry);
-    for (const other of others) await this.top.removeEntry(other, { recursive: true }).catch(() => undefined);
+    const locks = locksOf(this.deps.locks);
+    for (const other of others) await removeIfFree(this.top, other, locks, async () => true);
     if (this.created !== null && this.deps.now() - this.created > CACHE_MAX_AGE_MS) {
       this.closeSegments();
       this.held.clear();
@@ -251,24 +286,30 @@ export class ReadAheadCache {
     }
   }
 
-  /** Lets go of the files (the disc closed); what is on disk stays for the next open of this disc. */
-  close(): void {
+  /**
+   * Lets go of the files and, once they are closed, of the folder's lock (the disc closed): settles then, so the tab's
+   * next open of this disc finds its folder free. What is on disk stays for that open.
+   */
+  close(): Promise<void> {
+    if (this.closed) return this.released;
     this.closed = true;
-    this.closeSegments();
+    this.released = Promise.allSettled(this.closeSegments()).then(() => this.release());
+    return this.released;
   }
 
-  private closeSegments(): void {
+  /** Closes every open segment's files; settles once each open under way has settled and been closed. */
+  private closeSegments(): Promise<unknown>[] {
     const open = [...this.segments.values()];
     this.segments.clear();
-    for (const p of open) {
+    return open.map((p) =>
       p.then(
         (s) => {
           s.data.close();
           s.index.close();
         },
         () => undefined,
-      );
-    }
+      ),
+    );
   }
 
   private heldOf(path: string): Held {
@@ -373,6 +414,44 @@ export function safeName(id: string): string {
     out += /[A-Za-z0-9-]/.test(c) ? c : `_${byte.toString(16).padStart(2, '0')}`;
   }
   return out || '_';
+}
+
+/** The origin's Web Locks: `locks` when given (null: none), else navigator.locks where there is one. */
+function locksOf(locks: LocksLike | null | undefined): LocksLike | null {
+  if (locks !== undefined) return locks;
+  return (globalThis as { navigator?: { locks?: LocksLike } }).navigator?.locks ?? null;
+}
+
+/**
+ * Takes a cache folder's Web Lock if it is free: its release, or null when another tab holds it. Without Web Locks (or
+ * when a request fails) every folder counts as free, as before there were locks.
+ */
+function tryLock(locks: LocksLike | null, folder: string): Promise<(() => void) | null> {
+  if (!locks) return Promise.resolve(() => undefined);
+  return new Promise((resolve) => {
+    locks
+      .request(`seikou:read-ahead:${folder}`, { ifAvailable: true }, (lock) => {
+        if (!lock) {
+          resolve(null);
+          return undefined;
+        }
+        return new Promise<void>((release) => resolve(() => release()));
+      })
+      .catch(() => resolve(() => undefined));
+  });
+}
+
+/** Removes folder `name` of `top` when its lock is free and `doomed` says so; a folder in use, or one that can't be read or removed, stays. */
+async function removeIfFree(top: DirHandle, name: string, locks: LocksLike | null, doomed: (dir: DirHandle) => Promise<boolean>): Promise<void> {
+  const release = await tryLock(locks, name);
+  if (!release) return; // another tab's
+  try {
+    if (await doomed(await top.getDirectoryHandle(name))) await top.removeEntry(name, { recursive: true });
+  } catch {
+    // in use (a tab without locks), or not a disc's folder
+  } finally {
+    release();
+  }
 }
 
 /** safeName's inverse, or null for a name it can't have made. */

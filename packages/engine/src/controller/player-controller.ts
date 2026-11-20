@@ -116,6 +116,11 @@ export interface PlayerSnapshot {
    * without a picture) or `slow` (it has had to skip pictures for 10 s); null otherwise, and again on every open.
    */
   readonly videoDecoderTrouble: 'failed' | 'slow' | null;
+  /**
+   * At a quality level, the original audio stream the disc program last wanted that the level doesn't carry
+   * (levelAudioWanted), with a count that tells a repeat from the same request; null otherwise, and again on every open.
+   */
+  readonly levelAudioWanted: { readonly stream: number; readonly seq: number } | null;
 }
 
 export type { PlaceState, StartPoint };
@@ -202,6 +207,7 @@ export const INITIAL_SNAPSHOT: PlayerSnapshot = {
   startFailed: null,
   levelSwitch: 'idle',
   videoDecoderTrouble: null,
+  levelAudioWanted: null,
 };
 
 function withNotice(s: PlayerSnapshot, notice: Notice): PlayerSnapshot {
@@ -283,6 +289,8 @@ export function reduceEvent(s: PlayerSnapshot, e: EngineEvent): PlayerSnapshot {
       // (a failed decoder's notice comes as 'unsupported' with noPicture.) Before the disc's titles it is a late event
       // from the disc before: no playlist of this one has played yet.
       return s.playlists.length === 0 ? s : { ...s, videoDecoderTrouble: e.reason };
+    case 'levelAudioWanted':
+      return { ...s, levelAudioWanted: { stream: e.stream, seq: (s.levelAudioWanted?.seq ?? 0) + 1 } };
     case 'videoDecoderSpeed':
       return s; // answers probeVideoDecoder (the controller resolves it)
     case 'videoCapture':
