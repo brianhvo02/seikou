@@ -148,6 +148,19 @@ describe('playlist lifecycle', () => {
     expect(c.getSnapshot().levelSwitch).toBe('idle'); // a new disc starts without one
   });
 
+  it('levelAudioWanted reaches the snapshot with a new count each time, and a new open clears it', () => {
+    const worker = new FakeWorker();
+    const c = new PlayerController(worker, new FakeAudio());
+    const spec = { kind: 'remote', base: 'https://nas.example/discs/a/', token: 't', manifest: { discId: 'a', name: 'a', files: [], inline: {} } } as const;
+    c.openRemote(spec);
+    worker.emit({ type: 'levelAudioWanted', stream: 3 });
+    expect(c.getSnapshot().levelAudioWanted).toEqual({ stream: 3, seq: 1 });
+    worker.emit({ type: 'levelAudioWanted', stream: 3 });
+    expect(c.getSnapshot().levelAudioWanted).toEqual({ stream: 3, seq: 2 });
+    c.openRemote(spec);
+    expect(c.getSnapshot().levelAudioWanted).toBeNull();
+  });
+
   it('videoDecoderTrouble reaches the snapshot, and a new open clears it', () => {
     const worker = new FakeWorker();
     const c = new PlayerController(worker, new FakeAudio());

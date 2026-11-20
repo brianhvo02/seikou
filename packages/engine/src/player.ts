@@ -55,6 +55,7 @@ import { DiscError } from '@seikou/bdmv/byte-source';
 import { applyDiscProfile } from './disc/disc-profile';
 import { applyPlayerSettings, type PlayerSettings } from './disc/player-settings';
 import { createByteSource, type DiscSpec, type RemoteDiscSpec } from './disc/disc-spec';
+import { levelAudioOf, withOriginalAudio } from './disc/level-program';
 import { portFetch, serveFetch } from './disc/port-fetch';
 import type { FileSource } from './disc/file-source';
 import { RemoteDiscError, TokenRelay } from './disc/http-transport';
@@ -674,6 +675,10 @@ export class Player {
   private videoWasmFailure: string | null = null;
   /** Audio streams asked for that the playing playlist's STN lacks (a quality level keeps one track), logged once per disc. */
   private missingAudioLogged = new Set<number>();
+  /** The original stream last asked for with levelAudioWanted on this version of the disc (asked once until a switch). */
+  private levelAudioAsked: number | null = null;
+  /** The program's view of the disc at a level (withOriginalAudio), for the model it was made from. */
+  private programView: { readonly disc: DiscModel; readonly view: DiscModel } | null = null;
   /** A setLevel under way: resolves once the new version is in place (source, cache, disc model), before its restart. */
   private switching: Promise<void> | null = null;
   /** Bumped by every setLevel: a playlist open that began on an older version goes on, once the switch is done, on the new one. */
@@ -1421,6 +1426,7 @@ export class Player {
     this.videoWasmFailed = false;
     this.videoWasmFailure = null;
     this.missingAudioLogged = new Set();
+    this.levelAudioAsked = null;
     this.bdjStorageNotice = false;
     this.stopBdj();
     this.dropEarlyBdj();
@@ -1499,6 +1505,7 @@ export class Player {
       this.videoWasmFailed = false;
       this.videoWasmFailure = null;
       this.missingAudioLogged = new Set();
+      this.levelAudioAsked = null;
       this.bdjStorageNotice = false;
       this.stopBdj();
       this.dropEarlyBdj();
@@ -2042,8 +2049,13 @@ export class Player {
       const disc = await openDisc(source);
       this.source = source;
       this.disc = disc;
-      this.navigator?.replaceDisc(disc);
-      this.bdj?.host.replaceDisc(disc);
+      this.levelAudioAsked = null;
+      this.navigator?.replaceDisc(this.programDisc(disc));
+      this.bdj?.host.replaceDisc(this.programDisc(disc));
+      // at a level the program's PSR1 names the stream the level carries (original numbering): the viewer's pick
+      const carried = levelAudioOf(this.discSpec);
+      const programRegs = this.programRegs;
+      if (carried !== null && programRegs && (programRegs.psrRead(PSR.PRIMARY_AUDIO_ID) & 0xfff) !== carried) programRegs.psrWrite(PSR.PRIMARY_AUDIO_ID, carried);
       // The program started (or stopped) a playlist meanwhile: that one plays. An open already current when the switch
       // began tore the session down, so there is nothing to resume then; a stale one (superseded before) gives up.
       const superseded = generation !== this.openGeneration;
@@ -2266,7 +2278,7 @@ export class Player {
     const host: PlayerBdjHostLike = bdj.createPlayerHost({
       port: this.bdjPort(live),
       regs: programRegs,
-      disc,
+      disc: this.programDisc(disc),
       events,
       psrEvents: sink,
       startTitle: (t) => {
@@ -2452,6 +2464,27 @@ export class Player {
     this.deps.emit({ type: 'indexTitles', titles, hasTopMenu });
   }
 
+  /**
+   * The disc model a program reads: at a quality level, the level's with the original's audio streams (a level's
+   * playlists list only the stream it carries, as stream 1), so PSR1 keeps the disc's own numbering; else `disc` itself.
+   */
+  private programDisc(disc: DiscModel): DiscModel {
+    const spec = this.discSpec;
+    if (spec.kind !== 'remote' || !spec.original || levelAudioOf(spec) === null) return disc;
+    if (this.programView?.disc !== disc) this.programView = { disc, view: withOriginalAudio(disc, spec.original) };
+    return this.programView.view;
+  }
+
+  /**
+   * At a quality level, a stream the program or the viewer wants (original numbering) that the level doesn't carry: the
+   * page is asked to switch the level's audio (levelAudioWanted), once per stream and version of the disc.
+   */
+  private wantLevelAudio(stream: number): void {
+    if (stream <= 0 || stream === this.levelAudioAsked) return;
+    this.levelAudioAsked = stream;
+    this.deps.emit({ type: 'levelAudioWanted', stream });
+  }
+
   private createNavigator(disc: DiscModel, regs = this.newProgramRegs(disc.index, disc.usesBdj)): Navigator {
     this.navRegs = regs;
     this.bindPg(regs);
@@ -2459,7 +2492,7 @@ export class Player {
     this.popupAvailable = false;
     this.igDraws = 0;
     return new Navigator({
-      disc,
+      disc: this.programDisc(disc),
       regs,
       port: this.navigationPort(),
       emit: (e) => this.onNavigatorEvent(e),
@@ -3036,7 +3069,12 @@ export class Player {
       }
     }
     const wanted = (audio ?? this.programRegs?.psrRead(PSR.PRIMARY_AUDIO_ID) ?? this.preferredAudio(mpls.playItems[startItem]!) ?? 0) & 0xfff;
-    const wantedEntry = wanted > 0 ? audioEntryFor(mpls.playItems[startItem], wanted) : null;
+    // At a level the program's PSR1 counts the original's streams, and the level's one stream is its 1: the stream the
+    // level carries plays whatever PSR1 says, and another wanted one asks the page to switch the level's audio.
+    const carried = levelAudioOf(this.discSpec);
+    const programWants = carried !== null && audio === null && this.programRegs !== null;
+    if (programWants && wanted > 0 && wanted !== carried) this.wantLevelAudio(wanted);
+    const wantedEntry = wanted > 0 && !programWants ? audioEntryFor(mpls.playItems[startItem], wanted) : null;
     if (wantedEntry && PLAYABLE_AUDIO.has(wantedEntry.codingType)) {
       audioIndex = wanted;
       audioEntry = wantedEntry;
@@ -3527,10 +3565,17 @@ export class Player {
 
   private async applyAudio(index: number): Promise<void> {
     const s = this.session;
-    if (!s || index === s.audioStream || this.state === 'error') return;
+    if (!s || this.state === 'error') return;
+    const carried = s.encode ? null : levelAudioOf(this.discSpec);
+    if (carried !== null) {
+      // a level carries one stream (original numbering `carried`, its own 1): another is the page's switch to make
+      if (index !== carried) this.wantLevelAudio(index);
+      return;
+    }
+    if (index === s.audioStream) return;
     const track = s.tracks.find((t) => t.index === index);
     if (!track && !this.missingAudioLogged.has(index)) {
-      // a PSR1 the playlist's STN lacks (a quality level carries one track): ignored
+      // a PSR1 the playlist's STN lacks: ignored
       this.missingAudioLogged.add(index);
       this.deps.log?.(`Playlist ${s.playlistId} has no audio stream ${index}: ignored`);
     }

@@ -708,6 +708,12 @@ export type EngineEvent =
    */
   | { readonly type: 'videoDecoderTrouble'; readonly reason: 'failed' | 'slow' }
   /**
+   * At a quality level, the disc program (its PSR1) or the viewer wants original audio stream `stream`, which the level
+   * doesn't carry: the page switches the level's audio to it (setLevel) when the original has it. Sent once per stream
+   * until the next switch.
+   */
+  | { readonly type: 'levelAudioWanted'; readonly stream: number }
+  /**
    * The answer to probeVideoDecoder: pictures decoded per second of a 1080i MPEG-2 clip and of a 1080i VC-1 clip by the
    * module at `moduleUrl`; null when the engine has no WASM video decoder, the measurement failed or timed out, or it was
    * not run because the page is hidden or a disc is loading or playing.

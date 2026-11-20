@@ -3605,11 +3605,10 @@ describe("Player switching a NAS disc's quality level (setLevel)", () => {
     }
   }, 30_000);
 
-  it('ignores a PSR1 change to a track the level does not carry', async () => {
+  it('asks the page once to switch the level audio for a track the level does not carry', async () => {
     const three = [lpcmStream(0x1100, 10), lpcmStream(0x1101, 10), lpcmStream(0x1102, 10)];
     const lv = levelNas(disc({ audioStreams: three }), disc({ audioStreams: [lpcmStream(0x1100, 10)] }));
-    const lines: string[] = [];
-    const h = await harness(undefined, { remote: () => lv.nas, log: (l) => lines.push(l) });
+    const h = await harness(undefined, { remote: () => lv.nas });
     await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
     await untilPlaying(h);
     await h.player.handle({ type: 'setLevel', disc: lv.levelSpec });
@@ -3619,10 +3618,54 @@ describe("Player switching a NAS disc's quality level (setLevel)", () => {
     const before = h.events.length;
     await h.player.handle({ type: 'selectAudio', index: 3 });
     await h.player.handle({ type: 'selectAudio', index: 3 });
+    await h.player.handle({ type: 'selectAudio', index: 1 }); // the stream the level carries: nothing to ask
     await h.play(200);
-    expect(h.events.slice(before).filter((e) => e.type === 'tracks' || e.type === 'error')).toEqual([]);
+    const after = h.events.slice(before);
+    expect(after.filter((e) => e.type === 'tracks' || e.type === 'error')).toEqual([]);
+    expect(after.filter((e) => e.type === 'levelAudioWanted')).toEqual([{ type: 'levelAudioWanted', stream: 3 }]);
     expect(lastState(h)).toBe('playing');
-    expect(lines.filter((l) => l.includes('audio stream 3'))).toHaveLength(1);
+  }, 30_000);
+
+  it("an HDMV program's PSR1 keeps the original's numbering at a level, and a stream the level lacks is asked for", async () => {
+    // First Play sets PSR1 to 3 and plays the playlist
+    const program = buildMovieObjects([{ cmds: [asm.setStream(imm(0x80030000), imm(0)), asm.playPl(imm(0))] }, { cmds: [] }, { cmds: [] }]);
+    const three = [lpcmStream(0x1100, 10), lpcmStream(0x1101, 10), lpcmStream(0x1102, 10)];
+    const lv = levelNas(disc({ audioStreams: three }).set('BDMV/MovieObject.bdmv', program), disc({ audioStreams: [lpcmStream(0x1100, 10)] }).set('BDMV/MovieObject.bdmv', program));
+    // opened at the level carrying the original's stream 2
+    const h = await harness(undefined, { remote: () => ({ ...lv.nas, spec: { ...lv.levelSpec, query: 'level=h264-1080&audio=2' } }) });
+    await untilPlaying(h);
+    await h.play(300);
+    expect(h.events.filter((e) => e.type === 'levelAudioWanted')).toEqual([{ type: 'levelAudioWanted', stream: 3 }]);
+    expect(h.events.flatMap((e) => (e.type === 'tracks' ? [e.selectedAudio] : [])).at(-1)).toBe(1);
+    await h.player.handle({ type: 'readPlace' });
+    const place = h.events.filter((e) => e.type === 'placeState').at(-1);
+    expect(place?.type === 'placeState' && place.psrs[1]! & 0xfff).toBe(3); // not clamped to the level's one stream
+    // the page switches the level's audio to 3: PSR1 stays 3 and nothing more is asked
+    const before = h.events.length;
+    await h.player.handle({ type: 'setLevel', disc: { ...lv.levelSpec, query: 'level=h264-1080&audio=3' } });
+    await untilPlaying(h);
+    await h.play(300);
+    const after = h.events.slice(before);
+    expect(after).toContainEqual({ type: 'levelChanged', ok: true });
+    expect(after.filter((e) => e.type === 'levelAudioWanted' || e.type === 'error')).toEqual([]);
+    await h.player.handle({ type: 'readPlace' });
+    const again = h.events.filter((e) => e.type === 'placeState').at(-1);
+    expect(again?.type === 'placeState' && again.psrs[1]! & 0xfff).toBe(3);
+  }, 30_000);
+
+  it("a level switch with the Audio menu's pick sets the program's PSR1 to it", async () => {
+    const program = buildMovieObjects([{ cmds: [asm.playPl(imm(0))] }, { cmds: [] }, { cmds: [] }]);
+    const three = [lpcmStream(0x1100, 10), lpcmStream(0x1101, 10), lpcmStream(0x1102, 10)];
+    const lv = levelNas(disc({ audioStreams: three }).set('BDMV/MovieObject.bdmv', program), disc({ audioStreams: [lpcmStream(0x1100, 10)] }).set('BDMV/MovieObject.bdmv', program));
+    const h = await harness(undefined, { remote: () => lv.nas });
+    await untilPlaying(h);
+    await h.player.handle({ type: 'setLevel', disc: { ...lv.levelSpec, query: 'level=h264-1080&audio=2' } });
+    await untilPlaying(h);
+    await h.play(300);
+    await h.player.handle({ type: 'readPlace' });
+    const place = h.events.filter((e) => e.type === 'placeState').at(-1);
+    expect(place?.type === 'placeState' && place.psrs[1]! & 0xfff).toBe(2);
+    expect(h.events.filter((e) => e.type === 'levelAudioWanted')).toEqual([]);
   }, 30_000);
 });
 

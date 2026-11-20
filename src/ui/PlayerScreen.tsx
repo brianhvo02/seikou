@@ -209,6 +209,15 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
     const at = levelSession.troubleSwitch({ reason: decoderTrouble, remoteDisc: snapshot.remoteDisc, playingAudio: snapshot.selectedAudio });
     if (at) switchTo(at);
   }, [decoderTrouble, levelSession]); // only a new trouble asks; the rest is read as it stands then
+  // At a level the disc program chose an original audio stream the level doesn't carry: the level's audio follows it,
+  // as the stream would change at Original, when the original's playlist has it.
+  const levelAudioWanted = snapshot.levelAudioWanted;
+  useEffect(() => {
+    if (!levelAudioWanted || !levelSession || !levelState || levelState.at.level === 'original' || currentPlaylistId === null) return;
+    const { stream } = levelAudioWanted;
+    if (stream === levelState.at.audio || !levelSession.originalAudio(currentPlaylistId).some((t) => t.number === stream)) return;
+    switchTo({ level: levelState.at.level, audio: stream });
+  }, [levelAudioWanted, levelSession]); // only a new request asks; the rest is read as it stands then
   const atLevel = levelState !== null && levelState.at.level !== 'original';
   const quality = levelState
     ? {
