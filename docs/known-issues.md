@@ -246,11 +246,13 @@ what would change that decision.
   `deinterlace.woven` names the renderer. Measured with SwiftShader on a Mac, 1080i deinterlacing ran about 400 ms
   behind the audio even after the fall-back to field interpolation. So virtual machines and machines without a GPU
   show combing. *Revisit if* a cheaper deinterlacer (CPU line doubling, or fewer GPU passes) is worth having there.
-- **Firefox on macOS isn't deinterlaced.** Its WebCodecs decoder gives H.264 frames as BGRX (RGB), not YUV planes, and
-  the deinterlacer reads planes, so those frames are drawn woven and telemetry's `deinterlace.woven` says why (before
-  this was caught the playlist never started). Other browsers give I420 (Chrome) or NV12 (Safari). MPEG-2 and VC-1,
-  which the WASM decoder gives as I420 everywhere, are deinterlaced in Firefox on macOS too (`mpeg-vc1.spec.ts`).
-  *Revisit if* Firefox on macOS matters for interlaced H.264: the stage could take RGB frames.
+- **Firefox on macOS deinterlaces H.264 with softer colour at moving edges.** Its WebCodecs decoder gives H.264 frames
+  as BGRX (RGB), not YUV planes. `framePlanes` converts them back to I420 on the CPU (`rgbToI420`, about 5 ms a 1080
+  frame), taking each chroma row from one field, but Firefox has already blended the two fields' chroma in its RGB, as
+  Safari's decoder does (below), so video at field rate scores 36.3 dB against the bwdif reference where Chrome scores
+  50.9 (film 45.3, Chrome 46.3). Other browsers give I420 (Chrome) or NV12 (Safari); MPEG-2 and VC-1 come from the WASM
+  decoder as I420 everywhere. *Revisit if* the colour fringes show on real discs: a GPU conversion would save the CPU
+  time but not the blended chroma.
 - **Safari's decoder blends the fields' chroma of an interlaced frame.** Measured on Mac Safari (WebKit) with
   `disc-interlaced` 00000: the planes its WebCodecs `VideoFrame.copyTo` gives for frame 60 (NV12) have luma identical
   to ffmpeg's decode of the same frame, but chroma differs on 9% of samples (up to 154 levels): where a chroma sample

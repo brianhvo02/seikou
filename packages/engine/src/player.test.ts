@@ -3745,6 +3745,8 @@ describe('Player with interlaced video (deinterlacing)', () => {
   function fakeDeinterlace(opts: { deferred?: boolean; failRenderAfter?: number; metrics?: (prev: number | null, cur: number, next: number | null) => FrameMetrics } = {}) {
     const made: Array<{ width: number; height: number; ringSize: number }> = [];
     const uploads: number[] = [];
+    /** Each upload's pixel format. */
+    const formats: string[] = [];
     const ops: PictureOp[] = [];
     /** The timestamp of the frame each slot holds. */
     const slotTs: number[] = [];
@@ -3756,6 +3758,7 @@ describe('Player with interlaced video (deinterlacing)', () => {
     const backend: DeinterlaceBackend = {
       upload: (slot, planes) => {
         uploads.push(slot);
+        formats.push(planes.format);
         slotTs[slot] = new DataView(planes.data.buffer, planes.data.byteOffset).getFloat64(0);
       },
       measure: (prev, cur, next) => {
@@ -3778,7 +3781,7 @@ describe('Player with interlaced video (deinterlacing)', () => {
       made.push({ width, height, ringSize });
       return backend;
     };
-    return { factory, made, uploads, ops, slotTs, draws, pending };
+    return { factory, made, uploads, formats, ops, slotTs, draws, pending };
   }
 
   const presenterSize = (h: Harness): number => (h.player as unknown as { presenter: { size: number } }).presenter.size;
@@ -4106,27 +4109,51 @@ describe('Player with interlaced video (deinterlacing)', () => {
     expect(fake.ops.length).toBeGreaterThan(before); // still deinterlacing
   });
 
-  it('frames the decoder gives as RGB (Firefox on macOS): woven frames, no decoder error, and telemetry says why', async () => {
-    const rgbApi: VideoCodecApi = {
-      ...interlacedApi,
-      create: (init) =>
-        interlacedApi.create({
-          ...init,
-          output: (frame) => {
-            const f = frame as unknown as Record<string, unknown>;
-            init.output({ ...f, format: 'BGRX', copyTo: async () => [{ offset: 0, stride: W * 4 }] } as unknown as VideoFrame);
-          },
-        }),
-    };
+  /** The interlaced decoder, its frames in pixel format `format` (4 bytes a pixel, every byte `fill`). */
+  const formatApi = (format: string, fill = 128): VideoCodecApi => ({
+    ...interlacedApi,
+    create: (init) =>
+      interlacedApi.create({
+        ...init,
+        output: (frame) => {
+          const f = frame as unknown as Record<string, unknown>;
+          init.output({
+            ...f,
+            format,
+            colorSpace: { matrix: 'rgb' },
+            allocationSize: () => W * H * 4,
+            copyTo: async (buf: Uint8Array) => {
+              buf.fill(fill, 0, W * H * 4);
+              return [{ offset: 0, stride: W * 4 }];
+            },
+          } as unknown as VideoFrame);
+        },
+      }),
+  });
+
+  it('frames the decoder gives as RGB (Firefox on macOS) are deinterlaced, converted to I420', async () => {
     const fake = fakeDeinterlace();
-    const h = await harness(CodingType.LPCM, { videoFormat: 4, videoCodecApi: rgbApi, createDeinterlaceBackend: fake.factory });
+    const h = await harness(CodingType.LPCM, { videoFormat: 4, videoCodecApi: formatApi('BGRX'), createDeinterlaceBackend: fake.factory });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await h.play(1000);
+    expect(fake.uploads.length).toBeGreaterThan(10);
+    expect(new Set(fake.formats)).toEqual(new Set(['I420']));
+    expect(h.drawnPictures.length).toBeGreaterThan(10);
+    expect(h.player.deinterlaceState.woven).toBeNull();
+    expect(lastTelemetry(h)?.decoderErrors).toBe(0);
+  });
+
+  it("frames in a format the deinterlacer can't read: woven frames, no decoder error, and telemetry says why", async () => {
+    const fake = fakeDeinterlace();
+    const h = await harness(CodingType.LPCM, { videoFormat: 4, videoCodecApi: formatApi('RGBP'), createDeinterlaceBackend: fake.factory });
     await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
     await untilPlaying(h);
     await h.play(1000);
     expect(fake.uploads).toEqual([]);
     expect(h.drawnPictures).toEqual([]);
     expect(h.drawn.length).toBeGreaterThan(10);
-    expect(h.player.deinterlaceState).toMatchObject({ woven: wovenFrameFormat('BGRX'), stats: null });
+    expect(h.player.deinterlaceState).toMatchObject({ woven: wovenFrameFormat('RGBP'), stats: null });
     expect(lastTelemetry(h)?.decoderErrors).toBe(0);
     expect(h.events.filter((e) => e.type === 'error')).toEqual([]);
   });

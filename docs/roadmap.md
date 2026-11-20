@@ -30,7 +30,7 @@ Short tasks that unblock or protect what is already deployed.
 | --- | --- | --- |
 | **BD-J JIT** (stage 2 of 5c §4.7). This is the start-up lever: iPhone and iPad miss the 10 s cold-start target by 0.8 to 1.6 s, and desktop has little margin on its 5 s bar. A compact constant-pool form is the matching memory lever. | L | owner's call (deferred by choice) |
 | **Field rate on an iPhone:** 1080i (VC-1 first) steps down to frame rate in some stretches of video. Decoding, the shaders, the canvas hand-offs and the page's main thread are all ruled out (known issues); the rest is inside WebKit's GPU side. Parked until a Safari release or a newer phone changes it. | M | parked |
-| **Deinterlacing gaps:** RGB frames from Firefox on macOS (interlaced H.264 shows woven there) and a cheaper deinterlacer for software WebGL. | M | |
+| **Deinterlacing gaps:** a cheaper deinterlacer for software WebGL. | M | |
 | **HDR overlays at graphics white:** subtitles and menus over HDR video are drawn SDR; try a float16 or WebGPU canvas on an HDR display. | M | needs a device, owner's call |
 | **Element path start in WebKit,** which begins about 33 ms behind the sound. | S | owner's call |
 | **Lossless and multichannel audio:** full TrueHD and DTS-HD instead of their cores, and output beyond a stereo downmix (multichannel PCM where the browser offers it; no Atmos or DTS:X height channels, since a page can't pass a stream through). | L | deferred by the owner (2026-11-16) |

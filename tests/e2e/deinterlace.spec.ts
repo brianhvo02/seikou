@@ -28,9 +28,10 @@ const PICTURE_AT_US = 2_000_000;
 const FIELD_US = 1_001_000 / 60;
 const FILM_FRAME_US = 1_001_000 / 24;
 /**
- * PSNR floors in dB. Measured on macOS (Apple silicon): video 50.9 in Chrome and 41.2 in WebKit (its decoder blends the
- * two fields' chroma, which colours the bar's moving edges; docs/known-issues.md), film 46.1-47.6 in both; Off 28.8 and
- * 29.2. Firefox on macOS decodes to RGB and draws these woven. Off must be more than OFF_MARGIN_DB worse than Auto on
+ * PSNR floors in dB. Measured on macOS (Apple silicon): video 50.9 in Chrome, 41.2 in WebKit (its decoder blends the
+ * two fields' chroma, which colours the bar's moving edges; docs/known-issues.md) and 36.3 in Firefox (it decodes to
+ * RGB, its chroma blended across the fields the same way, and the player converts back to I420), film 45.3-47.6 in all
+ * three; Off 28.8 and 29.2. Off must be more than OFF_MARGIN_DB worse than Auto on
  * the same picture.
  */
 const VIDEO_PSNR_DB = 30;
@@ -136,8 +137,8 @@ async function openPlaylist(page: Page, id: string, { realtime = true }: { realt
 const NO_DEINTERLACER = /^(The browser decodes to |WebGL2 is unavailable|A software WebGL renderer )/;
 
 /**
- * Skips the running test where the player doesn't deinterlace in this browser: it decodes to RGB (Firefox on macOS gives
- * BGRX frames, and the deinterlacer reads YUV planes), has no WebGL2, or draws WebGL in software (SwiftShader, llvmpipe:
+ * Skips the running test where the player doesn't deinterlace in this browser: it decodes to a pixel format the
+ * deinterlacer can't read (it reads YUV, and converts 4-byte RGB such as Firefox's BGRX on macOS), has no WebGL2, or draws WebGL in software (SwiftShader, llvmpipe:
  * CI's machines without a GPU), which can't keep up in real time. The player then draws the frames woven and
  * telemetry says why; the playlist still plays, which interlaced-decode.spec.ts checks. A deinterlacer that stopped
  * on a fault is not skipped.
@@ -267,22 +268,6 @@ test('Off draws the woven frames at once, combed where the picture moves', async
   // a woven frame shows at a frame's time, the first field's
   const offDb = scored('00000 off', off, pictures, Math.round(off.timestampUs / FIELD_US) - refs.video2s.firstField);
   expect(offDb).toBeLessThan(autoDb - OFF_MARGIN_DB);
-});
-
-test('where the browser decodes to RGB, interlaced video plays woven and telemetry says why', async ({ page }) => {
-  await page.goto('/?telemetry=1&videopath=canvas');
-  await skipWithoutH264(page);
-  await setFolder(page.getByTestId('folder-input'), DISC);
-  await page.getByTestId('playlist-00000').click();
-  await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'playing', { timeout: 10_000 });
-  await expect.poll(async () => (await telemetry(page))?.framesPresented ?? 0, { timeout: 10_000 }).toBeGreaterThan(0);
-  const woven = (await deinterlaceOf(page))?.woven ?? '';
-  test.skip(!/^The browser decodes to /.test(woven), 'this browser does not decode to RGB (the other tests cover what it does)');
-  await expect.poll(async () => (await telemetry(page))?.clockUs ?? 0, { timeout: 15_000 }).toBeGreaterThanOrEqual(3_000_000);
-  const t = await telemetry(page);
-  expect(t?.decoderErrors).toBe(0);
-  expect(t?.framesPresented ?? 0).toBeGreaterThanOrEqual(80);
-  expect(await deinterlaceOf(page)).toMatchObject({ setting: 'auto', stats: null });
 });
 
 test("the deinterlacer's GPU passes equal their CPU references: field measurements, bwdif and the fall-back's line averaging", async ({ page }) => {
