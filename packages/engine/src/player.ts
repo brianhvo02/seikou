@@ -63,7 +63,7 @@ import { checkStreamReadable, loadClips, openDisc, peekIndex, playlistPath, read
 import { CacheFill } from './disc/cache-fill';
 import type { DiscManifest } from '@seikou/nas/nas-api';
 import type { OverlayPlane } from '@seikou/pg';
-import { ReadAheadCache, SEGMENT_BYTES } from './disc/read-ahead-cache';
+import { ReadAheadCache, SEGMENT_BYTES, type LocksLike } from './disc/read-ahead-cache';
 import { RemoteSource } from './disc/remote-source';
 import { BdVk } from './graphics/graphics-controller';
 import { PSR, RegisterFile, SETTING_PSRS, type PsrEvent } from './hdmv/registers';
@@ -206,6 +206,8 @@ export interface PlayerDeps {
   readonly epochMs?: () => number;
   /** The read-ahead cache's segment size (SEGMENT_BYTES by default; tests use smaller). */
   readonly readAheadSegmentBytes?: number;
+  /** The Web Locks that keep each tab's read-ahead folder its own (navigator.locks by default; null: none). */
+  readonly readAheadCacheLocks?: LocksLike | null;
   /**
    * Epoch milliseconds comparable between the worker and the page, stamped on the clock block the video element follows;
    * `performance.timeOrigin + performance.now()` by default.
@@ -653,6 +655,8 @@ export class Player {
   private remote: RemoteSource | null = null;
   /** The NAS disc's on-disk read-ahead cache, opening (null: it has none). */
   private cache: Promise<ReadAheadCache | null> | null = null;
+  /** Settles once the last closed disc's cache has let go of its folder and lock. */
+  private cacheClosed: Promise<void> = Promise.resolve();
   /** The read-ahead cache's fill in progress. */
   private filling: CacheFill | null = null;
   private lastFillKickMs = Number.NEGATIVE_INFINITY;
@@ -787,7 +791,7 @@ export class Player {
       try {
         await root();
         available = true;
-        await ReadAheadCache.clearExpired(root, (this.deps.epochMs ?? Date.now)());
+        await ReadAheadCache.clearExpired(root, (this.deps.epochMs ?? Date.now)(), this.deps.readAheadCacheLocks);
       } catch {
         // no OPFS here (a private window): NAS discs read only the network
       }
@@ -1847,7 +1851,9 @@ export class Player {
       this.tokens = tokens;
       if (spec.kind === 'remote' && cache) this.cache = this.openCache(source, spec.manifest);
     } else if (this.deps.readAheadCacheRoot) {
-      void ReadAheadCache.clearAll(this.deps.readAheadCacheRoot).catch(() => undefined); // another disc opened
+      const root = this.deps.readAheadCacheRoot;
+      const locks = this.deps.readAheadCacheLocks;
+      void this.cacheClosed.then(() => ReadAheadCache.clearAll(root, locks)).catch(() => undefined); // another disc opened
     }
     return source;
   }
@@ -1861,21 +1867,27 @@ export class Player {
     const root = this.deps.readAheadCacheRoot;
     if (!root) return null;
     const sizes = new Map(manifest.files.map((f) => [f.path.toUpperCase(), f.size]));
+    let cache: ReadAheadCache | null = null;
     try {
-      const cache = await ReadAheadCache.open(manifest.discId, {
+      await this.cacheClosed; // the disc before let go of its folder: the same disc opened again finds it free
+      cache = await ReadAheadCache.open(manifest.discId, {
         root,
         now: this.deps.epochMs ?? Date.now,
         fileSize: (path) => sizes.get(path.toUpperCase()),
         ...(this.deps.readAheadSegmentBytes ? { segmentBytes: this.deps.readAheadSegmentBytes } : {}),
+        ...(this.deps.readAheadCacheLocks !== undefined ? { locks: this.deps.readAheadCacheLocks } : {}),
       });
       await cache.clearOthers();
       if (this.remote !== source) {
-        cache.close(); // the disc closed meanwhile
+        // the disc closed meanwhile: the next open waits for this folder too
+        const closing = cache.close();
+        this.cacheClosed = Promise.all([this.cacheClosed, closing]).then(() => undefined);
         return null;
       }
       source.setCache(cache);
       return cache;
     } catch {
+      void cache?.close();
       return null;
     }
   }
@@ -1985,7 +1997,8 @@ export class Player {
     this.nasWaiting = false;
     this.remote?.close();
     this.remote = null;
-    void this.cache?.then((cache) => cache?.close());
+    const closing = this.cache;
+    if (closing) this.cacheClosed = closing.then((cache) => cache?.close()).catch(() => undefined);
     this.cache = null;
     this.tokens = null;
     this.discSpec = { kind: 'files', entries: [] };
@@ -2043,7 +2056,7 @@ export class Player {
         this.deps.emit({ type: 'noticeCleared', code: 'nas-waiting' });
       }
       oldRemote.close();
-      (await oldCache)?.close();
+      await (await oldCache)?.close();
       const original = next.original ?? open.original;
       const source = this.createSource({ ...next, ...(original ? { original } : {}) });
       const disc = await openDisc(source);

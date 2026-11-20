@@ -442,6 +442,31 @@ test('buffers first on a slow connection: the pre-flight asks, and Wait fills th
   expect(cached.some((name) => name.startsWith('BDMV_2fSTREAM_2f00001_2eM2TS.') && name.endsWith('.bin'))).toBe(true);
   await page.getByTestId('playlist-00000').click();
   await expect(playerState(page)).toHaveAttribute('data-state', 'playing', { timeout: 15_000 });
+
+  // A second tab buffers the same disc while the first plays: it takes a cache folder of its own (the first's is
+  // locked), so neither tab's writes fail and the first tab's folder stays.
+  const second = await page.context().newPage();
+  await allowLocalNetwork(second, browserName);
+  await second.route('**/discs/*/probe?*', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+    await route.fulfill({ status: 200, contentType: 'application/octet-stream', headers: { 'Access-Control-Allow-Origin': new URL(page.url()).origin }, body: Buffer.alloc(125_000) });
+  });
+  await second.goto('/?telemetry=1&bufferask=1');
+  await second.getByTestId('nas-open').click();
+  await second.getByTestId('browse-folders').click();
+  await discRow(second, 'disc1').click();
+  await second.getByTestId('nas-wait').click();
+  await expect(second.getByTestId('playlist-00000')).toBeVisible({ timeout: 15_000 });
+  const folders = await second.evaluate(async () => {
+    const top = await (await navigator.storage.getDirectory()).getDirectoryHandle('read-ahead');
+    const names: string[] = [];
+    for await (const name of (top as unknown as { keys(): AsyncIterable<string> }).keys()) names.push(name);
+    return names.sort();
+  });
+  expect(folders).toHaveLength(2);
+  expect(folders[1]).toBe(`${folders[0]}.1`);
+  await expect(playerState(page)).toHaveAttribute('data-state', 'playing');
+  await second.close();
 });
 
 /** Plays what a pre-flight opened: a disc that opens to its playlist picker gets its first playlist picked. */

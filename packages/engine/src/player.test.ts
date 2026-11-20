@@ -192,7 +192,8 @@ async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?:
     ...(opts.log ? { log: opts.log } : {}),
     ...(remote ? { fetch: remote.fetch } : {}),
     ...(opts.remoteLimits ? { remoteLimits: opts.remoteLimits } : {}),
-    ...(opts.cacheRoot ? { readAheadCacheRoot: async () => opts.cacheRoot!.asHandle() } : {}),
+    // a fresh root per test: no locks shared with the tests before
+    ...(opts.cacheRoot ? { readAheadCacheRoot: async () => opts.cacheRoot!.asHandle(), readAheadCacheLocks: null } : {}),
     ...(opts.segmentBytes ? { readAheadSegmentBytes: opts.segmentBytes } : {}),
     ...(opts.videoCapture ? { videoCapture: true } : {}),
     // a GPU renderer unless a test says otherwise
