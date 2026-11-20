@@ -240,12 +240,16 @@ what would change that decision.
 - **A playlist that starts progressive draws a later interlaced play item woven.** Whether a playlist goes through
   the deinterlacer is decided at its start, from its first clip; this holds for H.264 and for MPEG-2 and VC-1 alike.
   *Revisit if* a disc mixes them.
-- **A software WebGL renderer isn't used for deinterlacing.** Where WebGL draws in software (SwiftShader in Chrome
-  without a GPU, Mesa's llvmpipe, Microsoft's Basic Render Driver; read from the `WEBGL_debug_renderer_info` renderer
-  name once, at the first interlaced playlist), interlaced frames are drawn woven, as without WebGL2, and telemetry's
-  `deinterlace.woven` names the renderer. Measured with SwiftShader on a Mac, 1080i deinterlacing ran about 400 ms
-  behind the audio even after the fall-back to field interpolation. So virtual machines and machines without a GPU
-  show combing. *Revisit if* a cheaper deinterlacer (CPU line doubling, or fewer GPU passes) is worth having there.
+- **On a software WebGL renderer, deinterlacing is plain line doubling on the CPU.** Where WebGL draws in software
+  (SwiftShader in Chrome without a GPU, Mesa's llvmpipe, Microsoft's Basic Render Driver; read from the
+  `WEBGL_debug_renderer_info` renderer name once, at the first interlaced playlist) the GPU deinterlacer ran about
+  400 ms behind the audio (measured with SwiftShader on a Mac, even after its fall-back). There each field is made a
+  whole picture on the CPU instead (`FieldBob`, `deinterlace/cpu-bob.ts`: the field's lines kept, the others the
+  average of their neighbours) and shown at field rate, and telemetry's `deinterlace.cpu` names the renderer. It has
+  no film detection, so telecined film plays at field rate with its 3:2 judder, and no motion-adaptive weaving, so
+  still detail flickers a little where bwdif would keep it sharp. Measured in Chrome forced onto SwiftShader on a Mac:
+  57 pictures a second for 1080i at 29.97, in sync with the sound (`deinterlace.spec.ts`). *Revisit if* film on such
+  machines matters: the CPU cadence detector (`metrics-cpu.ts`) could pick the film frames.
 - **Firefox on macOS deinterlaces H.264 with softer colour at moving edges.** Its WebCodecs decoder gives H.264 frames
   as BGRX (RGB), not YUV planes. `framePlanes` converts them back to I420 on the CPU (`rgbToI420`, about 5 ms a 1080
   frame), taking each chroma row from one field, but Firefox has already blended the two fields' chroma in its RGB, as

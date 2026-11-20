@@ -47,6 +47,12 @@ export interface DeinterlaceTelemetry {
   readonly setting: DeinterlaceMode;
   readonly stats: DeinterlaceStats | null;
   readonly woven: string | null;
+  /**
+   * The software WebGL renderer (SwiftShader, llvmpipe) of a device too slow for the GPU deinterlacer, whose interlaced
+   * video is made whole field by field on the CPU instead (line interpolation, at field rate, no film detection); null
+   * when it isn't.
+   */
+  readonly cpu: string | null;
 }
 
 /**

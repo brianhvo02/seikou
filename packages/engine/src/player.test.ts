@@ -34,7 +34,7 @@ import type { FrameMetrics, PictureOp } from './deinterlace/cadence';
 import { Deinterlacer, type DeinterlaceBackend, type Picture } from './deinterlace/deinterlacer';
 import { PgStreamControl } from './nav/subtitles';
 import { PresentationClock } from './render/presentation-clock';
-import { InterlacedVideo, WOVEN_NO_WEBGL2, WOVEN_OFF, wovenFrameFormat, wovenSoftwareRenderer } from './deinterlace/interlaced-video';
+import { InterlacedVideo, WOVEN_NO_WEBGL2, WOVEN_OFF, wovenFrameFormat } from './deinterlace/interlaced-video';
 import { SIM_COMB_CLEAN, SIM_COMB_HIGH, SIM_DIFF_HIGH, completeFilmFrames, telecine } from './deinterlace/metric-sequences';
 import { CadenceDetector } from './deinterlace/cadence';
 import { VideoPresenter, type PresentableFrame } from './render/video-presenter';
@@ -149,7 +149,7 @@ function fakeAudioFactory(log: FakeAudioLog = { decoded: [], resets: 0, failNext
   };
 }
 
-async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?: number; videoCodingType?: number; throwOnDraw?: boolean; audioMuxLag90k?: number; frameBytes?: number; playlists?: SyntheticPlaylistSpec[]; audioStreams?: SyntheticAudioStream[]; secondClipAudioStreams?: SyntheticAudioStream[]; createAudioDecoder?: AudioDecoderFactory; movieObjects?: Uint8Array<ArrayBuffer>; dropFiles?: string[]; extraFiles?: Record<string, Uint8Array<ArrayBuffer>>; igUnits?: Array<{ pts: number; payload: Uint8Array }>; subPathIg?: SyntheticSubPathIg; pgStreams?: SyntheticPgStream[]; createAssDeps?: NonNullable<PlayerDeps['createAssDeps']>; createShaderBackend?: PlayerDeps['createShaderBackend']; index?: SyntheticDiscSpec['index']; playerSettings?: PlayerDeps['playerSettings']; remote?: FakeNas | ((files: Map<string, Uint8Array<ArrayBuffer>>) => FakeNas); remoteLimits?: PlayerDeps['remoteLimits']; clipSeconds?: number; noOpen?: boolean; cacheRoot?: MemoryDirectory; segmentBytes?: number; mutateFiles?: (files: Map<string, Uint8Array<ArrayBuffer>>) => void; videoCodecApi?: VideoCodecApi; log?: PlayerDeps['log']; videoFormat?: number; clipExtra?: Partial<Pick<SyntheticClipSpec, 'frameTicks' | 'videoRate'>>; createDeinterlaceBackend?: PlayerDeps['createDeinterlaceBackend']; videoCapture?: boolean; webglSoftwareRenderer?: PlayerDeps['webglSoftwareRenderer']; videoWasm?: (nowMs: () => number) => NonNullable<PlayerDeps['videoWasm']>; setTimer?: PlayerDeps['setTimer']; recordText?: boolean } = {},
+async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?: number; videoCodingType?: number; throwOnDraw?: boolean; audioMuxLag90k?: number; frameBytes?: number; playlists?: SyntheticPlaylistSpec[]; audioStreams?: SyntheticAudioStream[]; secondClipAudioStreams?: SyntheticAudioStream[]; createAudioDecoder?: AudioDecoderFactory; movieObjects?: Uint8Array<ArrayBuffer>; dropFiles?: string[]; extraFiles?: Record<string, Uint8Array<ArrayBuffer>>; igUnits?: Array<{ pts: number; payload: Uint8Array }>; subPathIg?: SyntheticSubPathIg; pgStreams?: SyntheticPgStream[]; createAssDeps?: NonNullable<PlayerDeps['createAssDeps']>; createShaderBackend?: PlayerDeps['createShaderBackend']; index?: SyntheticDiscSpec['index']; playerSettings?: PlayerDeps['playerSettings']; remote?: FakeNas | ((files: Map<string, Uint8Array<ArrayBuffer>>) => FakeNas); remoteLimits?: PlayerDeps['remoteLimits']; clipSeconds?: number; noOpen?: boolean; cacheRoot?: MemoryDirectory; segmentBytes?: number; mutateFiles?: (files: Map<string, Uint8Array<ArrayBuffer>>) => void; videoCodecApi?: VideoCodecApi; log?: PlayerDeps['log']; videoFormat?: number; clipExtra?: Partial<Pick<SyntheticClipSpec, 'frameTicks' | 'videoRate'>>; createDeinterlaceBackend?: PlayerDeps['createDeinterlaceBackend']; videoCapture?: boolean; webglSoftwareRenderer?: PlayerDeps['webglSoftwareRenderer']; makeVideoFrame?: PlayerDeps['makeVideoFrame']; videoWasm?: (nowMs: () => number) => NonNullable<PlayerDeps['videoWasm']>; setTimer?: PlayerDeps['setTimer']; recordText?: boolean } = {},
   memory?: 'constrained',
 ): Promise<Harness> {
   decoders.length = 0;
@@ -198,6 +198,7 @@ async function harness(audio: number | undefined, opts: { corruptAudioPesIndex?:
     ...(opts.videoCapture ? { videoCapture: true } : {}),
     // a GPU renderer unless a test says otherwise
     webglSoftwareRenderer: opts.webglSoftwareRenderer ?? (() => null),
+    ...(opts.makeVideoFrame ? { makeVideoFrame: opts.makeVideoFrame } : {}),
     ...(opts.videoWasm ? { videoWasm: opts.videoWasm(() => clock.ms) } : {}),
     ...(opts.setTimer ? { setTimer: opts.setTimer } : {}),
     createCompositor: () => ({
@@ -3909,7 +3910,7 @@ describe('Player with interlaced video (deinterlacing)', () => {
     await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
     await untilPlaying(h);
     await h.play(1100);
-    expect(lastTelemetry(h)?.deinterlace).toEqual({ setting: 'off', stats: null, woven: WOVEN_OFF });
+    expect(lastTelemetry(h)?.deinterlace).toEqual({ setting: 'off', stats: null, woven: WOVEN_OFF, cpu: null });
     await h.player.handle({ type: 'setDeinterlace', mode: 'auto' });
     await untilPlaying(h);
     await h.play(1100);
@@ -4158,27 +4159,44 @@ describe('Player with interlaced video (deinterlacing)', () => {
     expect(h.events.filter((e) => e.type === 'error')).toEqual([]);
   });
 
-  it('a software WebGL renderer: woven frames, the deinterlacer never made, and telemetry says why', async () => {
+  it('a software WebGL renderer: no GPU deinterlacer; the fields are made whole on the CPU, at field rate', async () => {
     const fake = fakeDeinterlace();
     let asked = 0;
+    const made: Array<{ timestamp: number; duration: number; format: string; closed: boolean }> = [];
+    const renderer = 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device), SwiftShader driver)';
     const h = await harness(CodingType.LPCM, {
       videoFormat: 4,
       videoCodecApi: interlacedApi,
       createDeinterlaceBackend: fake.factory,
-      webglSoftwareRenderer: () => (asked++, 'ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device), SwiftShader driver)'),
+      webglSoftwareRenderer: () => (asked++, renderer),
+      makeVideoFrame: (_data, init) => {
+        const f = { timestamp: init.timestamp, duration: init.duration ?? 0, format: init.format, closed: false, displayWidth: init.displayWidth, displayHeight: init.displayHeight, codedWidth: init.codedWidth, codedHeight: init.codedHeight, close: () => void (f.closed = true) };
+        made.push(f);
+        return f as unknown as VideoFrame;
+      },
     });
     await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
     await untilPlaying(h);
     await h.play(500);
     expect(fake.made).toEqual([]);
     expect(h.drawnPictures).toEqual([]);
-    expect(h.drawn.length).toBeGreaterThan(10);
-    expect(h.player.deinterlaceState).toMatchObject({ woven: wovenSoftwareRenderer('ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device), SwiftShader driver)'), stats: null });
+    expect(h.player.deinterlaceState).toMatchObject({ woven: null, stats: null, cpu: renderer });
+    expect(lastTelemetry(h)?.deinterlace).toMatchObject({ woven: null, cpu: renderer });
+    // two pictures a frame (the clip is 23.976, so a field is 20.85 ms), a field apart, and those drawn are at field times
+    const field = 1_001_000 / 48;
+    expect(made.length).toBeGreaterThan(10);
+    expect(Math.abs(made[0]!.duration - field)).toBeLessThan(2);
+    expect(Math.abs(made[1]!.timestamp - made[0]!.timestamp - field)).toBeLessThan(2);
+    expect(Math.abs(made[1]!.timestamp - made[0]!.timestamp - field)).toBeLessThan(2);
+    expect(new Set(made.map((f) => f.format))).toEqual(new Set(['I420']));
+    const steps = h.drawn.slice(1).map((t, i) => t - h.drawn[i]!).filter((d) => d > 0);
+    expect(steps.some((d) => Math.abs(d - field) < 50)).toBe(true);
     // decided once: a seek starts no new check
     await h.player.handle({ type: 'seek', timeUs: 1_000_000 });
     await untilPlaying(h);
     await h.play(300);
     expect(asked).toBe(1);
+    expect(h.events.filter((e) => e.type === 'error')).toEqual([]);
   });
 
   it('no WebGL2: woven frames and telemetry says why', async () => {

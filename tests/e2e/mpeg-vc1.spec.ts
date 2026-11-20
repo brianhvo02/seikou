@@ -22,6 +22,7 @@ interface Sample extends TelemetrySample {
     setting: 'auto' | 'off';
     stats: { mode: 'progressive' | 'film' | 'video'; fieldOrder: 'tff' | 'bff'; fallback: boolean } | null;
     woven: string | null;
+    cpu: string | null;
   } | null;
 }
 
@@ -31,7 +32,7 @@ const NO_FIREFOX_AUDIO = 'Firefox on Linux (CI) has no running audio output; the
 const sample = async (page: Page): Promise<Sample | null> => (await telemetry(page)) as Sample | null;
 
 /** Why the player draws WASM pictures woven though deinterlacing is on, where that is the machine's doing (no GPU), not a fault. */
-const NO_DEINTERLACER = /^(WebGL2 is unavailable|A software WebGL renderer )/;
+const NO_DEINTERLACER = /^WebGL2 is unavailable/;
 
 /** Opens `disc`'s playlist `id` on the canvas path and waits for its first presented picture. */
 async function open(page: Page, disc: string, id: string, query = ''): Promise<Sample> {
@@ -65,10 +66,15 @@ async function deinterlacerDecision(page: Page): Promise<NonNullable<Sample['dei
   return d!;
 }
 
-/** Skips where the machine can't deinterlace at all (no WebGL2, or WebGL drawn in software); telemetry says why. */
+/**
+ * Skips where the machine has no GPU deinterlacer: no WebGL2 (woven, telemetry says why), or WebGL drawn in software,
+ * where the fields are made whole on the CPU (telemetry's `cpu` names the renderer) with no cadence detection.
+ */
 async function skipWithoutDeinterlacer(page: Page): Promise<void> {
-  const woven = (await deinterlacerDecision(page)).woven ?? '';
+  const d = await deinterlacerDecision(page);
+  const woven = d.woven ?? '';
   test.skip(NO_DEINTERLACER.test(woven), woven);
+  test.skip(d.cpu !== null, `a software WebGL renderer (${d.cpu}): fields made whole on the CPU`);
 }
 
 /** The A/V sync checks are left out in Firefox on Linux (CI): it has no running audio output there, so no audio clock to sync to. */

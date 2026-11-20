@@ -89,7 +89,8 @@ import { PresentationClock } from './render/presentation-clock';
 import { elementStream } from './element/remux';
 import { elementQuery, frameRateOf } from './element/element-query';
 import { createGlDeinterlaceBackend, webglSoftwareRenderer } from './deinterlace/gl-backend';
-import { InterlacedVideo, WOVEN_NO_WEBGL2, WOVEN_OFF, wovenFrameFormat, wovenSoftwareRenderer, type DeinterlaceBackendFactory, type DeinterlaceSetting } from './deinterlace/interlaced-video';
+import { FieldBob, type MakeVideoFrame } from './deinterlace/cpu-bob';
+import { InterlacedVideo, WOVEN_NO_WEBGL2, WOVEN_OFF, wovenFrameFormat, type DeinterlaceBackendFactory, type DeinterlaceSetting } from './deinterlace/interlaced-video';
 import type { DeinterlaceStats, Picture } from './deinterlace/deinterlacer';
 import { isInterlacedFormat, type FieldInput } from './deinterlace/field-input';
 import type { Clpi } from '@seikou/bdmv/clpi-parser';
@@ -159,10 +160,12 @@ export interface PlayerDeps {
   readonly createDeinterlaceBackend?: DeinterlaceBackendFactory;
   /**
    * The WebGL renderer's name when it draws in software (SwiftShader, llvmpipe and the like), else null; asked once,
-   * at the first interlaced session. On a software renderer interlaced frames are drawn woven (webglSoftwareRenderer in
-   * gl-backend.ts by default).
+   * at the first interlaced session. On a software renderer interlaced frames are made whole on the CPU (FieldBob)
+   * instead of by the GPU deinterlacer (webglSoftwareRenderer in gl-backend.ts by default).
    */
   readonly webglSoftwareRenderer?: () => string | null;
+  /** Makes a video frame from planes (`new VideoFrame(data, init)` by default): the CPU deinterlacer's pictures. */
+  readonly makeVideoFrame?: MakeVideoFrame;
   /**
    * BD-J (bdj-provider.ts): its worker, class library, host and session. Without it, BD-J discs and titles open to the
    * picker with a notice naming the missing BD-J runtime, as when the provider says the browser lacks something.
@@ -520,6 +523,8 @@ interface Session {
   readonly interlaced: boolean;
   /** Its frames go through the deinterlacer; null for progressive video, and for interlaced video drawn woven. */
   deinterlace: SessionDeinterlace | null;
+  /** Its fields are made whole on the CPU instead (WebGL draws in software); null otherwise. */
+  bob: FieldBob | null;
   /** The M2TS reader, or an encoded episode's Matroska reader. */
   readonly pipeline: SessionPipeline;
   /** The video track's CodecPrivate (an encode's av1C record), which its decoder is configured from; null for a disc. */
@@ -1231,14 +1236,19 @@ export class Player {
   /** Telemetry's deinterlacing field: null unless the playing session is interlaced. */
   private deinterlaceTelemetry(s: Session | null): DeinterlaceTelemetry | null {
     if (!s?.interlaced) return null;
-    const { setting, woven, stats } = this.deinterlaceState;
-    return { setting, woven, stats };
+    const { setting, woven, stats, cpu } = this.deinterlaceState;
+    return { setting, woven, stats, cpu };
   }
 
-  /** The deinterlacing state: the setting, why the playing interlaced video is drawn woven (null when it isn't), and the deinterlacer's stats while it runs. */
-  get deinterlaceState(): { readonly setting: DeinterlaceSetting; readonly woven: string | null; readonly stats: DeinterlaceStats | null } {
-    const d = this.session?.deinterlace;
-    return { setting: this.deinterlaceSetting, woven: this.deinterlaceWoven, stats: d ? d.video.stats : null };
+  /**
+   * The deinterlacing state: the setting, why the playing interlaced video is drawn woven (null when it isn't), the
+   * deinterlacer's stats while it runs, and the software WebGL renderer whose device makes fields whole on the CPU
+   * instead (null otherwise).
+   */
+  get deinterlaceState(): { readonly setting: DeinterlaceSetting; readonly woven: string | null; readonly stats: DeinterlaceStats | null; readonly cpu: string | null } {
+    const s = this.session;
+    const d = s?.deinterlace;
+    return { setting: this.deinterlaceSetting, woven: this.deinterlaceWoven, stats: d ? d.video.stats : null, cpu: s?.bob ? (this.softwareRenderer ?? null) : null };
   }
 
   /**
@@ -1250,12 +1260,10 @@ export class Player {
       this.deinterlaceWoven = WOVEN_OFF;
       return null;
     }
-    // a software renderer can't keep up (about 400 ms behind the audio, measured): woven frames, as without WebGL2
+    // a software renderer can't keep up with the GPU deinterlacer (about 400 ms behind the audio, measured): the
+    // session makes its fields whole on the CPU instead (FieldBob; deinterlaceWoven stays null)
     if (this.softwareRenderer === undefined) this.softwareRenderer = (this.deps.webglSoftwareRenderer ?? webglSoftwareRenderer)();
-    if (this.softwareRenderer !== null) {
-      this.deinterlaceWoven = wovenSoftwareRenderer(this.softwareRenderer);
-      return null;
-    }
+    if (this.softwareRenderer !== null) return null;
     let video = this.interlacedVideo;
     if (video && video.ringSize !== this.memory.deinterlaceRing) {
       video.dispose(); // the memory profile changed
@@ -1319,18 +1327,33 @@ export class Player {
     if (!d.video.push(input)) this.deinterlaceFailed(s);
   }
 
+  /** A decoded interlaced frame of a session that makes its fields whole on the CPU: its pictures go to the presenter. */
+  private onBobInput(s: Session, bob: FieldBob, input: FieldInput): void {
+    if (this.session !== s) return;
+    this.codedWidth = input.planes.width;
+    let pictures: VideoFrame[];
+    try {
+      pictures = bob.pictures(input);
+    } catch (err) {
+      this.deinterlaceFailed(s, `The CPU deinterlacer stopped: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
+    for (const p of pictures) this.presenter.push(p);
+  }
+
   /**
-   * The deinterlacer can't go on (its GPU failed, none could be made for the stream's size, or the browser decodes to
-   * RGB, which has no planes to read): the session's frames are drawn woven from now on, reread from the current time,
-   * and `deinterlaceWoven` says why.
+   * The deinterlacer can't go on (its GPU failed, none could be made for the stream's size, the CPU one failed, or the
+   * browser decodes to a pixel format it can't read): the session's frames are drawn woven from now on, reread from the
+   * current time, and `deinterlaceWoven` says why.
    */
   private deinterlaceFailed(s: Session, reason?: string): void {
     const d = s.deinterlace;
-    if (!d) return;
-    this.deinterlaceWoven = reason ?? `The deinterlacer stopped: ${d.video.error?.message ?? 'unknown error'}`;
+    if (!d && !s.bob) return;
+    this.deinterlaceWoven = reason ?? `The deinterlacer stopped: ${d?.video.error?.message ?? 'unknown error'}`;
     this.deps.log?.(`Deinterlacing off for this playlist: ${this.deinterlaceWoven}`);
     s.deinterlace = null;
-    d.video.reset();
+    s.bob = null;
+    d?.video.reset();
     if (s.decoder) s.decoder.onFieldInput = null;
     this.enqueue(async () => {
       if (this.session === s && this.state !== 'error') await this.startAt(this.clock.nowUs(), this.wantPlaying, 'keep');
@@ -1668,6 +1691,7 @@ export class Player {
       videoFormat: 0,
       interlaced: false,
       deinterlace: null,
+      bob: null,
     };
     ref.current = session;
     this.deinterlaceWoven = null;
@@ -3186,10 +3210,15 @@ export class Player {
       videoFormat: choice.video.format,
       interlaced: decoder !== null && isInterlacedFormat(choice.video.format),
       deinterlace: null,
+      bob: null,
     };
     ref.current = session;
     this.deinterlaceWoven = null;
     if (session.interlaced) session.deinterlace = this.startDeinterlace(session);
+    if (session.interlaced && !session.deinterlace && this.deinterlaceWoven === null) {
+      // WebGL draws in software: the fields are made whole on the CPU, at field rate
+      session.bob = new FieldBob(1e6 / (frameRateOf(session.videoRate) ?? 30_000 / 1001) / 2, this.deps.makeVideoFrame);
+    }
     if (decoder) this.wireDecoder(session, decoder);
     this.session = session;
     this.audioDecodeErrors = 0;
@@ -3522,12 +3551,14 @@ export class Player {
         this.presenter.push(frame);
       } else frame.close();
     };
-    decoder.onFieldInput = session.deinterlace
-      ? (input) => {
-          this.followDecodeSpeed(session, input.timestampUs);
-          this.onFieldInput(session, input);
-        }
-      : null;
+    decoder.onFieldInput =
+      session.deinterlace || session.bob
+        ? (input) => {
+            this.followDecodeSpeed(session, input.timestampUs);
+            if (session.bob) this.onBobInput(session, session.bob, input);
+            else this.onFieldInput(session, input);
+          }
+        : null;
     decoder.onFieldsUnreadable = (format) => {
       if (this.session === session) this.deinterlaceFailed(session, wovenFrameFormat(format));
     };
