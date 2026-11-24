@@ -377,6 +377,16 @@ function documentVisibility(): VisibilityLike {
 }
 
 /**
+ * The part of a `MediaQueryList` the controller reads.
+ * @internal
+ */
+export interface MediaQueryLike {
+  readonly matches: boolean;
+  addEventListener(type: 'change', listener: () => void): void;
+  removeEventListener(type: 'change', listener: () => void): void;
+}
+
+/**
  * The main-thread side of the player: it posts `EngineCommand`s to the engine worker and folds the worker's
  * `EngineEvent`s into a `PlayerSnapshot`. It is an external store (`subscribe` and `getSnapshot`) for
  * `useSyncExternalStore`. Call it only from the main thread; the engine runs the playback in the worker and the
@@ -390,6 +400,8 @@ export class PlayerController {
   private readonly listeners = new Set<() => void>();
   private audioAttached = false;
   private readonly transferredCanvases = new WeakSet<HTMLCanvasElement>();
+  /** Stops following `(dynamic-range: high)` for the attached HDR overlay canvas. */
+  private displayHdrOff: (() => void) | null = null;
   private videoOutput: { readonly element: HTMLVideoElement; readonly output: ElementVideoOutput } | null = null;
   /** The capability check's answers by elementQueryKey, kept for the page's life across the elements attached. */
   private readonly elementAnswers = new Map<string, Promise<ElementAnswer>>();
@@ -422,7 +434,13 @@ export class PlayerController {
   constructor(
     private readonly worker: WorkerLike,
     private readonly audio: AudioOutputLike,
-    private readonly options: { readonly nowMs?: () => number; readonly visibility?: VisibilityLike; readonly failElementAppends?: boolean } = {},
+    private readonly options: {
+      readonly nowMs?: () => number;
+      readonly visibility?: VisibilityLike;
+      readonly failElementAppends?: boolean;
+      /** The page's media queries (`window.matchMedia` by default); attachHdrCanvas follows `(dynamic-range: high)`. */
+      readonly matchMedia?: (query: string) => MediaQueryLike;
+    } = {},
   ) {
     this.visibility = options.visibility ?? documentVisibility();
     audio.onStateChange((state) => this.onAudioState(state));
@@ -530,6 +548,32 @@ export class PlayerController {
     this.transferredCanvases.add(canvas);
     const offscreen = canvas.transferControlToOffscreen();
     this.post({ type: 'attachCanvas', canvas: offscreen }, [offscreen]);
+  }
+
+  /**
+   * Hands the page's HDR overlay canvas to the engine as an `OffscreenCanvas`: a second canvas stacked over the video
+   * canvas, transparent and taking no pointer events. Over an HDR stream on the element path, on a display that reports
+   * HDR, the engine presents subtitles and menus on it through WebGPU in extended range, their white at graphics white
+   * (`gain` times SDR white in linear light, 2.03 by default); where it can't, they stay on the video canvas as SDR. The
+   * controller follows `(dynamic-range: high)` and its changes, unless `displayHdr` says what to report (for tests). A
+   * canvas is transferred once, as with attachCanvas.
+   * @example ../../examples/player-controller.browser.ts#attachHdrCanvas
+   */
+  attachHdrCanvas(canvas: HTMLCanvasElement, opts: { readonly gain?: number; readonly displayHdr?: boolean } = {}): void {
+    if (this.transferredCanvases.has(canvas)) return;
+    this.transferredCanvases.add(canvas);
+    const offscreen = canvas.transferControlToOffscreen();
+    this.displayHdrOff?.();
+    this.displayHdrOff = null;
+    const match = this.options.matchMedia ?? (typeof matchMedia === 'function' ? (q: string) => matchMedia(q) : null);
+    const query = opts.displayHdr === undefined && match ? match('(dynamic-range: high)') : null;
+    const displayHdr = opts.displayHdr ?? query?.matches ?? false;
+    this.post({ type: 'attachHdrCanvas', canvas: offscreen, displayHdr, ...(opts.gain !== undefined ? { gain: opts.gain } : {}) }, [offscreen]);
+    if (query) {
+      const changed = (): void => this.post({ type: 'setDisplayHdr', displayHdr: query.matches });
+      query.addEventListener('change', changed);
+      this.displayHdrOff = () => query.removeEventListener('change', changed);
+    }
   }
 
   /**
@@ -706,6 +750,8 @@ export class PlayerController {
   dispose(): void {
     this.disposed = true;
     this.speedProbe?.resolve(null);
+    this.displayHdrOff?.();
+    this.displayHdrOff = null;
   }
 
   private placeState(e: Extract<EngineEvent, { type: 'placeState' }>): void {

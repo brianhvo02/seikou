@@ -1338,3 +1338,49 @@ describe('element video output', () => {
     }
   });
 });
+
+describe('PlayerController.attachHdrCanvas', () => {
+  function query(matches: boolean) {
+    const listeners = new Set<() => void>();
+    return {
+      matches,
+      addEventListener: (_t: 'change', l: () => void) => listeners.add(l),
+      removeEventListener: (_t: 'change', l: () => void) => listeners.delete(l),
+      change(next: boolean) {
+        this.matches = next;
+        for (const l of listeners) l();
+      },
+      listeners,
+    };
+  }
+  const canvas = () => {
+    const offscreen = { kind: 'offscreen' };
+    return { offscreen, el: { transferControlToOffscreen: vi.fn(() => offscreen) } as unknown as HTMLCanvasElement };
+  };
+
+  it('transfers the canvas once with what (dynamic-range: high) says, and follows its changes', () => {
+    const worker = new FakeWorker();
+    const q = query(true);
+    const asked: string[] = [];
+    const controller = new PlayerController(worker, new FakeAudio(), { matchMedia: (s) => (asked.push(s), q) });
+    const { el, offscreen } = canvas();
+    controller.attachHdrCanvas(el, { gain: 2.5 });
+    controller.attachHdrCanvas(el); // StrictMode's second run
+    expect(asked).toEqual(['(dynamic-range: high)']);
+    expect(worker.posted).toEqual([{ type: 'attachHdrCanvas', canvas: offscreen, displayHdr: true, gain: 2.5 }]);
+    expect(worker.transfers[0]).toEqual([offscreen]);
+    q.change(false);
+    expect(worker.posted.at(-1)).toEqual({ type: 'setDisplayHdr', displayHdr: false });
+    controller.dispose();
+    expect(q.listeners.size).toBe(0);
+  });
+
+  it('reports what the page says instead of the media query when told (tests)', () => {
+    const worker = new FakeWorker();
+    const matchMedia = vi.fn(() => query(false));
+    const controller = new PlayerController(worker, new FakeAudio(), { matchMedia });
+    controller.attachHdrCanvas(canvas().el, { displayHdr: true });
+    expect(matchMedia).not.toHaveBeenCalled();
+    expect(worker.posted).toEqual([{ type: 'attachHdrCanvas', canvas: expect.anything(), displayHdr: true }]);
+  });
+});

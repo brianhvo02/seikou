@@ -424,6 +424,8 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .player:has(> .player-video:not([hidden])) { isolation: isolate; }
 .player-video { position: absolute; inset: 0; z-index: -1; width: 100%; height: 100%; object-fit: contain; background: #000; pointer-events: none; }
 .player-video[hidden] { display: none; }
+/* the HDR overlay canvas: over the video canvas, showing only what the engine presents there over HDR video; never takes input */
+.player-hdr-canvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .player-canvas { width: 100%; height: 100%; display: block; touch-action: manipulation; } /* no double-tap zoom competing with double-tap seek */
 /* a long press over a menu shows the controls (ruling R15): no iOS callout or text selection competing with it */
 .player-canvas { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
