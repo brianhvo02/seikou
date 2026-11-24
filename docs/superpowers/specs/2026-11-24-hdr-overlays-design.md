@@ -129,10 +129,11 @@ to the canvas path, the presenter taken away) clears the HDR canvas and draws on
 
 ### Page
 
-`PlayerController.attachHdrCanvas(canvas, { gain? })` transfers the canvas once (as `attachCanvas` does), reads
-`matchMedia('(dynamic-range: high)')` and sends its changes. `PlayerScreen` renders `<canvas data-testid=
-"hdr-overlay-canvas">` over the video canvas, never taking pointer events, and passes `?hdrgain=` (owner tuning). The
-test-only `?displayhdr=1` makes the controller report an HDR display, so the route can be tested in a headless browser.
+`PlayerController.attachHdrCanvas(canvas, { gain?, displayHdr? })` transfers the canvas once (as `attachCanvas`
+does), reads `matchMedia('(dynamic-range: high)')` and sends its changes (`displayHdr` overrides it, for tests and
+embedders). `PlayerScreen` renders `<canvas data-testid="hdr-overlay-canvas">` over the video canvas, never taking
+pointer events, and passes `?hdrgain=` (owner tuning). The E2E tests replace the page's `(dynamic-range: high)` query,
+as the HDR badge's tests already do, so no test flag is needed.
 *(My call: the controller, not the app, watches `(dynamic-range: high)`, as it already asks the page's media
 capabilities for the element path: an embedder gets the right behaviour from one call.)*
 
@@ -151,9 +152,11 @@ capabilities for the element path: an embedder gets the right behaviour from one
   a presenter; `present` copies, sets the gain and draws; a lost device calls back); the compositor's mode switch with
   fake canvases (draws go to the layer, the visible canvas is cleared, `present` hands over the layer, leaving clears);
   the player's lazy creation, display changes and fallback with a fake presenter; the controller's matchMedia wiring.
-- Browser (Playwright, Chromium with real WebGPU, `?displayhdr=1`): disc-hdr on the element path shows its PG subtitle
-  through the HDR canvas (telemetry `hdrOverlay.active`, presenter `webgpu`, gain 2.03; the visible canvas transparent
-  where the subtitle is); without `?displayhdr=1` nothing changes (presenter `none`).
+- Browser (`tests/e2e/element-path.spec.ts`, with `(dynamic-range: high)` replaced): disc-hdr on the element path
+  shows its PG subtitle through the HDR canvas (telemetry `hdrOverlay` presenter `webgpu`, `active`, gain 2.03, still
+  so after the subtitle has been presented; `unavailable` where the browser has no adapter); on a display without HDR
+  nothing changes (presenter `none`) and `?hdrgain=3` is reported. The shader's output was checked in real WebGPU
+  (headless Chrome and WebKit) against `scalePremultiplied`.
 - Device (iPhone 17 Pro, Safari 27.2): the probe above. Brightness can only be judged by eye; screenshots don't keep
   HDR. What to look at is in the night report.
 

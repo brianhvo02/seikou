@@ -2,7 +2,7 @@
 
 What comes next for Seikou, in rough order. It is drawn from [known-issues.md](known-issues.md) (the source of truth for each limitation, with the reasoning behind it), the specs and plans in `docs/superpowers/`, and the status notes from each milestone. Sizes are rough: **S** is a day or less, **M** a few days, **L** a milestone of its own. Items marked *needs a disc*, *needs a device* or *owner's call* can't start until that is to hand.
 
-Everything listed in [CLAUDE.md](../CLAUDE.md) under "What this is" is done: milestones 1 to 5e, cross-browser and mobile, the NAS server and title library, people and WebRTC, quality levels, the music shelf, fansubs, resume and the subtitle store, self-hosting and the docs, the packages and the developer site, the encoder and the Encodes library, HDR video through the video element with HDR labels, disc preferences, deinterlacing, and MPEG-2 and VC-1 decoding.
+Everything listed in [CLAUDE.md](../CLAUDE.md) under "What this is" is done: milestones 1 to 5e, cross-browser and mobile, the NAS server and title library, people and WebRTC, quality levels, the music shelf, fansubs, resume and the subtitle store, self-hosting and the docs, the packages and the developer site, the encoder and the Encodes library, HDR video through the video element with HDR labels and subtitles and menus over it at graphics white, disc preferences, deinterlacing, and MPEG-2 and VC-1 decoding.
 
 ## Now: housekeeping
 
@@ -11,6 +11,7 @@ Short tasks that unblock or protect what is already deployed.
 | Item | Size | Notes |
 | --- | --- | --- |
 | **Owner set-up still pending:** the first real "Find fansubs" run on a title. | S | owner |
+| **HDR overlay brightness by eye:** subtitles and menus over HDR video now go through WebGPU in extended range at a gain of 2.03 (graphics white over a 100 cd/m² SDR white, an assumption). Look at disc-hdr's subtitle on the iPhone and in Chrome on Windows with HDR on, try `?hdrgain=`, then keep the default, change it, or ask for a setting. | S | needs a device, owner's call |
 | **Device check of the tools' touch timing:** `tools/devices/tap.ts` (settle, hold, check where each touch landed) has not run on an iPhone yet. Run it at the next device gate. | S | needs a device |
 
 ## Next: finish what was planned
@@ -29,7 +30,6 @@ Short tasks that unblock or protect what is already deployed.
 | --- | --- | --- |
 | **BD-J JIT** (stage 2 of 5c §4.7). This is the start-up lever: iPhone and iPad miss the 10 s cold-start target by 0.8 to 1.6 s, and desktop has little margin on its 5 s bar. A compact constant-pool form is the matching memory lever. | L | owner's call (deferred by choice) |
 | **Field rate on an iPhone:** 1080i (VC-1 first) steps down to frame rate in some stretches of video. Decoding, the shaders, the canvas hand-offs and the page's main thread are all ruled out (known issues); the rest is inside WebKit's GPU side. Parked until a Safari release or a newer phone changes it. | M | parked |
-| **HDR overlays at graphics white:** subtitles and menus over HDR video are drawn SDR; try a float16 or WebGPU canvas on an HDR display. | M | needs a device, owner's call |
 | **Element path start in WebKit,** which begins about 33 ms behind the sound. | S | owner's call |
 | **Lossless and multichannel audio:** full TrueHD and DTS-HD instead of their cores, and output beyond a stereo downmix (multichannel PCM where the browser offers it; no Atmos or DTS:X height channels, since a page can't pass a stream through). | L | deferred by the owner (2026-11-16) |
 | **Encoders beyond Intel QSV** (NVENC, AMD VAAPI) for self-hosters. The self-hosting spec puts this last, after everything else. | L | |

@@ -77,7 +77,7 @@ HDR10 and HLG discs play through the browser's own video player, which shows HDR
 
   A change applies from the next playlist, not the one playing, and stays on this device until you change it again. Encoded episodes don't have it, since they always play on the canvas.
 - A video shader set that can run here sends the video to the canvas, whatever Video output says. Video the canvas can't play here still goes to the browser's video player, without the shaders.
-- Subtitles and disc menus stay at SDR brightness over HDR video for now, so beside bright highlights they can look grey. On Windows the **SDR content brightness** slider in the display's HDR settings should set how bright they look; this hasn't been checked on an HDR display yet.
+- Over HDR video on a display that shows HDR, subtitles and disc menus are drawn brighter than the rest of the page, at the brightness HDR video uses for white text, so they don't look grey beside the picture. This needs WebGPU in the browser (Safari, and Chrome on most computers); where it's missing they stay at the page's white. How bright they come out depends on the browser and the display, and it hasn't been checked by eye on an HDR display yet; adding `hdrgain=` to the page's address (for example `?hdrgain=1.5`, from 1 to 10, 2.03 by default) makes them dimmer or brighter.
 - If the browser's video player can't play a disc's HDR video, the player says "HDR video couldn't play in this browser, so it shows without HDR and its colours may look flat" and plays the rest of the disc on the canvas.
 - A Dolby Vision disc plays its HDR10 picture. HDR10+ discs play as HDR10.
 - Firefox doesn't show HDR video; use Chrome or Safari for HDR.
