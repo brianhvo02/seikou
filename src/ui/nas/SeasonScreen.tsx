@@ -218,6 +218,7 @@ export function SeasonScreen({ nas, titleId, seriesName, heading, season, season
             }}
             onCancel={() => setAdding(false)}
             onBusy={setUploading}
+            onUploaded={reload}
           />
         </div>
       )}
