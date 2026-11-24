@@ -184,6 +184,8 @@ export class Scheduler {
   private halted = false;
   /** Set by preempt(): the running thread stops at its next call or return. */
   preempted = false;
+  /** Time spent running Java threads' slices (and the native continuations they resume with), in ms. */
+  runMs = 0;
   /** The thread that was running when a JS error escaped the interpreter. */
   faulted: JThread | null = null;
   /** Bytecodes per turn; tests shrink it to force preemption at awkward points. */
@@ -560,7 +562,9 @@ export class Scheduler {
       });
       if (t.state !== 'runnable') return;
     }
+    const start = performance.now();
     execute(this.jvm, t, this.slice);
+    this.runMs += performance.now() - start;
   }
 
   private inThread(t: JThread, fn: () => void): void {

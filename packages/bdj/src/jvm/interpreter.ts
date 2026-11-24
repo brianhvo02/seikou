@@ -689,6 +689,7 @@ let jitRuntime: JitRuntime | null = null;
 
 const makeJitRuntime = (): JitRuntime => ({
   exit: JIT_EXIT_CONTINUE,
+  depth: 0,
   resolveClass,
   resolveField,
   resolveMethod,
@@ -744,6 +745,7 @@ function run(jvm: Jvm, t: JThread, budget: number): ExitReason {
   // the JIT is off while profiling, which counts bytecodes per method as the interpreter runs them
   const jitThreshold = prof ? Infinity : jvm.jitThreshold;
   const jitOn = jitThreshold !== Infinity;
+  if (jitRuntime) jitRuntime.depth = 0;
   let profMethod: JMethod | null = null;
   let profBudget = budget;
   outer: for (;;) {
