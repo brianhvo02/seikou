@@ -369,7 +369,10 @@ what would change that decision.
 - **Not drawn as libass does:** a rotated border with `\xbord` ≠ `\ybord` is dilated axis-aligned in device space;
   `\be` on a run whose shape changes every frame (rotating or scaling, drawn straight onto GPU canvases) is a
   Gaussian of variance 0.5 px² per pass, the box kernel's spread without its integer rounding (every other run takes
-  libass's box passes); `@` fonts get no vertical glyph forms (HarfBuzz's `vert` and `vkna` features: CJK punctuation
+  libass's box passes, but on a canvas padded by 3σ + 3 px: libass pads a run's bitmap by at most 5 px for `\be`
+  (`ass_be_padding`) beyond the rasterizer's tile-rounded box, and every pass drops what spreads past that edge, so a
+  large `\be` such as `\be20` keeps a little more of its faint outer halo here; matching it would mean reproducing
+  libass's per-glyph bitmap sizes); `@` fonts get no vertical glyph forms (HarfBuzz's `vert` and `vkna` features: CJK punctuation
   in fonts that carry them), though their glyphs are turned and advanced as libass does. *Revisit if* a real file
   shows the difference.
 - **Verified against one real script so far** (HDMV_DISC_A episode 1, its 18 fonts, 2340 sampled times; local gate

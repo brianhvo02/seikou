@@ -498,6 +498,22 @@ function beBlurPass(buf: Uint8Array, w: number, h: number, tmp: Uint16Array): vo
   for (let x = 0; x < w; x++) buf[last + x] = (colSum[x]! + colPix[x]!) >> 4;
 }
 
+/**
+ * The blur step of ass_composite_construct: ass_synth_blur (`\blur`'s Gaussian, then `\be`'s box passes) on the fill
+ * when there is no border (or for the opaque box) and on the border always. The masks may be changed in place.
+ */
+export function synthBlur(fill: Uint8Array, border: Uint8Array | null, w: number, h: number, flags: number, sigmaX: number, sigmaY: number, be: number): { fill: Uint8Array; border: Uint8Array | null } {
+  if (!(flags & FILTER_NONZERO_BORDER) || flags & FILTER_BORDER_STYLE_3) {
+    fill = gaussianBlur(fill, w, h, sigmaX, sigmaY);
+    beBlur(fill, w, h, be);
+  }
+  if (border) {
+    border = gaussianBlur(border, w, h, sigmaX, sigmaY);
+    beBlur(border, w, h, be);
+  }
+  return { fill, border };
+}
+
 function colorize(mask: Uint8Array, w: number, h: number, color: (x: number) => number, x0: number, y0: number): Layer {
   const data = new ImageData(w, h);
   const d = data.data;
@@ -539,11 +555,12 @@ function renderRun(rc: RasterContext, ev: FrameEvent, idx: readonly number[], ru
   const ry = Math.hypot(jxy * by26, jyy * by26) / 64;
   const r2x = blurVariance(first.blur, s.blurScaleX);
   const r2y = blurVariance(first.blur, s.blurScaleY);
-  // the masks take \blur's Gaussian, then \be's box passes (ass_synth_blur); the padding, the cache keys and the
-  // direct GPU path count \be as a Gaussian of variance 0.5 px² per pass (the [1 2 1] kernel's variance)
+  // the masks take \blur's Gaussian, then \be's box passes (ass_synth_blur); the padding and the direct GPU path
+  // count \be as a Gaussian of variance 0.5 px² per pass (the [1 2 1] kernel's variance); the keys hold \be apart
   const sigmaX = Math.sqrt(r2x);
   const sigmaY = Math.sqrt(r2y);
   const sigma = Math.sqrt((r2x + r2y) / 2 + 0.5 * first.be);
+  const blurSigma = Math.sqrt((r2x + r2y) / 2);
   const shadow26X = quantizeShadow(doubleToD6(first.shadowX * s.borderScaleX), first.blur * s.blurScaleX * BLUR_RADIUS_SCALE);
   const shadow26Y = quantizeShadow(doubleToD6(first.shadowY * s.borderScaleY), first.blur * s.blurScaleY * BLUR_RADIUS_SCALE);
 
@@ -573,15 +590,16 @@ function renderRun(rc: RasterContext, ev: FrameEvent, idx: readonly number[], ru
   const h = Math.ceil(maxY) + pad - oy;
   if (w <= 0 || h <= 0 || w * h > 4096 * 4096) return { shadow: null, border: null, fill: null };
 
-  const key = rc.masks ? maskKey(glyphs, mats, ox, oy, w, h, flags, bx26, by26, sigma, s, ss) : '';
+  const key = rc.masks ? maskKey(glyphs, mats, ox, oy, w, h, flags, bx26, by26, blurSigma, first.be, s, ss) : '';
   // an animated run whose shape changes every frame (rotation, size…) would never hit the cache: drawn straight
   // onto canvases (GPU, no read-back) when compositing allows it; moving, fading or karaoke runs keep their masks
   let reshaped = false;
   if (ev.animated && rc.lastShapes) {
     // no position and no canvas size (both follow the sub-pixel position of a run that only moves)
-    // nor the fill-in flags, which follow the alpha (a fade)
+    // nor the fill-in flags, which follow the alpha (a fade), nor \be: a run whose only change is \be keeps its
+    // box passes on the masks rather than flipping to the GPU's Gaussian on the frames \be steps
     const shapeFlags = flags & ~(FILTER_FILL_IN_BORDER | FILTER_FILL_IN_SHADOW);
-    const shapeKey = maskKey(glyphs, mats.map((m) => [m[0], m[1], 0, m[3], m[4], 0, m[6], m[7], m[8]] as Mat3), 0, 0, 0, 0, shapeFlags, bx26, by26, sigma, s, ss);
+    const shapeKey = maskKey(glyphs, mats.map((m) => [m[0], m[1], 0, m[3], m[4], 0, m[6], m[7], m[8]] as Mat3), 0, 0, 0, 0, shapeFlags, bx26, by26, blurSigma, 0, s, ss);
     const id = `${ev.index}:${runIndex}`;
     reshaped = rc.lastShapes.get(id) !== undefined && rc.lastShapes.get(id) !== shapeKey;
     rc.lastShapes.set(id, shapeKey);
@@ -820,15 +838,7 @@ function renderRun(rc: RasterContext, ev: FrameEvent, idx: readonly number[], ru
     }
   }
 
-  // ass_synth_blur: the fill only without a border (or for the opaque box), the border always
-  if (!(flags & FILTER_NONZERO_BORDER) || flags & FILTER_BORDER_STYLE_3) {
-    fill = gaussianBlur(fill, w, h, sigmaX, sigmaY);
-    beBlur(fill, w, h, first.be);
-  }
-  if (border) {
-    border = gaussianBlur(border, w, h, sigmaX, sigmaY);
-    beBlur(border, w, h, first.be);
-  }
+  ({ fill, border } = synthBlur(fill, border, w, h, flags, sigmaX, sigmaY, first.be));
 
   if (border && !(flags & FILTER_FILL_IN_BORDER) && !(flags & FILTER_FILL_IN_SHADOW)) fixOutline(fill, border);
   let shadow: Uint8Array | null = null;
@@ -876,9 +886,9 @@ export function layerKey(maskKey: string, colors: readonly number[], effectType:
 }
 
 /** Everything that shapes a run's masks, positions relative to its canvas origin. */
-function maskKey(glyphs: readonly GlyphInfo[], mats: readonly Mat3[], ox: number, oy: number, w: number, h: number, flags: number, bx26: number, by26: number, sigma: number, s: RenderState, ss: number): string {
+function maskKey(glyphs: readonly GlyphInfo[], mats: readonly Mat3[], ox: number, oy: number, w: number, h: number, flags: number, bx26: number, by26: number, blurSigma: number, be: number, s: RenderState, ss: number): string {
   const r = (v: number): number => Math.round(v * 1e6) / 1e6;
-  const parts: (string | number)[] = [ss, w, h, flags, r(bx26), r(by26), r(sigma)];
+  const parts: (string | number)[] = [ss, w, h, flags, r(bx26), r(by26), r(blurSigma), be];
   glyphs.forEach((g, k) => {
     const m = mats[k]!;
     parts.push(g.clusterText ?? g.symbol, g.drawingText ?? '', g.face?.cssFamily ?? '', g.face?.synthBold ? 1 : 0, g.face?.synthItalic ? 1 : 0,

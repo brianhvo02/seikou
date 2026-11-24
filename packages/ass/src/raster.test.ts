@@ -7,7 +7,7 @@ import { createFixedMeasurer } from './measure';
 import { parseAss } from './parse';
 import type { RenderSettings } from './state';
 import {
-  backgroundBox, beBlur, blurVariance, dilate, FILTER_BORDER_STYLE_3, FILTER_FILL_IN_BORDER, FILTER_FILL_IN_SHADOW, FILTER_NONZERO_BORDER,
+  backgroundBox, beBlur, blurVariance, dilate, synthBlur, FILTER_BORDER_STYLE_3, FILTER_FILL_IN_BORDER, FILTER_FILL_IN_SHADOW, FILTER_NONZERO_BORDER,
   FILTER_NONZERO_SHADOW, fixOutline, gaussianBlur, layerKey, quantizePositions, quantizeShadow, renderEvent, runFlags,
   type RasterContext,
 } from './raster';
@@ -130,6 +130,29 @@ describe('beBlur (ass_synth_blur box passes)', () => {
   });
 });
 
+describe('synthBlur (the blur step of ass_composite_construct)', () => {
+  const square = (): Uint8Array => {
+    const m = new Uint8Array(20 * 20);
+    for (let y = 7; y < 13; y++) for (let x = 7; x < 13; x++) m[y * 20 + x] = 255;
+    return m;
+  };
+  it('runs \\blur\'s Gaussian, then \\be\'s box passes, on the fill of a run without a border', () => {
+    const expected = gaussianBlur(square(), 20, 20, 0.8, 0.8);
+    beBlur(expected, 20, 20, 2);
+    const { fill } = synthBlur(square(), null, 20, 20, 0, 0.8, 0.8, 2);
+    expect(fill).toEqual(expected);
+    // not the Gaussian with \be folded in as 0.5 px² per pass
+    expect(fill).not.toEqual(gaussianBlur(square(), 20, 20, Math.sqrt(0.64 + 1), Math.sqrt(0.64 + 1)));
+  });
+  it('blurs only the border of a bordered run', () => {
+    const { fill, border } = synthBlur(square(), square(), 20, 20, FILTER_NONZERO_BORDER, 0, 0, 1);
+    expect(fill).toEqual(square());
+    const b = square();
+    beBlur(b, 20, 20, 1);
+    expect(border).toEqual(b);
+  });
+});
+
 describe('gaussianBlur', () => {
   const line = (): Uint8Array => {
     const m = new Uint8Array(40 * 3);
@@ -228,6 +251,21 @@ Dialogue: 0,0:00:00.00,0:00:05.00,Default,,0,0,0,,{\\blur2\\t(0,4000,\\frz90)}bl
     for (const t of [500, 1500, 2500]) renderEvent(rc, builder.build(t, settings).events[0]!, { width: 1920, height: 1080 });
     return masksSet;
   }
+  it('keeps a run whose only change is \\be on the masks (box passes), never the GPU Gaussian', async () => {
+    const fonts = new AssFonts({ load: async () => {}, unload: () => {} }, await readFontFile('DejaVuSans.ttf', new Uint8Array(readFileSync('fixtures/ass/fonts/DejaVuSans.ttf'))));
+    const be = new FrameBuilder(parseAss(script.replace('{\\blur2\\t(0,4000,\\frz90)}blurred', '{\\be1\\t(0,4000,\\be9)}stepping')), fonts, createFixedMeasurer(0.5));
+    let masksSet = 0;
+    const masks = new Map<string, never>();
+    const rc: RasterContext = {
+      createCanvas: fakeCanvas,
+      Path2D: class { addPath() {} moveTo() {} lineTo() {} bezierCurveTo() {} closePath() {} rect() {} } as unknown as typeof Path2D,
+      masks: { get: (k) => masks.get(k), set: (k, v) => { masksSet++; masks.set(k, v as never); } },
+      lastShapes: new Map(),
+      canvasFilter: true,
+    };
+    for (const t of [500, 1500, 2500]) renderEvent(rc, be.build(t, settings).events[0]!, { width: 1920, height: 1080 });
+    expect(masksSet).toBe(3);
+  });
   it('draws a reshaped blurred run directly where canvases filter, through the masks where they do not', () => {
     expect(runShapeChange(true)).toBe(1); // only the first frame, before the shape changes
     expect(runShapeChange(false)).toBe(3);

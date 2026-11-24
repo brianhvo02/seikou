@@ -29,6 +29,8 @@ for (const fx of syntheticFixtures()) {
         const d = pixelDelta(expected.rgba, actual);
         console.log(`${fx.name} ${t} ms: ${r.differing} px differ (budget ${r.budget}); ${d.over2} px off by more than 2, at most ${d.max}`);
       }
+      const fine = fx.over2 !== undefined ? pixelDelta(expected.rgba, actual) : null;
+      if (fine && fine.over2 > fx.over2!) failures.push(`${t} ms: ${fine.over2} px off by more than 2 (at most ${fx.over2})`);
       if (!r.pass) {
         const dir = `test-results/ass-pixels/${fx.name}`;
         mkdirSync(dir, { recursive: true });

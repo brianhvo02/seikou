@@ -26,7 +26,8 @@ libass 0.17.5 (https://github.com/libass/libass, commit 4a05d81), ISC License
     parse.ts          from libass/ass.c, ass_utils.c, ass_utils.h (script parsing, [Fonts] decoding)
     font-tables.ts    from libass/ass_fontselect.c (get_font_info), ass_font.c (weight, style, metrics)
     fonts.ts          from libass/ass_fontselect.c (matching, fallback), ass_font.c (faces, synthetic styles, size)
-    state.ts          from libass/ass_render.h, ass_render.c (render context), ass_parse.c (ass_update_font)
+    state.ts          from libass/ass_render.h, ass_render.c (render context), ass_parse.c (ass_update_font,
+                          ass_apply_transition_effects)
     tags.ts           from libass/ass_parse.c (override tags, animation, fades)
     events.ts         from libass/ass_render.h (GlyphInfo), ass_render.c, ass_parse.c (karaoke)
     drawing.ts        from libass/ass_drawing.c
@@ -36,7 +37,8 @@ libass 0.17.5 (https://github.com/libass/libass, commit 4a05d81), ISC License
     frame.ts          from libass/ass_render.c (ass_render_frame, event boxes, device positions)
     raster.ts         from libass/ass_render.c (filters, quantize_transform positions, composition, clips),
                           ass_bitmap.c (ass_fix_outline, the \be passes of ass_synth_blur), c/c_be_blur.c,
-                          ass_font.c (emboldening, italic, decorations)
+                          ass_font.c (emboldening, italic, decorations, the @ font turn),
+                          ass_outline.c (ass_outline_rotate_90)
   gsub.ts, measure.ts, device-fonts.ts, warp.ts, renderer.ts, trace.ts and trace-format.ts are original implementations; they
   contain no libass, libbluray or FFmpeg code.
 
