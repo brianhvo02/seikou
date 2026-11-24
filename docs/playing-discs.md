@@ -94,7 +94,7 @@ Many older discs, and most live concerts and TV shows, are interlaced (480i, 576
 
 **Picture in Picture** (the ⧉ button in the control bar, where the browser has it: Safari, Chrome) shows the video in a small window over other apps and pages. **Fullscreen** (⛶, or `F`) fills the screen with the whole player: subtitles, menus and controls.
 
-- Picture in Picture shows the video alone: subtitles and disc menus stay on the page, and the player says so the first time. Its play, pause and seek controls drive the player, and the sound keeps playing in step.
+- Picture in Picture shows the video alone. Subtitle files you added (SRT or ASS) come along as plain text, without their styling and without signs; the disc's own subtitles and disc menus stay on the page. The player says which the first time. Its play, pause and seek controls drive the player, and the sound keeps playing in step.
 - It needs H.264 or HEVC video. MPEG-2 and VC-1 discs, encoded episodes, and a playlist with video shaders on can't use it, and the player says why. The video output setting **Canvas** keeps it off too.
 - When the video is drawn on the canvas (most H.264 discs, under Auto), the first tap moves the playlist to the video element at the same place, then opens Picture in Picture. If that takes longer than the browser allows after a tap (about a second in Safari on iPhone), the player asks you to tap Picture in Picture once more. The disc then stays on the video element until you open another.
 - Where a browser can't make the page fullscreen but can show a video fullscreen (Safari on some iPhones), Fullscreen shows the video alone in the system's player, the same way, with the same limits. It waits while a disc menu is shown, and closes when a menu comes up so you can use it.
