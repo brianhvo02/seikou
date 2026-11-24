@@ -4,9 +4,10 @@ import type { DiscManifest, FansubAlignment, SeasonDetail, SubtitleCreate } from
 import { CodingType } from '@seikou/bdmv/stream-types';
 import { buildMpls } from '../../../tests/helpers/bdmv-builders';
 import { NasHttpError } from './nas-client';
+import { releaseRow, type ReleaseRow } from './release-model';
 import {
   FONTS_LIMIT_BYTES, LANGUAGES, editPatch, encodePickStartUs, episodeFirstChapter, offsetFrom, storedForEncode, ownerListing, SUBTITLE_LIMIT_BYTES, forPlaylist, forSeason, formatOffset, languageTag, parseOffset, playlistChoices, sameLanguage, startFor,
-  subtitleErrorMessage, subtitleTarget, tagsByEpisode, uploadSubtitle, validateUpload, type SubtitleWriter,
+  subtitleErrorMessage, subtitleTarget, tagsByEpisode, uploadRelease, uploadSubtitle, validateUpload, type SubtitleWriter,
 } from './subtitle-model';
 
 const file = (name: string, size = 10): File => new File([new Uint8Array(size)], name);
@@ -408,5 +409,53 @@ describe('encodePickStartUs', () => {
     expect(encodePickStartUs(pick({ kind: 'none', reason: 'low-confidence' }), 60_000)).toBe(0);
     expect(encodePickStartUs(pick({ kind: 'original' }), 60_000)).toBe(0);
     expect(encodePickStartUs(sub('p', 'en', ch(0)), 60_000)).toBe(0);
+  });
+});
+
+describe('uploadRelease', () => {
+  it('sends only the fonts the NAS asks for', async () => {
+    const calls: string[] = [];
+    const bodies: SubtitleCreate[] = [];
+    const stored = sub('s', 'en', ep(1));
+    const nas: SubtitleWriter = {
+      createSubtitle: async (b) => {
+        bodies.push(b);
+        calls.push('create');
+        return { ...stored, id: 'r1', needFonts: ['B.ttf'] };
+      },
+      uploadSubtitleFile: async (id, f) => {
+        calls.push(`file ${id} ${f.name}`);
+        return stored;
+      },
+      uploadSubtitleFont: async (id, f) => {
+        calls.push(`font ${id} ${f.name}`);
+        return stored;
+      },
+      deleteSubtitle: async () => {},
+    };
+    const bytes = (n: number): Uint8Array => new Uint8Array(n).fill(n);
+    const row: ReleaseRow = {
+      ...releaseRow(new File(['x'], '[Grp] Show - 01.mkv'), { count: 12, before: 0 }),
+      state: 'read',
+      progress: 1,
+      extract: {
+        tracks: [{ number: 2, kind: 'ass', name: 'Full', language: 'eng', isDefault: true, isForced: false, dialogueLines: 1, text: '[Script Info]' }],
+        fonts: [{ name: 'A.ttf', data: bytes(3) }, { name: 'B.ttf', data: bytes(4) }],
+        via: 'cues',
+      },
+      ticked: new Set([2]),
+    };
+    const sent: number[] = [];
+    const target = { kind: 'episode', titleId: 't', seasonId: 's1', episode: 1 } as const;
+    await expect(uploadRelease(nas, row, target, (n) => sent.push(n))).resolves.toHaveLength(1);
+    expect(calls).toEqual(['create', expect.stringMatching(/^file r1 .*\.ass$/), 'font r1 B.ttf']);
+    expect(bodies[0]!.name).toBe('Grp · Full');
+    expect(bodies[0]!.language).toBe('en');
+    expect(bodies[0]!.release).toEqual({ group: 'Grp', fileName: '[Grp] Show - 01.mkv', fileSize: 1, track: 2, trackName: 'Full' });
+    expect(bodies[0]!.fonts).toEqual([
+      { name: 'A.ttf', sha256: expect.stringMatching(/^[0-9a-f]{64}$/), size: 3 },
+      { name: 'B.ttf', sha256: expect.stringMatching(/^[0-9a-f]{64}$/), size: 4 },
+    ]);
+    expect(sent.at(-1)).toBe('[Script Info]'.length + 4);
   });
 });

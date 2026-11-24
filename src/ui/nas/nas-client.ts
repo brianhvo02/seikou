@@ -1,4 +1,4 @@
-import type { CodeLookup, ContinueItem, DiscEntry, DiscManifest, DiscPlaces, DiscRef, EncodeDetail, EncodeShow, EncodeShowList, EncodesStatus, EncodingNow, FansubPick, FansubPickRequest, FansubTitleState, FolderEntry, LevelAt, LevelInfo, NasDrive, OwnerChoice, OwnTitle, PlaybackPlace, PlayerSettings, PlayerSettingsBody, PlaylistProgress, StoredSubtitle, SubtitleCreate, SubtitlePatch, TitleDetail, TitleKind, TitleSummary, ToshoReleaseFiles, ToshoSearchResult, UnsortedItem } from '@seikou/nas/nas-api';
+import type { CodeLookup, ContinueItem, DiscEntry, DiscManifest, DiscPlaces, DiscRef, EncodeDetail, EncodeShow, EncodeShowList, EncodesStatus, EncodingNow, FansubPick, FansubPickRequest, FansubTitleState, FolderEntry, LevelAt, LevelInfo, NasDrive, OwnerChoice, OwnTitle, PlaybackPlace, PlayerSettings, PlayerSettingsBody, PlaylistProgress, StoredSubtitle, SubtitleCreate, SubtitleCreateRelease, SubtitlePatch, TitleDetail, TitleKind, TitleSummary, ToshoReleaseFiles, ToshoSearchResult, UnsortedItem } from '@seikou/nas/nas-api';
 import { PAIRING_CODE_LENGTH, formatCode, normalizeCode } from '@seikou/nas/pairing-code';
 import { pairingKey } from './nas-store';
 import type { NasPairing, NasStore } from './nas-store';
@@ -880,9 +880,9 @@ export class NasClient {
     return [await get(`${base}/file`, s.fileName), ...(await Promise.all(s.fonts.map((f) => get(`${base}/fonts/${encodeURIComponent(f.name)}`, f.name))))];
   }
 
-  /** Owners: registers a subtitle (its file and fonts go up next). */
-  async createSubtitle(body: SubtitleCreate): Promise<StoredSubtitle> {
-    return (await this.json('subtitles', jsonPost(body))) as StoredSubtitle;
+  /** Owners: registers a subtitle (its file and fonts go up next). A release upload's answer also names the fonts the NAS lacks (`needFonts`). */
+  async createSubtitle(body: SubtitleCreate): Promise<StoredSubtitle & Partial<SubtitleCreateRelease>> {
+    return (await this.json('subtitles', jsonPost(body))) as StoredSubtitle & Partial<SubtitleCreateRelease>;
   }
 
   /** Owners: sends the subtitle file. `onProgress` is told the bytes sent once they have all gone. */

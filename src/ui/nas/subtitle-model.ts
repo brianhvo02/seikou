@@ -1,7 +1,9 @@
 import type { DiscManifest, DiscSlot, EncodeDetail, EpisodeRef, SeasonDetail, StoredSubtitle, SubtitleCreate, SubtitleFor, SubtitlePatch } from '@seikou/nas/nas-api';
+import { mkvTrackFileName } from '@seikou/engine/subs/mkv-extract';
 import { Timeline, type Chapter } from '@seikou/engine/nav/timeline';
 import { mainPlaylistId, playlistOf } from './library-model';
 import { NasHttpError, type NasClient } from './nas-client';
+import { releaseGroup, releaseLanguage, type ReleaseRow } from './release-model';
 import { discHeading } from './title-model';
 
 /**
@@ -315,4 +317,63 @@ export function subtitleTarget(titleId: string, seasons: readonly SeasonDetail[]
   for (const slot of opts.extras ?? []) add(slot.label, slot);
   const first = seasons[0];
   return { titleId, season: opts.episodes && first?.episodes ? { id: first.id, episodes: first.episodes } : null, discs };
+}
+
+async function sha256Hex(data: Uint8Array): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data as BufferSource));
+  return Array.from(digest, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Uploads a read release's ticked tracks to the NAS: one stored subtitle a track, named `<group> · <track name or
+ * language>`, each registered with its release facts and the fonts' hashes, then its file, then only the fonts the NAS
+ * says its pool lacks (`needFonts`). `target` is what `createSubtitle` takes: for a season episode
+ * `{ kind: 'episode', titleId, seasonId, episode }`, for a movie the chapter form
+ * `{ kind: 'chapter', discId, playlistId, chapter: 0, titleId }`, as Find fansubs attaches a movie's. `tell` is told
+ * the bytes sent so far across the whole upload. A failure deletes the subtitle being made, and the failure is thrown
+ * (those already stored stay).
+ */
+export async function uploadRelease(
+  nas: SubtitleWriter,
+  row: ReleaseRow,
+  target: SubtitleFor,
+  tell: (sent: number) => void,
+): Promise<StoredSubtitle[]> {
+  const extract = row.extract;
+  if (extract === null) return [];
+  const group = releaseGroup(row.file.name);
+  const fonts = await Promise.all(extract.fonts.map(async (f) => ({ ...f, sha256: await sha256Hex(f.data) })));
+  const stored: StoredSubtitle[] = [];
+  let done = 0;
+  for (const track of extract.tracks.filter((t) => row.ticked.has(t.number))) {
+    const language = releaseLanguage(track.language);
+    const useFonts = track.kind === 'ass' ? fonts : [];
+    const subtitle = new File([track.text], mkvTrackFileName(row.file.name, track), { type: 'text/plain' });
+    const created = await nas.createSubtitle({
+      name: `${group ?? 'Release'} · ${track.name ?? language}`,
+      language,
+      for: target,
+      release: { group, fileName: row.file.name, fileSize: row.file.size, track: track.number, trackName: track.name ?? '' },
+      fonts: useFonts.map((f) => ({ name: f.name, sha256: f.sha256, size: f.data.byteLength })),
+    });
+    try {
+      const base = done;
+      let last = await nas.uploadSubtitleFile(created.id, subtitle, (n) => tell(base + n));
+      done += subtitle.size;
+      tell(done);
+      const need = new Set(created.needFonts ?? []);
+      for (const font of useFonts.filter((f) => need.has(f.name))) {
+        const before = done;
+        const file = new File([font.data as BlobPart], font.name);
+        last = await nas.uploadSubtitleFont(created.id, file, (n) => tell(before + n));
+        done += file.size;
+        tell(done);
+      }
+      stored.push(last);
+    } catch (err) {
+      await nas.deleteSubtitle(created.id).catch(() => {});
+      throw err;
+    }
+  }
+  return stored;
 }
