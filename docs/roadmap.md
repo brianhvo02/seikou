@@ -28,7 +28,7 @@ Short tasks that unblock or protect what is already deployed.
 
 | Item | Size | Notes |
 | --- | --- | --- |
-| **BD-J JIT** (stage 2 of 5c §4.7). This is the start-up lever: iPhone and iPad miss the 10 s cold-start target by 0.8 to 1.6 s, and desktop has little margin on its 5 s bar. A compact constant-pool form is the matching memory lever. | L | owner's call (deferred by choice) |
+| **BD-J start-up on iPhone and iPad** (they miss the 10 s cold-start target by 0.8 to 1.6 s; desktop has little margin on its 5 s bar). The JIT (stage 2 of 5c §4.7, spec `2026-11-24-bdj-jit-design.md`) is built but measured no faster on the Mac or the iPhone 17 Pro and is off (`?jit=1`); that iPhone opened BDJ_DISC_A in 6.3 s cold and 5.8 s warm on 2026-11-24, so recheck the device table (the iPad especially) with `tools/devices/gate.ts` first. Levers that fit a thin, cold start-up better: intrinsics for the JDK's jar-manifest path, or keeping the booted JVM between BD-J entries. A compact constant-pool form is the matching memory lever. | M | owner's call; re-measure the devices first |
 | **Field rate on an iPhone:** 1080i (VC-1 first) steps down to frame rate in some stretches of video. Decoding, the shaders, the canvas hand-offs and the page's main thread are all ruled out (known issues); the rest is inside WebKit's GPU side. Parked until a Safari release or a newer phone changes it. | M | parked |
 | **Element path start in WebKit,** which begins about 33 ms behind the sound. | S | owner's call |
 | **Encoders beyond Intel QSV** (NVENC, AMD VAAPI) for self-hosters. The self-hosting spec puts this last, after everything else. | L | |

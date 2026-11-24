@@ -18,6 +18,7 @@ import { RemoteSource } from '@seikou/engine/disc/remote-source';
 import { BdjError } from './errors';
 import type { FreeType } from './fonts/freetype';
 import type { NativeTable } from './jvm/natives/index';
+import type { JitMode } from './jvm/jvm';
 import { GraphicsPlaneReader, GraphicsPlaneWriter } from './graphics-plane';
 import { BdjRuntime } from './runtime';
 import { SharedRegisterView } from './shared-registers';
@@ -163,6 +164,10 @@ function eventLoopTurn(): () => Promise<void> {
 export interface BdjWorkerOptions {
   /** JvmOptions.extraIntrinsics: the class library's intrinsics (packages/bdj-classlib/intrinsics), which the engine does not carry. */
   readonly extraIntrinsics?: (table: NativeTable) => void;
+  /** JvmOptions.jit: compiling hot Java methods to JavaScript (default off). */
+  readonly jit?: JitMode;
+  /** JvmOptions.jitThreshold (measurements). */
+  readonly jitThreshold?: number;
   /**
    * FreeType for the BD-J text natives (java_awt_BDFontMetrics.c, java_awt_BDGraphics.c), loaded when text is first
    * needed, not at boot: the entry fetches packages/bdj/wasm/freetype/freetype.wasm. Calls share one load.
@@ -394,6 +399,8 @@ export function runBdjWorker(port: BdjPort, options: BdjWorkerOptions = {}): Bdj
         },
         yieldTask: eventLoopTurn(),
         ...(options.extraIntrinsics ? { extraIntrinsics: options.extraIntrinsics } : {}),
+        ...(options.jit ? { jit: options.jit } : {}),
+        ...(options.jitThreshold ? { jitThreshold: options.jitThreshold } : {}),
         ...(loadFreeType && options.loadDefaultFont
           ? {
               fonts: {

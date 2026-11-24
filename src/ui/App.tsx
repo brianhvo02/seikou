@@ -38,12 +38,16 @@ function getController(): PlayerController {
 
 function createAppController(): PlayerController {
   const params = new URLSearchParams(location.search);
-  // Test-only (E2E): ?bdjfail=1, ?nonestedworkers=1, ?nodecoder=1, ?novideowasm=1 and ?telemetry=1 go to the engine worker as flags in
+  // Test-only (E2E): ?bdjfail=1, ?nonestedworkers=1, ?nodecoder=1, ?novideowasm=1, ?jit=1 and ?telemetry=1 go to the engine worker as flags in
   // its name (@seikou/engine/worker-main engineWorkerTestFlags, src/engine-worker.ts): an unreadable class library, no
-  // workers started from workers, no video decoder configuration supported, no MPEG-2 and VC-1 decoder, the BD-J plane's
-  // hash and BD-J's memory in telemetry.
+  // workers started from workers, no video decoder configuration supported, no MPEG-2 and VC-1 decoder, BD-J's Java
+  // compiled to JavaScript once hot (the JIT; the BD-J worker gets the flags in its own name), the BD-J plane's hash and
+  // BD-J's memory in telemetry.
   // `?telemetry=1` also makes the controller copy telemetry to `window.__blurayTelemetry`, which the E2E tests read.
-  const flags = ['bdjfail', 'nonestedworkers', 'nodecoder', 'novideowasm', 'telemetry'].filter((f) => params.has(f));
+  const flags = ['bdjfail', 'nonestedworkers', 'nodecoder', 'novideowasm', 'jit', 'telemetry'].filter((f) => params.has(f));
+  // Test-only: ?jitthreshold=<n> turns the JIT on with that heat for compiling a method (for measuring).
+  const jitThreshold = Number(params.get('jitthreshold'));
+  if (Number.isInteger(jitThreshold) && jitThreshold > 0) flags.push(`jitthreshold=${jitThreshold}`);
   const name = flags.length > 0 ? `bluray-engine:${flags.join(',')}` : 'bluray-engine';
   const controller = createController({
     // (the options stay an object literal with a literal type: Vite reads it to bundle the worker as a module)

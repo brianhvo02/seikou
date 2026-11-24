@@ -52,6 +52,43 @@ export interface JvmOptions {
   readonly classBytesBudget?: number;
   /** The VM's own diagnostics (not Java's output). */
   readonly warn?: (line: string) => void;
+  /**
+   * Compiling hot methods to JavaScript (jit.ts): `on` once a method is hot, `force` the first time a frame of every
+   * method runs (for tests), `off` (the default) never; the player runs it off, since it measured no faster at start-up
+   * (docs/known-issues.md). Where code generation is unavailable (a Content Security Policy without 'unsafe-eval') the
+   * JVM runs interpreted whatever this says.
+   */
+  readonly jit?: JitMode;
+  /** The heat at which `on` compiles a method (default JIT_THRESHOLD); for measurements. */
+  readonly jitThreshold?: number;
+}
+
+/** JvmOptions.jit. */
+export type JitMode = 'off' | 'on' | 'force';
+
+/** What the JIT did (Jvm.jitStats): methods compiled, refused by reason, and failed compiles with their messages. */
+export interface JitStats {
+  /** The mode in effect: `off` when asked for or when code generation is unavailable. */
+  readonly mode: JitMode;
+  readonly compiled: number;
+  /** Time spent generating and compiling the methods' JavaScript, in ms. */
+  readonly compileMs: number;
+  readonly refused: Readonly<Record<string, number>>;
+  readonly failed: number;
+  /** The first few failed compiles, as `class.method(desc): message`. */
+  readonly failures: readonly string[];
+}
+
+/** A method's heat (the backward branches it has taken while interpreted) at which it is compiled. */
+export const JIT_THRESHOLD = 1000;
+
+/** Whether `new Function` works here (a Content Security Policy without 'unsafe-eval' refuses it). */
+function codeGeneration(): boolean {
+  try {
+    return (new Function('return 1') as () => number)() === 1;
+  } catch {
+    return false;
+  }
 }
 
 /** A Throwable's stack, innermost first, kept in its nativeData. */
@@ -81,6 +118,15 @@ export class Jvm {
   mainThread: JObject | null = null;
   /** Set by Runtime.halt (Shutdown.halt0). */
   exitStatus: number | null = null;
+  /** The heat at which the interpreter compiles a method (Infinity: the JIT is off). */
+  readonly jitThreshold: number;
+  private readonly jitMode: JitMode;
+  private jitCompiled = 0;
+  /** Time spent compiling methods (the interpreter adds to it). */
+  jitCompileMs = 0;
+  private jitFailed = 0;
+  private readonly jitRefused: Record<string, number> = {};
+  private readonly jitFailures: string[] = [];
   private statusSlot = -1;
 
   constructor(readonly opts: JvmOptions) {
@@ -95,6 +141,32 @@ export class Jvm {
       opts.extraIntrinsics?.(this.natives);
     }
     this.threads = new Scheduler(this, { slice: TIME_SLICE, nowMs: opts.nowMs, setTimer: opts.setTimer, ...(opts.yieldTask ? { yieldTask: opts.yieldTask } : {}) });
+    let mode = opts.jit ?? 'off';
+    if (mode !== 'off' && !codeGeneration()) {
+      opts.warn?.('BD-J: code generation is unavailable here (Content Security Policy); Java runs interpreted');
+      mode = 'off';
+    }
+    this.jitMode = mode;
+    this.jitThreshold = mode === 'off' ? Infinity : mode === 'force' ? 0 : (opts.jitThreshold ?? JIT_THRESHOLD);
+  }
+
+  /** What the JIT has done so far. */
+  jitStats(): JitStats {
+    return { mode: this.jitMode, compiled: this.jitCompiled, compileMs: this.jitCompileMs, refused: { ...this.jitRefused }, failed: this.jitFailed, failures: [...this.jitFailures] };
+  }
+
+  /**
+   * Counts the outcome of compiling `m` (the interpreter's call): compiled, refused for a reason, or failed (a fault in
+   * the compiler: the method stays interpreted and the first failure is reported through `warn`).
+   */
+  noteJit(m: JMethod, outcome: string, error?: unknown): void {
+    if (outcome === 'compiled') this.jitCompiled++;
+    else if (outcome === 'failed') {
+      this.jitFailed++;
+      const line = `${m.cls.name}.${m.name}${m.desc}: ${error instanceof Error ? error.message : String(error)}`;
+      if (this.jitFailures.length < 10) this.jitFailures.push(line);
+      if (this.jitFailed === 1) this.opts.warn?.(`BD-J: the JIT failed to compile ${line}; it stays interpreted`);
+    } else this.jitRefused[outcome] = (this.jitRefused[outcome] ?? 0) + 1;
   }
 
   /** What the JVM keeps outside its Java heap. */
@@ -112,6 +184,8 @@ export class Jvm {
       vfsBytes: vfs?.memBytes ?? 0,
       vfsUsedBytes: vfs?.memUsed ?? 0,
       jdkFileBytes: vfs?.jdkCacheBytes ?? 0,
+      jitCompiled: this.jitCompiled,
+      jitCompileMs: Math.round(this.jitCompileMs),
     };
   }
 

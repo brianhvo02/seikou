@@ -418,6 +418,24 @@ what would change that decision.
 
 ## BD-J (milestones 5b-5e)
 
+- **The JIT is built but off: it measured no faster at start-up (2026-11-24).** `packages/bdj/src/jvm/jit.ts`
+  (spec `docs/superpowers/specs/2026-11-24-bdj-jit-design.md`) compiles hot methods to JavaScript, frame by frame,
+  and passes the conformance suite with every method forced through it (16,506 methods), the trace, key-script and
+  local-disc goldens run with it forced, and a differential fuzz test against the interpreter (2,000 random
+  straight-line methods), which was added after an independent review found a wrong-code bug those had missed (a
+  pending expression reading a stack slot's variable after it was overwritten; fixed). On BDJ_DISC_A (`firstFrameMs` medians, 6 runs each, a quiet Mac) it
+  is no faster and a little slower: Chrome cold 4,844 ms off against 4,892 on, warm 4,821 against 4,870; WebKit cold
+  4,977 against 5,065; Firefox cold 5,233 against 5,234. In Node's replay Java's own time is 1,098 ms off against
+  1,110 on (cold). On the iPhone 17 Pro (iOS 27.2, disc server over the LAN) it is about even cold and 0.2 s slower
+  warm: BDJ_DISC_A 6,284 ms off against 6,193 on cold, 5,823 against 6,068 warm (5 runs each); BDJ_DISC_B 1,708
+  against 1,739 cold, 1,123 against 1,344 warm (4 runs), with `bdjMemory.jvm.jitCompiled` 87 and 13 in the JIT arm.
+  The same iPhone now opens BDJ_DISC_A well inside the 10 s target (the 5d gate's 8.3-9.0 s warm and 10.8 s cold
+  were measured differently, through `gate.ts`, so the two are not compared here). Each compiled method starts cold in the JS engine while the interpreter's one loop is already
+  optimised, and the start-up's 40 M bytecodes are spread over 7,500 methods; compiled code is faster once warm (a
+  tight loop 2.7x, call-heavy code 1.6x). So `JvmOptions.jit` defaults to `off`, the player runs it off (the branch
+  with it off matches main in all three browsers), and `?jit=1` (or `?jitthreshold=<n>`) turns it on for a
+  measurement. *Revisit when* BD-J work outside start-up (long menu animations) needs the steady-state speed, or the
+  iPad's cold start (not measured with the JIT) is the problem.
 - **5c timings (Chrome, production build, this machine).** Time from opening the disc to the first frame of the
   title's playlist, as `bdj.firstFrameMs`:
 
@@ -428,8 +446,8 @@ what would change that decision.
 
   The margin to the 5 s target on BDJ_DISC_A is 12-66 ms. About 4.0 s of its time is the disc's own animation and a
   `Thread.sleep(3000)`; about 0.7 s is interpretation. On a slower machine the local 5 s check may fail. 5e left
-  the JIT (spec 5c section 4.7, stage 2) out, by the user's choice (start-up behaves fine); it stays the lever if the
-  margin is needed. Stage 1 (intrinsics) replaced the 5b figure of about 26 s in Node.
+  the JIT (spec 5c section 4.7, stage 2) out, by the user's choice (start-up behaves fine); built on 2026-11-24, it
+  measured no faster (the entry above) and is off. Stage 1 (intrinsics) replaced the 5b figure of about 26 s in Node.
 - **5d responsiveness and start-up (Task 11; Chrome, production build, this machine).** Menu responsiveness is
   telemetry `bdj.inputLatencyMs` (last, max, count): from a key press or click reaching the engine worker to the next
   presented frame whose BD-J plane holds a publication made after it. The first publication presented after an input
@@ -549,7 +567,8 @@ what would change that decision.
   of BDJ_DISC_A's time is its own animation and `Thread.sleep(3000)`; about a third of the interpreted part is the JDK
   re-verifying the signed `00000.jar`, as HotSpot does (R10). With the iPhone and iPad gate run concurrently on one
   disc server the iPhone took 12.7-20.3 s; that was the shared connection, not the player. A JIT (5c spec
-  section 4.7, stage 2) is the lever; 5e left it out by the user's choice. Menu responsiveness: at
+  section 4.7, stage 2) was thought the lever; built on 2026-11-24, it measured no faster on the Mac in Chrome,
+  WebKit or Firefox, nor on this iPhone on 2026-11-24, and is off (entry at the top of this section). Menu responsiveness: at
   most 68 ms on every device (bars 0.2 s computer, 0.5 s iPhone). Ten minutes in the menus (200 inputs) brought no
   reload on the iPhone, the iPad, the iPad Simulator or Mac Safari; desktop Chrome and Firefox stayed 120 s.
   Measured device memory stayed well under the constrained budgets (class bytes 1.33 of 4 MB, VFS 4.6 of 64 MB,

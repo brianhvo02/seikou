@@ -196,6 +196,10 @@ The work is staged (user's decision):
 3. If stage 2 still misses the bar, record the measured time and the profile in known-issues; 5c is then done at that
    time (no further stages without a new decision).
 
+Stage 2 was built on 2026-11-24 (spec `2026-11-24-bdj-jit-design.md`): correct by the conformance suite forced
+through it and by the goldens, but no faster at start-up in Chrome, WebKit or Firefox on the developer's Mac, so it ships off
+(`?jit=1` turns it on); the numbers are in that spec's §8 and in known-issues.
+
 ## 5. Errors and fallback
 
 - Boot failure, a `BdjError`, the JVM halting, or no playlist selected within a timeout after `start` (default 20 s,
