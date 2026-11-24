@@ -19,7 +19,8 @@ import { expandMkvPicks, markCurrentTrack, MkvPickCache, type MkvListedTrack } f
 import { resolveDiscPreferences } from './disc-preferences';
 import { checkCapabilities } from './capabilities';
 import { HdrBadge } from './HdrBadge';
-import { FULLSCREEN_HINT_TEXT, evaluateFullscreenHint, markFullscreenHintDismissed, safeLocalStorage, toggleFullscreen } from './fullscreen';
+import { FULLSCREEN_HINT_TEXT, evaluateFullscreenHint, fullscreenKind, markFullscreenHintDismissed, safeLocalStorage, toggleFullscreen } from './fullscreen';
+import { enterPresentation, exitPresentation, PIP_OVERLAYS_MESSAGE, pollUntil, present, presentedAs, presentMessage, PRESENTATION_GRACE_MS, type PresentationMode } from './video-presentation';
 import { EncodingPrompt } from './EncodingPrompt';
 import { keyActionUo, keyToAction, keyWakesControls } from './keyboard';
 import { toMenuSpace } from './pointer';
@@ -129,7 +130,10 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
   const [pressed, setPressed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [remoteOpen, setRemoteOpen] = useState(false);
-  const [fullscreen] = useState(() => checkCapabilities().fullscreen);
+  const [caps] = useState(() => checkCapabilities());
+  const [fullscreen] = useState(() => fullscreenKind(caps, new URLSearchParams(window.location.search).get('fullscreen')));
+  /** Whether the Picture in Picture notice about subtitles and menus was shown for this disc. */
+  const pipOverlaysNoticed = useRef(false);
   const [hintVisible, setHintVisible] = useState(() => evaluateFullscreenHint(fullscreen));
   const playing = snapshot.engineState === 'playing';
   /** The latest pointer position waiting for the next animation frame (moves are sent at most once per frame). */
@@ -534,8 +538,63 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
     const video = videoRef.current;
     if (!video) return;
     controller.attachVideoElement(video);
-    return () => controller.detachVideoElement(video);
+    return () => {
+      exitPresentation(video, document);
+      controller.detachVideoElement(video);
+    };
   }, [controller]);
+
+  // Picture in Picture and the video's own fullscreen show the element path's <video>: a tap there on the canvas path
+  // moves the playlist to the element path first (video-presentation.ts)
+  const presentVideo = (mode: PresentationMode): void => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (presentedAs(video, document) === mode) {
+      exitPresentation(video, document);
+      return;
+    }
+    const ready = (): boolean => controller.getSnapshot().videoElement && video.readyState >= 1;
+    void present({
+      elementReady: ready,
+      preferElement: () => controller.preferElement(),
+      waitForElement: (ms) => pollUntil(ready, ms),
+      enter: () => enterPresentation(mode, video, caps.pip),
+    }).then((result) => {
+      const message = presentMessage(mode, result);
+      if (message) {
+        controller.showNotice(mode === 'pip' ? 'pip' : 'video-fullscreen', message);
+        return;
+      }
+      const s = controller.getSnapshot();
+      const overlays = (s.subtitles !== null && s.subtitles.selected !== 'off') || s.menuActive || s.bdjMenuVisible;
+      if (overlays && !pipOverlaysNoticed.current) {
+        pipOverlaysNoticed.current = true;
+        controller.showNotice('pip-overlays', mode === 'pip' ? PIP_OVERLAYS_MESSAGE : PIP_OVERLAYS_MESSAGE.replace('Picture in Picture', 'video fullscreen'));
+      }
+    });
+  };
+  const toggleAnyFullscreen = (): void => {
+    if (fullscreen === 'video') presentVideo('fullscreen');
+    else if (fullscreen && rootRef.current) toggleFullscreen(document, rootRef.current, fullscreen);
+  };
+
+  // the system shows the element alone: it ends when the element path stops for good (a canvas playlist, or none), and
+  // the video's own fullscreen ends when a disc menu comes up, so the menu can be used
+  const menuUp = snapshot.menuActive || snapshot.bdjMenuVisible;
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const mode = presentedAs(video, document);
+    if (mode === 'fullscreen' && menuUp) exitPresentation(video, document);
+    if (!mode || snapshot.videoElement) return;
+    const id = window.setTimeout(() => {
+      if (!controller.getSnapshot().videoElement) exitPresentation(video, document);
+    }, PRESENTATION_GRACE_MS);
+    return () => window.clearTimeout(id);
+  }, [controller, snapshot.videoElement, menuUp]);
+  useEffect(() => {
+    pipOverlaysNoticed.current = false;
+  }, [snapshot.playlists]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -598,7 +657,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
           controller.adjustVolume(action.delta);
           break;
         case 'fullscreen':
-          if (fullscreen && rootRef.current) toggleFullscreen(document, rootRef.current, fullscreen);
+          toggleAnyFullscreen();
           break;
         case 'cycleAudio':
           controller.cycleAudio();
@@ -1012,13 +1071,8 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
         shaderState={shaderState}
         visible={controlsVisible}
         onOpenPlaylists={() => setPickerOpen(true)}
-        onFullscreen={
-          fullscreen
-            ? () => {
-                if (rootRef.current) toggleFullscreen(document, rootRef.current, fullscreen);
-              }
-            : undefined
-        }
+        onFullscreen={fullscreen ? toggleAnyFullscreen : undefined}
+        onPictureInPicture={caps.pip ? () => presentVideo('pip') : undefined}
         onMenuKey={sendMenuKey}
         remoteOpen={remoteOpen}
         onToggleRemote={() => setRemoteOpen((o) => !o)}

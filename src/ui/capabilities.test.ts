@@ -8,7 +8,7 @@ describe('checkCapabilities', () => {
     const g = {
       ...base,
       showDirectoryPicker: () => undefined,
-      document: { fullscreenEnabled: true },
+      document: { fullscreenEnabled: true, pictureInPictureEnabled: true },
       HTMLInputElement: class {},
       FileSystemHandle: class {
         queryPermission(): void {}
@@ -22,6 +22,8 @@ describe('checkCapabilities', () => {
       canPickFolderInput: false,
       canRememberDiscs: true,
       fullscreen: 'standard',
+      pip: 'standard',
+      videoFullscreen: false,
       audioSession: true,
       wakeLock: true,
       mediaSession: true,
@@ -68,7 +70,13 @@ describe('checkCapabilities', () => {
     expect(checkCapabilities({ ...base, crossOriginIsolated: false }).bdj.missing).toEqual(['cross-origin isolation (SharedArrayBuffer)']);
   });
 
-  it('reports no fullscreen when the document disables it (iPhone)', () => {
+  it('reports WebKit Picture in Picture and video fullscreen on a Safari-like global without the standard API', () => {
+    const report = checkCapabilities({ ...base, document: {}, HTMLVideoElement: { prototype: { webkitSetPresentationMode() {}, webkitEnterFullscreen() {} } } });
+    expect(report.pip).toBe('webkit');
+    expect(report.videoFullscreen).toBe(true);
+  });
+
+  it('reports no fullscreen when the document disables it (an iPhone without element fullscreen)', () => {
     const report = checkCapabilities({ ...base, document: { fullscreenEnabled: false, webkitFullscreenEnabled: false } });
     expect(report.fullscreen).toBeNull();
   });

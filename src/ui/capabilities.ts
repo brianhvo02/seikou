@@ -1,4 +1,5 @@
 import { bdjMissing } from '@seikou/bdj';
+import { hasVideoFullscreen, pipApi, type PipApi } from './video-presentation';
 
 /** What this browser can do, from feature checks on its globals (never its user agent), for gating features and explaining what is missing. */
 export interface CapabilityReport {
@@ -16,6 +17,10 @@ export interface CapabilityReport {
   readonly canRememberDiscs: boolean;
   /** Which fullscreen API the document offers: the standard one, the WebKit-prefixed one, or none (iPhone Safari). */
   readonly fullscreen: 'standard' | 'webkit' | null;
+  /** Which Picture in Picture API video elements have (standard, or WebKit's presentation mode), or none (Firefox). */
+  readonly pip: PipApi | null;
+  /** Video elements have WebKit's own fullscreen (`webkitEnterFullscreen`), the fallback where page elements can't go fullscreen. */
+  readonly videoFullscreen: boolean;
   /** `navigator.audioSession` exists (Safari), so the page can mark its audio as playback. */
   readonly audioSession: boolean;
   /** The Screen Wake Lock API exists. */
@@ -55,6 +60,8 @@ export function checkCapabilities(g: Bag = globalThis as unknown as Bag): Capabi
     canPickFolderInput: inputProto !== undefined && 'webkitdirectory' in inputProto,
     canRememberDiscs: handleProto !== undefined && 'queryPermission' in handleProto,
     fullscreen,
+    pip: pipApi(g),
+    videoFullscreen: hasVideoFullscreen(g),
     audioSession: nav !== undefined && 'audioSession' in nav,
     wakeLock: nav !== undefined && 'wakeLock' in nav,
     mediaSession: nav !== undefined && 'mediaSession' in nav,
