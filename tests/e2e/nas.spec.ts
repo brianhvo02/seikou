@@ -2611,3 +2611,65 @@ test('a stored subtitle and my offset come back when I resume', async ({ page, b
     await expect(page.getByTestId('subtitle-file-1')).toHaveCount(0);
   });
 });
+
+// Subtitles from a release MKV: an owner picks the file on the season, uploads a track, and a guest sees it once the
+// NAS has lined it up (an aligner answer of `none` shows it at the release's own timing).
+
+test('an owner uploads a track from a release MKV, and a guest gets it once it is lined up', async ({ page, browser, browserName }, testInfo) => {
+  test.skip(browserName !== 'chromium', 'The release form reads the file in a worker; Chrome covers it.');
+  test.setTimeout(180_000);
+  const dir = testInfo.outputPath('release');
+  mkdirSync(dir, { recursive: true });
+  const mkv = join(dir, `[Lantern Subs] Starfall Wanderer - 01 [1080p].mkv`);
+  copyFileSync(join(REPO_ROOT, 'fixtures/encodes/990001/1.mkv'), mkv);
+  await openTitles(page, browserName);
+  await withStarfallSubtitles(async () => {
+    await openStarfallSeason(page);
+    await page.getByTestId('subtitle-add').click();
+    await page.getByTestId('subtitle-upload-files').setInputFiles(mkv);
+    const row = page.getByTestId('release-row');
+    await expect(row).toHaveAttribute('data-state', 'read', { timeout: 60_000 });
+    await expect(row.getByTestId('release-episode')).toHaveValue('1');
+    await expect(row.getByTestId('release-track').first()).toBeVisible();
+    await page.getByTestId('release-upload').click();
+    await expect(page.getByTestId('release-status')).toContainText('uploaded', { timeout: 30_000 });
+    const stored = (await (await ownerApi(`subtitles?titleId=${encodeURIComponent(STARFALL)}`)).json()) as { id: string; source?: { kind: string } }[];
+    expect(stored.length).toBeGreaterThan(0);
+    expect(stored.every((s) => s.source?.kind === 'release')).toBe(true);
+
+    const minted = await ownerApi('admin/codes', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ newPerson: { name: `Release Guest ${browserName}`, owner: false }, invite: true }),
+    });
+    expect(minted.status).toBe(200);
+    const { code, personId } = (await minted.json()) as { code: string; personId: string };
+    const guestContext = await browser.newContext();
+    try {
+      const guest = await guestContext.newPage();
+      await allowLocalNetwork(guest, browserName);
+      await guest.goto('/');
+      await guest.getByTestId('pair-code').fill(code);
+      await guest.getByTestId('pair-button').click();
+      await expect(guest.getByTestId('nas-paired')).toBeVisible({ timeout: 25_000 });
+      await exclusivelyAsync('gate', async () => {
+        try {
+          await setGate('everyone');
+          await guest.getByTestId('nas-open').click();
+          await expect(guest.getByTestId('title-library')).toBeVisible({ timeout: 15_000 });
+          await openStarfallSeason(guest);
+          // hidden until lined up, then listed whatever the aligner answered
+          await expect(async () => {
+            await guest.reload();
+            await expect(guest.getByTestId('episode-row')).toHaveCount(1, { timeout: 5_000 });
+            await expect(episodeTags(guest, 1).first()).toBeVisible({ timeout: 1_000 });
+          }).toPass({ timeout: 120_000, intervals: [2_000] });
+        } finally {
+          await setGate('owners');
+        }
+      });
+    } finally {
+      await guestContext.close();
+      await ownerApi(`admin/people/${encodeURIComponent(personId)}`, { method: 'DELETE' });
+    }
+  });
+});

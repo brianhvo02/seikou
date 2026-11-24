@@ -308,9 +308,11 @@ what would change that decision.
 
 ## ASS subtitles
 
-- **Not loaded yet: subtitles and fonts inside an `.mkv` file picked or dropped on the player** (on the roadmap; only
-  `.srt`, `.ass` and `.ssa` are taken, `SUBTITLE_EXTENSIONS`). The MKV of a NAS encode is different: its ASS and PGS
-  tracks and attached fonts load (`packages/engine/src/encode/mkv-subtitles.ts`). Fonts come from files picked or
+- **An `.mkv` picked or dropped on the player loads its text tracks and fonts, not its PGS tracks** (spec
+  `docs/superpowers/specs/2026-11-24-mkv-subtitles-design.md`; the store holds text subtitles only). The MKV of a NAS
+  encode is different: its ASS and PGS tracks and attached fonts load (`packages/engine/src/encode/mkv-subtitles.ts`).
+  An owner's release upload (the season screen's form) keeps a track's original on the NAS and lines it up there; where
+  the aligner answers `none` it shows at the release's own timing, and SRT tracks are never lined up. Fonts come from files picked or
   dropped with the script, from its `[Fonts]` section, from the subtitle store and from Anime Tosho; a family none of
   those supply is taken from the device's installed fonts when it has it (below), and a family that is still missing
   is replaced and named in a notice.
