@@ -53,8 +53,17 @@ const CALLER: AsmMethod = {
 // static int jsr() { jsr L; iconst_1; ireturn; L: astore_0; ret 0 } : a method with a subroutine stays interpreted
 const JSR: AsmMethod = { name: 'jsr', desc: '()I', code: [0xa8, 0, 5, 0x04, 0xac, 0x4b, 0xa9, 0], maxStack: 1, maxLocals: 1 };
 
+// static int locked(Object lock, int n) { synchronized (lock) { int s = 0; for (int i = 0; i < n; i++) s += i; return s; } }
+const LOCKED: AsmMethod = {
+  name: 'locked',
+  desc: '(Ljava/lang/Object;I)I',
+  code: [0x2a, 0xc2, 0x03, 0x3d, 0x03, 0x3e, 0x1d, 0x1b, 0xa2, 0, 13, 0x1c, 0x1d, 0x60, 0x3d, 0x84, 3, 1, 0xa7, 0xff, 0xf4, 0x2a, 0xc3, 0x1c, 0xac],
+  maxStack: 2,
+  maxLocals: 4,
+};
+
 function define(jvm: Jvm): void {
-  jvm.loader.define('T', assembleClass('T', [LOOP, SAFE_DIV, QUOT, CALLER, JSR]), null, null);
+  jvm.loader.define('T', assembleClass('T', [LOOP, SAFE_DIV, QUOT, CALLER, JSR, LOCKED]), null, null);
 }
 
 afterEach(() => {
@@ -140,6 +149,34 @@ describe('the JIT', () => {
       traces.set(mode, out);
     }
     expect(traces.get('force')).toEqual(traces.get('off'));
+  });
+
+  it('ends slices on the same instructions when a thread blocks on a monitor another holds', async () => {
+    const traces = new Map<string, string[]>();
+    for (const mode of ['off', 'force'] as const) {
+      const out: string[] = [];
+      for (const budget of [3, 5, 8, 13, 21]) {
+        const jvm = newJvm(mode);
+        define(jvm);
+        const m = jvm.loader.loadBoot('T')!.methods.get('locked(Ljava/lang/Object;I)I')!;
+        const lock = jvm.heap.newObject(jvm.loader.loadBoot('java/lang/Object')!);
+        await jvm.callStatic('T', 'safeDiv', '(II)I', [1, 1]); // T initialised first, so neither thread waits for it
+        const a = jvm.threads.spawn(null, m, [lock, 30]);
+        const b = jvm.threads.spawn(null, m, [lock, 20]);
+        for (let round = 0; round < 300 && (a.state !== 'terminated' || b.state !== 'terminated'); round++) {
+          for (const [name, t] of [['a', a], ['b', b]] as const) {
+            const exit = execute(jvm, t, budget);
+            const f = t.frames[t.frames.length - 1] as Frame | undefined;
+            out.push(`${budget}/${round}/${name}: ${exit} ${t.state} ${f ? `pc ${f.pc} sp ${f.sp} locals ${f.locals.join(',')}` : ''}`);
+          }
+        }
+        expect(a.state).toBe('terminated');
+        expect(b.state).toBe('terminated');
+      }
+      traces.set(mode, out);
+    }
+    expect(traces.get('force')).toEqual(traces.get('off'));
+    expect(traces.get('off')!.some((l) => l.includes('blocked'))).toBe(true);
   });
 
   it('runs interpreted where code generation is unavailable, and says so once', async () => {
