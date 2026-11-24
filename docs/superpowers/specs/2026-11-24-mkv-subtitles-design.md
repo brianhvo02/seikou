@@ -71,7 +71,7 @@ A function in the engine (it needs `@seikou/ass`'s ASS parsing, which `@seikou/m
   names.
 - The blocks of the text tracks are found through the Cues when the Cues have a point for every block of those tracks
   (mkvmerge's default; the builder checks what real release files hold), each read by its cluster position and
-  relative position; otherwise every cluster is walked, reading block headers and skipping other tracks' payloads.
+  relative position; otherwise every cluster is walked: the file is read in order in large windows (a share serves one sequential read far faster than a small read per block), keeping only the wanted tracks' blocks.
   Progress is reported in bytes.
 - It runs off the main thread (a worker), since a walk can take seconds.
 
