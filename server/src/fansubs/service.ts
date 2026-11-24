@@ -37,8 +37,8 @@ const IDLE_STEP_MS = 30_000;
 /** The nightly pass starts no earlier than 18:00 local time. */
 const NIGHT_STARTS_MIN = 18 * 60;
 const UNSURE: FansubAlignment = { kind: 'none', reason: 'low-confidence' };
-/** An SRT track: the aligner reads ASS dialogue only, so it keeps the release's own timing. */
-const NOT_ASS: FansubAlignment = { kind: 'none', reason: 'no-speech' };
+/** An SRT track: the aligner reads ASS dialogue only, so it keeps the release's own timing, as Use original timing does. */
+const NOT_ASS: FansubAlignment = { kind: 'original' };
 const isSrt = (s: StoredSubtitle): boolean => /\.srt$/i.test(s.fileName);
 
 /** What `FansubService` needs: where fansubs are stored, the sources they come from and the discs they are lined up on. */
@@ -351,8 +351,8 @@ export class FansubService {
 
   /**
    * The queued line-up of a release file's ASS tracks: one alignment from the track with the most dialogue, given to
-   * every track of the file except one the owner set to its original timing. With no disc to line up on, the tracks
-   * show at their own timing, marked for the owner.
+   * every track of the file except one the owner set to its original timing. With no disc to line up on, or a line-up
+   * that fails (the disc's audio won't decode), the tracks show at their own timing, marked for the owner.
    */
   private async lineUpFile(file: { discKey: string; fileName: string; fileSize: number }, job: Job): Promise<void> {
     await this.waitIdle(job);
@@ -362,7 +362,14 @@ export class FansubService {
     if (!s) return;
     const members = this.siblings(s);
     const target = this.target(s);
-    const alignment = (target ? await this.alignOn(target, members, s, job.controller.signal) : null) ?? UNSURE;
+    let alignment: FansubAlignment = UNSURE;
+    try {
+      alignment = (target ? await this.alignOn(target, members, s, job.controller.signal) : null) ?? UNSURE;
+    } catch (err) {
+      if (job.controller.signal.aborted || (err instanceof Error && err.name === 'AbortError')) throw err;
+      // a disc whose audio won't decode: the tracks show at their own timing, marked for the owner
+      this.log(`fansubs: line-up of release file ${file.fileName} failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
     job.controller.signal.throwIfAborted();
     for (const m of members) {
       const now = this.opts.store.get(m.id);

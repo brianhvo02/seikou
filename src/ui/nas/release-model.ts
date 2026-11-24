@@ -48,9 +48,12 @@ export function releaseRow(file: File, season: { readonly count: number; readonl
   };
 }
 
-/** The row once its file has been read: the ASS tracks in `languages` are ticked, English always. */
+/**
+ * The row once its file has been read: the ASS tracks in `languages` (the NAS's fansub languages, ISO 639-2 codes such
+ * as `spa`) are ticked, English always. Both sides are compared as the store's codes.
+ */
 export function withExtract(row: ReleaseRow, extract: MkvTextExtract, languages: readonly string[]): ReleaseRow {
-  const wanted = new Set(['en', ...languages]);
+  const wanted = new Set(['en', ...languages.map(releaseLanguage)]);
   const ticked = new Set(extract.tracks.filter((t) => t.kind === 'ass' && wanted.has(releaseLanguage(t.language))).map((t) => t.number));
   return { ...row, state: 'read', progress: 1, error: null, extract, ticked };
 }

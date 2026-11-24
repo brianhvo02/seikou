@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import type { MkvTextExtract, MkvTextTrack } from '@seikou/engine/subs/mkv-extract';
-import { canUpload, releaseGroup, releaseRow, withExtract } from './release-model';
+import { canUpload, releaseGroup, releaseLanguage, releaseRow, withExtract } from './release-model';
 
 const file = (name: string): File => new File(['x'], name);
 const track = (number: number, kind: 'ass' | 'srt', language: string): MkvTextTrack => ({
@@ -28,11 +28,31 @@ describe('release rows', () => {
     const row = withExtract(
       releaseRow(file('[G] Show - 01.mkv'), season),
       extract([track(2, 'ass', 'eng'), track(3, 'ass', 'jpn'), track(4, 'srt', 'eng')]),
-      ['en'],
+      ['eng'],
     );
     expect([...row.ticked]).toEqual([2]);
-    const ja = withExtract(row, extract([track(2, 'ass', 'eng'), track(3, 'ass', 'jpn')]), ['ja']);
+    const ja = withExtract(row, extract([track(2, 'ass', 'eng'), track(3, 'ass', 'jpn')]), ['eng', 'jpn']);
     expect([...ja.ticked]).toEqual([2, 3]);
+  });
+
+  it('takes the NAS fansub languages as ISO 639-2 codes, as the NAS keeps them', () => {
+    const row = withExtract(
+      releaseRow(file('[G] Show - 01.mkv'), season),
+      extract([track(2, 'ass', 'eng'), track(3, 'ass', 'spa'), track(4, 'ass', 'ger'), track(5, 'ass', 'es')]),
+      ['eng', 'spa'],
+    );
+    expect([...row.ticked]).toEqual([2, 3, 5]);
+  });
+
+  it('releaseLanguage maps ISO 639-2 to the short code, keeps others and gives und for none', () => {
+    expect(releaseLanguage('eng')).toBe('en');
+    expect(releaseLanguage('SPA')).toBe('es');
+    expect(releaseLanguage('fra')).toBe('fr');
+    expect(releaseLanguage('es')).toBe('es');
+    expect(releaseLanguage('tlh')).toBe('tlh');
+    expect(releaseLanguage(null)).toBe('und');
+    expect(releaseLanguage('  ')).toBe('und');
+    expect(releaseLanguage('und')).toBe('und');
   });
 
   it("a file with no text tracks offers nothing and doesn't block the others", () => {

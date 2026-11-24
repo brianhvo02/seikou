@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { collectDroppedFiles, splitPick } from './drop-files';
+import { collectDroppedFiles, pickedSubtitles, splitPick } from './drop-files';
 
 const f = (name: string) => new File(['x'], name);
 
@@ -44,5 +44,15 @@ describe('splitPick with an MKV', () => {
     const out = splitPick([f('Show 01.MKV'), f('x.ttf')]);
     expect(out.subtitles.map((x) => x.name)).toEqual(['Show 01.MKV']);
     expect(out.fonts.map((x) => x.name)).toEqual(['x.ttf']);
+  });
+});
+
+describe('pickedSubtitles', () => {
+  it('never hands on an .mkv, which the app expands first, so one is not read as text', () => {
+    expect(pickedSubtitles([f('Show 01.mkv'), f('a.ass'), f('x.ttf')]).map((x) => x.name)).toEqual(['a.ass']);
+    expect(pickedSubtitles([f('Show 01.MKV')])).toEqual([]);
+    expect(pickedSubtitles([f('Show 01.mkv'), f('x.ttf')])).toEqual([]);
+    // nothing named: every file, for the engine to detect
+    expect(pickedSubtitles([f('subs'), f('more')]).map((x) => x.name)).toEqual(['subs', 'more']);
   });
 });

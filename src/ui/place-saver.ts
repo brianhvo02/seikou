@@ -365,7 +365,8 @@ export class PlaceSaver {
    * Subtitle files the user added (a pick or a drop, as `loadSubtitleFiles` got them): their sizes go into places, and
    * their bytes are kept on this device for a resume here. A pick with subtitle files replaces the kept subtitle files
    * (fonts kept before stay); a pick of fonts alone adds them. A file of the same name replaces the kept one; files
-   * over the store's limits are never read.
+   * over 5 MB are never read. The subtitle files are always kept; fonts (the pick's, then those kept before) are added
+   * while the set stays within 50 MB, and the rest are left out.
    */
   async addTextFiles(files: readonly File[]): Promise<void> {
     const t = this.target;
@@ -378,10 +379,19 @@ export class PlaceSaver {
     const names = new Set(picked.map((f) => f.name));
     const before = await this.deps.store.textFiles(t.discKey);
     const kept = before.filter((f) => !names.has(f.name) && (subtitles.length === 0 || isFontName(f.name)));
-    const total = kept.reduce((sum, f) => sum + f.bytes.byteLength, 0) + picked.reduce((sum, f) => sum + f.size, 0);
-    if (total > MAX_TEXT_FILES_BYTES) return;
-    const read: StoredTextFile[] = await Promise.all(picked.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })));
-    await this.deps.store.putTextFiles(t.discKey, [...kept, ...read]);
+    const take = new Set<File | StoredTextFile>();
+    let total = 0;
+    const claim = (f: File | StoredTextFile, size: number): void => {
+      if (total + size > MAX_TEXT_FILES_BYTES) return;
+      total += size;
+      take.add(f);
+    };
+    for (const f of kept) if (!isFontName(f.name)) claim(f, f.bytes.byteLength);
+    for (const f of picked) if (!isFontName(f.name)) claim(f, f.size);
+    for (const f of picked) if (isFontName(f.name)) claim(f, f.size);
+    for (const f of kept) if (isFontName(f.name)) claim(f, f.bytes.byteLength);
+    const read: StoredTextFile[] = await Promise.all(picked.filter((f) => take.has(f)).map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })));
+    await this.deps.store.putTextFiles(t.discKey, [...kept.filter((f) => take.has(f)), ...read]);
   }
 
   private qualifies(t: Active, seen: Seen): boolean {

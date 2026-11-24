@@ -16,7 +16,7 @@ const episodes = [1, 2, 3].map((number) => ({ number, name: null }));
 function fakeNas() {
   let n = 0;
   return {
-    fansubLanguages: vi.fn(async () => ['ja']),
+    fansubLanguages: vi.fn(async () => ['eng', 'fre']),
     createSubtitle: vi.fn(async () => ({ id: `id${++n}`, needFonts: [] }) as never),
     uploadSubtitleFile: vi.fn(async (id: string) => ({ id }) as never),
     uploadSubtitleFont: vi.fn(async (id: string) => ({ id }) as never),
@@ -31,10 +31,10 @@ it('reads each file, shows its tracks and uploads the ticked ones', async () => 
   render(<ReleaseUpload nas={nas} files={[file('[Grp] Star - 01.mkv'), file('[Grp] Star - 02.mkv')]} season={season} episodes={episodes} targetOf={targetOf} extract={extract} onDone={() => {}} />);
   await waitFor(() => expect(screen.getAllByTestId('release-row').map((r) => r.getAttribute('data-state'))).toEqual(['read', 'read']));
   expect(extract).toHaveBeenCalledTimes(2);
-  expect(screen.getAllByTestId('release-track').map((c) => (c as HTMLInputElement).checked)).toEqual([true, false, true, false]);
+  expect(screen.getAllByTestId('release-track').map((c) => (c as HTMLInputElement).checked)).toEqual([true, true, true, true]);
   fireEvent.click(screen.getByTestId('release-upload'));
   await waitFor(() => expect(screen.getByTestId('release-status')).toBeTruthy());
-  expect(nas.createSubtitle).toHaveBeenCalledTimes(2);
+  expect(nas.createSubtitle).toHaveBeenCalledTimes(4);
 });
 
 it('a file that fails to read shows why and the others still upload', async () => {
@@ -69,7 +69,7 @@ it('after upload, says the tracks will show once lined up with the disc', async 
 });
 
 it('a new but equal files array does not read again or reset the ticks', async () => {
-  const extract = vi.fn(async () => extractOf([track(2, 'eng'), track(3, 'fre')]));
+  const extract = vi.fn(async () => extractOf([track(2, 'eng'), track(3, 'ita')]));
   const f = file('Star - 01.mkv');
   const props = { nas: fakeNas(), season, episodes, targetOf, extract, onDone: () => {} };
   const { rerender } = render(<ReleaseUpload {...props} files={[f]} />);

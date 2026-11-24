@@ -294,7 +294,8 @@ export class SubtitleStore {
       writeFileSync(join(dir, 'sub', file.name), file.data, { mode: 0o600 });
       writeFileSync(join(dir, 'original', file.name), file.original, { mode: 0o600 });
       mkdirSync(join(this.root(), '.fonts'), { recursive: true });
-      for (const [hash, data] of fresh) {
+      // every font whose pool file is missing, even one the index lists (a release can declare a font it never sent)
+      for (const { hash, data } of entries) {
         const dest = this.poolFile(hash);
         if (existsSync(dest)) continue;
         const temp = `${dest}.tmp-${randomBytes(6).toString('hex')}`;
@@ -330,11 +331,13 @@ export class SubtitleStore {
   /**
    * Makes a release upload (a track pulled from a picked MKV) with no file yet, its fonts declared by name, SHA-256
    * and size. Answers the names of the fonts the pool doesn't hold, which the client then uploads. The fonts that
-   * are new together stay under 50 MiB; those the pool holds cost nothing.
+   * are new together stay under 50 MiB (those the pool holds cost nothing): past it the track keeps the fonts that
+   * fit, in order, and is marked `fontsMissing`, as it is when `opts.fontsMissing` says the client dropped some.
    */
   createRelease(
     meta: SubtitleMeta, release: Omit<ReleaseSource, 'kind' | 'alignment' | 'linedUpOn'>,
     fonts: readonly { name: string; sha256: string; size: number }[],
+    opts: { readonly fontsMissing?: boolean } = {},
   ): { stored: StoredSubtitle; needFonts: string[] } {
     const names = new Set<string>();
     for (const f of fonts) {
@@ -343,22 +346,32 @@ export class SubtitleStore {
       names.add(f.name);
     }
     const pooled = this.index.pooled();
-    const fresh = new Map<string, number>();
-    for (const f of fonts) if (!pooled.has(f.sha256)) fresh.set(f.sha256, f.size);
+    const fresh = new Set<string>();
+    const kept: { name: string; sha256: string; size: number }[] = [];
     let add = 0;
-    for (const size of fresh.values()) add += size;
-    if (add > FONTS_LIMIT_BYTES) throw new TooLargeError();
+    for (const f of fonts) {
+      if (pooled.has(f.sha256) || fresh.has(f.sha256)) {
+        kept.push(f);
+        continue;
+      }
+      if (add + f.size > FONTS_LIMIT_BYTES) continue;
+      add += f.size;
+      fresh.add(f.sha256);
+      kept.push(f);
+    }
+    const missing = opts.fontsMissing === true || kept.length < fonts.length;
     const id = randomBytes(8).toString('hex');
     const stored: StoredSubtitle = {
       ...meta, id, fileName: '', fileSize: 0, uploadedAt: this.now(),
-      fonts: fonts.map((f) => ({ name: f.name, size: f.size, hash: f.sha256 })),
+      fonts: kept.map((f) => ({ name: f.name, size: f.size, hash: f.sha256 })),
       source: { ...release, kind: 'release', alignment: null, linedUpOn: null },
+      ...(missing ? { fontsMissing: true } : {}),
     };
     const dir = join(this.root(), id);
     mkdirSync(dir, { recursive: true });
     replaceAtomically(join(dir, 'meta.json'), JSON.stringify(stored));
     this.index.set(stored);
-    return { stored, needFonts: fonts.filter((f) => !existsSync(this.poolFile(f.sha256))).map((f) => f.name) };
+    return { stored, needFonts: kept.filter((f) => !existsSync(this.poolFile(f.sha256))).map((f) => f.name) };
   }
 
   /** Stores a release upload's file as `sub/` and as the unaligned `original/`, both counting toward the 2 GB; replaces an earlier one, and the upload waits to be lined up again. */

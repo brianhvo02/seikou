@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useState, type ReactElement } from 'react';
-import type { DiscManifest, StoredSubtitle } from '@seikou/nas/nas-api';
+import { isFansub, type DiscManifest, type StoredSubtitle } from '@seikou/nas/nas-api';
 import { discKeyOf } from '@seikou/nas/disc-key';
 import type { NasClient } from './nas-client';
 import { LANGUAGES, formatOffset, languageTag, subtitleErrorMessage, type SubtitleTarget } from './subtitle-model';
@@ -122,7 +122,8 @@ export function SubtitleList({ nas, target, listing, error: listError, manifestO
     setError(null);
     try {
       await nas.deleteSubtitle(id);
-      if (sub.source !== undefined) rememberFansubDeletion(target.titleId);
+      // a release upload's delete is no fansub run's business
+      if (isFansub(sub)) rememberFansubDeletion(target.titleId);
       setOpen(null);
       onChanged();
     } catch (err) {

@@ -456,6 +456,8 @@ export interface SubtitleCreate {
   readonly release?: Omit<ReleaseSource, 'kind' | 'alignment' | 'linedUpOn'>;
   /** The fonts the upload will bring, by name, SHA-256 and size, so the NAS can say which its pool lacks. */
   readonly fonts?: readonly { readonly name: string; readonly sha256: string; readonly size: number }[];
+  /** With `release`: the client left out some of the file's fonts (names the store can't take), so the upload is marked missing fonts. */
+  readonly fontsMissing?: true;
 }
 /**
  * The answer to `POST /api/subtitles` for a release upload: the fonts of the request the NAS's pool doesn't hold.

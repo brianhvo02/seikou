@@ -87,7 +87,7 @@ const validOffset = (v: unknown): v is number => typeof v === 'number' && Number
  * (404 to a guest while the title gate is `owners`, as the title routes answer; a guest never sees one that isn't
  * attached); only owners create, upload, edit and delete. Behind `requireToken` (401 `unauthorized`).
  * - `GET /api/subtitles?discKey=` or `?titleId=` lists (owners only: `?all=1`, 403 otherwise; anything else 400).
- * - `POST /api/subtitles {name, language, offsetMs?, for, release?, fonts?}` (owner, 201; `release` and the fonts it brings, by name, SHA-256 and size, make a release upload and the answer adds `needFonts`; guests don't list it until it is lined up) where `for` is an episode (title, season, number)
+ * - `POST /api/subtitles {name, language, offsetMs?, for, release?, fonts?, fontsMissing?}` (owner, 201; `release` and the fonts it brings, by name, SHA-256 and size, make a release upload and the answer adds `needFonts`; new fonts past 50 MB are left out and the upload marked `fontsMissing`, as `fontsMissing: true` marks one whose fonts the client dropped; guests don't list it until it is lined up) where `for` is an episode (title, season, number)
  *   or a chapter of a disc's playlist; 400 `bad-request`, or `not-found` when the attachment does not resolve.
  * - `PATCH /api/subtitles/<id>` (owner) changes name, language, offset or attachment; 404 for an unknown id.
  * - `PUT /api/subtitles/<id>/file/<name>` and `PUT <id>/fonts/<name>` (owner) take the bytes: 400 `empty`, `bad-name` or `bad-font`,
@@ -182,15 +182,16 @@ export function subtitleRoutes(auth: Auth, store: SubtitleStore, catalogue: Subt
     const body = await readJson(req);
     const f = isObject(body) ? parseFor(body.for) : null;
     if (!isObject(body) || !f || !validName(body.name) || !validLanguage(body.language) || (body.offsetMs !== undefined && !validOffset(body.offsetMs))
-      || !Object.keys(body).every((k) => ['name', 'language', 'offsetMs', 'for', 'release', 'fonts'].includes(k))) return bad();
+      || !Object.keys(body).every((k) => ['name', 'language', 'offsetMs', 'for', 'release', 'fonts', 'fontsMissing'].includes(k))) return bad();
     const release = body.release === undefined ? null : parseRelease(body.release);
     const fonts = body.fonts === undefined ? [] : parseFonts(body.fonts);
-    if ((body.release !== undefined && !release) || !fonts || (body.fonts !== undefined && !release)) return bad();
+    if ((body.release !== undefined && !release) || !fonts || (body.fonts !== undefined && !release)
+      || (body.fontsMissing !== undefined && (body.fontsMissing !== true || !release))) return bad();
     const attachment = resolve(f);
     if (!attachment) return bad('not-found');
     const meta: SubtitleMeta = { name: body.name, language: body.language, offsetMs: (body.offsetMs as number | undefined) ?? 0, attachment, uploaderPersonId: personId };
     if (release) {
-      const { stored, needFonts } = store.createRelease(meta, release, fonts);
+      const { stored, needFonts } = store.createRelease(meta, release, fonts, { fontsMissing: body.fontsMissing === true });
       return json(201, { ...withAttached(stored), needFonts });
     }
     return json(201, withAttached(store.create(meta)));

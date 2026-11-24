@@ -350,6 +350,23 @@ describe('SubtitleStore', () => {
       expect(again.fansubSwap([], [], []).room).toBe(20 * 1024 ** 3);
     });
 
+    it('marks the track as missing fonts when the client dropped some, and not otherwise', () => {
+      const s = make();
+      expect(s.createRelease(META, REL, [], { fontsMissing: true }).stored.fontsMissing).toBe(true);
+      expect(s.createRelease(META, REL, []).stored.fontsMissing).toBeUndefined();
+    });
+
+    it('a fansub writes a shared font a release declared but never sent', () => {
+      const s = make();
+      const f = font('Ww');
+      // a release whose tab closed before the font went up: the index names the hash, the pool has no file
+      s.createRelease(META, REL, [decl(f)]);
+      expect(existsSync(join(dir, 'subtitles', '.fonts', f.sha256))).toBe(false);
+      const fsrc: FansubSource = { kind: 'fansub', group: 'G', tracker: 'nyaa', rank: 'best', toshoFileId: 1, track: 1, trackName: 'En', alignment: { kind: 'original' }, linedUpOn: { discKey: 'disc-a', playlistId: '00001' } };
+      const fan = s.createFansub({ ...META, source: fsrc }, { name: 'a.ass', data: Buffer.from('a'), original: Buffer.from('o') }, [{ name: 'Ww.ttf', data: f.data }]);
+      expect(readFileSync(s.fontPath(fan.id, 'Ww.ttf')!, 'utf8')).toBe('Ww');
+    });
+
     it('fonts the pool holds are not asked for again', async () => {
       const s = make();
       const f = font('Yy');
@@ -367,11 +384,15 @@ describe('SubtitleStore', () => {
       expect(leftovers(stored.id)).toEqual([]);
     });
 
-    it('the 50 MB counts only fonts the pool does not hold', async () => {
+    it('the 50 MB counts only fonts the pool does not hold; past it the track keeps the fonts that fit, marked missing fonts', async () => {
       const s = make();
       const mib = 1024 * 1024;
-      const big = [1, 2].map((n) => ({ name: `f${n}.ttf`, sha256: String(n).repeat(64), size: 30 * mib }));
-      expect(() => s.createRelease(META, REL, big)).toThrow(TooLargeError);
+      const big = [1, 2, 3].map((n) => ({ name: `f${n}.ttf`, sha256: String(n).repeat(64), size: (n === 3 ? 10 : 30) * mib }));
+      const trimmed = s.createRelease(META, REL, big);
+      expect(trimmed.needFonts).toEqual(['f1.ttf', 'f3.ttf']);
+      expect(trimmed.stored.fonts.map((f) => f.name)).toEqual(['f1.ttf', 'f3.ttf']);
+      expect(trimmed.stored.fontsMissing).toBe(true);
+      expect(make().get(trimmed.stored.id)!.fontsMissing).toBe(true);
       // pooled fonts (as a fansub keeps them) cost nothing
       const pooled = [Buffer.alloc(30 * mib, 1), Buffer.alloc(30 * mib, 2)];
       const fmeta = { ...META, source: { kind: 'fansub', group: 'G', tracker: 'nyaa', rank: 'best', toshoFileId: 1, track: 1, trackName: 'En', alignment: { kind: 'original' }, linedUpOn: null } as unknown as FansubSource };

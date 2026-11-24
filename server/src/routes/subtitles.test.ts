@@ -432,6 +432,15 @@ describe('subtitle routes', () => {
       for (const path of ['file', 'fonts/F.ttf']) expect((await rcall('GET', `/api/subtitles/${made.id}/${path}`, guest)).status).toBe(200);
     });
 
+    it('takes fontsMissing on a release create and marks the upload', async () => {
+      const owner = await tokenFor('Hana', true);
+      const res = await rcall('POST', '/api/subtitles', owner, meta({ release, fontsMissing: true }));
+      expect(res.status).toBe(201);
+      expect(((await res.json()) as StoredSubtitle).fontsMissing).toBe(true);
+      expect((await rcall('POST', '/api/subtitles', owner, meta({ fontsMissing: true }))).status).toBe(400);
+      expect((await rcall('POST', '/api/subtitles', owner, meta({ release, fontsMissing: 'yes' }))).status).toBe(400);
+    });
+
     it('refuses malformed release requests', async () => {
       const owner = await tokenFor('Hana', true);
       expect((await rcall('POST', '/api/subtitles', owner, meta({ release: { ...release, track: -1 } }))).status).toBe(400);

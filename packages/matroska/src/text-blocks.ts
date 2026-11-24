@@ -13,7 +13,8 @@ import type { MkvBlock } from './reader';
 // of a file of gigabytes. Nothing proves the Cues name all of them, so that path is taken only
 // when every wanted track is ASS or SSA and the ReadOrder values (the first field of each block's
 // payload) of its blocks are exactly 0..n-1: a gap shows a block the Cues missed. Any other file
-// is walked cluster by cluster.
+// is walked cluster by cluster. The check can't see blocks missing only from the end: Cues that
+// leave out a track's last blocks still give 0..k-1, and those blocks are left out unseen.
 
 /** Largest range read from the file in one go while walking. */
 const CHUNK_BYTES = 8 * 1024 * 1024;
@@ -44,8 +45,9 @@ export interface TextBlocks {
  * Reads the blocks of the tracks numbered `tracks` from the Matroska file `reader` gives access
  * to. Through the Cues when every wanted track is an ASS or SSA track whose cues carry a relative
  * position and name blocks with ReadOrder exactly 0..n-1; otherwise by reading the clusters in
- * chunks of at most 8 MiB. Rejects with `MkvReadError` for a malformed file and with the signal's
- * reason when it aborts.
+ * chunks of at most 8 MiB. The ReadOrder check finds a block the Cues skip, but not blocks they
+ * miss only at the end of a track (ReadOrder then still runs 0..k-1), which are left out. Rejects
+ * with `MkvReadError` for a malformed file and with the signal's reason when it aborts.
  * @internal
  */
 export async function textTrackBlocks(reader: RangeReader, tracks: readonly number[], opts: TextBlocksOptions = {}): Promise<TextBlocks> {
@@ -87,6 +89,11 @@ function readOrderOf(data: Uint8Array): number {
   return /^\d+$/.test(text) ? Number(text) : NaN;
 }
 
+/**
+ * The wanted blocks read one by one from the Cues, or null when the ReadOrder values have a gap.
+ * Blocks the Cues miss only at a track's end can't be told from a track that ends there, and are
+ * left out.
+ */
 async function throughCues(
   reader: RangeReader,
   headerAt: (pos: number, signal?: AbortSignal) => Promise<ElementHeader | null>,

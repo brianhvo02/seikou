@@ -312,7 +312,10 @@ what would change that decision.
   `docs/superpowers/specs/2026-11-24-mkv-subtitles-design.md`; the store holds text subtitles only). The MKV of a NAS
   encode is different: its ASS and PGS tracks and attached fonts load (`packages/engine/src/encode/mkv-subtitles.ts`).
   An owner's release upload (the season screen's form) keeps a track's original on the NAS and lines it up there; where
-  the aligner answers `none` it shows at the release's own timing, and SRT tracks are never lined up. Fonts come from files picked or
+  the aligner answers `none` (or the line-up fails, such as a disc whose audio won't decode) it shows at the release's own
+  timing, marked "couldn't line up", and SRT tracks are never lined up (they count as at their original timing, with
+  no mark). Fonts the store can't take (WOFF2, no bytes, a repeated name) or past an upload's 50 MB are left out and
+  the upload is marked "no fonts". Fonts come from files picked or
   dropped with the script, from its `[Fonts]` section, from the subtitle store and from Anime Tosho; a family none of
   those supply is taken from the device's installed fonts when it has it (below), and a family that is still missing
   is replaced and named in a notice.
@@ -336,6 +339,12 @@ what would change that decision.
   MKV font filter (`fontAttachments` in `packages/engine/src/encode/mkv-subtitles.ts`) passes it to the ASS renderer,
   which counts it unreadable, so its family falls back like a missing font. *Revisit if* WOFF2 is decoded (then accept
   it on drop too) or if the encoder should refuse or convert it at upload, as the subtitle store does.
+- **An MKV whose Cues miss only a track's last blocks loses those blocks.** `textTrackBlocks`
+  (`packages/matroska/src/text-blocks.ts`) reads an ASS track block by block through the Cues when its blocks'
+  ReadOrder values run exactly 0..n-1, which shows a block skipped in the middle (the file is then walked cluster by
+  cluster) but not blocks missing at the end: ReadOrder still runs 0..k-1, and those lines are left out. Muxers cue
+  every subtitle block or none, so this needs a file cut or rewritten oddly. *Revisit if* a real release shows its last
+  lines missing (a walk would then be the fix, at the cost of reading the whole file).
 - **Legacy `Effect` field effects (`Banner`, `Scroll up`, `Scroll down`) are ignored**, and `Comment`, `Picture`,
   `Sound`, `Movie` and `Command` events are skipped. *Revisit if* a real file uses them.
 - **Right-to-left text is reordered by Chrome within a style run only**; libass's FriBidi reordering across runs is

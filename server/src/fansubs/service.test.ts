@@ -573,13 +573,23 @@ describe('FansubService', () => {
       expect(readFileSync(store.filePath(id)!, 'utf8')).toBe(FULL);
     });
 
+    it("a line-up that fails shows the release at its own timing, marked couldn't line up, and logs why", async () => {
+      const logs: string[] = [];
+      const { svc, store } = setup({ aligner: async () => { throw new Error('no audio read'); }, log: (m) => logs.push(m) });
+      const id = await releaseUpload(store, 1, 2, FULL);
+      svc.lineUpRelease(id);
+      await vi.waitFor(() => expect(alignmentOf(store, id)).toEqual({ kind: 'none', reason: 'low-confidence' }));
+      expect(readFileSync(store.filePath(id)!, 'utf8')).toBe(FULL);
+      expect(logs.some((m) => m.includes('no audio read'))).toBe(true);
+    });
+
     it('an SRT release upload is not lined up and is shown at once', async () => {
       const fake = fakeAligner(OFFSET);
       const { svc, store } = setup({ aligner: fake.align });
       const srt = '1\n00:00:01,000 --> 00:00:02,000\nHello\n';
       const id = await releaseUpload(store, 1, 4, srt, { ext: 'srt' });
       svc.lineUpRelease(id);
-      expect(alignmentOf(store, id)).toEqual({ kind: 'none', reason: 'no-speech' });
+      expect(alignmentOf(store, id)).toEqual({ kind: 'original' });
       expect(fake.calls).toEqual([]);
       expect(readFileSync(store.filePath(id)!, 'utf8')).toBe(srt);
     });
