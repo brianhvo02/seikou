@@ -33,6 +33,16 @@ export type PlaybackState = 'idle' | 'loading' | 'paused' | 'buffering' | 'playi
  */
 export type VideoPath = 'auto' | 'element' | 'canvas';
 
+/** The answer to preferElement: the playlist already plays on the element path, opens again there, or can't (with why). */
+export type ElementPreference = { readonly outcome: 'element' | 'reopening' } | { readonly outcome: 'unavailable'; readonly reason: ElementPreferenceReason };
+
+/**
+ * Why the playing playlist can't take the element path when the page asks for it (preferElement): no playlist plays,
+ * the Video output setting is Canvas, its video is not H.264 or HEVC (or it is an encode's), a shader set holds the
+ * canvas, the element failed on this disc, the page said its element can't play the stream, or no element is attached.
+ */
+export type ElementPreferenceReason = 'no-playlist' | 'canvas' | 'codec' | 'encode' | 'shaders' | 'element-failed' | 'refused' | 'no-element';
+
 /** The deinterlacing setting: `auto` deinterlaces interlaced video on the canvas path, `off` draws its frames woven. */
 export type DeinterlaceMode = 'auto' | 'off';
 
@@ -446,6 +456,12 @@ export type EngineCommand =
   | { readonly type: 'setLevel'; readonly disc: RemoteDiscSpec; readonly audio?: number }
   /** Which path draws H.264 and HEVC video: the page's video element, the canvas, or the engine's choice. */
   | { readonly type: 'setVideoPath'; readonly path: VideoPath }
+  /**
+   * The page wants the playing playlist on the element path (for Picture in Picture or a video's own fullscreen): a
+   * playlist on the canvas that the element path can carry opens again at the same time on the element, and the disc's
+   * later playlists take the element path too, until another disc opens. Answered by elementPreference.
+   */
+  | { readonly type: 'preferElement' }
   /** Turns deinterlacing of interlaced video on (`auto`) or off; applies at once, reopening an interlaced playlist at the same time. */
   | { readonly type: 'setDeinterlace'; readonly mode: DeinterlaceMode }
   /**
@@ -700,6 +716,12 @@ export type EngineEvent =
   | { readonly type: 'videoElementStop' }
   /** An HDR stream started playing on the element path (`hdr` true), or that stopped: the session ended or fell back to the canvas (`hdr` false). */
   | { readonly type: 'videoHdr'; readonly hdr: boolean }
+  /**
+   * The answer to preferElement: `element` (the playlist already plays on the element path), `reopening` (it opens again
+   * at the same time on the element path; the page's element shows it once the page has appended its first segment), or
+   * `unavailable` with the reason.
+   */
+  | ({ readonly type: 'elementPreference' } & ElementPreference)
   /** The answer to readPlace. */
   | ({ readonly type: 'placeState' } & PlaceState)
   /**

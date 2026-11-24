@@ -973,3 +973,88 @@ describe('Player choosing the path', () => {
     expect(h.events.slice(before).filter((e) => e.type === 'playlistCleared')).toHaveLength(0);
   });
 });
+
+describe('Player asked to prefer the element path (preferElement)', () => {
+  const preferences = (h: Harness) => ofType(h, 'elementPreference');
+  const timeAfter = (h: Harness, index: number): number | undefined => h.events.slice(index).find((e): e is Extract<EngineEvent, { type: 'time' }> => e.type === 'time')?.timeUs;
+
+  it('moves an SDR playlist on the canvas to the element path at the same time, with no notice, for the rest of the disc', async () => {
+    const h = await harness({ path: 'auto' });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    await h.play(1500);
+    expect(telemetries(h).at(-1)).toMatchObject({ videoPath: 'canvas' });
+    const at = clockNow(h);
+    const before = h.events.length;
+    await h.player.handle({ type: 'preferElement' });
+    expect(preferences(h).at(-1)).toEqual({ type: 'elementPreference', outcome: 'reopening' });
+    await untilState(h, 'playing');
+    await h.play(600);
+    const after = h.events.slice(before);
+    expect(after.filter((e) => e.type === 'playlistCleared')).toHaveLength(1);
+    expect(after.filter((e) => e.type === 'notice')).toHaveLength(0);
+    const reset = after.find((e): e is Extract<EngineEvent, { type: 'videoReset' }> => e.type === 'videoReset');
+    expect(reset?.startUs).toBeGreaterThan(at - 300_000);
+    expect(timeAfter(h, before)).toBeGreaterThan(at - 300_000);
+    expect(telemetries(h).at(-1)).toMatchObject({ videoPath: 'element' });
+    // another playlist of the same disc keeps the element path
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00001' });
+    await untilState(h, 'playing');
+    await h.play(300);
+    expect(telemetries(h).at(-1)).toMatchObject({ videoPath: 'element' });
+    // asked again on the element: nothing to do
+    await h.player.handle({ type: 'preferElement' });
+    expect(preferences(h).at(-1)).toEqual({ type: 'elementPreference', outcome: 'element' });
+    // a new disc forgets the preference
+    await h.player.handle({ type: 'open', disc: { kind: 'files', entries: discEntries(fixtureDiscFiles('disc1')) } });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    await h.play(300);
+    expect(telemetries(h).at(-1)).toMatchObject({ videoPath: 'canvas' });
+  }, 30_000);
+
+  it('answers unavailable with no playlist, under the Canvas setting, with a shader set on, and after the element failed', async () => {
+    const none = await harness({ path: 'auto' });
+    await none.player.handle({ type: 'preferElement' });
+    expect(preferences(none).at(-1)).toEqual({ type: 'elementPreference', outcome: 'unavailable', reason: 'no-playlist' });
+
+    const canvas = await harness({ path: 'canvas' });
+    await canvas.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(canvas, 'playing');
+    await canvas.player.handle({ type: 'preferElement' });
+    expect(preferences(canvas).at(-1)).toEqual({ type: 'elementPreference', outcome: 'unavailable', reason: 'canvas' });
+
+    const shaders = await harness({ path: 'auto', shaders: true });
+    await shaders.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(shaders, 'playing');
+    await shaders.player.handle({ type: 'preferElement' });
+    expect(preferences(shaders).at(-1)).toEqual({ type: 'elementPreference', outcome: 'unavailable', reason: 'shaders' });
+
+    const failed = await harness({ path: 'element' });
+    await failed.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(failed, 'playing');
+    await failed.player.handle({ type: 'videoElementFailed', message: 'an append failed', generation: failed.page.generation });
+    await untilState(failed, 'playing');
+    await failed.player.handle({ type: 'preferElement' });
+    expect(preferences(failed).at(-1)).toEqual({ type: 'elementPreference', outcome: 'unavailable', reason: 'element-failed' });
+  }, 30_000);
+
+  it('answers unavailable for video the element path cannot carry (MPEG-2)', async () => {
+    const h = await harness({ path: 'auto', files: fixtureDiscFiles('disc-mpeg2') });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await vi.waitFor(async () => {
+      await h.play(100);
+      expect(lastState(h)).toMatch(/playing|buffering/);
+    });
+    await h.player.handle({ type: 'preferElement' });
+    expect(preferences(h).at(-1)).toEqual({ type: 'elementPreference', outcome: 'unavailable', reason: 'codec' });
+  }, 20_000);
+
+  it('answers unavailable when the page said its element cannot play the stream', async () => {
+    const h = await harness({ path: 'element', playable: false });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    await h.player.handle({ type: 'preferElement' });
+    expect(preferences(h).at(-1)).toEqual({ type: 'elementPreference', outcome: 'unavailable', reason: 'refused' });
+  }, 20_000);
+});

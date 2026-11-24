@@ -48,6 +48,8 @@ PlaybackState
 NoticeCode
 ErrorCode
 VideoPath
+ElementPreference
+ElementPreferenceReason
 DeinterlaceMode
 DeinterlaceTelemetry
 # deinterlace/deinterlacer

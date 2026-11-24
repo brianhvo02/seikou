@@ -98,7 +98,7 @@ import type { ColourDescription } from '@seikou/bdmv/codecs/param-sets';
 import { ElementCodecQueries, ElementSession } from './element/element-session';
 import type { Mat3 } from '@seikou/ass/transform';
 import type { AssTrack } from '@seikou/ass/types';
-import { BDJ_STORAGE_MESSAGE, ENCODE_FILE, ENCODE_PLAYLIST_ID, NO_PICTURE_MESSAGE, type AudioTrack, type EncodeSpec, type BufferRequest, type BdjMemoryTelemetry, type DeinterlaceTelemetry, type EngineCommand, type EngineEvent, type FileData, type MenuKey, type NoticeCode, type PlaceState, type PgTrack, type PlaybackState, type ElementQuery, type ElementQueryTelemetry, type ShaderSetData, type StartPoint, type SubtitleChoice, type Telemetry, type VideoDecoderSpeed, type VideoPath } from './protocol';
+import { BDJ_STORAGE_MESSAGE, ENCODE_FILE, ENCODE_PLAYLIST_ID, NO_PICTURE_MESSAGE, type AudioTrack, type EncodeSpec, type BufferRequest, type BdjMemoryTelemetry, type DeinterlaceTelemetry, type ElementPreferenceReason, type EngineCommand, type EngineEvent, type FileData, type MenuKey, type NoticeCode, type PlaceState, type PgTrack, type PlaybackState, type ElementQuery, type ElementQueryTelemetry, type ShaderSetData, type StartPoint, type SubtitleChoice, type Telemetry, type VideoDecoderSpeed, type VideoPath } from './protocol';
 import type { CompositorLike, DrawnPicture, TextRendererLike } from './render/compositor';
 import { ShaderStage } from './shaders/stage';
 import { UNAVAILABLE, type ShaderBackend } from './shaders/webgl-backend';
@@ -759,6 +759,8 @@ export class Player {
   private elementResets = 0;
   /** The page's video element failed on this disc: its playlists take the canvas path until another disc opens. */
   private elementOff = false;
+  /** The page asked for the element path (preferElement): the disc's playlists take it as with 'element', until another disc opens. */
+  private elementPreferred = false;
   /** Why the video element failed on this disc (telemetry's elementFailure); null while it hasn't. */
   private elementFailure: string | null = null;
   /** An HDR stream plays on the element path, as the last videoHdr event said. */
@@ -963,6 +965,9 @@ export class Player {
           break;
         case 'setVideoPath':
           this.videoPath = cmd.path; // from the next session on
+          break;
+        case 'preferElement':
+          await this.preferElement();
           break;
         case 'setDeinterlace':
           await this.setDeinterlace(cmd.mode);
@@ -1425,6 +1430,32 @@ export class Player {
     if (reopen) await this.restart(disc, this.restartPoint(s));
   }
 
+  /**
+   * The page wants the playing playlist on the element path (preferElement): one on the canvas that the element path can
+   * carry opens again at the same time there, as a shader set's reopen does (no notice), and the disc's later playlists
+   * take the element path too. Answered by elementPreference.
+   */
+  private async preferElement(): Promise<void> {
+    const unavailable = (reason: ElementPreferenceReason): void => this.deps.emit({ type: 'elementPreference', outcome: 'unavailable', reason });
+    const s = this.session;
+    const disc = this.disc;
+    if (!s || !disc || this.state === 'error') return unavailable('no-playlist');
+    if (s.element) {
+      this.deps.emit({ type: 'elementPreference', outcome: 'element' });
+      return;
+    }
+    if (s.encode) return unavailable('encode');
+    if (this.videoPath === 'canvas') return unavailable('canvas');
+    if (s.videoCodingType !== CodingType.AVC && s.videoCodingType !== CodingType.HEVC) return unavailable('codec');
+    if (this.elementOff) return unavailable('element-failed');
+    if (this.shadersOn) return unavailable('shaders');
+    if (!this.clockWriter) return unavailable('no-element');
+    if (s.elementQuery?.answer === false) return unavailable('refused');
+    this.elementPreferred = true;
+    this.deps.emit({ type: 'elementPreference', outcome: 'reopening' });
+    await this.restart(disc, this.restartPoint(s));
+  }
+
   private startRenderLoop(): void {
     if (this.renderLoopStarted) return;
     this.renderLoopStarted = true;
@@ -1458,6 +1489,7 @@ export class Player {
   private async openDisc(spec: DiscSpec, bufferFirst: BufferRequest | undefined, hold: OpenHold | null, start: StartPoint | null): Promise<void> {
     this.openedAtMs = this.deps.nowMs();
     this.elementOff = false;
+    this.elementPreferred = false;
     this.elementFailure = null;
     this.bdjStartup = null;
     this.bdjLatency = this.deps.bdj?.input.createInputLatency() ?? null;
@@ -1539,6 +1571,7 @@ export class Player {
       }
       this.openedAtMs = this.deps.nowMs();
       this.elementOff = false;
+      this.elementPreferred = false;
       this.elementFailure = null;
       this.bdjStartup = null;
       this.noPictureNotice = 'unsent';
@@ -3940,7 +3973,7 @@ export class Player {
    * all the same, since the shaders need decoded frames). The units read meanwhile wait in pendingVideo.
    */
   private choosePath(s: Session, decoder: WebCodecsVideoDecoder, first: PipelineUnit, coding: 'avc' | 'hevc', found: ElementQuestion): void {
-    const sdrAuto = this.videoPath === 'auto' && !found.query.hdr;
+    const sdrAuto = this.videoPath === 'auto' && !found.query.hdr && !this.elementPreferred;
     const config = { codingType: s.videoCodingType, firstUnit: first.data, ...(first.key !== undefined ? { key: first.key } : {}), ...(s.videoCodecPrivate ? { codecPrivate: s.videoCodecPrivate } : {}) };
     if (!sdrAuto && !this.shadersOn) {
       // the page alone decides; whether WebCodecs could decode it too is noted on the side, so a shader set turned on
