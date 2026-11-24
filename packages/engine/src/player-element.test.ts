@@ -9,6 +9,7 @@ import { ClockBlockReader, createClockBlock } from './element/clock-block';
 import { Player } from './player';
 import { UNAVAILABLE, type CompiledSet, type ShaderBackend } from './shaders/webgl-backend';
 import type { ElementCheck, EngineEvent, PlaybackState, Telemetry } from './protocol';
+import type { HdrOverlayPresenter } from './render/hdr-presenter';
 
 /** WebCodecs decoders the engine created (the canvas path). */
 const decoders: VideoDecoderLike[] = [];
@@ -71,6 +72,20 @@ interface Options {
   shaders?: boolean;
   /** Whether shaders can run here: a backend (the default), or none (WebGL2 or float targets missing). */
   shaderBackend?: 'available' | 'unavailable';
+  /**
+   * The page attaches an HDR overlay canvas, its display reporting HDR (`displayHdr`), and the engine can make an HDR
+   * presenter (`made: true`) or not (a reason); absent: no HDR canvas and no way to make a presenter.
+   */
+  hdr?: { readonly displayHdr: boolean; readonly made: true | string; readonly gain?: number };
+}
+
+/** A fake HDR overlay presenter that records what it was asked. */
+function fakeHdrPresenter(log: string[]): HdrOverlayPresenter {
+  return {
+    present: (_s, gain) => log.push(`present ${gain}`),
+    clear: () => log.push('clear'),
+    dispose: () => log.push('dispose'),
+  };
 }
 
 /** A shader backend that compiles nothing (a set stays compiling): enough for the stage to count as available. */
@@ -88,6 +103,8 @@ async function harness(opts: Options = {}) {
   const elementStarts: Array<{ picture: boolean; element?: { width: number; height: number } }> = [];
   /** How many times the compositor was told an element frame shows. */
   const framesShown = { count: 0 };
+  /** The HDR overlay: presenters made, what the compositor was given, what presenters were asked; `lose` loses the last one. */
+  const hdr = { made: 0, given: [] as Array<HdrOverlayPresenter | null>, log: [] as string[], lose: (_reason: string): void => undefined, starts: [] as boolean[] };
   let player!: Player;
   const autoBuffered = opts.autoBuffered ?? true;
   /** The last videoReset's generation, which the fake page echoes. */
@@ -131,9 +148,25 @@ async function harness(opts: Options = {}) {
     createCompositor: () => ({
       resize: () => undefined,
       drawVideo: (f) => drawn.push(`video:${(f as VideoFrame | null)?.timestamp ?? null}`),
-      startPlaylist: (picture, o) => elementStarts.push({ picture, ...(o?.element ? { element: o.element } : {}) }),
+      startPlaylist: (picture, o) => {
+        elementStarts.push({ picture, ...(o?.element ? { element: o.element } : {}) });
+        hdr.starts.push(o?.hdr === true);
+      },
       elementFrameShown: () => framesShown.count++,
+      setHdrPresenter: (p) => {
+        if (hdr.given.at(-1) !== p) hdr.given.push(p);
+      },
     }),
+    ...(opts.hdr
+      ? {
+          createHdrPresenter: async (_canvas: OffscreenCanvas, onLost: (reason: string) => void) => {
+            hdr.made++;
+            hdr.lose = onLost;
+            const made = opts.hdr!.made;
+            return made === true ? { presenter: fakeHdrPresenter(hdr.log) } : { reason: made };
+          },
+        }
+      : {}),
   });
   const ring = createRing(48_000, 2);
   const views = ringViews(ring);
@@ -141,6 +174,7 @@ async function harness(opts: Options = {}) {
   if (opts.memory) await player.handle({ type: 'setMemoryProfile', profile: opts.memory });
   if (opts.audio !== false) await player.handle({ type: 'attachAudio', ring });
   await player.handle({ type: 'attachCanvas', canvas: {} as OffscreenCanvas });
+  if (opts.hdr) await player.handle({ type: 'attachHdrCanvas', canvas: {} as OffscreenCanvas, displayHdr: opts.hdr.displayHdr, ...(opts.hdr.gain !== undefined ? { gain: opts.hdr.gain } : {}) });
   if (opts.path !== null) await player.handle({ type: 'setVideoPath', path: opts.path ?? 'element' });
   if (opts.shaders) await player.handle({ type: 'setVideoShaders', set: SHADER_SET });
   if (!opts.attachLate) await player.handle({ type: 'attachVideoElement', clock: clockBlock });
@@ -167,6 +201,7 @@ async function harness(opts: Options = {}) {
     drawn,
     elementStarts,
     framesShown,
+    hdr,
     clock,
     clockReader: new ClockBlockReader(clockBlock),
     epochMs: () => 1_700_000_000_000 + clock.ms,
@@ -819,6 +854,85 @@ describe('Player choosing the path', () => {
       { type: 'videoHdr', hdr: true },
       { type: 'videoHdr', hdr: false },
     ]);
+  });
+
+  describe('HDR overlays', () => {
+    /** The HDR overlay telemetry, from a report sent after now. */
+    const hdrOverlay = async (h: Harness) => {
+      const before = telemetries(h).length;
+      await vi.waitFor(async () => {
+        await h.play(100);
+        expect(telemetries(h).length).toBeGreaterThan(before);
+      });
+      return telemetries(h).at(-1)?.hdrOverlay;
+    };
+
+    it('makes the presenter once an HDR element session plays on an HDR display, and gives it to the compositor', async () => {
+      const h = await harness({ path: 'auto', files: hdrDisc(), hdr: { displayHdr: true, made: true } });
+      expect(h.hdr.made).toBe(0); // nothing before an HDR session
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilState(h, 'playing');
+      await h.play(300);
+      expect(h.hdr.made).toBe(1);
+      expect(h.hdr.given.at(-1)).not.toBeNull();
+      expect(h.hdr.starts).toContain(true); // the element session starts as HDR
+      expect(h.hdr.log.length).toBe(0); // the fake compositor presents nothing itself
+      expect(await hdrOverlay(h)).toEqual({ displayHdr: true, presenter: 'webgpu', reason: null, active: false, gain: expect.closeTo(2.03, 5) });
+      // the display stops reporting HDR: the compositor loses the presenter, and gets it back after
+      await h.player.handle({ type: 'setDisplayHdr', displayHdr: false });
+      expect(h.hdr.given.at(-1)).toBeNull();
+      await h.player.handle({ type: 'setDisplayHdr', displayHdr: true });
+      expect(h.hdr.given.at(-1)).not.toBeNull();
+      expect(h.hdr.made).toBe(1);
+    });
+
+    it('opens no GPU device for an SDR disc or on an SDR display', async () => {
+      const sdr = await harness({ path: 'element', hdr: { displayHdr: true, made: true } });
+      await sdr.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilState(sdr, 'playing');
+      await sdr.play(300);
+      expect(sdr.hdr.made).toBe(0);
+      expect(await hdrOverlay(sdr)).toMatchObject({ presenter: 'none', active: false });
+      const sdrDisplay = await harness({ path: 'auto', files: hdrDisc(), hdr: { displayHdr: false, made: true } });
+      await sdrDisplay.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilState(sdrDisplay, 'playing');
+      await sdrDisplay.play(300);
+      expect(sdrDisplay.hdr.made).toBe(0);
+      // the display turns HDR while the HDR session plays: made then
+      await sdrDisplay.player.handle({ type: 'setDisplayHdr', displayHdr: true });
+      await sdrDisplay.play(100);
+      expect(sdrDisplay.hdr.made).toBe(1);
+      expect(sdrDisplay.hdr.given.at(-1)).not.toBeNull();
+    });
+
+    it('stays SDR, and says why, when the presenter cannot be made or is lost', async () => {
+      const h = await harness({ path: 'auto', files: hdrDisc(), hdr: { displayHdr: true, made: 'no WebGPU adapter' } });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilState(h, 'playing');
+      await h.play(300);
+      expect(await hdrOverlay(h)).toMatchObject({ presenter: 'unavailable', reason: 'no WebGPU adapter', active: false });
+      expect(h.hdr.given.filter((p) => p !== null)).toHaveLength(0);
+      const lost = await harness({ path: 'auto', files: hdrDisc(), hdr: { displayHdr: true, made: true, gain: 50 } });
+      await lost.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilState(lost, 'playing');
+      await lost.play(300);
+      lost.hdr.lose('the GPU device was lost');
+      await lost.play(300);
+      expect(await hdrOverlay(lost)).toMatchObject({ presenter: 'lost', reason: 'the GPU device was lost', gain: 10 });
+      expect(lost.hdr.given.at(-1)).toBeNull();
+      // not made again for the page's canvas
+      await lost.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilState(lost, 'playing');
+      expect(lost.hdr.made).toBe(1);
+    });
+
+    it('reports nothing without an HDR canvas', async () => {
+      const h = await harness({ path: 'auto', files: hdrDisc() });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilState(h, 'playing');
+      await h.play(300);
+      expect(await hdrOverlay(h)).toBeNull();
+    });
   });
 
   it('says videoHdr false when the HDR element session falls back to the canvas', async () => {

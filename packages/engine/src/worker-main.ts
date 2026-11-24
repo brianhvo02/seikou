@@ -22,6 +22,7 @@ import { loadAudioWasm } from './decode/wasm-audio';
 import { browserVideoCodecApi } from './decode/video-decoder';
 import { Player } from './player';
 import type { EngineCommand, EngineEvent } from './protocol';
+import { createWebGpuHdrPresenter, type HdrCanvasLike } from './render/hdr-presenter';
 import { Compositor } from './render/compositor';
 import { createWebGlBackend } from './shaders/webgl-backend';
 
@@ -112,6 +113,8 @@ export function startEngineWorker(options: EngineWorkerOptions): Player {
       else setTimeout(callback, 16);
     },
     createCompositor: (canvas) => new Compositor(canvas),
+    // overlays over HDR video at graphics white: WebGPU in extended range on the page's HDR overlay canvas
+    createHdrPresenter: (canvas, onLost) => createWebGpuHdrPresenter(canvas as unknown as HdrCanvasLike, (navigator as Navigator & { gpu?: GPU }).gpu, onLost),
     // WebGL2 on its own OffscreenCanvas, created when the first shader set is chosen
     createShaderBackend: (events) => createWebGlBackend((w, h) => new OffscreenCanvas(w, h), events),
     // Commands run one at a time, so a stalled download would block every later one: give up and report it instead.

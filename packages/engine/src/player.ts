@@ -98,8 +98,10 @@ import type { ColourDescription } from '@seikou/bdmv/codecs/param-sets';
 import { ElementCodecQueries, ElementSession } from './element/element-session';
 import type { Mat3 } from '@seikou/ass/transform';
 import type { AssTrack } from '@seikou/ass/types';
-import { BDJ_STORAGE_MESSAGE, ENCODE_FILE, ENCODE_PLAYLIST_ID, NO_PICTURE_MESSAGE, type AudioTrack, type EncodeSpec, type BufferRequest, type BdjMemoryTelemetry, type DeinterlaceTelemetry, type EngineCommand, type EngineEvent, type FileData, type MenuKey, type NoticeCode, type PlaceState, type PgTrack, type PlaybackState, type ElementQuery, type ElementQueryTelemetry, type ShaderSetData, type StartPoint, type SubtitleChoice, type Telemetry, type VideoDecoderSpeed, type VideoPath } from './protocol';
+import { BDJ_STORAGE_MESSAGE, ENCODE_FILE, ENCODE_PLAYLIST_ID, NO_PICTURE_MESSAGE, type AudioTrack, type EncodeSpec, type BufferRequest, type BdjMemoryTelemetry, type DeinterlaceTelemetry, type EngineCommand, type EngineEvent, type FileData, type MenuKey, type NoticeCode, type PlaceState, type PgTrack, type PlaybackState, type ElementQuery, type ElementQueryTelemetry, type HdrOverlayTelemetry, type ShaderSetData, type StartPoint, type SubtitleChoice, type Telemetry, type VideoDecoderSpeed, type VideoPath } from './protocol';
 import type { CompositorLike, DrawnPicture, TextRendererLike } from './render/compositor';
+import type { HdrOverlayPresenter, HdrPresenterResult } from './render/hdr-presenter';
+import { clampGain } from './render/hdr-overlay';
 import { ShaderStage } from './shaders/stage';
 import { UNAVAILABLE, type ShaderBackend } from './shaders/webgl-backend';
 import { decodeText, parseSrt } from './subs/srt';
@@ -148,6 +150,12 @@ export interface PlayerDeps {
   requestFrame(callback: () => void): void;
   /** Makes the compositor for the canvas the page transferred. */
   createCompositor(canvas: OffscreenCanvas): CompositorLike;
+  /**
+   * Makes the presenter of overlays over HDR video on the page's HDR overlay canvas (WebGPU in extended range,
+   * `createWebGpuHdrPresenter`), or says why it can't; `onLost` is called if it stops working later. Without it,
+   * overlays over HDR video stay SDR.
+   */
+  readonly createHdrPresenter?: (canvas: OffscreenCanvas, onLost: (reason: string) => void) => Promise<HdrPresenterResult>;
   /** Makes an audio decoder for a coding type (the WASM decoders, loaded on first use). */
   readonly createAudioDecoder: AudioDecoderFactory;
   /** WebCodecs audio decoding, for an encoded episode's Opus; the browser's (if it has one) by default, null for none. */
@@ -763,6 +771,15 @@ export class Player {
   private elementFailure: string | null = null;
   /** An HDR stream plays on the element path, as the last videoHdr event said. */
   private videoHdr = false;
+  /** The page's HDR overlay canvas and its presenter (attachHdrCanvas); null until the page attached one. */
+  private hdrOverlay: {
+    readonly canvas: OffscreenCanvas;
+    displayHdr: boolean;
+    readonly gain: number;
+    presenter: HdrOverlayPresenter | null;
+    state: HdrOverlayTelemetry['presenter'];
+    reason: string | null;
+  } | null = null;
   /** A shader set is chosen and shaders can run here (setVideoShaders): sessions take the canvas path, where the shaders run. */
   private shadersOn = false;
 
@@ -827,6 +844,10 @@ export class Player {
       this.interlacedVideo?.settlePacing();
       this.session?.bob?.settle();
       this.bdj?.session.setHidden(cmd.hidden);
+      return Promise.resolve();
+    }
+    if (cmd.type === 'attachHdrCanvas' || cmd.type === 'setDisplayHdr') {
+      this.hdrCommand(cmd);
       return Promise.resolve();
     }
     if (
@@ -907,6 +928,8 @@ export class Player {
         case 'videoFrameShown':
         case 'videoElementFailed':
         case 'videoSync':
+        case 'attachHdrCanvas':
+        case 'setDisplayHdr':
           break; // handled at once
         case 'bufferAhead':
           await this.fill(cmd, false);
@@ -915,6 +938,7 @@ export class Player {
           this.compositor = this.deps.createCompositor(cmd.canvas);
           if (this.shaderStage) this.compositor.setShaderStage?.(this.shaderStage);
           if (this.background?.current) this.compositor.setBackground?.(this.background.current);
+          this.hdrSync();
           this.startRenderLoop();
           break;
         case 'attachAudio':
@@ -1143,6 +1167,7 @@ export class Player {
     if (text) this.compositor?.drawText?.(text, this.subtitleUs(this.presentUs()), this.textOptions());
     if (this.navigator?.igPlane) this.compositor?.drawIg?.(this.navigator.igPlane);
     if (this.bdj) this.compositor?.drawBdj?.(this.bdj.plane);
+    this.compositor?.present?.();
   }
 
   /** The PG plane that shows: the disc's PG stream, or an encode's PGS track. */
@@ -1201,6 +1226,7 @@ export class Player {
       // flushes on the BD-J worker's thread (a copy that waited for the writer took nothing, and answers nothing)
       if (bdj.copiedVersion() !== copied) this.bdjLatency?.presented(this.deps.nowMs(), bdj.copiedVersion());
     }
+    this.compositor?.present?.();
   }
 
   /**
@@ -4024,7 +4050,7 @@ export class Player {
         if (!first) {
           this.compositor?.setElementSize?.(size);
         } else {
-          this.compositor?.startPlaylist?.(true, { element: size });
+          this.compositor?.startPlaylist?.(true, { element: size, hdr });
           this.elementDirty = true;
         }
       },
@@ -4077,6 +4103,7 @@ export class Player {
     if (this.videoHdr === on) return;
     this.videoHdr = on;
     this.deps.emit({ type: 'videoHdr', hdr: on });
+    this.hdrSync();
   }
 
   /** attachVideoElement: the engine publishes its clock there; an element session's video starts again at the clock, so the new element gets its init. */
@@ -4087,6 +4114,71 @@ export class Player {
     this.elementQueries.askAgain();
     const s = this.session;
     if (s?.element) await this.startAt(this.clock.nowUs(), this.wantPlaying, 'keep');
+  }
+
+  /** The page's HDR overlay canvas, or a change of its display: handled at once. */
+  private hdrCommand(cmd: Extract<EngineCommand, { type: 'attachHdrCanvas' | 'setDisplayHdr' }>): void {
+    if (cmd.type === 'setDisplayHdr') {
+      if (!this.hdrOverlay || this.hdrOverlay.displayHdr === cmd.displayHdr) return;
+      this.hdrOverlay.displayHdr = cmd.displayHdr;
+    } else {
+      // a second canvas (a remounted player screen) replaces the first and its presenter
+      this.hdrOverlay?.presenter?.dispose();
+      this.compositor?.setHdrPresenter?.(null, 1);
+      this.hdrOverlay = { canvas: cmd.canvas, displayHdr: cmd.displayHdr, gain: clampGain(cmd.gain), presenter: null, state: 'none', reason: null };
+    }
+    this.hdrSync();
+  }
+
+  /**
+   * Gives the compositor the HDR overlay presenter while the display reports HDR (it uses it only over an HDR stream on
+   * the element path), and takes it back otherwise. The presenter is made the first time an HDR element session plays
+   * on an HDR display, so no GPU device is opened on an SDR display or for SDR discs; one that couldn't be made, or was
+   * lost, isn't tried again for the page's canvas.
+   */
+  private hdrSync(): void {
+    const h = this.hdrOverlay;
+    if (!h) return;
+    if (h.state === 'none' && h.displayHdr && this.videoHdr && this.deps.createHdrPresenter) {
+      h.state = 'pending';
+      const onLost = (reason: string): void => {
+        if (this.hdrOverlay !== h) return;
+        h.presenter = null;
+        h.state = 'lost';
+        h.reason = reason;
+        this.deps.log?.(`HDR overlays: ${reason}; subtitles and menus over HDR video are drawn as SDR`);
+        this.hdrSync();
+      };
+      void this.deps.createHdrPresenter(h.canvas, onLost).then(
+        (made) => this.hdrMade(h, made),
+        (err: unknown) => this.hdrMade(h, { reason: String(err) }),
+      );
+      return;
+    }
+    this.compositor?.setHdrPresenter?.(h.displayHdr ? h.presenter : null, h.gain);
+    this.elementDirty = true; // the overlays move between the canvases at the next paint
+  }
+
+  private hdrMade(h: NonNullable<Player['hdrOverlay']>, made: HdrPresenterResult): void {
+    if (this.hdrOverlay !== h) {
+      if ('presenter' in made) made.presenter.dispose();
+      return;
+    }
+    if ('presenter' in made) {
+      h.presenter = made.presenter;
+      h.state = 'webgpu';
+    } else {
+      h.state = 'unavailable';
+      h.reason = made.reason;
+      this.deps.log?.(`HDR overlays: ${made.reason}; subtitles and menus over HDR video are drawn as SDR`);
+    }
+    this.hdrSync();
+  }
+
+  private hdrOverlayTelemetry(): HdrOverlayTelemetry | null {
+    const h = this.hdrOverlay;
+    if (!h) return null;
+    return { displayHdr: h.displayHdr, presenter: h.state, reason: h.reason, active: this.compositor?.hdrActive?.() ?? false, gain: h.gain };
   }
 
   /** The video element's reports, handled at once. */
@@ -4732,6 +4824,7 @@ export class Player {
         ...(s?.element ? { elementCatchUps: this.elementFrames.catchUps } : {}),
         elementFailure: this.elementFailure,
         videoHdr: this.videoHdr,
+        hdrOverlay: this.hdrOverlayTelemetry(),
         elementQuery: s?.elementQuery ?? null,
         deinterlace: this.deinterlaceTelemetry(s),
         videoDecoder: videoDecoderTelemetry(s?.decoder ?? null),
