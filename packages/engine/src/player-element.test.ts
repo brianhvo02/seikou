@@ -877,7 +877,7 @@ describe('Player choosing the path', () => {
       expect(h.hdr.given.at(-1)).not.toBeNull();
       expect(h.hdr.starts).toContain(true); // the element session starts as HDR
       expect(h.hdr.log.length).toBe(0); // the fake compositor presents nothing itself
-      expect(await hdrOverlay(h)).toEqual({ displayHdr: true, presenter: 'webgpu', reason: null, active: false, gain: expect.closeTo(2.03, 5) });
+      expect(await hdrOverlay(h)).toEqual({ displayHdr: true, presenter: 'webgpu', reason: null, active: false, gain: expect.closeTo(2.03, 5), layer: null, presentMs: null });
       // the display stops reporting HDR: the compositor loses the presenter, and gets it back after
       await h.player.handle({ type: 'setDisplayHdr', displayHdr: false });
       expect(h.hdr.given.at(-1)).toBeNull();
@@ -920,10 +920,45 @@ describe('Player choosing the path', () => {
       await lost.play(300);
       expect(await hdrOverlay(lost)).toMatchObject({ presenter: 'lost', reason: 'the GPU device was lost', gain: 10 });
       expect(lost.hdr.given.at(-1)).toBeNull();
-      // not made again for the page's canvas
-      await lost.player.handle({ type: 'playPlaylist', playlistId: '00000' });
-      await untilState(lost, 'playing');
-      expect(lost.hdr.made).toBe(1);
+      expect(lost.hdr.made).toBe(1); // not at once
+    });
+
+    it('makes a lost presenter once more when the page shows again, and gives up after a second loss', async () => {
+      const h = await harness({ path: 'auto', files: hdrDisc(), hdr: { displayHdr: true, made: true } });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilState(h, 'playing');
+      await h.play(300);
+      await h.player.handle({ type: 'visibility', hidden: true });
+      h.hdr.lose('the GPU device was lost');
+      await h.play(100);
+      expect(h.hdr.made).toBe(1);
+      await h.player.handle({ type: 'visibility', hidden: false });
+      await h.play(100);
+      expect(h.hdr.made).toBe(2);
+      expect(h.hdr.given.at(-1)).not.toBeNull();
+      expect(await hdrOverlay(h)).toMatchObject({ presenter: 'webgpu', active: false });
+      // the second loss is final: neither the page shown again nor the next HDR session makes another
+      h.hdr.lose('lost again');
+      await h.player.handle({ type: 'visibility', hidden: true });
+      await h.player.handle({ type: 'visibility', hidden: false });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilState(h, 'playing');
+      await h.play(300);
+      expect(h.hdr.made).toBe(2);
+      expect(await hdrOverlay(h)).toMatchObject({ presenter: 'lost', reason: 'lost again' });
+    });
+
+    it('makes a lost presenter once more at the next HDR element session', async () => {
+      const h = await harness({ path: 'auto', files: hdrDisc(), hdr: { displayHdr: true, made: true } });
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilState(h, 'playing');
+      await h.play(300);
+      h.hdr.lose('the GPU device was lost');
+      await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+      await untilState(h, 'playing');
+      await h.play(300);
+      expect(h.hdr.made).toBe(2);
+      expect(h.hdr.given.at(-1)).not.toBeNull();
     });
 
     it('reports nothing without an HDR canvas', async () => {

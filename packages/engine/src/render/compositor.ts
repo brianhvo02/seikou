@@ -99,15 +99,31 @@ export interface CompositorLike {
   /** Shades every video frame drawn from now on with the stage's set (null: draw frames as they are). */
   setShaderStage?(stage: ShaderStage | null): void;
   /**
-   * The presenter of overlays over HDR video (null: none), and the gain that lifts their white to graphics white. While
-   * the compositor is in element mode for an HDR stream (startPlaylist's `hdr`) and has one, it draws its overlays on a
-   * layer of its own, the visible canvas stays transparent, and present() shows the layer through the presenter.
+   * The presenter of overlays over HDR video (null: none), with how it is used (`opts`). While the compositor is in
+   * element mode for an HDR stream (startPlaylist's `hdr`) and has one, it draws its overlays on a layer of its own
+   * covering only the overlay rectangle (the 1920×1080 menu rectangle and the picture's), the visible canvas keeps only
+   * the BD-J background still (SDR, as it shows until the element's first frame), and present() shows the layer through
+   * the presenter.
    */
-  setHdrPresenter?(presenter: HdrOverlayPresenter | null, gain: number): void;
+  setHdrPresenter?(presenter: HdrOverlayPresenter | null, opts: HdrPresenterOptions): void;
   /** Ends a paint: in HDR overlay mode the layer just drawn goes to the presenter; otherwise nothing. */
   present?(): void;
   /** The overlays go through the HDR presenter now. */
   hdrActive?(): boolean;
+  /** In HDR overlay mode, the layer's size in pixels; null outside it. */
+  hdrLayerSize?(): { readonly width: number; readonly height: number } | null;
+}
+
+/**
+ * How the compositor uses an HDR overlay presenter: the gain on the overlays' white (linear light), the largest layer in
+ * pixels (a larger overlay rectangle is drawn smaller and stretched), and `place`, told where the layer goes over the
+ * visible canvas (fractions of its width and height) whenever that changes, so the page can put the HDR canvas there.
+ * @internal
+ */
+export interface HdrPresenterOptions {
+  readonly gain: number;
+  readonly maxPixels: number;
+  readonly place?: (rect: Rect) => void;
 }
 
 /**
@@ -140,11 +156,16 @@ export class Compositor implements CompositorLike {
   private ctx: OffscreenCanvasRenderingContext2D;
   private readonly mainCtx: OffscreenCanvasRenderingContext2D;
   private hdrPresenter: HdrOverlayPresenter | null = null;
-  private hdrGain = 1;
+  private hdrOpts: HdrPresenterOptions = { gain: 1, maxPixels: Infinity };
+  /** The BD-J background still was drawn on the visible canvas in HDR overlay mode, so it is cleared before the next. */
+  private stillOnMain = false;
   /** The element's stream is HDR (startPlaylist's `hdr`). */
   private elementHdr = false;
-  /** The layer drawn in HDR overlay mode, at the visible canvas's size; null outside it. */
-  private layer: { readonly canvas: OffscreenCanvas; readonly ctx: OffscreenCanvasRenderingContext2D } | null = null;
+  /**
+   * The layer drawn in HDR overlay mode: the overlay rectangle of the visible canvas (`rect`, in its pixels) at `scale`,
+   * its context transformed so everything draws at the visible canvas's coordinates; null outside it.
+   */
+  private layer: { readonly canvas: OffscreenCanvas; readonly ctx: OffscreenCanvasRenderingContext2D; rect: Rect | null; scale: number } | null = null;
   private pg: PlaneCanvas | null = null;
   private ig: PlaneCanvas | null = null;
   private bdj: BdjCanvas | null = null;
@@ -174,15 +195,16 @@ export class Compositor implements CompositorLike {
   resize(width: number, height: number): void {
     this.canvas.width = Math.max(1, Math.round(width));
     this.canvas.height = Math.max(1, Math.round(height));
-    if (this.layer) {
-      this.layer.canvas.width = this.canvas.width;
-      this.layer.canvas.height = this.canvas.height;
-    }
+    this.layoutLayer();
   }
 
-  setHdrPresenter(presenter: HdrOverlayPresenter | null, gain: number): void {
-    this.hdrGain = gain;
-    if (presenter === this.hdrPresenter) return;
+  setHdrPresenter(presenter: HdrOverlayPresenter | null, opts: HdrPresenterOptions): void {
+    const maxChanged = opts.maxPixels !== this.hdrOpts.maxPixels;
+    this.hdrOpts = opts;
+    if (presenter === this.hdrPresenter) {
+      if (maxChanged) this.layoutLayer();
+      return;
+    }
     // the one taken away shows nothing from now on
     if (this.layer) this.hdrPresenter?.clear();
     this.hdrPresenter = presenter;
@@ -193,21 +215,59 @@ export class Compositor implements CompositorLike {
     return this.layer !== null;
   }
 
+  hdrLayerSize(): { readonly width: number; readonly height: number } | null {
+    return this.layer ? { width: this.layer.canvas.width, height: this.layer.canvas.height } : null;
+  }
+
   present(): void {
-    if (this.layer) this.hdrPresenter?.present(this.layer.canvas, this.hdrGain);
+    if (this.layer) this.hdrPresenter?.present(this.layer.canvas, this.hdrOpts.gain);
+  }
+
+  /**
+   * Sizes the layer to the overlay rectangle (the menu rectangle, and the picture's when there is one), scaled down to
+   * the largest layer allowed, and tells `place` where it goes when that changed.
+   */
+  private layoutLayer(): void {
+    const l = this.layer;
+    if (!l) return;
+    const cw = this.canvas.width;
+    const ch = this.canvas.height;
+    let r = fitRect(PLANE_WIDTH, PLANE_HEIGHT, cw, ch);
+    if (this.frameSize) {
+      const f = fitRect(this.frameSize.width, this.frameSize.height, cw, ch);
+      const x = Math.min(r.x, f.x);
+      const y = Math.min(r.y, f.y);
+      r = { x, y, width: Math.max(r.x + r.width, f.x + f.width) - x, height: Math.max(r.y + r.height, f.y + f.height) - y };
+    }
+    if (r.width <= 0 || r.height <= 0) r = { x: 0, y: 0, width: Math.max(1, cw), height: Math.max(1, ch) };
+    const scale = Math.min(1, Math.sqrt(this.hdrOpts.maxPixels / (r.width * r.height)));
+    const width = Math.max(1, Math.round(r.width * scale));
+    const height = Math.max(1, Math.round(r.height * scale));
+    if (l.canvas.width !== width) l.canvas.width = width;
+    if (l.canvas.height !== height) l.canvas.height = height;
+    // a canvas's size change resets its transform: set every time
+    l.ctx.setTransform(width / r.width, 0, 0, height / r.height, (-r.x * width) / r.width, (-r.y * height) / r.height);
+    l.scale = scale;
+    const old = l.rect;
+    l.rect = r;
+    if (!old || old.x !== r.x || old.y !== r.y || old.width !== r.width || old.height !== r.height) {
+      this.hdrOpts.place?.({ x: r.x / Math.max(1, cw), y: r.y / Math.max(1, ch), width: r.width / Math.max(1, cw), height: r.height / Math.max(1, ch) });
+    }
   }
 
   /** Enters or leaves HDR overlay mode as the element, its stream and the presenter now say. */
   private updateTarget(): void {
     const want = this.element && this.elementHdr && this.hdrPresenter !== null;
     if (want && !this.layer) {
-      const canvas = this.createCanvas(this.canvas.width, this.canvas.height);
+      const canvas = this.createCanvas(1, 1);
       const ctx = canvas.getContext('2d');
       if (!ctx) return; // no layer: the overlays stay on the visible canvas
-      this.layer = { canvas, ctx };
+      this.layer = { canvas, ctx, rect: null, scale: 1 };
       this.ctx = ctx;
+      this.layoutLayer();
       // nothing SDR stays over the video
       this.mainCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      this.stillOnMain = false;
     } else if (!want && this.layer) {
       this.hdrPresenter?.clear();
       this.layer.canvas.width = this.layer.canvas.height = 0;
@@ -228,6 +288,10 @@ export class Compositor implements CompositorLike {
     const { width, height } = this.canvas;
     if (this.element) {
       this.ctx.clearRect(0, 0, width, height);
+      if (this.stillOnMain) {
+        this.mainCtx.clearRect(0, 0, width, height);
+        this.stillOnMain = false;
+      }
       // over the element the still would cover the picture: only until the element shows one
       if (!this.elementShown) this.drawBackground(null);
       return;
@@ -267,7 +331,10 @@ export class Compositor implements CompositorLike {
     const h = bg.rect.height * screen.height;
     // an opaque frame that covers the still hides it: no full-screen draw under every frame of a feature
     const hidden = frame !== null && frame.x <= x && frame.y <= y && frame.x + frame.width >= x + w && frame.y + frame.height >= y + h;
-    if (!hidden) this.ctx.drawImage(bg.image, x, y, w, h);
+    if (hidden) return;
+    // on the visible canvas: in HDR overlay mode the still stays SDR, as a picture (it shows under the overlays)
+    this.mainCtx.drawImage(bg.image, x, y, w, h);
+    if (this.layer) this.stillOnMain = true;
   }
 
   drawPg(plane: OverlayPlane): void {
@@ -319,6 +386,7 @@ export class Compositor implements CompositorLike {
     this.elementShown = false;
     this.updateTarget();
     if (opts?.element) this.setElementSize(opts.element);
+    else this.layoutLayer();
   }
 
   setElementSize(size: ElementPictureSize): void {
@@ -326,6 +394,7 @@ export class Compositor implements CompositorLike {
     // as drawVideo does for a frame: placement on the display size, ASS's storage size the coded one
     this.frameSize = { width: size.width, height: size.height };
     this.storageSize = { width: size.codedWidth, height: size.codedHeight };
+    this.layoutLayer();
   }
 
   drawText(renderer: TextRendererLike, timeUs: number, opts: TextRenderOptions): void {

@@ -9,9 +9,12 @@
 export interface HdrOverlayPresenter {
   /** Shows `source` (premultiplied sRGB, any size) on the HDR canvas at the same size, its linear light times `gain`. */
   present(source: OffscreenCanvas, gain: number): void;
-  /** Shows nothing (a transparent canvas). */
+  /**
+   * Shows nothing, and lets go of what presenting holds (the copy of the overlay and the canvas's buffers) until the
+   * next present.
+   */
   clear(): void;
-  /** Releases the GPU device; nothing is shown again. */
+  /** Releases the GPU device and empties the canvas; nothing is shown again. */
   dispose(): void;
 }
 
@@ -91,16 +94,38 @@ export async function createWebGpuHdrPresenter(
   }
   if (!context) return fail('no WebGPU canvas context');
   try {
-    context.configure({ device, format: 'rgba16float', alphaMode: 'premultiplied', colorSpace: 'srgb', toneMapping: { mode: 'extended' } });
+    context.configure(canvasConfiguration(device));
   } catch (err) {
     return fail(`the extended-range canvas was refused (${String(err)})`);
   }
   const mode = typeof context.getConfiguration === 'function' ? context.getConfiguration()?.toneMapping?.mode : undefined;
-  if (mode !== 'extended') return fail('the canvas has no extended range');
+  if (mode !== 'extended') {
+    emptyCanvas(canvas, context);
+    return fail('the canvas has no extended range');
+  }
   try {
     return { presenter: new WebGpuHdrPresenter(canvas, context, device, onLost) };
   } catch (err) {
     return fail(`the HDR overlay pipeline failed (${String(err)})`);
+  }
+}
+
+/** The HDR canvas's configuration: float16, premultiplied, extended range. */
+function canvasConfiguration(device: GPUDevice): GPUCanvasConfiguration {
+  return { device, format: 'rgba16float', alphaMode: 'premultiplied', colorSpace: 'srgb', toneMapping: { mode: 'extended' } };
+}
+
+/** Unconfigures the context and resets the canvas, so the page shows nothing there (not the last image presented). */
+function emptyCanvas(canvas: HdrCanvasLike, context: GPUCanvasContext): void {
+  try {
+    context.unconfigure();
+  } catch {
+    // never configured, or the device is gone
+  }
+  try {
+    canvas.width = canvas.width; // resetting the size clears what the canvas shows
+  } catch {
+    // nothing more to do
   }
 }
 
@@ -109,6 +134,8 @@ class WebGpuHdrPresenter implements HdrOverlayPresenter {
   private readonly uniform: GPUBuffer;
   private source: { readonly texture: GPUTexture; readonly bindGroup: GPUBindGroup; readonly width: number; readonly height: number } | null = null;
   private dead = false;
+  /** The context is configured (presenting); clear() unconfigures it to free its buffers. */
+  private configured = true;
 
   constructor(
     private readonly canvas: HdrCanvasLike,
@@ -125,6 +152,8 @@ class WebGpuHdrPresenter implements HdrOverlayPresenter {
     });
     this.uniform = device.createBuffer({ size: 16, usage: BUFFER_UNIFORM | BUFFER_COPY_DST });
     void device.lost.then((info) => this.lose(`the GPU device was lost (${info.message || info.reason})`));
+    // a validation or out-of-memory error leaves the canvas in an unknown state: stop using it
+    device.onuncapturederror = (e) => this.lose(`a GPU error (${e.error?.message ?? 'unknown'})`);
   }
 
   present(source: OffscreenCanvas, gain: number): void {
@@ -133,6 +162,10 @@ class WebGpuHdrPresenter implements HdrOverlayPresenter {
     const height = Math.max(1, source.height);
     try {
       this.size(width, height);
+      if (!this.configured) {
+        this.context.configure(canvasConfiguration(this.device));
+        this.configured = true;
+      }
       const src = this.sourceTexture(width, height);
       this.device.queue.copyExternalImageToTexture({ source }, { texture: src.texture, premultipliedAlpha: true }, [width, height]);
       this.device.queue.writeBuffer(this.uniform, 0, new Float32Array([gain, 0, 0, 0]));
@@ -144,19 +177,23 @@ class WebGpuHdrPresenter implements HdrOverlayPresenter {
 
   clear(): void {
     if (this.dead) return;
-    try {
-      this.draw(null);
-    } catch (err) {
-      this.lose(`presenting failed (${String(err)})`);
-    }
+    this.release();
+    emptyCanvas(this.canvas, this.context);
+    this.configured = false;
   }
 
   dispose(): void {
     if (this.dead) return;
     this.dead = true;
+    this.release();
+    emptyCanvas(this.canvas, this.context);
+    this.device.destroy();
+  }
+
+  /** Destroys the overlay's copy. */
+  private release(): void {
     this.source?.texture.destroy();
     this.source = null;
-    this.device.destroy();
   }
 
   private size(width: number, height: number): void {
@@ -201,6 +238,9 @@ class WebGpuHdrPresenter implements HdrOverlayPresenter {
   private lose(reason: string): void {
     if (this.dead) return;
     this.dead = true;
+    this.source = null;
+    // the canvas would go on showing its last overlay over the SDR one the compositor draws from now on
+    emptyCanvas(this.canvas, this.context);
     try {
       this.device.destroy();
     } catch {

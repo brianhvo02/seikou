@@ -60,6 +60,12 @@ export interface MemoryProfile {
    * for a free slot.
    */
   readonly deinterlaceRing: number;
+  /**
+   * The largest overlay layer, in pixels, presented through the HDR overlay canvas over HDR video: a larger overlay
+   * rectangle is drawn at a smaller scale and stretched (the layer, its GPU copy and the canvas's float16 buffers all
+   * follow it).
+   */
+  readonly hdrOverlayMaxPixels: number;
 }
 
 /**
@@ -83,6 +89,7 @@ export const MEMORY_PROFILES: Readonly<Record<MemoryProfileName, MemoryProfile>>
     bdjRemoteReadAheadBytes: 16 * MB,
     elementLeadUs: 10_000_000,
     deinterlaceRing: 12,
+    hdrOverlayMaxPixels: 3840 * 2160,
   },
   constrained: {
     igPreloadLimitBytes: 64 * MB,
@@ -102,5 +109,6 @@ export const MEMORY_PROFILES: Readonly<Record<MemoryProfileName, MemoryProfile>>
     // the deinterlacer itself holds about 7 (lookahead, the frame awaiting its next, the previous neighbour): 8 would
     // leave about one frame of pictures queued
     deinterlaceRing: 10,
+    hdrOverlayMaxPixels: 1920 * 1080,
   },
 };

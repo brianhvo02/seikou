@@ -1375,6 +1375,16 @@ describe('PlayerController.attachHdrCanvas', () => {
     expect(q.listeners.size).toBe(0);
   });
 
+  it('puts the HDR canvas over the overlay rectangle the engine presents', () => {
+    const worker = new FakeWorker();
+    const controller = new PlayerController(worker, new FakeAudio(), { matchMedia: () => query(true) });
+    const style: Record<string, string> = {};
+    const el = { transferControlToOffscreen: () => ({}), style } as unknown as HTMLCanvasElement;
+    controller.attachHdrCanvas(el);
+    worker.emit({ type: 'hdrOverlayPlace', rect: { x: 0, y: 0.125, width: 1, height: 0.75 } });
+    expect(style).toEqual({ left: '0.0000%', top: '12.5000%', width: '100.0000%', height: '75.0000%', right: 'auto', bottom: 'auto' });
+  });
+
   it('reports what the page says instead of the media query when told (tests)', () => {
     const worker = new FakeWorker();
     const matchMedia = vi.fn(() => query(false));

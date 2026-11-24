@@ -99,7 +99,7 @@ import { ElementCodecQueries, ElementSession } from './element/element-session';
 import type { Mat3 } from '@seikou/ass/transform';
 import type { AssTrack } from '@seikou/ass/types';
 import { BDJ_STORAGE_MESSAGE, ENCODE_FILE, ENCODE_PLAYLIST_ID, NO_PICTURE_MESSAGE, type AudioTrack, type EncodeSpec, type BufferRequest, type BdjMemoryTelemetry, type DeinterlaceTelemetry, type EngineCommand, type EngineEvent, type FileData, type MenuKey, type NoticeCode, type PlaceState, type PgTrack, type PlaybackState, type ElementQuery, type ElementQueryTelemetry, type HdrOverlayTelemetry, type ShaderSetData, type StartPoint, type SubtitleChoice, type Telemetry, type VideoDecoderSpeed, type VideoPath } from './protocol';
-import type { CompositorLike, DrawnPicture, TextRendererLike } from './render/compositor';
+import type { CompositorLike, DrawnPicture, HdrPresenterOptions, TextRendererLike } from './render/compositor';
 import type { HdrOverlayPresenter, HdrPresenterResult } from './render/hdr-presenter';
 import { clampGain } from './render/hdr-overlay';
 import { ShaderStage } from './shaders/stage';
@@ -779,6 +779,12 @@ export class Player {
     presenter: HdrOverlayPresenter | null;
     state: HdrOverlayTelemetry['presenter'];
     reason: string | null;
+    /** Presenters lost so far: after the first, one more is made at the next chance (rebuild); after the second, none. */
+    losses: number;
+    /** A presenter lost once may be made again: set at the next HDR element session or when the page shows again. */
+    rebuild: boolean;
+    /** Time spent in present() on this thread, ms: the last, the sum and the largest, over `count` presents. */
+    present: { last: number; sum: number; max: number; count: number };
   } | null = null;
   /** A shader set is chosen and shaders can run here (setVideoShaders): sessions take the canvas path, where the shaders run. */
   private shadersOn = false;
@@ -844,6 +850,7 @@ export class Player {
       this.interlacedVideo?.settlePacing();
       this.session?.bob?.settle();
       this.bdj?.session.setHidden(cmd.hidden);
+      if (!cmd.hidden) this.hdrMayRebuild();
       return Promise.resolve();
     }
     if (cmd.type === 'attachHdrCanvas' || cmd.type === 'setDisplayHdr') {
@@ -984,6 +991,7 @@ export class Player {
         case 'setMemoryProfile':
           this.memory = MEMORY_PROFILES[cmd.profile];
           this.memoryName = cmd.profile;
+          this.hdrSync(); // the largest HDR overlay layer follows the profile
           break;
         case 'setVideoPath':
           this.videoPath = cmd.path; // from the next session on
@@ -1167,7 +1175,7 @@ export class Player {
     if (text) this.compositor?.drawText?.(text, this.subtitleUs(this.presentUs()), this.textOptions());
     if (this.navigator?.igPlane) this.compositor?.drawIg?.(this.navigator.igPlane);
     if (this.bdj) this.compositor?.drawBdj?.(this.bdj.plane);
-    this.compositor?.present?.();
+    this.presentOverlays();
   }
 
   /** The PG plane that shows: the disc's PG stream, or an encode's PGS track. */
@@ -1226,7 +1234,7 @@ export class Player {
       // flushes on the BD-J worker's thread (a copy that waited for the writer took nothing, and answers nothing)
       if (bdj.copiedVersion() !== copied) this.bdjLatency?.presented(this.deps.nowMs(), bdj.copiedVersion());
     }
-    this.compositor?.present?.();
+    this.presentOverlays();
   }
 
   /**
@@ -4103,6 +4111,7 @@ export class Player {
     if (this.videoHdr === on) return;
     this.videoHdr = on;
     this.deps.emit({ type: 'videoHdr', hdr: on });
+    if (on) this.hdrMayRebuild();
     this.hdrSync();
   }
 
@@ -4124,8 +4133,18 @@ export class Player {
     } else {
       // a second canvas (a remounted player screen) replaces the first and its presenter
       this.hdrOverlay?.presenter?.dispose();
-      this.compositor?.setHdrPresenter?.(null, 1);
-      this.hdrOverlay = { canvas: cmd.canvas, displayHdr: cmd.displayHdr, gain: clampGain(cmd.gain), presenter: null, state: 'none', reason: null };
+      this.compositor?.setHdrPresenter?.(null, this.hdrPresenterOptions(1));
+      this.hdrOverlay = {
+        canvas: cmd.canvas,
+        displayHdr: cmd.displayHdr,
+        gain: clampGain(cmd.gain),
+        presenter: null,
+        state: 'none',
+        reason: null,
+        losses: 0,
+        rebuild: false,
+        present: { last: 0, sum: 0, max: 0, count: 0 },
+      };
     }
     this.hdrSync();
   }
@@ -4133,20 +4152,24 @@ export class Player {
   /**
    * Gives the compositor the HDR overlay presenter while the display reports HDR (it uses it only over an HDR stream on
    * the element path), and takes it back otherwise. The presenter is made the first time an HDR element session plays
-   * on an HDR display, so no GPU device is opened on an SDR display or for SDR discs; one that couldn't be made, or was
-   * lost, isn't tried again for the page's canvas.
+   * on an HDR display, so no GPU device is opened on an SDR display or for SDR discs. One that couldn't be made isn't
+   * tried again for the page's canvas; one lost (iOS loses GPU devices in the background) is made once more, at the next
+   * HDR element session or when the page shows again, and a second loss is final.
    */
   private hdrSync(): void {
     const h = this.hdrOverlay;
     if (!h) return;
-    if (h.state === 'none' && h.displayHdr && this.videoHdr && this.deps.createHdrPresenter) {
+    const mayMake = h.state === 'none' || (h.state === 'lost' && h.losses === 1 && h.rebuild);
+    if (mayMake && h.displayHdr && this.videoHdr && this.deps.createHdrPresenter) {
       h.state = 'pending';
+      h.rebuild = false;
       const onLost = (reason: string): void => {
-        if (this.hdrOverlay !== h) return;
+        if (this.hdrOverlay !== h || h.state === 'lost') return;
         h.presenter = null;
         h.state = 'lost';
         h.reason = reason;
-        this.deps.log?.(`HDR overlays: ${reason}; subtitles and menus over HDR video are drawn as SDR`);
+        h.losses++;
+        this.deps.log?.(`HDR overlays: ${reason}; subtitles and menus over HDR video are drawn as SDR${h.losses === 1 ? ' until the GPU is set up again' : ''}`);
         this.hdrSync();
       };
       void this.deps.createHdrPresenter(h.canvas, onLost).then(
@@ -4155,12 +4178,49 @@ export class Player {
       );
       return;
     }
-    this.compositor?.setHdrPresenter?.(h.displayHdr ? h.presenter : null, h.gain);
+    this.compositor?.setHdrPresenter?.(h.displayHdr ? h.presenter : null, this.hdrPresenterOptions(h.gain));
     this.elementDirty = true; // the overlays move between the canvases at the next paint
   }
 
+  /** How the compositor uses the presenter: the gain, the memory profile's largest layer, and the page told where it goes. */
+  private hdrPresenterOptions(gain: number): HdrPresenterOptions {
+    return {
+      gain,
+      maxPixels: this.memory.hdrOverlayMaxPixels,
+      place: (rect) => this.deps.emit({ type: 'hdrOverlayPlace', rect }),
+    };
+  }
+
+  /** A presenter lost once may be made again now (the next HDR element session, or the page shown again). */
+  private hdrMayRebuild(): void {
+    const h = this.hdrOverlay;
+    if (!h || h.state !== 'lost' || h.losses !== 1) return;
+    h.rebuild = true;
+    this.hdrSync();
+  }
+
+  /** Ends a paint: the compositor hands an HDR overlay layer to its presenter, timed for telemetry. */
+  private presentOverlays(): void {
+    const c = this.compositor;
+    if (!c?.present) return;
+    const h = this.hdrOverlay;
+    if (!h || !c.hdrActive?.()) {
+      c.present();
+      return;
+    }
+    const t0 = this.deps.nowMs();
+    c.present();
+    const ms = this.deps.nowMs() - t0;
+    const p = h.present;
+    p.last = ms;
+    p.sum += ms;
+    p.max = Math.max(p.max, ms);
+    p.count++;
+  }
+
   private hdrMade(h: NonNullable<Player['hdrOverlay']>, made: HdrPresenterResult): void {
-    if (this.hdrOverlay !== h) {
+    // replaced by another canvas, or lost before this answer came
+    if (this.hdrOverlay !== h || h.state !== 'pending') {
       if ('presenter' in made) made.presenter.dispose();
       return;
     }
@@ -4178,7 +4238,16 @@ export class Player {
   private hdrOverlayTelemetry(): HdrOverlayTelemetry | null {
     const h = this.hdrOverlay;
     if (!h) return null;
-    return { displayHdr: h.displayHdr, presenter: h.state, reason: h.reason, active: this.compositor?.hdrActive?.() ?? false, gain: h.gain };
+    const p = h.present;
+    return {
+      displayHdr: h.displayHdr,
+      presenter: h.state,
+      reason: h.reason,
+      active: this.compositor?.hdrActive?.() ?? false,
+      gain: h.gain,
+      layer: this.compositor?.hdrLayerSize?.() ?? null,
+      presentMs: p.count > 0 ? { last: p.last, mean: p.sum / p.count, max: p.max, count: p.count } : null,
+    };
   }
 
   /** The video element's reports, handled at once. */

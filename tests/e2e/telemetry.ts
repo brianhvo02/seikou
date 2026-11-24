@@ -23,7 +23,15 @@ export interface TelemetrySample {
   /** An HDR stream plays on the element path. */
   videoHdr?: boolean;
   /** Subtitles and menus over HDR video at graphics white (the engine's HdrOverlayTelemetry); null without an HDR canvas. */
-  hdrOverlay?: { displayHdr: boolean; presenter: string; reason: string | null; active: boolean; gain: number } | null;
+  hdrOverlay?: {
+    displayHdr: boolean;
+    presenter: string;
+    reason: string | null;
+    active: boolean;
+    gain: number;
+    layer?: { width: number; height: number } | null;
+    presentMs?: { last: number; mean: number; max: number; count: number } | null;
+  } | null;
   avOffsetMeanUs: number | null;
   avOffsetMaxAbsUs: number | null;
   framesInWindow: number;

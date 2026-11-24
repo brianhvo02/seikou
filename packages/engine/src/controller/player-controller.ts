@@ -301,6 +301,8 @@ export function reduceEvent(s: PlayerSnapshot, e: EngineEvent): PlayerSnapshot {
       return s.videoElement ? { ...s, videoElement: false } : s;
     case 'videoHdr':
       return s.videoHdr === e.hdr ? s : { ...s, videoHdr: e.hdr };
+    case 'hdrOverlayPlace':
+      return s; // the controller places the HDR overlay canvas itself
     case 'videoElementQuery':
     case 'videoSegment':
     case 'videoReset':
@@ -402,6 +404,8 @@ export class PlayerController {
   private readonly transferredCanvases = new WeakSet<HTMLCanvasElement>();
   /** Stops following `(dynamic-range: high)` for the attached HDR overlay canvas. */
   private displayHdrOff: (() => void) | null = null;
+  /** The HDR overlay canvas, placed over the overlay rectangle the engine presents (hdrOverlayPlace). */
+  private hdrCanvas: HTMLCanvasElement | null = null;
   private videoOutput: { readonly element: HTMLVideoElement; readonly output: ElementVideoOutput } | null = null;
   /** The capability check's answers by elementQueryKey, kept for the page's life across the elements attached. */
   private readonly elementAnswers = new Map<string, Promise<ElementAnswer>>();
@@ -456,6 +460,7 @@ export class PlayerController {
         this.reportInternalError(`The video element output failed: ${err instanceof Error ? err.message : String(err)}`);
       }
       if (e.type === 'soundEffects') audio.loadEffects(e.clips);
+      if (e.type === 'hdrOverlayPlace') this.placeHdrCanvas(e.rect);
       else if (e.type === 'soundEffect') audio.playEffect(e.id);
       else if (e.type === 'remoteTokenNeeded') this.answerTokenRequest();
       else if (e.type === 'fetchPortClosed') this.fetchPortClosed();
@@ -563,6 +568,7 @@ export class PlayerController {
     if (this.transferredCanvases.has(canvas)) return;
     this.transferredCanvases.add(canvas);
     const offscreen = canvas.transferControlToOffscreen();
+    this.hdrCanvas = canvas;
     this.displayHdrOff?.();
     this.displayHdrOff = null;
     const match = this.options.matchMedia ?? (typeof matchMedia === 'function' ? (q: string) => matchMedia(q) : null);
@@ -574,6 +580,19 @@ export class PlayerController {
       query.addEventListener('change', changed);
       this.displayHdrOff = () => query.removeEventListener('change', changed);
     }
+  }
+
+  /** Puts the HDR overlay canvas over the overlay rectangle, given as fractions of the video canvas's box. */
+  private placeHdrCanvas(rect: { readonly x: number; readonly y: number; readonly width: number; readonly height: number }): void {
+    const style = this.hdrCanvas?.style;
+    if (!style) return;
+    const pct = (v: number): string => `${(v * 100).toFixed(4)}%`;
+    style.left = pct(rect.x);
+    style.top = pct(rect.y);
+    style.width = pct(rect.width);
+    style.height = pct(rect.height);
+    style.right = 'auto';
+    style.bottom = 'auto';
   }
 
   /**

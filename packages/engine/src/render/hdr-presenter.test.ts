@@ -18,6 +18,7 @@ function fakeGpu(o: FakeOptions = {}) {
   let configured: GPUCanvasConfiguration | null = null;
   const device = {
     lost,
+    onuncapturederror: null as ((e: { error: { message: string } }) => void) | null,
     destroy: vi.fn(() => calls.push('destroy')),
     createShaderModule: () => ({}),
     createRenderPipeline: () => ({ getBindGroupLayout: () => ({}) }),
@@ -45,7 +46,12 @@ function fakeGpu(o: FakeOptions = {}) {
   const context = {
     configure: (c: GPUCanvasConfiguration) => {
       if (o.configureThrows) throw new TypeError('bad');
+      calls.push('configure');
       configured = c;
+    },
+    unconfigure: () => {
+      calls.push('unconfigure');
+      configured = null;
     },
     getCurrentTexture: () => ({ createView: () => ({}) }),
     ...(o.mode === 'none'
@@ -55,7 +61,18 @@ function fakeGpu(o: FakeOptions = {}) {
             configured && { ...configured, toneMapping: o.mode === 'dropped' ? undefined : { mode: o.mode ?? 'extended' } },
         }),
   };
-  const canvas: HdrCanvasLike = { width: 0, height: 0, getContext: () => (o.context === false ? null : (context as unknown as GPUCanvasContext)) };
+  let width = 0;
+  const canvas: HdrCanvasLike = {
+    get width() {
+      return width;
+    },
+    set width(w: number) {
+      calls.push(`width=${w}`);
+      width = w;
+    },
+    height: 0,
+    getContext: () => (o.context === false ? null : (context as unknown as GPUCanvasContext)),
+  };
   const gpu = {
     requestAdapter: async () => (o.adapter === false ? null : { requestDevice: async () => device }),
   } as unknown as GPU;
@@ -94,20 +111,46 @@ describe('createWebGpuHdrPresenter', () => {
     const f = fakeGpu();
     const r = await createWebGpuHdrPresenter(f.canvas, f.gpu, () => undefined);
     if (!('presenter' in r)) throw new Error(r.reason);
+    f.calls.length = 0;
     r.presenter.present(layer(640, 360), 2.03);
     expect(f.canvas.width).toBe(640);
     expect(f.canvas.height).toBe(360);
-    expect(f.calls).toEqual(['texture 640x360', 'copy 640x360 premultiplied=true', 'draw 3', 'submit']);
+    expect(f.calls).toEqual(['width=640', 'texture 640x360', 'copy 640x360 premultiplied=true', 'draw 3', 'submit']);
     expect(f.written[0]).toBeCloseTo(2.03, 5);
     f.calls.length = 0;
     r.presenter.present(layer(640, 360), 2.03);
     expect(f.calls).toEqual(['copy 640x360 premultiplied=true', 'draw 3', 'submit']); // the texture is kept
     f.calls.length = 0;
     r.presenter.present(layer(800, 450), 2.03);
-    expect(f.calls.slice(0, 2)).toEqual(['texture destroyed', 'texture 800x450']);
+    expect(f.calls.slice(0, 3)).toEqual(['width=800', 'texture destroyed', 'texture 800x450']);
     f.calls.length = 0;
     r.presenter.clear();
-    expect(f.calls).toEqual(['submit']); // a cleared pass, no draw
+    // the copy and the canvas's buffers are let go of, and the canvas shows nothing
+    expect(f.calls).toEqual(['texture destroyed', 'unconfigure', 'width=800']);
+    f.calls.length = 0;
+    r.presenter.present(layer(800, 450), 2.03);
+    expect(f.calls).toEqual(['configure', 'texture 800x450', 'copy 800x450 premultiplied=true', 'draw 3', 'submit']);
+    expect(f.configuredWith()).toMatchObject({ format: 'rgba16float', toneMapping: { mode: 'extended' } });
+  });
+
+  it('empties the canvas when disposed, so its last overlay does not stay on the page', async () => {
+    const f = fakeGpu();
+    const r = await createWebGpuHdrPresenter(f.canvas, f.gpu, () => undefined);
+    if (!('presenter' in r)) throw new Error(r.reason);
+    r.presenter.present(layer(10, 10), 2);
+    f.calls.length = 0;
+    r.presenter.dispose();
+    expect(f.calls).toEqual(['texture destroyed', 'unconfigure', 'width=10', 'destroy']);
+  });
+
+  it('treats an uncaptured GPU error as a loss', async () => {
+    const f = fakeGpu();
+    const onLost = vi.fn();
+    const r = await createWebGpuHdrPresenter(f.canvas, f.gpu, onLost);
+    if (!('presenter' in r)) throw new Error(r.reason);
+    f.device.onuncapturederror?.({ error: { message: 'out of memory' } });
+    expect(onLost).toHaveBeenCalledWith(expect.stringContaining('out of memory'));
+    expect(f.calls).toContain('unconfigure');
   });
 
   it('calls back once when the device is lost, and presents nothing after', async () => {
@@ -120,6 +163,8 @@ describe('createWebGpuHdrPresenter', () => {
     await Promise.resolve();
     expect(onLost).toHaveBeenCalledTimes(1);
     expect(onLost.mock.calls[0]![0]).toContain('gone');
+    // the canvas is emptied: no stale subtitle stays over the SDR one drawn from now on
+    expect(f.calls).toContain('unconfigure');
     f.calls.length = 0;
     r.presenter.present(layer(10, 10), 2);
     expect(f.calls).toEqual([]);

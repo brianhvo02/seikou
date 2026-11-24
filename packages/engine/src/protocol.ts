@@ -105,6 +105,10 @@ export interface HdrOverlayTelemetry {
   readonly reason: string | null;
   readonly active: boolean;
   readonly gain: number;
+  /** In HDR overlay mode, the overlay layer's size in pixels (the overlay rectangle, capped by the memory profile). */
+  readonly layer?: { readonly width: number; readonly height: number } | null;
+  /** Time spent handing layers to the presenter on the engine's thread, ms (CPU side; the GPU's work is not counted). */
+  readonly presentMs?: { readonly last: number; readonly mean: number; readonly max: number; readonly count: number } | null;
 }
 
 /**
@@ -724,6 +728,12 @@ export type EngineEvent =
   | { readonly type: 'videoElementStop' }
   /** An HDR stream started playing on the element path (`hdr` true), or that stopped: the session ended or fell back to the canvas (`hdr` false). */
   | { readonly type: 'videoHdr'; readonly hdr: boolean }
+  /**
+   * Where the HDR overlay canvas goes over the video canvas, as fractions of its width and height: the overlay rectangle
+   * the engine presents there (the menu rectangle and the picture's), which moves when the canvas or the picture changes
+   * size. The page places that canvas accordingly.
+   */
+  | { readonly type: 'hdrOverlayPlace'; readonly rect: { readonly x: number; readonly y: number; readonly width: number; readonly height: number } }
   /** The answer to readPlace. */
   | ({ readonly type: 'placeState' } & PlaceState)
   /**
