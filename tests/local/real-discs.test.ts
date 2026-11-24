@@ -91,23 +91,33 @@ describe.skipIf(discs.length === 0)('local discs', () => {
       if (!mpls) throw new Error('no playable playlist');
       const item = mpls.playItems[0];
       const factory = createAudioDecoderFactory(loadNodeAudioWasm);
+      const extended = new Set<number>([CodingType.TRUEHD, CodingType.DTSHD, CodingType.DTSHD_MASTER]);
       for (const track of audioTracks(item.stn).filter((t) => t.playable)) {
         const entry = item.stn.audio[track.index - 1];
-        const reader = new M2tsReader({ source, path: streamPath(item.clipId), startSpn: 0, pids: new Set([entry.pid]), chunkPackets: 6144 * 4 });
-        const decoder = await factory(entry.codingType);
-        let frames = 0;
-        let failed = 0;
-        for (let n = 0; n < 4; n++) {
-          for (const pes of (await reader.next()) ?? []) {
-            const r = decoder.decode({ data: pes.payload, ptsUs: ((pes.pts ?? 0) / 90_000) * 1e6, streamIdExtension: pes.streamIdExtension });
-            failed += r.failedFrames;
-            for (const c of r.chunks) frames += c.frames;
+        // As a phone plays it (cores, stereo), then for TrueHD and DTS-HD as a computer with 7.1 output does (whole).
+        const ways = extended.has(entry.codingType) ? [{ lossless: false, outputChannels: 2 as const }, { lossless: true, outputChannels: 8 as const }] : [{ lossless: false, outputChannels: 2 as const }];
+        for (const options of ways) {
+          const reader = new M2tsReader({ source, path: streamPath(item.clipId), startSpn: 0, pids: new Set([entry.pid]), chunkPackets: 6144 * 4 });
+          const decoder = await factory(entry.codingType, options);
+          let seconds = 0;
+          let failed = 0;
+          let ms = 0;
+          for (let n = 0; n < 4; n++) {
+            for (const pes of (await reader.next()) ?? []) {
+              const t0 = performance.now();
+              const r = decoder.decode({ data: pes.payload, ptsUs: ((pes.pts ?? 0) / 90_000) * 1e6, streamIdExtension: pes.streamIdExtension });
+              ms += performance.now() - t0;
+              failed += r.failedFrames;
+              for (const c of r.chunks) seconds += c.frames / c.sampleRate;
+            }
           }
+          const decoding = decoder.decoding?.() ?? null;
+          decoder.close();
+          console.info(`${basename(dir)}: audio ${track.index} ${track.codec} ${track.language} (${options.lossless ? 'whole, 7.1 out' : 'stereo out'}): ${decoding?.part} ${decoding?.channels.join(' ')}, ${seconds.toFixed(2)} s in ${ms.toFixed(0)} ms, ${failed} failed`);
+          expect(seconds, `${track.codec} produced audio`).toBeGreaterThan(1);
+          expect(failed).toBe(0);
+          if (options.lossless) expect(decoding?.part, `${track.codec} decoded whole, no fallback to the core`).toBe('full');
         }
-        decoder.close();
-        console.info(`${basename(dir)}: audio ${track.index} ${track.codec} ${track.language}: ${frames} frames, ${failed} failed`);
-        expect(frames, `${track.codec} produced audio`).toBeGreaterThan(48_000);
-        expect(failed).toBe(0);
       }
     }, 120_000);
   }

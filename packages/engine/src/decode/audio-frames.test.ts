@@ -155,4 +155,46 @@ describe('AudioFramer', () => {
       [1006, 2, 2_000_000 + (512 * 1e6) / 48_000, 512],
     ]);
   });
+
+  it('joins a DTS-HD core frame and its extension substream as one packet, the core padded to 4 bytes', () => {
+    const framer = new AudioFramer('dtshd');
+    // 1006-byte cores leave 2 bytes before the 4-byte aligned extension substream; the stream's padding is skipped.
+    const first = framer.push(cat(dtsFrame(1006, 1), new Uint8Array(2), exss(300), dtsFrame(1006, 2), exss(300)), 2_000_000);
+    expect(first.map((f) => [f.data.length, f.ptsUs, f.samples])).toEqual([[1006 + 2 + 300, 2_000_000, 512]]);
+    expect([...first[0].data.subarray(1008, 1012)]).toEqual([0x64, 0x58, 0x20, 0x25]);
+    // The second packet comes out when the next core starts, like an E-AC-3 access unit.
+    const second = framer.push(dtsFrame(1006, 3), 3_000_000);
+    expect(second.map((f) => [f.data.length, f.data[20], f.ptsUs])).toEqual([[1308, 2, 2_000_000 + (512 * 1e6) / 48_000]]);
+  });
+
+  it('cuts TrueHD access units from the first major sync and times them 1/1200 s apart', () => {
+    const framer = new AudioFramer('truehd');
+    const frames = framer.push(cat(new Uint8Array([1, 2, 3]), mlpUnit(12, 0), mlpUnit(32, 1, true), mlpUnit(12, 2), mlpUnit(12, 3)), 1_000_000);
+    expect(frames.map((f) => [f.data.length, f.data[8], f.ptsUs])).toEqual([
+      [32, 1, 1_000_000],
+      [12, 2, 1_000_000 + 1e6 / 1200],
+      [12, 3, 1_000_000 + 1e6 / 1200 + 1e6 / 1200],
+    ]);
+    expect(frames.every((f) => f.samples === 40)).toBe(true);
+  });
+
+  it('carries a TrueHD unit cut by the push boundary, and after resync() waits for the next major sync', () => {
+    const framer = new AudioFramer('truehd');
+    const bytes = cat(mlpUnit(32, 1, true), mlpUnit(12, 2));
+    expect(framer.push(bytes.subarray(0, 40), 0).map((f) => f.data[8])).toEqual([1]);
+    expect(framer.push(bytes.subarray(40), 5_000).map((f) => [f.data[8], f.ptsUs])).toEqual([[2, 1e6 / 1200]]);
+    framer.resync();
+    expect(framer.push(cat(mlpUnit(12, 3), mlpUnit(32, 4, true)), 10_000).map((f) => [f.data[8], f.ptsUs])).toEqual([[4, 10_000]]);
+  });
 });
+
+/** An MLP access unit of `bytes` (a multiple of 2), optionally with TrueHD's major sync at byte 4; byte 8 holds `mark`. */
+function mlpUnit(bytes: number, mark: number, majorSync = false): Uint8Array {
+  const f = new Uint8Array(bytes);
+  const words = bytes / 2;
+  f[0] = 0xf0 | (words >> 8);
+  f[1] = words & 0xff;
+  if (majorSync) f.set([0xf8, 0x72, 0x6f, 0xba], 4);
+  f[8] = mark;
+  return f;
+}

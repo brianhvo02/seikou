@@ -113,7 +113,7 @@ describe('Opus through WebCodecs', () => {
       [13_500, 960, 48_000],
       [33_500, 960, 48_000],
     ]);
-    expect([...out[0]!.stereo.slice(0, 4)].map((v) => Math.round(v * 10))).toEqual([1, 2, 1, 2]); // L, R interleaved
+    expect([...out[0]!.samples.slice(0, 4)].map((v) => Math.round(v * 10))).toEqual([1, 2, 1, 2]); // L, R interleaved
     expect(results.every((r) => r.failedFrames === 0)).toBe(true);
   });
 
@@ -160,7 +160,7 @@ describe('Opus through WebCodecs', () => {
     const decoder = await createOpusDecoder(fakeAudioApi().api, opusTrackConfig(track));
     const [chunk] = decoder.decode({ data: blocks[1]!.data, ptsUs: 20_000, discardPaddingUs: 10_000 }).chunks;
     expect(chunk!.frames).toBe(960 - 480);
-    expect(chunk!.stereo.length).toBe((960 - 480) * 2);
+    expect(chunk!.samples.length).toBe((960 - 480) * 2);
   });
 
   it('owes nothing for a packet submitted over a second ago', async () => {
@@ -194,12 +194,12 @@ describe('Opus through WebCodecs', () => {
     const { track, blocks } = await fixtureOpus(2);
     const mono = await createOpusDecoder(fakeAudioApi({ channels: 1 }).api, opusTrackConfig(track));
     const m = mono.decode({ data: blocks[1]!.data, ptsUs: 20_000 }).chunks[0]!;
-    expect([...m.stereo.slice(0, 2)].map((v) => Math.round(v * 10))).toEqual([1, 1]);
+    expect([...m.samples.slice(0, 2)].map((v) => Math.round(v * 10))).toEqual([1, 1]);
     const six = await createOpusDecoder(fakeAudioApi({ channels: 6 }).api, opusTrackConfig(track));
     const s = six.decode({ data: blocks[1]!.data, ptsUs: 20_000 }).chunks[0]!;
     expect(s.frames).toBe(960);
-    expect(Number.isFinite(s.stereo[0]) && s.stereo[0]! > 0 && s.stereo[1]! > 0).toBe(true);
-    expect(Math.max(...s.stereo)).toBeLessThanOrEqual(1);
+    expect(Number.isFinite(s.samples[0]) && s.samples[0]! > 0 && s.samples[1]! > 0).toBe(true);
+    expect(Math.max(...s.samples)).toBeLessThanOrEqual(1);
   });
 
   it('refuses a configuration the browser does not support', async () => {

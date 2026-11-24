@@ -157,6 +157,13 @@ export interface Telemetry {
   readonly corruptPackets: number;
   /** Coding name of the stream whose decoder last produced PCM, or null before any. */
   readonly audioCodec: string | null;
+  /**
+   * What that decoder puts out, for people: the coding name, for TrueHD and DTS-HD "lossless" (decoded whole) or the
+   * core it plays, and the decoded layout ("Dolby TrueHD, lossless, 7.1"); null before any PCM.
+   */
+  readonly audioDecoding: string | null;
+  /** The audio output's channels (2, 6 or 8), or null before the output is attached. */
+  readonly audioOutputChannels: number | null;
   /** Audio frames the decoder rejected. */
   readonly audioDecodeErrors: number;
   /** Transport stream continuity counter breaks (lost packets). */
@@ -664,6 +671,12 @@ export type EngineEvent =
    * the order the discs were opened: what serves that port on the main thread can stop now without failing its reads.
    */
   | { readonly type: 'fetchPortClosed' }
+  /**
+   * The playing audio's decoding changed: `description` as the telemetry's `audioDecoding`, `part` whether TrueHD or
+   * DTS-HD is decoded whole (`full`) or through its core (`core`), `plain` for any other stream; both null when no audio
+   * plays.
+   */
+  | { readonly type: 'audioDecoding'; readonly description: string | null; readonly part: 'full' | 'core' | 'plain' | null }
   /**
    * A stream the browser can't decode. With `noPicture` (kind 'video', NO_PICTURE_MESSAGE): the playlist plays without a
    * picture; sent once per disc, it is the disc-level notice 'no-picture'. Otherwise it is the playlist's notice

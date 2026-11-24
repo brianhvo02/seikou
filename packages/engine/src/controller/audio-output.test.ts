@@ -130,3 +130,56 @@ describe('AudioOutput latency', () => {
     expect(latency()).toBe(-1); // nothing published after the close
   });
 });
+
+describe('AudioOutput channels', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  /** Starts an output on a device with `max` channels; returns the ring's channels, the worklet's, the destination's and the gain's settings. */
+  async function start(max: number, choice?: 'auto' | 'stereo' | 2 | 6 | 8) {
+    vi.useFakeTimers();
+    let workletChannels: number[] = [];
+    vi.stubGlobal(
+      'AudioWorkletNode',
+      class {
+        constructor(_c: unknown, _n: string, o: { outputChannelCount: number[] }) {
+          workletChannels = o.outputChannelCount;
+        }
+        connect(): { connect: () => undefined } {
+          return { connect: () => undefined };
+        }
+      },
+    );
+    const destination = { maxChannelCount: max, channelCount: 2, channelCountMode: 'explicit', channelInterpretation: 'speakers' };
+    const gain = { gain: { value: 1 }, channelCount: 2, channelCountMode: 'max', channelInterpretation: 'speakers', connect: () => ({ connect: () => undefined }) };
+    const context = { ...(fakeContext([]) as unknown as Record<string, unknown>), destination, createGain: () => gain };
+    const out = new AudioOutput(() => context as unknown as AudioContext, undefined);
+    if (choice) out.setChannels(choice);
+    const ring = await out.ensureStarted();
+    return { ring: ringViews(ring).channels, worklet: workletChannels, destination, gain, out };
+  }
+
+  it('keeps a stereo device stereo, with the browser defaults untouched', async () => {
+    const r = await start(2);
+    expect([r.ring, r.worklet, r.out.outputChannels]).toEqual([2, [2], 2]);
+    expect(r.destination).toMatchObject({ channelCount: 2, channelInterpretation: 'speakers' });
+    expect(r.gain).toMatchObject({ channelCountMode: 'max' });
+  });
+
+  it('plays 5.1 on a six-channel device and 7.1 on an eight-channel one, discretely', async () => {
+    const six = await start(6);
+    expect([six.ring, six.worklet]).toEqual([6, [6]]);
+    expect(six.destination).toMatchObject({ channelCount: 6, channelCountMode: 'explicit', channelInterpretation: 'discrete' });
+    expect(six.gain).toMatchObject({ channelCount: 6, channelCountMode: 'explicit', channelInterpretation: 'discrete' });
+    const many = await start(16);
+    expect([many.ring, many.worklet, many.destination.channelCount]).toEqual([8, [8], 8]);
+  });
+
+  it('stays stereo when the setting says so, and caps a test count by the device', async () => {
+    expect((await start(8, 'stereo')).ring).toBe(2);
+    expect((await start(8, 6)).ring).toBe(6);
+    expect((await start(2, 8)).ring).toBe(2);
+  });
+});

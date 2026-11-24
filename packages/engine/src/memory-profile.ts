@@ -60,6 +60,12 @@ export interface MemoryProfile {
    * for a free slot.
    */
   readonly deinterlaceRing: number;
+  /**
+   * Decode TrueHD and DTS-HD whole (MLP, XLL and the other DTS extensions) rather than their Dolby Digital or DTS
+   * cores. Off on phones and tablets: their output is almost always stereo, where the difference can't be heard, and
+   * the extra decoding costs battery.
+   */
+  readonly losslessAudio: boolean;
 }
 
 /**
@@ -83,6 +89,7 @@ export const MEMORY_PROFILES: Readonly<Record<MemoryProfileName, MemoryProfile>>
     bdjRemoteReadAheadBytes: 16 * MB,
     elementLeadUs: 10_000_000,
     deinterlaceRing: 12,
+    losslessAudio: true,
   },
   constrained: {
     igPreloadLimitBytes: 64 * MB,
@@ -102,5 +109,6 @@ export const MEMORY_PROFILES: Readonly<Record<MemoryProfileName, MemoryProfile>>
     // the deinterlacer itself holds about 7 (lookahead, the frame awaiting its next, the previous neighbour): 8 would
     // leave about one frame of pictures queued
     deinterlaceRing: 10,
+    losslessAudio: false,
   },
 };

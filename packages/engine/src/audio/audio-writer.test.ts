@@ -4,7 +4,7 @@ import { AudioWriter } from './audio-writer';
 import { RingWriter, createRing, renderQuantum, ringViews } from './ring';
 
 function chunk(ptsUs: number, frames: number, value: number, sampleRate = 48_000): PcmChunk {
-  return { ptsUs, sampleRate, frames, stereo: new Float32Array(frames * 2).fill(value) };
+  return { ptsUs, sampleRate, frames, channels: ['FL', 'FR'], samples: new Float32Array(frames * 2).fill(value) };
 }
 
 function setup(seconds = 1): { writer: AudioWriter; ring: RingWriter; views: ReturnType<typeof ringViews> } {
@@ -93,5 +93,31 @@ describe('AudioWriter', () => {
       expect(views.data[240 * 2]).toBe(2); // no silent gap sample, no trimmed first sample
       expect(views.data[479 * 2]).toBe(2);
     }
+  });
+
+  it('mixes a 5.1 chunk into a stereo ring and passes it whole into a 5.1 ring', () => {
+    const five: PcmChunk = { ptsUs: 0, sampleRate: 48_000, frames: 1, channels: ['FL', 'FR', 'FC', 'LFE', 'SL', 'SR'], samples: new Float32Array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6]) };
+    const stereo = setup();
+    stereo.writer.start(0);
+    stereo.writer.enqueue(five);
+    const norm = 1 / (1 + 2 * Math.SQRT1_2);
+    expect(stereo.views.data[0]).toBeCloseTo((0.1 + 0.3 * Math.SQRT1_2 + 0.5 * Math.SQRT1_2) * norm, 6);
+    const views = ringViews(createRing(48_000, 1, 6));
+    const writer = new AudioWriter(new RingWriter(views));
+    writer.start(0);
+    writer.enqueue(five);
+    expect([...views.data.subarray(0, 6)].map((v) => Math.round(v * 10) / 10)).toEqual([0.1, 0.2, 0.3, 0.4, 0.5, 0.6]);
+  });
+
+  it('puts a stereo chunk on the front pair of a 7.1 ring and leaves the rest silent', () => {
+    const views = ringViews(createRing(48_000, 1, 8));
+    const writer = new AudioWriter(new RingWriter(views));
+    writer.start(0);
+    writer.enqueue(chunk(0, 2, 0.5));
+    expect([...views.data.subarray(0, 16)]).toEqual([0.5, 0.5, 0, 0, 0, 0, 0, 0, 0.5, 0.5, 0, 0, 0, 0, 0, 0]);
+    const outs = Array.from({ length: 8 }, () => new Float32Array(2));
+    Atomics.store(views.control, 0, 1);
+    renderQuantum(views, ...outs);
+    expect(outs.map((o) => o[0])).toEqual([0.5, 0.5, 0, 0, 0, 0, 0, 0]);
   });
 });

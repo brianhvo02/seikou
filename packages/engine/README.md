@@ -19,7 +19,7 @@ All of it lives in `src/`. The package root exports the names listed in `public-
 | `nav/`, `hdmv/` | Navigation and the HDMV virtual machine: the navigator, playlist timeline, registers (PSRs and GPRs), UO masks, and PG stream selection. |
 | `graphics/` | IG decoding and the graphics controller behind HDMV menus. |
 | `playback/` | The pipeline that reads, demuxes and feeds the decoders, with backpressure and seek, plus stream selection and tracks. |
-| `decode/` | Video through WebCodecs (H.264, HEVC, AV1); audio through LPCM, `audio.wasm` (FFmpeg's AC-3, E-AC-3 and DTS decoders, with the TrueHD core filter) and Opus through WebCodecs. |
+| `decode/` | Video through WebCodecs (H.264, HEVC, AV1); audio through LPCM, `audio.wasm` (FFmpeg's AC-3, E-AC-3, DTS (with DTS-HD's extensions) and TrueHD decoders, or the TrueHD and DTS cores on phones) and Opus through WebCodecs, in the stream's own channels, mixed to the output's stereo, 5.1 or 7.1 by `audio/channel-map.ts`. |
 | `audio/`, `clock/` | The shared-memory PCM ring, the writer, and `MasterClock`, which derives playback time from the frames played. |
 | `render/` | `VideoPresenter` picks which frame to show against the clock, and `Compositor` draws video, subtitles and menus. |
 | `shaders/` | mpv user shaders (such as Anime4K) parsed, planned and run on WebGL2. |

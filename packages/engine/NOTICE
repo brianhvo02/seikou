@@ -75,7 +75,7 @@ FFmpeg (https://ffmpeg.org), LGPL-2.1-or-later
   with its measurement and colour shaders) is original code; it contains no FFmpeg code.
 
 FFmpeg decoders (wasm/audio/), LGPL-2.1-or-later
-  audio.wasm is built from FFmpeg n9.0.2 (ac3, eac3, dca decoders) and wasm/audio/shim.c.
+  audio.wasm is built from FFmpeg n9.0.2 (ac3, eac3, dca, truehd decoders) and wasm/audio/shim.c.
   See wasm/audio/NOTICE for the exact source and build.
 
 FFmpeg decoders (wasm/video/), LGPL-2.1-or-later

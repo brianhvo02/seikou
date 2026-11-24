@@ -8,6 +8,7 @@
  */
 
 import { CodingType } from '@seikou/bdmv/stream-types';
+import type { ChannelLayout, Speaker } from '../audio/channel-map';
 import { UnsupportedCodecError } from './decoder';
 
 /** The 4-byte header of a Blu-ray LPCM payload (audio data payload size, channel assignment, sampling frequency, bits per sample). */
@@ -24,45 +25,35 @@ export interface LpcmHeader {
   readonly storedChannels: number;
 }
 
-/** Decoded audio: stereo float PCM (already downmixed) starting at a playlist time. */
+/** Decoded audio: float PCM in its own channel layout, starting at a playlist time. */
 export interface PcmChunk {
   /** Playlist time of the first frame, in microseconds. */
   readonly ptsUs: number;
-  /** Hz of `stereo`. */
+  /** Hz of `samples`. */
   readonly sampleRate: number;
-  /** Sample frames (a left and a right sample each). */
+  /** Sample frames (one sample per channel each). */
   readonly frames: number;
-  /** Interleaved L, R, in [-1, 1]; `frames * 2` samples. */
-  readonly stereo: Float32Array;
+  /** The speakers of `samples`, in order. */
+  readonly channels: ChannelLayout;
+  /** Interleaved, in [-1, 1]; `frames * channels.length` samples. */
+  readonly samples: Float32Array;
 }
 
-type Role = 'L' | 'R' | 'C' | 'S' | 'Ls' | 'Rs' | 'Lb' | 'Rb' | 'LFE';
-
-/** Coded channel order per channel_assignment (Blu-ray Part 3; FFmpeg pcm-bluray.c). */
-const LAYOUTS: Readonly<Record<number, readonly Role[]>> = {
-  1: ['C'],
-  3: ['L', 'R'],
-  4: ['L', 'R', 'C'],
-  5: ['L', 'R', 'S'],
-  6: ['L', 'R', 'C', 'S'],
-  7: ['L', 'R', 'Ls', 'Rs'],
-  8: ['L', 'R', 'C', 'Ls', 'Rs'],
-  9: ['L', 'R', 'C', 'Ls', 'Rs', 'LFE'],
-  10: ['L', 'R', 'C', 'Ls', 'Lb', 'Rb', 'Rs'],
-  11: ['L', 'R', 'C', 'Ls', 'Lb', 'Rb', 'Rs', 'LFE'],
-};
-
-const M3DB = Math.SQRT1_2;
-const DOWNMIX: Readonly<Record<Role, readonly [number, number]>> = {
-  L: [1, 0],
-  R: [0, 1],
-  C: [M3DB, M3DB],
-  S: [0.5, 0.5],
-  Ls: [M3DB, 0],
-  Rs: [0, M3DB],
-  Lb: [M3DB, 0],
-  Rb: [0, M3DB],
-  LFE: [0, 0],
+/**
+ * Coded channel order per channel_assignment (Blu-ray Part 3; FFmpeg pcm-bluray.c), named as speakers: the single
+ * surround of 3/1 and 2/1 is back centre, the 7.1 assignment's surrounds and backs are the side and back pairs.
+ */
+const LAYOUTS: Readonly<Record<number, readonly Speaker[]>> = {
+  1: ['FC'],
+  3: ['FL', 'FR'],
+  4: ['FL', 'FR', 'FC'],
+  5: ['FL', 'FR', 'BC'],
+  6: ['FL', 'FR', 'FC', 'BC'],
+  7: ['FL', 'FR', 'SL', 'SR'],
+  8: ['FL', 'FR', 'FC', 'SL', 'SR'],
+  9: ['FL', 'FR', 'FC', 'SL', 'SR', 'LFE'],
+  10: ['FL', 'FR', 'FC', 'SL', 'BL', 'BR', 'SR'],
+  11: ['FL', 'FR', 'FC', 'SL', 'BL', 'BR', 'SR', 'LFE'],
 };
 
 const SAMPLE_RATES: Readonly<Record<number, number>> = { 1: 48_000, 4: 96_000, 5: 192_000 };
@@ -88,22 +79,18 @@ export function parseLpcmHeader(payload: Uint8Array): LpcmHeader {
   };
 }
 
-/** Downmixes a whole LPCM payload (header included) to stereo at the stream's own rate; trailing bytes short of a frame are dropped. Throws as parseLpcmHeader does. */
+/** Decodes a whole LPCM payload (header included) in its own layout and rate; trailing bytes short of a frame are dropped. Throws as parseLpcmHeader does. */
 export function decodeLpcm(payload: Uint8Array, ptsUs: number): PcmChunk {
   const header = parseLpcmHeader(payload);
   const layout = LAYOUTS[header.channelAssignment];
+  const coded = header.codedChannels;
   const bytesPerSample = header.bitsPerSample / 8;
   const frameBytes = header.storedChannels * bytesPerSample;
   const frames = Math.floor((payload.length - 4) / frameBytes);
-  const gainL = layout.map((role) => DOWNMIX[role][0]);
-  const gainR = layout.map((role) => DOWNMIX[role][1]);
-  const mono = header.codedChannels === 1;
-  const norm = mono ? 1 : 1 / Math.max(1, gainL.reduce((a, b) => a + b, 0));
-  const stereo = new Float32Array(frames * 2);
+  const samples = new Float32Array(frames * coded);
   let o = 4;
+  let w = 0;
   for (let f = 0; f < frames; f++) {
-    let l = 0;
-    let r = 0;
     for (let ch = 0; ch < header.storedChannels; ch++) {
       let s: number;
       if (bytesPerSample === 2) {
@@ -114,17 +101,8 @@ export function decodeLpcm(payload: Uint8Array, ptsUs: number): PcmChunk {
         s = (v & 0x800000 ? v - 0x1000000 : v) / 8388608;
       }
       o += bytesPerSample;
-      if (ch >= header.codedChannels) continue;
-      if (mono) {
-        l = s;
-        r = s;
-      } else {
-        l += s * gainL[ch];
-        r += s * gainR[ch];
-      }
+      if (ch < coded) samples[w++] = s;
     }
-    stereo[f * 2] = l * norm;
-    stereo[f * 2 + 1] = r * norm;
   }
-  return { ptsUs, sampleRate: header.sampleRate, frames, stereo };
+  return { ptsUs, sampleRate: header.sampleRate, frames, channels: layout, samples };
 }

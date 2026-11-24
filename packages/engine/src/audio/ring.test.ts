@@ -154,4 +154,24 @@ describe('audio ring', () => {
     expect(second[93]).toBe(150);
     expect(second[94]).toBe(0); // past the written end: silence
   });
+
+  it('carries 6 and 8 channels and plays each to its own output', () => {
+    for (const channels of [6, 8]) {
+      const views = ringViews(createRing(48_000, 0.5, channels));
+      expect(views.channels).toBe(channels);
+      const writer = new RingWriter(views);
+      const frame = Float32Array.from({ length: channels }, (_, c) => (c + 1) / 10);
+      expect(writer.writeAt(0, new Float32Array([...frame, ...frame]))).toBe(true);
+      expect(writer.writtenFrames()).toBe(2);
+      writer.setPlaying(true);
+      const outs = Array.from({ length: channels }, () => new Float32Array(4));
+      renderQuantum(views, ...outs);
+      outs.forEach((o, c) => expect([...o].map((v) => Math.round(v * 10))).toEqual([c + 1, c + 1, 0, 0]));
+      expect(writer.readFrames()).toBe(4);
+    }
+  });
+
+  it('defaults to two channels', () => {
+    expect(ringViews(createRing(48_000, 0.1)).channels).toBe(2);
+  });
 });

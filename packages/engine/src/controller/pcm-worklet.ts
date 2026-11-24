@@ -1,4 +1,4 @@
-import { renderQuantum, ringViews, type RingViews } from '../audio/ring';
+import { renderChannels, ringViews, type RingViews } from '../audio/ring';
 
 interface PcmPlayerOptions {
   processorOptions: { ring: SharedArrayBuffer };
@@ -13,11 +13,11 @@ declare function registerProcessor(name: string, processorCtor: new (options: Pc
 /**
  * The `pcm-player` processor, which runs on the audio rendering thread (AudioWorkletGlobalScope), not on the main thread
  * or the engine worker. Each 128-frame quantum it takes PCM from the shared ring and publishes how many frames have
- * played; `../audio/ring` holds the ring layout. It never allocates in `process` except to size the mono scratch buffer.
+ * played; `../audio/ring` holds the ring layout. Its output has the ring's channel count (the page sets
+ * `outputChannelCount` from it); fewer output channels than the ring's lose the rest. It never allocates in `process`.
  */
 class PcmPlayer extends AudioWorkletProcessor {
   private readonly views: RingViews;
-  private scratch = new Float32Array(128);
 
   constructor(options: PcmPlayerOptions) {
     super();
@@ -25,10 +25,9 @@ class PcmPlayer extends AudioWorkletProcessor {
   }
 
   process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
-    const [left, right] = outputs[0];
-    if (!left) return true; // no output connected yet
-    if (!right && this.scratch.length !== left.length) this.scratch = new Float32Array(left.length);
-    renderQuantum(this.views, left, right ?? this.scratch); // mono destination: right is discarded
+    const channels = outputs[0];
+    if (!channels || channels.length === 0) return true; // no output connected yet
+    renderChannels(this.views, channels);
     return true;
   }
 }

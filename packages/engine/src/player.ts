@@ -37,7 +37,8 @@ import { CodingType, codingName, isVideoCoding } from '@seikou/bdmv/stream-types
 import { MasterClock } from './clock/master-clock';
 import { Decimator } from './decode/decimator';
 import { UnsupportedCodecError, type DecoderError } from './decode/decoder';
-import { type AudioDecodeResult, type AudioDecoder, type AudioDecoderFactory } from './decode/audio-decoder';
+import { describeAudioDecoding, type AudioDecodeResult, type AudioDecoder, type AudioDecoderFactory } from './decode/audio-decoder';
+import type { OutputChannels } from './audio/channel-map';
 import { WebCodecsVideoDecoder, canDecodeVideo, canStartStream, type CanvasVideoDecoder, type VideoCodecApi, type VideoUnit } from './decode/video-decoder';
 import { probeVideoDecoderSpeed, type VideoBench } from './decode/video-probe';
 import { WasmVideoDecoder, frameFromPicture } from './decode/wasm-video-decoder';
@@ -615,6 +616,8 @@ export class Player {
   private offsets: number[] = [];
   private audioDecodeErrors = 0;
   private audioCodec: string | null = null;
+  /** The telemetry's `audioDecoding`. */
+  private audioDescription: string | null = null;
   private queue: Promise<void> = Promise.resolve();
   /** HDMV navigation (First Play, titles, menus); null for discs without MovieObject.bdmv, BD-J First Play, or after a raw pick. */
   private navigator: Navigator | null = null;
@@ -1712,6 +1715,7 @@ export class Player {
     this.session = session;
     this.audioDecodeErrors = 0;
     this.audioCodec = null;
+    this.clearAudioDecoding();
     this.sentPgTracks = '';
     this.compositor?.startPlaylist?.(true);
     this.applyEncodeSubtitle(false);
@@ -3236,6 +3240,7 @@ export class Player {
     this.session = session;
     this.audioDecodeErrors = 0;
     this.audioCodec = null;
+    this.clearAudioDecoding();
     this.sentPgTracks = '';
     this.compositor?.startPlaylist?.(picture);
     // the disc's no-picture notice, only for a playlist that opened (one that failed to open does not use it up)
@@ -4226,7 +4231,15 @@ export class Player {
   private loadAudioDecoder(s: Session, codingType: number): Promise<AudioDecoder> {
     let load = s.audioDecoderLoads.get(codingType);
     if (!load) {
-      const p = s.encode && s.audioStream !== null ? s.encode.createDecoder(s.audioStream) : this.deps.createAudioDecoder(codingType);
+      const p =
+        s.encode && s.audioStream !== null
+          ? s.encode.createDecoder(s.audioStream)
+          : this.deps.createAudioDecoder(codingType, {
+              outputChannels: (this.ring?.channels ?? 2) as OutputChannels,
+              lossless: this.memory.losslessAudio,
+              nowMs: this.deps.nowMs,
+              log: this.deps.log,
+            });
       load = p;
       s.audioDecoderLoads.set(codingType, p);
       p.then(
@@ -4313,6 +4326,26 @@ export class Player {
     return false;
   }
 
+  /**
+   * Names the stream whose decoder put out PCM (the telemetry's `audioCodec`) and what it puts out (its
+   * `audioDecoding`: TrueHD and DTS-HD decoded whole or through their cores, and the decoded layout), and tells the page
+   * whenever that changes.
+   */
+  private clearAudioDecoding(): void {
+    if (this.audioDescription === null) return;
+    this.audioDescription = null;
+    this.deps.emit({ type: 'audioDecoding', description: null, part: null });
+  }
+
+  private noteAudioDecoding(s: Session, codingType: number): void {
+    this.audioCodec = audioCodingName(codingType);
+    const decoding = s.audioDecoders.get(codingType)?.decoding?.() ?? null;
+    const description = decoding ? describeAudioDecoding(this.audioCodec, codingType, decoding) : this.audioCodec;
+    if (description === this.audioDescription) return;
+    this.audioDescription = description;
+    this.deps.emit({ type: 'audioDecoding', description, part: decoding?.part ?? null });
+  }
+
   /** Decoded PCM into the ring (at 48 kHz), counting failed frames: too many in a row turn audio off. */
   private writeAudio(s: Session, result: AudioDecodeResult, codingType: number, inRange: boolean): void {
     const writer = this.audioWriter;
@@ -4328,7 +4361,7 @@ export class Player {
     }
     if (result.chunks.length > 0) {
       s.audioErrorsInRow = 0;
-      this.audioCodec = audioCodingName(codingType);
+      this.noteAudioDecoding(s, codingType);
     }
     if (!inRange) return;
     for (let chunk of result.chunks) {
@@ -4714,6 +4747,8 @@ export class Player {
         audioUnderruns: ring?.underruns() ?? 0,
         corruptPackets: stats.corruptPackets + this.audioDecodeErrors,
         audioCodec: this.audioCodec,
+        audioDecoding: this.audioDescription,
+        audioOutputChannels: this.ring?.channels ?? null,
         audioDecodeErrors: this.audioDecodeErrors,
         continuityErrors: stats.continuityErrors,
         decoderErrors: this.decoderErrors,
