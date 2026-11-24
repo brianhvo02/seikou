@@ -11,7 +11,7 @@ import { ShaderMenu } from './ShaderMenu';
 import { VideoOutputMenu } from './VideoOutputMenu';
 import { deinterlaceSetting, videoOutputSetting } from './video-output';
 import type { ShaderModel, ShaderModelState } from './shader-model';
-import type { MkvOtherTrack } from './mkv-pick';
+import type { MkvListedTrack } from './mkv-pick';
 import { SubtitleMenu, type StoredSubtitles } from './SubtitleMenu';
 import type { ToshoSearch } from './ToshoSearch';
 import { formatTime } from './format';
@@ -133,8 +133,8 @@ interface ControlBarProps {
   /** Takes a pick of subtitle files in place of `controller.loadSubtitleFiles` (it expands MKVs first, then loads and remembers). */
   onPickSubtitleFiles?(files: readonly File[]): void;
   /** The other text tracks of the MKVs picked on this disc, and the pick of one. */
-  readonly mkvTracks?: readonly MkvOtherTrack[];
-  onPickMkvTrack?(t: MkvOtherTrack): void;
+  readonly mkvTracks?: readonly MkvListedTrack[];
+  onPickMkvTrack?(t: MkvListedTrack): void;
   /** A NAS disc's stored subtitles for the playing playlist, for the Subtitles menu; absent for other discs. */
   readonly storedSubtitles?: StoredSubtitles | null;
   /** A NAS disc's Anime Tosho search, in the Subtitles menu. */

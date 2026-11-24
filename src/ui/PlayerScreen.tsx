@@ -15,7 +15,7 @@ import { RelayBadge } from './nas/RelayBadge';
 import type { ShaderModel, ShaderModelState } from './shader-model';
 import { collectDroppedFiles, splitPick } from '@seikou/engine/controller/drop-files';
 import { extractInWorker } from './mkv-extract-client';
-import { expandMkvPicks, MkvPickCache, type MkvOtherTrack } from './mkv-pick';
+import { expandMkvPicks, markCurrentTrack, MkvPickCache, type MkvListedTrack } from './mkv-pick';
 import { resolveDiscPreferences } from './disc-preferences';
 import { checkCapabilities } from './capabilities';
 import { HdrBadge } from './HdrBadge';
@@ -359,7 +359,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
   };
   // MKVs picked or dropped here are read once (in a worker) and their other text tracks offered in the Subtitles menu.
   const mkvCache = useMemo(() => new MkvPickCache((file) => extractInWorker(file, () => undefined)), []);
-  const [mkvTracks, setMkvTracks] = useState<readonly MkvOtherTrack[]>([]);
+  const [mkvTracks, setMkvTracks] = useState<readonly MkvListedTrack[]>([]);
   const discOpensNow = controller.discOpens;
   useEffect(() => {
     mkvCache.clear();
@@ -369,18 +369,22 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
   const pickSubtitleFiles = (files: readonly File[]): void => {
     if (!files.some((f) => f.name.toLowerCase().endsWith('.mkv'))) return loadSubtitleFiles(files);
     const language = preferences ? (resolveDiscPreferences(preferences.current(), navigator.language).pgLanguage ?? null) : null;
+    const opens = controller.discOpens;
     expandMkvPicks(files, { subtitleLanguage: language }, mkvCache.extract).then(
       (expanded) => {
+        if (controller.discOpens !== opens) return; // the disc changed while the file was read: the pick isn't for this one
         for (const message of expanded.notices) controller.showNotice('mkv-subtitles', message);
         setMkvTracks(expanded.tracks);
         if (expanded.files.length > 0) loadSubtitleFiles(expanded.files);
       },
-      (err: unknown) => controller.showNotice('mkv-subtitles', `Couldn't read the subtitles: ${err instanceof Error ? err.message : String(err)}`),
+      (err: unknown) => controller.discOpens === opens && controller.showNotice('mkv-subtitles', `Couldn't read the subtitles: ${err instanceof Error ? err.message : String(err)}`),
     );
   };
-  const pickMkvTrack = (t: MkvOtherTrack): void => {
+  const pickMkvTrack = (t: MkvListedTrack): void => {
     const files = mkvCache.filesFor(t.source, t.track.number);
-    if (files) loadSubtitleFiles(files);
+    if (!files) return;
+    setMkvTracks((list) => markCurrentTrack(list, t.source, t.track.number));
+    loadSubtitleFiles(files);
   };
   const rememberSubtitleFiles = (files: readonly File[]): void => {
     if (replacesTextSet(files)) {

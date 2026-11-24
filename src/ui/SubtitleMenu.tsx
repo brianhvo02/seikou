@@ -6,7 +6,7 @@ import type { SubtitleChoice } from '@seikou/engine/protocol';
 import { languageName } from '@seikou/engine/controller/language';
 import { formatSubtitleOffset, MAX_SUBTITLE_SCALE, MIN_SUBTITLE_SCALE, type SubtitlesState } from '@seikou/engine/controller/player-controller';
 import { FONT_EXTENSIONS, SUBTITLE_EXTENSIONS } from '@seikou/engine/controller/drop-files';
-import type { MkvOtherTrack } from './mkv-pick';
+import type { MkvListedTrack } from './mkv-pick';
 import { startChoices, startLabel } from './subtitle-starts';
 import { ToshoSearchView, type ToshoSearch } from './ToshoSearch';
 
@@ -35,9 +35,9 @@ interface SubtitleMenuProps {
   readonly stored?: StoredSubtitles | null;
   /** A NAS disc's Anime Tosho search ("Search Anime Tosho…"); null for other discs. */
   readonly search?: ToshoSearch | null;
-  /** The picked MKVs' other text tracks, listed under the files; choosing one loads it as a pick. */
-  readonly mkvTracks?: readonly MkvOtherTrack[];
-  onPickMkvTrack?(t: MkvOtherTrack): void;
+  /** The picked MKVs' text tracks (the loaded one current), listed under the files; choosing another loads it as a pick. */
+  readonly mkvTracks?: readonly MkvListedTrack[];
+  onPickMkvTrack?(t: MkvListedTrack): void;
   onSelect(choice: SubtitleChoice): void;
   onLoadFiles(files: readonly File[]): void;
   onAddFonts(files: readonly File[]): void;
@@ -242,10 +242,12 @@ export function SubtitleMenu({ subtitles, chapters, nowUs, showingFile, stored =
             <li key={`${t.source}:${t.track.number}`} role="none">
               <button
                 type="button"
-                role="menuitem"
+                role="menuitemradio"
+                aria-checked={t.current}
+                aria-current={t.current ? 'true' : undefined}
                 data-testid="mkv-track"
                 data-track={t.track.number}
-                disabled={offMasked}
+                disabled={offMasked || t.current}
                 title={offMasked ? MASKED_TOOLTIP : t.source}
                 onClick={() => {
                   close(true);

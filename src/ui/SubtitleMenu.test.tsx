@@ -156,13 +156,15 @@ describe('SubtitleMenu: other tracks of a picked MKV', () => {
     render(
       <SubtitleMenu
         subtitles={subtitles} isMasked={() => false} chapters={[]} nowUs={0} showingFile={null}
-        mkvTracks={[{ source: 'Show 01.mkv', track: track(3, 'jpn') }, { source: 'Show 01.mkv', track: track(5, 'eng') }]} onPickMkvTrack={pick}
+        mkvTracks={[{ source: 'Show 01.mkv', track: track(3, 'jpn'), current: true }, { source: 'Show 01.mkv', track: track(5, 'eng'), current: false }]} onPickMkvTrack={pick}
         onSelect={() => {}} onLoadFiles={() => {}} onAddFonts={() => {}} onShift={() => {}} onStart={() => {}} onScale={() => {}} onRemove={() => {}} onOpenChange={() => {}}
       />,
     );
     fireEvent.click(screen.getByTestId('subtitle-menu'));
     const rows = screen.getAllByTestId('mkv-track');
     expect(rows.map((r) => r.getAttribute('data-track'))).toEqual(['3', '5']);
+    expect((rows[0] as HTMLButtonElement).disabled).toBe(true);
+    expect(rows[0]!.getAttribute('aria-current')).toBe('true');
     fireEvent.click(rows[1]!);
     expect(pick).toHaveBeenCalledWith(expect.objectContaining({ track: expect.objectContaining({ number: 5 }) }));
   });

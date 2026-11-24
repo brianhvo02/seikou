@@ -2,18 +2,24 @@
 import { mkvTrackFileName, type MkvTextExtract, type MkvTextTrack } from '@seikou/engine/subs/mkv-extract';
 import { languageMatches } from './disc-preferences';
 
-/** One text track of a picked MKV that the pick did not take, and the MKV it is in. */
-export interface MkvOtherTrack {
+/** One text track of a picked MKV, the MKV it is in, and whether it is the one loaded now. */
+export interface MkvListedTrack {
   readonly source: string;
   readonly track: MkvTextTrack;
+  readonly current: boolean;
+}
+
+/** `tracks` with the track `number` of `source` marked as the loaded one and every other of that MKV not. */
+export function markCurrentTrack(tracks: readonly MkvListedTrack[], source: string, number: number): MkvListedTrack[] {
+  return tracks.map((t) => (t.source === source ? { ...t, current: t.track.number === number } : t));
 }
 
 /** What `expandMkvPicks` made of a pick. */
 export interface MkvExpansion {
   /** The pick with each MKV replaced by its chosen track's file and its fonts, other files as they were. */
   readonly files: File[];
-  /** The other text tracks of the picked MKVs, for the Subtitles menu. */
-  readonly tracks: readonly MkvOtherTrack[];
+  /** Every text track of the picked MKVs (the loaded one marked current), for the Subtitles menu. */
+  readonly tracks: readonly MkvListedTrack[];
   /** What to tell the viewer (an MKV with no text track). */
   readonly notices: readonly string[];
 }
@@ -34,7 +40,7 @@ function chosenTrack(tracks: readonly MkvTextTrack[], language: string | null): 
 /**
  * Turns each `.mkv` of a pick into one subtitle file (its default text track, else the first in the viewer's subtitle
  * language, else the first) followed by its fonts, so the rest of the pick path sees files it knows. An MKV with no
- * text track adds nothing and gets a notice. The MKV's other text tracks come back for the menu.
+ * text track adds nothing and gets a notice. All the MKV's text tracks come back for the menu.
  */
 export async function expandMkvPicks(
   files: readonly File[],
@@ -42,7 +48,7 @@ export async function expandMkvPicks(
   extract: (file: File) => Promise<MkvTextExtract>,
 ): Promise<MkvExpansion> {
   const out: File[] = [];
-  const tracks: MkvOtherTrack[] = [];
+  const tracks: MkvListedTrack[] = [];
   const notices: string[] = [];
   for (const file of files) {
     if (!isMkv(file)) {
@@ -56,7 +62,7 @@ export async function expandMkvPicks(
     }
     const chosen = chosenTrack(found.tracks, prefs.subtitleLanguage);
     out.push(trackFile(file.name, chosen), ...fontFiles(found));
-    for (const track of found.tracks) if (track !== chosen) tracks.push({ source: file.name, track });
+    for (const track of found.tracks) tracks.push({ source: file.name, track, current: track === chosen });
   }
   return { files: out, tracks, notices };
 }
@@ -64,6 +70,7 @@ export async function expandMkvPicks(
 /** The extracts of the MKVs picked on this disc, so the menu can switch tracks without reading a file again. */
 export class MkvPickCache {
   private readonly extracts = new Map<string, MkvTextExtract>();
+  private generation = 0;
   private readonly pending = new Map<string, Promise<MkvTextExtract>>();
 
   constructor(private readonly read: (file: File) => Promise<MkvTextExtract>) {}
@@ -73,8 +80,9 @@ export class MkvPickCache {
     const key = `${file.name}:${file.size}:${file.lastModified}`;
     const known = this.pending.get(key);
     if (known) return known;
+    const generation = this.generation;
     const run = this.read(file).then((e) => {
-      this.extracts.set(file.name, e);
+      if (generation === this.generation) this.extracts.set(file.name, e);
       return e;
     }, (err: unknown) => {
       this.pending.delete(key);
@@ -93,6 +101,7 @@ export class MkvPickCache {
 
   /** Lets go of everything held (a new disc). */
   clear(): void {
+    this.generation++;
     this.extracts.clear();
     this.pending.clear();
   }
