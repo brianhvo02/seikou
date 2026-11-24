@@ -52,6 +52,11 @@ test('Picture in Picture moves a canvas playlist to the element path, and the sy
   const pip = await page.evaluate(() => document.pictureInPictureEnabled === true || 'webkitSetPresentationMode' in HTMLVideoElement.prototype);
   test.skip(!pip, 'This browser has no Picture in Picture for a video element');
 
+  // a text subtitle file covering the whole playlist, which the video's own text track carries in Picture in Picture
+  const srt = Array.from({ length: 6 }, (_, i) => `${i + 1}\n00:00:${String(i * 2).padStart(2, '0')},000 --> 00:00:${String(i * 2 + 2).padStart(2, '0')},000\nLine ${i + 1}\n`).join('\n');
+  await page.getByTestId('subtitle-file-input').setInputFiles({ name: 'lines.srt', mimeType: 'text/plain', buffer: Buffer.from(srt) });
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __blurayTelemetry?: { textFile?: number | null } }).__blurayTelemetry?.textFile ?? null)).toBe(0);
+
   await clickControl(page, 'Picture in Picture');
   await expect.poll(async () => (await telemetry(page))?.videoPath, { timeout: 10_000 }).toBe('element');
   // the browser may refuse once the move took longer than the click's activation: the player asks for one more tap
@@ -64,8 +69,14 @@ test('Picture in Picture moves a canvas playlist to the element path, and the sy
     test.skip((await presentation(page)) !== 'pip', `the browser refused Picture in Picture: ${(await notices(page)).join('|')}`);
   }
 
-  // the system's controls act on the element itself: a pause, a play and a seek there reach the player
+  // the subtitles come along as the element's own text track, one cue at a time, and the page says how
   const video = page.getByTestId('video-element');
+  await expect
+    .poll(() => video.evaluate((v: HTMLVideoElement) => (v.textTracks[0]?.mode === 'showing' ? (v.textTracks[0].cues?.[0] as VTTCue | undefined)?.text ?? '' : 'not showing')))
+    .toMatch(/^Line \d$/);
+  expect((await notices(page)).join('|')).toContain('Subtitles show as plain text in Picture in Picture');
+
+  // the system's controls act on the element itself: a pause, a play and a seek there reach the player
   await video.evaluate((v: HTMLVideoElement) => v.pause());
   await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'paused', { timeout: 5_000 });
   await video.evaluate((v: HTMLVideoElement) => void v.play());
@@ -88,6 +99,7 @@ test('Picture in Picture moves a canvas playlist to the element path, and the sy
   await clickControl(page, 'Picture in Picture');
   await expect.poll(() => presentation(page)).toBeNull();
   await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'playing');
+  expect(await video.evaluate((v: HTMLVideoElement) => v.textTracks[0]?.mode)).toBe('disabled');
 });
 
 test('Picture in Picture says why a disc with MPEG-2 video stays on the canvas', async ({ page }) => {
