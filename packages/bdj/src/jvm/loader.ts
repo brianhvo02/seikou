@@ -103,7 +103,7 @@ export interface JMethod {
   callSites?: Map<number, JMethod>;
   /** The method compiled to JavaScript (jit.ts): undefined until it is hot, null when it stays interpreted. */
   jit?: CompiledMethod | null | undefined;
-  /** How often the interpreter's outer loop picked up a frame of it, plus its taken backward branches (jit.ts). */
+  /** The backward branches it has taken while interpreted (jit.ts compiles it at JIT_THRESHOLD). */
   heat: number;
 }
 

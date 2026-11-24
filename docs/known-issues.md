@@ -405,16 +405,22 @@ what would change that decision.
 
 - **The JIT is built but off: it measured no faster at start-up (2026-11-24).** `packages/bdj/src/jvm/jit.ts`
   (spec `docs/superpowers/specs/2026-11-24-bdj-jit-design.md`) compiles hot methods to JavaScript, frame by frame,
-  and passes every oracle with it on and with every method forced through it (the conformance suite, 16,506 methods;
-  the trace, key-script and local-disc goldens). On BDJ_DISC_A (`firstFrameMs` medians, 6 runs each, a quiet Mac) it
+  and passes the conformance suite with every method forced through it (16,506 methods), the trace, key-script and
+  local-disc goldens run with it forced, and a differential fuzz test against the interpreter (2,000 random
+  straight-line methods), which was added after an independent review found a wrong-code bug those had missed (a
+  pending expression reading a stack slot's variable after it was overwritten; fixed). On BDJ_DISC_A (`firstFrameMs` medians, 6 runs each, a quiet Mac) it
   is no faster and a little slower: Chrome cold 4,844 ms off against 4,892 on, warm 4,821 against 4,870; WebKit cold
   4,977 against 5,065; Firefox cold 5,233 against 5,234. In Node's replay Java's own time is 1,098 ms off against
-  1,110 on (cold). Each compiled method starts cold in the JS engine while the interpreter's one loop is already
+  1,110 on (cold). On the iPhone 17 Pro (iOS 27.2, disc server over the LAN) it is about even cold and 0.2 s slower
+  warm: BDJ_DISC_A 6,284 ms off against 6,193 on cold, 5,823 against 6,068 warm (5 runs each); BDJ_DISC_B 1,708
+  against 1,739 cold, 1,123 against 1,344 warm (4 runs), with `bdjMemory.jvm.jitCompiled` 87 and 13 in the JIT arm.
+  The same iPhone now opens BDJ_DISC_A well inside the 10 s target (the 5d gate's 8.3-9.0 s warm and 10.8 s cold
+  were measured differently, through `gate.ts`, so the two are not compared here). Each compiled method starts cold in the JS engine while the interpreter's one loop is already
   optimised, and the start-up's 40 M bytecodes are spread over 7,500 methods; compiled code is faster once warm (a
   tight loop 2.7x, call-heavy code 1.6x). So `JvmOptions.jit` defaults to `off`, the player runs it off (the branch
   with it off matches main in all three browsers), and `?jit=1` (or `?jitthreshold=<n>`) turns it on for a
-  measurement. *Revisit when* a device (the iPhone or iPad, whose cold start misses its 10 s target) measures faster
-  with `?jit=1`, or BD-J work outside start-up (long menu animations) needs the steady-state speed.
+  measurement. *Revisit when* BD-J work outside start-up (long menu animations) needs the steady-state speed, or the
+  iPad's cold start (not measured with the JIT) is the problem.
 - **5c timings (Chrome, production build, this machine).** Time from opening the disc to the first frame of the
   title's playlist, as `bdj.firstFrameMs`:
 
@@ -547,7 +553,7 @@ what would change that decision.
   re-verifying the signed `00000.jar`, as HotSpot does (R10). With the iPhone and iPad gate run concurrently on one
   disc server the iPhone took 12.7-20.3 s; that was the shared connection, not the player. A JIT (5c spec
   section 4.7, stage 2) was thought the lever; built on 2026-11-24, it measured no faster on the Mac in Chrome,
-  WebKit or Firefox and is off (`?jit=1` to measure it on a device). Menu responsiveness: at
+  WebKit or Firefox, nor on this iPhone on 2026-11-24, and is off (entry at the top of this section). Menu responsiveness: at
   most 68 ms on every device (bars 0.2 s computer, 0.5 s iPhone). Ten minutes in the menus (200 inputs) brought no
   reload on the iPhone, the iPad, the iPad Simulator or Mac Safari; desktop Chrome and Firefox stayed 120 s.
   Measured device memory stayed well under the constrained budgets (class bytes 1.33 of 4 MB, VFS 4.6 of 64 MB,

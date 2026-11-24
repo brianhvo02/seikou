@@ -79,7 +79,7 @@ export interface JitStats {
   readonly failures: readonly string[];
 }
 
-/** A method's heat (entries, resumptions and backward branches) at which it is compiled. */
+/** A method's heat (the backward branches it has taken while interpreted) at which it is compiled. */
 export const JIT_THRESHOLD = 1000;
 
 /** Whether `new Function` works here (a Content Security Policy without 'unsafe-eval' refuses it). */

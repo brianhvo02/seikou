@@ -597,8 +597,8 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
     for (let i = 0; i < Math.min(depth, sym.length); i++) {
       const e = sym[i];
       if (e !== undefined) {
-        out += `${S(i)} = ${e}; `;
         sym[i] = undefined;
+        out += assign(i, e);
       }
     }
     sym.length = 0;
@@ -610,11 +610,29 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
     return sym[i] ?? S(i);
   }
 
+  /**
+   * Stores `e` in slot `i`'s variable. A pending expression reads only the variables of its own slot and the slots
+   * above it (its operands), so before `s<i>` changes, the pending expressions below `i` that read it take their value
+   * first (lowest first, each in turn guarding its own variable).
+   */
+  function assign(i: number, e: string): string {
+    const ref = new RegExp(`\\bs${i}\\b`);
+    let out = '';
+    for (let k = 0; k < i; k++) {
+      const p = sym[k];
+      if (p !== undefined && ref.test(p)) {
+        sym[k] = undefined;
+        out += assign(k, p);
+      }
+    }
+    return `${out}${S(i)} = ${e}; `;
+  }
+
   /** Puts `e` in slot `i`, or stores it there when it has grown long. */
   function put(i: number, e: string): string {
     if (e.length > 160) {
       sym[i] = undefined;
-      return `${S(i)} = ${e}; `;
+      return assign(i, e);
     }
     sym[i] = /^[\w.]+$/.test(e) ? e : `(${e})`;
     return '';
@@ -627,8 +645,8 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
     for (let i = 0; i < sym.length; i++) {
       const e = sym[i];
       if (e !== undefined && ref.test(e)) {
-        out += `${S(i)} = ${e}; `;
         sym[i] = undefined;
+        out += assign(i, e);
       }
     }
     return out;
@@ -1024,7 +1042,7 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
         );
       case 0xbb: {
         const c = resolved(idx) as JClass | undefined;
-        if (c && !c.isInterface && !(c.access & 0x0400) && c.state === 'initialized') return `${S(sp)} = jvm.heap.newObject(${k(c)});`;
+        if (c && !c.isInterface && !(c.access & 0x0400) && c.state === 'initialized') return `${at} ${S(sp)} = jvm.heap.newObject(${k(c)});`;
         return (
           `f.pc = ${pc}; ${at} { const c = R.resolveClass(jvm, cls, ${idx}); ` +
           `if (c.isInterface || c.access & 0x0400) throw new R.PendingThrow('java/lang/InstantiationError', R.externalName(c.name)); ` +

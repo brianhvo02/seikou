@@ -168,8 +168,12 @@ inside compiled code is a JVM fault, as in the interpreter.
   trace records; budget equivalence (24 slice lengths, each followed by a second slice: the frame's pc, sp, locals and
   stack the same with and without the JIT); refusal of `jsr`; the CSP fallback with `new Function` throwing.
 - The conformance suite, all of it, a second time with `jit: 'force'`, asserting no compile failed.
-- The BD-J trace comparison, replay and key-script tests unchanged (the replays run the JIT on; `BDJ_JIT=force` by hand); `tests/local/bdj-menus.test.ts`
-  and `tests/local/bdj-boot.test.ts` with the local discs, also with the JIT forced.
+- A differential fuzz test in `jit.test.ts`: 2,000 random straight-line methods (loads, stores, `iinc`, `dup`,
+  `dup_x1`, `dup_x2`, `dup2`, `swap`, `pop`, int, long and float arithmetic, shifts, conversions, comparisons), each
+  run with the JIT off and forced, results compared; and the two methods an independent review found wrong (§9).
+- The BD-J trace comparison, replay and key-script tests unchanged (the replays run the JIT off, as the player does;
+  `BDJ_JIT=on|force` by hand); `tests/local/bdj-menus.test.ts` and `tests/local/bdj-boot.test.ts` with the local discs,
+  also with the JIT forced.
 - Start-up measured with the local discs in Node (`tests/bdj/bench-startup.ts`: CPU time and first `selectPlaylistN`
   of the in-process replay) and in headless Chromium (`bdj.bootMs`, `firstPlaylistMs`, `firstFrameMs`, cold and warm)
   and headless WebKit, with `?jit=1` against the interpreter in the same build.
@@ -190,6 +194,11 @@ load, are in the night report only and agree in direction.
   - BDJ_DISC_B in Chrome: 773 / 756 and 763 / 753 (main) against 788 / 752 and 794 / 765 (JIT off).
   The JIT runs (telemetry: 87 methods compiled in about 20 ms at heat 1,000, 211 in about 40 ms at heat 100) and is
   no faster: 30-90 ms slower in Chrome and WebKit, even in Firefox.
+- **iPhone 17 Pro, iOS 27.2** (Safari through safaridriver, the disc server over HTTPS on the LAN, 03:15-03:40),
+  `firstFrameMs` medians, JIT off / `?jit=1`; cold is the first open in a new automation session, warm the second open
+  in it. BDJ_DISC_A, 5 runs each: cold 6,284 / 6,193 ms, warm 5,823 / 6,068 ms. BDJ_DISC_B, 4 runs each: cold
+  1,708 / 1,739 ms, warm 1,123 / 1,344 ms. Telemetry confirmed the JIT ran (`bdjMemory.jvm.jitCompiled` 87 on
+  BDJ_DISC_A, 13 on BDJ_DISC_B) and was off in the other arm (0). The JIT is about even cold and 0.2 s slower warm.
 - **Node, the in-process replay to the first `selectPlaylistN`** (`tests/bdj/bench-startup.ts`, 5 runs per arm, the
   time Java ran, `threads.runMs`), cold (first JVM in the process) / warm (second): JIT off 1,098 / 831 ms; heat 1,000:
   1,110 / 861; heat 20,000: 1,160 / 821. Compiling itself costs little (about 30 ms); what the JIT loses is the compiled
@@ -207,10 +216,11 @@ load, are in the night report only and agree in direction.
   are the JDK's jar and manifest reading (`Inflater`, `Attributes.read`, `ManifestDigester`, `HashMap`), the disc's
   own string decoding and `BDGraphicsBase.drawImageN`.
 
-*(My call: the JIT ships off in the player — `JvmOptions.jit` defaults to `off` and `?jit=1` turns it on. It is correct
-by every oracle we have, but it measured no faster at start-up in Chrome, WebKit, Firefox, Node or JavaScriptCore's shell,
-so turning it on would add a code path to every BD-J boot for no measured gain. The replays and the conformance suite
-run it, so it stays tested, and a device can be measured with `?jit=1` against the default.)*
+*(My call: the JIT ships off in the player — `JvmOptions.jit` defaults to `off` and `?jit=1` turns it on. It passes
+the forced conformance suite, the trace, key-script and local-disc goldens run with it forced, and the differential
+fuzz test, but it measured no faster at start-up in Chrome, WebKit, Firefox, Node or JavaScriptCore's shell,
+or on the iPhone, so turning it on would add a code path to every BD-J boot for no measured gain. The forced
+conformance suite and `jit.test.ts` keep it tested, and a device can be measured with `?jit=1` against the default.)*
 
 ## 9. Status
 
@@ -220,12 +230,18 @@ budget equivalence, exception and handler semantics through the interpreter's ow
 backward branches with on-stack entry at a loop head; the CSP probe and fallback; `JvmOptions.jit` and
 `jitThreshold`, `Jvm.jitStats()`, `bdjMemory.jvm.jitCompiled`; `?jit=1` and `?jitthreshold=<n>`; the conformance suite
 forced (16,506 methods compiled, none refused or failed); the trace, key-script and local-disc goldens unchanged with
-the JIT on and forced.
+the JIT on and forced; the differential fuzz test.
+
+An independent review found a wrong-code bug the forced conformance run and the goldens had not caught: a pending
+expression that read a slot's variable (after a `dup`) was evaluated after that variable had been overwritten, when a
+store to a local or an over-long expression wrote the variable first (`(a + a) + i++ + i` gave 122 for (100, 7)
+instead of 215). Fixed (`assign` in `jit.ts` lets every pending expression below a slot that reads its variable take
+its value first); both of the review's methods are in `jit.test.ts`, and the fuzz test, which catches the bug when the
+fix is taken out, was added. The measurements above were taken before the fix, which changes no timing that matters.
 
 Not done, and what would come next if the owner wants the lever after all:
 
-- A device measurement: the iPhone 17 Pro and the iPad with `?telemetry=1` against `?telemetry=1&jit=1` (the device
-  was in use by another lane tonight). On the Mac, WebKit gained nothing, so the iPhone is unlikely to.
+- The iPad was not measured (the iPhone was, §8: no gain).
 - The cost the JIT can't remove: a new BD-J worker starts every JS function cold, and the start-up's bytecodes are
   spread thin. Levers that fit that better: intrinsics for the JDK's jar-manifest path (stage 1's kind of work, about
   a third of the interpreted time per the 5d notes), or caching the boot's state across BD-J entries.

@@ -60,7 +60,7 @@ function bootedJvm(
 }
 
 /**
- * The conformance suite (each program's output against HotSpot's) under one JIT mode: `on` (hot methods compiled), `force`
+ * The conformance suite (each program's output against HotSpot's) under one JIT mode: `off` as the player runs, `force`
  * with every method compiled the first time it runs (conformance-jit.test.ts).
  */
 export function defineConformance(jit: JitMode): void {
