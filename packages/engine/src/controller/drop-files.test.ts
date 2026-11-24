@@ -38,3 +38,11 @@ describe('collectDroppedFiles', () => {
     expect((await collectDroppedFiles(list)).map((x) => x.name)).toEqual(['a.srt']);
   });
 });
+
+describe('splitPick with an MKV', () => {
+  it('splitPick counts .mkv as a subtitle source', () => {
+    const out = splitPick([f('Show 01.MKV'), f('x.ttf')]);
+    expect(out.subtitles.map((x) => x.name)).toEqual(['Show 01.MKV']);
+    expect(out.fonts.map((x) => x.name)).toEqual(['x.ttf']);
+  });
+});

@@ -148,3 +148,22 @@ describe('SubtitleMenu: Search Anime Tosho', () => {
     warn.mockRestore();
   });
 });
+
+describe('SubtitleMenu: other tracks of a picked MKV', () => {
+  it('lists them and picks one by its track number', () => {
+    const pick = vi.fn();
+    const track = (number: number, language: string) => ({ number, kind: 'ass' as const, name: null, language, isDefault: false, isForced: false, dialogueLines: 1, text: '' });
+    render(
+      <SubtitleMenu
+        subtitles={subtitles} isMasked={() => false} chapters={[]} nowUs={0} showingFile={null}
+        mkvTracks={[{ source: 'Show 01.mkv', track: track(3, 'jpn') }, { source: 'Show 01.mkv', track: track(5, 'eng') }]} onPickMkvTrack={pick}
+        onSelect={() => {}} onLoadFiles={() => {}} onAddFonts={() => {}} onShift={() => {}} onStart={() => {}} onScale={() => {}} onRemove={() => {}} onOpenChange={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('subtitle-menu'));
+    const rows = screen.getAllByTestId('mkv-track');
+    expect(rows.map((r) => r.getAttribute('data-track'))).toEqual(['3', '5']);
+    fireEvent.click(rows[1]!);
+    expect(pick).toHaveBeenCalledWith(expect.objectContaining({ track: expect.objectContaining({ number: 5 }) }));
+  });
+});

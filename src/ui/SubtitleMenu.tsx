@@ -6,6 +6,7 @@ import type { SubtitleChoice } from '@seikou/engine/protocol';
 import { languageName } from '@seikou/engine/controller/language';
 import { formatSubtitleOffset, MAX_SUBTITLE_SCALE, MIN_SUBTITLE_SCALE, type SubtitlesState } from '@seikou/engine/controller/player-controller';
 import { FONT_EXTENSIONS, SUBTITLE_EXTENSIONS } from '@seikou/engine/controller/drop-files';
+import type { MkvOtherTrack } from './mkv-pick';
 import { startChoices, startLabel } from './subtitle-starts';
 import { ToshoSearchView, type ToshoSearch } from './ToshoSearch';
 
@@ -34,6 +35,9 @@ interface SubtitleMenuProps {
   readonly stored?: StoredSubtitles | null;
   /** A NAS disc's Anime Tosho search ("Search Anime Tosho…"); null for other discs. */
   readonly search?: ToshoSearch | null;
+  /** The picked MKVs' other text tracks, listed under the files; choosing one loads it as a pick. */
+  readonly mkvTracks?: readonly MkvOtherTrack[];
+  onPickMkvTrack?(t: MkvOtherTrack): void;
   onSelect(choice: SubtitleChoice): void;
   onLoadFiles(files: readonly File[]): void;
   onAddFonts(files: readonly File[]): void;
@@ -49,7 +53,7 @@ interface SubtitleMenuProps {
  * Disc PG tracks, the user's subtitle files (each placed at an episode start, with its own timing), size, fonts,
  * Off, and loading files. Keyboard handling as AudioMenu.
  */
-export function SubtitleMenu({ subtitles, chapters, nowUs, showingFile, stored = null, search = null, isMasked, onSelect, onLoadFiles, onAddFonts, onShift, onStart, onScale, onRemove, onOpenChange }: SubtitleMenuProps): ReactElement | null {
+export function SubtitleMenu({ subtitles, chapters, nowUs, showingFile, stored = null, search = null, mkvTracks = [], onPickMkvTrack, isMasked, onSelect, onLoadFiles, onAddFonts, onShift, onStart, onScale, onRemove, onOpenChange }: SubtitleMenuProps): ReactElement | null {
   const [open, setOpen] = useState(false);
   /** The menu's own rows, or the Anime Tosho search's steps in their place. */
   const [view, setView] = useState<'main' | 'tosho'>('main');
@@ -232,6 +236,25 @@ export function SubtitleMenu({ subtitles, chapters, nowUs, showingFile, stored =
                   +
                 </button>
               </span>
+            </li>
+          ))}
+          {mkvTracks.map((t) => (
+            <li key={`${t.source}:${t.track.number}`} role="none">
+              <button
+                type="button"
+                role="menuitem"
+                data-testid="mkv-track"
+                data-track={t.track.number}
+                disabled={offMasked}
+                title={offMasked ? MASKED_TOOLTIP : t.source}
+                onClick={() => {
+                  close(true);
+                  onPickMkvTrack?.(t);
+                }}
+              >
+                {t.track.name ?? (t.track.language ? languageName(t.track.language) || t.track.language : `Track ${t.track.number}`)}
+                {t.track.name && t.track.language ? ` · ${languageName(t.track.language) || t.track.language}` : ''}
+              </button>
             </li>
           ))}
           {text && text.missingFonts.length > 0 && (
