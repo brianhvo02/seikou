@@ -1031,7 +1031,7 @@ describe('Player with BD-J titles (in-process BD-J worker)', () => {
     expect(w.sent.find((m) => m.type === 'boot')).toMatchObject({ memoryStatsMs: 5000 });
     await h.play(600);
     expect(lastTelemetry(h)?.bdjMemory).toEqual({ jvm: null, freeType: null, planeBytes: (16 + 1920 * 1080) * 4, stillBytes: 0, compositorBytes: 0 });
-    const jvm = { bootJarBytes: 1, classes: 2, classFileBytes: 3, zipHandles: 4, zipBytes: 5, vfsFiles: 6, vfsBytes: 7, vfsUsedBytes: 8, jdkFileBytes: 9 };
+    const jvm = { bootJarBytes: 1, classes: 2, classFileBytes: 3, zipHandles: 4, zipBytes: 5, vfsFiles: 6, vfsBytes: 7, vfsUsedBytes: 8, jdkFileBytes: 9, jitCompiled: 10, jitCompileMs: 11 };
     w.emit({ type: 'memory', jvm, freeType: { wasmBytes: 2097152, faces: 1 } });
     await h.play(600);
     expect(lastTelemetry(h)?.bdjMemory).toMatchObject({ jvm, freeType: { wasmBytes: 2097152, faces: 1 } });

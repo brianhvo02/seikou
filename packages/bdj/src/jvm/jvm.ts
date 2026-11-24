@@ -183,6 +183,8 @@ export class Jvm {
       vfsBytes: vfs?.memBytes ?? 0,
       vfsUsedBytes: vfs?.memUsed ?? 0,
       jdkFileBytes: vfs?.jdkCacheBytes ?? 0,
+      jitCompiled: this.jitCompiled,
+      jitCompileMs: Math.round(this.jitCompileMs),
     };
   }
 

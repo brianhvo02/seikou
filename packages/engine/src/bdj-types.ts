@@ -133,6 +133,9 @@ export interface JvmMemoryStats {
   readonly vfsUsedBytes: number;
   /** /jdk/lib/ files read from rt-bdj.jar. */
   readonly jdkFileBytes: number;
+  /** Methods the JIT compiled to JavaScript (each a closure the JVM keeps), and the time compiling them took. */
+  readonly jitCompiled: number;
+  readonly jitCompileMs: number;
 }
 
 /** What went wrong when BD-J failed: a class the library lacks, a native method missing, a class that failed verification, or an error in the JVM itself. */
