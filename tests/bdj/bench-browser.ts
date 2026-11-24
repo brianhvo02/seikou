@@ -1,12 +1,14 @@
-// Times BD-J start-up (the `bdj` telemetry, cold and warm) in headless Chrome, or WebKit with ENGINE=webkit, against a
+// Times BD-J start-up (the `bdj` telemetry, cold and warm) in headless Chrome (ENGINE=webkit or firefox for those) against a
 // running preview: npx tsx tests/bdj/bench-browser.ts <origin> <disc dir> <runs> [query…] (`-` for no query), e.g.
 // `- jit=1` to compare the interpreter with the JIT. BENCH_LOG=1 prints the page's console for an open over 15 s.
-import { chromium, webkit } from '@playwright/test';
+import { chromium, firefox, webkit } from '@playwright/test';
+import { setFolder } from '../e2e/support';
 const [origin, disc, runsArg, ...queryArgs] = process.argv.slice(2);
 // each run opens the disc once per query, in turn, so a load that drifts weighs on every query alike
 const queries = queryArgs.length > 0 ? queryArgs.map((q) => (q === '-' ? '' : q)) : [''];
 const runs = Number(runsArg ?? 3);
-const browser = process.env.ENGINE === 'webkit' ? await webkit.launch({ headless: true }) : await chromium.launch({ channel: 'chrome', headless: true });
+const engine = process.env.ENGINE ?? 'chromium';
+const browser = engine === 'webkit' ? await webkit.launch() : engine === 'firefox' ? await firefox.launch() : await chromium.launch({ channel: 'chrome', headless: true });
 type S = { bootMs?: number; firstPlaylistMs?: number; firstFrameMs?: number };
 const out = new Map<string, { cold: S; warm: S }[]>(queries.map((q) => [q, []]));
 for (let i = 0; i < runs; i++) for (const query of queries) {
@@ -18,7 +20,7 @@ for (let i = 0; i < runs; i++) for (const query of queries) {
   const open = async (): Promise<S> => {
     lines = [];
     await page.goto(`${origin}/?telemetry=1${query ? '&' + query : ''}`);
-    await page.getByTestId('folder-input').setInputFiles(disc!);
+    await setFolder(page.getByTestId('folder-input'), disc!);
     const deadline = Date.now() + 90_000;
     for (;;) {
       const s = await page.evaluate(() => (window as unknown as { __blurayTelemetry?: { bdj?: S | null } }).__blurayTelemetry?.bdj ?? null);
