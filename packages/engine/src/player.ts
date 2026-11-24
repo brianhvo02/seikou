@@ -761,6 +761,9 @@ export class Player {
   private elementOff = false;
   /** The page asked for the element path (preferElement): the disc's playlists take it as with 'element', until another disc opens. */
   private elementPreferred = false;
+  /** The page wants the showing text as textCue events (setTextCues); the last text sent (undefined: none sent since it asked). */
+  private textCuesOn = false;
+  private lastCueText: string | null | undefined = undefined;
   /** Why the video element failed on this disc (telemetry's elementFailure); null while it hasn't. */
   private elementFailure: string | null = null;
   /** An HDR stream plays on the element path, as the last videoHdr event said. */
@@ -969,6 +972,10 @@ export class Player {
         case 'preferElement':
           await this.preferElement();
           break;
+        case 'setTextCues':
+          this.textCuesOn = cmd.on;
+          this.lastCueText = undefined;
+          break;
         case 'setDeinterlace':
           await this.setDeinterlace(cmd.mode);
           break;
@@ -1081,6 +1088,7 @@ export class Player {
     this.pg?.tick(subtitlesUs);
     this.encodeSubs?.pgs?.control.tick(subtitlesUs);
     this.paint(frame, subtitlesUs);
+    if (this.textCuesOn) this.sendTextCue(subtitlesUs);
     this.countSkipping(s, now);
     if (this.session === s) this.watchForPicture(s);
     this.feedDecoder(s); // presenting freed decoded-frame slots
@@ -1148,6 +1156,15 @@ export class Player {
     if (text) this.compositor?.drawText?.(text, this.subtitleUs(this.presentUs()), this.textOptions());
     if (this.navigator?.igPlane) this.compositor?.drawIg?.(this.navigator.igPlane);
     if (this.bdj) this.compositor?.drawBdj?.(this.bdj.plane);
+  }
+
+  /** Sends the showing text as plain text when it differs from what was sent last (setTextCues). */
+  private sendTextCue(atUs: number): void {
+    const lines = this.activeText()?.plainText?.(atUs, this.textOptions()) ?? [];
+    const text = lines.length > 0 ? lines.join('\n') : null;
+    if (text === this.lastCueText) return;
+    this.lastCueText = text;
+    this.deps.emit({ type: 'textCue', text });
   }
 
   /** The PG plane that shows: the disc's PG stream, or an encode's PGS track. */

@@ -177,8 +177,26 @@ function unavailableReason(reason: ElementPreferenceReason | 'no-picture'): stri
   }
 }
 
-/** The notice shown once per disc when Picture in Picture starts while subtitles show or a menu is up. */
-export const PIP_OVERLAYS_MESSAGE = 'Subtitles and disc menus don’t show in Picture in Picture; they stay on the page.';
+/** What a presentation's notice reads about the page's overlays. */
+export interface OverlayState {
+  readonly menuActive: boolean;
+  readonly bdjMenuVisible: boolean;
+  readonly subtitles: { readonly selected: 'off' | 'text' | { readonly pg: number } } | null;
+}
+
+/**
+ * The notice shown once per disc as Picture in Picture or video fullscreen starts, about what of the page doesn't
+ * come along: a disc menu, the disc's own (PG) subtitles, or the styling of text subtitles, which the video's text
+ * track carries as plain text. Null when nothing shows over the video.
+ */
+export function overlayNotice(mode: PresentationMode, s: OverlayState): string | null {
+  const where = mode === 'pip' ? 'Picture in Picture' : 'video fullscreen';
+  if (s.menuActive || s.bdjMenuVisible) return `Disc menus don’t show in ${where}; they stay on the page.`;
+  const selected = s.subtitles?.selected ?? 'off';
+  if (selected === 'text') return `Subtitles show as plain text in ${where}, without their styling or signs.`;
+  if (selected !== 'off') return `The disc’s own subtitles don’t show in ${where}; subtitle files you add do, as plain text.`;
+  return null;
+}
 
 /** Resolves true once `check()` holds (looked at every `intervalMs`), false after `timeoutMs`. */
 export function pollUntil(check: () => boolean, timeoutMs: number, intervalMs = 50): Promise<boolean> {

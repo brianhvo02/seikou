@@ -20,7 +20,7 @@ import { resolveDiscPreferences } from './disc-preferences';
 import { checkCapabilities } from './capabilities';
 import { HdrBadge } from './HdrBadge';
 import { FULLSCREEN_HINT_TEXT, evaluateFullscreenHint, fullscreenKind, markFullscreenHintDismissed, safeLocalStorage, toggleFullscreen } from './fullscreen';
-import { enterPresentation, exitPresentation, PIP_OVERLAYS_MESSAGE, pollUntil, present, presentBlocked, presentedAs, presentMessage, PRESENTATION_GRACE_MS, type PresentationMode } from './video-presentation';
+import { enterPresentation, exitPresentation, overlayNotice, pollUntil, present, presentBlocked, presentedAs, presentMessage, PRESENTATION_GRACE_MS, type PresentationMode } from './video-presentation';
 import { EncodingPrompt } from './EncodingPrompt';
 import { keyActionUo, keyToAction, keyWakesControls } from './keyboard';
 import { toMenuSpace } from './pointer';
@@ -571,11 +571,10 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
         return;
       }
       controller.dismissNotice(mode === 'pip' ? 'pip' : 'video-fullscreen'); // a "tap again" from before
-      const s = controller.getSnapshot();
-      const overlays = (s.subtitles !== null && s.subtitles.selected !== 'off') || s.menuActive || s.bdjMenuVisible;
+      const overlays = overlayNotice(mode, controller.getSnapshot());
       if (overlays && !pipOverlaysNoticed.current) {
         pipOverlaysNoticed.current = true;
-        controller.showNotice('pip-overlays', mode === 'pip' ? PIP_OVERLAYS_MESSAGE : PIP_OVERLAYS_MESSAGE.replace('Picture in Picture', 'video fullscreen'));
+        controller.showNotice('pip-overlays', overlays);
       }
     });
   };

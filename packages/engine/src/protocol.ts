@@ -462,6 +462,12 @@ export type EngineCommand =
    * later playlists take the element path too, until another disc opens. Answered by elementPreference.
    */
   | { readonly type: 'preferElement' }
+  /**
+   * While `on`, the engine sends the text subtitles that show (the added files, or an encode's ASS track) as plain text
+   * in textCue events, for the video element's own text track: the page asks while the system shows the element alone
+   * (Picture in Picture, a video's own fullscreen), where the canvas's subtitles can't be seen.
+   */
+  | { readonly type: 'setTextCues'; readonly on: boolean }
   /** Turns deinterlacing of interlaced video on (`auto`) or off; applies at once, reopening an interlaced playlist at the same time. */
   | { readonly type: 'setDeinterlace'; readonly mode: DeinterlaceMode }
   /**
@@ -724,6 +730,8 @@ export type EngineEvent =
    * `unavailable` with the reason.
    */
   | ({ readonly type: 'elementPreference' } & ElementPreference)
+  /** The text subtitles showing now as plain text (cues separated by a line break), or null for none; sent on a change while setTextCues is on. */
+  | { readonly type: 'textCue'; readonly text: string | null }
   /** The answer to readPlace. */
   | ({ readonly type: 'placeState' } & PlaceState)
   /**

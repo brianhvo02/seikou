@@ -205,3 +205,14 @@ describe('TextSubtitleRenderer', () => {
     expect(r.visible(2_500_000, { ...OPTS, offsetUs: 1_000_000 })).toBe(true);
   });
 });
+
+describe('TextSubtitleRenderer.plainText', () => {
+  it('gives the showing cues as plain text, styles dropped, at the offset', () => {
+    const r = new TextSubtitleRenderer(srt('00:00:01,000 --> 00:00:03,000\n<i>Hello</i> there\nsecond line', '00:00:02,000 --> 00:00:04,000\nOther'));
+    expect(r.plainText(1_500_000, { offsetUs: 0, scale: 1 })).toEqual(['Hello there\nsecond line']);
+    expect(r.plainText(2_500_000, { offsetUs: 0, scale: 1 })).toEqual(['Hello there\nsecond line', 'Other']);
+    expect(r.plainText(500_000, { offsetUs: 0, scale: 1 })).toEqual([]);
+    expect(r.plainText(5_500_000, { offsetUs: 1_000_000, scale: 1 })).toEqual([]);
+    expect(r.plainText(4_500_000, { offsetUs: 1_000_000, scale: 1 })).toEqual(['Other']);
+  });
+});

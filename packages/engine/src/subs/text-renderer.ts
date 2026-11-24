@@ -114,6 +114,13 @@ export class TextSubtitleRenderer {
     return activeCues(this.cues, timeUs - opts.offsetUs).length > 0;
   }
 
+  /** The cues showing at `timeUs` as plain text, each cue's lines joined by `\n`. */
+  plainText(timeUs: number, opts: TextRenderOptions): string[] {
+    return activeCues(this.cues, timeUs - opts.offsetUs)
+      .map((c) => c.lines.map((runs) => runs.map((r) => r.text).join('').trim()).filter((l) => l.length > 0).join('\n'))
+      .filter((t) => t.length > 0);
+  }
+
   /** Draws the visible cues inside `videoRect`; returns how many were drawn. */
   render(ctx: OffscreenCanvasRenderingContext2D, timeUs: number, videoRect: Rect, opts: TextRenderOptions): number {
     const cues = activeCues(this.cues, timeUs - opts.offsetUs);

@@ -8,6 +8,7 @@ import {
   type ElementTransport,
   type MediaSourceLike,
   type SourceBufferLike,
+  type VideoElementEvent,
   type VideoElementLike,
 } from './element-output';
 
@@ -215,10 +216,25 @@ class FakeVideo implements VideoElementLike {
   getVideoPlaybackQuality(): { totalVideoFrames: number; droppedVideoFrames: number } {
     return this.quality;
   }
-  addEventListener(type: 'waiting' | 'playing' | 'error' | 'play' | 'pause' | 'seeking', fn: () => void): void {
+  addEventListener(type: VideoElementEvent, fn: () => void): void {
     (this.listeners[type] ??= []).push(fn);
   }
-  fire(type: 'waiting' | 'playing' | 'error' | 'play' | 'pause' | 'seeking'): void {
+  tracks: Array<{ mode: 'disabled' | 'hidden' | 'showing'; cues: unknown[]; addCue(c: unknown): void; removeCue(c: unknown): void }> = [];
+  addTextTrack(): { mode: 'disabled' | 'hidden' | 'showing'; cues: unknown[]; addCue(c: unknown): void; removeCue(c: unknown): void } {
+    const t = {
+      mode: 'hidden' as 'disabled' | 'hidden' | 'showing',
+      cues: [] as unknown[],
+      addCue(c: unknown) {
+        this.cues.push(c);
+      },
+      removeCue(c: unknown) {
+        this.cues = this.cues.filter((x) => x !== c);
+      },
+    };
+    this.tracks.push(t);
+    return t;
+  }
+  fire(type: VideoElementEvent): void {
     for (const fn of this.listeners[type] ?? []) fn();
   }
   removeAttribute(name: string): void {
@@ -257,7 +273,7 @@ function setup(opts: { failAppends?: boolean; noMediaSource?: boolean; playable?
       return { source: ms, url: 'blob:ms', revoke: () => revoked++ };
     },
     ...(opts.failAppends ? { failAppends: true } : {}),
-    ...(opts.presented ? { presented: () => opts.presented!.value, onTransport: (t: ElementTransport) => transports.push(t) } : {}),
+    ...(opts.presented ? { presented: () => opts.presented!.value, onTransport: (t: ElementTransport) => transports.push(t), makeCue: (start: number, end: number, text: string) => ({ start, end, text }) } : {}),
     playable: async (query) => {
       const playable = (opts.playable ?? (() => true))(query);
       return { playable, check: { mse: playable, decodingInfo: query.hdr ? playable : null } };
@@ -1069,5 +1085,32 @@ describe('ElementVideoOutput and the media source duration', () => {
     expect(Number.isNaN(t.ms.duration)).toBe(true);
     t.ms.fireOpen();
     expect(t.ms.duration).toBe(150 + OFFSET_S);
+  });
+});
+
+describe('ElementVideoOutput and the text track of a presented element', () => {
+  it('asks for text cues while presented, shows them as one cue on the element, and stops after', () => {
+    const presented = { value: false };
+    const t = opened(0, false, 1, presented);
+    presented.value = true;
+    t.video.fire('enterpictureinpicture');
+    expect(commands(t.posted, 'setTextCues')).toEqual([{ type: 'setTextCues', on: true }]);
+    const track = t.video.tracks[0]!;
+    expect(track.mode).toBe('showing');
+    t.out.handle({ type: 'textCue', text: 'Hello\nthere' });
+    expect(track.cues).toEqual([{ start: 0, end: 1e7, text: 'Hello\nthere' }]);
+    t.out.handle({ type: 'textCue', text: null });
+    expect(track.cues).toEqual([]);
+    t.out.handle({ type: 'textCue', text: 'Again' });
+    presented.value = false;
+    t.video.fire('leavepictureinpicture');
+    expect(commands(t.posted, 'setTextCues').at(-1)).toEqual({ type: 'setTextCues', on: false });
+    expect(track.mode).toBe('disabled');
+    expect(track.cues).toEqual([]);
+    // a second presentation reuses the track
+    presented.value = true;
+    t.video.fire('webkitbeginfullscreen');
+    expect(t.video.tracks).toHaveLength(1);
+    expect(track.mode).toBe('showing');
   });
 });

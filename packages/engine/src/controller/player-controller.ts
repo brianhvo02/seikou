@@ -303,6 +303,8 @@ export function reduceEvent(s: PlayerSnapshot, e: EngineEvent): PlayerSnapshot {
       return s.videoHdr === e.hdr ? s : { ...s, videoHdr: e.hdr };
     case 'elementPreference':
       return s; // answers preferElement (the controller resolves it)
+    case 'textCue':
+      return s; // the page's element handler shows it
     case 'videoElementQuery':
     case 'videoSegment':
     case 'videoReset':
@@ -591,6 +593,7 @@ export class PlayerController {
         ),
       answers: this.elementAnswers,
       presented: () => videoPresented(video),
+      ...(typeof VTTCue === 'function' ? { makeCue: (start: number, end: number, text: string) => new VTTCue(start, end, text) } : {}),
       onTransport: (t) => {
         if (t.kind === 'pause') this.pause();
         else if (t.kind === 'play') this.play();

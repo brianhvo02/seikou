@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { describe, expect, it, vi } from 'vitest';
-import { enterPresentation, exitPresentation, FULLSCREEN_MENU_MESSAGE, hasVideoFullscreen, pipApi, pollUntil, present, presentBlocked, presentMessage, presentedAs, type PresentDeps, type PresentableVideo } from './video-presentation';
+import { enterPresentation, exitPresentation, FULLSCREEN_MENU_MESSAGE, overlayNotice, hasVideoFullscreen, pipApi, pollUntil, present, presentBlocked, presentMessage, presentedAs, type PresentDeps, type PresentableVideo } from './video-presentation';
 
 describe('pipApi and hasVideoFullscreen', () => {
   it('prefers the standard API, falls back to WebKit presentation mode, and is null in Firefox', () => {
@@ -113,5 +113,16 @@ describe('presentBlocked', () => {
     expect(presentBlocked('fullscreen', { menuActive: false, bdjMenuVisible: true })).toBe(FULLSCREEN_MENU_MESSAGE);
     expect(presentBlocked('fullscreen', { menuActive: false, bdjMenuVisible: false })).toBeNull();
     expect(presentBlocked('pip', { menuActive: true, bdjMenuVisible: true })).toBeNull();
+  });
+});
+
+describe('overlayNotice', () => {
+  const base = { menuActive: false, bdjMenuVisible: false, subtitles: null };
+  it('names what stays on the page, menus first', () => {
+    expect(overlayNotice('pip', base)).toBeNull();
+    expect(overlayNotice('pip', { ...base, subtitles: { selected: 'off' } })).toBeNull();
+    expect(overlayNotice('pip', { ...base, menuActive: true, subtitles: { selected: 'text' } })).toBe('Disc menus don’t show in Picture in Picture; they stay on the page.');
+    expect(overlayNotice('fullscreen', { ...base, subtitles: { selected: 'text' } })).toBe('Subtitles show as plain text in video fullscreen, without their styling or signs.');
+    expect(overlayNotice('pip', { ...base, subtitles: { selected: { pg: 0 } } })).toMatch(/^The disc’s own subtitles don’t show in Picture in Picture/);
   });
 });

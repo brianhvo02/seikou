@@ -75,3 +75,17 @@ describe('TextSet', () => {
     expect(s.placements()[1]!.startUs).toBe(20 * MIN);
   });
 });
+
+describe('TextSetRenderer.plainText', () => {
+  it("asks the file showing at its own time, and is empty where nothing shows or a renderer can't say", async () => {
+    const { TextSetRenderer } = await import('./text-set');
+    const asked: number[] = [];
+    const renderer = { render: () => 0, changed: () => false, visible: () => true, plainText: (t: number) => (asked.push(t), ['line']) };
+    const set = new TextSet([{ name: 'a.ass', format: 'ass' as const, cues: 1, renderer }]);
+    const r = new TextSetRenderer(set);
+    expect(r.plainText(2_000_000, { offsetUs: 0, scale: 1 })).toEqual(['line']);
+    expect(asked).toEqual([2_000_000]);
+    const mute = new TextSetRenderer(new TextSet([{ name: 'b.srt', format: 'srt' as const, cues: 1, renderer: { render: () => 0, changed: () => false, visible: () => false } }]));
+    expect(mute.plainText(0, { offsetUs: 0, scale: 1 })).toEqual([]);
+  });
+});

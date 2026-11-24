@@ -23,9 +23,39 @@ export interface VideoElementLike {
   requestVideoFrameCallback(cb: (now: number, meta: { mediaTime: number; expectedDisplayTime: number }) => void): number;
   cancelVideoFrameCallback(id: number): void;
   getVideoPlaybackQuality(): { totalVideoFrames: number; droppedVideoFrames: number };
-  addEventListener(type: 'waiting' | 'playing' | 'error' | 'play' | 'pause' | 'seeking', fn: () => void): void;
+  addEventListener(type: VideoElementEvent, fn: () => void): void;
+  /** Adds a text track (absent in tests that don't need one): it carries the subtitles while the element is presented. */
+  addTextTrack?(kind: 'subtitles', label: string, language: string): TextTrackLike;
   removeAttribute(name: string): void;
   load(): void;
+}
+
+/**
+ * The element events the output listens to: its own stalls and errors, play, pause and seeks (the system's controls),
+ * and the presentation changes of Picture in Picture and WebKit's video fullscreen.
+ * @internal
+ */
+export type VideoElementEvent =
+  | 'waiting'
+  | 'playing'
+  | 'error'
+  | 'play'
+  | 'pause'
+  | 'seeking'
+  | 'enterpictureinpicture'
+  | 'leavepictureinpicture'
+  | 'webkitpresentationmodechanged'
+  | 'webkitbeginfullscreen'
+  | 'webkitendfullscreen';
+
+/**
+ * The parts of a `TextTrack` the element output uses.
+ * @internal
+ */
+export interface TextTrackLike {
+  mode: 'disabled' | 'hidden' | 'showing';
+  addCue(cue: unknown): void;
+  removeCue(cue: unknown): void;
 }
 
 /**
@@ -88,6 +118,8 @@ export interface ElementOutputDeps {
   presented?(): boolean;
   /** The user played, paused or sought the element through the system's controls while it was presented. */
   onTransport?(t: ElementTransport): void;
+  /** Makes a text cue (`new VTTCue(start, end, text)`) for the element's text track; without it no subtitles are carried. */
+  makeCue?(startS: number, endS: number, text: string): unknown;
   /** Test-only: every append fails with an error that is not a `QuotaExceededError`, so the element fails at once. */
   failAppends?: boolean;
 }
@@ -98,6 +130,8 @@ export interface ElementOutputDeps {
  */
 export type ElementTransport = { readonly kind: 'play' } | { readonly kind: 'pause' } | { readonly kind: 'seek'; readonly timeUs: number };
 
+/** The end of the one cue the text track shows (seconds of media time): later than any playlist. */
+const CUE_END_S = 1e7;
 /** How close (seconds) a `seeking` element's time must lie to a time the output set to count as the output's own. */
 const OWN_SEEK_SLACK_S = 0.05;
 /** The most times the output set whose `seeking` it still waits for. */
@@ -218,6 +252,11 @@ export class ElementVideoOutput {
   private ownPauses = 0;
   /** Times (media seconds) the output set whose `seeking` is still to come. */
   private ownSeeks: number[] = [];
+  /** Whether the engine sends textCue events: while the element is presented. */
+  private cuesOn = false;
+  /** The element's text track (made the first time it is presented) and the cue it shows. */
+  private textTrack: TextTrackLike | null = null;
+  private cue: unknown = null;
   /** The media source's duration (seconds, media time) still to be set: the playlist's end, from the last videoReset. */
   private pendingDurationS: number | null = null;
 
@@ -254,6 +293,40 @@ export class ElementVideoOutput {
     video.addEventListener('pause', () => this.onPauseEvent());
     video.addEventListener('play', () => this.onPlayEvent());
     video.addEventListener('seeking', () => this.onSeekingEvent());
+    for (const type of ['enterpictureinpicture', 'leavepictureinpicture', 'webkitpresentationmodechanged', 'webkitbeginfullscreen', 'webkitendfullscreen'] as const) {
+      video.addEventListener(type, () => this.onPresentationChange());
+    }
+  }
+
+  /**
+   * The system started or stopped showing the element: while it does, the engine sends the showing text subtitles as
+   * plain text (setTextCues) and the element's own text track shows them, since the canvas can't be seen there.
+   */
+  private onPresentationChange(): void {
+    const on = this.presented() && this.deps.makeCue !== undefined && this.deps.video.addTextTrack !== undefined;
+    if (on === this.cuesOn) return;
+    this.cuesOn = on;
+    if (on && !this.textTrack) this.textTrack = this.deps.video.addTextTrack!('subtitles', 'Subtitles', '');
+    this.showCue(null);
+    if (this.textTrack) this.textTrack.mode = on ? 'showing' : 'disabled';
+    this.deps.post({ type: 'setTextCues', on });
+  }
+
+  /** Shows `text` as the text track's one cue, spanning every media time, or none. */
+  private showCue(text: string | null): void {
+    const track = this.textTrack;
+    if (!track) return;
+    if (this.cue !== null) {
+      try {
+        track.removeCue(this.cue);
+      } catch {
+        // already gone
+      }
+      this.cue = null;
+    }
+    if (text === null || !this.cuesOn || !this.deps.makeCue) return;
+    this.cue = this.deps.makeCue(0, CUE_END_S, text);
+    track.addCue(this.cue);
   }
 
   /** Whether the system shows the element now (deps.presented), where play, pause and seeks the output didn't make are the user's. */
@@ -349,6 +422,9 @@ export class ElementVideoOutput {
         return true;
       case 'videoElementStop':
         this.detach();
+        return true;
+      case 'textCue':
+        this.showCue(e.text);
         return true;
       default:
         return false;
