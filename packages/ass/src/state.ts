@@ -3,7 +3,7 @@
  *
  * Ported from libass 0.17.5 (ass_render.h): RenderContext; (ass_render.c): handle_selective_style_overrides
  * (with overrides disabled), ass_layout_res, init_font_scale, ass_reset_render_context, init_render_context;
- * (ass_parse.c): ass_update_font. libass is ISC-licensed; see packages/ass/NOTICE. Modified for Seikou, 2026.
+ * (ass_parse.c): ass_update_font, ass_apply_transition_effects. libass is ISC-licensed; see packages/ass/NOTICE. Modified for Seikou, 2026.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later AND ISC
  */
@@ -22,6 +22,19 @@ export const DECO_ROTATE = 4;
 export const EVENT_NORMAL = 0;
 /** Event placement, libass `EVENT_POSITIONED`: after `\pos` or `\move`, where the margins are ignored. */
 export const EVENT_POSITIONED = 1;
+/** Event placement flag, libass `EVENT_HSCROLL`: the legacy `Banner` effect, moving sideways with unlimited width. */
+export const EVENT_HSCROLL = 2;
+/** Event placement flag, libass `EVENT_VSCROLL`: the legacy `Scroll up` and `Scroll down` effects. */
+export const EVENT_VSCROLL = 4;
+
+/** Scroll direction, libass `SCROLL_LR`: a `Banner` moving left to right. */
+export const SCROLL_LR = 0;
+/** Scroll direction `SCROLL_RL`: a `Banner` moving right to left. */
+export const SCROLL_RL = 1;
+/** Scroll direction `SCROLL_TB`: `Scroll down`. */
+export const SCROLL_TB = 2;
+/** Scroll direction `SCROLL_BT`: `Scroll up`. */
+export const SCROLL_BT = 3;
 
 /** Karaoke effect type, libass `ass_render.h` `EF_NONE`: no effect. */
 export const EF_NONE = 0;
@@ -92,8 +105,12 @@ export interface RenderState {
   hspacing: number;
   /** Outline width along x and y (`\bord`, `\xbord`, `\ybord`). */
   borderX: number; borderY: number;
-  /** `EVENT_NORMAL` or `EVENT_POSITIONED`. */
+  /** `EVENT_NORMAL`, or the flags `EVENT_POSITIONED`, `EVENT_HSCROLL` and `EVENT_VSCROLL`. */
   evtType: number;
+  /** For a scrolling event: the `SCROLL_*` direction, how far it has moved (script pixels) and the band of a vertical scroll. */
+  scrollDirection: number;
+  scrollShift: number;
+  scrollY0: number; scrollY1: number;
   /** BorderStyle (1 outline and shadow, 3 box); the style's, there is no tag for it. */
   borderStyle: number;
   /** 0xRRGGBBAA, primary, secondary, outline, back (`\c`/`\1c` to `\4c`, `\alpha`, `\1a` to `\4a`). */
@@ -247,15 +264,61 @@ export function resetRenderState(s: RenderState, style: AssStyle | null): void {
   s.fontEncoding = style.encoding;
 }
 
-/** init_render_context (the Effect field's Banner/Scroll transitions are out of scope). */
-export function initRenderState(track: AssTrack, event: AssEvent, settings: RenderSettings): RenderState {
+/** C `atoi`: leading whitespace, a sign and digits; 0 when there are none. */
+function atoi(str: string): number {
+  const m = /^[\t\n\v\f\r ]*([+-]?\d+)/.exec(str);
+  return m ? Number.parseInt(m[1]!, 10) | 0 : 0;
+}
+
+/**
+ * ass_apply_transition_effects: the legacy `Effect` field. `Banner;delay[;lefttoright]` moves the event sideways by
+ * one script pixel every `delay` ms, unwrapped; `Scroll up;y0;y1;delay` and `Scroll down;y0;y1;delay` move it
+ * vertically inside the band. Either turns off collision detection. `now` is ms from the event's start.
+ */
+export function applyTransitionEffects(s: RenderState, now: number): void {
+  const effect = s.event.effect;
+  if (!effect) return;
+  const v: number[] = [];
+  let p = effect.indexOf(';');
+  while (v.length < 4 && p >= 0) {
+    v.push(atoi(effect.slice(p + 1)));
+    p = effect.indexOf(';', p + 1);
+  }
+  const res = layoutRes(s.track, s.settings);
+  if (effect.startsWith('Banner;')) {
+    if (v.length < 1) return;
+    s.scrollDirection = v.length >= 2 && v[1] ? SCROLL_LR : SCROLL_RL;
+    // VSFilter truncates the delay in storage pixels and takes at least 1 there
+    const scaleX = res.x / s.track.playResX;
+    const delay = Math.trunc(Math.max(v[0]! / scaleX, 1)) * scaleX;
+    s.scrollShift = now / delay;
+    s.evtType |= EVENT_HSCROLL;
+    s.detectCollisions = false;
+    s.wrapStyle = 2;
+    return;
+  }
+  if (effect.startsWith('Scroll up;')) s.scrollDirection = SCROLL_BT;
+  else if (effect.startsWith('Scroll down;')) s.scrollDirection = SCROLL_TB;
+  else return;
+  if (v.length < 3) return;
+  const scaleY = res.y / s.track.playResY;
+  const delay = Math.trunc(Math.max(v[2]! / scaleY, 1)) * scaleY;
+  s.scrollShift = now / delay;
+  s.scrollY0 = Math.min(v[0]!, v[1]!);
+  s.scrollY1 = Math.max(v[0]!, v[1]!);
+  s.evtType |= EVENT_VSCROLL;
+  s.detectCollisions = false;
+}
+
+/** init_render_context, with the legacy `Effect` transitions at `now` (ms from the event's start). */
+export function initRenderState(track: AssTrack, event: AssEvent, settings: RenderSettings, now = 0): RenderState {
   const style = track.styles[event.style] ?? track.styles[0]!;
   const s: RenderState = {
     track, event, settings, style,
     fontRequest: { family: '', bold: 400, italic: 0, vertical: false }, family: '', bold: 0, italic: 0, fontSize: 0,
     parsedTags: 0, flags: 0, alignment: 0, justify: 0, frx: 0, fry: 0, frz: 0, fax: 0, fay: 0,
     posX: 0, posY: 0, orgX: 0, orgY: 0, scaleX: 1, scaleY: 1, hspacing: 0, borderX: 0, borderY: 0,
-    evtType: EVENT_NORMAL, borderStyle: 1, c: [0, 0, 0, 0],
+    evtType: EVENT_NORMAL, scrollDirection: SCROLL_LR, scrollShift: 0, scrollY0: 0, scrollY1: 0, borderStyle: 1, c: [0, 0, 0, 0],
     clipX0: 0, clipY0: 0, clipX1: track.playResX, clipY1: track.playResY, haveOrigin: false, clipMode: 0,
     detectCollisions: true, be: 0, fade: 0, blur: 0, shadowX: 0, shadowY: 0, pbo: 0,
     clipDrawingText: null, drawingScale: 0, clipDrawingScale: 1, clipDrawingMode: 0,
@@ -264,6 +327,8 @@ export function initRenderState(track: AssTrack, event: AssEvent, settings: Rend
     screenScaleX: 1, screenScaleY: 1, borderScaleX: 1, borderScaleY: 1, blurScaleX: 1, blurScaleY: 1,
     parScaleX: parScale(track, settings),
   };
+  applyTransitionEffects(s, now);
+  s.explicit = s.evtType !== EVENT_NORMAL || s.explicit;
   resetRenderState(s, null);
   s.alignment = s.style.alignment;
   s.justify = s.style.justify;

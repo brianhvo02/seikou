@@ -6,9 +6,11 @@
  * Ported from libass 0.17.5 (ass_render.c): the filter flags of render_and_combine_glyphs, the positions of
  * quantize_transform, quantize_blur, restore_blur, the composition of ass_composite_construct, render_text,
  * render_glyph (rectangle and karaoke split), blend_vector_clip (as a canvas clip), the BorderStyle 3 box of
- * get_bitmap_glyph; (ass_bitmap.c):
- * ass_fix_outline; (ass_font.c): the strengths of ass_glyph_embolden and ass_glyph_italicize and the decoration
- * rectangles of ass_get_glyph_outline. libass is ISC-licensed; see packages/ass/NOTICE. Modified for Seikou, 2026.
+ * get_bitmap_glyph, add_background (BorderStyle 4); (ass_bitmap.c):
+ * ass_fix_outline, ass_synth_blur (the `\be` passes), be_blur_pre, be_blur_post; (c/c_be_blur.c): ass_be_blur_c;
+ * (ass_font.c): the strengths of ass_glyph_embolden and ass_glyph_italicize and the decoration
+ * rectangles of ass_get_glyph_outline, its quarter turn for `@` fonts; (ass_outline.c): ass_outline_rotate_90.
+ * libass is ISC-licensed; see packages/ass/NOTICE. Modified for Seikou, 2026.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later AND ISC
  */
@@ -16,7 +18,7 @@
 import { parseDrawing, toPath2D } from './drawing';
 import { doubleToD6, lrint, type GlyphInfo } from './events';
 import type { FrameEvent } from './frame';
-import { DECO_STRIKETHROUGH, DECO_UNDERLINE, EF_KARAOKE, EF_KARAOKE_KF, EF_KARAOKE_KO, type RenderState } from './state';
+import { DECO_ROTATE, DECO_STRIKETHROUGH, DECO_UNDERLINE, EF_KARAOKE, EF_KARAOKE_KF, EF_KARAOKE_KO, type RenderState } from './state';
 import { applyFade } from './tags';
 import { applyMat3, isAffine, normalize, type Mat3 } from './transform';
 
@@ -241,6 +243,12 @@ function drawGlyph(ctx: OffscreenCanvasRenderingContext2D, g: GlyphInfo, rc: Ras
   const face = g.face;
   if (!face) return;
   const em = g.emPx;
+  const turned = (g.flags & DECO_ROTATE) !== 0;
+  if (turned) {
+    // ass_outline_rotate_90 after the synthetic styles: (x, y) → (dv + y, -desc - x); decorations stay unturned
+    ctx.save();
+    ctx.transform(0, -1, 1, 0, g.rotateDx / 64, g.rotateDy / 64);
+  }
   if (face.synthItalic) ctx.transform(1, 0, -face.italicShear, 1, 0, 0);
   ctx.font = `${em}px "${face.cssFamily}"`;
   // unhinted outlines at fractional positions, as libass renders them (ASS_HINTING_NONE)
@@ -266,9 +274,10 @@ function drawGlyph(ctx: OffscreenCanvasRenderingContext2D, g: GlyphInfo, rc: Ras
     }
   }
   if (bold > 0) ctx.translate(-bold / 2, bold / 2);
+  if (turned) ctx.restore();
   const f = face.face;
   const k = em / f.unitsPerEm;
-  const adv = Math.round(g.metrics?.advance ?? 0);
+  const adv = turned ? g.verticalAdvance / 64 : Math.round(g.metrics?.advance ?? 0);
   if (adv > 0 && g.flags & DECO_UNDERLINE && f.underlinePosition <= 0 && f.underlineThickness > 0) {
     const size = Math.round(f.underlineThickness * k * 64) / 64;
     ctx.fillRect(0, -f.underlinePosition * k - size / 2, adv, size);
@@ -436,6 +445,75 @@ export function gaussianBlur(mask: Uint8Array, w: number, h: number, sigmaX: num
   return res;
 }
 
+/**
+ * The `\be` part of ass_synth_blur, in place: `be` passes of VSFilter's 3×3 `[1 2 1]` box kernel (ass_be_blur_c),
+ * zero outside the bitmap and truncated (`>> 4`) per pass; with more than one pass, all but the last run on the mask
+ * scaled to 0..64 (be_blur_pre) and scaled back after (be_blur_post).
+ */
+export function beBlur(mask: Uint8Array, w: number, h: number, be: number): void {
+  if (!be || w < 2 || h < 2) return;
+  const tmp = new Uint16Array(2 * w);
+  if (--be) {
+    // be_blur_pre: (v * 64 + 127) / 255
+    for (let i = 0; i < w * h; i++) mask[i] = (((mask[i]! >> 1) + 1) >> 1);
+    do beBlurPass(mask, w, h, tmp); while (--be);
+    // be_blur_post: (v * 255 + 32) / 64
+    for (let i = 0; i < w * h; i++) {
+      const v = mask[i]!;
+      mask[i] = (v << 2) - (v > 32 ? 1 : 0);
+    }
+  }
+  beBlurPass(mask, w, h, tmp);
+}
+
+/** ass_be_blur_c: one pass with sliding sums, a row behind (the C's col_pix_buf and col_sum_buf share tmp). */
+function beBlurPass(buf: Uint8Array, w: number, h: number, tmp: Uint16Array): void {
+  const colPix = tmp.subarray(0, w);
+  const colSum = tmp.subarray(w, 2 * w);
+  let sum = buf[0]!;
+  for (let x = 1; x < w; x++) {
+    const next = buf[x - 1]! + buf[x]!;
+    colPix[x - 1] = colSum[x - 1] = sum + next;
+    sum = next;
+  }
+  colPix[w - 1] = colSum[w - 1] = sum + buf[w - 1]!;
+  for (let y = 1; y < h; y++) {
+    const dst = (y - 1) * w;
+    const row = y * w;
+    let s = buf[row]!;
+    for (let x = 1; x <= w; x++) {
+      let cp: number;
+      if (x < w) {
+        const next = buf[row + x - 1]! + buf[row + x]!;
+        cp = s + next;
+        s = next;
+      } else cp = s + buf[row + w - 1]!;
+      const cs = colPix[x - 1]! + cp;
+      colPix[x - 1] = cp;
+      buf[dst + x - 1] = (colSum[x - 1]! + cs) >> 4;
+      colSum[x - 1] = cs;
+    }
+  }
+  const last = (h - 1) * w;
+  for (let x = 0; x < w; x++) buf[last + x] = (colSum[x]! + colPix[x]!) >> 4;
+}
+
+/**
+ * The blur step of ass_composite_construct: ass_synth_blur (`\blur`'s Gaussian, then `\be`'s box passes) on the fill
+ * when there is no border (or for the opaque box) and on the border always. The masks may be changed in place.
+ */
+export function synthBlur(fill: Uint8Array, border: Uint8Array | null, w: number, h: number, flags: number, sigmaX: number, sigmaY: number, be: number): { fill: Uint8Array; border: Uint8Array | null } {
+  if (!(flags & FILTER_NONZERO_BORDER) || flags & FILTER_BORDER_STYLE_3) {
+    fill = gaussianBlur(fill, w, h, sigmaX, sigmaY);
+    beBlur(fill, w, h, be);
+  }
+  if (border) {
+    border = gaussianBlur(border, w, h, sigmaX, sigmaY);
+    beBlur(border, w, h, be);
+  }
+  return { fill, border };
+}
+
 function colorize(mask: Uint8Array, w: number, h: number, color: (x: number) => number, x0: number, y0: number): Layer {
   const data = new ImageData(w, h);
   const d = data.data;
@@ -477,9 +555,12 @@ function renderRun(rc: RasterContext, ev: FrameEvent, idx: readonly number[], ru
   const ry = Math.hypot(jxy * by26, jyy * by26) / 64;
   const r2x = blurVariance(first.blur, s.blurScaleX);
   const r2y = blurVariance(first.blur, s.blurScaleY);
-  const sigmaX = Math.sqrt(r2x + 0.5 * first.be);
-  const sigmaY = Math.sqrt(r2y + 0.5 * first.be);
+  // the masks take \blur's Gaussian, then \be's box passes (ass_synth_blur); the padding and the direct GPU path
+  // count \be as a Gaussian of variance 0.5 px² per pass (the [1 2 1] kernel's variance); the keys hold \be apart
+  const sigmaX = Math.sqrt(r2x);
+  const sigmaY = Math.sqrt(r2y);
   const sigma = Math.sqrt((r2x + r2y) / 2 + 0.5 * first.be);
+  const blurSigma = Math.sqrt((r2x + r2y) / 2);
   const shadow26X = quantizeShadow(doubleToD6(first.shadowX * s.borderScaleX), first.blur * s.blurScaleX * BLUR_RADIUS_SCALE);
   const shadow26Y = quantizeShadow(doubleToD6(first.shadowY * s.borderScaleY), first.blur * s.blurScaleY * BLUR_RADIUS_SCALE);
 
@@ -509,15 +590,16 @@ function renderRun(rc: RasterContext, ev: FrameEvent, idx: readonly number[], ru
   const h = Math.ceil(maxY) + pad - oy;
   if (w <= 0 || h <= 0 || w * h > 4096 * 4096) return { shadow: null, border: null, fill: null };
 
-  const key = rc.masks ? maskKey(glyphs, mats, ox, oy, w, h, flags, bx26, by26, sigma, s, ss) : '';
+  const key = rc.masks ? maskKey(glyphs, mats, ox, oy, w, h, flags, bx26, by26, blurSigma, first.be, s, ss) : '';
   // an animated run whose shape changes every frame (rotation, size…) would never hit the cache: drawn straight
   // onto canvases (GPU, no read-back) when compositing allows it; moving, fading or karaoke runs keep their masks
   let reshaped = false;
   if (ev.animated && rc.lastShapes) {
     // no position and no canvas size (both follow the sub-pixel position of a run that only moves)
-    // nor the fill-in flags, which follow the alpha (a fade)
+    // nor the fill-in flags, which follow the alpha (a fade), nor \be: a run whose only change is \be keeps its
+    // box passes on the masks rather than flipping to the GPU's Gaussian on the frames \be steps
     const shapeFlags = flags & ~(FILTER_FILL_IN_BORDER | FILTER_FILL_IN_SHADOW);
-    const shapeKey = maskKey(glyphs, mats.map((m) => [m[0], m[1], 0, m[3], m[4], 0, m[6], m[7], m[8]] as Mat3), 0, 0, 0, 0, shapeFlags, bx26, by26, sigma, s, ss);
+    const shapeKey = maskKey(glyphs, mats.map((m) => [m[0], m[1], 0, m[3], m[4], 0, m[6], m[7], m[8]] as Mat3), 0, 0, 0, 0, shapeFlags, bx26, by26, blurSigma, 0, s, ss);
     const id = `${ev.index}:${runIndex}`;
     reshaped = rc.lastShapes.get(id) !== undefined && rc.lastShapes.get(id) !== shapeKey;
     rc.lastShapes.set(id, shapeKey);
@@ -756,9 +838,7 @@ function renderRun(rc: RasterContext, ev: FrameEvent, idx: readonly number[], ru
     }
   }
 
-  // ass_synth_blur: the fill only without a border (or for the opaque box), the border always
-  if (!(flags & FILTER_NONZERO_BORDER) || flags & FILTER_BORDER_STYLE_3) fill = gaussianBlur(fill, w, h, sigmaX, sigmaY);
-  if (border) border = gaussianBlur(border, w, h, sigmaX, sigmaY);
+  ({ fill, border } = synthBlur(fill, border, w, h, flags, sigmaX, sigmaY, first.be));
 
   if (border && !(flags & FILTER_FILL_IN_BORDER) && !(flags & FILTER_FILL_IN_SHADOW)) fixOutline(fill, border);
   let shadow: Uint8Array | null = null;
@@ -806,9 +886,9 @@ export function layerKey(maskKey: string, colors: readonly number[], effectType:
 }
 
 /** Everything that shapes a run's masks, positions relative to its canvas origin. */
-function maskKey(glyphs: readonly GlyphInfo[], mats: readonly Mat3[], ox: number, oy: number, w: number, h: number, flags: number, bx26: number, by26: number, sigma: number, s: RenderState, ss: number): string {
+function maskKey(glyphs: readonly GlyphInfo[], mats: readonly Mat3[], ox: number, oy: number, w: number, h: number, flags: number, bx26: number, by26: number, blurSigma: number, be: number, s: RenderState, ss: number): string {
   const r = (v: number): number => Math.round(v * 1e6) / 1e6;
-  const parts: (string | number)[] = [ss, w, h, flags, r(bx26), r(by26), r(sigma)];
+  const parts: (string | number)[] = [ss, w, h, flags, r(bx26), r(by26), r(blurSigma), be];
   glyphs.forEach((g, k) => {
     const m = mats[k]!;
     parts.push(g.clusterText ?? g.symbol, g.drawingText ?? '', g.face?.cssFamily ?? '', g.face?.synthBold ? 1 : 0, g.face?.synthItalic ? 1 : 0,
@@ -880,6 +960,27 @@ function applyClip(ctx: OffscreenCanvasRenderingContext2D, rc: RasterContext, ev
   }
 }
 
+/**
+ * add_background: BorderStyle 4's one opaque rectangle behind the whole event, in the back colour with the fade, the
+ * event box (before collisions move it) widened by the shadow offsets that are positive, clamped to the frame; null
+ * for other border styles or an empty rectangle. It is drawn under the event and never clipped.
+ */
+export function backgroundBox(ev: FrameEvent, frame: { readonly width: number; readonly height: number }): { x: number; y: number; w: number; h: number; color: number } | null {
+  const s = ev.layout.text.state;
+  if (s.borderStyle !== 4) return null;
+  const lround = (v: number): number => (v < 0 ? -Math.round(-v) : Math.round(v));
+  const sizeX = s.shadowX > 0 ? lround(s.shadowX * s.borderScaleX) : 0;
+  const sizeY = s.shadowY > 0 ? lround(s.shadowY * s.borderScaleY) : 0;
+  const top0 = ev.box.top - ev.shiftY;
+  const clamp = (v: number, max: number): number => Math.min(max, Math.max(0, v));
+  const left = clamp(ev.box.left - sizeX, frame.width);
+  const top = clamp(top0 - sizeY, frame.height);
+  const right = clamp(ev.box.left + ev.box.width + sizeX, frame.width);
+  const bottom = clamp(top0 + ev.box.height + sizeY, frame.height);
+  if (right - left < 1 || bottom - top < 1) return null;
+  return { x: left, y: top, w: right - left, h: bottom - top, color: applyFade(s.c[3], s.fade) };
+}
+
 /** Composites an event's runs into one canvas: shadows, then borders, then fills, clipped; null when nothing shows. */
 export function renderEvent(rc: RasterContext, ev: FrameEvent, frame: { readonly width: number; readonly height: number }): RenderedEvent | null {
   const runs = eventRuns(ev).map((idx, i) => renderRun(rc, ev, idx, i));
@@ -887,14 +988,23 @@ export function renderEvent(rc: RasterContext, ev: FrameEvent, frame: { readonly
   if (ev.layout.text.state.borderStyle !== 4) for (const r of runs) if (r.shadow) layers.push(r.shadow);
   for (const r of runs) if (r.border) layers.push(r.border);
   for (const r of runs) if (r.fill) layers.push(r.fill);
-  if (!layers.length) return null;
-  const x0 = Math.floor(Math.min(...layers.map((l) => l.x)));
-  const y0 = Math.floor(Math.min(...layers.map((l) => l.y)));
-  const x1 = Math.ceil(Math.max(...layers.map((l) => l.x + l.w)));
-  const y1 = Math.ceil(Math.max(...layers.map((l) => l.y + l.h)));
+  const bg = backgroundBox(ev, frame);
+  const boxes: readonly { x: number; y: number; w: number; h: number }[] = bg ? [...layers, bg] : layers;
+  if (!boxes.length) return null;
+  const x0 = Math.floor(Math.min(...boxes.map((l) => l.x)));
+  const y0 = Math.floor(Math.min(...boxes.map((l) => l.y)));
+  const x1 = Math.ceil(Math.max(...boxes.map((l) => l.x + l.w)));
+  const y1 = Math.ceil(Math.max(...boxes.map((l) => l.y + l.h)));
   const out = rc.createCanvas(x1 - x0, y1 - y0);
   const ctx = out.getContext('2d')!; // drawn, never read: stays on the GPU
   ctx.translate(-x0, -y0);
+  if (bg) {
+    const color = rc.mapColor ? rc.mapColor(bg.color) : bg.color;
+    ctx.globalAlpha = (255 - (color & 0xff)) / 255;
+    ctx.fillStyle = `rgb(${color >>> 24},${(color >>> 16) & 0xff},${(color >>> 8) & 0xff})`;
+    ctx.fillRect(bg.x, bg.y, bg.w, bg.h);
+    ctx.globalAlpha = 1;
+  }
   applyClip(ctx, rc, ev, frame);
   let scratch: OffscreenCanvas | null = null;
   for (const layer of layers) {

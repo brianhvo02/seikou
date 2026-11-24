@@ -16,7 +16,7 @@ beforeAll(async () => {
   await fonts.add([{ name: 'DejaVuSans.ttf', bytes: bytes('DejaVuSans.ttf') }]);
 });
 
-function lay(text: string, opts: { wrap?: number; playRes?: [number, number]; margins?: [number, number, number]; settings?: RenderSettings; now?: number } = {}): LaidOutEvent {
+function lay(text: string, opts: { wrap?: number; playRes?: [number, number]; margins?: [number, number, number]; settings?: RenderSettings; now?: number; effect?: string } = {}): LaidOutEvent {
   const [px, py] = opts.playRes ?? [1920, 1080];
   const [ml, mr, mv] = opts.margins ?? [40, 40, 50];
   const track = parseAss(`[Script Info]
@@ -31,7 +31,7 @@ Style: Default,DejaVu Sans,64,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-Dialogue: 0,0:00:00.00,0:00:10.00,Default,,0,0,0,,${text}
+Dialogue: 0,0:00:00.00,0:00:10.00,Default,,0,0,0,${opts.effect ?? ''},${text}
 `);
   const e = parseEvent(track, track.events[0]!, opts.settings ?? SETTINGS, opts.now ?? 0)!;
   return layoutEvent(e, fonts, createFixedMeasurer(0.5));
@@ -146,5 +146,36 @@ describe('layoutEvent', () => {
   it('converts clip rectangles to frame pixels for positioned events', () => {
     const l = lay('{\\pos(10,10)\\clip(0,0,320,180)}x', { playRes: [640, 360] });
     expect([l.clip.x0, l.clip.y0, l.clip.x1, l.clip.y1]).toEqual([0, 0, 960, 540]);
+  });
+});
+
+describe('legacy Effect transitions (ass_apply_transition_effects)', () => {
+  it('scrolls a Banner right to left from the right edge, one script pixel per delay ms, unwrapped and without collisions', () => {
+    const l = lay('a long banner line that would wrap at the margins if it were a normal one, but banners never wrap', { effect: 'Banner;5', now: 1000 });
+    expect(l.text.state.evtType & 2).toBe(2);
+    expect(l.text.state.detectCollisions).toBe(false);
+    expect(l.lines).toHaveLength(1);
+    expect(l.deviceX).toBeCloseTo(1920 - 200, 6);
+  });
+  it('scrolls a Banner left to right with its right edge at the shift', () => {
+    const l = lay('banner', { effect: 'Banner;10;1', now: 3000 });
+    expect(l.deviceX).toBeCloseTo(300 - (l.bbox[2] - l.bbox[0]), 6);
+  });
+  it('counts a delay under one storage pixel as one (VSFilter)', () => {
+    const l = lay('banner', { effect: 'Banner;0', now: 50 });
+    expect(l.deviceX).toBeCloseTo(1920 - 50, 6);
+  });
+  it('scrolls up from y1 and down from y0, clipped to the band', () => {
+    const up = lay('scrolling', { effect: 'Scroll up;600;200;20', now: 2000 });
+    expect(up.text.state.evtType & 4).toBe(4);
+    expect(up.deviceY + up.bbox[1]).toBeCloseTo(600 - 100, 6);
+    expect([up.clip.y0, up.clip.y1]).toEqual([200, 600]);
+    const down = lay('scrolling', { effect: 'Scroll down;200;600;20', now: 2000 });
+    expect(down.deviceY + down.bbox[3]).toBeCloseTo(200 + 100, 6);
+  });
+  it('ignores an unknown effect and a scroll with too few fields', () => {
+    expect(lay('x', { effect: 'Karaoke' }).text.state.evtType).toBe(0);
+    expect(lay('x', { effect: 'Scroll up;10;20' }).text.state.evtType).toBe(0);
+    expect(lay('x', { effect: 'Banner' }).text.state.evtType).toBe(0);
   });
 });

@@ -345,12 +345,17 @@ what would change that decision.
   cluster) but not blocks missing at the end: ReadOrder still runs 0..k-1, and those lines are left out. Muxers cue
   every subtitle block or none, so this needs a file cut or rewritten oddly. *Revisit if* a real release shows its last
   lines missing (a walk would then be the fix, at the cost of reading the whole file).
-- **Legacy `Effect` field effects (`Banner`, `Scroll up`, `Scroll down`) are ignored**, and `Comment`, `Picture`,
-  `Sound`, `Movie` and `Command` events are skipped. *Revisit if* a real file uses them.
-- **Right-to-left text is reordered by Chrome within a style run only**; libass's FriBidi reordering across runs is
-  not ported, so mixed-direction lines that change style mid-word can order differently.
-- **Lines break as libass does without libunibreak** (spaces and ZWSP only), which is what most ffmpeg builds do.
-  CJK text without spaces therefore wraps only at the frame edge, as in those builds.
+- **`Comment`, `Picture`, `Sound`, `Movie` and `Command` events are skipped**, as libass skips them. The legacy
+  `Effect` field's `Banner`, `Scroll up` and `Scroll down` are drawn as libass draws them (since 2026-11-24).
+- **Right-to-left text is reordered within each style run**, as libass does by default (FriBidi per run, base
+  direction left to right, runs laid out left to right; Chrome's bidi inside one run stands in for FriBidi). libass
+  reorders across runs only with its whole-text layout, which it turns on by itself for `Encoding: -1` (a libass
+  extension VSFilter can't show); that is not ported, so such a line can order differently. *Revisit if* a real
+  script uses `Encoding: -1`.
+- **Lines break at spaces only (and `\N`, `\n`), as libass breaks an ASS script.** libass uses libunibreak only when
+  the player turns on `ASS_FEATURE_WRAP_UNICODE`, which is off by default because VSFilter doesn't break that way
+  (mpv turns it on for converted subtitles, not ASS scripts), so the harness's libass is built without it and CJK text
+  without spaces wraps only at the frame edge, in libass and here alike.
 - **Fonts without TrueType hinting instructions space their glyphs slightly differently from libass.** libass's
   shaper loads glyphs hinted, so FreeType runs its auto-hinter on such fonts and the advances follow the snapped stem
   edges: about 1 px per glyph at the 256 px shaping size, up to ~1 px across a short title on screen. Porting the
@@ -361,11 +366,17 @@ what would change that decision.
   glyph cache that snaps the baseline to whole pixels, so masks are supersampled until text reaches that size, at
   most 8×. Text animated in shape every frame (the direct path) is drawn the same way on the GPU but blurred by the
   canvas filter with one deviation for both axes.
-- **Not drawn as libass does:** BorderStyle 4 (libass's background box) is not drawn; vertical `@font` glyphs are
-  drawn unrotated; `\be` is folded into the Gaussian (variance 0.5 per pass); a rotated border with `\xbord` ≠
-  `\ybord` is dilated axis-aligned in device space. *Revisit if* a real file shows the difference.
+- **Not drawn as libass does:** a rotated border with `\xbord` ≠ `\ybord` is dilated axis-aligned in device space;
+  `\be` on a run whose shape changes every frame (rotating or scaling, drawn straight onto GPU canvases) is a
+  Gaussian of variance 0.5 px² per pass, the box kernel's spread without its integer rounding (every other run takes
+  libass's box passes, but on a canvas padded by 3σ + 3 px: libass pads a run's bitmap by at most 5 px for `\be`
+  (`ass_be_padding`) beyond the rasterizer's tile-rounded box, and every pass drops what spreads past that edge, so a
+  large `\be` such as `\be20` keeps a little more of its faint outer halo here; matching it would mean reproducing
+  libass's per-glyph bitmap sizes); `@` fonts get no vertical glyph forms (HarfBuzz's `vert` and `vkna` features: CJK punctuation
+  in fonts that carry them), though their glyphs are turned and advanced as libass does. *Revisit if* a real file
+  shows the difference.
 - **Verified against one real script so far** (HDMV_DISC_A episode 1, its 18 fonts, 2340 sampled times; local gate
-  `ASS_LOCAL=1`). The 15 committed synthetic fixtures cover the tag set. *Revisit* by adding scripts to
+  `ASS_LOCAL=1`). The 19 committed synthetic fixtures cover the tag set. *Revisit* by adding scripts to
   `fixtures/local/ass/`.
 
 - **The local corpus gate needs Docker and the developer's files**, so CI runs only the synthetic fixtures. *Revisit*

@@ -10,6 +10,11 @@ export interface AssFixture {
   readonly storage: readonly [number, number] | null;
   /** Path of the golden trace (its frames are in <golden without .jsonl>/<ms>.png). */
   readonly golden: string;
+  /**
+   * From the fixture's optional `pixels.json` (`{"over2": n}`): at most this many pixels of a frame may differ by
+   * more than 2 levels in a channel, a finer bar than pixelmatch's for a fixture whose difference is subtle.
+   */
+  readonly over2?: number;
 }
 
 export const readTimes = (path: string): number[] => readFileSync(path, 'utf8').split(/\s+/).filter(Boolean).map(Number);
@@ -32,5 +37,8 @@ export function syntheticFixtures(): AssFixture[] {
       times: readTimes(`fixtures/ass/${d.name}/times.txt`),
       storage: readStorage(`fixtures/ass/${d.name}`),
       golden: `tests/ass-trace/golden/${d.name}.jsonl`,
+      ...(existsSync(`fixtures/ass/${d.name}/pixels.json`)
+        ? { over2: (JSON.parse(readFileSync(`fixtures/ass/${d.name}/pixels.json`, 'utf8')) as { over2: number }).over2 }
+        : {}),
     }));
 }

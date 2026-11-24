@@ -5,7 +5,8 @@
  *
  * Ported from libass 0.17.5 (ass_fontselect.c): get_font_info; (ass_font.c): ass_face_get_weight,
  * fsSelection_to_style_flags, ass_face_get_style_flags, set_font_metrics, ass_face_is_postscript, ass_charmap_magic.
- * libass is ISC-licensed; see packages/ass/NOTICE. Modified for Seikou, 2026.
+ * The vertical advance follows the choice FreeType's TrueType loader makes (vmtx, else OS/2 typo, else hhea), written
+ * from its documented behaviour, not its code. libass is ISC-licensed; see packages/ass/NOTICE. Modified for Seikou, 2026.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later AND ISC
  */
@@ -45,6 +46,13 @@ export interface FaceInfo {
   readonly underlineThickness: number;
   readonly strikeoutPosition: number;
   readonly strikeoutSize: number;
+  /** OS/2 `sTypoDescender` (negative), 0 without an OS/2 table: where libass turns an `@` font's glyph. */
+  readonly typoDescender: number;
+  /**
+   * FreeType's vertical advance of a glyph in font units (TT_Get_VMetrics): `vmtx` when the face has `vhea` and
+   * `vmtx`, else the OS/2 typo ascender minus descender, else `hhea`'s.
+   */
+  verticalAdvance(glyphId: number): number;
   hasGlyph(codepoint: number): boolean;
   /** The cmap's glyph id, 0 when missing. */
   glyphId(codepoint: number): number;
@@ -274,6 +282,17 @@ function faceInfo(file: string, index: number, tables: Tables): FaceInfo {
   }
 
   const glyphId = readCmap(tables.get('cmap'));
+  const typoDescender = os2 && os2.length >= 72 ? view(os2).getInt16(70) : 0;
+  const madeUpVertical = os2 && os2.length >= 72
+    ? view(os2).getInt16(68) - view(os2).getInt16(70)
+    : hhea && hhea.length >= 8 ? view(hhea).getInt16(4) - view(hhea).getInt16(6) : 0;
+  const vhea = tables.get('vhea');
+  const vmtx = tables.get('vmtx');
+  const longVMetrics = vhea && vhea.length >= 36 && vmtx ? Math.min(view(vhea).getUint16(34), vmtx.length >> 2) : 0;
+  const verticalAdvance = (gid: number): number => {
+    if (longVMetrics === 0) return madeUpVertical;
+    return view(vmtx!).getUint16(4 * Math.min(gid, longVMetrics - 1));
+  };
   const gsub = tables.get('GSUB');
   const ligatureLookups = new Map<string, ReturnType<typeof readLigatureLookups>>();
   return {
@@ -285,6 +304,8 @@ function faceInfo(file: string, index: number, tables: Tables): FaceInfo {
     underlineThickness: post && post.length >= 12 ? view(post).getInt16(10) : 0,
     strikeoutSize: os2 && os2.length >= 30 ? view(os2).getInt16(26) : 0,
     strikeoutPosition: os2 && os2.length >= 30 ? view(os2).getInt16(28) : 0,
+    typoDescender,
+    verticalAdvance,
     hasGlyph: (cp) => glyphId(cp) !== 0,
     glyphId,
     clusters(cps) {

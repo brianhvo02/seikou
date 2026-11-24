@@ -1,0 +1,20 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+WrapStyle: 2
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Vert,@DejaVu Sans,64,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,7,40,40,50,1
+Style: VertSerif,@DejaVu Serif,56,&H0040E0FF,&H000000FF,&H00200000,&H80000000,0,0,0,0,100,100,0,0,1,0,3,7,40,40,50,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.00,0:00:02.00,Vert,,0,0,0,,{\pos(100,100)}Latin stays, Кириллица turns
+Dialogue: 0,0:00:01.00,0:00:02.00,Vert,,0,0,0,,{\pos(1700,80)\frz-90}Ωμέγα “quoted” — vertical
+Dialogue: 0,0:00:01.00,0:00:02.00,VertSerif,,0,0,0,,{\pos(100,400)}Σερίφ with shadow
+Dialogue: 0,0:00:01.00,0:00:02.00,Vert,,0,0,0,,{\pos(100,650)\fscx150\fscy80\u1}Шкала underlined
+Dialogue: 0,0:00:01.00,0:00:02.00,Vert,,0,0,0,,{\pos(1200,700)\i1\b1}Курсив bold
+Dialogue: 0,0:00:01.00,0:00:02.00,Vert,,0,0,0,,{\an5\pos(960,900)\bord0}центр

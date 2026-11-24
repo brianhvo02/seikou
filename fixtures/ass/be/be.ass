@@ -1,0 +1,29 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,DejaVu Sans,72,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,3,0,7,40,40,50,1
+Style: Sign,DejaVu Serif,90,&H0030C0F0,&H000000FF,&H00402000,&H80000000,1,0,0,0,100,100,0,0,1,0,0,7,40,40,50,1
+Style: Box,DejaVu Sans,64,&H00FFFFFF,&H000000FF,&H00804000,&H80000000,0,0,0,0,100,100,0,0,3,4,2,7,40,40,50,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,{\pos(80,60)\be1}be one, border
+Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,{\pos(80,200)\be2}be two, border
+Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,{\pos(80,340)\be5\bord5}be five
+Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,{\pos(80,480)\be20\bord2}be twenty
+Dialogue: 0,0:00:01.00,0:00:02.00,Sign,,0,0,0,,{\pos(1000,60)\be1}be1 fill only
+Dialogue: 0,0:00:01.00,0:00:02.00,Sign,,0,0,0,,{\pos(1000,220)\be3}be3 fill only
+Dialogue: 0,0:00:01.00,0:00:02.00,Sign,,0,0,0,,{\pos(1000,380)\be2\blur1.5}be2 blur1.5
+Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,{\pos(80,640)\be1\shad4\4c&H202020&}be1 shadow
+Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,{\pos(80,800)\be0.6\bord4}be 0.6 rounds to one
+Dialogue: 0,0:00:01.00,0:00:02.00,Box,,0,0,0,,{\pos(1000,640)\be2}box be2
+Dialogue: 0,0:00:01.00,0:00:02.00,Default,,0,0,0,,{\pos(1000,820)\be1\1a&H80&\bord3}be1 half fill
+Dialogue: 0,0:00:03.00,0:00:05.00,Default,,0,0,0,,{\pos(80,100)\be1\t(\be6)}be animated
+Dialogue: 0,0:00:03.00,0:00:05.00,Sign,,0,0,0,,{\pos(80,400)\be2\frz-8}be2 rotated
+Dialogue: 0,0:00:03.00,0:00:05.00,Default,,0,0,0,,{\pos(80,700)\be1\fscx150\fscy80\bord2}be1 scaled

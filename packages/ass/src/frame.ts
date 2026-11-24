@@ -15,7 +15,7 @@ import type { AssFonts } from './fonts';
 import { layoutEvent, type LaidOutEvent } from './layout';
 import type { GlyphMeasurer } from './measure';
 import { VALIGN_SUB } from './types';
-import type { RenderSettings } from './state';
+import { EVENT_HSCROLL, EVENT_VSCROLL, type RenderSettings } from './state';
 import { rotationParams, transformMatrix, type Mat3 } from './transform';
 import type { AssTrack } from './types';
 
@@ -24,7 +24,7 @@ export interface FrameEvent {
   readonly index: number;
   readonly layout: LaidOutEvent;
   readonly box: EventBox;
-  /** Changes with time inside its interval (\t, \move, \fad, karaoke). */
+  /** Changes with time inside its interval (\t, \move, \fad, karaoke, a legacy Banner or Scroll effect). */
   readonly animated: boolean;
   /** Per glyph (same order as layout.text.glyphs): calc_transform_matrix, null for skipped glyphs. */
   readonly matrices: readonly (Mat3 | null)[];
@@ -174,7 +174,9 @@ export class FrameBuilder {
         detectCollisions: s.detectCollisions,
         shiftDirection: valign === VALIGN_SUB ? -1 : 1,
       };
-      events.push({ index: i, layout: l, box, animated: this.isAnimated(i), matrices, top0: box.top });
+      // a legacy Banner or Scroll effect moves the event every frame
+      const animated = this.isAnimated(i) || (s.evtType & (EVENT_HSCROLL | EVENT_VSCROLL)) !== 0;
+      events.push({ index: i, layout: l, box, animated, matrices, top0: box.top });
     }
     events.sort((a, b) => this.track.events[a.index]!.layer - this.track.events[b.index]!.layer || this.track.events[a.index]!.readOrder - this.track.events[b.index]!.readOrder);
     for (let from = 0; from < events.length; ) {

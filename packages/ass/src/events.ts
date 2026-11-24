@@ -107,6 +107,12 @@ export interface GlyphInfo {
   trScaleX: number; trScaleY: number; trOffsetX: number; trOffsetY: number;
   /** The em size in px the glyph's outline is at (font_size 256 through ass_face_set_size). */
   emPx: number;
+  /**
+   * A glyph turned for an `@` font (DECO_ROTATE): ass_outline_rotate_90's offset, 26.6 at `emPx` (the vertical
+   * advance plus the typo descender across, minus the descender down), and its vertical advance for underline and
+   * strike-out. 0 for other glyphs.
+   */
+  rotateDx: number; rotateDy: number; verticalAdvance: number;
   /** The browser's measurement of the glyph, filled by layout; null before. */
   metrics: GlyphMetrics | null;
   /** The parsed outline when the glyph is a drawing, else null. */
@@ -157,7 +163,7 @@ function glyphFrom(s: RenderState, code: number, drawingText: string | null): Gl
     fade: s.fade, shapeRunId: 0, posX: 0, posY: 0, offsetX: 0, offsetY: 0, advanceX: 0, advanceY: 0,
     clusterAdvanceX: 0, clusterAdvanceY: 0, shiftX: 0, shiftY: 0, next: null,
     bboxXMin: 0, bboxYMin: 0, bboxXMax: 0, bboxYMax: 0, trScaleX: 1, trScaleY: 1, trOffsetX: 0, trOffsetY: 0,
-    emPx: 0, metrics: null, drawing: null, clusterText: null,
+    emPx: 0, rotateDx: 0, rotateDy: 0, verticalAdvance: 0, metrics: null, drawing: null, clusterText: null,
   };
   if (drawingText === null) {
     g.hspacingScaled = doubleToD6((g.hspacing * s.screenScaleX / s.parScaleX) * g.scaleX);
@@ -168,7 +174,7 @@ function glyphFrom(s: RenderState, code: number, drawingText: string | null): Gl
 
 /** init_render_context + parse_events; null when the event has no characters (libass skips it). `now` is ms from the event's start. */
 export function parseEvent(track: AssTrack, event: AssEvent, settings: RenderSettings, now: number): EventText | null {
-  const s = initRenderState(track, event, settings);
+  const s = initRenderState(track, event, settings, now);
   const text = event.text;
   const glyphs: GlyphInfo[] = [];
   let p = 0;

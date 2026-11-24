@@ -70,6 +70,12 @@ describe('FrameBuilder', () => {
     expect(b.build(100, SETTINGS).events.map((e) => e.animated)).toEqual([true, false, true]);
   });
 
+  it('marks a legacy Banner or Scroll event animated, and not an unknown effect', () => {
+    const fx = (effect: string) => `Dialogue: 0,0:00:00.00,0:00:05.00,Default,,0,0,0,${effect},text`;
+    const b = new FrameBuilder(script(fx('Banner;5'), fx('Scroll up;10;200;5'), fx('Fade;5')), fonts, createFixedMeasurer(0.5));
+    expect(b.build(100, SETTINGS).events.map((e) => e.animated)).toEqual([true, true, false]);
+  });
+
   it('lays out only the active events of a large file', () => {
     const ts = (ms: number): string => `${Math.floor(ms / 3_600_000)}:${String(Math.floor(ms / 60_000) % 60).padStart(2, '0')}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}.${String(Math.floor(ms / 10) % 100).padStart(2, '0')}`;
     const lines = Array.from({ length: 50_000 }, (_, i) => ev(0, ts(i * 100), ts(i * 100 + 50), `line ${i}`));
