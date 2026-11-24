@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { UnsupportedCodecError } from './decoder';
-import { decodeLpcm, parseLpcmHeader } from './lpcm';
+import { STEREO, applyMix, mixMatrix } from '../audio/channel-map';
+import { decodeLpcm, parseLpcmHeader, type PcmChunk } from './lpcm';
+
+/** The chunk folded to stereo as the ring of a stereo output would get it. */
+function stereo(c: PcmChunk): Float32Array {
+  return applyMix(c.samples, c.frames, c.channels.length, mixMatrix(c.channels, STEREO), 2);
+}
 
 function lpcm(assignment: number, rateCode: number, bitsCode: number, frames: number[][]): Uint8Array {
   const bytesPerSample = bitsCode === 1 ? 2 : 3;
@@ -28,19 +34,23 @@ describe('LPCM', () => {
   it('decodes 16-bit stereo', () => {
     const chunk = decodeLpcm(lpcm(3, 1, 1, [[16384, -16384], [32767, -32768]]), 1_000);
     expect(chunk).toMatchObject({ ptsUs: 1_000, sampleRate: 48_000, frames: 2 });
-    expect(Array.from(chunk.stereo)).toEqual([0.5, -0.5, 32767 / 32768, -1]);
+    expect(chunk.channels).toEqual(['FL', 'FR']);
+    expect(Array.from(chunk.samples)).toEqual([0.5, -0.5, 32767 / 32768, -1]);
   });
 
   it('feeds mono to both sides and ignores the padding channel', () => {
     const chunk = decodeLpcm(lpcm(1, 1, 1, [[8192, 999]]), 0);
-    expect(Array.from(chunk.stereo)).toEqual([0.25, 0.25]);
+    expect(Array.from(chunk.samples)).toEqual([0.25]);
+    expect(Array.from(stereo(chunk))).toEqual([0.25, 0.25]);
   });
 
-  it('downmixes 24-bit 5.1 and drops LFE', () => {
+  it('keeps 24-bit 5.1 whole, and its stereo fold drops LFE', () => {
     const chunk = decodeLpcm(lpcm(9, 1, 3, [[0x400000, 0, 0, 0, 0, 0x7fffff]]), 0);
     const norm = 1 / (1 + 2 * Math.SQRT1_2);
-    expect(chunk.stereo[0]).toBeCloseTo(0.5 * norm, 6);
-    expect(chunk.stereo[1]).toBe(0);
+    expect(chunk.channels).toEqual(['FL', 'FR', 'FC', 'SL', 'SR', 'LFE']);
+    expect(chunk.samples[5]).toBeCloseTo(1, 6);
+    expect(stereo(chunk)[0]).toBeCloseTo(0.5 * norm, 6);
+    expect(stereo(chunk)[1]).toBe(0);
   });
 
   it('rejects 20-bit samples as unsupported', () => {
@@ -53,12 +63,12 @@ describe('LPCM', () => {
 
   it('puts each surround of a 3/4 (7.1) layout on its own side and drops LFE', () => {
     // Coded order: L R C Ls Lb Rb Rs LFE. Only the left surrounds carry signal.
-    const left = decodeLpcm(lpcm(11, 1, 3, [[0, 0, 0, 0x400000, 0x400000, 0, 0, 0x7fffff]]), 0);
-    expect(left.stereo[0]).toBeGreaterThan(0);
-    expect(left.stereo[1]).toBe(0);
+    const left = stereo(decodeLpcm(lpcm(11, 1, 3, [[0, 0, 0, 0x400000, 0x400000, 0, 0, 0x7fffff]]), 0));
+    expect(left[0]).toBeGreaterThan(0);
+    expect(left[1]).toBe(0);
     // Only the right surrounds carry signal.
-    const right = decodeLpcm(lpcm(11, 1, 3, [[0, 0, 0, 0, 0, 0x400000, 0x400000, 0]]), 0);
-    expect(right.stereo[0]).toBe(0);
-    expect(right.stereo[1]).toBeCloseTo(left.stereo[0], 6);
+    const right = stereo(decodeLpcm(lpcm(11, 1, 3, [[0, 0, 0, 0, 0, 0x400000, 0x400000, 0]]), 0));
+    expect(right[0]).toBe(0);
+    expect(right[1]).toBeCloseTo(left[0], 6);
   });
 });

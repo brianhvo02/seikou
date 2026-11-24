@@ -139,7 +139,7 @@ function fakeAudioFactory(log: FakeAudioLog = { decoded: [], resets: 0, failNext
           return { chunks: [], failedFrames: 1 };
         }
         log.decoded.push(u.ptsUs);
-        return { chunks: [{ ptsUs: u.ptsUs, sampleRate: 48_000, frames: 240, stereo: new Float32Array(480) }], failedFrames: 0 };
+        return { chunks: [{ ptsUs: u.ptsUs, sampleRate: 48_000, frames: 240, channels: ['FL', 'FR'], samples: new Float32Array(480) }], failedFrames: 0 };
       },
       reset: () => {
         log.resets++;
@@ -345,6 +345,34 @@ describe('Player', () => {
     await h.play(1000);
     expect(log.decoded.length).toBeGreaterThan(100);
     expect(lastTelemetry(h)).toMatchObject({ clockMode: 'audio', audioCodec: 'Dolby Digital (AC-3)', audioDecodeErrors: 0 });
+  });
+
+  it('asks the factory for the output channels and the profile\'s lossless choice, and names the decoding', async () => {
+    const asked: unknown[] = [];
+    const factory: AudioDecoderFactory = async (codingType, options) => {
+      asked.push(options && { outputChannels: options.outputChannels, lossless: options.lossless });
+      const d = await fakeAudioFactory()(codingType);
+      return { ...d, decoding: () => ({ part: 'full', channels: ['FL', 'FR', 'FC', 'LFE', 'BL', 'BR', 'SL', 'SR'] }) };
+    };
+    const h = await harness(CodingType.AC3, { createAudioDecoder: factory });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    await h.play(500);
+    expect(asked).toEqual([{ outputChannels: 2, lossless: true }]);
+    expect(lastTelemetry(h)).toMatchObject({ audioCodec: 'Dolby Digital (AC-3)', audioDecoding: 'Dolby Digital (AC-3), lossless, 7.1', audioOutputChannels: 2 });
+    expect(h.events.filter((e) => e.type === 'audioDecoding')).toEqual([{ type: 'audioDecoding', description: 'Dolby Digital (AC-3), lossless, 7.1', part: 'full' }]);
+  });
+
+  it('plays the cores on the constrained profile', async () => {
+    const asked: unknown[] = [];
+    const factory: AudioDecoderFactory = async (codingType, options) => {
+      asked.push(options?.lossless);
+      return fakeAudioFactory()(codingType);
+    };
+    const h = await harness(CodingType.AC3, { createAudioDecoder: factory }, 'constrained');
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    expect(asked).toEqual([false]);
   });
 
   it('falls back to the wall clock when the audio decoder cannot load', async () => {
@@ -612,6 +640,27 @@ describe('Player', () => {
     await untilPlaying(h);
     await h.play(8500);
     expect(lastState(h)).toBe('ended');
+  });
+
+  it('asks a decoder that holds a packet back for it at the end of input', async () => {
+    let ends = 0;
+    const factory: AudioDecoderFactory = async (codingType) => {
+      const d = await fakeAudioFactory()(codingType);
+      return {
+        ...d,
+        end: () => {
+          ends++;
+          return { chunks: [], failedFrames: 0 };
+        },
+      };
+    };
+    const h = await harness(CodingType.AC3, { createAudioDecoder: factory });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    expect(ends).toBe(0);
+    await h.play(9000);
+    expect(lastState(h)).toBe('ended');
+    expect(ends).toBe(1);
   });
 
   it('counts no underruns when the audio runs out at the end of the playlist', async () => {

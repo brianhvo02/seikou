@@ -43,7 +43,10 @@ The disc's video is HEVC and this device cannot decode it. Try another browser o
 Browsers start audio only after you click or tap. Click Play or the picture, or reload the page and open the disc again. Check the device is not muted and has an output. Video plays without sound meanwhile.
 
 **An audio track is greyed out ("… isn't supported")**
-The player plays LPCM, AC-3, E-AC-3, the AC-3 core of TrueHD and the DTS core of DTS and DTS-HD. Pick another track.
+The player plays LPCM, AC-3, E-AC-3, DTS, TrueHD and DTS-HD. Pick another track.
+
+**Voices or some sounds are missing, or come from the wrong speaker**
+The player sends 5.1 or 7.1 when the sound device says it has six or eight channels. Some devices say so without the speakers to match, such as an audio interface with only two outputs connected or a TV that reports eight channels. Set **Video output → Sound** to **Always stereo** and reload the page.
 
 **"Playback paused while the app was in the background."**
 The player pauses itself when the device suspends or interrupts its audio, for example in the background or during a call. Come back and press Play.

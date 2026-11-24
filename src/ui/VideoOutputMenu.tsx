@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactElement } from 'react';
 import type { DeinterlaceMode, VideoPath } from '@seikou/engine/protocol';
 import { DEINTERLACE_OPTIONS, VIDEO_OUTPUT_OPTIONS } from './video-output';
+import { AUDIO_CHANNELS_OPTIONS, type AudioChannelsSettingValue } from './audio-channels';
 
 interface VideoOutputMenuProps {
   /** The choice in force. */
@@ -9,6 +10,8 @@ interface VideoOutputMenuProps {
   /** The deinterlacing choice in force. */
   readonly deinterlace: DeinterlaceMode;
   onDeinterlace(mode: DeinterlaceMode): void;
+  /** The Sound choice in force, and what the output plays now (2, 6 or 8 channels; null before it started). */
+  readonly sound?: { readonly value: AudioChannelsSettingValue; readonly playing: number | null; onPick(value: AudioChannelsSettingValue): void };
   /** While open, the player keeps its controls up. */
   onOpenChange(open: boolean): void;
 }
@@ -16,10 +19,11 @@ interface VideoOutputMenuProps {
 /**
  * The control bar's Video output button and its radio list: Auto (HDR through the browser's video player), Always the
  * video player, Always the canvas, with `value` checked, then a Deinterlacing group (Auto, Off, `deinterlace` checked,
- * applied at once through `onDeinterlace`). A line under the list says a Video output pick applies from the next
- * playlist. `onPick` takes the choice; `onOpenChange` tells the player to keep its controls up while the list is open.
+ * applied at once through `onDeinterlace`), then, with `sound`, a Sound group (Surround where the device has it, Always
+ * stereo; it applies after a reload, and a line says what the output plays now). A line under the list says a Video
+ * output pick applies from the next playlist. `onPick` takes the choice; `onOpenChange` tells the player to keep its controls up while the list is open.
  */
-export function VideoOutputMenu({ value, onPick, deinterlace, onDeinterlace, onOpenChange }: VideoOutputMenuProps): ReactElement {
+export function VideoOutputMenu({ value, onPick, deinterlace, onDeinterlace, sound, onOpenChange }: VideoOutputMenuProps): ReactElement {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -111,8 +115,40 @@ export function VideoOutputMenu({ value, onPick, deinterlace, onDeinterlace, onO
               </button>
             </li>
           ))}
+          {sound && (
+            <>
+              <li role="presentation" className="audio-menu-hint">
+                Sound
+              </li>
+              {AUDIO_CHANNELS_OPTIONS.map((o) => (
+                <li key={o.value} role="none">
+                  <button
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={o.value === sound.value}
+                    data-testid={`sound-${o.value}`}
+                    onClick={() => {
+                      close(true);
+                      if (o.value !== sound.value) sound.onPick(o.value);
+                    }}
+                  >
+                    {o.label}
+                  </button>
+                </li>
+              ))}
+              <li role="none" className="audio-menu-hint" data-testid="sound-now">
+                {soundLine(sound.playing)}
+              </li>
+            </>
+          )}
         </ul>
       )}
     </div>
   );
+}
+
+/** What the output plays now, and that a Sound change applies after a reload. */
+function soundLine(channels: number | null): string {
+  const now = channels === 8 ? '7.1' : channels === 6 ? '5.1' : channels === 2 ? 'stereo' : null;
+  return now ? `Playing ${now}. A Sound change applies after a reload.` : 'A Sound change applies after a reload.';
 }

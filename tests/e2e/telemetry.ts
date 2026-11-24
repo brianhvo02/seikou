@@ -31,6 +31,8 @@ export interface TelemetrySample {
   leadingPicturesSkipped?: number;
   audioUnderruns?: number;
   audioCodec?: string | null;
+  audioDecoding?: string | null;
+  audioOutputChannels?: number | null;
   audioDecodeErrors?: number;
 }
 

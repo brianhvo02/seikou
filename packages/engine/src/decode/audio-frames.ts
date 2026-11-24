@@ -1,5 +1,9 @@
-/** The frame syntax a framer cuts: AC-3 (also a TrueHD core), E-AC-3 (access units made of substreams) or DTS (core frames; extension substreams are dropped). */
-export type FramerKind = 'ac3' | 'eac3' | 'dts';
+/**
+ * The frame syntax a framer cuts: AC-3 (also a TrueHD core), E-AC-3 (access units made of substreams), DTS (core
+ * frames; extension substreams are dropped), DTS-HD (a core frame and the extension substream after it, as one packet)
+ * or TrueHD (MLP access units, from the first major sync).
+ */
+export type FramerKind = 'ac3' | 'eac3' | 'dts' | 'dtshd' | 'truehd';
 
 /** One frame (E-AC-3: one access unit) ready for the decoder. */
 export interface AudioFrame {
@@ -28,6 +32,10 @@ const AC3_WORDS_48K = [
 const EAC3_BLOCKS = [1, 2, 3, 6];
 const DTS_SYNC = 0x7ffe8001;
 const EXSS_SYNC = 0x64582025;
+/** TrueHD's major sync word, at byte 4 of an access unit that carries one. */
+const TRUEHD_MAJOR_SYNC = 0xf8726fba;
+/** One MLP access unit lasts 1/1200 s: 40 sample frames at 48 kHz (80 at 96, 160 at 192). */
+const TRUEHD_UNIT_SAMPLES = 40;
 
 function readBits(b: Uint8Array, bitPos: number, count: number): number {
   let v = 0;
@@ -45,6 +53,8 @@ export class AudioFramer {
   /** PTS of the push a frame started in, for the carried frame that was cut off at that push's end. */
   private carryPtsUs: number | null = null;
   private group: { parts: Uint8Array[]; ptsUs: number; samples: number } | null = null;
+  /** TrueHD: a major sync has been seen since the last reset or resync, so unit lengths can be trusted. */
+  private synced = false;
 
   constructor(private readonly kind: FramerKind) {}
 
@@ -59,7 +69,7 @@ export class AudioFramer {
     let ptsPending = true;
     let at = 0;
     while (at < buf.length) {
-      const parsed = this.kind === 'dts' ? this.parseDts(buf, at) : this.parseAc3(buf, at);
+      const parsed = this.kind === 'dts' || this.kind === 'dtshd' ? this.parseDts(buf, at) : this.kind === 'truehd' ? this.parseTrueHd(buf, at) : this.parseAc3(buf, at);
       if (parsed === 'resync') {
         at++;
         continue;
@@ -86,6 +96,11 @@ export class AudioFramer {
       at += parsed.size;
       if (parsed.drop) continue;
       if (!parsed.startsUnit) {
+        if (this.group && this.kind === 'dtshd') {
+          // FFmpeg's dca decoder looks for the extension substream at the core's size rounded up to 4 bytes.
+          const pad = (4 - (this.group.parts.reduce((n, p) => n + p.length, 0) % 4)) % 4;
+          if (pad > 0) this.group.parts.push(new Uint8Array(pad));
+        }
         this.group?.parts.push(bytes);
         continue;
       }
@@ -97,7 +112,7 @@ export class AudioFramer {
         ptsPending = false;
       }
       this.nextPtsUs = frameUs + (parsed.samples * 1e6) / SAMPLE_RATE;
-      if (this.kind === 'eac3') {
+      if (this.kind === 'eac3' || this.kind === 'dtshd') {
         if (this.group) out.push(finish(this.group));
         this.group = { parts: [bytes], ptsUs: frameUs, samples: parsed.samples };
       } else {
@@ -114,6 +129,33 @@ export class AudioFramer {
     this.nextPtsUs = null;
     this.carryPtsUs = null;
     this.group = null;
+    this.synced = false;
+  }
+
+  /** At the end of input: the open E-AC-3 or DTS-HD packet, which would otherwise wait for the next one to start. */
+  flush(): AudioFrame[] {
+    const g = this.group;
+    this.group = null;
+    return g ? [finish(g)] : [];
+  }
+
+  /** TrueHD: the decoder rejected a unit, so the lengths may be off; cut again from the next major sync. */
+  resync(): void {
+    this.synced = false;
+  }
+
+  private parseTrueHd(b: Uint8Array, at: number): Parsed | 'resync' | null {
+    if (b.length - at < (this.synced ? 4 : 8)) return null;
+    const size = (((b[at] & 0x0f) << 8) | b[at + 1]) * 2;
+    if (!this.synced) {
+      const sync = ((b[at + 4] << 24) | (b[at + 5] << 16) | (b[at + 6] << 8) | b[at + 7]) >>> 0;
+      if (sync !== TRUEHD_MAJOR_SYNC || size < 28) return 'resync';
+      this.synced = true;
+    } else if (size < 4) {
+      this.synced = false;
+      return 'resync';
+    }
+    return { size, samples: TRUEHD_UNIT_SAMPLES, startsUnit: true };
   }
 
   private parseAc3(b: Uint8Array, at: number): Parsed | 'resync' | null {
@@ -153,7 +195,7 @@ export class AudioFramer {
       const base = at * 8 + 32 + 8 + 2; // after sync, UserDefinedBits(8), nExtSSIndex(2)
       const wide = readBits(b, base, 1) === 1;
       const fsize = readBits(b, base + 1 + (wide ? 12 : 8), wide ? 20 : 16) + 1;
-      return { size: fsize, samples: 0, startsUnit: false, drop: true };
+      return { size: fsize, samples: 0, startsUnit: false, drop: this.kind === 'dts' };
     }
     return 'resync';
   }

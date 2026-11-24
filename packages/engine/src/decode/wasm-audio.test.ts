@@ -3,13 +3,14 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { CodingType } from '@seikou/bdmv/stream-types';
 import { AudioFramer } from './audio-frames';
+import { STEREO, applyMix, mixMatrix } from '../audio/channel-map';
 import { loadNodeAudioWasm } from '../../../../tests/helpers/audio-wasm';
 import { AudioFrameError, WasmCodec, loadAudioWasm, WasmFrameDecoder, type AudioWasm } from './wasm-audio';
 
 describe('audio.wasm', () => {
-  it('loads and opens and closes both decoders', async () => {
+  it('loads and opens and closes every decoder', async () => {
     const wasm = await loadNodeAudioWasm();
-    for (const codec of [WasmCodec.AC3, WasmCodec.DTS]) {
+    for (const codec of [WasmCodec.AC3, WasmCodec.DTS, WasmCodec.DTS_FULL, WasmCodec.TRUEHD]) {
       const d = new WasmFrameDecoder(wasm, codec);
       d.reset();
       d.close();
@@ -43,6 +44,9 @@ describe('WasmFrameDecoder allocation failures', () => {
         calls.push('decode');
         return 0;
       },
+      audio_channels: () => 2,
+      audio_channel: (_h: number, i: number) => i,
+      audio_profile: () => 0,
       audio_sample_rate: () => 48000,
       audio_reset: () => undefined,
       audio_close: () => {
@@ -84,8 +88,12 @@ async function decodeFile(name: string, kind: 'ac3' | 'eac3' | 'dts'): Promise<{
     for (const frame of framer.push(bytes.subarray(at, at + 4096), 0)) {
       pts.push(frame.ptsUs);
       try {
-        const { sampleRate, stereo } = decoder.decode(frame.data);
-        expect(sampleRate).toBe(48_000);
+        const out = decoder.decode(frame.data);
+        expect(out.sampleRate).toBe(48_000);
+        // A stereo output asks every decoder for its stereo downmix; a DTS stream without embedded downmix
+        // coefficients still comes out 5.1 and is folded as the player's AudioWriter folds it.
+        if (kind !== 'dts') expect(out.channels).toEqual(['FL', 'FR']);
+        const stereo = out.channels.length === 2 ? out.samples : applyMix(out.samples, out.samples.length / out.channels.length, out.channels.length, mixMatrix(out.channels, STEREO), 2);
         for (let i = 0; i < stereo.length; i += 2) {
           left.push(stereo[i]);
           right.push(stereo[i + 1]);
@@ -156,7 +164,7 @@ describe('audio.wasm decoding', () => {
       // FFmpeg conceals this corruption (the frame still decodes) rather than rejecting it. Requiring every
       // frame to decode means a change to rejecting it shows up here instead of passing silently: the
       // AudioFrameError would propagate and fail the test.
-      const { stereo } = decoder.decode(f.data);
+      const { samples: stereo } = decoder.decode(f.data);
       ok++;
       expect(stereo.length).toBe(1536 * 2);
       if (index > 5) for (let i = 0; i < stereo.length; i += 2) tail.push(stereo[i]);

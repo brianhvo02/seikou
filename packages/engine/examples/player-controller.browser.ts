@@ -102,6 +102,10 @@ async function tour(controller: PlayerController, canvas: HTMLCanvasElement, sen
   controller.setDeinterlace('auto'); // or 'off' to draw interlaced video woven; applies at once
   // #endregion
 
+  // #region setAudioChannels
+  controller.setAudioChannels('auto'); // before the first startAudio: 5.1 or 7.1 where the device has the channels; 'stereo' always two
+  // #endregion
+
   // #region setDiscPreferences
   controller.setDiscPreferences({ audioLanguage: 'jpn', pgLanguage: 'eng', menuLanguage: 'eng', country: 'us', region: 1 }); // before opening
   // #endregion

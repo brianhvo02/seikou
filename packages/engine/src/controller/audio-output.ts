@@ -1,3 +1,4 @@
+import { outputChannelsFor, type AudioChannelsChoice, type OutputChannels } from '../audio/channel-map';
 import { Control, LATENCY_UNKNOWN, OUTPUT_SAMPLE_RATE, createRing, ringViews } from '../audio/ring';
 import type { AudioOutputLike } from './player-controller';
 import workletUrl from './pcm-worklet.ts?worker&url';
@@ -11,7 +12,8 @@ const LATENCY_UNKNOWN_POLL_MS = 5;
 const LATENCY_WAIT_S = 0.2;
 
 /**
- * A 48 kHz stereo `AudioContext` that plays the shared PCM ring (`../audio/ring`) through an AudioWorklet and a gain node.
+ * A 48 kHz `AudioContext` that plays the shared PCM ring (`../audio/ring`) through an AudioWorklet and a gain node, in
+ * stereo or, where the device offers six or eight channels and the choice allows, 5.1 or 7.1 as discrete channels.
  * It lives on the main thread; the engine worker writes the ring and the worklet thread reads it. It also publishes the
  * output latency into the ring's control block every 50 ms so the engine can read it, and that it is not known yet while
  * the output has not said it: the context is made on the gesture that starts playback, and an audio clock started on
@@ -27,6 +29,8 @@ export class AudioOutput implements AudioOutputLike {
   private effectBuffers = new Map<number, AudioBuffer>();
 
   private sessionSet = false;
+  private channelsChoice: AudioChannelsChoice = 'auto';
+  private channelCount: OutputChannels | null = null;
 
   constructor(
     private readonly createContext: (opts: AudioContextOptions) => AudioContext = (opts) => new AudioContext(opts),
@@ -34,6 +38,19 @@ export class AudioOutput implements AudioOutputLike {
   ) {}
 
   private stateListener: ((state: AudioContextState | 'interrupted') => void) | null = null;
+
+  /**
+   * How many channels the output may use. It takes effect when the context is made (the first ensureStarted); the
+   * ring's channel count is fixed for the context's life, so a change after that applies after a reload.
+   */
+  setChannels(choice: AudioChannelsChoice): void {
+    this.channelsChoice = choice;
+  }
+
+  /** The channels the output plays (2, 6 or 8), or null before the context is set up. */
+  get outputChannels(): OutputChannels | null {
+    return this.channelCount;
+  }
 
   /** Sets the one listener of the audio context's state changes, replacing any earlier one. */
   onStateChange(cb: (state: AudioContextState | 'interrupted') => void): void {
@@ -101,10 +118,12 @@ export class AudioOutput implements AudioOutputLike {
     let buffer = this.effectBuffers.get(id);
     if (!buffer) {
       const frames = Math.floor(clip.samples.length / clip.channels);
-      buffer = context.createBuffer(clip.channels, frames, OUTPUT_SAMPLE_RATE);
-      for (let ch = 0; ch < clip.channels; ch++) {
+      // Always two channels, so a mono clip reaches both front speakers on a discrete 5.1 or 7.1 output too.
+      buffer = context.createBuffer(2, frames, OUTPUT_SAMPLE_RATE);
+      for (let ch = 0; ch < 2; ch++) {
         const out = buffer.getChannelData(ch);
-        for (let i = 0; i < frames; i++) out[i] = clip.samples[i * clip.channels + ch]! / 32768;
+        const from = Math.min(ch, clip.channels - 1);
+        for (let i = 0; i < frames; i++) out[i] = clip.samples[i * clip.channels + from]! / 32768;
       }
       this.effectBuffers.set(id, buffer);
     }
@@ -116,14 +135,24 @@ export class AudioOutput implements AudioOutputLike {
 
   private async setUp(context: AudioContext): Promise<SharedArrayBuffer> {
     await context.audioWorklet.addModule(workletUrl);
-    const ring = createRing(OUTPUT_SAMPLE_RATE, RING_SECONDS);
+    const channels = this.chooseChannels(context);
+    const ring = createRing(OUTPUT_SAMPLE_RATE, RING_SECONDS, channels);
     const node = new AudioWorkletNode(context, 'pcm-player', {
       numberOfInputs: 0,
       numberOfOutputs: 1,
-      outputChannelCount: [2],
+      outputChannelCount: [channels],
       processorOptions: { ring },
     });
     const gain = context.createGain();
+    if (channels > 2) {
+      // Discrete all the way: the browser neither folds nor spreads the channels the engine already placed.
+      for (const n of [gain, context.destination] as AudioNode[]) {
+        n.channelCount = channels;
+        n.channelCountMode = 'explicit';
+        n.channelInterpretation = 'discrete';
+      }
+    }
+    this.channelCount = channels;
     node.connect(gain).connect(context.destination);
     this.gain = gain;
     this.applyGain();
@@ -162,6 +191,21 @@ export class AudioOutput implements AudioOutputLike {
     );
     context.addEventListener('statechange', () => void closed());
     return ring;
+  }
+
+  /** The ring's channel count from the device's maximum and the choice (a failed setting of the destination keeps stereo). */
+  private chooseChannels(context: AudioContext): OutputChannels {
+    if (this.channelsChoice === 'stereo') return 2;
+    const max = context.destination?.maxChannelCount ?? 2;
+    const wanted = this.channelsChoice === 'auto' ? max : Math.min(this.channelsChoice, max);
+    const channels = outputChannelsFor(wanted);
+    if (channels === 2) return 2;
+    try {
+      context.destination.channelCount = channels;
+      return channels;
+    } catch {
+      return 2; // the destination refused the count after all
+    }
   }
 
   private applyGain(): void {

@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { CHROME_ONLY, expectBarHidden, setFolder } from './support';
@@ -63,7 +63,7 @@ async function timedKey(page: Page, disc: string, key: string, quietMs = 1000): 
 
 async function open(page: Page, disc: string): Promise<void> {
   await page.goto('/?telemetry=1');
-  await setFolder(page.getByTestId('folder-input'), join(LOCAL, disc));
+  await setFolder(page.getByTestId('folder-input'), realpathSync(join(LOCAL, disc))); // a disc may be a symlink
 }
 
 test('BDJ_DISC_A: arrows and Enter on the main menu show within 0.2 s; a click, which the disc ignores, offers the remote', async ({ page }) => {

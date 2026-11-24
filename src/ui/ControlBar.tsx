@@ -10,6 +10,7 @@ import { QualityMenu } from './QualityMenu';
 import { ShaderMenu } from './ShaderMenu';
 import { VideoOutputMenu } from './VideoOutputMenu';
 import { deinterlaceSetting, videoOutputSetting } from './video-output';
+import { audioChannelsSetting } from './audio-channels';
 import type { ShaderModel, ShaderModelState } from './shader-model';
 import type { MkvListedTrack } from './mkv-pick';
 import { SubtitleMenu, type StoredSubtitles } from './SubtitleMenu';
@@ -163,6 +164,7 @@ interface ControlBarProps {
 export function ControlBar({ controller, snapshot, shaderModel, shaderState, visible, onOpenPlaylists, onFullscreen, onPictureInPicture, onMenuKey, remoteOpen, onToggleRemote, onMenuOpenChange, onSubtitleFiles, onPickSubtitleFiles, mkvTracks = [], onPickMkvTrack, storedSubtitles = null, toshoSearch = null, quality = null, encode = null, onPreferences }: ControlBarProps): ReactElement {
   const videoOutput = useSyncExternalStore(videoOutputSetting().subscribe, videoOutputSetting().get);
   const deinterlace = useSyncExternalStore(deinterlaceSetting().subscribe, deinterlaceSetting().get);
+  const sound = useSyncExternalStore(audioChannelsSetting().subscribe, audioChannelsSetting().get);
   const playing = snapshot.engineState === 'playing' || snapshot.engineState === 'buffering';
   const silent = snapshot.muted || snapshot.volume === 0;
   const masked = (op: UoOp): boolean => snapshot.uoMask.includes(op);
@@ -215,6 +217,7 @@ export function ControlBar({ controller, snapshot, shaderModel, shaderState, vis
           selected={snapshot.selectedAudio}
           disabledReason={tip('primaryAudioChange')}
           levelAudio={quality?.audio ?? null}
+          decoding={snapshot.audioDecoding}
           onSelect={(i) => controller.selectAudio(i)}
           onOpenChange={onMenuOpenChange}
         />
@@ -259,6 +262,7 @@ export function ControlBar({ controller, snapshot, shaderModel, shaderState, vis
               deinterlaceSetting().choose(mode);
               controller.setDeinterlace(mode);
             }}
+            sound={{ value: sound, playing: controller.audioOutputChannels, onPick: (v) => audioChannelsSetting().choose(v) }}
             onOpenChange={onMenuOpenChange}
           />
         )}

@@ -782,16 +782,41 @@ what would change that decision.
 
 ## Audio
 
-- **TrueHD and DTS-HD play through their lossy cores.** The output is a stereo 48 kHz downmix,
-  so decoding MLP or XLL would not be audible. *Revisit if* multichannel or high-resolution output is added.
+- **Lossless and multichannel audio (2026-11-24, spec `docs/superpowers/specs/2026-11-24-lossless-audio-design.md`).**
+  Decisions left open on purpose:
+  - **Phones and tablets play the cores** of TrueHD and DTS-HD (the constrained profile's `losslessAudio` is off):
+    their output is almost always stereo, where lossless can't be heard, and the decode costs battery. *Revisit if* a
+    phone is used with a multichannel output.
+  - **The output's channel count is fixed when it starts** (the first play after the page loads): a device plugged
+    in later may be mixed by the browser and the system (untested: which browsers do, and how), and a Sound change
+    applies after a reload. *Revisit if* people
+    switch outputs mid-film.
+  - **A device that reports more channels than it has speakers** (an eight-output interface with two monitors, a TV
+    that reports eight channels) gets 5.1 or 7.1 and loses what isn't on its front pair, dialogue included; Sound →
+    Always stereo is the way out, and the help pages say so. No browser API tells the two apart.
+  - **Output stays at 48 kHz:** 96 and 192 kHz lossless audio is decimated as LPCM is.
+  - **Atmos and DTS:X play as their 7.1 bed** (FFmpeg decodes TrueHD to its third substream and DTS:X's XLL bed); a
+    page can't pass a stream through.
+  - **7.1 goes out in WAVE order** (FL FR FC LFE BL BR SL SR) as discrete channels, since Web Audio defines no
+    eight-channel speaker layout; checked with fakes, the decoder's channel names and the built worklet in an
+    `OfflineAudioContext` in Chrome, Firefox and WebKit (`tests/e2e/audio-channels.spec.ts`), not yet by ear on a 7.1
+    system.
+  - **The quality levels keep the cores** (`server/src/levels/audio-core.ts`): a level's byte plan prices the core's
+    rate before anything is encoded, and a level is for a slow link.
+  - **A fall back to the core mid-stream** (the lossless part failed, went silent for 2 s, rejected 8 frames in a
+    row, or cost over a quarter of real time) plays the core for the rest of that stream, from the next unit, with at
+    most a short glitch; it is logged and the Audio menu's mark turns to "core".
+  - **DTS-HD's lossless label follows what FFmpeg decoded:** `dca` drops to the core quietly when XLL fails, so the
+    shim reports the decoder's profile per packet and the menu says "core" while that lasts.
 - **A play item without the selected audio stream plays silence** on the audio clock (fixed 2026-10-27): an item whose
   STN lacks the stream is filled with silence to its OUT time as soon as its read starts, and a listed stream whose
   PID never appears becomes silence once the read is 1.5 s past it (`AUDIO_ABSENT_AFTER_US`; a disc muxing audio
   more than 1.5 s behind its video would lose the start of that audio). A playlist whose first item has no audio
   takes the stream of the first item that has one. Checked by unit tests and the playback E2E, not on a real disc.
   *Revisit if* a real disc shows it.
-- **The last E-AC-3 access unit before the end of input is not played** (32 ms), because a group is emitted when
-  the next one starts.
+- **Resolved: the last E-AC-3 access unit (and DTS-HD packet) before the end of input was not played (2026-11-24).**
+  A group is emitted when the next one starts; at the end of input the player now asks the decoder for the one it
+  held (`AudioDecoder.end`).
 - **AC-3 at 44.1 or 32 kHz is ignored** (treated as no sync). Blu-ray AC-3 is always 48 kHz.
 - **In Safari on a Mac, real discs look slightly ahead of their sound** (the picture first), on the canvas and element
   paths alike, though the telemetry reads in sync: the sound reaches the ear later than Safari reports (wired

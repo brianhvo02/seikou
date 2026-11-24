@@ -25,6 +25,8 @@ export const Control = {
   SampleRate: 6,
   /** 1 once the engine has written all of the stream's audio: running dry then is its end, not an underrun. */
   Draining: 7,
+  /** The ring's channels per frame (2, 6 or 8), fixed when it is created; the order is `outputLayout`'s. */
+  Channels: 8,
 } as const;
 
 /**
@@ -33,7 +35,7 @@ export const Control = {
  */
 export const LATENCY_UNKNOWN = -1;
 
-const CONTROL_SLOTS = 8;
+const CONTROL_SLOTS = 9;
 const COUNTER_WRITTEN = 0;
 const COUNTER_READ = 1;
 const COUNTERS_BYTES = 16;
@@ -45,8 +47,10 @@ export interface RingViews {
   readonly counters: BigInt64Array;
   /** The control slots, indexed by `Control`. */
   readonly control: Int32Array;
-  /** Interleaved stereo frames, `capacity` long. */
+  /** Interleaved frames of `channels` samples, `capacity` long. */
   readonly data: Float32Array;
+  /** Samples per frame. */
+  readonly channels: number;
   /** The ring's length in frames; frame `n` lives at `n % capacity`. */
   readonly capacity: number;
   /** Frames per second. */
@@ -54,50 +58,63 @@ export interface RingViews {
 }
 
 /**
- * Allocates a ring of `seconds` of stereo float audio at `sampleRate`: a 16-byte counter pair, the control slots and the
- * frames. The buffer is shared between threads, so the page needs cross-origin isolation.
+ * Allocates a ring of `seconds` of float audio at `sampleRate` with `channels` channels (2, 6 or 8): a 16-byte counter
+ * pair, the control slots and the frames. The buffer is shared between threads, so the page needs cross-origin
+ * isolation.
  */
-export function createRing(sampleRate: number, seconds: number): SharedArrayBuffer {
+export function createRing(sampleRate: number, seconds: number, channels = 2): SharedArrayBuffer {
   const capacity = Math.ceil(sampleRate * seconds);
-  const sab = new SharedArrayBuffer(HEADER_BYTES + capacity * 2 * Float32Array.BYTES_PER_ELEMENT);
+  const sab = new SharedArrayBuffer(HEADER_BYTES + capacity * channels * Float32Array.BYTES_PER_ELEMENT);
   const control = new Int32Array(sab, COUNTERS_BYTES, CONTROL_SLOTS);
   control[Control.Capacity] = capacity;
   control[Control.SampleRate] = sampleRate;
+  control[Control.Channels] = channels;
   return sab;
 }
 
-/** Reads capacity and sample rate from the buffer's control slots and wraps it in views, with no copy. */
+/** Reads capacity, sample rate and channels from the buffer's control slots and wraps it in views, with no copy. */
 export function ringViews(sab: SharedArrayBuffer): RingViews {
   const counters = new BigInt64Array(sab, 0, 2);
   const control = new Int32Array(sab, COUNTERS_BYTES, CONTROL_SLOTS);
   const capacity = control[Control.Capacity];
-  return { counters, control, data: new Float32Array(sab, HEADER_BYTES, capacity * 2), capacity, sampleRate: control[Control.SampleRate] };
+  const channels = control[Control.Channels] || 2;
+  return { counters, control, data: new Float32Array(sab, HEADER_BYTES, capacity * channels), capacity, sampleRate: control[Control.SampleRate], channels };
 }
 
-/** One AudioWorklet render quantum. Runs on the audio thread: no buffers are allocated (only the BigInt counter writes). */
-export function renderQuantum(views: RingViews, left: Float32Array, right: Float32Array): void {
-  const { counters, control, data, capacity } = views;
+/** One AudioWorklet render quantum into one output array per channel (left, right, …); see renderChannels. */
+export function renderQuantum(views: RingViews, ...outputs: Float32Array[]): void {
+  renderChannels(views, outputs);
+}
+
+/**
+ * One AudioWorklet render quantum. Runs on the audio thread: no buffers are allocated (only the BigInt counter writes).
+ * Ring channel `c` goes to `outputs[c]`; outputs beyond the ring's channels get silence, ring channels beyond the
+ * outputs are not heard.
+ */
+export function renderChannels(views: RingViews, outputs: readonly Float32Array[]): void {
+  const { counters, control, data, capacity, channels } = views;
   Atomics.add(control, Control.Heartbeat, 1);
   if (Atomics.load(control, Control.DiscardRequest) === 1) {
     Atomics.store(counters, COUNTER_READ, Atomics.load(counters, COUNTER_WRITTEN));
     Atomics.store(control, Control.DiscardRequest, 0);
   }
-  const frames = left.length;
+  const frames = outputs[0]?.length ?? 0;
   if (Atomics.load(control, Control.Playing) !== 1) {
-    left.fill(0);
-    right.fill(0);
+    for (const o of outputs) o.fill(0);
     return;
   }
   const read = Number(Atomics.load(counters, COUNTER_READ));
   const written = Number(Atomics.load(counters, COUNTER_WRITTEN));
   const available = Math.max(0, Math.min(frames, written - read));
-  for (let i = 0; i < available; i++) {
-    const p = ((read + i) % capacity) * 2;
-    left[i] = data[p];
-    right[i] = data[p + 1];
+  for (let c = 0; c < outputs.length; c++) {
+    const out = outputs[c];
+    if (c >= channels) {
+      out.fill(0);
+      continue;
+    }
+    for (let i = 0; i < available; i++) out[i] = data[((read + i) % capacity) * channels + c];
+    out.fill(0, available);
   }
-  left.fill(0, available);
-  right.fill(0, available);
   if (available < frames && Atomics.load(control, Control.Draining) !== 1) Atomics.add(control, Control.Underruns, 1);
   Atomics.store(counters, COUNTER_READ, BigInt(read + frames));
 }
@@ -115,6 +132,11 @@ export class RingWriter {
   /** The ring's rate in hertz. */
   get sampleRate(): number {
     return this.views.sampleRate;
+  }
+
+  /** Samples per frame (2, 6 or 8). */
+  get channels(): number {
+    return this.views.channels;
   }
 
   /** Whether the Playing slot is set. */
@@ -168,15 +190,15 @@ export class RingWriter {
   }
 
   /**
-   * Writes stereo frames at absolute frame index `at`. Frames before the read head or already written are
-   * trimmed; a gap after the written end is filled with silence. Returns false (writing nothing) if the
-   * frames would not fit in the ring yet.
+   * Writes interleaved frames of the ring's channel count at absolute frame index `at`. Frames before the read head or
+   * already written are trimmed; a gap after the written end is filled with silence. Returns false (writing nothing)
+   * if the frames would not fit in the ring yet.
    */
-  writeAt(at: number, stereo: Float32Array): boolean {
-    const { data, capacity } = this.views;
+  writeAt(at: number, samples: Float32Array): boolean {
+    const { data, capacity, channels } = this.views;
     const read = this.readFrames();
     const written = Math.max(this.writtenFrames(), read);
-    let frames = stereo.length / 2;
+    let frames = samples.length / channels;
     let src = 0;
     let start = at;
     if (start < written) {
@@ -188,15 +210,11 @@ export class RingWriter {
     }
     const end = start + frames;
     if (end - read > capacity) return false;
-    for (let f = written; f < start; f++) {
-      const p = (f % capacity) * 2;
-      data[p] = 0;
-      data[p + 1] = 0;
-    }
+    for (let f = written; f < start; f++) data.fill(0, (f % capacity) * channels, (f % capacity) * channels + channels);
     for (let i = 0; i < frames; i++) {
-      const p = ((start + i) % capacity) * 2;
-      data[p] = stereo[(src + i) * 2];
-      data[p + 1] = stereo[(src + i) * 2 + 1];
+      const p = ((start + i) % capacity) * channels;
+      const q = (src + i) * channels;
+      for (let c = 0; c < channels; c++) data[p + c] = samples[q + c];
     }
     Atomics.store(this.views.counters, COUNTER_WRITTEN, BigInt(end));
     return true;
@@ -207,16 +225,12 @@ export class RingWriter {
    * head plus capacity). Returns the frame written up to.
    */
   padTo(to: number): number {
-    const { data, capacity } = this.views;
+    const { data, capacity, channels } = this.views;
     const read = this.readFrames();
     const written = Math.max(this.writtenFrames(), read);
     const end = Math.min(to, read + capacity);
     if (end <= written) return written;
-    for (let f = written; f < end; f++) {
-      const p = (f % capacity) * 2;
-      data[p] = 0;
-      data[p + 1] = 0;
-    }
+    for (let f = written; f < end; f++) data.fill(0, (f % capacity) * channels, (f % capacity) * channels + channels);
     Atomics.store(this.views.counters, COUNTER_WRITTEN, BigInt(end));
     return end;
   }

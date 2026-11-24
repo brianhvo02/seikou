@@ -5,6 +5,7 @@ import type { PlayerSettings } from '../disc/player-settings';
 import type { UoOp } from '../hdmv/uo-mask';
 import type { Chapter } from '../nav/timeline';
 import type { MemoryProfileName } from '../memory-profile';
+import type { AudioChannelsChoice } from '../audio/channel-map';
 import type { AudioTrack, BufferRequest, ElementPreference, EncodeSpec, EngineCommand, EngineEvent, ErrorCode, MenuKey, PlaceState, PlaybackState, ShaderSetData, ShaderState, StartPoint, SubtitleChoice, Telemetry, VideoDecoderSpeed, VideoPath, DeinterlaceMode } from '../protocol';
 import { VIDEO_PROBE_DEADLINE_MS } from '../protocol';
 import { elementCheck } from './element-caps';
@@ -59,6 +60,11 @@ export interface PlayerSnapshot {
   readonly videoElement: boolean;
   /** Whether an HDR stream plays on the element path (the engine's `videoHdr` event; false after a close). */
   readonly videoHdr: boolean;
+  /**
+   * How the playing audio is decoded (the engine's `audioDecoding` event): `full` for TrueHD or DTS-HD decoded whole,
+   * `core` for their cores, `plain` for any other stream, with the telemetry's description; null when no audio plays.
+   */
+  readonly audioDecoding: { readonly part: 'full' | 'core' | 'plain'; readonly description: string } | null;
   /** Clicks on an HDMV menu that hit no button, counted since the page loaded (a touch that missed shows the controls). */
   readonly menuTapMisses: number;
   /** Problems the engine found while opening the disc that did not stop it (for example an unreadable playlist). */
@@ -180,6 +186,7 @@ export const INITIAL_SNAPSHOT: PlayerSnapshot = {
   encodeId: null,
   videoElement: false,
   videoHdr: false,
+  audioDecoding: null,
   menuTapMisses: 0,
   warnings: [],
   currentPlaylistId: null,
@@ -305,6 +312,8 @@ export function reduceEvent(s: PlayerSnapshot, e: EngineEvent): PlayerSnapshot {
       return s; // answers preferElement (the controller resolves it)
     case 'textCue':
       return s; // the page's element handler shows it
+    case 'audioDecoding':
+      return { ...s, audioDecoding: e.part && e.description ? { part: e.part, description: e.description } : null };
     case 'videoElementQuery':
     case 'videoSegment':
     case 'videoReset':
@@ -375,6 +384,10 @@ export interface AudioOutputLike {
   playEffect(id: number): void;
   /** Reports every change of the audio context's state; 'interrupted' is WebKit's (phone call, Siri). */
   onStateChange(cb: (state: AudioContextState | 'interrupted') => void): void;
+  /** How many channels the output may use, taken when it starts (see `AudioOutput.setChannels`). */
+  setChannels?(choice: AudioChannelsChoice): void;
+  /** The channels the output plays (2, 6 or 8), or null before it started. */
+  readonly outputChannels?: number | null;
 }
 
 /** Page visibility, injectable so Node tests need no `document`. */
@@ -645,6 +658,20 @@ export class PlayerController {
    */
   setDeinterlace(mode: DeinterlaceMode): void {
     this.post({ type: 'setDeinterlace', mode });
+  }
+
+  /**
+   * How many channels the audio output may use: stereo, or 5.1 or 7.1 where the device offers them (`auto`). It is
+   * taken when the output starts (the first play after the page loads), so a change later applies after a reload.
+   * @example ../../examples/player-controller.browser.ts#setAudioChannels
+   */
+  setAudioChannels(choice: AudioChannelsChoice): void {
+    this.audio.setChannels?.(choice);
+  }
+
+  /** The channels the audio output plays (2, 6 or 8), or null before it started. */
+  get audioOutputChannels(): number | null {
+    return this.audio.outputChannels ?? null;
   }
 
   /**

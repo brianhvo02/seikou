@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds audio.wasm (FFmpeg's eac3 + dca decoders and shim.c) in Docker, reproducibly.
+# Builds audio.wasm (FFmpeg's eac3, dca and truehd decoders and shim.c) in Docker, reproducibly.
 # Pinned: emscripten/emsdk 6.0.12 by digest, FFmpeg by tag. linux/amd64 everywhere, so CI and
 # Apple-silicon hosts produce the same bytes.
 set -euo pipefail
@@ -21,12 +21,12 @@ emconfigure ./configure \
   --disable-autodetect --disable-everything --disable-programs --disable-doc --disable-debug --disable-stripping \
   --disable-avdevice --disable-avformat --disable-avfilter --disable-swresample --disable-swscale --disable-network \
   --disable-pthreads --disable-w32threads --disable-os2threads \
-  --enable-decoder=ac3,eac3,dca \
+  --enable-decoder=ac3,eac3,dca,truehd \
   --extra-cflags=-Oz
 emmake make -j"$(nproc)" libavcodec/libavcodec.a libavutil/libavutil.a
 emcc -Oz -I/build/ffmpeg /out/shim.c libavcodec/libavcodec.a libavutil/libavutil.a \
   -sSTANDALONE_WASM --no-entry -sALLOW_MEMORY_GROWTH=1 -sFILESYSTEM=0 -sSTACK_SIZE=1MB \
-  -sEXPORTED_FUNCTIONS=_audio_open,_audio_decode,_audio_sample_rate,_audio_reset,_audio_close,_malloc,_free \
+  -sEXPORTED_FUNCTIONS=_audio_open,_audio_decode,_audio_channels,_audio_channel,_audio_sample_rate,_audio_profile,_audio_reset,_audio_close,_malloc,_free \
   -o /build/audio.wasm
 cp /build/audio.wasm /out/audio.wasm
 cd /out && sha256sum audio.wasm > audio.wasm.sha256

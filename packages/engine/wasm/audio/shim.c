@@ -1,5 +1,5 @@
 /*
- * Seikou audio decoder shim over FFmpeg libavcodec (eac3, dca).
+ * Seikou audio decoder shim over FFmpeg libavcodec (eac3, dca, truehd).
  * Copyright (c) 2026 Seikou contributors
  *
  * Original code, kept LGPL-2.1-or-later because it is compiled into audio.wasm with FFmpeg, which is LGPL-2.1-or-later,
@@ -20,6 +20,9 @@ typedef struct Decoder {
   AVCodecContext *ctx;
   AVPacket *pkt;
   AVFrame *frame;
+  /* The last audio_decode's output channels and their AVChannel ids. */
+  int channels;
+  enum AVChannel layout[8];
 } Decoder;
 
 EMSCRIPTEN_KEEPALIVE void audio_close(Decoder *d) {
@@ -30,10 +33,15 @@ EMSCRIPTEN_KEEPALIVE void audio_close(Decoder *d) {
   free(d);
 }
 
-/* codec 0: AC-3 and E-AC-3 (FFmpeg's eac3 decoder handles both by bsid); codec 1: DTS core. */
-EMSCRIPTEN_KEEPALIVE Decoder *audio_open(int codec) {
+/*
+ * codec 0: AC-3 and E-AC-3 (FFmpeg's eac3 decoder handles both by bsid); 1: DTS core only; 2: DTS with its extensions
+ * (XLL, XBR, X96, XXCH); 3: TrueHD. out_channels 2 asks for a stereo downmix; 6 asks TrueHD and DTS for 5.1 (their
+ * own presentation or embedded downmix); anything else asks for nothing and the stream's own layout comes out.
+ */
+EMSCRIPTEN_KEEPALIVE Decoder *audio_open(int codec, int out_channels) {
   av_log_set_level(AV_LOG_QUIET);
-  const AVCodec *c = avcodec_find_decoder(codec == 1 ? AV_CODEC_ID_DTS : AV_CODEC_ID_EAC3);
+  enum AVCodecID id = codec == 1 || codec == 2 ? AV_CODEC_ID_DTS : codec == 3 ? AV_CODEC_ID_TRUEHD : AV_CODEC_ID_EAC3;
+  const AVCodec *c = avcodec_find_decoder(id);
   if (!c) return NULL;
   Decoder *d = calloc(1, sizeof(*d));
   if (!d) return NULL;
@@ -41,11 +49,12 @@ EMSCRIPTEN_KEEPALIVE Decoder *audio_open(int codec) {
   d->pkt = av_packet_alloc();
   d->frame = av_frame_alloc();
   AVDictionary *opts = NULL;
-  av_dict_set(&opts, "downmix", "stereo", 0);
+  if (out_channels == 2) av_dict_set(&opts, "downmix", "stereo", 0);
+  else if (out_channels == 6 && codec >= 2) av_dict_set(&opts, "downmix", "5.1(side)", 0);
   if (codec == 1) av_dict_set(&opts, "core_only", "1", 0);
   int ok = d->ctx && d->pkt && d->frame && avcodec_open2(d->ctx, c, &opts) >= 0;
   /* avcodec_open2 removes the options it consumed. A leftover "core_only" means DTS extensions would be decoded: fail.
-   * A leftover "downmix" is tolerated; write_frame folds multichannel output down itself. */
+   * A leftover "downmix" is tolerated; the caller folds whatever layout comes out. */
   if (ok && codec == 1 && av_dict_get(opts, "core_only", NULL, 0)) ok = 0;
   av_dict_free(&opts);
   if (!ok) {
@@ -56,64 +65,47 @@ EMSCRIPTEN_KEEPALIVE Decoder *audio_open(int codec) {
 }
 
 static float sample_at(const AVFrame *f, int ch, int i) {
+  int n = f->ch_layout.nb_channels;
   switch (f->format) {
     case AV_SAMPLE_FMT_FLTP: return ((const float *)f->extended_data[ch])[i];
-    case AV_SAMPLE_FMT_FLT: return ((const float *)f->extended_data[0])[i * f->ch_layout.nb_channels + ch];
+    case AV_SAMPLE_FMT_FLT: return ((const float *)f->extended_data[0])[i * n + ch];
     case AV_SAMPLE_FMT_S16P: return ((const int16_t *)f->extended_data[ch])[i] / 32768.0f;
+    case AV_SAMPLE_FMT_S16: return ((const int16_t *)f->extended_data[0])[i * n + ch] / 32768.0f;
     case AV_SAMPLE_FMT_S32P: return ((const int32_t *)f->extended_data[ch])[i] / 2147483648.0f;
+    case AV_SAMPLE_FMT_S32: return ((const int32_t *)f->extended_data[0])[i * n + ch] / 2147483648.0f;
     default: return 0.0f;
   }
 }
 
-/* Interleaved stereo. More than two channels means the decoder ignored "downmix": fold them down here. */
-static int write_frame(const AVFrame *f, float *out, int max_frames) {
+#define MAX_CHANNELS 8
+
+/* Interleaved, in the decoder's own channel order (audio_channel names each). */
+static int write_frame(Decoder *d, const AVFrame *f, float *out, int max_frames) {
   int n = f->nb_samples;
   int channels = f->ch_layout.nb_channels;
   if (n > max_frames) return -2;
-  if (channels == 1) {
-    for (int i = 0; i < n; i++) out[2 * i] = out[2 * i + 1] = sample_at(f, 0, i);
-    return n;
-  }
-  if (channels == 2) {
-    for (int i = 0; i < n; i++) {
-      out[2 * i] = sample_at(f, 0, i);
-      out[2 * i + 1] = sample_at(f, 1, i);
-    }
-    return n;
-  }
-  const AVChannelLayout *l = &f->ch_layout;
-  int fl = av_channel_layout_index_from_channel(l, AV_CHAN_FRONT_LEFT);
-  int fr = av_channel_layout_index_from_channel(l, AV_CHAN_FRONT_RIGHT);
-  int fc = av_channel_layout_index_from_channel(l, AV_CHAN_FRONT_CENTER);
-  int sl = av_channel_layout_index_from_channel(l, AV_CHAN_SIDE_LEFT);
-  int sr = av_channel_layout_index_from_channel(l, AV_CHAN_SIDE_RIGHT);
-  int bl = av_channel_layout_index_from_channel(l, AV_CHAN_BACK_LEFT);
-  int br = av_channel_layout_index_from_channel(l, AV_CHAN_BACK_RIGHT);
-  if (fl < 0 || fr < 0) { fl = 0; fr = 1; }
-  const float k = 0.70710678f;
-  float norm = 1.0f / (1.0f + (fc >= 0 ? k : 0) + (sl >= 0 ? k : 0) + (bl >= 0 ? k : 0));
-  for (int i = 0; i < n; i++) {
-    float c = fc >= 0 ? k * sample_at(f, fc, i) : 0;
-    float left = sample_at(f, fl, i) + c + (sl >= 0 ? k * sample_at(f, sl, i) : 0) + (bl >= 0 ? k * sample_at(f, bl, i) : 0);
-    float right = sample_at(f, fr, i) + c + (sr >= 0 ? k * sample_at(f, sr, i) : 0) + (br >= 0 ? k * sample_at(f, br, i) : 0);
-    out[2 * i] = left * norm;
-    out[2 * i + 1] = right * norm;
-  }
+  if (channels < 1 || channels > MAX_CHANNELS) return -3;
+  if (d->channels != 0 && d->channels != channels) return -4; /* a layout change inside one packet: rejected */
+  d->channels = channels;
+  for (int c = 0; c < channels; c++) d->layout[c] = av_channel_layout_channel_from_index(&f->ch_layout, c);
+  for (int i = 0; i < n; i++)
+    for (int c = 0; c < channels; c++) out[i * channels + c] = sample_at(f, c, i);
   return n;
 }
 
-/* Decodes one access unit; returns stereo frames written to out, or a negative error. */
+/* Decodes one packet; returns sample frames written to out (interleaved, audio_channels() each), or a negative error. */
 EMSCRIPTEN_KEEPALIVE int audio_decode(Decoder *d, const uint8_t *in, int len, float *out, int max_frames) {
   av_packet_unref(d->pkt);
   if (av_new_packet(d->pkt, len) < 0) return -12;
   memcpy(d->pkt->data, in, len);
   if (avcodec_send_packet(d->ctx, d->pkt) < 0) return -1;
+  d->channels = 0;
   int total = 0;
   for (;;) {
     int r = avcodec_receive_frame(d->ctx, d->frame);
     if (r == AVERROR(EAGAIN) || r == AVERROR_EOF) break;
     if (r < 0) return -1;
-    int n = write_frame(d->frame, out + total * 2, max_frames - total);
+    int n = write_frame(d, d->frame, out + total * (d->channels ? d->channels : 0), max_frames - total);
     av_frame_unref(d->frame);
     if (n < 0) return n;
     total += n;
@@ -121,6 +113,18 @@ EMSCRIPTEN_KEEPALIVE int audio_decode(Decoder *d, const uint8_t *in, int len, fl
   return total;
 }
 
+/* The channel count of the last audio_decode's output; 0 when that packet put out no frame (the layout is then unset). */
+EMSCRIPTEN_KEEPALIVE int audio_channels(Decoder *d) { return d->channels; }
+
+/* The AVChannel of output channel i of the last audio_decode; -1 for an index beyond audio_channels (none when it was 0). */
+EMSCRIPTEN_KEEPALIVE int audio_channel(Decoder *d, int i) { return i >= 0 && i < d->channels ? (int)d->layout[i] : -1; }
+
 EMSCRIPTEN_KEEPALIVE int audio_sample_rate(Decoder *d) { return d->ctx->sample_rate; }
+
+/*
+ * The decoder's profile after the last packet (AV_PROFILE_*): for DTS it says what was decoded, since dcadec falls back
+ * to the core quietly on an XLL error (DTS-HD MA 60-62 with XLL, HRA 50 for a core with extension substream parts).
+ */
+EMSCRIPTEN_KEEPALIVE int audio_profile(Decoder *d) { return d->ctx->profile; }
 
 EMSCRIPTEN_KEEPALIVE void audio_reset(Decoder *d) { avcodec_flush_buffers(d->ctx); }

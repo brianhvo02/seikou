@@ -3,6 +3,7 @@ import type { MkvTrack } from '@seikou/matroska';
 import type { AudioDecodeResult, AudioDecoder, AudioUnit } from './audio-decoder';
 import { UnsupportedCodecError } from './decoder';
 import type { PcmChunk } from './lpcm';
+import { STEREO } from '../audio/channel-map';
 
 // Opus from Matroska (an encoded episode), decoded by the browser's WebCodecs AudioDecoder. The track's CodecPrivate is
 // the OpusHead (RFC 7845 §5.1), CodecDelay its pre-skip and SeekPreRoll the 80 ms a decoder needs before a seek point
@@ -254,7 +255,7 @@ export class OpusDecoder implements AudioDecoder {
       count -= skip;
       ptsUs = 0;
     }
-    this.queue.push({ ptsUs, sampleRate: data.sampleRate, frames: count, stereo: stereo.slice() });
+    this.queue.push({ ptsUs, sampleRate: data.sampleRate, frames: count, channels: STEREO, samples: stereo.slice() });
   }
 
   private throwFailure(): void {

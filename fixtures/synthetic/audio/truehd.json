@@ -1,0 +1,23 @@
+{
+  "truehd-stereo.thd": {
+    "layout": "stereo",
+    "rate": 48000,
+    "native": "c8e79b3c2233deac21d74b9746d13429",
+    "stereo": "c8e79b3c2233deac21d74b9746d13429",
+    "surround": "c8e79b3c2233deac21d74b9746d13429"
+  },
+  "truehd-51.thd": {
+    "layout": "5.1(side)",
+    "rate": 48000,
+    "native": "388bdbd6608ab6f95c9b003a974e4480",
+    "stereo": "c8e79b3c2233deac21d74b9746d13429",
+    "surround": "388bdbd6608ab6f95c9b003a974e4480"
+  },
+  "truehd-51-96k.thd": {
+    "layout": "5.1(side)",
+    "rate": 96000,
+    "native": "c905c187276dbd56102132b60be0c2b8",
+    "stereo": "027e34834335b365563a28094a78879a",
+    "surround": "c905c187276dbd56102132b60be0c2b8"
+  }
+}

@@ -1,9 +1,11 @@
 import type { PcmChunk } from '../decode/lpcm';
+import { applyMix, mixMatrix, outputLayout, sameLayout, type ChannelLayout, type OutputChannels } from './channel-map';
 import type { RingWriter } from './ring';
 
 /**
- * Places decoded PCM into the ring at the frame position implied by its PTS. It runs on the engine worker; the audio
- * thread plays what it writes. Chunks that cannot fit yet wait in a queue and are written by `drain`.
+ * Places decoded PCM into the ring at the frame position implied by its PTS, mixed to the ring's channels
+ * (`outputLayout` of its count; `channel-map.ts` has the rules). It runs on the engine worker; the audio thread plays
+ * what it writes. Chunks that cannot fit yet wait in a queue and are written by `drain`.
  */
 export class AudioWriter {
   private baseUs = 0;
@@ -13,8 +15,18 @@ export class AudioWriter {
   private readonly queue: PcmChunk[] = [];
   /** Media time up to which no audio will come: silence is written there once the queue is empty (fillSilenceTo). */
   private silenceUntilUs = -Infinity;
+  private readonly layout: ChannelLayout;
+  /** The last source layout and its matrix into `layout`. */
+  private mix: { source: ChannelLayout; matrix: Float64Array } | null = null;
 
-  constructor(private readonly ring: RingWriter) {}
+  constructor(private readonly ring: RingWriter) {
+    this.layout = outputLayout(ring.channels as OutputChannels);
+  }
+
+  /** The speakers of the ring this writer fills. */
+  get outputLayout(): ChannelLayout {
+    return this.layout;
+  }
 
   /** Call after a discard: media time `baseUs` maps to the current read head. */
   start(baseUs: number): void {
@@ -40,8 +52,16 @@ export class AudioWriter {
     if (chunk.sampleRate !== this.ring.sampleRate) {
       throw new Error(`chunk sample rate ${chunk.sampleRate} does not match output ${this.ring.sampleRate}`);
     }
-    this.queue.push(chunk);
+    this.queue.push(this.mixToOutput(chunk));
     this.drain();
+  }
+
+  /** The chunk mixed to the ring's channels (the same chunk when it already has them). */
+  mixToOutput(chunk: PcmChunk): PcmChunk {
+    if (sameLayout(chunk.channels, this.layout)) return chunk;
+    if (!this.mix || !sameLayout(this.mix.source, chunk.channels)) this.mix = { source: chunk.channels, matrix: mixMatrix(chunk.channels, this.layout) };
+    const samples = applyMix(chunk.samples, chunk.frames, chunk.channels.length, this.mix.matrix, this.layout.length);
+    return { ...chunk, channels: this.layout, samples };
   }
 
   /**
@@ -60,7 +80,7 @@ export class AudioWriter {
       const chunk = this.queue[0];
       let at = this.frameAt(chunk.ptsUs);
       if (this.nextFrame !== null && Math.abs(at - this.nextFrame) <= 1) at = this.nextFrame; // rounding, not a real gap
-      if (!this.ring.writeAt(at, chunk.stereo.subarray(0, chunk.frames * 2))) return;
+      if (!this.ring.writeAt(at, chunk.samples.subarray(0, chunk.frames * this.layout.length))) return;
       this.nextFrame = at + chunk.frames;
       this.queue.shift();
     }

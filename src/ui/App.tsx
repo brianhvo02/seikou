@@ -3,6 +3,7 @@ import { createController } from '@seikou/engine/controller/create-controller';
 import type { PlayerController } from '@seikou/engine/controller/player-controller';
 import { PlatformSession } from '@seikou/engine/controller/platform-session';
 import { deinterlaceSetting, initialVideoPath } from './video-output';
+import { audioChannelsSetting } from './audio-channels';
 import { parseHelpPath } from './help/help-pages';
 import { HelpLoadBoundary } from './help/HelpLoadBoundary';
 import { LandingScreen } from './LandingScreen';
@@ -60,6 +61,8 @@ function createAppController(): PlayerController {
   // the app has a video element: HDR streams take it (auto), or ?videopath= picks; set before the first open
   controller.setVideoPath(initialVideoPath());
   controller.setDeinterlace(deinterlaceSetting().get());
+  // before the first gesture starts the audio output: its channel count is fixed for the page's life
+  controller.setAudioChannels(audioChannelsSetting().outputChoice());
   // The controller lives as long as the page: it is let go when the page is unloaded for good (not kept in the
   // back-forward cache), so a pre-flight still waiting on its decode speed probe gets its answer (none).
   window.addEventListener('pagehide', (e) => {
