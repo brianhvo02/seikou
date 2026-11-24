@@ -107,6 +107,11 @@ class FakeMediaSource implements MediaSourceLike {
   types: string[] = [];
   ended = 0;
   private open: Array<() => void> = [];
+  removedBuffers: SourceBufferLike[] = [];
+  removeSourceBuffer(b: SourceBufferLike): void {
+    this.removedBuffers.push(b);
+    this.buffers = this.buffers.filter((x) => x !== b);
+  }
   addSourceBuffer(type: string): SourceBufferLike {
     this.types.push(type);
     const sb = new FakeSourceBuffer();
@@ -1200,5 +1205,42 @@ describe('ElementVideoOutput and a presentation that only seems to end', () => {
     t.video.fire('webkitpresentationmodechanged');
     t.fireTimers();
     expect(commands(t.posted, 'preferElement')).toEqual([]);
+  });
+});
+
+describe('ElementVideoOutput across a playlist change while presented', () => {
+  it('keeps the media source for the next session, so Picture in Picture stays open, and releases it once nothing shows it', async () => {
+    const presented = { value: true };
+    const t = opened(0, false, 1, presented);
+    appendSegment(t, 1, 0, 2);
+    t.out.handle({ type: 'videoElementStop' });
+    expect(t.video.removedAttrs).toEqual([]);
+    expect(t.revoked()).toBe(0);
+    // the next session resets and refills the same source
+    t.out.handle({ type: 'videoReset', startUs: 0, paused: false, generation: 2, durationUs: 4_000_000 });
+    t.out.handle(init('hvc1.2.4.L120.90'));
+    expect(t.created()).toBe(1);
+    const old = t.sb();
+    old.finish(); // the removal of what the last session left
+    // a new buffer for the next session (Safari on iPhone keeps an old buffer's end and stretches the duration to it)
+    expect(t.ms.removedBuffers).toEqual([old]);
+    expect(t.ms.types.at(-1)).toBe('video/mp4; codecs="hvc1.2.4.L120.90"');
+    expect(t.sb()).not.toBe(old);
+    expect(t.sb().appended).toHaveLength(1); // the init went into the new buffer
+    t.sb().finish();
+    expect(t.ms.duration).toBe(14);
+    // a stop whose next playlist goes to the canvas: the source goes once the presentation ends
+    t.out.handle({ type: 'videoElementStop' });
+    expect(t.revoked()).toBe(0);
+    presented.value = false;
+    t.video.fire('leavepictureinpicture');
+    expect(t.revoked()).toBe(1);
+    expect(t.video.removedAttrs).toEqual(['src']);
+  });
+
+  it('releases the element at a stop when it is not presented, as before', () => {
+    const t = opened(0, false, 1, { value: false });
+    t.out.handle({ type: 'videoElementStop' });
+    expect(t.revoked()).toBe(1);
   });
 });

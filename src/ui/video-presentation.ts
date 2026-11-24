@@ -219,7 +219,7 @@ export function pollUntil(check: () => boolean, timeoutMs: number, intervalMs = 
 }
 
 /** How long the element path may stay off while presented before the presentation ends (a playlist change reopens it). */
-export const PRESENTATION_GRACE_MS = 1500;
+export const PRESENTATION_GRACE_MS = 3000;
 
 /** The notice for a tap on the video's own fullscreen while a disc menu is up. */
 export const FULLSCREEN_MENU_MESSAGE = 'Disc menus don’t show in video fullscreen: choose from the menu first.';

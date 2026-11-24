@@ -155,3 +155,26 @@ test('a hidden page still ends an element playlist and changes its text cues (th
   });
   await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'ended', { timeout: 15_000 });
 });
+
+test('the video’s own fullscreen stays open across a playlist change, with the new playlist’s length', async ({ page }) => {
+  await page.goto('/?telemetry=1&fullscreen=video&videopath=element');
+  const browser = page.context().browser()?.browserType().name() ?? '';
+  test.skip(isLinuxWebKit(browser), LINUX_WEBKIT_REALTIME);
+  test.skip(!(await page.evaluate(() => 'webkitEnterFullscreen' in HTMLVideoElement.prototype)), 'This browser has no video fullscreen (webkitEnterFullscreen)');
+  test.skip(!(await mseSupports(page, H264_HIGH)), `MSE in this browser does not play ${H264_HIGH}`);
+  await setFolder(page.getByTestId('folder-input'), 'fixtures/synthetic/disc1');
+  await page.getByTestId('playlist-00000').click();
+  await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'playing', { timeout: 10_000 });
+  await clickControl(page, 'Fullscreen');
+  await expect.poll(() => presentation(page), { timeout: 5_000 }).toBe('fullscreen');
+  const video = page.getByTestId('video-element');
+  expect(await video.evaluate((v: HTMLVideoElement) => v.duration)).toBeCloseTo(18, 1); // 8 s playlist, plus the 10 s offset
+  // another playlist while presented: the element keeps its media source, so the system's fullscreen stays open
+  await page.evaluate(() => (Array.from(document.querySelectorAll('button')).find((b) => /Playlists/.test(b.textContent ?? '')) as HTMLElement).click());
+  await page.evaluate(() => (document.querySelector('[data-testid=playlist-00001]') as HTMLElement).click());
+  await expect(page.getByTestId('player')).toHaveAttribute('data-playlist', '00001', { timeout: 5_000 });
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.duration), { timeout: 5_000 }).toBeCloseTo(14, 1);
+  expect(await presentation(page)).toBe('fullscreen');
+  await video.evaluate((v: HTMLVideoElement & { webkitExitFullscreen?: () => void }) => v.webkitExitFullscreen?.());
+  await expect.poll(() => presentation(page)).toBeNull();
+});

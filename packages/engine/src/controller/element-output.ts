@@ -69,6 +69,8 @@ export interface MediaSourceLike {
   /** Seconds; set to the playlist's end in media time so a system player's scrubber spans the playlist. */
   duration: number;
   addSourceBuffer(type: string): SourceBufferLike;
+  /** Removes a source buffer (absent in tests that never replace one). */
+  removeSourceBuffer?(buffer: SourceBufferLike): void;
   endOfStream(): void;
   addEventListener(type: 'sourceopen', fn: () => void): void;
 }
@@ -155,6 +157,12 @@ type Op =
   | { readonly k: 'append'; readonly bytes: Uint8Array; readonly segment: boolean; readonly retried: boolean }
   | { readonly k: 'remove'; readonly start: number; readonly end: number }
   | { readonly k: 'change'; readonly type: string }
+  /**
+   * Replaces the source buffer with a new one of `type` (a session that follows one held while presented): Safari on
+   * iPhone keeps a buffer's highest end through a removal and stretches the duration back to it on every append, so a
+   * shorter next playlist would show the last one's length.
+   */
+  | { readonly k: 'rebuffer'; readonly type: string }
   /** Sets the media source's duration: queued after a reset's removal, since a duration under what is buffered is refused. */
   | { readonly k: 'duration'; readonly s: number }
   | { readonly k: 'end' };
@@ -275,6 +283,10 @@ export class ElementVideoOutput {
   private endedSeen = false;
   /** Whether the engine sends textCue events: while the element is presented. */
   private cuesOn = false;
+  /** The session stopped while the element was presented: its media source is kept for the next session (holdForNext). */
+  private held = false;
+  /** The session after a held one: its init replaces the source buffer (the rebuffer operation) instead of reusing it. */
+  private afterHold = false;
   /** Whether the system showed the element, as last settled (a presentation's end counts once it has held). */
   private wasPresented = false;
   /** Cancels the look, a moment after a presentation seemed to end, whether it really did. */
@@ -329,6 +341,8 @@ export class ElementVideoOutput {
    */
   private onPresentationChange(): void {
     const presented = this.presented();
+    // a source kept for a next playlist that never came to the element is released once nothing shows it
+    if (!presented && this.held) this.detach();
     // the presentation ended: the playlist goes back to the path the video output setting picks (preferElement off),
     // once it has stayed ended a moment (WebKit reports the mode in steps while it enters and leaves)
     if (this.wasPresented && !presented) {
@@ -470,7 +484,10 @@ export class ElementVideoOutput {
         }
         return true;
       case 'videoElementStop':
-        this.detach();
+        // the system shows the element (Picture in Picture): emptying it would close that, so its media source stays
+        // for the next playlist's session, which resets and refills it; otherwise the element is released
+        if (this.attached && this.presented()) this.holdForNext();
+        else this.detach();
         return true;
       case 'textCue':
         this.showCue(e.text);
@@ -507,7 +524,23 @@ export class ElementVideoOutput {
     this.disposed = true;
   }
 
+  /**
+   * The session stopped while the system shows the element: the element pauses on its last frame and keeps its media
+   * source, which the next session's reset empties and its init refills (changing the codec if it must).
+   */
+  private holdForNext(): void {
+    this.held = true;
+    this.cancelStart();
+    this.queue = [];
+    this.pendingStart = null;
+    this.playing = false;
+    this.stalled = false;
+    if (!this.deps.video.paused) this.pauseVideo();
+  }
+
   private reset(startUs: number, paused: boolean): void {
+    this.afterHold = this.held;
+    this.held = false;
     this.failed = false;
     this.endedSeen = false;
     this.appended = 0;
@@ -534,7 +567,8 @@ export class ElementVideoOutput {
       }
     }
     this.inFlight = null;
-    if (b.buffered.length > 0) this.queue.push({ k: 'remove', start: 0, end: Infinity });
+    // after a held session the removal also reopens a source its end of stream closed, so a buffer can be added
+    if (b.buffered.length > 0 || this.afterHold) this.queue.push({ k: 'remove', start: 0, end: Infinity });
     this.queueDuration();
     this.pump();
   }
@@ -565,11 +599,18 @@ export class ElementVideoOutput {
       this.startFrames();
       this.armSyncTimer();
       this.queueDuration();
+    } else if (this.afterHold && this.attached.source.removeSourceBuffer) {
+      this.afterHold = false;
+      this.queue.push({ k: 'rebuffer', type: mimeType(codec) });
+      this.bufferCodec = codec;
     } else if (codec !== this.bufferCodec) {
       this.queue.push({ k: 'change', type: mimeType(codec) });
       this.bufferCodec = codec;
     }
     this.queue.push({ k: 'append', bytes, segment: false, retried: false });
+    // and once more after it: Safari on iPhone (ManagedMediaSource) stretches the duration to the last session's end when
+    // the next init segment goes into the same buffer, which a scrubber would show until the end of stream
+    this.queueDuration();
     if (this.attached?.source.readyState === 'open') this.onSourceOpen(this.attached);
     this.pump();
   }
@@ -585,6 +626,12 @@ export class ElementVideoOutput {
       this.fail(`the source buffer could not be made (${errorMessage(e)})`);
       return;
     }
+    this.useBuffer(a, b);
+    this.pump();
+  }
+
+  /** Makes `b` the source's buffer and listens to it. */
+  private useBuffer(a: Attached, b: SourceBufferLike): void {
     a.buffer = b;
     b.addEventListener('updateend', () => this.onUpdateEnd(a, b));
     b.addEventListener('error', () => {
@@ -594,7 +641,6 @@ export class ElementVideoOutput {
     b.addEventListener('bufferedchange', () => {
       if (a === this.attached && a.buffer === b && !this.failed) this.reportBuffered(b);
     });
-    this.pump();
   }
 
   private onUpdateEnd(a: Attached, b: SourceBufferLike): void {
@@ -637,6 +683,19 @@ export class ElementVideoOutput {
             return;
           }
           break;
+        case 'rebuffer': {
+          let fresh: SourceBufferLike;
+          try {
+            a.source.removeSourceBuffer?.(b);
+            fresh = a.source.addSourceBuffer(op.type);
+          } catch (e) {
+            this.fail(`the source buffer could not be replaced (${errorMessage(e)})`);
+            return;
+          }
+          this.useBuffer(a, fresh);
+          this.pump(); // the rest of the queue goes into the new buffer
+          return;
+        }
         case 'duration':
           if (a.source.readyState === 'open' && !(Math.abs(a.source.duration - op.s) <= 1e-3)) {
             try {
@@ -886,6 +945,8 @@ export class ElementVideoOutput {
 
   /** Cancels callbacks, drops the queue, detaches the source from the element and revokes its URL. */
   private detach(): void {
+    this.afterHold = false;
+    this.held = false;
     if (this.frameId !== null) {
       this.deps.video.cancelVideoFrameCallback(this.frameId);
       this.frameId = null;

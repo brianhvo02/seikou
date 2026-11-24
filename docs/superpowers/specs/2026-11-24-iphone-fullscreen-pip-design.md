@@ -193,6 +193,19 @@ itself, so the lock screen and the PiP window's ±10 s buttons (which iOS draws 
   (before that fix the scrubber stopped at what had been appended).
 - `?fullscreen=video`: the video's own fullscreen opened from a tap, the player paused and played through the element,
   and a Top Menu call in fullscreen closed it with the menu playing on the page.
-- An added SRT file showed in the Picture in Picture window, line by line in time.
+- An added SRT file's cue showed in the Picture in Picture window in some screenshots (all with the window's controls up) and not in others, while the track always held the right cue (re-check, below).
 - Not checked (a script can't reach them): the Picture in Picture window's own buttons, the system fullscreen
   player's controls, leaving Safari with Picture in Picture open (audio may be suspended), and rotation.
+
+### Device re-check after the review fixes (2026-11-24, 02:15–03:00)
+
+- A playlist change while in Picture in Picture used to close it: the element's source was emptied at the session's
+  stop. The element now keeps its media source while presented and the next session refills it, with a new source
+  buffer (Safari on iPhone stretched a shorter playlist's duration back to the last one's on every append). Seen on
+  the phone: menu to feature and back, and an 8 s playlist then a 4 s one, stayed in Picture in Picture with the new
+  length (14 s media, 4 s playlist).
+- An episode played to its end in Picture in Picture: the element paused at its end by itself, the player went to
+  `ended` (this disc's program stops there), and nothing sought or restarted.
+- Closing Picture in Picture on disc-interlaced: one reopen at the same place onto the canvas, deinterlaced (`video`).
+- Backgrounding Safari could not be scripted: the phone is in Guided Access, which refused another app's launch.
+- Captions in Picture in Picture are intermittent (known issues).
