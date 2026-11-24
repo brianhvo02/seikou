@@ -1,0 +1,22 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 640
+PlayResY: 360
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,DejaVu Sans,24,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,1.5,1,2,20,20,20,1
+Style: Credits,DejaVu Serif,20,&H0080FFFF,&H000000FF,&H00200000,&H80000000,0,0,0,0,100,100,0,0,1,1,0,8,20,20,20,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.00,0:00:10.00,Default,,0,0,0,Banner;10,A banner from the right edge that is far wider than the screen and never wraps
+Dialogue: 0,0:00:00.00,0:00:10.00,Default,,0,0,0,Banner;15;1,{\an8}left to right
+Dialogue: 0,0:00:00.00,0:00:10.00,Credits,,0,0,0,Scroll up;80;300;20,Rolling credits\NSecond line
+Dialogue: 0,0:00:00.00,0:00:10.00,Credits,,0,0,0,Scroll down;300;60;25,{\an1}Scroll down, band given reversed
+Dialogue: 0,0:00:00.00,0:00:10.00,Default,,0,0,0,Banner;0,delay zero
+Dialogue: 0,0:00:00.00,0:00:10.00,Default,,0,0,0,Banner;8,{\pos(100,150)}positioned banner
+Dialogue: 0,0:00:00.00,0:00:10.00,Default,,0,0,0,Unknown;1;2;3,an unknown effect stays put
+Dialogue: 0,0:00:00.00,0:00:10.00,Default,,0,0,0,,a normal line under the banner

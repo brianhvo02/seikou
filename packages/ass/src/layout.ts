@@ -19,7 +19,7 @@
 import { parseDrawing } from './drawing';
 import { d6ToDouble, doubleToD6, lrint, processKaraoke, type EventText, type GlyphInfo } from './events';
 import { advanceEmSize, emSize, type AssFonts } from './fonts';
-import { DECO_ROTATE, DECO_STRIKETHROUGH, DECO_UNDERLINE, EVENT_POSITIONED, type RenderState } from './state';
+import { DECO_ROTATE, DECO_STRIKETHROUGH, DECO_UNDERLINE, EVENT_HSCROLL, EVENT_POSITIONED, EVENT_VSCROLL, SCROLL_BT, SCROLL_LR, SCROLL_RL, SCROLL_TB, type RenderState } from './state';
 import { HALIGN_CENTER, HALIGN_LEFT, HALIGN_RIGHT, VALIGN_CENTER, VALIGN_SUB, VALIGN_TOP } from './types';
 import type { GlyphMeasurer } from './measure';
 
@@ -438,8 +438,12 @@ function reorderText(e: EventText, ti: TextInfo): void {
 /** align_lines */
 function alignLines(e: EventText, maxTextWidth: number): void {
   const g = e.glyphs;
-  const halign = e.state.alignment & 3;
-  const justify = e.state.justify;
+  let halign = e.state.alignment & 3;
+  let justify = e.state.justify;
+  if (e.state.evtType & EVENT_HSCROLL) {
+    justify = halign;
+    halign = HALIGN_LEFT;
+  }
   const counts = (x: GlyphInfo): boolean => !x.skip && x.symbol !== NEWLINE && x.symbol !== 0;
   let width = 0;
   let maxWidth = 0;
@@ -545,12 +549,22 @@ export function layoutEvent(e: EventText, fonts: AssFonts, measurer: GlyphMeasur
 
   let deviceX = 0;
   let deviceY = 0;
+  // a positioned event can scroll too: the scroll overrides the position on its axis
   if (s.evtType & EVENT_POSITIONED) {
     const [bx, by] = basePoint(bbox, s.alignment);
     deviceX = x2scr(s, s.posX) - bx;
     deviceY = y2scr(s, s.posY) - by;
-  } else {
+  }
+  if (s.evtType & EVENT_HSCROLL) {
+    if (s.scrollDirection === SCROLL_RL) deviceX = x2scr(s, s.track.playResX - s.scrollShift);
+    else if (s.scrollDirection === SCROLL_LR) deviceX = x2scr(s, s.scrollShift) - (bbox[2] - bbox[0]);
+  } else if (!(s.evtType & EVENT_POSITIONED)) {
     deviceX = x2scr(s, marginL);
+  }
+  if (s.evtType & EVENT_VSCROLL) {
+    if (s.scrollDirection === SCROLL_TB) deviceY = y2scr(s, s.scrollY0 + s.scrollShift) - bbox[3];
+    else if (s.scrollDirection === SCROLL_BT) deviceY = y2scr(s, s.scrollY1 - s.scrollShift) - bbox[1];
+  } else if (!(s.evtType & EVENT_POSITIONED)) {
     if (valign === VALIGN_TOP) {
       deviceY = y2scr(s, marginV) + ti.lines[0]!.asc;
     } else if (valign === VALIGN_CENTER) {
@@ -571,6 +585,10 @@ export function layoutEvent(e: EventText, fonts: AssFonts, measurer: GlyphMeasur
     y0 = Math.max(y0, 0);
     x1 = Math.min(x1, s.settings.frameWidth);
     y1 = Math.min(y1, s.settings.frameHeight);
+  }
+  if (s.evtType & EVENT_VSCROLL) {
+    y0 = Math.max(y0, lround(y2scr(s, s.scrollY0)));
+    y1 = Math.min(y1, lround(y2scr(s, s.scrollY1)));
   }
 
   return {

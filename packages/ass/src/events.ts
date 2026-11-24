@@ -168,7 +168,7 @@ function glyphFrom(s: RenderState, code: number, drawingText: string | null): Gl
 
 /** init_render_context + parse_events; null when the event has no characters (libass skips it). `now` is ms from the event's start. */
 export function parseEvent(track: AssTrack, event: AssEvent, settings: RenderSettings, now: number): EventText | null {
-  const s = initRenderState(track, event, settings);
+  const s = initRenderState(track, event, settings, now);
   const text = event.text;
   const glyphs: GlyphInfo[] = [];
   let p = 0;
