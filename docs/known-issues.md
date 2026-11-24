@@ -771,8 +771,28 @@ what would change that decision.
 
 ## Audio
 
-- **TrueHD and DTS-HD play through their lossy cores.** The output is a stereo 48 kHz downmix,
-  so decoding MLP or XLL would not be audible. *Revisit if* multichannel or high-resolution output is added.
+- **Lossless and multichannel audio (2026-11-24, spec `docs/superpowers/specs/2026-11-24-lossless-audio-design.md`).**
+  Decisions left open on purpose:
+  - **Phones and tablets play the cores** of TrueHD and DTS-HD (the constrained profile's `losslessAudio` is off):
+    their output is almost always stereo, where lossless can't be heard, and the decode costs battery. *Revisit if* a
+    phone is used with a multichannel output.
+  - **The output's channel count is fixed when it starts** (the first play after the page loads): a device plugged
+    in later is mixed by the browser and the system, and a Sound change applies after a reload. *Revisit if* people
+    switch outputs mid-film.
+  - **A device that reports more channels than it has speakers** (an eight-output interface with two monitors, a TV
+    that reports eight channels) gets 5.1 or 7.1 and loses what isn't on its front pair, dialogue included; Sound →
+    Always stereo is the way out, and the help pages say so. No browser API tells the two apart.
+  - **Output stays at 48 kHz:** 96 and 192 kHz lossless audio is decimated as LPCM is.
+  - **Atmos and DTS:X play as their 7.1 bed** (FFmpeg decodes TrueHD to its third substream and DTS:X's XLL bed); a
+    page can't pass a stream through.
+  - **7.1 goes out in WAVE order** (FL FR FC LFE BL BR SL SR) as discrete channels, since Web Audio defines no
+    eight-channel speaker layout; checked with fakes and the decoder's channel names, not yet by ear on a 7.1 system.
+  - **The quality levels keep the cores** (`server/src/levels/audio-core.ts`): a level's byte plan prices the core's
+    rate before anything is encoded, and a level is for a slow link.
+  - **A fall back to the core mid-stream** (the lossless part failed, went silent for 2 s, rejected 8 frames in a
+    row, or cost over a quarter of real time) plays the core for the rest of that stream, from the next unit, with at
+    most a short glitch; it is logged and the Audio menu's mark turns to "core".
+  - **The last DTS-HD packet before the end of input is not played** (10.7 ms), like E-AC-3's below.
 - **A play item without the selected audio stream plays silence** on the audio clock (fixed 2026-10-27): an item whose
   STN lacks the stream is filled with silence to its OUT time as soon as its read starts, and a listed stream whose
   PID never appears becomes silence once the read is 1.5 s past it (`AUDIO_ABSENT_AFTER_US`; a disc muxing audio

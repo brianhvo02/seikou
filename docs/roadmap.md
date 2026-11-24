@@ -2,7 +2,7 @@
 
 What comes next for Seikou, in rough order. It is drawn from [known-issues.md](known-issues.md) (the source of truth for each limitation, with the reasoning behind it), the specs and plans in `docs/superpowers/`, and the status notes from each milestone. Sizes are rough: **S** is a day or less, **M** a few days, **L** a milestone of its own. Items marked *needs a disc*, *needs a device* or *owner's call* can't start until that is to hand.
 
-Everything listed in [CLAUDE.md](../CLAUDE.md) under "What this is" is done: milestones 1 to 5e, cross-browser and mobile, the NAS server and title library, people and WebRTC, quality levels, the music shelf, fansubs, resume and the subtitle store, self-hosting and the docs, the packages and the developer site, the encoder and the Encodes library, HDR video through the video element with HDR labels, disc preferences, deinterlacing, and MPEG-2 and VC-1 decoding.
+Everything listed in [CLAUDE.md](../CLAUDE.md) under "What this is" is done: milestones 1 to 5e, cross-browser and mobile, the NAS server and title library, people and WebRTC, quality levels, the music shelf, fansubs, resume and the subtitle store, self-hosting and the docs, the packages and the developer site, the encoder and the Encodes library, HDR video through the video element with HDR labels, disc preferences, deinterlacing, MPEG-2 and VC-1 decoding, and lossless and multichannel audio (TrueHD and DTS-HD decoded whole, 5.1 and 7.1 output; waiting for the owner's check by ear on a surround system).
 
 ## Now: housekeeping
 
@@ -31,7 +31,6 @@ Short tasks that unblock or protect what is already deployed.
 | **Field rate on an iPhone:** 1080i (VC-1 first) steps down to frame rate in some stretches of video. Decoding, the shaders, the canvas hand-offs and the page's main thread are all ruled out (known issues); the rest is inside WebKit's GPU side. Parked until a Safari release or a newer phone changes it. | M | parked |
 | **HDR overlays at graphics white:** subtitles and menus over HDR video are drawn SDR; try a float16 or WebGPU canvas on an HDR display. | M | needs a device, owner's call |
 | **Element path start in WebKit,** which begins about 33 ms behind the sound. | S | owner's call |
-| **Lossless and multichannel audio:** full TrueHD and DTS-HD instead of their cores, and output beyond a stereo downmix (multichannel PCM where the browser offers it; no Atmos or DTS:X height channels, since a page can't pass a stream through). | L | deferred by the owner (2026-11-16) |
 | **Encoders beyond Intel QSV** (NVENC, AMD VAAPI) for self-hosters. The self-hosting spec puts this last, after everything else. | L | |
 | **Quality-level ideas:** pre-encode while the GPU is idle, re-encode audio, and an "auto" level that labels itself. Its known gaps (the disc's PSR1 audio choice at a level, the `primaryAudioChange` UO mask, the BD-J still timer restarting on a switch) are closed. | L | |
 | **Per-person shelves,** and hiding titles from a person. | M | |

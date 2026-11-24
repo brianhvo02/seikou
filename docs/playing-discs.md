@@ -21,7 +21,8 @@ A disc may block something at a given moment. The player then says "The disc doe
 
 ## Audio and subtitles
 
-- **Audio** menu: pick a track. Supported: LPCM, AC-3, E-AC-3, the AC-3 core of Dolby TrueHD, and the DTS core of DTS and DTS-HD. A track the player cannot play is greyed out with its codec named. Press `A` to go to the next track.
+- **Audio** menu: pick a track. Supported: LPCM, AC-3, E-AC-3, DTS, Dolby TrueHD and DTS-HD. On a computer TrueHD and DTS-HD Master Audio play lossless, and the playing track is marked **lossless**; on a phone or tablet they play through their Dolby Digital or DTS core, marked **core**. A track the player cannot play is greyed out with its codec named. Press `A` to go to the next track.
+- **Surround sound:** where the sound device has six or eight channels (a receiver over HDMI, a surround interface), the player plays 5.1 and 7.1 as they are; elsewhere it mixes to stereo. Atmos and DTS:X play as their 7.1 base, since a web page can't pass a stream on to a receiver. If voices go missing on a device that claims more channels than it has speakers, set **Video output → Sound** to **Always stereo** and reload the page.
 - **Subtitles** menu: Off, each subtitle track on the disc, and any file you add. Press `S` to cycle. Forced captions show even with subtitles off.
 
 ### Disc preferences
