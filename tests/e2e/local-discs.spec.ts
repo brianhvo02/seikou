@@ -208,8 +208,11 @@ for (const name of discs) {
         const start = (await telemetry(page))?.clockUs ?? 0;
         const windows = await collectWindows(page, start + 4_000_000, 30_000);
         expectInSync(windows.slice(1));
-        expect((await telemetry(page))?.audioDecodeErrors, `${track.codec} decode errors`).toBe(0);
-        console.log(`${name}: ${track.id} ${track.codec} in sync`);
+        const t = await telemetry(page);
+        expect(t?.audioDecodeErrors, `${track.codec} decode errors`).toBe(0);
+        // on a computer TrueHD and DTS-HD Master Audio play whole, never through a fallback to the core
+        if (track.codec === 'Dolby TrueHD' || track.codec === 'DTS-HD Master Audio') expect(t?.audioDecoding).toContain('lossless');
+        console.log(`${name}: ${track.id} ${t?.audioDecoding ?? track.codec} in sync`);
       }
     }
     await checkPgTracks(page, name);

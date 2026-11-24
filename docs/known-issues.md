@@ -786,7 +786,9 @@ what would change that decision.
   - **Atmos and DTS:X play as their 7.1 bed** (FFmpeg decodes TrueHD to its third substream and DTS:X's XLL bed); a
     page can't pass a stream through.
   - **7.1 goes out in WAVE order** (FL FR FC LFE BL BR SL SR) as discrete channels, since Web Audio defines no
-    eight-channel speaker layout; checked with fakes and the decoder's channel names, not yet by ear on a 7.1 system.
+    eight-channel speaker layout; checked with fakes, the decoder's channel names and the built worklet in an
+    `OfflineAudioContext` in Chrome, Firefox and WebKit (`tests/e2e/audio-channels.spec.ts`), not yet by ear on a 7.1
+    system.
   - **The quality levels keep the cores** (`server/src/levels/audio-core.ts`): a level's byte plan prices the core's
     rate before anything is encoded, and a level is for a slow link.
   - **A fall back to the core mid-stream** (the lossless part failed, went silent for 2 s, rejected 8 frames in a
