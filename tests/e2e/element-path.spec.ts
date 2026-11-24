@@ -240,6 +240,32 @@ test('the HDR badge shows over HDR video only when the display can show HDR', as
   await expect(page.getByTestId('hdr-badge')).toHaveText('HDR');
 });
 
+test('subtitles over HDR video on an HDR display go through the HDR overlay canvas', async ({ page }, testInfo) => {
+  await emulateHdrDisplay(page, true);
+  await openHdrDisc(page, '?telemetry=1');
+  await expect.poll(async () => (await telemetry(page))?.videoPath ?? null, { timeout: 5000 }).toBe('element');
+  // the engine worker's WebGPU, as the page sees it (a browser without an adapter keeps the overlays SDR)
+  const gpu = await page.evaluate(async () => {
+    const g = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
+    return g ? (await g.requestAdapter().catch(() => null)) !== null : false;
+  });
+  const expected = gpu ? { displayHdr: true, presenter: 'webgpu', active: true } : { displayHdr: true, presenter: 'unavailable', active: false };
+  await expect.poll(async () => (await telemetry(page))?.hdrOverlay ?? null, { timeout: 5000 }).toMatchObject(expected);
+  expect((await telemetry(page))?.hdrOverlay?.gain).toBeCloseTo(2.03, 5);
+  // the PG subtitle shows from 1 s to 5 s: presented through WebGPU without losing it
+  await expect.poll(async () => (await telemetry(page))?.clockUs ?? 0, { timeout: 5000 }).toBeGreaterThan(2_000_000);
+  expect((await telemetry(page))?.hdrOverlay).toMatchObject(expected);
+  await expect(page.getByTestId('hdr-overlay-canvas')).toHaveCSS('pointer-events', 'none');
+  await testInfo.attach('hdr-overlay', { body: await page.getByTestId('player').screenshot(), contentType: 'image/png' });
+});
+
+test('over HDR video on a display without HDR the overlays stay SDR, and ?hdrgain= tunes the gain', async ({ page }) => {
+  await emulateHdrDisplay(page, false);
+  await openHdrDisc(page, '?telemetry=1&hdrgain=3');
+  await expect.poll(async () => (await telemetry(page))?.clockUs ?? 0, { timeout: 5000 }).toBeGreaterThan(1_500_000);
+  await expect.poll(async () => (await telemetry(page))?.hdrOverlay ?? null, { timeout: 5000 }).toEqual({ displayHdr: false, presenter: 'none', reason: null, active: false, gain: 3 });
+});
+
 test('no HDR badge over HDR video on a display without HDR', async ({ page }) => {
   await emulateHdrDisplay(page, false);
   await openHdrDisc(page, '?telemetry=1');

@@ -22,6 +22,8 @@ export interface TelemetrySample {
   elementFailure?: string | null;
   /** An HDR stream plays on the element path. */
   videoHdr?: boolean;
+  /** Subtitles and menus over HDR video at graphics white (the engine's HdrOverlayTelemetry); null without an HDR canvas. */
+  hdrOverlay?: { displayHdr: boolean; presenter: string; reason: string | null; active: boolean; gain: number } | null;
   avOffsetMeanUs: number | null;
   avOffsetMaxAbsUs: number | null;
   framesInWindow: number;
