@@ -11,8 +11,10 @@ export interface AssFixture {
   /** Path of the golden trace (its frames are in <golden without .jsonl>/<ms>.png). */
   readonly golden: string;
   /**
-   * From the fixture's optional `pixels.json` (`{"over2": n}`): at most this many pixels of a frame may differ by
-   * more than 2 levels in a channel, a finer bar than pixelmatch's for a fixture whose difference is subtle.
+   * From the fixture's optional `pixels.json` (`{"over2": {"<platform>": n}}`, keyed by Node's `process.platform`): at
+   * most this many pixels of a frame may differ by more than 2 levels in a channel, a finer bar than pixelmatch's for a
+   * fixture whose difference is subtle. Each platform's Chrome draws glyph edges a little differently, so the bar is
+   * measured per platform; a platform the file doesn't name gets no such bar.
    */
   readonly over2?: number;
 }
@@ -37,8 +39,12 @@ export function syntheticFixtures(): AssFixture[] {
       times: readTimes(`fixtures/ass/${d.name}/times.txt`),
       storage: readStorage(`fixtures/ass/${d.name}`),
       golden: `tests/ass-trace/golden/${d.name}.jsonl`,
-      ...(existsSync(`fixtures/ass/${d.name}/pixels.json`)
-        ? { over2: (JSON.parse(readFileSync(`fixtures/ass/${d.name}/pixels.json`, 'utf8')) as { over2: number }).over2 }
-        : {}),
+      ...readOver2(`fixtures/ass/${d.name}/pixels.json`),
     }));
+}
+
+function readOver2(path: string): { over2?: number } {
+  if (!existsSync(path)) return {};
+  const bar = (JSON.parse(readFileSync(path, 'utf8')) as { over2: Partial<Record<NodeJS.Platform, number>> }).over2[process.platform];
+  return bar === undefined ? {} : { over2: bar };
 }

@@ -1,1 +1,4 @@
-{ "over2": 30000 }
+{
+  "//": "Pixels off by more than 2 in a frame, at most. Measured at 1000 ms: macOS Chrome 21673 with libass's box passes, 43383 with a Gaussian \\be; Linux Chrome (CI) 34917 and 52862.",
+  "over2": { "darwin": 30000, "linux": 44000 }
+}
