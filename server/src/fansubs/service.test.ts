@@ -602,13 +602,36 @@ describe('FansubService', () => {
       expect(readFileSync(store.filePath(id)!, 'utf8')).toBe(FULL);
     });
 
-    it('a release upload waits while a disc is being read', async () => {
+    it('a line-up queued at start waits while a disc is being read', async () => {
       const { svc, store, activity, sleeps } = setup({ aligner: fakeAligner(OFFSET).align });
       const id = await releaseUpload(store, 1, 2, FULL);
       activity.note();
       svc.lineUpRelease(id);
       await vi.waitFor(() => expect(alignmentOf(store, id)).toEqual(OFFSET));
       expect(sleeps.length).toBeGreaterThan(0);
+    });
+
+    it("an owner's upload is lined up at once, even while a disc is being read", async () => {
+      const { svc, store, activity, sleeps } = setup({ aligner: fakeAligner(OFFSET).align });
+      const id = await releaseUpload(store, 1, 2, FULL);
+      activity.note();
+      svc.lineUpRelease(id, { urgent: true });
+      await vi.waitFor(() => expect(alignmentOf(store, id)).toEqual(OFFSET));
+      expect(sleeps).toHaveLength(0);
+    });
+
+    it("an owner's upload hurries a line-up of the same file that is waiting", async () => {
+      // a sleep that only ends when its signal aborts: the disc is never idle again
+      const sleep = (_ms: number, signal: AbortSignal): Promise<void> =>
+        new Promise((_, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+      const { svc, store, activity } = setup({ aligner: fakeAligner(OFFSET).align, sleep });
+      const signs = await releaseUpload(store, 1, 3, SIGNS);
+      const full = await releaseUpload(store, 1, 2, FULL);
+      activity.note();
+      svc.lineUpRelease(signs);
+      svc.lineUpRelease(full, { urgent: true });
+      // the waiting job never gets past its sleep: only the hurry wakes it
+      await vi.waitFor(() => expect([alignmentOf(store, signs), alignmentOf(store, full)]).toEqual([OFFSET, OFFSET]));
     });
 
     it('Find fansubs leaves an episode with a release upload alone', async () => {

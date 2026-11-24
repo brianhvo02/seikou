@@ -251,11 +251,14 @@ export class FansubService {
   }
 
   /**
-   * A release upload's file has landed: lines it up with its episode's disc in the queue (after the title running, and
-   * waiting like the nightly pass while a disc is read or a level encodes), together with the other ASS tracks of the
-   * same release file. An SRT track is shown at once at the release's own timing.
+   * A release upload's file has landed: lines it up with its episode's disc in the queue, together with the other ASS
+   * tracks of the same release file. `urgent` (the owner's upload, like the Find fansubs button) goes ahead of the
+   * nightly work and doesn't wait for the discs to be idle, and hurries a waiting line-up of the same file; otherwise
+   * (one left from before a restart) it waits like the nightly pass while a disc is read or a level encodes. An SRT
+   * track is shown at once at the release's own timing.
    */
-  lineUpRelease(subtitleId: string): void {
+  lineUpRelease(subtitleId: string, opts: { urgent?: boolean } = {}): void {
+    const urgent = opts.urgent === true;
     const s = this.opts.store.get(subtitleId);
     if (!s || !isRelease(s) || s.fileSize === 0) return;
     if (isSrt(s)) {
@@ -264,9 +267,20 @@ export class FansubService {
     }
     const file = { discKey: s.attachment.discKey, fileName: s.source.fileName, fileSize: s.source.fileSize };
     const key = `release:${file.discKey}:${file.fileSize}:${file.fileName}`;
-    // a line-up of the same file still waiting takes this track too; one already running may have missed it
-    if (this.queue.some((j) => j.key === key)) return;
-    this.enqueue(key, false, null, (job) => this.lineUpFile(file, job), undefined, false).catch((e: unknown) => {
+    // a line-up of the same file still waiting takes this track too (hurried when this one is the owner's upload);
+    // one already running may have missed it
+    const waiting = this.queue.find((j) => j.key === key);
+    if (waiting) {
+      if (urgent && !waiting.urgent) this.promote(key);
+      return;
+    }
+    if (urgent && this.active?.key === key && !this.active.urgent && this.active.wake) {
+      // still waiting for the disc to be idle: hurry it; its run takes this track
+      this.active.urgent = true;
+      this.active.wake.abort();
+      return;
+    }
+    this.enqueue(key, urgent, null, (job) => this.lineUpFile(file, job), undefined, false).catch((e: unknown) => {
       if (!this.closed) this.log(`fansubs: line-up of release upload ${subtitleId}: ${e instanceof Error ? e.message : String(e)}`);
     });
   }
@@ -384,8 +398,8 @@ export class FansubService {
     return this.active?.key === key ? this.active : this.queue.find((j) => j.key === key);
   }
 
-  private promote(titleId: string): void {
-    const at = this.queue.findIndex((j) => j.key === titleId);
+  private promote(key: string): void {
+    const at = this.queue.findIndex((j) => j.key === key);
     if (at < 0) return;
     const [job] = this.queue.splice(at, 1);
     job!.urgent = true;

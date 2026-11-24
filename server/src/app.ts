@@ -101,7 +101,7 @@ export function appHandlers(opts: AppOptions): Handler[] {
     ...(opts.playbackStore ? [playbackRoutes(auth, opts.playbackStore, { titles: opts.titles, library: opts.library, encodes: opts.encodes, encodesWaitMs: opts.encodesWaitMs })] : []),
     ...(opts.playerSettingsStore ? [playerSettingsRoutes(auth, opts.playerSettingsStore)] : []),
     ...(opts.fansubs ? [fansubRoutes(auth, opts.fansubs, opts.titles)] : []),
-    ...(opts.subtitleStore ? [subtitleRoutes(auth, opts.subtitleStore, { titles: opts.titles, library: opts.library, fansubs: fansubService, ...(fansubService ? { onReleaseFile: (id: string) => fansubService.lineUpRelease(id) } : {}) })] : []),
+    ...(opts.subtitleStore ? [subtitleRoutes(auth, opts.subtitleStore, { titles: opts.titles, library: opts.library, fansubs: fansubService, ...(fansubService ? { onReleaseFile: (id: string) => fansubService.lineUpRelease(id, { urgent: true }) } : {}) })] : []),
     adminRoutes(auth, {
       library: opts.library, bdjStore: opts.bdjStore, publicBase: opts.publicBase, appUrl: opts.appUrl, rendezvousUrl: opts.rendezvousUrl, registrar: opts.registrar, registrarDeadlineMs: opts.registrarDeadlineMs,
       titles: opts.titles, relay: opts.relay, levels: opts.levels, now: opts.now, lookupTimeoutMs: opts.lookupTimeoutMs,

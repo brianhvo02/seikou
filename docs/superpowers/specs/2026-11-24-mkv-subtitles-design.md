@@ -97,8 +97,10 @@ A function in the engine (it needs `@seikou/ass`'s ASS parsing, which `@seikou/m
   `FansubService` deletes every earlier subtitle with a `source` on an episode it attaches to, so that step must skip
   release uploads and the episode must be passed over. A release upload counts as attached in Find fansubs' episode
   marks. *(Owner's decision.)*
-- **When it is lined up:** through `FansubService`'s one-title-at-a-time work (which pauses while a disc is read or a
-  level encodes), not inside the upload request. Until it is lined up, viewers don't see the track; if the aligner
+- **When it is lined up:** through `FansubService`'s one-title-at-a-time work, not inside the upload request. An
+  upload is the owner's own action, so it goes as the Find fansubs button does, without waiting for the discs to be
+  idle (amended 2026-11-24: waiting kept a track hidden for as long as anyone watched); a line-up left from before a
+  restart waits, like the nightly pass, while a disc is read or a level encodes. Until it is lined up, viewers don't see the track; if the aligner
   answers `none`, it shows at the release's own timing and the owner is told. *(My call: no confident wrong timing,
   and no ffmpeg work inside a request.)*
 - **Fonts:** pooled on the NAS by content (`subtitles/.fonts/<sha256>`, as `createFansub` pools them), so a season's
