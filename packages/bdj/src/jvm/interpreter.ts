@@ -16,7 +16,7 @@ import type { JThread } from './threads';
 import type { Jvm } from './jvm';
 import { linkCallSite, resolveConstant, signaturePolymorphic } from './natives/invoke';
 import { DECLINE } from './natives/intrinsics/common';
-import { JIT_EXIT_CONTINUE, JIT_EXIT_YIELD, compileMethod } from './jit';
+import { JIT_EXIT_CONTINUE, JIT_EXIT_YIELD, compileMethod, jitRuntime as withSharedSteps } from './jit';
 import type { CompiledMethod, JitRuntime } from './jit';
 
 /**
@@ -687,7 +687,8 @@ function caught(jvm: Jvm, t: JThread, f: JFrame, e: unknown, sp: number): void {
  */
 let jitRuntime: JitRuntime | null = null;
 
-const makeJitRuntime = (): JitRuntime => ({
+const makeJitRuntime = (): JitRuntime =>
+  withSharedSteps({
   exit: JIT_EXIT_CONTINUE,
   depth: 0,
   resolveClass,
@@ -711,7 +712,7 @@ const makeJitRuntime = (): JitRuntime => ({
   PendingThrow: PendingThrow as unknown as JitRuntime['PendingThrow'],
   LoadPending: LoadPending as unknown as JitRuntime['LoadPending'],
   DECLINE,
-});
+  });
 
 /** Compiles `m` once it is hot (JvmOptions.jit); null, kept on the method, when it stays interpreted. */
 function jitCompile(jvm: Jvm, m: JMethod): CompiledMethod | null {
