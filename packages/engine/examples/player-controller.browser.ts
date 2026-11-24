@@ -84,6 +84,11 @@ async function tour(controller: PlayerController, canvas: HTMLCanvasElement, sen
   controller.attachCanvas(canvas); // from here on only the engine draws on it
   // #endregion
 
+  // #region attachHdrCanvas
+  // a second canvas over the video canvas: subtitles and menus over HDR video go there at graphics white
+  controller.attachHdrCanvas(document.createElement('canvas'));
+  // #endregion
+
   // #region attachVideoElement
   controller.attachVideoElement(document.createElement('video')); // normally the one in the player's markup
   // #endregion

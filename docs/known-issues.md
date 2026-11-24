@@ -205,22 +205,26 @@ what would change that decision.
   clip info and the first SPS, so a playlist that starts in an SDR clip and goes on into HDR ones plays on the canvas,
   without HDR, to its end. UHD discs keep a playlist's clips in one format as far as seen. *Revisit if* a disc mixes
   them in one playlist.
-- **Subtitles and menus over HDR video stay as SDR graphics.** Over an HDR stream on the element path the overlay
-  canvas is the engine's ordinary 2D canvas, so PG, IG and BD-J graphics are drawn as SDR, at most the display's SDR
-  white (on Windows presumably the "SDR content brightness" setting, not yet checked on an HDR display), not at the
-  BT.2408 graphics reference of 203 nits. Measured on 2026-11-16 in an OffscreenCanvas, page and worker, on a Mac
-  whose display reported no HDR (`(dynamic-range: high)` false). Independent of the display: Chrome 157 rejects `colorSpace: 'rec2100-pq'`, `'rec2100-hlg'` and `'rec2100-linear'`
-  (a TypeError on the 2D context and on `getImageData`); it ignores `toneMapping: { mode: 'extended' }` on a 2D context
-  (the attributes still say `standard`, and even `mode: 'bogus'` doesn't throw); it accepts `colorType: 'float16'`,
-  which stores values above 1 (a `color(srgb-linear 2.54 …)` fill reads back as 2.54); and neither `HTMLCanvasElement`
-  nor `OffscreenCanvas` has `configureHighDynamicRange`. A WebGPU `rgba16float` context configured with
-  `toneMapping: { mode: 'extended' }` keeps that mode, in a worker too. Playwright's WebKit (macOS) rejects the
-  `rec2100-*` colour spaces and ignores `colorType` (reads stay 8-bit). Unconfirmed, because that display had no HDR:
-  whether a `float16` 2D canvas, or the WebGPU canvas in extended mode, shows values above 1 brighter than SDR white
-  on a real HDR display (the owner can check in Chrome on Windows with HDR on). If WebGPU does, its 1.0 is the
-  display's SDR white, so reaching 203 nits needs the SDR white level in nits, which no web API gives, and the overlays
-  would have to be presented through WebGPU. *Revisit if* a 2D canvas gains an HDR mode, or the owner picks the WebGPU
-  route and a white level.
+- **Overlays over HDR video: the gain is an assumption, unchecked by eye.** Over an HDR stream on the element path, on
+  a display that reports HDR, subtitles and menus go through a second canvas presented by WebGPU in extended range
+  (`rgba16float`, `toneMapping: { mode: 'extended' }`), their linear light multiplied by 2.03 (spec
+  `docs/superpowers/specs/2026-11-24-hdr-overlays-design.md`). 2.03 is BT.2408's graphics white (203 cd/m²) over an SDR
+  white of 100 cd/m², which assumes the browser shows extended 1.0 at 100 cd/m² while it shows PQ absolutely, as Apple's
+  EDR is understood to map HDR10. No web API gives the display's SDR white in cd/m², and on Windows Chrome follows the
+  system's "SDR content brightness", so the right gain there is 203 over that setting. Copying a PQ `VideoFrame` into an
+  extended texture doesn't reveal the browser's mapping (Safari 27.2 passes the code through; headless Chrome tone maps
+  to SDR). `?hdrgain=<n>` (1 to 10) tunes it. *Revisit when* the owner has judged it by eye on the iPhone and on Windows
+  with HDR on, or a web API gives the SDR white level.
+- **Where the HDR overlay route isn't taken.** It needs WebGPU in the engine worker with extended tone mapping kept
+  (`getConfiguration().toneMapping.mode`). Measured to have it: Safari 27.2 on an iPhone 17 Pro, headless Chrome 158
+  and Playwright's WebKit on a Mac; Playwright's Firefox on the Mac has no WebGPU adapter, so its overlays stay SDR.
+  Other browsers and versions are unmeasured. A float16 2D canvas is no route: Safari ignores `colorType` (reads stay 8-bit),
+  Chrome stores values above 1 but has no extended mode for a 2D canvas (`toneMapping` is ignored, and
+  `configureHighDynamicRange` exists on neither canvas), and both reject the `rec2100-*` colour spaces (measured
+  2026-11-16 and 2026-11-24). A lost GPU device puts the overlays back on the SDR canvas until one more presenter is
+  made (at the next HDR element session or when the page shows again); a second loss keeps them SDR for the page's life.
+  The presenter costs one copy and one draw of the overlay layer per repaint that changed something: under 0.1 ms on
+  the engine thread in headless Chrome, 2.5 to 3 ms in Playwright's WebKit, unmeasured on an iPhone.
 
 ## Deinterlacing
 

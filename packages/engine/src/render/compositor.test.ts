@@ -369,3 +369,132 @@ describe('Compositor on the element path', () => {
     expect(text[2]!.slice(2)).toEqual(text[0]!.slice(2));
   });
 });
+
+describe('Compositor HDR overlays', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  function fake(width: number, height: number) {
+    const calls: Array<[string, ...unknown[]]> = [];
+    const ctx = (name: string) => new Proxy({}, { get: (_t, prop: string) => (...args: unknown[]) => calls.push([`${name}.${prop}`, ...args]) });
+    const main = { width, height, getContext: () => ctx('main') } as unknown as OffscreenCanvas;
+    const made: Array<{ width: number; height: number }> = [];
+    vi.stubGlobal('ImageData', class { constructor(readonly data: Uint8ClampedArray, readonly width: number, readonly height: number) {} });
+    const compositor = new Compositor(main, (w, h) => {
+      const name = made.length === 0 ? 'layer' : `c${made.length}`;
+      const c = { width: w, height: h, getContext: () => ctx(name) };
+      made.push(c);
+      return c as unknown as OffscreenCanvas;
+    });
+    const presented: Array<[string, ...unknown[]]> = [];
+    const presenter = {
+      present: (source: OffscreenCanvas, gain: number) => presented.push(['present', source, gain]),
+      clear: () => presented.push(['clear']),
+      dispose: () => presented.push(['dispose']),
+    };
+    const places: Array<{ x: number; y: number; width: number; height: number }> = [];
+    const opts = (gain = 2.03, maxPixels = Infinity) => ({ gain, maxPixels, place: (r: { x: number; y: number; width: number; height: number }) => places.push(r) });
+    return { calls, compositor, presenter, presented, made, places, opts };
+  }
+  const size = { width: 1920, height: 1080, codedWidth: 1920, codedHeight: 1080 };
+  const plane = () => {
+    const p = new OverlayPlane();
+    p.apply({ cmd: 'draw', pts: -1, x: 0, y: 0, w: 2, h: 1, palette: [{ y: 0, cr: 0, cb: 0, t: 0 }, { y: 100, cr: 128, cb: 128, t: 255 }], img: [{ color: 1, len: 2 }] });
+    return p;
+  };
+
+  it('draws over HDR video on a layer of the overlay rectangle, keeps the visible canvas clear and presents the layer', () => {
+    const { calls, compositor, presenter, presented, made, places, opts } = fake(1000, 1000);
+    compositor.setHdrPresenter(presenter, opts());
+    expect(compositor.hdrActive()).toBe(false); // not before an HDR element session
+    compositor.startPlaylist(true, { element: size, hdr: true });
+    expect(compositor.hdrActive()).toBe(true);
+    // 16:9 in a square: the layer is the letterboxed rectangle only, and the page is told where it goes
+    expect(compositor.hdrLayerSize()).toEqual({ width: 1000, height: 563 });
+    expect(places.at(-1)).toEqual({ x: 0, y: 0.218, width: 1, height: 0.563 });
+    expect(calls).toContainEqual(['layer.setTransform', 1, 0, 0, 1, -0, -218]);
+    expect(calls.filter(([n]) => n.startsWith('main.'))).toEqual([['main.clearRect', 0, 0, 1000, 1000]]);
+    calls.length = 0;
+    compositor.drawVideo(null);
+    compositor.drawPg(plane());
+    compositor.present();
+    expect(calls.filter(([n]) => n.startsWith('main.'))).toEqual([]);
+    expect(calls[0]).toEqual(['layer.clearRect', 0, 0, 1000, 1000]);
+    // drawn at the visible canvas's coordinates: the layer's transform moves it
+    expect(calls).toContainEqual(['layer.drawImage', made[1], 0, 218, 1000, 563]);
+    expect(presented).toEqual([['present', made[0], 2.03]]);
+    // the layer follows the canvas's size, and the page the new place
+    compositor.resize(800, 450);
+    expect(compositor.hdrLayerSize()).toEqual({ width: 800, height: 450 });
+    expect(places.at(-1)).toEqual({ x: 0, y: 0, width: 1, height: 1 });
+  });
+
+  it('draws a layer larger than the memory profile allows smaller, at the same aspect', () => {
+    const { calls, compositor, presenter, opts } = fake(3840, 2160);
+    compositor.setHdrPresenter(presenter, opts(2.03, 1920 * 1080));
+    compositor.startPlaylist(true, { element: size, hdr: true });
+    expect(compositor.hdrLayerSize()).toEqual({ width: 1920, height: 1080 });
+    expect(calls).toContainEqual(['layer.setTransform', 0.5, 0, 0, 0.5, -0, -0]);
+  });
+
+  it('keeps the BD-J background still on the visible canvas, without the gain, and clears it once the element shows', () => {
+    const { calls, compositor, presenter, opts } = fake(1920, 1080);
+    const image = {} as ImageBitmap;
+    compositor.setBackground({ image, rect: { x: 0, y: 0, width: 1, height: 1 } } as never);
+    compositor.setHdrPresenter(presenter, opts());
+    compositor.startPlaylist(true, { element: size, hdr: true });
+    calls.length = 0;
+    compositor.drawVideo(null);
+    expect(calls).toContainEqual(['main.drawImage', image, 0, 0, 1920, 1080]);
+    expect(calls.some(([n]) => n === 'layer.drawImage')).toBe(false);
+    compositor.elementFrameShown();
+    calls.length = 0;
+    compositor.drawVideo(null);
+    expect(calls.filter(([n]) => n.startsWith('main.'))).toEqual([['main.clearRect', 0, 0, 1920, 1080]]);
+    calls.length = 0;
+    compositor.drawVideo(null);
+    expect(calls.filter(([n]) => n.startsWith('main.'))).toEqual([]);
+  });
+
+  it('stays SDR for an SDR element stream, the canvas path, or without a presenter', () => {
+    const { calls, compositor, presenter, presented, opts } = fake(1000, 1000);
+    compositor.setHdrPresenter(presenter, opts());
+    compositor.startPlaylist(true, { element: size });
+    expect(compositor.hdrActive()).toBe(false);
+    compositor.startPlaylist(true, { hdr: true }); // no element: the canvas path
+    expect(compositor.hdrActive()).toBe(false);
+    compositor.drawVideo(null);
+    compositor.present();
+    expect(calls.map(([n]) => n)).toEqual(['main.fillRect']);
+    expect(presented).toEqual([]);
+    const bare = fake(1000, 1000);
+    bare.compositor.startPlaylist(true, { element: size, hdr: true });
+    expect(bare.compositor.hdrActive()).toBe(false);
+    bare.compositor.drawVideo(null);
+    expect(bare.calls.map(([n]) => n)).toEqual(['main.clearRect']);
+  });
+
+  it('clears the HDR canvas and draws on the visible one again when HDR ends or the presenter goes', () => {
+    const { calls, compositor, presenter, presented, opts } = fake(1000, 1000);
+    compositor.setHdrPresenter(presenter, opts());
+    compositor.startPlaylist(true, { element: size, hdr: true });
+    compositor.startPlaylist(true); // the element failed over to the canvas
+    expect(compositor.hdrActive()).toBe(false);
+    expect(compositor.hdrLayerSize()).toBeNull();
+    expect(presented).toEqual([['clear']]);
+    calls.length = 0;
+    compositor.drawVideo(null);
+    expect(calls.map(([n]) => n)).toEqual(['main.fillRect']);
+    // the presenter is taken away mid-session (the display stopped reporting HDR)
+    presented.length = 0;
+    compositor.startPlaylist(true, { element: size, hdr: true });
+    expect(compositor.hdrActive()).toBe(true);
+    compositor.setHdrPresenter(null, opts());
+    expect(compositor.hdrActive()).toBe(false);
+    expect(presented).toEqual([['clear']]);
+    // and given back: HDR again in the same session
+    compositor.setHdrPresenter(presenter, opts(2.5));
+    expect(compositor.hdrActive()).toBe(true);
+    compositor.present();
+    expect(presented.at(-1)).toEqual(['present', expect.anything(), 2.5]);
+  });
+});

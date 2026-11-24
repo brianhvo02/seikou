@@ -55,6 +55,7 @@ function setup(snapshot: PlayerSnapshot, nasOver: Record<string, unknown> = {}) 
   const controller = {
     discOpens: 1,
     attachCanvas: vi.fn(),
+    attachHdrCanvas: vi.fn(),
     attachVideoElement: vi.fn(),
     detachVideoElement: vi.fn(),
     setVideoPath: vi.fn(),

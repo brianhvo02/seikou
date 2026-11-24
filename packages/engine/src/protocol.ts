@@ -104,6 +104,24 @@ export interface ElementCheck {
 }
 
 /**
+ * Overlays over HDR video: whether the page's display reports HDR, the presenter's state (`none` before an HDR element
+ * session on an HDR display asked for one, or where the engine has no way to make one; `pending` while it is made;
+ * `webgpu` once made; `unavailable` when it couldn't be, `lost` when its GPU device was lost, both with `reason`),
+ * whether the overlays go through it now (`active`), and the gain on their white.
+ */
+export interface HdrOverlayTelemetry {
+  readonly displayHdr: boolean;
+  readonly presenter: 'none' | 'pending' | 'webgpu' | 'unavailable' | 'lost';
+  readonly reason: string | null;
+  readonly active: boolean;
+  readonly gain: number;
+  /** In HDR overlay mode, the overlay layer's size in pixels (the overlay rectangle, capped by the memory profile). */
+  readonly layer?: { readonly width: number; readonly height: number } | null;
+  /** Time spent handing layers to the presenter on the engine's thread, ms (CPU side; the GPU's work is not counted). */
+  readonly presentMs?: { readonly last: number; readonly mean: number; readonly max: number; readonly count: number } | null;
+}
+
+/**
  * The playing playlist's latest question to the page about its video element, for telemetry: what was asked (`codec`,
  * `hdr`, and `size` with the frame rate when known, else null), what the page found (`mse` and `decodingInfo`, null
  * when the page sent no check, as after a timeout), the `answer` that chose the path (`'timeout'` when the page didn't
@@ -229,6 +247,8 @@ export interface Telemetry {
   readonly elementFailure: string | null;
   /** An HDR stream plays on the element path (between the videoHdr events that say so). */
   readonly videoHdr: boolean;
+  /** Subtitles and menus over HDR video at graphics white; null until the page attached an HDR overlay canvas. */
+  readonly hdrOverlay?: HdrOverlayTelemetry | null;
   /**
    * The playing playlist's latest question to the page about its video element and how it was answered, so a stream
    * that plays on the canvas shows why; null when the playlist asked nothing (or none plays).
@@ -538,6 +558,14 @@ export type EngineCommand =
   | { readonly type: 'remoteToken'; readonly token: string }
   /** The page's transferred canvas, which the engine draws video, subtitles and menus on. */
   | { readonly type: 'attachCanvas'; readonly canvas: OffscreenCanvas }
+  /**
+   * The page's HDR overlay canvas, transferred, stacked over the video canvas: over an HDR stream on the element path,
+   * while `displayHdr` (the page's `(dynamic-range: high)`), the engine presents subtitles and menus on it through WebGPU
+   * in extended range, their white lifted by `gain` (in linear light; 2.03 by default, kept within 1 to 10). Handled at once.
+   */
+  | { readonly type: 'attachHdrCanvas'; readonly canvas: OffscreenCanvas; readonly displayHdr: boolean; readonly gain?: number }
+  /** Whether the page's display reports HDR now (`(dynamic-range: high)` changed). Handled at once. */
+  | { readonly type: 'setDisplayHdr'; readonly displayHdr: boolean }
   /** The audio output's shared ring (packages/engine/src/audio/ring.ts) the engine writes PCM into and the AudioWorklet plays from; the clock follows it. */
   | { readonly type: 'attachAudio'; readonly ring: SharedArrayBuffer }
   /** The canvas size in device pixels. */
@@ -747,6 +775,12 @@ export type EngineEvent =
   | ({ readonly type: 'elementPreference' } & ElementPreference)
   /** The text subtitles showing now as plain text (cues separated by a line break), or null for none; sent on a change while setTextCues is on. */
   | { readonly type: 'textCue'; readonly text: string | null }
+  /**
+   * Where the HDR overlay canvas goes over the video canvas, as fractions of its width and height: the overlay rectangle
+   * the engine presents there (the menu rectangle and the picture's), which moves when the canvas or the picture changes
+   * size. The page places that canvas accordingly.
+   */
+  | { readonly type: 'hdrOverlayPlace'; readonly rect: { readonly x: number; readonly y: number; readonly width: number; readonly height: number } }
   /** The answer to readPlace. */
   | ({ readonly type: 'placeState' } & PlaceState)
   /**

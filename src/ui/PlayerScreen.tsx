@@ -18,6 +18,7 @@ import { extractInWorker } from './mkv-extract-client';
 import { expandMkvPicks, markCurrentTrack, MkvPickCache, type MkvListedTrack } from './mkv-pick';
 import { resolveDiscPreferences } from './disc-preferences';
 import { checkCapabilities } from './capabilities';
+import { hdrOverlayOptions } from './hdr-overlay-flags';
 import { HdrBadge } from './HdrBadge';
 import { FULLSCREEN_HINT_TEXT, evaluateFullscreenHint, fullscreenKind, markFullscreenHintDismissed, safeLocalStorage, toggleFullscreen } from './fullscreen';
 import { enterPresentation, exitPresentation, overlayNotice, pollUntil, present, presentBlocked, presentedAs, presentMessage, PRESENTATION_GRACE_MS, type PresentationMode } from './video-presentation';
@@ -117,6 +118,7 @@ function Notice({ message, onDismiss, testId }: { message: string; onDismiss(): 
 export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, nas, places, history, playingRoute, preferences }: PlayerScreenProps): ReactElement {
   const rootRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const hdrCanvasRef = useRef<HTMLCanvasElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [idle, setIdleState] = useState(false);
@@ -602,6 +604,12 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
   }, [snapshot.playlists]);
 
   useEffect(() => {
+    // subtitles and menus over HDR video go here, at graphics white, where the browser can present them so
+    const canvas = hdrCanvasRef.current;
+    if (canvas) controller.attachHdrCanvas(canvas, hdrOverlayOptions(location.search));
+  }, [controller]);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     controller.attachCanvas(canvas);
@@ -999,6 +1007,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
         }}
         onClick={onCanvasClick}
       />
+      <canvas ref={hdrCanvasRef} className="player-hdr-canvas" data-testid="hdr-overlay-canvas" aria-hidden="true" />
       <div className="notices">
         {nas && snapshot.rtcDisc && <RelayBadge nas={nas} />}
         {badge && (
