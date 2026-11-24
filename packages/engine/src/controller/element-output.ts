@@ -18,6 +18,8 @@ export interface VideoElementLike {
   src: string;
   readonly paused: boolean;
   readonly seeking: boolean;
+  /** The element played to the end of its stream (after endOfStream): it pauses there by itself. */
+  readonly ended: boolean;
   play(): Promise<void>;
   pause(): void;
   requestVideoFrameCallback(cb: (now: number, meta: { mediaTime: number; expectedDisplayTime: number }) => void): number;
@@ -130,6 +132,18 @@ export interface ElementOutputDeps {
  */
 export type ElementTransport = { readonly kind: 'play' } | { readonly kind: 'pause' } | { readonly kind: 'seek'; readonly timeUs: number };
 
+/**
+ * `text` as a WebVTT cue's text: `&`, `<` and `>` escaped, since a cue's text is parsed for tags and entities (an ASS
+ * line's `<` would otherwise start a tag and vanish).
+ * @internal
+ */
+export function vttCueText(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** How long (ms) a presentation must stay ended before the playlist goes back to the setting's path. */
+const PRESENTATION_END_SETTLE_MS = 500;
+
 /** The end of the one cue the text track shows (seconds of media time): later than any playlist. */
 const CUE_END_S = 1e7;
 /** How close (seconds) a `seeking` element's time must lie to a time the output set to count as the output's own. */
@@ -141,6 +155,8 @@ type Op =
   | { readonly k: 'append'; readonly bytes: Uint8Array; readonly segment: boolean; readonly retried: boolean }
   | { readonly k: 'remove'; readonly start: number; readonly end: number }
   | { readonly k: 'change'; readonly type: string }
+  /** Sets the media source's duration: queued after a reset's removal, since a duration under what is buffered is refused. */
+  | { readonly k: 'duration'; readonly s: number }
   | { readonly k: 'end' };
 
 interface Attached {
@@ -252,13 +268,22 @@ export class ElementVideoOutput {
   private ownPauses = 0;
   /** Times (media seconds) the output set whose `seeking` is still to come. */
   private ownSeeks: number[] = [];
+  /**
+   * The element reached the end of its stream since the last reset: its own `pause` there is not the user's, and the
+   * seek to the start a play from the system's controls makes on an ended element is not a seek of the player.
+   */
+  private endedSeen = false;
   /** Whether the engine sends textCue events: while the element is presented. */
   private cuesOn = false;
+  /** Whether the system showed the element, as last settled (a presentation's end counts once it has held). */
+  private wasPresented = false;
+  /** Cancels the look, a moment after a presentation seemed to end, whether it really did. */
+  private cancelEndedCheck: (() => void) | null = null;
   /** The element's text track (made the first time it is presented) and the cue it shows. */
   private textTrack: TextTrackLike | null = null;
   private cue: unknown = null;
-  /** The media source's duration (seconds, media time) still to be set: the playlist's end, from the last videoReset. */
-  private pendingDurationS: number | null = null;
+  /** The playlist's end in media time (seconds), from the last videoReset: the media source's duration, once set. */
+  private durationS: number | null = null;
 
   /** Mutes the element, plays it inline, and listens to its stalls and errors. */
   constructor(private readonly deps: ElementOutputDeps) {
@@ -303,7 +328,24 @@ export class ElementVideoOutput {
    * plain text (setTextCues) and the element's own text track shows them, since the canvas can't be seen there.
    */
   private onPresentationChange(): void {
-    const on = this.presented() && this.deps.makeCue !== undefined && this.deps.video.addTextTrack !== undefined;
+    const presented = this.presented();
+    // the presentation ended: the playlist goes back to the path the video output setting picks (preferElement off),
+    // once it has stayed ended a moment (WebKit reports the mode in steps while it enters and leaves)
+    if (this.wasPresented && !presented) {
+      this.cancelEndedCheck?.();
+      this.cancelEndedCheck = this.deps.setTimer(() => {
+        this.cancelEndedCheck = null;
+        if (!this.presented()) {
+          this.wasPresented = false;
+          this.deps.post({ type: 'preferElement', on: false });
+        }
+      }, PRESENTATION_END_SETTLE_MS);
+    } else if (presented) {
+      this.cancelEndedCheck?.();
+      this.cancelEndedCheck = null;
+      this.wasPresented = true;
+    }
+    const on = presented && this.deps.makeCue !== undefined && this.deps.video.addTextTrack !== undefined;
     if (on === this.cuesOn) return;
     this.cuesOn = on;
     if (on && !this.textTrack) this.textTrack = this.deps.video.addTextTrack!('subtitles', 'Subtitles', '');
@@ -359,6 +401,11 @@ export class ElementVideoOutput {
       this.ownPauses--;
       return;
     }
+    // an element at the end of its stream pauses by itself: the engine ends the playlist on its clock
+    if (this.deps.video.ended) {
+      this.endedSeen = true;
+      return;
+    }
     if (!this.attached || !this.presented() || !this.playing) return;
     this.deps.onTransport?.({ kind: 'pause' });
   }
@@ -382,10 +429,12 @@ export class ElementVideoOutput {
     const t = this.deps.video.currentTime;
     const own = this.ownSeeks.findIndex((s) => Math.abs(s - t) <= OWN_SEEK_SLACK_S);
     if (own >= 0) {
-      this.ownSeeks.splice(0, own + 1);
+      // one event per time set: two sets before the first event both read the later time, so each event answers the
+      // oldest set still waiting, not the one it matched
+      this.ownSeeks.shift();
       return;
     }
-    if (!this.attached || this.pendingStart || !this.presented()) return;
+    if (!this.attached || this.pendingStart || !this.presented() || this.endedSeen) return;
     this.deps.onTransport?.({ kind: 'seek', timeUs: Math.max(0, Math.round(t * 1e6) - ELEMENT_TIME_OFFSET_US) });
   }
 
@@ -401,7 +450,7 @@ export class ElementVideoOutput {
       case 'videoReset':
         if (!this.disposed) {
           this.generation = e.generation;
-          this.pendingDurationS = e.durationUs !== undefined ? (e.durationUs + ELEMENT_TIME_OFFSET_US) / 1e6 : null;
+          this.durationS = e.durationUs !== undefined ? (e.durationUs + ELEMENT_TIME_OFFSET_US) / 1e6 : null;
           this.reset(e.startUs, e.paused);
         }
         return true;
@@ -458,6 +507,7 @@ export class ElementVideoOutput {
 
   private reset(startUs: number, paused: boolean): void {
     this.failed = false;
+    this.endedSeen = false;
     this.appended = 0;
     this.pendingStart = { startUs };
     this.playing = !paused;
@@ -470,7 +520,10 @@ export class ElementVideoOutput {
     if (!a) return;
     if (!this.deps.video.paused) this.pauseVideo();
     const b = a.buffer;
-    if (!b) return;
+    if (!b) {
+      this.queueDuration();
+      return;
+    }
     if (a.source.readyState === 'open') {
       try {
         b.abort();
@@ -480,7 +533,13 @@ export class ElementVideoOutput {
     }
     this.inFlight = null;
     if (b.buffered.length > 0) this.queue.push({ k: 'remove', start: 0, end: Infinity });
+    this.queueDuration();
     this.pump();
+  }
+
+  /** Queues the playlist's end as the media source's duration, so a system player's scrubber spans the playlist. */
+  private queueDuration(): void {
+    if (this.durationS !== null) this.queue.push({ k: 'duration', s: this.durationS });
   }
 
   private init(bytes: Uint8Array, codec: string): void {
@@ -503,6 +562,7 @@ export class ElementVideoOutput {
       }, SOURCE_OPEN_TIMEOUT_MS);
       this.startFrames();
       this.armSyncTimer();
+      this.queueDuration();
     } else if (codec !== this.bufferCodec) {
       this.queue.push({ k: 'change', type: mimeType(codec) });
       this.bufferCodec = codec;
@@ -560,16 +620,6 @@ export class ElementVideoOutput {
     const a = this.attached;
     const b = a?.buffer;
     if (!a || !b || this.failed) return;
-    if (this.pendingDurationS !== null && !this.inFlight && !b.updating && a.source.readyState === 'open') {
-      const d = this.pendingDurationS;
-      this.pendingDurationS = null;
-      try {
-        // a duration under what is buffered throws (a playlist shorter than the last); the end of stream sets it then
-        if (!(Math.abs(a.source.duration - d) <= 1e-3)) a.source.duration = d; // NaN before the first
-      } catch {
-        // kept as the browser has it
-      }
-    }
     while (!this.inFlight && !b.updating && this.queue.length > 0) {
       const op = this.queue.shift()!;
       switch (op.k) {
@@ -583,6 +633,15 @@ export class ElementVideoOutput {
           } catch (e) {
             this.fail(`the codec could not be changed (${errorMessage(e)})`);
             return;
+          }
+          break;
+        case 'duration':
+          if (a.source.readyState === 'open' && !(Math.abs(a.source.duration - op.s) <= 1e-3)) {
+            try {
+              a.source.duration = op.s;
+            } catch {
+              // refused (something past it is still buffered): kept as the browser has it
+            }
           }
           break;
         case 'end':

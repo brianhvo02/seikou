@@ -8,7 +8,7 @@ import type { MemoryProfileName } from '../memory-profile';
 import type { AudioTrack, BufferRequest, ElementPreference, EncodeSpec, EngineCommand, EngineEvent, ErrorCode, MenuKey, PlaceState, PlaybackState, ShaderSetData, ShaderState, StartPoint, SubtitleChoice, Telemetry, VideoDecoderSpeed, VideoPath, DeinterlaceMode } from '../protocol';
 import { VIDEO_PROBE_DEADLINE_MS } from '../protocol';
 import { elementCheck } from './element-caps';
-import { type ElementAnswer, ElementVideoOutput, type MediaSourceLike } from './element-output';
+import { type ElementAnswer, ElementVideoOutput, type MediaSourceLike, vttCueText } from './element-output';
 import { trackLabel } from './language';
 import { DROP_WARN_RATE, DropMeter } from './drop-meter';
 
@@ -593,7 +593,7 @@ export class PlayerController {
         ),
       answers: this.elementAnswers,
       presented: () => videoPresented(video),
-      ...(typeof VTTCue === 'function' ? { makeCue: (start: number, end: number, text: string) => new VTTCue(start, end, text) } : {}),
+      ...(typeof VTTCue === 'function' ? { makeCue: (start: number, end: number, text: string) => new VTTCue(start, end, vttCueText(text)) } : {}),
       onTransport: (t) => {
         if (t.kind === 'pause') this.pause();
         else if (t.kind === 'play') this.play();

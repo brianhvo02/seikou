@@ -138,7 +138,7 @@ export class PlatformSession {
     if (!ms?.setPositionState || s.durationUs <= 0) return;
     const duration = s.durationUs / 1e6;
     const positionS = Math.min(Math.max(0, s.timeUs / 1e6), duration);
-    const playing = s.engineState === 'playing';
+    const playing = this.playing(); // buffering counts as playing, as for the wake lock and the handlers
     const key = `${s.currentPlaylistId ?? ''}\u0000${duration}`;
     const now = this.nowMs();
     const t = this.told;

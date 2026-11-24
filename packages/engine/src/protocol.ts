@@ -459,9 +459,11 @@ export type EngineCommand =
   /**
    * The page wants the playing playlist on the element path (for Picture in Picture or a video's own fullscreen): a
    * playlist on the canvas that the element path can carry opens again at the same time on the element, and the disc's
-   * later playlists take the element path too, until another disc opens. Answered by elementPreference.
+   * later playlists take the element path too, until the page sends `on: false` (the presentation ended) or another disc
+   * opens. Answered by elementPreference; `on: false` is not answered, and a playlist on the element path only for the
+   * preference opens again at the same time on the canvas.
    */
-  | { readonly type: 'preferElement' }
+  | { readonly type: 'preferElement'; readonly on?: boolean }
   /**
    * While `on`, the engine sends the text subtitles that show (the added files, or an encode's ASS track) as plain text
    * in textCue events, for the video element's own text track: the page asks while the system shows the element alone

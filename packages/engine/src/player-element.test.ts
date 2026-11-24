@@ -1014,6 +1014,35 @@ describe('Player asked to prefer the element path (preferElement)', () => {
     expect(telemetries(h).at(-1)).toMatchObject({ videoPath: 'canvas' });
   }, 30_000);
 
+  it('dropping the preference (the presentation ended) reopens an SDR playlist on the canvas at the same time, and leaves HDR on the element', async () => {
+    const h = await harness({ path: 'auto' });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    await h.player.handle({ type: 'preferElement' });
+    await untilState(h, 'playing');
+    await h.play(1500);
+    expect(telemetries(h).at(-1)).toMatchObject({ videoPath: 'element' });
+    const at = clockNow(h);
+    const before = h.events.length;
+    await h.player.handle({ type: 'preferElement', on: false });
+    await untilState(h, 'playing');
+    await h.play(600);
+    const after = h.events.slice(before);
+    expect(after.filter((e) => e.type === 'elementPreference')).toHaveLength(0);
+    expect(after.filter((e) => e.type === 'videoElementStop')).toHaveLength(1);
+    expect(after.filter((e) => e.type === 'notice')).toHaveLength(0);
+    expect(timeAfter(h, before)).toBeGreaterThan(at - 300_000);
+    expect(telemetries(h).at(-1)).toMatchObject({ videoPath: 'canvas' });
+
+    const hdr = await harness({ path: 'auto', files: fixtureDiscFiles('disc-hdr') });
+    await hdr.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(hdr, 'playing');
+    await hdr.player.handle({ type: 'preferElement' });
+    await hdr.player.handle({ type: 'preferElement', on: false });
+    await hdr.play(300);
+    expect(hdr.events.filter((e) => e.type === 'videoElementStop')).toHaveLength(0);
+  }, 30_000);
+
   it('answers unavailable with no playlist, under the Canvas setting, with a shader set on, and after the element failed', async () => {
     const none = await harness({ path: 'auto' });
     await none.player.handle({ type: 'preferElement' });
@@ -1057,5 +1086,19 @@ describe('Player asked to prefer the element path (preferElement)', () => {
     await untilState(h, 'playing');
     await h.player.handle({ type: 'preferElement' });
     expect(preferences(h).at(-1)).toEqual({ type: 'elementPreference', outcome: 'unavailable', reason: 'refused' });
+  }, 20_000);
+});
+
+describe('Player ticking while the page is hidden', () => {
+  it('on the element path a hidden page (no animation frames) still ticks, on a timer, so the playlist ends', async () => {
+    const h = await harness({ audio: false });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    // the harness gives no animation frames: nothing ticks unless the test does, until the page is hidden
+    h.clock.ms += 20_000;
+    await new Promise((r) => setTimeout(r, 450));
+    expect(lastState(h)).toBe('playing');
+    await h.player.handle({ type: 'visibility', hidden: true });
+    await vi.waitFor(() => expect(lastState(h)).toBe('ended'), { timeout: 3000 });
   }, 20_000);
 });

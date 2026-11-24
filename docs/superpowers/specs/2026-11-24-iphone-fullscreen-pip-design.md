@@ -86,8 +86,10 @@ with `elementPreference { outcome }`:
 - `unavailable` with `reason`: `no-playlist`, `codec` (MPEG-1/2, VC-1, AV1), `encode`, `shaders`, `element-failed`,
   `refused` (the page said it can't play this stream), `canvas` (the device setting is Canvas).
 
-*(My call: the preference lasts for the disc, not the playlist — a feature with several playlists, or a chapter
-jump, should not drop back to the canvas while the user is in PiP; it ends at close like `elementOff`.)*
+*(My call, revised after review: the preference outlasts a playlist — a feature with several playlists, or a chapter
+jump, should not drop back to the canvas while the user is in PiP — but ends with the presentation: the page sends
+`preferElement { on: false }`, and a playlist on the element only for the preference (`Session.byPreference`) reopens
+at the same time on the canvas, so an interlaced stream is deinterlaced again. Another disc opening ends it too.)*
 
 ### 4.2 Page: transport from the system's controls (`ElementVideoOutput`)
 

@@ -221,5 +221,7 @@ describe('PlatformSession position and seekto', () => {
     t.set({ engineState: 'paused' });
     expect(t.positions).toHaveLength(3);
     expect(t.mediaSession.playbackState).toBe('paused');
+    t.set({ engineState: 'buffering' }); // buffering counts as playing
+    expect(t.mediaSession.playbackState).toBe('playing');
   });
 });

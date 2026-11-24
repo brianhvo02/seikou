@@ -77,6 +77,7 @@ test('Picture in Picture moves a canvas playlist to the element path, and the sy
   expect((await notices(page)).join('|')).toContain('Subtitles show as plain text in Picture in Picture');
 
   // the system's controls act on the element itself: a pause, a play and a seek there reach the player
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.paused)).toBe(false);
   await video.evaluate((v: HTMLVideoElement) => v.pause());
   await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'paused', { timeout: 5_000 });
   await video.evaluate((v: HTMLVideoElement) => void v.play());
@@ -128,8 +129,29 @@ test('?fullscreen=video: Fullscreen uses the video’s own fullscreen where the 
     await expect.poll(async () => (await presentation(page)) ?? (await notices(page)).join('|'), { timeout: 5_000 }).toMatch(/^fullscreen$|didn['’]t start/);
     test.skip((await presentation(page)) !== 'fullscreen', `the browser refused video fullscreen: ${(await notices(page)).join('|')}`);
   }
+  // the element starts once the engine's clock moves: a pause before that changes nothing, as the system player shows
+  await expect.poll(() => page.getByTestId('video-element').evaluate((v: HTMLVideoElement) => v.paused)).toBe(false);
   await page.getByTestId('video-element').evaluate((v: HTMLVideoElement) => v.pause());
   await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'paused', { timeout: 5_000 });
   await page.getByTestId('video-element').evaluate((v: HTMLVideoElement & { webkitExitFullscreen?: () => void }) => v.webkitExitFullscreen?.());
   await expect.poll(() => presentation(page)).toBeNull();
+});
+
+test('a hidden page still ends an element playlist and changes its text cues (the engine ticks on a timer)', async ({ page }) => {
+  await page.goto('/?telemetry=1&videopath=element');
+  const browser = page.context().browser()?.browserType().name() ?? '';
+  test.skip(isLinuxWebKit(browser), LINUX_WEBKIT_REALTIME);
+  test.skip(!(await mseSupports(page, H264_HIGH)), `MSE in this browser does not play ${H264_HIGH}`);
+  await setFolder(page.getByTestId('folder-input'), 'fixtures/synthetic/disc1');
+  await page.getByTestId('playlist-00000').click();
+  await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'playing', { timeout: 10_000 });
+  await expect.poll(async () => (await telemetry(page))?.videoPath, { timeout: 10_000 }).toBe('element');
+  // the page says it is hidden, as a tab switched away from with Picture in Picture open (a headless browser still gives
+  // the worker animation frames, so this checks the hidden path runs, not that frames stop)
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'ended', { timeout: 15_000 });
 });

@@ -258,6 +258,9 @@ function openHold(): OpenHold {
 /** While a fill follows playback, the play position is looked at again this often (freeing what playback passed). */
 const FILL_KICK_MS = 1000;
 
+/** How often the render loop ticks while the page is hidden and its video element shows the playlist (hiddenTicks). */
+const HIDDEN_TICK_MS = 200;
+
 const defaultSetTimer = (ms: number, fn: () => void): (() => void) => {
   const id = setTimeout(fn, ms);
   return () => clearTimeout(id);
@@ -515,6 +518,8 @@ interface Session {
   shaderHeldQuery: ElementQuery | null;
   /** The engine's own decoder can't configure the session's video, so a shader set (which needs it) can't keep it off the element path. */
   canvasRefused: boolean;
+  /** The session took the element path only because the page preferred it (preferElement): Auto would have kept it on the canvas. */
+  byPreference: boolean;
   /** The session's latest question to the page about its video element and its answer, for telemetry; null when it asked none. */
   elementQuery: ElementQueryTelemetry | null;
   /** The STN's video format code (libbluray `bd_video_format_e`); 0 when unknown. */
@@ -676,6 +681,8 @@ export class Player {
   private bdjTapsIgnored = 0;
   /** The page is hidden (the `visibility` command): a BD-J session's start-up timeout is paused. */
   private pageHidden = false;
+  /** The render loop's next tick, waiting for its frame or timer; null while a tick runs or before the loop starts. */
+  private pendingTick: (() => void) | null = null;
   /** The open disc's no-picture notice: not sent yet, shown, or cleared by a playlist with a picture (never sent again). */
   private noPictureNotice: 'unsent' | 'shown' | 'cleared' = 'unsent';
   /** The WASM video decoder failed on the open disc (it could not start, or stopped): its later playlists play without a picture. */
@@ -828,6 +835,9 @@ export class Player {
     // a hidden page pauses the BD-J start-up timeout at once, whatever the queue holds: the timeout counts only the time the page is visible
     if (cmd.type === 'visibility') {
       this.pageHidden = cmd.hidden;
+      // a loop waiting for an animation frame the hidden page won't give is ticked on a timer from now on
+      const waiting = this.pendingTick;
+      if (waiting && this.hiddenTicks()) (this.deps.setTimer ?? defaultSetTimer)(HIDDEN_TICK_MS, waiting);
       if (cmd.hidden && this.speedProbeRun) this.speedProbeRun.disturbed = true;
       this.interlacedVideo?.settlePacing();
       this.session?.bob?.settle();
@@ -970,7 +980,8 @@ export class Player {
           this.videoPath = cmd.path; // from the next session on
           break;
         case 'preferElement':
-          await this.preferElement();
+          if (cmd.on === false) await this.dropElementPreference();
+          else await this.preferElement();
           break;
         case 'setTextCues':
           this.textCuesOn = cmd.on;
@@ -1473,19 +1484,52 @@ export class Player {
     await this.restart(disc, this.restartPoint(s));
   }
 
+  /**
+   * The page no longer wants the element path (preferElement off: Picture in Picture or the video's own fullscreen
+   * ended): the disc's playlists take the path the video output setting picks again, and one on the element path only
+   * for the preference opens again at the same time on the canvas, where an interlaced stream is deinterlaced again.
+   */
+  private async dropElementPreference(): Promise<void> {
+    if (!this.elementPreferred) return;
+    this.elementPreferred = false;
+    const s = this.session;
+    const disc = this.disc;
+    if (s && disc && s.element && s.byPreference && this.state !== 'error') await this.restart(disc, this.restartPoint(s));
+  }
+
+  /**
+   * Ticks at every frame (requestFrame). A hidden page gets no animation frames, yet the system may still show the page's
+   * video element (Picture in Picture): while the page is hidden and the element path plays, the loop ticks on a timer
+   * instead (HIDDEN_TICK_MS), so a playlist's end is still acted on and the element's text cues still change. Each wait
+   * runs its tick once, whichever of the frame and the timer comes first.
+   */
   private startRenderLoop(): void {
     if (this.renderLoopStarted) return;
     this.renderLoopStarted = true;
-    const loop = (): void => {
-      try {
-        this.tick();
-      } catch (err) {
-        if (this.state !== 'error') this.fail(err); // report once; the loop keeps running so recovery stays possible
-      } finally {
-        this.deps.requestFrame(loop);
-      }
+    const schedule = (): void => {
+      let done = false;
+      const run = (): void => {
+        if (done) return;
+        done = true;
+        this.pendingTick = null;
+        try {
+          this.tick();
+        } catch (err) {
+          if (this.state !== 'error') this.fail(err); // report once; the loop keeps running so recovery stays possible
+        } finally {
+          schedule();
+        }
+      };
+      this.pendingTick = run;
+      if (this.hiddenTicks()) (this.deps.setTimer ?? defaultSetTimer)(HIDDEN_TICK_MS, run);
+      else this.deps.requestFrame(run);
     };
-    this.deps.requestFrame(loop);
+    schedule();
+  }
+
+  /** Whether the render loop ticks on a timer: the page is hidden and its video element shows the playlist. */
+  private hiddenTicks(): boolean {
+    return this.pageHidden && this.session?.element != null;
   }
 
   private async open(spec: DiscSpec, bufferFirst: BufferRequest | undefined, hold: OpenHold | null, start: StartPoint | null): Promise<void> {
@@ -1750,6 +1794,7 @@ export class Player {
       elementHdr: false,
       shaderHeldQuery: null,
       canvasRefused: false,
+      byPreference: false,
       elementQuery: null,
       videoFormat: 0,
       interlaced: false,
@@ -3269,6 +3314,7 @@ export class Player {
       elementHdr: false,
       shaderHeldQuery: null,
       canvasRefused: false,
+      byPreference: false,
       elementQuery: null,
       videoFormat: choice.video.format,
       interlaced: decoder !== null && isInterlacedFormat(choice.video.format),
@@ -3991,6 +4037,7 @@ export class Player {
    */
   private choosePath(s: Session, decoder: WebCodecsVideoDecoder, first: PipelineUnit, coding: 'avc' | 'hevc', found: ElementQuestion): void {
     const sdrAuto = this.videoPath === 'auto' && !found.query.hdr && !this.elementPreferred;
+    s.byPreference = this.videoPath === 'auto' && !found.query.hdr && this.elementPreferred;
     const config = { codingType: s.videoCodingType, firstUnit: first.data, ...(first.key !== undefined ? { key: first.key } : {}), ...(s.videoCodecPrivate ? { codecPrivate: s.videoCodecPrivate } : {}) };
     if (!sdrAuto && !this.shadersOn) {
       // the page alone decides; whether WebCodecs could decode it too is noted on the side, so a shader set turned on
