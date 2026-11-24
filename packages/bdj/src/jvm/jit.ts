@@ -524,6 +524,7 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
   };
   // per pc: the depth before the instruction (-1: none) and the instructions after it in its block (the refund)
   const spAt = new Int32Array(code.length + 1).fill(-1);
+  const sym: (string | undefined)[] = [];
   const refund = new Int32Array(code.length + 1);
   const out: string[] = [];
   // The operand stack's slots and the locals live in JS variables (s<i>, l<n>) while the compiled code runs, and go back
@@ -568,6 +569,7 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
     const n = bj - bi;
     out.push(`case ${leader}:`);
     out.push(`if (budget < ${n}) { ${spill(d0)} f.pc = ${leader}; f.sp = ${d0}; R.exit = 1; return budget; } budget -= ${n};`);
+    sym.length = 0;
     for (let ii = bi; ii < bj; ii++) {
       const pc = a.starts[ii]!;
       const sp = a.depth[ii];
@@ -575,9 +577,180 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
       const rem = bj - ii - 1;
       spAt[pc] = sp;
       refund[pc] = rem;
-      out.push(`// ${pc}`);
-      out.push(instruction(pc, sp, rem));
+      const folded = pure(pc, sp);
+      const js = folded ?? flush(sp) + instruction(pc, sp, rem);
+      if (js !== '') out.push(js);
     }
+    // the next block reads the operand stack from its variables
+    const last = a.starts[bj - 1]!;
+    const lastDepth = a.depth[bj - 1];
+    const tail = lastDepth === undefined ? '' : flush(lastDepth + depthChange(last));
+    if (tail !== '') out.push(tail);
+  }
+
+  /**
+   * The operand stack's slots, within a block, as expressions not yet stored in their variables: a slot is held as a
+   * pure expression (locals, constants, arithmetic that cannot throw) until something needs it in its variable, so a
+   * run of loads and arithmetic becomes one JS expression. Undefined: the value is in the slot's variable.
+   */
+  function flush(depth: number): string {
+    let out = '';
+    for (let i = 0; i < Math.min(depth, sym.length); i++) {
+      const e = sym[i];
+      if (e !== undefined) {
+        out += `${S(i)} = ${e}; `;
+        sym[i] = undefined;
+      }
+    }
+    sym.length = 0;
+    return out;
+  }
+
+  /** A slot's value: its pending expression, or its variable. */
+  function val(i: number): string {
+    return sym[i] ?? S(i);
+  }
+
+  /** Puts `e` in slot `i`, or stores it there when it has grown long. */
+  function put(i: number, e: string): string {
+    if (e.length > 160) {
+      sym[i] = undefined;
+      return `${S(i)} = ${e}; `;
+    }
+    sym[i] = /^[\w.]+$/.test(e) ? e : `(${e})`;
+    return '';
+  }
+
+  /** Before local `n` changes: pending expressions that read it take their value now. */
+  function settle(n: number): string {
+    const ref = new RegExp(`\\bl${n}\\b`);
+    let out = '';
+    for (let i = 0; i < sym.length; i++) {
+      const e = sym[i];
+      if (e !== undefined && ref.test(e)) {
+        out += `${S(i)} = ${e}; `;
+        sym[i] = undefined;
+      }
+    }
+    return out;
+  }
+
+  /** The instruction's effect on the stack depth, for one that falls through. */
+  function depthChange(pc: number): number {
+    const [pop, push] = stackEffect(m, code, pc);
+    return push - pop;
+  }
+
+  /**
+   * An instruction carried out on the pending expressions (loads, stores, constants, arithmetic that cannot throw,
+   * conversions, comparisons and conditional branches); null for the others, which take their operands from the
+   * variables.
+   */
+  function pure(pc: number, sp: number): string | null {
+    const op = code[pc]!;
+    const bin = (fmt: (x: string, y: string) => string, width: number): string => {
+      // operands at sp-2*width and sp-width, the result where the first was
+      const x = val(sp - 2 * width);
+      const y = val(sp - width);
+      sym[sp - width] = undefined;
+      return put(sp - 2 * width, fmt(x, y));
+    };
+    const un = (fmt: (x: string) => string, at: number, to = at): string => {
+      const x = val(at);
+      if (to !== at) sym[at] = undefined;
+      return put(to, fmt(x));
+    };
+    if (op >= 0x01 && op <= 0x11) {
+      const v = op === 0x01 ? 'null' : op <= 0x08 ? String(op - 0x03) : op <= 0x0a ? `${op - 0x09}n` : op <= 0x0d ? String(op - 0x0b) : op <= 0x0f ? String(op - 0x0e) : op === 0x10 ? String((code[pc + 1]! << 24) >> 24) : String(s16(code, pc + 1));
+      return put(sp, v.startsWith('-') ? `(${v})` : v);
+    }
+    if (op === 0x12 || op === 0x13 || op === 0x14) {
+      const e = cpEntry(cls, op === 0x12 ? code[pc + 1]! : u16(code, pc + 1));
+      if (e?.tag === 'int' || e?.tag === 'float' || e?.tag === 'long' || e?.tag === 'double') return put(sp, k(e.value));
+      return null;
+    }
+    if (op >= 0x15 && op <= 0x19) return put(sp, L(code[pc + 1]!));
+    if (op >= 0x1a && op <= 0x2d) return put(sp, L((op - 0x1a) % 4));
+    if (op >= 0x36 && op <= 0x3a) {
+      const n = code[pc + 1]!;
+      const v = val(sp - (op === 0x37 || op === 0x39 ? 2 : 1));
+      sym[sp - (op === 0x37 || op === 0x39 ? 2 : 1)] = undefined;
+      return settle(n) + store(n, v);
+    }
+    if (op >= 0x3b && op <= 0x4e) {
+      const n = (op - 0x3b) % 4;
+      const w = op >= 0x3f && op <= 0x42 ? 2 : op >= 0x47 && op <= 0x4a ? 2 : 1;
+      const v = val(sp - w);
+      sym[sp - w] = undefined;
+      return settle(n) + store(n, v);
+    }
+    if (op === 0x84) {
+      const n = code[pc + 1]!;
+      return settle(n) + store(n, `(${L(n)} + ${(code[pc + 2]! << 24) >> 24}) | 0`);
+    }
+    switch (op) {
+      case 0x60: return bin((x, y) => `(${x} + ${y}) | 0`, 1);
+      case 0x61: return bin((x, y) => `BigInt.asIntN(64, ${x} + ${y})`, 2);
+      case 0x62: return bin((x, y) => `Math.fround(${x} + ${y})`, 1);
+      case 0x63: return bin((x, y) => `(${x} + ${y})`, 2);
+      case 0x64: return bin((x, y) => `(${x} - ${y}) | 0`, 1);
+      case 0x65: return bin((x, y) => `BigInt.asIntN(64, ${x} - ${y})`, 2);
+      case 0x66: return bin((x, y) => `Math.fround(${x} - ${y})`, 1);
+      case 0x67: return bin((x, y) => `(${x} - ${y})`, 2);
+      case 0x68: return bin((x, y) => `Math.imul(${x}, ${y})`, 1);
+      case 0x69: return bin((x, y) => `BigInt.asIntN(64, ${x} * ${y})`, 2);
+      case 0x6a: return bin((x, y) => `Math.fround(${x} * ${y})`, 1);
+      case 0x6b: return bin((x, y) => `(${x} * ${y})`, 2);
+      case 0x6e: return bin((x, y) => `Math.fround(${x} / ${y})`, 1);
+      case 0x6f: return bin((x, y) => `(${x} / ${y})`, 2);
+      case 0x72: return bin((x, y) => `Math.fround(${x} % ${y})`, 1);
+      case 0x73: return bin((x, y) => `(${x} % ${y})`, 2);
+      case 0x74: return un((x) => `(-${x} | 0)`, sp - 1);
+      case 0x75: return un((x) => `BigInt.asIntN(64, -${x})`, sp - 2);
+      case 0x76: return un((x) => `(-${x})`, sp - 1);
+      case 0x77: return un((x) => `(-${x})`, sp - 2);
+      case 0x7e: return bin((x, y) => `(${x} & ${y})`, 1);
+      case 0x7f: return bin((x, y) => `(${x} & ${y})`, 2);
+      case 0x80: return bin((x, y) => `(${x} | ${y})`, 1);
+      case 0x81: return bin((x, y) => `(${x} | ${y})`, 2);
+      case 0x82: return bin((x, y) => `(${x} ^ ${y})`, 1);
+      case 0x83: return bin((x, y) => `(${x} ^ ${y})`, 2);
+      case 0x78: return bin((x, y) => `(${x} << ${y})`, 1);
+      case 0x7a: return bin((x, y) => `(${x} >> ${y})`, 1);
+      case 0x7c: return bin((x, y) => `((${x} >>> ${y}) | 0)`, 1);
+      case 0x85: return un((x) => `BigInt(${x})`, sp - 1);
+      case 0x86: return un((x) => `Math.fround(${x})`, sp - 1);
+      case 0x87: case 0x8d: return '';
+      case 0x88: return un((x) => `Number(BigInt.asIntN(32, ${x}))`, sp - 2);
+      case 0x8a: return un((x) => `Number(${x})`, sp - 2);
+      case 0x8b: return un((x) => `R.toInt(${x})`, sp - 1);
+      case 0x8e: return un((x) => `R.toInt(${x})`, sp - 2);
+      case 0x90: return un((x) => `Math.fround(${x})`, sp - 2);
+      case 0x91: return un((x) => `((${x} << 24) >> 24)`, sp - 1);
+      case 0x92: return un((x) => `(${x} & 0xffff)`, sp - 1);
+      case 0x93: return un((x) => `((${x} << 16) >> 16)`, sp - 1);
+      case 0x95: case 0x96: return bin((x, y) => `R.fcmp(${x}, ${y}, ${op === 0x95 ? -1 : 1})`, 1);
+    }
+    if (op >= 0x99 && op <= 0x9e) {
+      const x = val(sp - 1);
+      sym[sp - 1] = undefined;
+      const cmp = ['===', '!==', '<', '>=', '>', '<='][op - 0x99]!;
+      return `${flush(sp - 1)}if (${x} ${cmp} 0) ${branch(pc + s16(code, pc + 1))}`;
+    }
+    if (op >= 0x9f && op <= 0xa6) {
+      const x = val(sp - 2);
+      const y = val(sp - 1);
+      sym[sp - 2] = undefined;
+      sym[sp - 1] = undefined;
+      const cmp = ['===', '!==', '<', '>=', '>', '<=', '===', '!=='][op - 0x9f]!;
+      return `${flush(sp - 2)}if (${x} ${cmp} ${y}) ${branch(pc + s16(code, pc + 1))}`;
+    }
+    if (op === 0xc6 || op === 0xc7) {
+      const x = val(sp - 1);
+      sym[sp - 1] = undefined;
+      return `${flush(sp - 1)}if (${x} ${op === 0xc6 ? '===' : '!=='} null) ${branch(pc + s16(code, pc + 1))}`;
+    }
+    return null;
   }
 
   /**

@@ -44,6 +44,9 @@ function createAppController(): PlayerController {
   // telemetry.
   // `?telemetry=1` also makes the controller copy telemetry to `window.__blurayTelemetry`, which the E2E tests read.
   const flags = ['bdjfail', 'nonestedworkers', 'nodecoder', 'novideowasm', 'nojit', 'telemetry'].filter((f) => params.has(f));
+  // Test-only: ?jitthreshold=<n> sets the heat at which BD-J compiles a method (for measuring), as `jitthreshold=<n>`.
+  const jitThreshold = Number(params.get('jitthreshold'));
+  if (Number.isInteger(jitThreshold) && jitThreshold > 0) flags.push(`jitthreshold=${jitThreshold}`);
   const name = flags.length > 0 ? `bluray-engine:${flags.join(',')}` : 'bluray-engine';
   const controller = createController({
     // (the options stay an object literal with a literal type: Vite reads it to bundle the worker as a module)
