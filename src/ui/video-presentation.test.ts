@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { describe, expect, it, vi } from 'vitest';
-import { enterPresentation, exitPresentation, hasVideoFullscreen, pipApi, pollUntil, present, presentMessage, presentedAs, type PresentDeps, type PresentableVideo } from './video-presentation';
+import { enterPresentation, exitPresentation, FULLSCREEN_MENU_MESSAGE, hasVideoFullscreen, pipApi, pollUntil, present, presentBlocked, presentMessage, presentedAs, type PresentDeps, type PresentableVideo } from './video-presentation';
 
 describe('pipApi and hasVideoFullscreen', () => {
   it('prefers the standard API, falls back to WebKit presentation mode, and is null in Firefox', () => {
@@ -104,5 +104,14 @@ describe('pollUntil', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('presentBlocked', () => {
+  it('holds the video fullscreen while an HDMV or BD-J menu is up, never Picture in Picture', () => {
+    expect(presentBlocked('fullscreen', { menuActive: true, bdjMenuVisible: false })).toBe(FULLSCREEN_MENU_MESSAGE);
+    expect(presentBlocked('fullscreen', { menuActive: false, bdjMenuVisible: true })).toBe(FULLSCREEN_MENU_MESSAGE);
+    expect(presentBlocked('fullscreen', { menuActive: false, bdjMenuVisible: false })).toBeNull();
+    expect(presentBlocked('pip', { menuActive: true, bdjMenuVisible: true })).toBeNull();
   });
 });

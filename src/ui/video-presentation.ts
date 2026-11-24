@@ -202,3 +202,14 @@ export function pollUntil(check: () => boolean, timeoutMs: number, intervalMs = 
 
 /** How long the element path may stay off while presented before the presentation ends (a playlist change reopens it). */
 export const PRESENTATION_GRACE_MS = 1500;
+
+/** The notice for a tap on the video's own fullscreen while a disc menu is up. */
+export const FULLSCREEN_MENU_MESSAGE = 'Disc menus don’t show in video fullscreen: choose from the menu first.';
+
+/**
+ * Why a tap on `mode` does nothing now, or null: the video's own fullscreen shows the video alone, so it waits while a
+ * disc menu is up (and ends when one comes up). Picture in Picture goes ahead, since the menu waits on the page.
+ */
+export function presentBlocked(mode: PresentationMode, s: { readonly menuActive: boolean; readonly bdjMenuVisible: boolean }): string | null {
+  return mode === 'fullscreen' && (s.menuActive || s.bdjMenuVisible) ? FULLSCREEN_MENU_MESSAGE : null;
+}

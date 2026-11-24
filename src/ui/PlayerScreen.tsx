@@ -20,7 +20,7 @@ import { resolveDiscPreferences } from './disc-preferences';
 import { checkCapabilities } from './capabilities';
 import { HdrBadge } from './HdrBadge';
 import { FULLSCREEN_HINT_TEXT, evaluateFullscreenHint, fullscreenKind, markFullscreenHintDismissed, safeLocalStorage, toggleFullscreen } from './fullscreen';
-import { enterPresentation, exitPresentation, PIP_OVERLAYS_MESSAGE, pollUntil, present, presentedAs, presentMessage, PRESENTATION_GRACE_MS, type PresentationMode } from './video-presentation';
+import { enterPresentation, exitPresentation, PIP_OVERLAYS_MESSAGE, pollUntil, present, presentBlocked, presentedAs, presentMessage, PRESENTATION_GRACE_MS, type PresentationMode } from './video-presentation';
 import { EncodingPrompt } from './EncodingPrompt';
 import { keyActionUo, keyToAction, keyWakesControls } from './keyboard';
 import { toMenuSpace } from './pointer';
@@ -551,6 +551,11 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
     if (!video) return;
     if (presentedAs(video, document) === mode) {
       exitPresentation(video, document);
+      return;
+    }
+    const blocked = presentBlocked(mode, controller.getSnapshot());
+    if (blocked) {
+      controller.showNotice('video-fullscreen', blocked);
       return;
     }
     const ready = (): boolean => controller.getSnapshot().videoElement && video.readyState >= 1;
