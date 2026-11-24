@@ -120,3 +120,51 @@ describe('readFontFile', () => {
     await expect(readFontFile('x.ttc', new Uint8Array([0x74, 0x74, 0x63, 0x66, 0, 1, 0, 0, 0xff, 0xff, 0xff, 0xff]))).rejects.toBeInstanceOf(FontFileError);
   });
 });
+
+/** A single-font sfnt from tables (offsets from the file start). */
+function buildSfnt(tables: Table[]): Uint8Array {
+  let at = 12 + 16 * tables.length;
+  const offs = tables.map((t) => { const o = at; at += pad4(t.data.length); return o; });
+  const out = new Uint8Array(at);
+  const v = new DataView(out.buffer);
+  v.setUint32(0, 0x00010000);
+  v.setUint16(4, tables.length);
+  tables.forEach((t, i) => {
+    const e = 12 + 16 * i;
+    out.set([...t.tag].map((c) => c.charCodeAt(0)), e);
+    v.setUint32(e + 8, offs[i]!);
+    v.setUint32(e + 12, t.data.length);
+    out.set(t.data, offs[i]!);
+  });
+  return out;
+}
+
+describe('vertical metrics (FreeType TT_Get_VMetrics, for @ fonts)', () => {
+  it('falls back to the OS/2 typo ascender minus descender without vhea and vmtx', async () => {
+    const f = (await load('DejaVuSans.ttf')).faces[0]!;
+    // DejaVu Sans: sTypoAscender 1556, sTypoDescender -492
+    expect(f.typoDescender).toBe(-492);
+    expect(f.verticalAdvance(f.glyphId(0x416))).toBe(2048);
+  });
+  it('reads vmtx by glyph id, the last long metric repeating', async () => {
+    const tables = tablesOf(file('DejaVuSans.ttf'));
+    const vhea = new Uint8Array(36);
+    new DataView(vhea.buffer).setUint32(0, 0x00011000);
+    new DataView(vhea.buffer).setUint16(34, 2);
+    const vmtx = new Uint8Array(12);
+    const vv = new DataView(vmtx.buffer);
+    vv.setUint16(0, 1000);
+    vv.setUint16(4, 1800);
+    const f = (await readFontFile('v.ttf', buildSfnt([...tables, { tag: 'vhea', data: vhea }, { tag: 'vmtx', data: vmtx }]))).faces[0]!;
+    expect(f.verticalAdvance(0)).toBe(1000);
+    expect(f.verticalAdvance(1)).toBe(1800);
+    expect(f.verticalAdvance(500)).toBe(1800);
+  });
+  it('uses hhea without an OS/2 table', async () => {
+    const tables = tablesOf(file('DejaVuSans.ttf')).filter((t) => t.tag !== 'OS/2');
+    const f = (await readFontFile('n.ttf', buildSfnt(tables))).faces[0]!;
+    expect(f.typoDescender).toBe(0);
+    // DejaVu Sans hhea: ascender 1901, descender -483
+    expect(f.verticalAdvance(3)).toBe(1901 + 483);
+  });
+});

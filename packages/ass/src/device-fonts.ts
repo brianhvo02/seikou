@@ -65,6 +65,8 @@ export function deviceFaceInfo(family: string, style: DeviceStyle, m: DeviceFace
     weight: bold ? 700 : 400, italic, bold, isPostscript: false, unitsPerEm: UNITS_PER_EM, integerPpem: false,
     ascender: Math.round(m.ascent * UNITS_PER_EM), descender: -Math.round(m.descent * UNITS_PER_EM),
     underlinePosition: -100, underlineThickness: 70, strikeoutPosition: 260, strikeoutSize: 70,
+    typoDescender: -Math.round(m.descent * UNITS_PER_EM),
+    verticalAdvance: () => Math.round((m.ascent + m.descent) * UNITS_PER_EM),
     hasGlyph: () => true,
     glyphId: () => 1,
     clusters: (cps) => cps.map((_, i) => i),

@@ -142,7 +142,11 @@ function shape(e: EventText, fonts: AssFonts, measurer: GlyphMeasurer): void {
       info.metrics = m;
       // FreeType's hinted advances are whole pixels at the outline size (256 px), HarfBuzz uses them as they are
       let adv = isIgnorable(info.symbol) || info.symbol === NEWLINE ? 0 : Math.round(clusterPx.get(k)!) * 64;
-      if (info.flags & DECO_ROTATE) adv = Math.round(info.fontSize * 64); // vertical advance ≈ the face height at REAL_DIM size
+      if (info.flags & DECO_ROTATE) {
+        // get_cached_metrics for an @ font: the hinted vertical advance (whole pixels at the shaping size)
+        const f = (info.face ?? face).face;
+        adv = Math.round((f.verticalAdvance(f.glyphId(info.symbol)) * advanceEm) / f.unitsPerEm) * 64;
+      }
       info.offsetX = 0;
       info.offsetY = 0;
       info.advanceX = lrint(adv * info.scaleX);
@@ -200,7 +204,20 @@ function outlineGlyph(s: RenderState, info: GlyphInfo): void {
     x0 -= em / 2;
     x1 += em / 2;
   }
-  const adv = Math.round(m.advance * 64);
+  let adv = Math.round(m.advance * 64);
+  info.rotateDx = info.rotateDy = info.verticalAdvance = 0;
+  if (info.flags & DECO_ROTATE) {
+    // ass_get_glyph_outline: the unhinted vertical advance, then ass_outline_rotate_90 by (dv, -desc), where
+    // (x, y) goes to (dv + y, -desc - x); underline and strike-out are added after, unturned, as long as that advance
+    const v = Math.round(f.verticalAdvance(f.glyphId(info.symbol)) * k);
+    const desc = Math.round(f.typoDescender * k);
+    const dv = v + desc;
+    [x0, y0, x1, y1] = [dv + y0, -desc - x1, dv + y1, -desc - x0];
+    info.rotateDx = dv;
+    info.rotateDy = -desc;
+    info.verticalAdvance = v;
+    adv = v;
+  }
   if (adv > 0 && info.flags & DECO_UNDERLINE && f.underlinePosition <= 0 && f.underlineThickness > 0) {
     const pos = Math.round(f.underlinePosition * k);
     const size = Math.round(f.underlineThickness * k);
@@ -212,10 +229,6 @@ function outlineGlyph(s: RenderState, info: GlyphInfo): void {
     const size = Math.round(f.strikeoutSize * k);
     const top = -pos - (size >> 1);
     [x0, y0, x1, y1] = [Math.min(x0, 0), Math.min(y0, top), Math.max(x1, adv), Math.max(y1, top + size)];
-  }
-  if (info.flags & DECO_ROTATE) {
-    x0 = 0;
-    x1 = Math.round(info.fontSize * 64);
   }
   info.trScaleX = info.scaleX;
   info.trScaleY = info.scaleY;

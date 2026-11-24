@@ -9,7 +9,8 @@
  * get_bitmap_glyph, add_background (BorderStyle 4); (ass_bitmap.c):
  * ass_fix_outline, ass_synth_blur (the `\be` passes), be_blur_pre, be_blur_post; (c/c_be_blur.c): ass_be_blur_c;
  * (ass_font.c): the strengths of ass_glyph_embolden and ass_glyph_italicize and the decoration
- * rectangles of ass_get_glyph_outline. libass is ISC-licensed; see packages/ass/NOTICE. Modified for Seikou, 2026.
+ * rectangles of ass_get_glyph_outline, its quarter turn for `@` fonts; (ass_outline.c): ass_outline_rotate_90.
+ * libass is ISC-licensed; see packages/ass/NOTICE. Modified for Seikou, 2026.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later AND ISC
  */
@@ -17,7 +18,7 @@
 import { parseDrawing, toPath2D } from './drawing';
 import { doubleToD6, lrint, type GlyphInfo } from './events';
 import type { FrameEvent } from './frame';
-import { DECO_STRIKETHROUGH, DECO_UNDERLINE, EF_KARAOKE, EF_KARAOKE_KF, EF_KARAOKE_KO, type RenderState } from './state';
+import { DECO_ROTATE, DECO_STRIKETHROUGH, DECO_UNDERLINE, EF_KARAOKE, EF_KARAOKE_KF, EF_KARAOKE_KO, type RenderState } from './state';
 import { applyFade } from './tags';
 import { applyMat3, isAffine, normalize, type Mat3 } from './transform';
 
@@ -242,6 +243,12 @@ function drawGlyph(ctx: OffscreenCanvasRenderingContext2D, g: GlyphInfo, rc: Ras
   const face = g.face;
   if (!face) return;
   const em = g.emPx;
+  const turned = (g.flags & DECO_ROTATE) !== 0;
+  if (turned) {
+    // ass_outline_rotate_90 after the synthetic styles: (x, y) → (dv + y, -desc - x); decorations stay unturned
+    ctx.save();
+    ctx.transform(0, -1, 1, 0, g.rotateDx / 64, g.rotateDy / 64);
+  }
   if (face.synthItalic) ctx.transform(1, 0, -face.italicShear, 1, 0, 0);
   ctx.font = `${em}px "${face.cssFamily}"`;
   // unhinted outlines at fractional positions, as libass renders them (ASS_HINTING_NONE)
@@ -267,9 +274,10 @@ function drawGlyph(ctx: OffscreenCanvasRenderingContext2D, g: GlyphInfo, rc: Ras
     }
   }
   if (bold > 0) ctx.translate(-bold / 2, bold / 2);
+  if (turned) ctx.restore();
   const f = face.face;
   const k = em / f.unitsPerEm;
-  const adv = Math.round(g.metrics?.advance ?? 0);
+  const adv = turned ? g.verticalAdvance / 64 : Math.round(g.metrics?.advance ?? 0);
   if (adv > 0 && g.flags & DECO_UNDERLINE && f.underlinePosition <= 0 && f.underlineThickness > 0) {
     const size = Math.round(f.underlineThickness * k * 64) / 64;
     ctx.fillRect(0, -f.underlinePosition * k - size / 2, adv, size);
