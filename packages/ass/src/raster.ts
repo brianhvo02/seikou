@@ -7,7 +7,8 @@
  * quantize_transform, quantize_blur, restore_blur, the composition of ass_composite_construct, render_text,
  * render_glyph (rectangle and karaoke split), blend_vector_clip (as a canvas clip), the BorderStyle 3 box of
  * get_bitmap_glyph; (ass_bitmap.c):
- * ass_fix_outline; (ass_font.c): the strengths of ass_glyph_embolden and ass_glyph_italicize and the decoration
+ * ass_fix_outline, ass_synth_blur (the `\be` passes), be_blur_pre, be_blur_post; (c/c_be_blur.c): ass_be_blur_c;
+ * (ass_font.c): the strengths of ass_glyph_embolden and ass_glyph_italicize and the decoration
  * rectangles of ass_get_glyph_outline. libass is ISC-licensed; see packages/ass/NOTICE. Modified for Seikou, 2026.
  *
  * SPDX-License-Identifier: LGPL-2.1-or-later AND ISC
@@ -436,6 +437,59 @@ export function gaussianBlur(mask: Uint8Array, w: number, h: number, sigmaX: num
   return res;
 }
 
+/**
+ * The `\be` part of ass_synth_blur, in place: `be` passes of VSFilter's 3×3 `[1 2 1]` box kernel (ass_be_blur_c),
+ * zero outside the bitmap and truncated (`>> 4`) per pass; with more than one pass, all but the last run on the mask
+ * scaled to 0..64 (be_blur_pre) and scaled back after (be_blur_post).
+ */
+export function beBlur(mask: Uint8Array, w: number, h: number, be: number): void {
+  if (!be || w < 2 || h < 2) return;
+  const tmp = new Uint16Array(2 * w);
+  if (--be) {
+    // be_blur_pre: (v * 64 + 127) / 255
+    for (let i = 0; i < w * h; i++) mask[i] = (((mask[i]! >> 1) + 1) >> 1);
+    do beBlurPass(mask, w, h, tmp); while (--be);
+    // be_blur_post: (v * 255 + 32) / 64
+    for (let i = 0; i < w * h; i++) {
+      const v = mask[i]!;
+      mask[i] = (v << 2) - (v > 32 ? 1 : 0);
+    }
+  }
+  beBlurPass(mask, w, h, tmp);
+}
+
+/** ass_be_blur_c: one pass with sliding sums, a row behind (the C's col_pix_buf and col_sum_buf share tmp). */
+function beBlurPass(buf: Uint8Array, w: number, h: number, tmp: Uint16Array): void {
+  const colPix = tmp.subarray(0, w);
+  const colSum = tmp.subarray(w, 2 * w);
+  let sum = buf[0]!;
+  for (let x = 1; x < w; x++) {
+    const next = buf[x - 1]! + buf[x]!;
+    colPix[x - 1] = colSum[x - 1] = sum + next;
+    sum = next;
+  }
+  colPix[w - 1] = colSum[w - 1] = sum + buf[w - 1]!;
+  for (let y = 1; y < h; y++) {
+    const dst = (y - 1) * w;
+    const row = y * w;
+    let s = buf[row]!;
+    for (let x = 1; x <= w; x++) {
+      let cp: number;
+      if (x < w) {
+        const next = buf[row + x - 1]! + buf[row + x]!;
+        cp = s + next;
+        s = next;
+      } else cp = s + buf[row + w - 1]!;
+      const cs = colPix[x - 1]! + cp;
+      colPix[x - 1] = cp;
+      buf[dst + x - 1] = (colSum[x - 1]! + cs) >> 4;
+      colSum[x - 1] = cs;
+    }
+  }
+  const last = (h - 1) * w;
+  for (let x = 0; x < w; x++) buf[last + x] = (colSum[x]! + colPix[x]!) >> 4;
+}
+
 function colorize(mask: Uint8Array, w: number, h: number, color: (x: number) => number, x0: number, y0: number): Layer {
   const data = new ImageData(w, h);
   const d = data.data;
@@ -477,8 +531,10 @@ function renderRun(rc: RasterContext, ev: FrameEvent, idx: readonly number[], ru
   const ry = Math.hypot(jxy * by26, jyy * by26) / 64;
   const r2x = blurVariance(first.blur, s.blurScaleX);
   const r2y = blurVariance(first.blur, s.blurScaleY);
-  const sigmaX = Math.sqrt(r2x + 0.5 * first.be);
-  const sigmaY = Math.sqrt(r2y + 0.5 * first.be);
+  // the masks take \blur's Gaussian, then \be's box passes (ass_synth_blur); the padding, the cache keys and the
+  // direct GPU path count \be as a Gaussian of variance 0.5 px² per pass (the [1 2 1] kernel's variance)
+  const sigmaX = Math.sqrt(r2x);
+  const sigmaY = Math.sqrt(r2y);
   const sigma = Math.sqrt((r2x + r2y) / 2 + 0.5 * first.be);
   const shadow26X = quantizeShadow(doubleToD6(first.shadowX * s.borderScaleX), first.blur * s.blurScaleX * BLUR_RADIUS_SCALE);
   const shadow26Y = quantizeShadow(doubleToD6(first.shadowY * s.borderScaleY), first.blur * s.blurScaleY * BLUR_RADIUS_SCALE);
@@ -757,8 +813,14 @@ function renderRun(rc: RasterContext, ev: FrameEvent, idx: readonly number[], ru
   }
 
   // ass_synth_blur: the fill only without a border (or for the opaque box), the border always
-  if (!(flags & FILTER_NONZERO_BORDER) || flags & FILTER_BORDER_STYLE_3) fill = gaussianBlur(fill, w, h, sigmaX, sigmaY);
-  if (border) border = gaussianBlur(border, w, h, sigmaX, sigmaY);
+  if (!(flags & FILTER_NONZERO_BORDER) || flags & FILTER_BORDER_STYLE_3) {
+    fill = gaussianBlur(fill, w, h, sigmaX, sigmaY);
+    beBlur(fill, w, h, first.be);
+  }
+  if (border) {
+    border = gaussianBlur(border, w, h, sigmaX, sigmaY);
+    beBlur(border, w, h, first.be);
+  }
 
   if (border && !(flags & FILTER_FILL_IN_BORDER) && !(flags & FILTER_FILL_IN_SHADOW)) fixOutline(fill, border);
   let shadow: Uint8Array | null = null;

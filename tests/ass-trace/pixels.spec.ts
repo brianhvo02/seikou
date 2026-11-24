@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { syntheticFixtures } from './fixtures';
 import { parseTrace } from './format';
 import type { AssTracePage } from './page/types';
-import { comparePixels } from './pixels';
+import { comparePixels, pixelDelta } from './pixels';
 import { decodePng, encodePng } from './png';
 
 for (const fx of syntheticFixtures()) {
@@ -24,6 +24,11 @@ for (const fx of syntheticFixtures()) {
       const expected = decodePng(readFileSync(fx.golden.replace(/\.jsonl$/, `/${t}.png`)));
       const actual = Uint8Array.from(Buffer.from(out.frames[i]!, 'base64'));
       const r = comparePixels(expected.rgba, actual, 1920, 1080, shown.map((e) => e.box));
+      // ASS_PIXEL_LOG=1 prints every frame's count, to see how close a fixture is beyond pass or fail
+      if (process.env.ASS_PIXEL_LOG) {
+        const d = pixelDelta(expected.rgba, actual);
+        console.log(`${fx.name} ${t} ms: ${r.differing} px differ (budget ${r.budget}); ${d.over2} px off by more than 2, at most ${d.max}`);
+      }
       if (!r.pass) {
         const dir = `test-results/ass-pixels/${fx.name}`;
         mkdirSync(dir, { recursive: true });

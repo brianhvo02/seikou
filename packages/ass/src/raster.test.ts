@@ -7,7 +7,7 @@ import { createFixedMeasurer } from './measure';
 import { parseAss } from './parse';
 import type { RenderSettings } from './state';
 import {
-  blurVariance, dilate, FILTER_BORDER_STYLE_3, FILTER_FILL_IN_BORDER, FILTER_FILL_IN_SHADOW, FILTER_NONZERO_BORDER,
+  beBlur, blurVariance, dilate, FILTER_BORDER_STYLE_3, FILTER_FILL_IN_BORDER, FILTER_FILL_IN_SHADOW, FILTER_NONZERO_BORDER,
   FILTER_NONZERO_SHADOW, fixOutline, gaussianBlur, layerKey, quantizePositions, quantizeShadow, renderEvent, runFlags,
   type RasterContext,
 } from './raster';
@@ -79,6 +79,54 @@ describe('dilate', () => {
     const out = dilate(m, w, w, 4, 1);
     expect(out[5 * w + 9]).toBe(255);
     expect(out[8 * w + 5]).toBe(0);
+  });
+});
+
+describe('beBlur (ass_synth_blur box passes)', () => {
+  const dot = (w: number, h: number, x: number, y: number, v = 255): Uint8Array => {
+    const m = new Uint8Array(w * h);
+    m[y * w + x] = v;
+    return m;
+  };
+  it('leaves the mask alone at \\be0', () => {
+    const m = dot(5, 5, 2, 2);
+    beBlur(m, 5, 5, 0);
+    expect(m).toEqual(dot(5, 5, 2, 2));
+  });
+  it('spreads one pass with VSFilter\'s [1 2 1] kernel, truncated (>> 4)', () => {
+    const m = dot(5, 5, 2, 2);
+    beBlur(m, 5, 5, 1);
+    // 255 × {1,2,4}/16 = 15.9, 31.9, 63.75 → 15, 31, 63
+    expect(Array.from(m.subarray(5, 20))).toEqual([0, 15, 31, 15, 0, 0, 31, 63, 31, 0, 0, 15, 31, 15, 0]);
+    expect(m[2]).toBe(0);
+  });
+  it('treats outside the bitmap as zero', () => {
+    const m = dot(3, 3, 0, 0);
+    beBlur(m, 3, 3, 1);
+    expect(Array.from(m)).toEqual([63, 31, 0, 31, 15, 0, 0, 0, 0]);
+  });
+  it('runs all but the last pass at 6 bits (be_blur_pre and be_blur_post)', () => {
+    const m = dot(7, 7, 3, 3);
+    beBlur(m, 7, 7, 2);
+    // pre: 255 → 64; pass: centre 64·4/16 = 16, edge 8, corner 4; post: v·4 − (v > 32) → 64, 32, 16;
+    // last pass at the centre: (16·1·4 + 32·2·4 + 64·4) / 16 ... computed by the kernel below
+    const k = [1, 2, 1];
+    const first = new Array(49).fill(0);
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const v = (64 * k[dx + 1]! * k[dy + 1]!) >> 4;
+      first[(3 + dy) * 7 + 3 + dx] = v * 4 - (v > 32 ? 1 : 0);
+    }
+    const second = new Array(49).fill(0);
+    for (let y = 0; y < 7; y++) for (let x = 0; x < 7; x++) {
+      let s = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const yy = y + dy;
+        const xx = x + dx;
+        if (yy >= 0 && yy < 7 && xx >= 0 && xx < 7) s += first[yy * 7 + xx] * k[dx + 1]! * k[dy + 1]!;
+      }
+      second[y * 7 + x] = s >> 4;
+    }
+    expect(Array.from(m)).toEqual(second);
   });
 });
 
