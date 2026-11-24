@@ -165,6 +165,20 @@ itself, so the lock screen and the PiP window's ±10 s buttons (which iOS draws 
   asks.
 - The engine still never imports BD-J; the protocol changes first (`preferElement`, `elementPreference`).
 
+## 6. Testing
+
+- Unit: the engine's `preferElement` outcomes and reopen (`player-element.test.ts` harness, fake page); the output's
+  transport detection with a fake video (own vs. foreign play/pause/seek, presented or not); the presentation model
+  with fake video and document (support detection, the activation window, the again notice); the fullscreen kind
+  choice and the hint.
+- E2E (`tests/e2e/pip.spec.ts`, every project): the button shows where the browser has PiP; on the canvas path a tap
+  moves disc1 to the element path (telemetry `videoPath`), and where `requestPictureInPicture` resolves (headed Chrome,
+  WebKit) PiP is entered and pause/play from the element reaches the engine. Feature-detected; skips with a reason.
+- Device (the owner's iPhone, through `tools/devices`-style safaridriver taps, which deliver a real activation when
+  the pointer action has no pause): PiP from the element path and from the canvas path, `?fullscreen=video`, sync on
+  the element path with audio, screenshots. What a script can't reach (the PiP window's own buttons, the system
+  player's scrubber, backgrounding Safari) is on the owner's morning list.
+
 ## 7. Results on the owner's iPhone 17 Pro (iOS 27.2, 2026-11-24, safaridriver over the disc server)
 
 - Element fullscreen of the player root works (the old known issue is stale for this iOS).
@@ -180,17 +194,3 @@ itself, so the lock screen and the PiP window's ±10 s buttons (which iOS draws 
 - An added SRT file showed in the Picture in Picture window, line by line in time.
 - Not checked (a script can't reach them): the Picture in Picture window's own buttons, the system fullscreen
   player's controls, leaving Safari with Picture in Picture open (audio may be suspended), and rotation.
-
-## 6. Testing
-
-- Unit: the engine's `preferElement` outcomes and reopen (`player-element.test.ts` harness, fake page); the output's
-  transport detection with a fake video (own vs. foreign play/pause/seek, presented or not); the presentation model
-  with fake video and document (support detection, the activation window, the again notice); the fullscreen kind
-  choice and the hint.
-- E2E (`tests/e2e/pip.spec.ts`, every project): the button shows where the browser has PiP; on the canvas path a tap
-  moves disc1 to the element path (telemetry `videoPath`), and where `requestPictureInPicture` resolves (headed Chrome,
-  WebKit) PiP is entered and pause/play from the element reaches the engine. Feature-detected; skips with a reason.
-- Device (the owner's iPhone, through `tools/devices`-style safaridriver taps, which deliver a real activation when
-  the pointer action has no pause): PiP from the element path and from the canvas path, `?fullscreen=video`, sync on
-  the element path with audio, screenshots. What a script can't reach (the PiP window's own buttons, the system
-  player's scrubber, backgrounding Safari) is on the owner's morning list.
