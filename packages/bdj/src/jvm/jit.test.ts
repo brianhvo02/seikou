@@ -122,6 +122,26 @@ describe('the JIT', () => {
     expect(states.get('force')).toEqual(states.get('off'));
   });
 
+  it('ends slices on the same instructions through calls and a caught exception', () => {
+    const traces = new Map<string, string[]>();
+    for (const mode of ['off', 'force'] as const) {
+      const out: string[] = [];
+      for (const budget of [1, 2, 3, 4, 5, 6, 7, 9, 11, 13, 17]) {
+        const jvm = newJvm(mode);
+        define(jvm);
+        const m = jvm.loader.loadBoot('T')!.methods.get('caller(I)I')!;
+        const t = jvm.threads.spawn(null, m, [9]);
+        for (let slice = 0; slice < 200 && t.state !== 'terminated'; slice++) {
+          execute(jvm, t, budget);
+          const f = t.frames[t.frames.length - 1] as Frame | undefined;
+          out.push(`${budget}/${slice}: ${t.frames.length} ${f ? `${f.method.name} pc ${f.pc} sp ${f.sp} stack ${f.stack.slice(0, f.sp).map(String).join(',')}` : t.state}`);
+        }
+      }
+      traces.set(mode, out);
+    }
+    expect(traces.get('force')).toEqual(traces.get('off'));
+  });
+
   it('runs interpreted where code generation is unavailable, and says so once', async () => {
     const warned: string[] = [];
     vi.spyOn(globalThis, 'Function').mockImplementation(() => {
