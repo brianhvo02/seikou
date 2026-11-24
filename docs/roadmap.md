@@ -37,7 +37,7 @@ Short tasks that unblock or protect what is already deployed.
 | **Per-person shelves,** and hiding titles from a person. | M | |
 | **ASS fidelity:** legacy `Effect`, FriBidi across style runs, line breaking (libunibreak), the auto-hinter, and approximations of BorderStyle 4, vertical `@font` and `\be`. | M–L | |
 | **Shader gaps:** a Lanczos final scaler, linear-light PREKERNEL, the `COMPUTE` and `TEXTURE` directives, an early probe for `unavailable`, and hand-made sets. | M | |
-| **iPhone fullscreen and PiP** through a `<video>`: the element path already plays H.264 and HEVC in one, so the experiment can start there rather than from a canvas capture. | M | experiment |
+| **Picture in Picture, next steps** (first slice built 2026-11-24, spec `2026-11-24-iphone-fullscreen-pip-design.md`): text subtitles as WebVTT tracks in Picture in Picture; a canvas capture for MPEG-2, VC-1 and encodes; whether Auto should take the element path on phones so the first tap always enters; the 10 s media offset shown on the system player's clock. | M | owner's call |
 | **A slimmer server image.** It is about 730 MB unpacked, most of it libraries Debian's `ffmpeg` pulls in that the levels never use. A build of our own with only the QSV and x264 parts would cut it. | M | |
 | **JVM gaps,** each taken up when a disc needs it: JPEG decoding in Java, JSSE, annotation reflection, weak and soft references, finalizers, `SecureRandom` entropy, the verifier and access checks. Also libbluray deviations: one JVM per BD-J entry, and the HDMV navigator dropped rather than suspended. | S–M each | needs a disc |
 | **Faithful HDMV resume:** the VM's program counter and the IG page. Resume is an approximation today. | L | |
