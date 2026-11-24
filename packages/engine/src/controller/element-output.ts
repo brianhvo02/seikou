@@ -103,7 +103,7 @@ export interface SourceBufferLike {
  */
 export interface ElementOutputDeps {
   video: VideoElementLike;
-  createMediaSource(): { source: MediaSourceLike; url: string; revoke(): void } | null;
+  createMediaSource(): { source: MediaSourceLike; url: string; revoke(): void; readonly managed?: boolean } | null;
   playable(query: ElementQuery): Promise<{ readonly playable: boolean; readonly check: ElementCheck }>;
   epochMs(): number;
   timeOrigin: number;
@@ -156,13 +156,13 @@ const OWN_SEEKS_KEPT = 8;
 type Op =
   | { readonly k: 'append'; readonly bytes: Uint8Array; readonly segment: boolean; readonly retried: boolean }
   | { readonly k: 'remove'; readonly start: number; readonly end: number }
-  | { readonly k: 'change'; readonly type: string }
+  | { readonly k: 'change'; readonly type: string; readonly codec: string }
   /**
    * Replaces the source buffer with a new one of `type` (a session that follows one held while presented): Safari on
    * iPhone keeps a buffer's highest end through a removal and stretches the duration back to it on every append, so a
    * shorter next playlist would show the last one's length.
    */
-  | { readonly k: 'rebuffer'; readonly type: string }
+  | { readonly k: 'rebuffer'; readonly type: string; readonly codec: string }
   /** Sets the media source's duration: queued after a reset's removal, since a duration under what is buffered is refused. */
   | { readonly k: 'duration'; readonly s: number }
   | { readonly k: 'end' };
@@ -172,6 +172,8 @@ interface Attached {
   readonly revoke: () => void;
   /** The first init's type, which the source buffer is made with; a codec change queued since runs as an operation. */
   readonly firstType: string;
+  /** A `ManagedMediaSource` (Safari on iPhone), whose reused buffer stretches the duration back (see the rebuffer operation). */
+  readonly managed: boolean;
   buffer: SourceBufferLike | null;
 }
 
@@ -539,7 +541,8 @@ export class ElementVideoOutput {
   }
 
   private reset(startUs: number, paused: boolean): void {
-    this.afterHold = this.held;
+    // a reset before the next init (a seek, a jump to a mark) keeps it: the rebuffer is still owed
+    this.afterHold = this.afterHold || this.held;
     this.held = false;
     this.failed = false;
     this.endedSeen = false;
@@ -585,7 +588,7 @@ export class ElementVideoOutput {
         this.fail('this browser has no MediaSource');
         return;
       }
-      const a: Attached = { source: made.source, revoke: made.revoke, firstType: mimeType(codec), buffer: null };
+      const a: Attached = { source: made.source, revoke: made.revoke, firstType: mimeType(codec), managed: made.managed === true, buffer: null };
       this.attached = a;
       this.bufferCodec = codec;
       // WebKit's ManagedMediaSource opens only when remote playback is off (or an AirPlay source is given).
@@ -599,13 +602,13 @@ export class ElementVideoOutput {
       this.startFrames();
       this.armSyncTimer();
       this.queueDuration();
-    } else if (this.afterHold && this.attached.source.removeSourceBuffer) {
+    } else if (this.afterHold && this.attached.managed && this.attached.source.removeSourceBuffer) {
+      // cleared when the operation runs: a reset before it drops the queue, and the next init queues it again
+      this.queue.push({ k: 'rebuffer', type: mimeType(codec), codec });
+    } else {
+      // elsewhere the buffer is reused (Chrome allows one source buffer per media source once one took data)
       this.afterHold = false;
-      this.queue.push({ k: 'rebuffer', type: mimeType(codec) });
-      this.bufferCodec = codec;
-    } else if (codec !== this.bufferCodec) {
-      this.queue.push({ k: 'change', type: mimeType(codec) });
-      this.bufferCodec = codec;
+      if (codec !== this.bufferCodec) this.queue.push({ k: 'change', type: mimeType(codec), codec });
     }
     this.queue.push({ k: 'append', bytes, segment: false, retried: false });
     // and once more after it: Safari on iPhone (ManagedMediaSource) stretches the duration to the last session's end when
@@ -627,6 +630,26 @@ export class ElementVideoOutput {
       return;
     }
     this.useBuffer(a, b);
+    this.pump();
+  }
+
+  /**
+   * The browser refused a new source buffer on the kept media source: the session starts over on a media source of its
+   * own, which ends the system's presentation, rather than failing the element path. The init and segments queued for
+   * the new buffer go into the new source; where the session is placed and whether it plays are kept.
+   */
+  private restartSource(codec: string): void {
+    const rest = this.queue;
+    const pending = this.pendingStart;
+    const playing = this.playing;
+    this.detach();
+    this.pendingStart = pending;
+    this.playing = playing;
+    const first = rest.findIndex((o) => o.k === 'append' && !o.segment);
+    const initOp = first >= 0 ? rest[first] : undefined;
+    if (!initOp || initOp.k !== 'append') return;
+    this.init(initOp.bytes, codec);
+    for (const o of rest.slice(first + 1)) if (o.k === 'append' && o.segment) this.queue.push(o);
     this.pump();
   }
 
@@ -682,16 +705,19 @@ export class ElementVideoOutput {
             this.fail(`the codec could not be changed (${errorMessage(e)})`);
             return;
           }
+          this.bufferCodec = op.codec; // set as it runs: a reset that drops the operation leaves the buffer as it was
           break;
         case 'rebuffer': {
           let fresh: SourceBufferLike;
           try {
             a.source.removeSourceBuffer?.(b);
             fresh = a.source.addSourceBuffer(op.type);
-          } catch (e) {
-            this.fail(`the source buffer could not be replaced (${errorMessage(e)})`);
+          } catch {
+            this.restartSource(op.codec);
             return;
           }
+          this.afterHold = false;
+          this.bufferCodec = op.codec;
           this.useBuffer(a, fresh);
           this.pump(); // the rest of the queue goes into the new buffer
           return;

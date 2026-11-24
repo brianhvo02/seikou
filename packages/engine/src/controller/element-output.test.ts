@@ -108,11 +108,18 @@ class FakeMediaSource implements MediaSourceLike {
   ended = 0;
   private open: Array<() => void> = [];
   removedBuffers: SourceBufferLike[] = [];
+  /** As Chrome: a second source buffer is refused once one took data. */
+  refuseSecond = false;
   removeSourceBuffer(b: SourceBufferLike): void {
     this.removedBuffers.push(b);
     this.buffers = this.buffers.filter((x) => x !== b);
   }
   addSourceBuffer(type: string): SourceBufferLike {
+    if (this.refuseSecond && this.types.length > 0) {
+      const e = new Error('This MediaSource has reached the limit of SourceBuffer objects');
+      e.name = 'QuotaExceededError';
+      throw e;
+    }
     this.types.push(type);
     const sb = new FakeSourceBuffer();
     this.buffers.push(sb);
@@ -271,8 +278,9 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 5; i++) await Promise.resolve();
 };
 
-function setup(opts: { failAppends?: boolean; noMediaSource?: boolean; playable?: (query: ElementQuery) => boolean; noAnimationFrame?: boolean; presented?: { value: boolean } } = {}) {
+function setup(opts: { failAppends?: boolean; noMediaSource?: boolean; playable?: (query: ElementQuery) => boolean; noAnimationFrame?: boolean; presented?: { value: boolean }; managed?: boolean } = {}) {
   const transports: ElementTransport[] = [];
+  const sources: FakeMediaSource[] = [];
   const video = new FakeVideo();
   const ms = new FakeMediaSource();
   const posted: EngineCommand[] = [];
@@ -285,7 +293,12 @@ function setup(opts: { failAppends?: boolean; noMediaSource?: boolean; playable?
     createMediaSource: () => {
       if (opts.noMediaSource) return null;
       created++;
-      return { source: ms, url: 'blob:ms', revoke: () => revoked++ };
+      if (created > 1) {
+        const next = new FakeMediaSource();
+        sources.push(next);
+        return { source: next, url: `blob:ms${created}`, revoke: () => revoked++, ...(opts.managed ? { managed: true } : {}) };
+      }
+      return { source: ms, url: 'blob:ms', revoke: () => revoked++, ...(opts.managed ? { managed: true } : {}) };
     },
     ...(opts.failAppends ? { failAppends: true } : {}),
     ...(opts.presented ? { presented: () => opts.presented!.value, onTransport: (t: ElementTransport) => transports.push(t), makeCue: (start: number, end: number, text: string) => ({ start, end, text }) } : {}),
@@ -340,6 +353,7 @@ function setup(opts: { failAppends?: boolean; noMediaSource?: boolean; playable?
     revoked: () => revoked,
     created: () => created,
     transports,
+    sources,
   };
 }
 
@@ -349,8 +363,8 @@ const seg = (n: number, startUs: number, endUs: number): EngineEvent => ({ type:
 const reset = (startUs: number, paused = false, generation = 1): EngineEvent => ({ type: 'videoReset', startUs, paused, generation });
 
 /** A session opened at `startUs`, its init appended, the buffer ready. */
-function opened(startUs = 0, paused = false, generation = 1, presented?: { value: boolean }) {
-  const t = setup(presented ? { presented } : {});
+function opened(startUs = 0, paused = false, generation = 1, presented?: { value: boolean }, managed = false) {
+  const t = setup({ ...(presented ? { presented } : {}), ...(managed ? { managed } : {}) });
   t.out.handle(reset(startUs, paused, generation));
   t.out.handle(init());
   t.ms.fireOpen();
@@ -1211,7 +1225,7 @@ describe('ElementVideoOutput and a presentation that only seems to end', () => {
 describe('ElementVideoOutput across a playlist change while presented', () => {
   it('keeps the media source for the next session, so Picture in Picture stays open, and releases it once nothing shows it', async () => {
     const presented = { value: true };
-    const t = opened(0, false, 1, presented);
+    const t = opened(0, false, 1, presented, true);
     appendSegment(t, 1, 0, 2);
     t.out.handle({ type: 'videoElementStop' });
     expect(t.video.removedAttrs).toEqual([]);
@@ -1242,5 +1256,79 @@ describe('ElementVideoOutput across a playlist change while presented', () => {
     const t = opened(0, false, 1, { value: false });
     t.out.handle({ type: 'videoElementStop' });
     expect(t.revoked()).toBe(1);
+  });
+});
+
+describe('ElementVideoOutput after a held session, by browser', () => {
+  it('a ManagedMediaSource gets its new buffer even when a second reset comes before the next init', () => {
+    const t = opened(0, false, 1, { value: true }, true);
+    appendSegment(t, 1, 0, 2);
+    t.out.handle({ type: 'videoElementStop' });
+    t.out.handle(reset(0, false, 2));
+    if (t.sb().updating) t.sb().finish();
+    t.out.handle(reset(3_000_000, false, 3)); // a seek, or a jump to a mark, before the init
+    if (t.sb().updating) t.sb().finish();
+    const old = t.sb();
+    t.out.handle(init());
+    if (old.updating) old.finish();
+    expect(t.ms.removedBuffers).toEqual([old]);
+    expect(t.sb()).not.toBe(old);
+  });
+
+  it('a reset after the init queued the new buffer, before it ran, still gets one at the next init', () => {
+    const t = opened(0, false, 1, { value: true }, true);
+    appendSegment(t, 1, 0, 2);
+    t.out.handle({ type: 'videoElementStop' });
+    t.out.handle(reset(0, false, 2));
+    const old = t.sb();
+    t.out.handle(init('hvc1.2.4.L120.90')); // queued behind the removal still in flight
+    t.out.handle(reset(1_000_000, false, 3)); // drops it
+    if (old.updating) old.finish();
+    t.out.handle(init('hvc1.2.4.L120.90'));
+    if (old.updating) old.finish();
+    expect(t.ms.removedBuffers).toEqual([old]);
+    expect(t.ms.types.at(-1)).toBe('video/mp4; codecs="hvc1.2.4.L120.90"');
+  });
+
+  it('elsewhere (Chrome) the kept buffer is reused, changing its codec, and no second buffer is asked for', () => {
+    const t = opened(0, false, 1, { value: true }, false);
+    t.ms.refuseSecond = true;
+    appendSegment(t, 1, 0, 2);
+    t.out.handle({ type: 'videoElementStop' });
+    t.out.handle(reset(0, false, 2));
+    t.out.handle(init('hvc1.2.4.L120.90'));
+    if (t.sb().updating) t.sb().finish();
+    expect(t.ms.removedBuffers).toEqual([]);
+    expect(t.ms.types).toHaveLength(1);
+    expect(t.sb().changed).toEqual(['video/mp4; codecs="hvc1.2.4.L120.90"']);
+    expect(commands(t.posted, 'videoElementFailed')).toEqual([]);
+  });
+
+  it('a refused new buffer starts the session over on a media source of its own, without failing the element path', () => {
+    const t = opened(0, false, 1, { value: true }, true);
+    t.ms.refuseSecond = true;
+    appendSegment(t, 1, 0, 2);
+    t.out.handle({ type: 'videoElementStop' });
+    t.out.handle(reset(0, false, 2));
+    t.out.handle(init());
+    if (t.sb().updating) t.sb().finish(); // the removal; then the refused buffer
+    expect(t.created()).toBe(2);
+    expect(t.revoked()).toBe(1);
+    expect(commands(t.posted, 'videoElementFailed')).toEqual([]);
+    const next = t.sources[0]!;
+    next.fireOpen();
+    expect(next.buffers[0]!.appended).toHaveLength(1); // the init, into the new source
+  });
+
+  it('a reset that drops a queued codec change leaves the change owed', () => {
+    const t = opened(0, false, 1);
+    appendSegment(t, 1, 0, 2);
+    t.out.handle(reset(0, false, 2));
+    t.out.handle(init('hvc1.2.4.L120.90')); // queued behind the removal
+    t.out.handle(reset(1_000_000, false, 3)); // dropped before it ran
+    if (t.sb().updating) t.sb().finish();
+    t.out.handle(init('hvc1.2.4.L120.90'));
+    if (t.sb().updating) t.sb().finish();
+    expect(t.sb().changed).toEqual(['video/mp4; codecs="hvc1.2.4.L120.90"']);
   });
 });

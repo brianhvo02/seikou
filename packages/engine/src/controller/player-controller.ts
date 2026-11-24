@@ -577,7 +577,8 @@ export class PlayerController {
         if (!Ctor) return null;
         const source = new Ctor();
         const url = URL.createObjectURL(source as unknown as MediaSource);
-        return { source: source as unknown as MediaSourceLike, url, revoke: () => URL.revokeObjectURL(url) };
+        const managed = (globalThis as { ManagedMediaSource?: unknown }).ManagedMediaSource;
+        return { source: source as unknown as MediaSourceLike, url, revoke: () => URL.revokeObjectURL(url), managed: managed !== undefined && Ctor === managed };
       },
       playable: ({ codec, hdr, width, height, frameRate }) =>
         elementCheck(

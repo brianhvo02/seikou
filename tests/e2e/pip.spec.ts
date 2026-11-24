@@ -178,3 +178,26 @@ test('the video’s own fullscreen stays open across a playlist change, with the
   await video.evaluate((v: HTMLVideoElement & { webkitExitFullscreen?: () => void }) => v.webkitExitFullscreen?.());
   await expect.poll(() => presentation(page)).toBeNull();
 });
+
+test('Picture in Picture stays open across a playlist change, with no element failure', async ({ page }) => {
+  await page.goto('/?telemetry=1&videopath=element');
+  const browser = page.context().browser()?.browserType().name() ?? '';
+  test.skip(isLinuxWebKit(browser), LINUX_WEBKIT_REALTIME);
+  test.skip(!(await mseSupports(page, H264_HIGH)), `MSE in this browser does not play ${H264_HIGH}`);
+  test.skip(!(await page.evaluate(() => document.pictureInPictureEnabled === true)), 'This browser has no standard Picture in Picture');
+  await setFolder(page.getByTestId('folder-input'), 'fixtures/synthetic/disc1');
+  await page.getByTestId('playlist-00000').click();
+  await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'playing', { timeout: 10_000 });
+  await clickControl(page, 'Picture in Picture');
+  await expect.poll(async () => (await presentation(page)) ?? (await notices(page)).join('|'), { timeout: 5_000 }).toMatch(/^pip$|Picture in Picture/);
+  test.skip((await presentation(page)) !== 'pip', `the browser refused Picture in Picture: ${(await notices(page)).join('|')}`);
+  const video = page.getByTestId('video-element');
+  await page.evaluate(() => (Array.from(document.querySelectorAll('button')).find((b) => /Playlists/.test(b.textContent ?? '')) as HTMLElement).click());
+  await page.evaluate(() => (document.querySelector('[data-testid=playlist-00001]') as HTMLElement).click());
+  await expect(page.getByTestId('player')).toHaveAttribute('data-playlist', '00001', { timeout: 5_000 });
+  await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.duration), { timeout: 5_000 }).toBeCloseTo(14, 1);
+  expect(await presentation(page)).toBe('pip');
+  expect((await telemetry(page))?.elementFailure ?? null).toBeNull();
+  expect((await notices(page)).join('|')).not.toMatch(/couldn.t play/);
+  await page.evaluate(() => document.exitPictureInPicture());
+});
