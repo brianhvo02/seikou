@@ -51,7 +51,7 @@ export interface BdjRuntimeDeps {
   readonly yieldTask?: () => Promise<void>;
   /** JvmOptions.extraIntrinsics: the class library's intrinsics, which the engine does not carry. */
   readonly extraIntrinsics?: (table: NativeTable) => void;
-  /** JvmOptions.jit: compiling hot Java methods to JavaScript (default on). */
+  /** JvmOptions.jit: compiling hot Java methods to JavaScript (default off). */
   readonly jit?: JitMode;
   /** JvmOptions.jitThreshold (measurements). */
   readonly jitThreshold?: number;

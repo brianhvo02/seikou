@@ -29,14 +29,14 @@ const fetchBytes = async (url: string): Promise<Uint8Array> => {
   return new Uint8Array(await response.arrayBuffer());
 };
 
-// Test-only: the page's ?nojit=1 reaches this worker in its name (provider.ts) and keeps Java interpreted;
-// ?jitthreshold=<n> sets the heat at which a method is compiled.
+// Test-only: the page's ?jit=1 reaches this worker in its name (provider.ts) and turns the JIT on (it is off by
+// default); ?jitthreshold=<n> turns it on with that heat for compiling a method.
 const testFlags = new Set(((self as unknown as { name?: string }).name ?? '').split(':')[1]?.split(',') ?? []);
 const jitThreshold = Number([...testFlags].find((f) => f.startsWith('jitthreshold='))?.slice('jitthreshold='.length));
 
 runBdjWorker(globalThis as unknown as BdjPort, {
   extraIntrinsics: registerClassLibraryIntrinsics,
-  jit: testFlags.has('nojit') ? 'off' : 'on',
+  jit: testFlags.has('jit') || (Number.isInteger(jitThreshold) && jitThreshold > 0) ? 'on' : 'off',
   ...(Number.isInteger(jitThreshold) && jitThreshold > 0 ? { jitThreshold } : {}),
   // a failed load is remembered for this worker's session (one BD-J entry): later fonts fail at once rather than each
   // waiting for the fetch's timeout again (natives/fonts.ts, fonts/system-fonts.ts)

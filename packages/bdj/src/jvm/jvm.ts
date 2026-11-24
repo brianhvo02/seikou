@@ -53,9 +53,10 @@ export interface JvmOptions {
   /** The VM's own diagnostics (not Java's output). */
   readonly warn?: (line: string) => void;
   /**
-   * Compiling hot methods to JavaScript (jit.ts): `on` (the default) once a method is hot, `force` the first time a
-   * frame of every method runs (for tests), `off` never. Where code generation is unavailable (a Content Security
-   * Policy without 'unsafe-eval') the JVM runs interpreted whatever this says.
+   * Compiling hot methods to JavaScript (jit.ts): `on` once a method is hot, `force` the first time a frame of every
+   * method runs (for tests), `off` (the default) never; the player runs it off, since it measured no faster at start-up
+   * (docs/known-issues.md). Where code generation is unavailable (a Content Security Policy without 'unsafe-eval') the
+   * JVM runs interpreted whatever this says.
    */
   readonly jit?: JitMode;
   /** The heat at which `on` compiles a method (default JIT_THRESHOLD); for measurements. */
@@ -140,7 +141,7 @@ export class Jvm {
       opts.extraIntrinsics?.(this.natives);
     }
     this.threads = new Scheduler(this, { slice: TIME_SLICE, nowMs: opts.nowMs, setTimer: opts.setTimer, ...(opts.yieldTask ? { yieldTask: opts.yieldTask } : {}) });
-    let mode = opts.jit ?? 'on';
+    let mode = opts.jit ?? 'off';
     if (mode !== 'off' && !codeGeneration()) {
       opts.warn?.('BD-J: code generation is unavailable here (Content Security Policy); Java runs interpreted');
       mode = 'off';

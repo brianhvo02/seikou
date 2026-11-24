@@ -149,7 +149,8 @@ function inProcessWorker(onToBdj: (m: ToBdj) => void, onFromBdj: (m: FromBdj) =>
       handle?.runtime?.jvm.threads.halt();
     },
   };
-  // BDJ_JIT=off|on|force in the environment runs the JVM with that JIT mode (a check by hand; the default is the player's)
+  // BDJ_JIT=off|on|force in the environment runs the JVM with that JIT mode (a check by hand). The replays run it on by
+  // default, unlike the player, so the trace and key-script goldens keep checking it
   const jit = (process.env.BDJ_JIT ?? 'on') as JitMode;
   handle = runBdjWorker(port, { extraIntrinsics: registerClassLibraryIntrinsics, ...testBdjFonts, createStore: () => store, jit, ...(process.env.BDJ_JIT_THRESHOLD ? { jitThreshold: Number(process.env.BDJ_JIT_THRESHOLD) } : {}) });
   onHandle(handle);

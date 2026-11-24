@@ -1,6 +1,6 @@
 // Times BD-J start-up (the `bdj` telemetry, cold and warm) in headless Chrome, or WebKit with ENGINE=webkit, against a
 // running preview: npx tsx tests/bdj/bench-browser.ts <origin> <disc dir> <runs> [query…] (`-` for no query), e.g.
-// `nojit=1 -` to compare the JIT with the interpreter. BENCH_LOG=1 prints the page's console for an open over 15 s.
+// `- jit=1` to compare the interpreter with the JIT. BENCH_LOG=1 prints the page's console for an open over 15 s.
 import { chromium, webkit } from '@playwright/test';
 const [origin, disc, runsArg, ...queryArgs] = process.argv.slice(2);
 // each run opens the disc once per query, in turn, so a load that drifts weighs on every query alike

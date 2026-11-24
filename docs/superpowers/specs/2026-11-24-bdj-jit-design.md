@@ -1,7 +1,8 @@
 # BD-J JIT: a bytecode-to-JavaScript compiler for hot methods — Design Spec
 
 Date: 2026-11-24
-Status: First slice implemented on branch `bdj-jit` (see §9 for what is done and what remains).
+Status: First slice implemented on branch `bdj-jit`, off by default in the player (§8, §9: correct, but no faster at
+start-up where it could be measured).
 Builds on: `2026-10-16-m5c-bdj-playback-design.md` §4.7 (stage 2), `2026-10-15-m5b-bdj-jvm-core-design.md` (the JVM).
 
 ## 1. Why
@@ -75,17 +76,17 @@ variables within a block.)*
   the catch of the inner loop becomes a shared function (`caught`) used by both; a taken backward branch counts
   towards the method's heat.
 - `JMethod` gains `jit` (undefined: not decided; null: interpreted only; else the compiled function) and `heat`.
-- `JvmOptions.jit`: `'off' | 'on' | 'force'` (default `'on'`). `'force'` compiles every method the first time a frame
+- `JvmOptions.jit`: `'off' | 'on' | 'force'` (default `'off'`, §8). `'force'` compiles every method the first time a frame
   of it runs, for the tests. `Jvm.jitStats()` counts methods compiled, refused (with reasons) and failed.
 
 ### 4.2 Heat and when to compile
 
-A method's heat is the number of times the outer loop picks up one of its frames (each entry, each return into it,
-each resumption after a call) plus each taken backward branch while it is interpreted. At 1,000 *(My call: measured,
-§8; a lower bar compiles more one-off methods, whose compile time is not paid back)* the method is compiled the next
-time the outer loop meets one of its frames, which also gives on-stack replacement for free: a long loop in a method
-entered once hops to the outer loop at a backward branch once hot, and continues compiled at the loop head. A method
-is compiled once; one that can't be compiled is marked and never tried again.
+A method's heat is the number of backward branches it has taken while interpreted. At `JIT_THRESHOLD` (§8 gives the
+value and why) the method is compiled the next time the outer loop meets one of its frames, which also gives on-stack
+replacement for free: a long loop in a method entered once hops to the outer loop at a backward branch once hot, and
+continues compiled at the loop head. A method is compiled once; one that can't be compiled is marked and never tried
+again. *(My call: loops only. The first version also counted every entry and return; measured, it compiled hundreds of
+small methods hot only by being called, whose compile and warm-up cost more than they saved, §8.)*
 
 ### 4.3 The compiled function
 
@@ -103,16 +104,23 @@ have stopped alone; otherwise it charges N. Any exit from the middle of a block 
 exiting one, and an exception refunds by a per-pc table. So a thread's slices end on the same instruction with the JIT
 as without, and the scheduler interleaves threads identically.
 
-**State.** Locals and stack stay in the frame's arrays, addressed with constant indices; `frame.sp` is written only
-where something reads it (calls, class initialisation, monitors, exits). `frame.pc` is written before every
-instruction that the interpreter writes it for (from `getstatic` on, and `ldc`) when what follows can observe it, and
-a local `pc` tracks the instruction that may throw, so the catch sets `frame.pc` and `frame.sp` (from the per-pc depth
+**State.** The locals and the operand stack's slots live in JS variables (`l<n>`, `s<i>`) while the compiled code runs.
+A local is written through to the frame as it is stored; the operand stack is spilled to the frame before anything
+else can see it (a call, a throw, class initialisation, a blocked monitor, an exit) and read back after. Within a block
+a slot is held as a pending JS expression while it is pure (loads, constants, arithmetic that cannot throw,
+conversions, comparisons), so a run of loads and arithmetic becomes one statement; a store to a local first gives the
+pending expressions that read it their value. `frame.sp` is written only where something reads it, `frame.pc` before
+every instruction that the interpreter writes it for when what follows can observe it, and a local `pc` tracks the
+instruction that may throw, so the catch spills the stack and sets `frame.pc` and `frame.sp` (from the per-pc depth
 table) exactly as the interpreter's catch does, then runs the same code (`caught`).
 
 **After a call.** The interpreter returns to its outer loop after every invoke; the outer loop re-checks the thread
-(state, preemption) and picks the top frame. A compiled method does the same checks inline: when the frame is still on
-top, the thread runnable and not preempted, it continues at the frame's `pc` inside the same function, which is what
-the outer loop would have done.
+(state, preemption) and picks the top frame. A compiled method does the same checks (`R.after`): when the frame is
+still on top, the thread runnable and not preempted, it continues at the frame's `pc` inside the same function; when
+the call pushed a frame of a compiled method right above it, that method runs nested, on the JS stack, as the outer
+loop would have run it next, at most 48 deep (`JIT_MAX_NESTING`); its return comes back the same way. Either is
+what the outer loop would have done. The invokes themselves are shared runtime functions mirroring the interpreter's
+(`invokeVirtual`, `invokeInterface`, `invokeStatic`, `invokeSpecial`), so each call site stays short.
 
 **Constants.** A constant-pool reference already resolved when the method is compiled is folded in (field slots, a
 method, a class), since resolution is a cache lookup with no effects once resolved. An unresolved one calls the same
@@ -121,7 +129,7 @@ interpreter's check.
 
 **Not compiled** (null): `jsr`/`ret` (and `wide ret`), a stack-depth conflict or an unknown opcode, bytecode longer
 than 16 KiB *(My call: a generated function that large is slow to parse and such methods are run once, as class
-initialisers)*. Everything else is compiled: exception handlers and `synchronized` work unchanged because they live in
+initialisers)*, more than 400 locals and stack slots together (each is a JS variable). Everything else is compiled: exception handlers and `synchronized` work unchanged because they live in
 the interpreter's `throwInto` and `ret` and the frame's `lock`.
 
 ### 4.4 Code generation and the Content Security Policy
@@ -134,10 +142,11 @@ Firefox allow `new Function` in a worker without a CSP. The JVM still probes onc
 without `'unsafe-eval'` gets the interpreter. *(My call: probe rather than assume — a page embedding the packages may
 send a CSP.)*
 
-### 4.5 Test flag
+### 4.5 Test flags
 
-`?nojit=1` (test-only, like `?bdjfail=1`) runs the BD-J worker with the JIT off, so the same build can be measured
-both ways. It reaches the BD-J worker through the worker's name, as the engine worker's flags do.
+`?jit=1` (test-only, like `?bdjfail=1`) runs the BD-J worker with the JIT on, and `?jitthreshold=<n>` with the JIT on
+at that heat, so the same build can be measured both ways. They reach the BD-J worker through the worker's name, as
+the engine worker's flags do. Telemetry's `bdjMemory.jvm.jitCompiled` and `jitCompileMs` say what it compiled.
 
 ## 5. Constraints
 
@@ -154,22 +163,65 @@ inside compiled code is a JVM fault, as in the interpreter.
 
 ## 7. Testing
 
-- `packages/bdj/src/jvm/jit.test.ts`: the dataflow and block split; compiled code against the interpreter on
-  assembled methods (arithmetic, branches, switches, arrays, fields, exceptions caught in the same and an outer frame,
-  an NPE's stack trace pc, a blocked monitor, `<clinit>` triggered from compiled code, a call that completes in place);
-  budget equivalence (a thread preempted after exactly N instructions with and without the JIT); refusal of `jsr`; the
-  CSP fallback with `new Function` throwing.
+- `packages/bdj/src/jvm/jit.test.ts`: the stack-depth dataflow and the blocks; compiled code against the interpreter
+  on assembled methods (a loop, an exception caught in its own frame and in its caller); the pc an exception's stack
+  trace records; budget equivalence (24 slice lengths, each followed by a second slice: the frame's pc, sp, locals and
+  stack the same with and without the JIT); refusal of `jsr`; the CSP fallback with `new Function` throwing.
 - The conformance suite, all of it, a second time with `jit: 'force'`, asserting no compile failed.
-- The BD-J trace comparison, replay and key-script tests unchanged (JIT on by default); `tests/local/bdj-menus.test.ts`
+- The BD-J trace comparison, replay and key-script tests unchanged (the replays run the JIT on; `BDJ_JIT=force` by hand); `tests/local/bdj-menus.test.ts`
   and `tests/local/bdj-boot.test.ts` with the local discs, also with the JIT forced.
 - Start-up measured with the local discs in Node (`tests/bdj/bench-startup.ts`: CPU time and first `selectPlaylistN`
   of the in-process replay) and in headless Chromium (`bdj.bootMs`, `firstPlaylistMs`, `firstFrameMs`, cold and warm)
-  with `?nojit=1` against the default in the same build.
+  and headless WebKit, with `?jit=1` against the interpreter in the same build.
 
 ## 8. Measurements
 
-Recorded in §9 and `docs/known-issues.md` once taken.
+All on the developer's Mac, BDJ_DISC_A, while another session loaded it heavily until about 01:50 (load
+average 20-42) and lightly after (5-10); only the light-load runs are compared below.
+
+- **Browser, light load, production build, 6 runs per arm alternating** (`tests/bdj/bench-browser.ts`), `bdj.firstFrameMs`
+  medians, interpreter / JIT at heat 1,000 / JIT at 20,000:
+  - Chrome: cold 4,865 / 4,870 / 4,864 ms, warm 4,840 / 4,862 / 4,868 ms (each arm's runs within about 30 ms).
+  - WebKit (JavaScriptCore, the iPhone's engine): cold 5,047 / 5,065 / 5,026 ms, warm 5,078 / 5,017 / 4,986 ms
+    (runs spread 4.9-6.5 s).
+  The JIT runs (telemetry: 87 methods compiled in about 20 ms at heat 1,000, 211 in about 40 ms at 100) and changes
+  nothing measurable: Java's interpreted share of BDJ_DISC_A's start-up is a few hundred ms of the 4.9 s, and most of
+  it is spread over thousands of methods that never get hot.
+- **Node, the in-process replay to the first `selectPlaylistN`** (`tests/bdj/bench-startup.ts`, 5 runs per arm,
+  time Java ran, `threads.runMs`), cold (first JVM in the process) / warm (second): interpreter 1,194 / 977 ms; heat
+  1,000: 1,499 / 1,030; 5,000: 1,315 / 1,033; 20,000: 1,248 / 947. Compiling costs little (87 methods in about 30 ms);
+  the loss is the compiled functions' own warm-up in V8, which runs new code in its interpreter (Ignition) until it is
+  hot, while the BD-J interpreter's one big loop is already optimised.
+- **Steady state** (`tests/bdj/bench-loop.ts`, a 13-bytecode integer loop; `fib(20)` from the conformance classes):
+  the loop runs about 2.7x faster compiled (about 1 ns per bytecode against 2.9), and call-heavy `fib` about 1.6x
+  (54 against 90 ms) once compiled methods call compiled methods nested.
+- **JavaScriptCore's shell** (`jsc`, the JDK boot and five conformance programs 20 times, bundled with esbuild):
+  interpreter 217-310 ms, JIT 225-346 ms: no gain there either.
+- A bytecode profile of the start-up (`tests/bdj/bench-profile.ts`): 39.6 M bytecodes in 7,497 methods; the hottest
+  are the JDK's jar and manifest reading (`Inflater`, `Attributes.read`, `ManifestDigester`, `HashMap`), the disc's
+  own string decoding and `BDGraphicsBase.drawImageN`.
+
+*(My call: the JIT ships off in the player — `JvmOptions.jit` defaults to `off` and `?jit=1` turns it on. It is correct
+by every oracle we have, but it measured no faster at start-up in Chrome, WebKit, Node or JavaScriptCore's shell,
+so turning it on would add a code path to every BD-J boot for no measured gain. The replays and the conformance suite
+run it, so it stays tested, and a device can be measured with `?jit=1` against the default.)*
 
 ## 9. Status
 
-Filled in as the slice lands.
+Done (branch `bdj-jit`): the compiler (`packages/bdj/src/jvm/jit.ts`) with locals and stack in JS variables, pure
+expressions folded within a block, shared invoke steps, compiled-to-compiled calls nested on the JS stack, exact
+budget equivalence, exception and handler semantics through the interpreter's own functions; the heat counter on
+backward branches with on-stack entry at a loop head; the CSP probe and fallback; `JvmOptions.jit` and
+`jitThreshold`, `Jvm.jitStats()`, `bdjMemory.jvm.jitCompiled`; `?jit=1` and `?jitthreshold=<n>`; the conformance suite
+forced (16,506 methods compiled, none refused or failed); the trace, key-script and local-disc goldens unchanged with
+the JIT on and forced.
+
+Not done, and what would come next if the owner wants the lever after all:
+
+- A device measurement: the iPhone 17 Pro and the iPad with `?telemetry=1` against `?telemetry=1&jit=1` (the device
+  was in use by another lane tonight). On the Mac, WebKit gained nothing, so the iPhone is unlikely to.
+- The cost the JIT can't remove: a new BD-J worker starts every JS function cold, and the start-up's bytecodes are
+  spread thin. Levers that fit that better: intrinsics for the JDK's jar-manifest path (stage 1's kind of work, about
+  a third of the interpreted time per the 5d notes), or caching the boot's state across BD-J entries.
+- Speculative typing (ints unboxed), inlining of small callees, and the compact constant-pool form named in the
+  roadmap row (the memory lever) were not started.

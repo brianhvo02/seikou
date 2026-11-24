@@ -1,4 +1,4 @@
-// The conformance suite with the JIT as the player runs it (hot methods compiled); conformance-jit.test.ts forces it.
+// The conformance suite with the JIT on (hot methods compiled); conformance-jit.test.ts compiles every method.
 import { defineConformance } from './conformance-cases';
 
 defineConformance('on');

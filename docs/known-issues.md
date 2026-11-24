@@ -403,6 +403,20 @@ what would change that decision.
 
 ## BD-J (milestones 5b-5e)
 
+- **The JIT is built but off: it measured no faster at start-up (2026-11-24).** `packages/bdj/src/jvm/jit.ts`
+  (spec `docs/superpowers/specs/2026-11-24-bdj-jit-design.md`) compiles hot methods to JavaScript, frame by frame,
+  and passes every oracle with it on and with every method forced through it (the conformance suite, 16,506 methods;
+  the trace, key-script and local-disc goldens). On BDJ_DISC_A it changed nothing measurable: Chrome's
+  `firstFrameMs` medians 4,865 ms interpreted against 4,870 with the JIT, cold, and 4,840 against 4,862 warm (6 runs
+  each, a lightly loaded Mac); headless WebKit 5,047 against 5,065 cold and 5,078 against 5,017 warm, its runs spread
+  over 1.5 s. In Node's replay the JIT made Java's own time slower cold (1,194 to 1,499 ms at heat 1,000, 1,248 at
+  20,000): each compiled method starts cold in the JS engine, while the interpreter's one loop is already optimised,
+  and the start-up's 40 M bytecodes are spread over 7,500 methods. Compiled code is faster once warm (a tight loop
+  2.7x, call-heavy code 1.6x). So `JvmOptions.jit` defaults to `off`, the player runs it off, and `?jit=1` (or
+  `?jitthreshold=<n>`) turns it on for a measurement. *Revisit when* a device (the iPhone or iPad, whose cold start
+  misses its 10 s target) measures faster with `?jit=1`, or BD-J work outside start-up (long menu animations) needs
+  the steady-state speed.
+
 - **5c timings (Chrome, production build, this machine).** Time from opening the disc to the first frame of the
   title's playlist, as `bdj.firstFrameMs`:
 
@@ -413,8 +427,8 @@ what would change that decision.
 
   The margin to the 5 s target on BDJ_DISC_A is 12-66 ms. About 4.0 s of its time is the disc's own animation and a
   `Thread.sleep(3000)`; about 0.7 s is interpretation. On a slower machine the local 5 s check may fail. 5e left
-  the JIT (spec 5c section 4.7, stage 2) out, by the user's choice (start-up behaves fine); it stays the lever if the
-  margin is needed. Stage 1 (intrinsics) replaced the 5b figure of about 26 s in Node.
+  the JIT (spec 5c section 4.7, stage 2) out, by the user's choice (start-up behaves fine); built on 2026-11-24, it
+  measured no faster (the entry above) and is off. Stage 1 (intrinsics) replaced the 5b figure of about 26 s in Node.
 - **5d responsiveness and start-up (Task 11; Chrome, production build, this machine).** Menu responsiveness is
   telemetry `bdj.inputLatencyMs` (last, max, count): from a key press or click reaching the engine worker to the next
   presented frame whose BD-J plane holds a publication made after it. The first publication presented after an input
@@ -534,7 +548,8 @@ what would change that decision.
   of BDJ_DISC_A's time is its own animation and `Thread.sleep(3000)`; about a third of the interpreted part is the JDK
   re-verifying the signed `00000.jar`, as HotSpot does (R10). With the iPhone and iPad gate run concurrently on one
   disc server the iPhone took 12.7-20.3 s; that was the shared connection, not the player. A JIT (5c spec
-  section 4.7, stage 2) is the lever; 5e left it out by the user's choice. Menu responsiveness: at
+  section 4.7, stage 2) was thought the lever; built on 2026-11-24, it measured no faster on the Mac in Chrome or
+  WebKit and is off (`?jit=1` to measure it on a device). Menu responsiveness: at
   most 68 ms on every device (bars 0.2 s computer, 0.5 s iPhone). Ten minutes in the menus (200 inputs) brought no
   reload on the iPhone, the iPad, the iPad Simulator or Mac Safari; desktop Chrome and Firefox stayed 120 s.
   Measured device memory stayed well under the constrained budgets (class bytes 1.33 of 4 MB, VFS 4.6 of 64 MB,
