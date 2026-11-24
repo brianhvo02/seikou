@@ -23,6 +23,7 @@ interface Sample extends TelemetrySample {
     stats: { mode: 'progressive' | 'film' | 'video'; fieldOrder: 'tff' | 'bff'; fallback: boolean } | null;
     woven: string | null;
     cpu: string | null;
+    cpuStep: 'field' | 'frame' | 'woven' | null;
   } | null;
 }
 
@@ -171,18 +172,20 @@ test('a VC-1 interlaced playlist plays with a picture and is deinterlaced', asyn
   await expect(page.getByRole('status').filter({ hasText: NO_PICTURE_NOTICE })).toHaveCount(0);
 });
 
-// Off needs no GPU: it runs on every runner, and checks the deinterlacer was running first only where it can.
+// Off needs no GPU: it runs on every runner, and checks first that the GPU deinterlacer, or on a software WebGL
+// renderer the CPU path, was running, or why neither could.
 test('Deinterlacing Off draws MPEG-2 woven', async ({ page }) => {
   await open(page, MPEG2_DISC, '00000');
   const d = await deinterlacerDecision(page);
-  if (d.woven === null) await expect.poll(async () => (await sample(page))?.deinterlace?.stats?.mode, { timeout: 10_000 }).toBe('video');
+  if (d.cpu !== null) expect(d).toMatchObject({ woven: null, stats: null, cpuStep: expect.stringMatching(/^(field|frame|woven)$/) });
+  else if (d.woven === null) await expect.poll(async () => (await sample(page))?.deinterlace?.stats?.mode, { timeout: 10_000 }).toBe('video');
   else expect(d.woven).toMatch(NO_DEINTERLACER);
 
   await page.getByTestId('player').hover();
   await page.getByTestId('video-output-menu').click();
   await page.getByTestId('deinterlace-off').click();
   await expect.poll(async () => (await sample(page))?.deinterlace?.setting, { timeout: 5_000 }).toBe('off');
-  expect((await sample(page))!.deinterlace).toMatchObject({ setting: 'off', stats: null, woven: 'Deinterlacing is off' });
+  expect((await sample(page))!.deinterlace).toMatchObject({ setting: 'off', stats: null, woven: 'Deinterlacing is off', cpu: null, cpuStep: null });
 
   // the playlist reopened at the same time, still decoded by the WASM decoder, and pictures keep coming
   const from = (await sample(page))!.framesPresented ?? 0;

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { copyPlane, FieldBob } from './cpu-bob';
+import { BOB_DROP_SHARE, BOB_SETTLE_PICTURES, BOB_WINDOW, copyPlane, FieldBob } from './cpu-bob';
 import type { FieldFlags, FieldInput } from './field-input';
 
 interface Made {
@@ -80,6 +80,70 @@ describe('FieldBob', () => {
     b.pictures(input({ fieldOrder: 'tff' }, 'NV12'));
     expect(made[0]!.init.format).toBe('NV12');
     expect([...made[0]!.data.subarray(16, 24)]).toEqual([100, 200, 100, 200, 100, 200, 100, 200]);
+  });
+});
+
+/** Pictures the step-down needs to decide: the settling pictures and one full window. */
+const DECIDE = BOB_SETTLE_PICTURES + BOB_WINDOW;
+
+/** Reports `n` pictures, each presented or (with probability by pattern) dropped: `dropEvery` drops one in that many. */
+function outcomes(b: FieldBob, n: number, dropEvery: number): void {
+  for (let i = 0; i < n; i++) {
+    if (i % dropEvery === 0) b.notePresentation(0, 1);
+    else b.notePresentation(1, 0);
+  }
+}
+
+describe('FieldBob pacing', () => {
+  it('stays at field rate while few of its pictures are dropped (a 50 Hz display drops a sixth of 59.94)', () => {
+    const { bob: b } = bob();
+    outcomes(b, 4 * DECIDE, 6);
+    expect(b.step).toBe('field');
+  });
+
+  it('ignores what happens while it settles: the start, and again after settle() (a pause, a seek, the page hidden)', () => {
+    const { bob: b } = bob();
+    outcomes(b, BOB_SETTLE_PICTURES, 1); // every one dropped while settling
+    outcomes(b, BOB_WINDOW, 10);
+    expect(b.step).toBe('field');
+    outcomes(b, BOB_WINDOW - 1, 1);
+    b.settle();
+    outcomes(b, BOB_SETTLE_PICTURES, 1);
+    outcomes(b, BOB_WINDOW, 10);
+    expect(b.step).toBe('field');
+  });
+
+  it('steps down to one picture a frame when a window drops more than its share, then to woven frames if that still does', () => {
+    const { bob: b, made } = bob();
+    expect(BOB_DROP_SHARE).toBeLessThan(1 / 2);
+    outcomes(b, DECIDE - 1, 2);
+    expect(b.step).toBe('field');
+    outcomes(b, 1, 2);
+    expect(b.step).toBe('frame');
+
+    // one picture a frame: the first field made whole, shown for the frame's two fields
+    expect(b.pictures(input({ fieldOrder: 'bff' }))).toHaveLength(1);
+    expect(luma(made[0]!)).toEqual([20, 20, 30, 40]);
+    expect(made[0]!.init).toMatchObject({ timestamp: 1_000_000, duration: 2 * 16_683 });
+    made.length = 0;
+    b.pictures(input({ fieldOrder: 'tff', repeatFirstField: true }));
+    expect(made.map((m) => m.init.duration)).toEqual([3 * 16_683]);
+
+    // the pictures queued before the step settle first, then a window at the new step that still drops goes woven
+    outcomes(b, DECIDE, 2);
+    expect(b.step).toBe('woven');
+    made.length = 0;
+    b.pictures(input({ fieldOrder: 'tff' }));
+    expect(luma(made[0]!)).toEqual([10, 20, 30, 40]);
+    expect(made[0]!.init).toMatchObject({ timestamp: 1_000_000, duration: 2 * 16_683 });
+  });
+
+  it('stays at one picture a frame when that keeps up', () => {
+    const { bob: b } = bob();
+    outcomes(b, DECIDE, 2);
+    expect(b.step).toBe('frame');
+    outcomes(b, 4 * DECIDE, 20);
+    expect(b.step).toBe('frame');
   });
 });
 

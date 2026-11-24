@@ -63,6 +63,7 @@ interface DeinterlaceSample extends TelemetrySample {
     stats: { mode: 'progressive' | 'film' | 'video'; fieldOrder: 'tff' | 'bff'; fieldOrderSource: string; fallback: boolean; frameRate: boolean; locks: number; breaks: number } | null;
     woven: string | null;
     cpu: string | null;
+    cpuStep: 'field' | 'frame' | 'woven' | null;
   } | null;
 }
 
@@ -291,30 +292,51 @@ test("the deinterlacer's GPU passes equal their CPU references: field measuremen
   expect(checks.filter((c) => !c.ok)).toEqual([]);
 });
 
-test('on a software WebGL renderer, interlaced video is made whole field by field on the CPU, at field rate', async ({ playwright, browserName, baseURL }) => {
+/** Plays the interlaced playlist on `page`, whose WebGL draws in software, and checks the CPU path. */
+async function checkCpuPath(page: Page): Promise<void> {
+  await expect.poll(async () => (await deinterlaceOf(page))?.cpu ?? null, { timeout: 10_000, message: 'telemetry names the software renderer' }).toMatch(/SwiftShader|llvmpipe/i);
+  expect(await deinterlaceOf(page)).toMatchObject({ setting: 'auto', woven: null, stats: null });
+  const windows = (await collectWindows(page, 3_800_000)) as DeinterlaceSample[];
+  for (const w of windows) expect(w.clockMode).toBe('audio');
+  // a machine too slow for field rate steps down once a window of pictures has been judged (`FieldBob`, about 1.5 s
+  // of video in): what is judged is what plays after the last step
+  const step = windows.at(-1)!.deinterlace!.cpuStep;
+  const settled = windows.filter((w) => w.deinterlace?.cpuStep === step);
+  console.log(`software renderer: step ${step}; windows (step, clock s, mean/max offset ms, presented): ${windows.map((w) => `${w.deinterlace?.cpuStep} ${(w.clockUs / 1e6).toFixed(2)} ${Math.round((w.avOffsetMeanUs ?? 0) / 1000)}/${Math.round((w.avOffsetMaxAbsUs ?? 0) / 1000)} ${w.framesPresented}`).join(', ')}`);
+  expect(settled.length).toBeGreaterThan(step === 'field' ? 3 : 1);
+  expectInSync(settled);
+  const a = settled[0]!;
+  const b = settled.at(-1)!;
+  const rate = ((b.framesPresented ?? 0) - (a.framesPresented ?? 0)) / ((b.clockUs - a.clockUs) / 1e6);
+  console.log(`software renderer: ${rate.toFixed(1)} pictures a second presented`);
+  // field rate is close to 59.94 a second presented; a step down shows one picture a frame, close to 29.97
+  expect(rate).toBeGreaterThan(step === 'field' ? 45 : 25);
+  expect(b.decoderErrors).toBe(0);
+}
+
+test('on a software WebGL renderer, interlaced video is made whole field by field on the CPU, at field rate, or steadily at frame rate where the machine is too slow', async ({ page, playwright, browserName, baseURL }) => {
   test.skip(browserName !== 'chromium', 'SwiftShader is forced through a Chrome switch');
-  // Chrome drawing WebGL with SwiftShader, as on a machine without a GPU (CI's runners, many virtual machines)
+  await page.goto('/?telemetry=1&videopath=canvas');
+  await skipWithoutH264(page);
+  await setFolder(page.getByTestId('folder-input'), DISC);
+  await page.getByTestId('playlist-00000').click();
+  await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'playing', { timeout: 10_000 });
+  await expect.poll(async () => (await deinterlaceOf(page)) ?? null, { timeout: 10_000, message: 'telemetry says how the playlist is deinterlaced' }).not.toBeNull();
+  // a machine without a GPU (CI's Linux runners) already draws WebGL in software: checked as it is. Elsewhere Chrome is
+  // forced onto SwiftShader, which there also composites the page on the emulated GPU, slower than a machine without
+  // one composites it (on a CI runner, that cut the page's own animation frames to 16 to 20 a second)
+  if ((await deinterlaceOf(page))?.cpu) {
+    await checkCpuPath(page);
+    return;
+  }
   const browser = await playwright.chromium.launch({ channel: 'chrome', args: ['--autoplay-policy=no-user-gesture-required', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'] });
   try {
-    const page = await (await browser.newContext({ baseURL })).newPage();
-    await page.goto('/?telemetry=1&videopath=canvas');
-    await skipWithoutH264(page);
-    await setFolder(page.getByTestId('folder-input'), DISC);
-    await page.getByTestId('playlist-00000').click();
-    await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'playing', { timeout: 10_000 });
-    await expect.poll(async () => (await deinterlaceOf(page))?.cpu ?? null, { timeout: 10_000, message: 'telemetry names the software renderer' }).toMatch(/SwiftShader/i);
-    expect(await deinterlaceOf(page)).toMatchObject({ setting: 'auto', woven: null, stats: null });
-    // in sync with the sound, and two pictures a frame: close to 59.94 a second presented (29.97 when woven)
-    const windows = await collectWindows(page, 3_800_000);
-    expect(windows.length).toBeGreaterThan(3);
-    for (const w of windows) expect(w.clockMode).toBe('audio');
-    expectInSync(windows);
-    const a = windows[0]!;
-    const b = windows.at(-1)!;
-    const rate = ((b.framesPresented ?? 0) - (a.framesPresented ?? 0)) / ((b.clockUs - a.clockUs) / 1e6);
-    console.log(`software renderer: ${rate.toFixed(1)} pictures a second presented`);
-    expect(rate).toBeGreaterThan(45);
-    expect(b.decoderErrors).toBe(0);
+    const forced = await (await browser.newContext({ baseURL })).newPage();
+    await forced.goto('/?telemetry=1&videopath=canvas');
+    await setFolder(forced.getByTestId('folder-input'), DISC);
+    await forced.getByTestId('playlist-00000').click();
+    await expect(forced.getByTestId('player')).toHaveAttribute('data-state', 'playing', { timeout: 10_000 });
+    await checkCpuPath(forced);
   } finally {
     await browser.close();
   }

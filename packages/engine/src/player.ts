@@ -825,6 +825,7 @@ export class Player {
       this.pageHidden = cmd.hidden;
       if (cmd.hidden && this.speedProbeRun) this.speedProbeRun.disturbed = true;
       this.interlacedVideo?.settlePacing();
+      this.session?.bob?.settle();
       this.bdj?.session.setHidden(cmd.hidden);
       return Promise.resolve();
     }
@@ -1103,12 +1104,24 @@ export class Player {
 
   /**
    * Tells an interlaced session's pacing check what this tick did: the selected picture's lateness and the pictures
-   * the presenter dropped since the last tick (`PacingMonitor` has the rule). Progressive and woven sessions report
-   * nothing.
+   * the presenter dropped since the last tick (`PacingMonitor` has the rule), or, on the CPU path, what it presented and
+   * dropped (`FieldBob.notePresentation`), settling it while not playing or hidden. Progressive and woven sessions
+   * report nothing.
    */
   private notePicturePacing(s: Session, frame: VideoFrame | Picture | null, nowUs: number): void {
     const dropped = this.presenter.dropped - this.pacingDropped;
     this.pacingDropped = this.presenter.dropped;
+    const bob = s.bob;
+    if (bob) {
+      if (this.state !== 'playing' || this.held || this.pageHidden) {
+        bob.settle();
+        return;
+      }
+      const step = bob.step;
+      bob.notePresentation(frame ? 1 : 0, dropped);
+      if (bob.step !== step) this.deps.log?.(`The CPU deinterlacer can't keep up: ${bob.step === 'frame' ? 'one picture a frame' : 'frames drawn woven'} for this playlist`);
+      return;
+    }
     const video = s.deinterlace?.video;
     if (!video) return;
     const picture = frame && video.owns(frame) ? frame : null;
@@ -1237,7 +1250,7 @@ export class Player {
   private deinterlaceTelemetry(s: Session | null): DeinterlaceTelemetry | null {
     if (!s?.interlaced) return null;
     const { setting, woven, stats, cpu } = this.deinterlaceState;
-    return { setting, woven, stats, cpu };
+    return { setting, woven, stats, cpu, cpuStep: s.bob?.step ?? null };
   }
 
   /**

@@ -53,6 +53,11 @@ export interface DeinterlaceTelemetry {
    * when it isn't.
    */
   readonly cpu: string | null;
+  /**
+   * How much the CPU path makes of each frame (with `cpu`): `field` (field rate), or after it fell behind, `frame` (one
+   * interpolated picture a frame) or `woven` (the frames as decoded); null when the CPU path isn't in use.
+   */
+  readonly cpuStep: 'field' | 'frame' | 'woven' | null;
 }
 
 /**

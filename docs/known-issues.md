@@ -248,8 +248,16 @@ what would change that decision.
   average of their neighbours) and shown at field rate, and telemetry's `deinterlace.cpu` names the renderer. It has
   no film detection, so telecined film plays at field rate with its 3:2 judder, and no motion-adaptive weaving, so
   still detail flickers a little where bwdif would keep it sharp. Measured in Chrome forced onto SwiftShader on a Mac:
-  57 pictures a second for 1080i at 29.97, in sync with the sound (`deinterlace.spec.ts`). *Revisit if* film on such
-  machines matters: the CPU cadence detector (`metrics-cpu.ts`) could pick the film frames.
+  57 pictures a second for 1080i at 29.97, in sync with the sound (`deinterlace.spec.ts`). The line interpolation runs
+  on the engine worker's thread, which also presents the pictures. On a GitHub runner (4 cores, no GPU) it keeps
+  field rate, 51 to 53 pictures a second; with Chrome forced onto SwiftShader there too, which also composites the
+  page on the emulated GPU, it took 16 to 25 ms a frame and showed 5 to 17 pictures a second. So
+  `FieldBob` watches what becomes of its pictures and steps down for the rest of the playlist when the presenter
+  drops more than a quarter of a window of 60 (counted while playing on a visible page, after 30 to settle): to one
+  picture a frame (its first field), then, if that still drops as many, to the frames woven (telemetry's
+  `deinterlace.cpuStep`: `field`, `frame` or `woven`). A 50 Hz display drops a sixth of 59.94 pictures and stays at
+  field rate. The first second or so of such a playlist still drops pictures, before the window is full. *Revisit if* film on such machines matters: the CPU cadence detector
+  (`metrics-cpu.ts`) could pick the film frames.
 - **Firefox on macOS deinterlaces H.264 with softer colour at moving edges.** Its WebCodecs decoder gives H.264 frames
   as BGRX (RGB), not YUV planes. `framePlanes` converts them back to I420 on the CPU (`rgbToI420`: 7.6 ms a 1080
   frame in Firefox on an Apple silicon Mac, about a quarter of a core at 29.97; an older Mac will take longer), taking each chroma row from one field, but Firefox has already blended the two fields' chroma in its RGB, as
@@ -795,11 +803,11 @@ what would change that decision.
 - **WebKit on Linux CI runs no real-time playback tests.** On GitHub's GPU-less runners, Playwright's Linux WebKit missed a different set of timing windows on every run (frames presented, remote presses, pauses landing), even on a runner of its own. Tests that need real-time playback skip there (`LINUX_WEBKIT_REALTIME` in `tests/e2e/support.ts`); the landing, capability, folder-picking, layout and offline tests still run. They all run in WebKit on macOS, and real Safari is covered by the real-device test.
 - **Linux CI checks little of MPEG-2 and VC-1 playback.** `tests/e2e/mpeg-vc1.spec.ts` runs in full on macOS (Chrome,
   Firefox, WebKit and the mobile Chrome emulation, every test passing), and that is where its deinterlacing and sync
-  are checked. GitHub's Linux runners have no GPU, so WebGL draws in software there and the player draws interlaced
-  pictures woven, as it does on any machine without a graphics chip; the tests that check the deinterlacer's modes,
-  its sync and VC-1 deinterlacing skip with that reason. What each browser checks on Linux CI:
+  are checked. GitHub's Linux runners have no GPU, so WebGL draws in software there and the player makes interlaced
+  pictures whole on the CPU (above), as it does on any machine whose WebGL draws in software; the tests that check the
+  GPU deinterlacer's modes, its sync and VC-1 deinterlacing skip with that reason. What each browser checks on Linux CI:
   - Chrome and the mobile Chrome emulation: the progressive MPEG-2 playlist in sync (at CI's widened bounds), every
-    interlaced MPEG-2 and VC-1 playlist drawing WASM pictures (woven), Deinterlacing Off, and the no-decoder case.
+    interlaced MPEG-2 and VC-1 playlist drawing WASM pictures (made whole on the CPU), Deinterlacing Off, and the no-decoder case.
   - Firefox: the same, except that the progressive playlist's sync isn't checked (Firefox there has no running audio
     output, so there is no audio clock; the test still checks its pictures).
   - WebKit: the interlaced playlists drawing WASM pictures, Deinterlacing Off and the no-decoder case; the progressive

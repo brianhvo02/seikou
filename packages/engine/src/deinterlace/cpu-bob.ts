@@ -14,15 +14,49 @@ export type MakeVideoFrame = (data: Uint8Array, init: VideoFrameBufferInit) => V
 const defaultMakeFrame: MakeVideoFrame = (data, init) => new VideoFrame(data as Uint8Array<ArrayBuffer>, init);
 
 /**
+ * How much of the CPU path's output a frame gets: `field` (each field made whole, field rate), `frame` (the first field
+ * made whole, one picture a frame) or `woven` (the frame as decoded, one picture a frame, no interpolation).
+ * @internal
+ */
+export type BobStep = 'field' | 'frame' | 'woven';
+
+/**
+ * Pictures whose fate isn't counted after a start, a step or `settle()`: the pictures queued then were made the old
+ * way, and the clock and the decoder are still finding their pace. @internal
+ */
+export const BOB_SETTLE_PICTURES = 30;
+/** Pictures (presented or dropped) whose share of drops decides a step: about a second at field rate. @internal */
+export const BOB_WINDOW = 60;
+/**
+ * The share of a window's pictures the presenter may drop unshown before the CPU path steps down. The CPU path runs on
+ * the engine worker's thread, which also presents the pictures, reads and demuxes, and its pictures go through the
+ * software renderer: where the machine can't keep up the presentation ticks starve and most pictures are dropped late
+ * (a 4-core CI runner showed under 17 pictures a second of 59.94, dropping over 70%). A healthy 60 Hz display drops
+ * none, and a 50 Hz one a sixth of 59.94, below this.
+ * @internal
+ */
+export const BOB_DROP_SHARE = 0.25;
+
+/**
  * Shows interlaced video at field rate with no GPU work: each field of a decoded frame becomes a whole picture, its
  * lines kept and the other field's lines filled by the average of the lines above and below (line interpolation, as
  * the GPU deinterlacer's fall-back does). There is no film detection: telecined film shows at field rate too. A frame
  * flagged progressive is shown whole, and a repeated first field (soft pulldown) is shown again after the second.
  * Used where WebGL draws in software, which can't run the GPU deinterlacer in real time.
+ *
+ * It steps down twice where the machine can't show what it makes (`step`), judged by what became of its pictures
+ * (`notePresentation`): once more than `BOB_DROP_SHARE` of a window of `BOB_WINDOW` pictures (after
+ * `BOB_SETTLE_PICTURES`) were dropped unshown, it makes one picture a frame (the first field, for the frame's time),
+ * and if a window at that step drops as many, it shows the frames woven, so a slow device shows steady pictures at
+ * frame rate instead of dropping most of them. A step lasts for the playlist (the session makes a new FieldBob).
  * @internal
  */
 export class FieldBob {
   private out = new Uint8Array(0);
+  private stepNow: BobStep = 'field';
+  private settling = BOB_SETTLE_PICTURES;
+  private windowPictures = 0;
+  private windowDropped = 0;
 
   /**
    * `fieldUs`: one field's time (half the stream's frame duration), the spacing of the pictures a frame gives.
@@ -33,13 +67,50 @@ export class FieldBob {
     private readonly makeFrame: MakeVideoFrame = defaultMakeFrame,
   ) {}
 
+  /** What a frame gets now: field rate, one interpolated picture a frame, or the woven frame. */
+  get step(): BobStep {
+    return this.stepNow;
+  }
+
   /** The pictures of one decoded frame, in display order, each a video frame the caller owns (and closes). */
   pictures(input: FieldInput): VideoFrame[] {
     const { flags } = input;
-    if (flags.progressive === true) return [this.picture(input, null, input.timestampUs, flags.repeatFirstField ? 3 * this.fieldUs : 2 * this.fieldUs)];
+    const frameUs = flags.repeatFirstField ? 3 * this.fieldUs : 2 * this.fieldUs;
+    if (flags.progressive === true || this.stepNow === 'woven') return [this.picture(input, null, input.timestampUs, frameUs)];
     const first = flags.fieldOrder === 'bff' ? 1 : 0;
+    if (this.stepNow === 'frame') return [this.picture(input, first, input.timestampUs, frameUs)];
     const order = flags.repeatFirstField ? [first, 1 - first, first] : [first, 1 - first];
     return order.map((parity, i) => this.picture(input, parity, input.timestampUs + i * this.fieldUs, this.fieldUs));
+  }
+
+  /**
+   * What became of its pictures while playing on a visible page: `presented` shown and `dropped` closed unshown since
+   * the last report (one display tick's worth). Steps down when a full window drops more than its share.
+   */
+  notePresentation(presented: number, dropped: number): void {
+    if (this.stepNow === 'woven') return;
+    const n = presented + dropped;
+    if (n === 0) return;
+    if (this.settling > 0) {
+      this.settling -= n;
+      return;
+    }
+    this.windowPictures += n;
+    this.windowDropped += dropped;
+    if (this.windowPictures < BOB_WINDOW) return;
+    const over = this.windowDropped > BOB_DROP_SHARE * this.windowPictures;
+    this.windowPictures = 0;
+    this.windowDropped = 0;
+    if (!over) return;
+    this.stepNow = this.stepNow === 'field' ? 'frame' : 'woven';
+    this.settling = BOB_SETTLE_PICTURES;
+  }
+
+  /** Playback paused, held, seeked or was hidden: the window starts again after `BOB_SETTLE_PICTURES`. The step stays. */
+  settle(): void {
+    this.settling = BOB_SETTLE_PICTURES;
+    this.windowPictures = 0;
+    this.windowDropped = 0;
   }
 
   /** One picture: the whole frame (`parity` null) or the field of that parity (0 top, 1 bottom) with its other lines interpolated. */

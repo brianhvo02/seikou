@@ -3910,7 +3910,7 @@ describe('Player with interlaced video (deinterlacing)', () => {
     await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
     await untilPlaying(h);
     await h.play(1100);
-    expect(lastTelemetry(h)?.deinterlace).toEqual({ setting: 'off', stats: null, woven: WOVEN_OFF, cpu: null });
+    expect(lastTelemetry(h)?.deinterlace).toEqual({ setting: 'off', stats: null, woven: WOVEN_OFF, cpu: null, cpuStep: null });
     await h.player.handle({ type: 'setDeinterlace', mode: 'auto' });
     await untilPlaying(h);
     await h.play(1100);
@@ -4181,7 +4181,7 @@ describe('Player with interlaced video (deinterlacing)', () => {
     expect(fake.made).toEqual([]);
     expect(h.drawnPictures).toEqual([]);
     expect(h.player.deinterlaceState).toMatchObject({ woven: null, stats: null, cpu: renderer });
-    expect(lastTelemetry(h)?.deinterlace).toMatchObject({ woven: null, cpu: renderer });
+    expect(lastTelemetry(h)?.deinterlace).toMatchObject({ woven: null, cpu: renderer, cpuStep: 'field' });
     // two pictures a frame (the clip is 23.976, so a field is 20.85 ms), a field apart, and those drawn are at field times
     const field = 1_001_000 / 48;
     expect(made.length).toBeGreaterThan(10);
