@@ -418,6 +418,8 @@ function syntheticMethod(cls: JClass, name: string, desc: string, isStatic: bool
     loopHooks: undefined,
     frameTemplate: undefined,
     tiny: undefined,
+    jit: undefined,
+    heat: 0,
   };
 }
 

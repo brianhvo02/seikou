@@ -18,6 +18,7 @@ import { Invoke, ThrowResult, andThen } from './interpreter';
 import type { NativeResult, Tiny } from './interpreter';
 import type { NativeFn } from './natives/index';
 import type { IntrinsicFn, LoopHook, LoopHookFn } from './natives/intrinsics/index';
+import type { CompiledMethod } from './jit';
 import { HOOKED_GOTO, codeChecksum } from './natives/intrinsics/common';
 
 /** access_flags bit: declared public (JVM Specification, Java SE 8, §4.1, §4.5, §4.6). */
@@ -100,6 +101,10 @@ export interface JMethod {
   frameTemplate?: { readonly locals: readonly JValue[]; readonly stack: readonly JValue[] } | undefined;
   /** Per invokedynamic instruction (by pc), the linked call site. */
   callSites?: Map<number, JMethod>;
+  /** The method compiled to JavaScript (jit.ts): undefined until it is hot, null when it stays interpreted. */
+  jit?: CompiledMethod | null | undefined;
+  /** How often the interpreter's outer loop picked up a frame of it, plus its taken backward branches (jit.ts). */
+  heat: number;
 }
 
 /**
@@ -282,6 +287,8 @@ export class JClass {
         loopHooks: hooks ? new Map(hooks.map((h) => [h.pc, h.fn])) : undefined,
         frameTemplate: undefined,
         tiny: undefined,
+        jit: undefined,
+        heat: 0,
       });
     }
     this.methods = methods;

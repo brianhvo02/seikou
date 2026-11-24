@@ -16,6 +16,8 @@ import type { JThread } from './threads';
 import type { Jvm } from './jvm';
 import { linkCallSite, resolveConstant, signaturePolymorphic } from './natives/invoke';
 import { DECLINE } from './natives/intrinsics/common';
+import { JIT_EXIT_CONTINUE, JIT_EXIT_YIELD, compileMethod } from './jit';
+import type { CompiledMethod, JitRuntime } from './jit';
 
 /**
  * A method's frame (JVM Specification, Java SE 8, §2.6): its local variables and operand stack, a long or double
@@ -657,8 +659,89 @@ export function execute(jvm: Jvm, t: JThread, budget: number): ExitReason {
   }
 }
 
+/**
+ * What follows an exception escaping the instruction at `f.pc`, whose operand stack held `sp` slots: a pending load
+ * (LoadPending) runs first and the instruction runs again; a Java exception unwinds to its handler; anything else is
+ * a fault in the JVM and propagates.
+ */
+function caught(jvm: Jvm, t: JThread, f: JFrame, e: unknown, sp: number): void {
+  if (e instanceof LoadPending) {
+    // A Java class loader must load a class, or Java code link a call site or constant, first; the instruction
+    // runs again afterwards.
+    f.sp = sp;
+    f.nextPc = f.pc;
+    f.wideResult = false;
+    complete(jvm, t, andThen(e.work, () => undefined));
+    return;
+  }
+  let exc: JObject;
+  if (e instanceof PendingThrow) exc = jvm.throwNew(e.cls, e.message).exception;
+  else if (e instanceof JavaThrowable) exc = e.obj;
+  else throw e;
+  throwInto(jvm, t, exc);
+}
+
+/**
+ * The interpreter's functions compiled methods call (jit.ts), and the register their exit kind is left in; made on the
+ * first compile, since some come from modules that import this one.
+ */
+let jitRuntime: JitRuntime | null = null;
+
+const makeJitRuntime = (): JitRuntime => ({
+  exit: JIT_EXIT_CONTINUE,
+  resolveClass,
+  resolveField,
+  resolveMethod,
+  resolveLdc,
+  call: call as JitRuntime['call'],
+  ret: ret as JitRuntime['ret'],
+  ensureInit: ensureInit as JitRuntime['ensureInit'],
+  throwInto,
+  caught: caught as JitRuntime['caught'],
+  checkIndex,
+  multiArray,
+  toInt,
+  toLong,
+  longToFloat,
+  fcmp,
+  selectMethod,
+  linkCallSite,
+  externalName,
+  PendingThrow: PendingThrow as unknown as JitRuntime['PendingThrow'],
+  LoadPending: LoadPending as unknown as JitRuntime['LoadPending'],
+  DECLINE,
+});
+
+/** Compiles `m` once it is hot (JvmOptions.jit); null, kept on the method, when it stays interpreted. */
+function jitCompile(jvm: Jvm, m: JMethod): CompiledMethod | null {
+  let compiled: CompiledMethod | null = null;
+  try {
+    const r = compileMethod(m, (jitRuntime ??= makeJitRuntime()));
+    if (typeof r === 'function') compiled = r;
+    else jvm.noteJit(m, r);
+  } catch (e) {
+    jvm.noteJit(m, 'failed', e);
+  }
+  if (compiled) jvm.noteJit(m, 'compiled');
+  m.jit = compiled;
+  return compiled;
+}
+
+/**
+ * A taken backward branch in an interpreted frame of `m`: true once the method is compiled, or hot enough to be, so
+ * the frame goes back to the outer loop, which runs it compiled from the branch's target.
+ */
+function hotLoop(m: JMethod, threshold: number): boolean {
+  const jit = m.jit;
+  if (jit === null) return false;
+  return jit !== undefined || ++m.heat >= threshold;
+}
+
 function run(jvm: Jvm, t: JThread, budget: number): ExitReason {
   const prof = profile;
+  // the JIT is off while profiling, which counts bytecodes per method as the interpreter runs them
+  const jitThreshold = prof ? Infinity : jvm.jitThreshold;
+  const jitOn = jitThreshold !== Infinity;
   let profMethod: JMethod | null = null;
   let profBudget = budget;
   outer: for (;;) {
@@ -677,6 +760,18 @@ function run(jvm: Jvm, t: JThread, budget: number): ExitReason {
     if (prof) {
       profMethod = f.method;
       profBudget = budget;
+    }
+    if (jitOn) {
+      const m = f.method;
+      let jit = m.jit;
+      if (jit === undefined && ++m.heat >= jitThreshold) jit = jitCompile(jvm, m);
+      if (jit) {
+        budget = jit(jvm, t, f, budget);
+        const exit = jitRuntime!.exit;
+        if (exit === JIT_EXIT_CONTINUE) continue outer;
+        if (exit === JIT_EXIT_YIELD) return 'budget';
+        // JIT_EXIT_INTERPRET: the frame's pc and sp are set; the interpreter goes on from there
+      }
     }
     const cls = f.method.cls;
     const code = f.method.code!.code;
@@ -1213,7 +1308,9 @@ function run(jvm: Jvm, t: JThread, budget: number): ExitReason {
             const v = stack[--sp] as number;
             const taken =
               op === 0x99 ? v === 0 : op === 0x9a ? v !== 0 : op === 0x9b ? v < 0 : op === 0x9c ? v >= 0 : op === 0x9d ? v > 0 : v <= 0;
-            pc += taken ? (((code[pc + 1]! << 8) | code[pc + 2]!) << 16) >> 16 : 3;
+            const to = pc + (taken ? (((code[pc + 1]! << 8) | code[pc + 2]!) << 16) >> 16 : 3);
+            if (to < pc && jitOn && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; continue outer; }
+            pc = to;
             break;
           }
           case 0x9f: case 0xa0: case 0xa1: case 0xa2: case 0xa3: case 0xa4: { // if_icmp<cond>
@@ -1222,18 +1319,25 @@ function run(jvm: Jvm, t: JThread, budget: number): ExitReason {
             const b = stack[sp + 1] as number;
             const taken =
               op === 0x9f ? a === b : op === 0xa0 ? a !== b : op === 0xa1 ? a < b : op === 0xa2 ? a >= b : op === 0xa3 ? a > b : a <= b;
-            pc += taken ? (((code[pc + 1]! << 8) | code[pc + 2]!) << 16) >> 16 : 3;
+            const to = pc + (taken ? (((code[pc + 1]! << 8) | code[pc + 2]!) << 16) >> 16 : 3);
+            if (to < pc && jitOn && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; continue outer; }
+            pc = to;
             break;
           }
           case 0xa5: case 0xa6: { // if_acmpeq, if_acmpne
             sp -= 2;
             const same = stack[sp] === stack[sp + 1];
-            pc += same === (op === 0xa5) ? (((code[pc + 1]! << 8) | code[pc + 2]!) << 16) >> 16 : 3;
+            const to = pc + (same === (op === 0xa5) ? (((code[pc + 1]! << 8) | code[pc + 2]!) << 16) >> 16 : 3);
+            if (to < pc && jitOn && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; continue outer; }
+            pc = to;
             break;
           }
-          case 0xa7: // goto
-            pc += (((code[pc + 1]! << 8) | code[pc + 2]!) << 16) >> 16;
+          case 0xa7: { // goto
+            const to = pc + ((((code[pc + 1]! << 8) | code[pc + 2]!) << 16) >> 16);
+            if (to < pc && jitOn && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; continue outer; }
+            pc = to;
             break;
+          }
           case 0xa8: // jsr
             stack[sp++] = pc + 3;
             pc += (((code[pc + 1]! << 8) | code[pc + 2]!) << 16) >> 16;
@@ -1513,7 +1617,9 @@ function run(jvm: Jvm, t: JThread, budget: number): ExitReason {
           }
           case 0xc6: case 0xc7: { // ifnull, ifnonnull
             const isNull = stack[--sp] === null;
-            pc += isNull === (op === 0xc6) ? (((code[pc + 1]! << 8) | code[pc + 2]!) << 16) >> 16 : 3;
+            const to = pc + (isNull === (op === 0xc6) ? (((code[pc + 1]! << 8) | code[pc + 2]!) << 16) >> 16 : 3);
+            if (to < pc && jitOn && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; continue outer; }
+            pc = to;
             break;
           }
           case 0xcb: { // a goto with a loop hook (natives/intrinsics)
@@ -1534,20 +1640,7 @@ function run(jvm: Jvm, t: JThread, budget: number): ExitReason {
       }
     } catch (e) {
       f.pc = pc;
-      if (e instanceof LoadPending) {
-        // A Java class loader must load a class, or Java code link a call site or constant, first; the instruction
-        // runs again afterwards.
-        f.sp = sp;
-        f.nextPc = f.pc;
-        f.wideResult = false;
-        complete(jvm, t, andThen(e.work, () => undefined));
-        continue outer;
-      }
-      let exc: JObject;
-      if (e instanceof PendingThrow) exc = jvm.throwNew(e.cls, e.message).exception;
-      else if (e instanceof JavaThrowable) exc = e.obj;
-      else throw e;
-      throwInto(jvm, t, exc);
+      caught(jvm, t, f, e, sp);
     }
   }
 }
