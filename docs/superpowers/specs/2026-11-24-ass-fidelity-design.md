@@ -1,6 +1,6 @@
 # ASS fidelity
 
-Status: design, 2026-11-24 (written unattended; every decision the owner should review is marked *My call*). Roadmap
+Status: built, 2026-11-24 (written unattended; every decision the owner should review is marked *My call*). Roadmap
 row "ASS fidelity" (Later); `docs/known-issues.md`, section "ASS subtitles".
 
 ## Why
@@ -132,8 +132,7 @@ new font-table parsing and a rotated draw, so it comes last. Line breaking and b
 
 ### Line breaking and bidi
 
-No code. A fixture `wrap-cjk` (CJK-free: long unspaced text in DejaVu) is not needed; `fixtures/ass/wrap` already
-covers spaces. known-issues' entries are reworded to say the port matches libass's default (VSFilter-compatible)
+No code, and no new fixture: `fixtures/ass/wrap` already covers breaking at spaces. known-issues' entries are reworded to say the port matches libass's default (VSFilter-compatible)
 behaviour and name the two opt-ins libass has (`ASS_FEATURE_WRAP_UNICODE`, whole-text layout / `Encoding: -1`).
 
 ## Constraints
@@ -158,3 +157,21 @@ behaviour and name the two opt-ins libass has (`ASS_FEATURE_WRAP_UNICODE`, whole
   `npm run ass-trace:golden`; `npm run test:ass` (layout trace within 0.5 px and pixels within budget) must pass for
   every fixture, old and new.
 - `npx playwright test tests/e2e/ass-subtitles.spec.ts` for the frame budget.
+
+## Outcome (2026-11-24)
+
+All four goals built, each with a fixture whose goldens came from `npm run ass-trace:golden` (the existing goldens did
+not change):
+
+| Gap | Where | Fixture result (pixelmatch differing px / budget) |
+| --- | --- | --- |
+| `\be` box passes | `beBlur` in `raster.ts` | `be` passes; pixels more than 2 levels off on its static frame halved (43383 → 21673, the rest is browser-vs-FreeType antialiasing, the level of fixtures without `\be`) |
+| BorderStyle 4 | `backgroundBox` in `raster.ts` | `border-style-4`: 9 / 1140 (182508 without the box) |
+| Legacy `Effect` | `applyTransitionEffects` in `state.ts`, placement and clip in `layout.ts`, scrolling events animated in `frame.ts` | `effect` (640×360): 18–55 / about 2000 |
+| Vertical `@font` | `verticalAdvance`, `typoDescender` in `font-tables.ts`; advance and turned box in `layout.ts`; turned draw in `raster.ts` | `vertical`: layout matches; 170 / 1068 (56104 before) |
+
+Found on the way: the renderer's cache of static events would have frozen a `Banner` or `Scroll` event at its first
+position, so `FrameBuilder` now counts those as animated.
+
+Left, as decided above: the auto-hinter (not planned), `Encoding: -1` whole-text layout, HarfBuzz `vert`/`vkna`
+substitution and the direct GPU path's `\be`. `tests/ass-trace/pixels.spec.ts` gained `ASS_PIXEL_LOG=1`.

@@ -35,7 +35,7 @@ Short tasks that unblock or protect what is already deployed.
 | **Encoders beyond Intel QSV** (NVENC, AMD VAAPI) for self-hosters. The self-hosting spec puts this last, after everything else. | L | |
 | **Quality-level ideas:** pre-encode while the GPU is idle, re-encode audio, and an "auto" level that labels itself. Its known gaps (the disc's PSR1 audio choice at a level, the `primaryAudioChange` UO mask, the BD-J still timer restarting on a switch) are closed. | L | |
 | **Per-person shelves,** and hiding titles from a person. | M | |
-| **ASS fidelity:** legacy `Effect`, FriBidi across style runs, line breaking (libunibreak), the auto-hinter, and approximations of BorderStyle 4, vertical `@font` and `\be`. | M–L | |
+| **ASS fidelity, what is left:** HarfBuzz's vertical forms (`vert`, `vkna`) for `@` fonts, `\be` on a run whose shape changes every frame (drawn on the GPU as a Gaussian), and the libass extension `Encoding: -1` (bidi and shaping across style runs). `\be`, BorderStyle 4, legacy `Effect` and the turn of vertical `@font` glyphs were ported on 2026-11-24 (spec `docs/superpowers/specs/2026-11-24-ass-fidelity-design.md`); line breaking already matches libass for ASS scripts; FreeType's auto-hinter is not planned (below). | M | |
 | **Shader gaps:** a Lanczos final scaler, linear-light PREKERNEL, the `COMPUTE` and `TEXTURE` directives, an early probe for `unavailable`, and hand-made sets. | M | |
 | **iPhone fullscreen and PiP** through a `<video>`: the element path already plays H.264 and HEVC in one, so the experiment can start there rather than from a canvas capture. | M | experiment |
 | **A slimmer server image.** It is about 730 MB unpacked, most of it libraries Debian's `ffmpeg` pulls in that the levels never use. A build of our own with only the QSV and x264 parts would cut it. | M | |
@@ -47,3 +47,4 @@ Short tasks that unblock or protect what is already deployed.
 - **AACS and BD+ decryption.** Seikou plays decrypted folders only; this would need legal review first.
 - **3D (MVC), multi-angle and picture-in-picture secondary video.** These were non-goals for every milestone so far. HDR tone mapping on SDR screens is in the same group, beyond the `h264-1080-sdr` level.
 - **Background audio on iOS.**
+- **FreeType's auto-hinter for ASS.** About 1 px across a short title, in fonts without TrueType hinting only, for a port of FreeType's `autofit` run on outlines the browser never hands over (known issues).
