@@ -16,6 +16,8 @@ interface AudioMenuProps {
   readonly selected: number | null;
   /** Set when the disc does not allow changing the audio here: the button is disabled with this tooltip. */
   readonly disabledReason?: string;
+  /** How the playing track is decoded (the snapshot's `audioDecoding`): its checked item is marked lossless or core. */
+  readonly decoding?: { readonly part: 'full' | 'core' | 'plain'; readonly description: string } | null;
   onSelect(index: number): void;
   /** While open, the player keeps its controls up. */
   onOpenChange(open: boolean): void;
@@ -25,9 +27,10 @@ interface AudioMenuProps {
  * The control bar's Audio button and its list of tracks. It renders nothing unless there is more than one track to pick
  * (`tracks`, or `levelAudio.tracks` at a re-encoded level, where a pick switches the level's audio instead of calling
  * `onSelect`). `selected` is the checked track's index; `disabledReason` greys the button with a tooltip when the disc's
- * UO mask forbids the change, at a level as at the original. `onOpenChange` tells the player to keep its controls up while the list is open.
+ * UO mask forbids the change, at a level as at the original. The checked track of a disc carries a mark from
+ * `decoding`: "lossless" for TrueHD or DTS-HD Master Audio decoded whole, "core" for their cores. `onOpenChange` tells the player to keep its controls up while the list is open.
  */
-export function AudioMenu({ tracks, selected, disabledReason, levelAudio = null, onSelect, onOpenChange }: AudioMenuProps): ReactElement | null {
+export function AudioMenu({ tracks, selected, disabledReason, levelAudio = null, decoding = null, onSelect, onOpenChange }: AudioMenuProps): ReactElement | null {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -118,6 +121,11 @@ export function AudioMenu({ tracks, selected, disabledReason, levelAudio = null,
                 }}
               >
                 {trackLabel(t)}
+                {t.index === selected && decodingMark(decoding) && (
+                  <span className="audio-decoding" data-testid="audio-decoding" title={decoding?.description}>
+                    {decodingMark(decoding)}
+                  </span>
+                )}
               </button>
             </li>
           ))}
@@ -125,4 +133,12 @@ export function AudioMenu({ tracks, selected, disabledReason, levelAudio = null,
       )}
     </div>
   );
+}
+
+/** The mark on the playing track: "lossless" when TrueHD or DTS-HD is decoded whole (High Resolution isn't lossless: no mark), "core" for a core. */
+function decodingMark(decoding: AudioMenuProps['decoding']): string | null {
+  if (!decoding) return null;
+  if (decoding.part === 'core') return 'core';
+  if (decoding.part === 'full' && decoding.description.includes('lossless')) return 'lossless';
+  return null;
 }

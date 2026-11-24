@@ -52,6 +52,16 @@ describe('VideoOutputMenu', () => {
     fireEvent.click(screen.getByTestId('deinterlace-off'));
     expect(onDeinterlace).toHaveBeenCalledWith('off');
   });
+
+  it('lists Sound with the choice checked and what plays now, and picks Always stereo', () => {
+    const onPick = vi.fn();
+    render(<VideoOutputMenu value="auto" onPick={() => undefined} deinterlace="auto" onDeinterlace={() => undefined} sound={{ value: 'auto', playing: 6, onPick }} onOpenChange={() => undefined} />);
+    fireEvent.click(screen.getByTestId('video-output-menu'));
+    expect(screen.getByTestId('sound-auto').getAttribute('aria-checked')).toBe('true');
+    expect(screen.getByTestId('sound-now').textContent).toBe('Playing 5.1. A Sound change applies after a reload.');
+    fireEvent.click(screen.getByTestId('sound-stereo'));
+    expect(onPick).toHaveBeenCalledWith('stereo');
+  });
 });
 
 function media(initial: boolean): { mm: (q: string) => MediaQueryList; set(v: boolean): void; queries: string[] } {

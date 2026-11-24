@@ -6,10 +6,11 @@ test.skip(({ browserName, isMobile }) => browserName !== 'chromium' || isMobile,
 
 const DISC = 'fixtures/synthetic/disc3';
 const TRACKS = [
-  { index: 1, codec: 'LPCM' },
-  { index: 2, codec: 'Dolby Digital (AC-3)' },
-  { index: 3, codec: 'Dolby TrueHD' },
-  { index: 4, codec: 'DTS' },
+  { index: 1, codec: 'LPCM', decoding: 'LPCM, stereo' },
+  { index: 2, codec: 'Dolby Digital (AC-3)', decoding: 'Dolby Digital (AC-3), stereo' },
+  // decoded whole on a computer: the MLP part's own stereo presentation, not the AC-3 core
+  { index: 3, codec: 'Dolby TrueHD', decoding: 'Dolby TrueHD, lossless, stereo' },
+  { index: 4, codec: 'DTS', decoding: 'DTS, stereo' },
 ];
 
 async function seekTo(page: Page, fraction: number): Promise<void> {
@@ -44,6 +45,7 @@ test('plays every audio track of the disc in sync', async ({ page }) => {
     await seekTo(page, 1 / 12);
     await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'playing', { timeout: 10_000 });
     await expect.poll(async () => (await telemetry(page))?.audioCodec, { timeout: 10_000 }).toBe(track.codec);
+    await expect.poll(async () => (await telemetry(page))?.audioDecoding, { timeout: 10_000 }).toBe(track.decoding);
     // The output may start slowly when another browser opens a stream at the same moment (parallel CI workers);
     // the player then runs on the wall clock and moves back onto audio by itself with a seek. Measure after that,
     // allowing the 1 s the spec gives sync to settle after a seek.
@@ -100,4 +102,29 @@ test('the audio menu works from the keyboard without seeking or changing volume'
   await page.keyboard.press('Escape');
   await expect(page.getByTestId('audio-track-1')).toBeHidden();
   await expect(page.getByTestId('audio-menu')).toBeFocused();
+});
+
+test('TrueHD plays lossless on a computer, marked in the Audio menu, and through its core on a phone', async ({ page }) => {
+  await page.goto('/?telemetry=1');
+  await skipWithoutH264(page);
+  await setFolder(page.getByTestId('folder-input'), DISC);
+  await page.getByTestId('playlist-00000').click();
+  await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'playing', { timeout: 10_000 });
+  await page.getByTestId('player').hover();
+  await page.getByTestId('audio-menu').click();
+  await page.getByTestId('audio-track-3').click();
+  await expect.poll(async () => (await telemetry(page))?.audioDecoding, { timeout: 10_000 }).toBe('Dolby TrueHD, lossless, stereo');
+  expect((await telemetry(page))?.audioOutputChannels).toBe(2);
+  await page.getByTestId('player').hover();
+  await page.getByTestId('audio-menu').click();
+  await expect(page.getByTestId('audio-track-3').getByTestId('audio-decoding')).toHaveText('lossless');
+
+  await page.goto('/?telemetry=1&memory=constrained');
+  await setFolder(page.getByTestId('folder-input'), DISC);
+  await page.getByTestId('playlist-00000').click();
+  await expect(page.getByTestId('player')).toHaveAttribute('data-state', 'playing', { timeout: 10_000 });
+  await page.getByTestId('player').hover();
+  await page.getByTestId('audio-menu').click();
+  await page.getByTestId('audio-track-3').click();
+  await expect.poll(async () => (await telemetry(page))?.audioDecoding, { timeout: 10_000 }).toBe('Dolby TrueHD, Dolby Digital core, stereo');
 });
