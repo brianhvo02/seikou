@@ -40,7 +40,7 @@ export type CompiledMethod = (jvm: Jvm, t: JThread, f: Frame, budget: number) =>
 export interface JitBase {
   /** How the last compiled method left (JIT_EXIT_*; -1 from `after`: go on in this frame). */
   exit: number;
-  /** Compiled methods running nested in one another (afterCall), reset when a slice starts. */
+  /** Compiled methods running nested in one another (`after`), reset when a slice starts. */
   depth: number;
   readonly resolveClass: (jvm: Jvm, cls: JClass, index: number) => JClass;
   readonly resolveField: (jvm: Jvm, cls: JClass, index: number) => JField;
@@ -385,7 +385,7 @@ function stackEffect(m: JMethod, code: Uint8Array, pc: number): readonly [number
 }
 
 /** Branch and switch targets of the instruction at `pc`, and whether control can also fall through to the next. */
-function successors(code: Uint8Array, pc: number, len: number): { targets: number[]; falls: boolean } {
+function successors(code: Uint8Array, pc: number): { targets: number[]; falls: boolean } {
   const op = code[pc]!;
   if ((op >= 0x99 && op <= 0xa6) || op === 0xc6 || op === 0xc7) return { targets: [pc + s16(code, pc + 1)], falls: true };
   // a loop hook either jumps like its goto or returns a pc of its own, the loop's exit (treated as the next instruction)
@@ -407,7 +407,6 @@ function successors(code: Uint8Array, pc: number, len: number): { targets: numbe
     return { targets, falls: false };
   }
   if ((op >= 0xac && op <= 0xb1) || op === 0xbf) return { targets: [], falls: false };
-  void len;
   return { targets: [], falls: true };
 }
 
@@ -464,7 +463,7 @@ export function analyse(m: JMethod): JitAnalysis {
     if (d < 0 || d + push > maxStack) throw new Refused('stack');
     const after = d + push;
     const len = insnLength(code, pc);
-    const { targets, falls } = successors(code, pc, len);
+    const { targets, falls } = successors(code, pc);
     for (const target of targets) {
       leaders.add(target);
       reach(target, after);
@@ -763,7 +762,7 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
   }
 
   /** The operand stack's depth at `next`, after a call (the invoke's own when its successor is unreachable). */
-  function afterCall(next: number): number {
+  function depthAt(next: number): number {
     const i = a.starts.indexOf(next);
     return (i >= 0 ? a.depth[i] : undefined) ?? maxStack;
   }
@@ -994,7 +993,7 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
         const m0 = resolved(idx) as JMethod | undefined;
         const next = pc + (op === 0xb9 ? 5 : 3);
         const helper = op === 0xb6 ? 'invokeVirtual' : op === 0xb8 ? 'invokeStatic' : 'invokeInterface';
-        const after = afterCall(pc + (op === 0xb9 ? 5 : 3));
+        const after = depthAt(pc + (op === 0xb9 ? 5 : 3));
         return `f.pc = ${pc}; ${at} ${spill(sp)}R.${helper}(jvm, t, f, ${m0 ? k(m0) : `R.resolveMethod(jvm, cls, ${idx})`}, ${sp}, ${next}); ${leave(rem, after)}`;
       }
       case 0xb7: {
@@ -1013,15 +1012,15 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
           ) {
             target = cls.superClass!.findMethod(m0.name, m0.desc) ?? m0;
           }
-          return `f.pc = ${pc}; ${at} if (${S(sp - m0.argSlots)} === null) ${NPE} ${spill(sp)}f.sp = ${sp}; R.call(jvm, t, f, ${k(target)}, ${next}); ${leave(rem, afterCall(next))}`;
+          return `f.pc = ${pc}; ${at} if (${S(sp - m0.argSlots)} === null) ${NPE} ${spill(sp)}f.sp = ${sp}; R.call(jvm, t, f, ${k(target)}, ${next}); ${leave(rem, depthAt(next))}`;
         }
-        return `f.pc = ${pc}; ${at} ${spill(sp)}R.invokeSpecial(jvm, t, f, R.resolveMethod(jvm, cls, ${idx}), ${sp}, ${next}); ${leave(rem, afterCall(next))}`;
+        return `f.pc = ${pc}; ${at} ${spill(sp)}R.invokeSpecial(jvm, t, f, R.resolveMethod(jvm, cls, ${idx}), ${sp}, ${next}); ${leave(rem, depthAt(next))}`;
       }
       case 0xba:
         return (
           `f.pc = ${pc}; ${at} ${spill(sp)}{ const site = f.method.callSites?.get(${pc}); ` +
           `if (!site) throw new R.LoadPending(R.linkCallSite(jvm, t, f.method, ${pc}, ${idx})); ` +
-          `f.sp = ${sp}; R.call(jvm, t, f, site, ${pc + 5}); } ${leave(rem, afterCall(pc + 5))}`
+          `f.sp = ${sp}; R.call(jvm, t, f, site, ${pc + 5}); } ${leave(rem, depthAt(pc + 5))}`
         );
       case 0xbb: {
         const c = resolved(idx) as JClass | undefined;
