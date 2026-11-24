@@ -176,33 +176,39 @@ inside compiled code is a JVM fault, as in the interpreter.
 
 ## 8. Measurements
 
-All on the developer's Mac, BDJ_DISC_A, while another session loaded it heavily until about 01:50 (load
-average 20-42) and lightly after (5-10); only the light-load runs are compared below.
+All on the developer's Mac with BDJ_DISC_A unless named. Another session loaded the Mac heavily until about 02:25
+(load average 20-42); every number below was taken after that, at a load average of 2-5. Numbers taken earlier, under
+load, are in the night report only and agree in direction.
 
-- **Browser, light load, production build, 6 runs per arm alternating** (`tests/bdj/bench-browser.ts`), `bdj.firstFrameMs`
-  medians, interpreter / JIT at heat 1,000 / JIT at 20,000:
-  - Chrome: cold 4,865 / 4,870 / 4,864 ms, warm 4,840 / 4,862 / 4,868 ms (each arm's runs within about 30 ms).
-  - WebKit (JavaScriptCore, the iPhone's engine): cold 5,047 / 5,065 / 5,026 ms, warm 5,078 / 5,017 / 4,986 ms
-    (runs spread 4.9-6.5 s).
-  The JIT runs (telemetry: 87 methods compiled in about 20 ms at heat 1,000, 211 in about 40 ms at 100) and changes
-  nothing measurable: Java's interpreted share of BDJ_DISC_A's start-up is a few hundred ms of the 4.9 s, and most of
-  it is spread over thousands of methods that never get hot.
-- **Node, the in-process replay to the first `selectPlaylistN`** (`tests/bdj/bench-startup.ts`, 5 runs per arm,
-  time Java ran, `threads.runMs`), cold (first JVM in the process) / warm (second): interpreter 1,194 / 977 ms; heat
-  1,000: 1,499 / 1,030; 5,000: 1,315 / 1,033; 20,000: 1,248 / 947. Compiling costs little (87 methods in about 30 ms);
-  the loss is the compiled functions' own warm-up in V8, which runs new code in its interpreter (Ignition) until it is
-  hot, while the BD-J interpreter's one big loop is already optimised.
+- **Browser, production build, 6 runs per arm** (`tests/bdj/bench-browser.ts`), `bdj.firstFrameMs` medians, cold /
+  warm. main (d053a913) / this branch with the JIT off (the default) / this branch with `?jit=1`:
+  - Chrome: 4,845 / 4,824, then 4,842 / 4,821 and 4,843 / 4,821 in two more rounds (main); 4,844 / 4,821 and
+    4,842 / 4,826 (JIT off); 4,892 / 4,870 (JIT on). Each arm's runs lie within about 50 ms.
+  - WebKit (JavaScriptCore, the iPhone's engine): 5,003 / 5,863 (main); 4,977 / 4,937 (JIT off); 5,065 / 5,997
+    (JIT on). Warm opens in WebKit fall either near 4.9 s or near 5.9 s in every arm, so its warm medians mean little.
+  - Firefox: 5,225 / 5,189 (main); 5,233 / 5,218 (JIT off); 5,234 / 5,207 (JIT on).
+  - BDJ_DISC_B in Chrome: 773 / 756 and 763 / 753 (main) against 788 / 752 and 794 / 765 (JIT off).
+  The JIT runs (telemetry: 87 methods compiled in about 20 ms at heat 1,000, 211 in about 40 ms at heat 100) and is
+  no faster: 30-90 ms slower in Chrome and WebKit, even in Firefox.
+- **Node, the in-process replay to the first `selectPlaylistN`** (`tests/bdj/bench-startup.ts`, 5 runs per arm, the
+  time Java ran, `threads.runMs`), cold (first JVM in the process) / warm (second): JIT off 1,098 / 831 ms; heat 1,000:
+  1,110 / 861; heat 20,000: 1,160 / 821. Compiling itself costs little (about 30 ms); what the JIT loses is the compiled
+  functions' own warm-up in the JS engine, which runs new code in its own interpreter until it is hot, while the BD-J
+  interpreter's one big loop is already optimised; and the start-up's 40 M bytecodes are spread over 7,500 methods.
 - **Steady state** (`tests/bdj/bench-loop.ts`, a 13-bytecode integer loop; `fib(20)` from the conformance classes):
   the loop runs about 2.7x faster compiled (about 1 ns per bytecode against 2.9), and call-heavy `fib` about 1.6x
   (54 against 90 ms) once compiled methods call compiled methods nested.
-- **JavaScriptCore's shell** (`jsc`, the JDK boot and five conformance programs 20 times, bundled with esbuild):
-  interpreter 217-310 ms, JIT 225-346 ms: no gain there either.
+- **JavaScriptCore's shell** (`jsc`, the JDK boot and five conformance programs 20 times, bundled with esbuild; under
+  load): interpreter 217-310 ms, JIT 225-346 ms: no gain there either.
+- **An interpreter change that was undone:** moving the interpreter's frame loop into a function of its own (so V8
+  would not keep leaving an on-stack-replaced loop) made Firefox's BDJ_DISC_B start-up about 110 ms slower than main
+  (1,110 against 1,000 ms, measured twice); with the loop back inside `run()` the branch matches main in every browser.
 - A bytecode profile of the start-up (`tests/bdj/bench-profile.ts`): 39.6 M bytecodes in 7,497 methods; the hottest
   are the JDK's jar and manifest reading (`Inflater`, `Attributes.read`, `ManifestDigester`, `HashMap`), the disc's
   own string decoding and `BDGraphicsBase.drawImageN`.
 
 *(My call: the JIT ships off in the player — `JvmOptions.jit` defaults to `off` and `?jit=1` turns it on. It is correct
-by every oracle we have, but it measured no faster at start-up in Chrome, WebKit, Node or JavaScriptCore's shell,
+by every oracle we have, but it measured no faster at start-up in Chrome, WebKit, Firefox, Node or JavaScriptCore's shell,
 so turning it on would add a code path to every BD-J boot for no measured gain. The replays and the conformance suite
 run it, so it stays tested, and a device can be measured with `?jit=1` against the default.)*
 

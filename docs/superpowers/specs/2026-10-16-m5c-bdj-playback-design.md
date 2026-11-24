@@ -197,7 +197,7 @@ The work is staged (user's decision):
    time (no further stages without a new decision).
 
 Stage 2 was built on 2026-11-24 (spec `2026-11-24-bdj-jit-design.md`): correct by the conformance suite forced
-through it and by the goldens, but no faster at start-up in Chrome or WebKit on the developer's Mac, so it ships off
+through it and by the goldens, but no faster at start-up in Chrome, WebKit or Firefox on the developer's Mac, so it ships off
 (`?jit=1` turns it on); the numbers are in that spec's §8 and in known-issues.
 
 ## 5. Errors and fallback
