@@ -1314,7 +1314,7 @@ function run(jvm: Jvm, t: JThread, budget: number): ExitReason {
             const taken =
               op === 0x99 ? v === 0 : op === 0x9a ? v !== 0 : op === 0x9b ? v < 0 : op === 0x9c ? v >= 0 : op === 0x9d ? v > 0 : v <= 0;
             const to = pc + (taken ? (((code[pc + 1]! << 8) | code[pc + 2]!) << 16) >> 16 : 3);
-            if (to < pc && jitOn && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; continue outer; }
+            if (jitOn && to < pc && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; continue outer; }
             pc = to;
             break;
           }
@@ -1325,7 +1325,7 @@ function run(jvm: Jvm, t: JThread, budget: number): ExitReason {
             const taken =
               op === 0x9f ? a === b : op === 0xa0 ? a !== b : op === 0xa1 ? a < b : op === 0xa2 ? a >= b : op === 0xa3 ? a > b : a <= b;
             const to = pc + (taken ? (((code[pc + 1]! << 8) | code[pc + 2]!) << 16) >> 16 : 3);
-            if (to < pc && jitOn && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; continue outer; }
+            if (jitOn && to < pc && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; continue outer; }
             pc = to;
             break;
           }
@@ -1333,13 +1333,13 @@ function run(jvm: Jvm, t: JThread, budget: number): ExitReason {
             sp -= 2;
             const same = stack[sp] === stack[sp + 1];
             const to = pc + (same === (op === 0xa5) ? (((code[pc + 1]! << 8) | code[pc + 2]!) << 16) >> 16 : 3);
-            if (to < pc && jitOn && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; continue outer; }
+            if (jitOn && to < pc && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; continue outer; }
             pc = to;
             break;
           }
           case 0xa7: { // goto
             const to = pc + ((((code[pc + 1]! << 8) | code[pc + 2]!) << 16) >> 16);
-            if (to < pc && jitOn && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; continue outer; }
+            if (jitOn && to < pc && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; continue outer; }
             pc = to;
             break;
           }
@@ -1623,7 +1623,7 @@ function run(jvm: Jvm, t: JThread, budget: number): ExitReason {
           case 0xc6: case 0xc7: { // ifnull, ifnonnull
             const isNull = stack[--sp] === null;
             const to = pc + (isNull === (op === 0xc6) ? (((code[pc + 1]! << 8) | code[pc + 2]!) << 16) >> 16 : 3);
-            if (to < pc && jitOn && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; continue outer; }
+            if (jitOn && to < pc && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; continue outer; }
             pc = to;
             break;
           }
