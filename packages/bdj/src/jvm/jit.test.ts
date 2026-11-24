@@ -215,17 +215,18 @@ function random(seed: number): () => number {
   };
 }
 
-type Kind = 'I' | 'J' | 'F';
-const width = (k: Kind): number => (k === 'J' ? 2 : 1);
+type Kind = 'I' | 'J' | 'F' | 'D';
+const width = (k: Kind): number => (k === 'J' || k === 'D' ? 2 : 1);
 
 /**
- * A random straight-line method f(II)I: loads, stores, iinc, stack shuffles and int, long and float arithmetic and
- * conversions, then everything left folded into an int. Locals: 0-3 int, 4-5 long, 6 float.
+ * A random method f(II)I: loads, stores, iinc, stack shuffles, int, long, float and double arithmetic and conversions,
+ * and forward conditional branches over small blocks, then everything left folded into an int. Locals: 0-3 int,
+ * 4-5 long, 6 float, 7-8 double.
  */
 function randomMethod(seed: number): AsmMethod {
   const r = random(seed);
   const pick = <T>(xs: readonly T[]): T => xs[Math.floor(r() * xs.length)]!;
-  const code: number[] = [0x03, 0x3d, 0x04, 0x3e, 0x0a, 0x37, 4, 0x0c, 0x38, 6];
+  const code: number[] = [0x03, 0x3d, 0x04, 0x3e, 0x0a, 0x37, 4, 0x0c, 0x38, 6, 0x0f, 0x39, 7];
   const st: Kind[] = [];
   let maxSlots = 0;
   const slots = (): number => st.reduce((n, k) => n + width(k), 0);
@@ -247,9 +248,23 @@ function randomMethod(seed: number): AsmMethod {
       c.push(() => emit([0x10, Math.floor(r() * 256)], [], ['I']));
       c.push(() => emit([0x16, 4], [], ['J']));
       c.push(() => emit([0x17, 6], [], ['F']));
+      c.push(() => emit([0x18, 7], [], ['D']));
     }
     if (is('I')) {
       c.push(() => emit([0x36, 1 + Math.floor(r() * 3)], ['I'], []));
+      c.push(() => emit([pick([0x3b, 0x3c])], ['I'], []));
+      c.push(() => emit([0x87], ['I'], ['D']));
+      // a forward branch over a block that leaves the stack as it found it (a second block, flushed at its end)
+      c.push(() => {
+        const skipped = pick([
+          [0x84, 2, 5],
+          [0x1b, 0x1c, 0x60, 0x3d],
+          [0x16, 4, 0x0a, 0x61, 0x37, 4],
+          [0x1a, 0x59, 0x60, 0x1b, 0x84, 1, 1, 0x60, 0x3e],
+        ]);
+        emit([pick([0x99, 0x9a, 0x9b, 0x9c, 0x9d, 0x9e]), 0, 3 + skipped.length], ['I'], []);
+        code.push(...skipped);
+      });
       c.push(() => emit([pick([0x74, 0x91, 0x92, 0x93])], ['I'], ['I']));
       c.push(() => emit([0x85], ['I'], ['J']));
       c.push(() => emit([0x86], ['I'], ['F']));
@@ -261,6 +276,7 @@ function randomMethod(seed: number): AsmMethod {
       c.push(() => emit([0x37, 4], ['J'], []));
       c.push(() => emit([0x88], ['J'], ['I']));
       c.push(() => emit([0x89], ['J'], ['F']));
+      c.push(() => emit([0x8a], ['J'], ['D']));
       c.push(() => emit([0x75], ['J'], ['J']));
       c.push(() => emit([0x58], ['J'], []));
       if (room) c.push(() => emit([0x5c], ['J'], ['J', 'J']));
@@ -270,13 +286,43 @@ function randomMethod(seed: number): AsmMethod {
       c.push(() => emit([0x8b], ['F'], ['I']));
       c.push(() => emit([0x8c], ['F'], ['J']));
       c.push(() => emit([0x76], ['F'], ['F']));
+      c.push(() => emit([0x8d], ['F'], ['D']));
     }
-    const cat1 = (n: number): boolean => st.length >= n && top(n).every((k) => k !== 'J');
+    if (is('D')) {
+      c.push(() => emit([0x39, 7], ['D'], []));
+      c.push(() => emit([0x8e], ['D'], ['I']));
+      c.push(() => emit([0x8f], ['D'], ['J']));
+      c.push(() => emit([0x90], ['D'], ['F']));
+      c.push(() => emit([0x77], ['D'], ['D']));
+      c.push(() => emit([0x58], ['D'], []));
+      if (room) c.push(() => emit([0x5c], ['D'], ['D', 'D']));
+    }
+    if (is('D', 'D')) {
+      c.push(() => emit([pick([0x63, 0x67, 0x6b, 0x6f, 0x73])], ['D', 'D'], ['D']));
+      c.push(() => emit([pick([0x97, 0x98])], ['D', 'D'], ['I']));
+    }
+    if (is('I', 'I')) {
+      // a forward branch on two ints over a block that leaves the stack as it found it
+      c.push(() => {
+        emit([pick([0x9f, 0xa0, 0xa1, 0xa2, 0xa3, 0xa4]), 0, 10], ['I', 'I'], []);
+        code.push(0x1b, 0x84, 1, 3, 0x1b, 0x60, 0x3c);
+      });
+    }
+    const cat1 = (n: number): boolean => st.length >= n && top(n).every((k) => width(k) === 1);
+    const cat2 = (k: Kind | undefined): boolean => k !== undefined && width(k) === 2;
     if (cat1(1) && room) c.push(() => { const k = st.at(-1)!; emit([0x59], [k], [k, k]); });
     if (cat1(2) && room) c.push(() => { const [a, b] = top(2) as [Kind, Kind]; emit([0x5a], [a, b], [b, a, b]); });
     if (cat1(3) && room) c.push(() => { const [a, b, d] = top(3) as [Kind, Kind, Kind]; emit([0x5b], [a, b, d], [d, a, b, d]); });
     if (cat1(2)) c.push(() => { const [a, b] = top(2) as [Kind, Kind]; emit([0x5f], [a, b], [b, a]); });
     if (cat1(2) && room) c.push(() => { const [a, b] = top(2) as [Kind, Kind]; emit([0x5c], [a, b], [a, b, a, b]); });
+    // dup2_x1 and dup2_x2 in their forms: three or four category-1 values, or a long or double over one or two
+    if (cat1(3) && room) c.push(() => { const [a, b, d] = top(3) as [Kind, Kind, Kind]; emit([0x5d], [a, b, d], [b, d, a, b, d]); });
+    if (st.length >= 2 && cat2(st.at(-1)) && width(st.at(-2)!) === 1 && room) c.push(() => { const [a, b] = top(2) as [Kind, Kind]; emit([0x5d], [a, b], [b, a, b]); });
+    if (cat1(4) && room) c.push(() => { const [a, b, d, e] = top(4) as [Kind, Kind, Kind, Kind]; emit([0x5e], [a, b, d, e], [d, e, a, b, d, e]); });
+    if (st.length >= 3 && cat2(st.at(-1)) && cat1(3) === false && width(st.at(-2)!) === 1 && width(st.at(-3)!) === 1 && room) {
+      c.push(() => { const [a, b, d] = top(3) as [Kind, Kind, Kind]; emit([0x5e], [a, b, d], [d, a, b, d]); });
+    }
+    if (st.length >= 2 && cat2(st.at(-1)) && cat2(st.at(-2)) && room) c.push(() => { const [a, b] = top(2) as [Kind, Kind]; emit([0x5e], [a, b], [b, a, b]); });
     if (is('I', 'I')) c.push(() => emit([pick([0x60, 0x64, 0x68, 0x7e, 0x80, 0x82, 0x78, 0x7a, 0x7c])], ['I', 'I'], ['I']));
     if (is('J', 'J')) {
       c.push(() => emit([pick([0x61, 0x65, 0x69, 0x7f, 0x81, 0x83])], ['J', 'J'], ['J']));
@@ -294,12 +340,13 @@ function randomMethod(seed: number): AsmMethod {
     const k = st.at(-1)!;
     if (k === 'J') emit([0x88], ['J'], ['I']);
     if (k === 'F') emit([0x8b], ['F'], ['I']);
+    if (k === 'D') emit([0x8e], ['D'], ['I']);
     code.push(0x1c, 0x60, 0x3d);
     st.pop();
     maxSlots = Math.max(maxSlots, slots() + 2);
   }
-  code.push(0x1c, 0x1d, 0x60, 0x16, 4, 0x88, 0x60, 0x17, 6, 0x8b, 0x60, 0xac);
-  return { name: `f${seed}`, desc: '(II)I', code, maxStack: Math.max(maxSlots, 3) + 2, maxLocals: 7 };
+  code.push(0x1c, 0x1d, 0x60, 0x16, 4, 0x88, 0x60, 0x17, 6, 0x8b, 0x60, 0x18, 7, 0x8e, 0x60, 0x1a, 0x60, 0x1b, 0x60, 0xac);
+  return { name: `f${seed}`, desc: '(II)I', code, maxStack: Math.max(maxSlots, 3) + 4, maxLocals: 9 };
 }
 
 describe('the JIT against the interpreter', () => {
@@ -326,7 +373,7 @@ describe('the JIT against the interpreter', () => {
     expect(jvm.jitStats()).toMatchObject({ mode: 'on', compiled: 1, failed: 0 });
   });
 
-  it('computes what the interpreter computes on 2,000 random straight-line methods', async () => {
+  it('computes what the interpreter computes on 2,000 random methods', async () => {
     const methods = Array.from({ length: 2000 }, (_, i) => randomMethod(i + 1));
     const results: unknown[][] = [];
     for (const mode of ['off', 'force'] as const) {

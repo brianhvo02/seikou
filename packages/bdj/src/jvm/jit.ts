@@ -662,6 +662,12 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
    * An instruction carried out on the pending expressions (loads, stores, constants, arithmetic that cannot throw,
    * conversions, comparisons and conditional branches); null for the others, which take their operands from the
    * variables.
+   *
+   * Invariant `assign` relies on: a pending expression in slot k reads only the variables s<m> with m >= k (its
+   * operands, which sit at or above its slot), never a lower one. It holds because only instructions whose result goes
+   * where their lowest operand was are folded here; the dup family and swap are not (they flush and move variables),
+   * and folding one of them (a dup copying slot k's value into slot k + 1 as the expression `s<k>`) would let a slot's
+   * expression name a variable below it, which `assign` does not check before writing that lower variable.
    */
   function pure(pc: number, sp: number): string | null {
     const op = code[pc]!;
