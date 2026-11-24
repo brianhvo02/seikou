@@ -1,6 +1,6 @@
 # Lossless and multichannel audio
 
-Status: design, written unattended on 2026-11-24 by the night lead (the owner asked for the item that evening; it had
+Status: built (2026-11-24), awaiting the owner's check by ear; design written unattended on 2026-11-24 by the night lead (the owner asked for the item that evening; it had
 been deferred on 2026-11-16). Every decision the owner has not seen is marked *(My call: … — why.)*. Roadmap item
 "Lossless and multichannel audio" (`docs/roadmap.md`, Later).
 
@@ -24,8 +24,8 @@ output device has the channels.
   level.
 - **The cores stay where lossless isn't worth it or can't run**: on the constrained memory profile (phones and
   tablets), when the lossless part of a stream fails, and when decoding it takes too much of the engine worker.
-- **The user can see what plays**: the telemetry's `audioCodec` names the decoding ("Dolby TrueHD, lossless, 7.1" or
-  "Dolby TrueHD, Dolby Digital core"), and the Audio menu marks the playing track "lossless" or "core".
+- **The user can see what plays**: the telemetry's new `audioDecoding` names the decoding ("Dolby TrueHD, lossless,
+  7.1" or "Dolby TrueHD, Dolby Digital core, stereo"), and the Audio menu marks the playing track "lossless" or "core".
 - A way to force stereo on a device that claims more channels than it has speakers.
 
 ## Non-goals
@@ -145,9 +145,11 @@ encode's) still gives stereo.
   as before. N is fixed for the context's life: a device plugged in later is mixed by the browser and system.
   *(My call: fix N per page — replacing the ring under a playing engine is a rebuild of its audio path for a rare
   event; a reload picks the new device up, and it is listed in known issues.)*
-- **Setting** "Audio output" (`AudioChannelsSetting`, `auto` | `stereo`, `localStorage` key
-  `bluray-web:audio-channels`, default `auto`) in the player's Settings menu: `stereo` makes N 2 (and takes effect
-  when the context is next made, that is after a reload; the menu says so). *(My call: Auto by default, as Video
+- **Setting** "Sound" (`AudioChannelsSetting` in `src/ui/audio-channels.ts`, `auto` | `stereo`, `localStorage` key
+  `bluray-web:audio-channels`, default `auto`), a group in the control bar's Video output menu (the Audio menu is
+  hidden on one-track discs), with a line saying what plays now: `stereo` makes N 2 (and takes effect when the
+  context is next made, that is after a reload; the menu says so). *(My call: in the Video output menu, which is the
+  one output menu every disc shows.)* *(My call: Auto by default, as Video
   output and Deinterlacing are, with Stereo as the way out — a USB interface with eight outputs and two monitors
   plugged in, or a TV that reports eight channels and plays two, would otherwise lose the centre's dialogue; the help
   page says so.)* `?audiochannels=2|6|8` is test-only: the count is used as if the device offered it, capped by the
@@ -155,16 +157,17 @@ encode's) still gives stereo.
 
 ### What the user sees
 
-- `Telemetry.audioCodec` becomes the decoding's description: the coding name, plus ", lossless" or ", Dolby Digital
-  core" / ", DTS core" for TrueHD and DTS-HD, plus the decoded channel layout ("5.1", "7.1"). `Telemetry.audioOutput`
-  (new) is `{ channels }` of the ring.
+- `Telemetry.audioCodec` stays the coding name (tests and tools read it); the new `Telemetry.audioDecoding` is the
+  description: the coding name, plus ", lossless" (TrueHD, DTS-HD MA decoded whole) or ", Dolby Digital core" /
+  ", DTS core", plus the decoded layout ("stereo", "5.1", "7.1"; after the decoder's own downmix). The new
+  `Telemetry.audioOutputChannels` is the ring's channel count.
 - The snapshot's `audioDecoding` (`'lossless' | 'core' | null`) marks the selected track in the Audio menu with a
   small "lossless" or "core" after its label.
 
 ## Constraints
 
-- `audio.wasm` is rebuilt only with `npm run wasm:build:audio` (CI diffs it). The module grows by the `truehd` decoder
-  (about 60 KB).
+- `audio.wasm` is rebuilt only with `npm run wasm:build:audio` (CI diffs it). The module grew by the `truehd` decoder
+  from 775 to 798 KB.
 - Licensing: the shim stays LGPL-2.1-or-later with its stated reason; no new derived files (the channel map is
   original; the coefficients are the ones the shim and the LPCM port already use).
 - The ring's header grows by one Int32 slot; its frames start 4 bytes later. Every thread builds views from the
@@ -176,13 +179,17 @@ encode's) still gives stereo.
   the ring and worklet with 6 and 8 channels, the writer's remix, the decimator on 6 channels, the TrueHD and DTS-HD
   framers (cuts, carries, resync, padding), the factory's choice by profile, the fallbacks (failure, no output, slow
   with a fake clock), the output's channel choice with a fake `AudioContext`.
-- Decoder against ffmpeg: committed TrueHD streams (stereo, 5.1 and 7.1, 48 kHz, and 5.1 at 96 kHz, made by ffmpeg's
-  `truehd` encoder from a test tone) decode bit-exact against ffmpeg's `s32le` decode in the native order. ffmpeg
+- Decoder against ffmpeg: committed TrueHD streams (stereo and 5.1 at 48 kHz, and 5.1 at 96 kHz, made by ffmpeg's
+  `truehd` encoder from a tone per channel; its encoder stops at 5.1, so 7.1 comes from the DTS-HD samples and the
+  local discs) decode bit-exact against ffmpeg's `s32le` decode in the native order. ffmpeg
   can't encode DTS-HD, so the DTS-HD test reads FFmpeg's FATE samples (`master_audio_7.1_24bit.dts`,
   `xll_71_24_96_768.dts`, …) from `fixtures/local/fate/` when present (gitignored; the test names the rsync command)
   and compares with ffmpeg the same way; it skips otherwise.
 - The cost per second of audio on this Mac (Node, the real module) is recorded in the report.
-- E2E: disc3's TrueHD track plays in sync through the lossless path and its telemetry says lossless.
+- E2E: disc3's TrueHD track plays in sync through the lossless path and its telemetry says lossless (and core with
+  `?memory=constrained`); `tests/e2e/audio-channels.spec.ts` renders the built worklet into a 2, 6 and 8-channel
+  `OfflineAudioContext` through a discrete gain in every browser; `local-discs.spec.ts` requires real TrueHD and
+  DTS-HD MA tracks to say lossless.
 - What can't be tested tonight: hearing 5.1 and 7.1 on real speakers (order, levels, LFE), Safari's and Firefox's
   `maxChannelCount` on HDMI and USB devices, and a real disc's DTS-HD MA and TrueHD (BDJ_DISC_A and BDJ_DISC_B carry
   them). The owner's morning checks are in the night report.

@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test, type Page } from '@playwright/test';
 import { parseIndex } from '@seikou/bdmv/index-parser';
@@ -102,7 +102,7 @@ const playlistsSeen = (page: Page): Promise<string[]> => page.evaluate(() => [..
 /** Opens the disc in a fresh page load and waits for the first presented frame of Java's first playlist. */
 async function openBdj(page: Page, name: string): Promise<BdjStartupSample> {
   await page.goto('/?telemetry=1');
-  await setFolder(page.getByTestId('folder-input'), join(LOCAL, name));
+  await setFolder(page.getByTestId('folder-input'), realpathSync(join(LOCAL, name)));
   await expect.poll(async () => (await bdjStartup(page))?.firstFrameMs ?? null, { timeout: 60_000 }).not.toBeNull();
   await expect(page.getByTestId('playlist-picker')).toBeHidden();
   return (await bdjStartup(page))!;
@@ -138,7 +138,7 @@ for (const name of discs.filter(bdjFirstPlay)) {
     test.skip(!process.env.LOCAL_DISCS, 'Set LOCAL_DISCS=1 to play the discs under fixtures/local in the browser.');
     test.setTimeout(120_000);
     await page.goto('/?telemetry=1&bdjfail=1');
-    await setFolder(page.getByTestId('folder-input'), join(LOCAL, name));
+    await setFolder(page.getByTestId('folder-input'), realpathSync(join(LOCAL, name)));
     await expect(page.getByTestId('playlist-picker')).toBeVisible({ timeout: 60_000 });
     await expect(page.locator('.notice', { hasText: /^BD-J couldn't start this disc/ })).toBeVisible();
   });
@@ -150,7 +150,7 @@ for (const name of discs) {
     test.setTimeout(900_000);
     await page.goto('/?telemetry=1');
     await skipWithoutH264(page);
-    await setFolder(page.getByTestId('folder-input'), join(LOCAL, name));
+    await setFolder(page.getByTestId('folder-input'), realpathSync(join(LOCAL, name)));
     const first = bdjFirstPlay(name) ? 'bdj' : await firstScreen(page);
     if (first === 'bdj') {
       // the disc's Java plays its own playlists; the picker stays reachable from the control bar
