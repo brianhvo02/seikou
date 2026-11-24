@@ -342,15 +342,17 @@ describe('subtitle routes', () => {
     const fontSha = createHash('sha256').update(font).digest('hex');
     const release = { group: null, fileName: 'ep2.mkv', fileSize: 5000, track: 2, trackName: 'English' };
     let landed: string[];
+    let hook: (id: string) => void;
     let relBase: string;
     let relStop: () => void;
     let relStore: SubtitleStore;
     beforeEach(async () => {
       landed = [];
+      hook = (id) => landed.push(id);
       const library = { evidence: () => discs } as unknown as Library;
       const titles = { service: { gate: () => gate, catalogue: () => catalogue }, owner: {} } as unknown as TitleLibrary;
       relStore = new SubtitleStore(join(tmp, 'rel'));
-      const server = createServer([subtitleRoutes(auth, relStore, { titles, library, onReleaseFile: (id) => landed.push(id) })]);
+      const server = createServer([subtitleRoutes(auth, relStore, { titles, library, onReleaseFile: (id) => hook(id) })]);
       await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
       relBase = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
       relStop = () => { server.close(); server.closeAllConnections(); };
@@ -393,6 +395,41 @@ describe('subtitle routes', () => {
       const owner = await tokenFor('Hana', true);
       const made = (await (await rcall('POST', '/api/subtitles', owner, meta({ release }))).json()) as StoredSubtitle;
       expect((await rcall('DELETE', `/api/subtitles/${made.id}`, owner)).status).toBe(204);
+    });
+
+    it('a new file on a release that was lined up hides it again until it is lined up anew', async () => {
+      const owner = await tokenFor('Hana', true);
+      const guest = await tokenFor('Mika', false);
+      const made = (await (await rcall('POST', '/api/subtitles', owner, meta({ release }))).json()) as StoredSubtitle;
+      await rcall('PUT', `/api/subtitles/${made.id}/file/ep2.ass`, owner, 'ass text');
+      relStore.setReleaseAlignment(made.id, Buffer.from('aligned'), { kind: 'offset', offsetMs: 100, confidence: 0.9 }, { discKey: KEY, playlistId: '00002' });
+      const res = await rcall('PUT', `/api/subtitles/${made.id}/file/ep2.ass`, owner, 'new text');
+      expect(((await res.json()) as StoredSubtitle).source).toMatchObject({ kind: 'release', alignment: null, linedUpOn: null });
+      expect(await (await rcall('GET', `/api/subtitles?discKey=${KEY}`, guest)).json()).toEqual([]);
+      expect(landed).toEqual([made.id, made.id]);
+    });
+
+    it('a failing line-up hook leaves the stored upload answered 200', async () => {
+      const owner = await tokenFor('Hana', true);
+      hook = () => { throw new Error('queue broke'); };
+      const made = (await (await rcall('POST', '/api/subtitles', owner, meta({ release }))).json()) as StoredSubtitle;
+      const res = await rcall('PUT', `/api/subtitles/${made.id}/file/ep2.ass`, owner, 'ass text');
+      expect(res.status).toBe(200);
+      expect(relStore.get(made.id)?.fileSize).toBe(8);
+    });
+
+    it("guests can't download a release upload's file or fonts until it is lined up; owners can", async () => {
+      const owner = await tokenFor('Hana', true);
+      const guest = await tokenFor('Mika', false);
+      const made = (await (await rcall('POST', '/api/subtitles', owner, meta({ release, fonts: [{ name: 'F.ttf', sha256: fontSha, size: font.length }] }))).json()) as StoredSubtitle;
+      await rcall('PUT', `/api/subtitles/${made.id}/fonts/F.ttf`, owner, font);
+      await rcall('PUT', `/api/subtitles/${made.id}/file/ep2.ass`, owner, 'ass text');
+      for (const path of ['file', 'fonts/F.ttf']) {
+        expect((await rcall('GET', `/api/subtitles/${made.id}/${path}`, guest)).status).toBe(404);
+        expect((await rcall('GET', `/api/subtitles/${made.id}/${path}`, owner)).status).toBe(200);
+      }
+      relStore.setReleaseAlignment(made.id, Buffer.from('aligned'), { kind: 'none', reason: 'no-speech' }, { discKey: KEY, playlistId: '00002' });
+      for (const path of ['file', 'fonts/F.ttf']) expect((await rcall('GET', `/api/subtitles/${made.id}/${path}`, guest)).status).toBe(200);
     });
 
     it('refuses malformed release requests', async () => {

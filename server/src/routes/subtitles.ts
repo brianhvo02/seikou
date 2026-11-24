@@ -92,7 +92,7 @@ const validOffset = (v: unknown): v is number => typeof v === 'number' && Number
  * - `PATCH /api/subtitles/<id>` (owner) changes name, language, offset or attachment; 404 for an unknown id.
  * - `PUT /api/subtitles/<id>/file/<name>` and `PUT <id>/fonts/<name>` (owner) take the bytes: 400 `empty`, `bad-name` or `bad-font`,
  *   413 `too-large`, 503 `busy` with `Retry-After: 1`. A refused `PUT` closes the connection.
- * - `GET /api/subtitles/<id>/file` and `GET <id>/fonts/<name>` download; `DELETE /api/subtitles/<id>` (owner, 204).
+ * - `GET /api/subtitles/<id>/file` and `GET <id>/fonts/<name>` download (404 to a guest for a release upload not yet lined up); `DELETE /api/subtitles/<id>` (owner, 204).
  * Another method on a known route is 405; a write by a device that is not an owner's is 403 `forbidden`.
  */
 export function subtitleRoutes(auth: Auth, store: SubtitleStore, catalogue: SubtitleCatalogue = {}): Handler {
@@ -232,7 +232,14 @@ export function subtitleRoutes(auth: Auth, store: SubtitleStore, catalogue: Subt
       const stored = kind === 'file'
         ? await store.putReleaseFile(id, name, bodyStream(req, SUBTITLE_LIMIT_BYTES))
         : await store.putReleaseFont(id, name, bodyStream(req, FONTS_LIMIT_BYTES));
-      if (kind === 'file') onReleaseFile?.(id);
+      if (kind === 'file') {
+        // the upload is stored whatever becomes of its line-up
+        try {
+          onReleaseFile?.(id);
+        } catch (err) {
+          console.warn(`subtitles: line-up of release upload ${id} not queued: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
       return json(200, withAttached(stored));
     }
     const stored = kind === 'file'
@@ -277,7 +284,8 @@ export function subtitleRoutes(auth: Auth, store: SubtitleStore, catalogue: Subt
         return res.status === 200 ? res : refuse(res);
       }
       const s = store.get(id!);
-      if (!s || (!device.owner && !isAttached(s.attachment))) return notFound();
+      // a guest gets neither an unattached upload nor a release upload still waiting to be lined up
+      if (!s || (!device.owner && (!isAttached(s.attachment) || (isRelease(s) && s.source.alignment === null)))) return notFound();
       return await download(part === 'file' && shape === 'file' ? store.filePath(id!) : store.fontPath(id!, name!));
     } catch (err) {
       if (err instanceof EmptyBodyError) return refuse(bad('empty'));

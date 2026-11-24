@@ -356,7 +356,7 @@ export class SubtitleStore {
     return { stored, needFonts: fonts.filter((f) => !existsSync(this.poolFile(f.sha256))).map((f) => f.name) };
   }
 
-  /** Stores a release upload's file as `sub/` and as the unaligned `original/`, both counting toward the 2 GB; replaces an earlier one. */
+  /** Stores a release upload's file as `sub/` and as the unaligned `original/`, both counting toward the 2 GB; replaces an earlier one, and the upload waits to be lined up again. */
   async putReleaseFile(id: string, fileName: string, body: AsyncIterable<Buffer>): Promise<StoredSubtitle> {
     checkName(fileName, SUBTITLE_EXT);
     const s = this.get(id);
@@ -372,7 +372,8 @@ export class SubtitleStore {
         copyFileSync(temp, join(this.root(), id, 'original', fileName));
         renameSync(temp, join(this.root(), id, 'sub', fileName));
         if (cur.fileName && cur.fileName !== fileName) for (const sub of ['sub', 'original']) rmSync(join(this.root(), id, sub, cur.fileName), { force: true });
-        const next = { ...cur, fileName, fileSize: size };
+        // a new file waits to be lined up again, hidden from guests meanwhile
+        const next: StoredSubtitle = { ...cur, fileName, fileSize: size, source: { ...cur.source, alignment: null, linedUpOn: null } };
         return { next, result: next, original: size };
       });
       if (!result) throw new NotFoundError();

@@ -1,13 +1,14 @@
 /**
  * Runs the fansub search for a title: per season, SeaDex's ranked releases looked up on Anime Tosho, the tracks of each
  * episode's chosen file fetched, lined up with the owner's disc and attached in the subtitle store. One title runs at a
- * time, from the owner's button or the nightly pass. Original code.
+ * time, from the owner's button or the nightly pass. The same queue lines up the owner's release uploads (tracks pulled
+ * from a release's MKV), and a title's run leaves an episode that holds one alone. Original code.
  */
 import { readFileSync } from 'node:fs';
 import type {
   FansubAlignment, FansubEpisodeMark, FansubSeasonLine, FansubSource, FansubTitleState, StoredSubtitle, SubtitleAttachment,
 } from '@seikou/nas/nas-api';
-import { isFansub } from '@seikou/nas/nas-api';
+import { isFansub, isRelease } from '@seikou/nas/nas-api';
 import type { DiscActivity } from '../disc-activity';
 import type { AudioDecoder } from '@seikou/fansubs/audio-decoder';
 import type { LevelDiscSource } from '../levels/level-discs';
@@ -36,6 +37,9 @@ const IDLE_STEP_MS = 30_000;
 /** The nightly pass starts no earlier than 18:00 local time. */
 const NIGHT_STARTS_MIN = 18 * 60;
 const UNSURE: FansubAlignment = { kind: 'none', reason: 'low-confidence' };
+/** An SRT track: the aligner reads ASS dialogue only, so it keeps the release's own timing. */
+const NOT_ASS: FansubAlignment = { kind: 'none', reason: 'no-speech' };
+const isSrt = (s: StoredSubtitle): boolean => /\.srt$/i.test(s.fileName);
 
 /** What `FansubService` needs: where fansubs are stored, the sources they come from and the discs they are lined up on. */
 export interface FansubServiceOptions {
@@ -71,18 +75,21 @@ export interface FansubServiceOptions {
   readonly windowEnd?: { readonly hour: number; readonly minute: number };
   /** Waits `ms`, rejecting on abort (tests pass a fake clock's). */
   readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
+  /** Lines a script up with a disc's playlist; `align` from `@seikou/fansubs` by default (tests pass a stand-in). */
+  readonly aligner?: typeof align;
 }
 
 /** A release on Anime Tosho, null when it has none, `down` when it couldn't be asked. */
 type LookedUp = ToshoRelease | null | 'down';
 
 interface Job {
-  readonly titleId: string;
+  /** A title's id, or `release:<disc key>:<size>:<file name>` for the line-up of a release file's uploads. */
+  readonly key: string;
   urgent: boolean;
   /** The nightly pass's end, for its own jobs; they also wait while a disc is read or a level encodes. */
   readonly windowEndAt: number | null;
   readonly controller: AbortController;
-  readonly promise: Promise<FansubTitleState>;
+  readonly promise: Promise<unknown>;
   /** Ends the nightly wait at once when the owner's button makes the job urgent. */
   wake: AbortController | null;
   start(): void;
@@ -132,6 +139,7 @@ export class FansubService {
   private readonly log: (message: string) => void;
   private readonly sleep: (ms: number, signal: AbortSignal) => Promise<void>;
   private readonly windowEnd: { readonly hour: number; readonly minute: number };
+  private readonly aligner: typeof align;
   private active: Job | null = null;
   private readonly queue: Job[] = [];
   private closed = false;
@@ -145,13 +153,14 @@ export class FansubService {
     this.log = opts.log ?? ((m) => console.warn(m));
     this.sleep = opts.sleep ?? abortableSleep;
     this.windowEnd = opts.windowEnd ?? { hour: 8, minute: 0 };
+    this.aligner = opts.aligner ?? align;
     // A run that was going when the process stopped is over.
     opts.state.clearRunning();
   }
 
   /** Runs a title now or after the one running; a title already queued or running gives that run's answer. */
   runTitle(titleId: string, opts: { urgent?: boolean; signal?: AbortSignal } = {}): Promise<FansubTitleState> {
-    return this.enqueue(titleId, opts.urgent ?? false, null, opts.signal);
+    return this.enqueue(titleId, opts.urgent ?? false, null, (job) => this.execute(job), opts.signal);
   }
 
   /** The owner's button: the title runs next, ahead of the nightly pass. Answers the title's state at once. */
@@ -168,7 +177,7 @@ export class FansubService {
     }
     const queued = { ...(this.opts.state.title(titleId) ?? blank(titleId)), running: true };
     this.opts.state.put(queued);
-    this.enqueue(titleId, true, null).catch((e: unknown) => {
+    this.enqueue(titleId, true, null, (job) => this.execute(job)).catch((e: unknown) => {
       if (!this.closed) this.log(`fansubs: ${titleId}: ${e instanceof Error ? e.message : String(e)}`);
     });
     return queued;
@@ -237,53 +246,132 @@ export class FansubService {
     return on.discKey !== now.discKey || on.playlistId !== now.playlistId;
   }
 
-  /** Lines a fansub up again from its original, on its episode's current disc and playlist. */
+  /**
+   * A release upload's file has landed: lines it up with its episode's disc in the queue (after the title running, and
+   * waiting like the nightly pass while a disc is read or a level encodes), together with the other ASS tracks of the
+   * same release file. An SRT track is shown at once at the release's own timing.
+   */
+  lineUpRelease(subtitleId: string): void {
+    const s = this.opts.store.get(subtitleId);
+    if (!s || !isRelease(s) || s.fileSize === 0) return;
+    if (isSrt(s)) {
+      this.place(s, NOT_ASS, this.target(s) ?? this.attachedOn(s));
+      return;
+    }
+    const key = `release:${s.attachment.discKey}:${s.source.fileSize}:${s.source.fileName}`;
+    // a line-up of the same file still waiting takes this track too; one already running may have missed it
+    if (this.queue.some((j) => j.key === key)) return;
+    this.enqueue(key, false, null, (job) => this.lineUpFile(subtitleId, job), undefined, false).catch((e: unknown) => {
+      if (!this.closed) this.log(`fansubs: line-up of release upload ${subtitleId}: ${e instanceof Error ? e.message : String(e)}`);
+    });
+  }
+
+  /** Lines a fansub or release upload up again from its original, on its episode's current disc and playlist. */
   async realign(subtitleId: string): Promise<StoredSubtitle | null> {
     const s = this.opts.store.get(subtitleId);
-    const original = s ? this.opts.store.originalPath(subtitleId) : null;
-    if (!s || !isFansub(s) || original === null) return null;
+    if (!s || !(isFansub(s) || isRelease(s)) || this.opts.store.originalPath(subtitleId) === null) return null;
     const target = this.target(s);
     if (!target) return null;
+    if (isSrt(s)) return this.place(s, NOT_ASS, target);
+    const alignment = await this.alignOn(target, this.siblings(s), s);
+    return alignment ? this.place(s, alignment, target) : null;
+  }
+
+  /** Goes back to the track as fetched or uploaded, unshifted. */
+  useOriginal(subtitleId: string): StoredSubtitle | null {
+    const s = this.opts.store.get(subtitleId);
+    const original = s ? this.opts.store.originalPath(subtitleId) : null;
+    if (!s || original === null) return null;
+    if (isFansub(s)) return this.opts.store.replaceFile(subtitleId, readFileSync(original), { ...s.source, alignment: { kind: 'original' } });
+    if (isRelease(s)) return this.opts.store.setReleaseAlignment(subtitleId, readFileSync(original), { kind: 'original' }, s.source.linedUpOn ?? this.attachedOn(s));
+    return null;
+  }
+
+  /** The disc and playlist a subtitle's attachment names. */
+  private attachedOn(s: StoredSubtitle): { discKey: string; playlistId: string } {
+    return { discKey: s.attachment.discKey, playlistId: s.attachment.playlistId };
+  }
+
+  /**
+   * The tracks lined up together with `s` (itself included), on the same disc key: a fansub's from the same Anime Tosho
+   * file, a release upload's ASS tracks from the same release file (by name and size) that have their file.
+   */
+  private siblings(s: StoredSubtitle): StoredSubtitle[] {
+    return this.opts.store.list().filter((o) => {
+      if (o.attachment.discKey !== s.attachment.discKey) return false;
+      if (isFansub(s)) return isFansub(o) && o.source.toshoFileId === s.source.toshoFileId;
+      return isRelease(s) && isRelease(o) && o.source.fileName === s.source.fileName && o.source.fileSize === s.source.fileSize
+        && o.fileSize > 0 && !isSrt(o);
+    });
+  }
+
+  /**
+   * Lines up the original with the most dialogue among `members` (a signs track has too little to go on), `first`'s
+   * when none has more; null when the disc or the playlist's length can't be had.
+   */
+  private async alignOn(
+    target: { discId: string; playlistId: string }, members: readonly StoredSubtitle[], first: StoredSubtitle, signal?: AbortSignal,
+  ): Promise<FansubAlignment | null> {
     const disc = await this.opts.discs(target.discId);
     const duration = this.opts.durationMs(target.discId, target.playlistId);
     if (!disc || duration === null) return null;
-    // A file's tracks share the offset of its track with the most dialogue (a signs track has too little to go on).
-    const siblings = this.opts.store.list().filter((o) => isFansub(o) && o.source.toshoFileId === s.source.toshoFileId && o.attachment.discKey === s.attachment.discKey);
-    let base = readFileSync(original, 'utf8');
-    let most = dialogueIntervals(base).length;
-    for (const o of siblings) {
+    let base: string | null = null;
+    let most = -1;
+    for (const o of [first, ...members.filter((m) => m.id !== first.id)]) {
       const path = this.opts.store.originalPath(o.id);
-      if (path === null || o.id === s.id) continue;
+      if (path === null) continue;
       const text = readFileSync(path, 'utf8');
       const n = dialogueIntervals(text).length;
       if (n > most) { base = text; most = n; }
     }
-    const alignment = await align(disc, target.playlistId, duration, base, this.opts.decoder, undefined, { log: this.log });
-    const source: FansubSource = { ...s.source, alignment, linedUpOn: { discKey: target.discKey, playlistId: target.playlistId } };
-    const replaced = this.opts.store.replaceFile(subtitleId, Buffer.from(retime(readFileSync(original, 'utf8'), alignment)), source);
-    if (!replaced) return null;
-    if (s.attachment.kind === 'episode' && (s.attachment.discKey !== target.discKey || s.attachment.playlistId !== target.playlistId)) {
-      return this.opts.store.update(subtitleId, { attachment: { ...s.attachment, discKey: target.discKey, playlistId: target.playlistId } });
-    }
-    return replaced;
+    if (base === null) return null;
+    return this.aligner(disc, target.playlistId, duration, base, this.opts.decoder, signal, { log: this.log });
   }
 
-  /** Goes back to the track as fetched, unshifted. */
-  useOriginal(subtitleId: string): StoredSubtitle | null {
+  /** Writes a track retimed by `alignment` from its original, notes what it was lined up on, and follows its episode to `on`. */
+  private place(s: StoredSubtitle, alignment: FansubAlignment, on: { discKey: string; playlistId: string }): StoredSubtitle | null {
+    const { store } = this.opts;
+    const original = store.originalPath(s.id);
+    if (original === null) return null;
+    const data = Buffer.from(retime(readFileSync(original, 'utf8'), alignment));
+    const linedUpOn = { discKey: on.discKey, playlistId: on.playlistId };
+    const done = isFansub(s) ? store.replaceFile(s.id, data, { ...s.source, alignment, linedUpOn })
+      : isRelease(s) ? store.setReleaseAlignment(s.id, data, alignment, linedUpOn) : null;
+    if (!done) return null;
+    if (s.attachment.kind === 'episode' && (s.attachment.discKey !== on.discKey || s.attachment.playlistId !== on.playlistId)) {
+      return store.update(s.id, { attachment: { ...s.attachment, discKey: on.discKey, playlistId: on.playlistId } });
+    }
+    return done;
+  }
+
+  /**
+   * The queued line-up of a release file's ASS tracks: one alignment from the track with the most dialogue, given to
+   * every track of the file except one the owner set to its original timing. With no disc to line up on, the tracks
+   * show at their own timing, marked for the owner.
+   */
+  private async lineUpFile(subtitleId: string, job: Job): Promise<void> {
+    await this.waitIdle(job);
     const s = this.opts.store.get(subtitleId);
-    const original = s ? this.opts.store.originalPath(subtitleId) : null;
-    if (!s || !isFansub(s) || original === null) return null;
-    return this.opts.store.replaceFile(subtitleId, readFileSync(original), { ...s.source, alignment: { kind: 'original' } });
+    if (!s || !isRelease(s) || s.fileSize === 0) return;
+    const members = this.siblings(s);
+    const target = this.target(s);
+    const alignment = (target ? await this.alignOn(target, members, s, job.controller.signal) : null) ?? UNSURE;
+    job.controller.signal.throwIfAborted();
+    for (const m of members) {
+      const now = this.opts.store.get(m.id);
+      if (!now || !isRelease(now) || now.source.alignment?.kind === 'original') continue;
+      this.place(now, alignment, target ?? this.attachedOn(now));
+    }
   }
 
   // --- the queue ---
 
-  private find(titleId: string): Job | undefined {
-    return this.active?.titleId === titleId ? this.active : this.queue.find((j) => j.titleId === titleId);
+  private find(key: string): Job | undefined {
+    return this.active?.key === key ? this.active : this.queue.find((j) => j.key === key);
   }
 
   private promote(titleId: string): void {
-    const at = this.queue.findIndex((j) => j.titleId === titleId);
+    const at = this.queue.findIndex((j) => j.key === titleId);
     if (at < 0) return;
     const [job] = this.queue.splice(at, 1);
     job!.urgent = true;
@@ -297,24 +385,27 @@ export class FansubService {
     else this.queue.splice(before, 0, job);
   }
 
-  private enqueue(titleId: string, urgent: boolean, windowEndAt: number | null, signal?: AbortSignal): Promise<FansubTitleState> {
+  /** Queues `run` under `key`; a job queued or running under the same key gives its answer instead, unless `join` is false. */
+  private enqueue<T>(
+    key: string, urgent: boolean, windowEndAt: number | null, run: (job: Job) => Promise<T>, signal?: AbortSignal, join = true,
+  ): Promise<T> {
     if (this.closed) return Promise.reject(new DOMException('closed', 'AbortError'));
-    const existing = this.find(titleId);
-    if (existing) return existing.promise;
+    const existing = join ? this.find(key) : undefined;
+    if (existing) return existing.promise as Promise<T>;
     const controller = new AbortController();
     if (signal) {
       if (signal.aborted) controller.abort(signal.reason);
       else signal.addEventListener('abort', () => controller.abort(signal.reason), { once: true });
     }
     let start!: () => void;
-    const promise = new Promise<FansubTitleState>((resolve, reject) => {
+    const promise = new Promise<T>((resolve, reject) => {
       start = () => {
         // The queue moves on before the caller hears back, so a caller running the same title again starts a new run.
         const done = (): void => {
           this.active = null;
           this.pump();
         };
-        this.execute(job).then((v) => { done(); resolve(v); }, (e: unknown) => { done(); reject(e); });
+        run(job).then((v) => { done(); resolve(v); }, (e: unknown) => { done(); reject(e); });
       };
       controller.signal.addEventListener('abort', () => {
         // Dropped while it waited its turn.
@@ -325,7 +416,7 @@ export class FansubService {
         }
       }, { once: true });
     });
-    const job: Job = { titleId, urgent, windowEndAt, controller, promise, wake: null, start: () => start() };
+    const job: Job = { key, urgent, windowEndAt, controller, promise, wake: null, start: () => start() };
     this.insert(job);
     this.pump();
     return promise;
@@ -354,7 +445,7 @@ export class FansubService {
       if (next === undefined) return;
       this.tried.add(next);
       try {
-        await this.enqueue(next, false, this.nightlyEndAt);
+        await this.enqueue(next, false, this.nightlyEndAt, (job) => this.execute(job));
       } catch (e) {
         if (this.closed) return;
         this.log(`fansubs: ${next}: ${e instanceof Error ? e.message : String(e)}`);
@@ -377,7 +468,7 @@ export class FansubService {
   }
 
   private async execute(job: Job): Promise<FansubTitleState> {
-    const { titleId } = job;
+    const { key: titleId } = job;
     const { state } = this.opts;
     const prev = state.title(titleId);
     let cur: FansubTitleState = { ...(prev ?? blank(titleId)), titleId, running: true };
@@ -498,6 +589,11 @@ export class FansubService {
     const used: Candidate[] = [];
     for (const ep of episodes) {
       await this.waitIdle(job);
+      // the owner's release upload stands for the episode: nothing is fetched, attached, replaced or deleted there
+      if (this.holdsRelease(titleId, unit, ep)) {
+        mark(ep.number, { status: 'attached' });
+        continue;
+      }
       const choice = choices.get(ep.number);
       if (!choice) {
         mark(ep.number, { status: 'not-found', reason: serviceDown ? 'service-unavailable' : candidates.length === 0 ? 'no-release' : 'no-tracks' });
@@ -512,6 +608,18 @@ export class FansubService {
       mark(ep.number, m);
     }
     return line(used);
+  }
+
+  /** Whether an episode (a movie's playlist) holds a release upload, whether or not it is lined up yet. */
+  private holdsRelease(titleId: string, unit: Unit, ep: UnitEpisode): boolean {
+    return this.opts.store.list().some((s) => isRelease(s) && this.onEpisode(s, titleId, unit, ep));
+  }
+
+  /** Whether a subtitle is attached to this episode of the title, or to the movie. */
+  private onEpisode(s: StoredSubtitle, titleId: string, unit: Unit, ep: UnitEpisode): boolean {
+    const a = s.attachment;
+    if (a.titleId !== titleId) return false;
+    return unit.season === null ? a.kind === 'chapter' : a.kind === 'episode' && a.seasonId === unit.seasonId && a.episode === ep.number;
   }
 
   /** The files of `release` for one episode, best first; a movie's main file. */
@@ -596,7 +704,7 @@ export class FansubService {
     const disc = await this.opts.discs(ep.discId);
     const duration = this.opts.durationMs(ep.discId, ep.playlistId);
     const alignment = disc && duration !== null
-      ? await align(disc, ep.playlistId, duration, main.text, this.opts.decoder, signal, { log: this.log })
+      ? await this.aligner(disc, ep.playlistId, duration, main.text, this.opts.decoder, signal, { log: this.log })
       : UNSURE;
     signal.throwIfAborted();
 
@@ -604,11 +712,8 @@ export class FansubService {
       ? { kind: 'chapter', discKey, playlistId: ep.playlistId, chapter: 0, titleId }
       : { kind: 'episode', discKey, playlistId: ep.playlistId, titleId, seasonId: unit.seasonId, episode: ep.number };
     // The episode's earlier fansubs make way for the new ones; the owner's edits to a track carry over to its new copy.
-    const earlier = store.list().filter((s): s is StoredSubtitle & { source: FansubSource } => {
-      const a = s.attachment;
-      if (!isFansub(s) || a.titleId !== titleId) return false;
-      return unit.season === null ? a.kind === 'chapter' : a.kind === 'episode' && a.seasonId === unit.seasonId && a.episode === ep.number;
-    });
+    // Only fansubs: an owner's upload, a release upload above all, is never deleted here.
+    const earlier = store.list().filter((s): s is StoredSubtitle & { source: FansubSource } => isFansub(s) && this.onEpisode(s, titleId, unit, ep));
     const kept = new Map(earlier.map((s) => [trackKey(s.source.toshoFileId, s.source.track), s]));
     const files = fetched.map(({ track, text }) => ({ track, data: Buffer.from(retime(text, alignment)), original: Buffer.from(text) }));
     const fit = store.fansubSwap(earlier.map((s) => s.id), files, fonts ?? []);
