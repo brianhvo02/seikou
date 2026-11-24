@@ -2,6 +2,7 @@ import { PLANE_HEIGHT, PLANE_WIDTH } from '../bdj-provider';
 import type { GraphicsPlaneReaderLike, ShownStill } from '../bdj-types';
 import type { OverlayPlane } from '@seikou/pg';
 import type { ShaderStage } from '../shaders/stage';
+import type { HdrOverlayPresenter } from './hdr-presenter';
 import type { Rect, TextRenderOptions, TextRendererLike } from '@seikou/ass/host-types';
 
 /**
@@ -66,7 +67,7 @@ export interface CompositorLike {
    * picture's sizes), the page's video element shows the picture: the canvas is cleared to transparent, no video is
    * drawn, and text is laid out on the display size, with the coded size as ASS's storage size.
    */
-  startPlaylist?(picture: boolean, opts?: { readonly element?: ElementPictureSize }): void;
+  startPlaylist?(picture: boolean, opts?: StartPlaylistOptions): void;
   /**
    * In element mode, the page's video element shows the playlist's first frame: the BD-J background still, drawn until
    * then (it would cover the picture under the canvas), is not drawn again until the next startPlaylist.
@@ -97,6 +98,26 @@ export interface CompositorLike {
   bdjBytes?(): number;
   /** Shades every video frame drawn from now on with the stage's set (null: draw frames as they are). */
   setShaderStage?(stage: ShaderStage | null): void;
+  /**
+   * The presenter of overlays over HDR video (null: none), and the gain that lifts their white to graphics white. While
+   * the compositor is in element mode for an HDR stream (startPlaylist's `hdr`) and has one, it draws its overlays on a
+   * layer of its own, the visible canvas stays transparent, and present() shows the layer through the presenter.
+   */
+  setHdrPresenter?(presenter: HdrOverlayPresenter | null, gain: number): void;
+  /** Ends a paint: in HDR overlay mode the layer just drawn goes to the presenter; otherwise nothing. */
+  present?(): void;
+  /** The overlays go through the HDR presenter now. */
+  hdrActive?(): boolean;
+}
+
+/**
+ * How a playlist starts on the compositor: `element`, the picture's sizes when the page's video element shows it, and
+ * `hdr`, that element's stream is HDR.
+ * @internal
+ */
+export interface StartPlaylistOptions {
+  readonly element?: ElementPictureSize;
+  readonly hdr?: boolean;
 }
 
 /** A plane's pixels at plane size, updated from its dirty rects. */
@@ -115,7 +136,15 @@ interface BdjCanvas {
  * overlay, then the BD-J plane.
  */
 export class Compositor implements CompositorLike {
-  private readonly ctx: OffscreenCanvasRenderingContext2D;
+  /** Where everything is drawn: the visible canvas, or in HDR overlay mode the layer. */
+  private ctx: OffscreenCanvasRenderingContext2D;
+  private readonly mainCtx: OffscreenCanvasRenderingContext2D;
+  private hdrPresenter: HdrOverlayPresenter | null = null;
+  private hdrGain = 1;
+  /** The element's stream is HDR (startPlaylist's `hdr`). */
+  private elementHdr = false;
+  /** The layer drawn in HDR overlay mode, at the visible canvas's size; null outside it. */
+  private layer: { readonly canvas: OffscreenCanvas; readonly ctx: OffscreenCanvasRenderingContext2D } | null = null;
   private pg: PlaneCanvas | null = null;
   private ig: PlaneCanvas | null = null;
   private bdj: BdjCanvas | null = null;
@@ -139,12 +168,52 @@ export class Compositor implements CompositorLike {
     // with alpha, so the element path can clear to transparent; the canvas path fills opaque black under every frame
     const ctx = canvas.getContext('2d', { alpha: true });
     if (!ctx) throw new Error('2D canvas context is unavailable');
-    this.ctx = ctx;
+    this.ctx = this.mainCtx = ctx;
   }
 
   resize(width: number, height: number): void {
     this.canvas.width = Math.max(1, Math.round(width));
     this.canvas.height = Math.max(1, Math.round(height));
+    if (this.layer) {
+      this.layer.canvas.width = this.canvas.width;
+      this.layer.canvas.height = this.canvas.height;
+    }
+  }
+
+  setHdrPresenter(presenter: HdrOverlayPresenter | null, gain: number): void {
+    this.hdrGain = gain;
+    if (presenter === this.hdrPresenter) return;
+    // the one taken away shows nothing from now on
+    if (this.layer) this.hdrPresenter?.clear();
+    this.hdrPresenter = presenter;
+    this.updateTarget();
+  }
+
+  hdrActive(): boolean {
+    return this.layer !== null;
+  }
+
+  present(): void {
+    if (this.layer) this.hdrPresenter?.present(this.layer.canvas, this.hdrGain);
+  }
+
+  /** Enters or leaves HDR overlay mode as the element, its stream and the presenter now say. */
+  private updateTarget(): void {
+    const want = this.element && this.elementHdr && this.hdrPresenter !== null;
+    if (want && !this.layer) {
+      const canvas = this.createCanvas(this.canvas.width, this.canvas.height);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return; // no layer: the overlays stay on the visible canvas
+      this.layer = { canvas, ctx };
+      this.ctx = ctx;
+      // nothing SDR stays over the video
+      this.mainCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    } else if (!want && this.layer) {
+      this.hdrPresenter?.clear();
+      this.layer.canvas.width = this.layer.canvas.height = 0;
+      this.layer = null;
+      this.ctx = this.mainCtx;
+    }
   }
 
   setShaderStage(stage: ShaderStage | null): void {
@@ -241,12 +310,14 @@ export class Compositor implements CompositorLike {
     this.bdj = null;
   }
 
-  startPlaylist(picture: boolean, opts?: { readonly element?: ElementPictureSize }): void {
+  startPlaylist(picture: boolean, opts?: StartPlaylistOptions): void {
     this.frameSize = null;
     this.storageSize = null;
     this.noPicture = !picture;
     this.element = opts?.element !== undefined;
+    this.elementHdr = this.element && opts?.hdr === true;
     this.elementShown = false;
+    this.updateTarget();
     if (opts?.element) this.setElementSize(opts.element);
   }
 
