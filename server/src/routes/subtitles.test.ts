@@ -12,6 +12,8 @@ import { createServer } from '../http';
 import type { Library } from '../library';
 import { Store } from '../store';
 import { SubtitleStore } from '../subtitle-store';
+import { subtitleRoutes } from './subtitles';
+import { createHash } from 'node:crypto';
 import type { Catalogue } from '@seikou/titles/catalogue';
 import type { DiscEvidence } from '../titles/evidence';
 import type { TitleLibrary } from './titles';
@@ -333,5 +335,71 @@ describe('subtitle routes', () => {
     expect((await call('DELETE', `/api/subtitles/${s.id}`, guest)).status).toBe(403);
     expect((await call('GET', `/api/subtitles/${s.id}/fonts/Fancy.ttf`, owner)).status).toBe(200);
     expect(((await (await call('GET', `/api/subtitles?discKey=${KEY}`, owner)).json()) as StoredSubtitle[])[0]).toMatchObject({ name: 'Fan subs' });
+  });
+
+  describe('release uploads', () => {
+    const font = Buffer.from('fontbytes');
+    const fontSha = createHash('sha256').update(font).digest('hex');
+    const release = { group: null, fileName: 'ep2.mkv', fileSize: 5000, track: 2, trackName: 'English' };
+    let landed: string[];
+    let relBase: string;
+    let relStop: () => void;
+    let relStore: SubtitleStore;
+    beforeEach(async () => {
+      landed = [];
+      const library = { evidence: () => discs } as unknown as Library;
+      const titles = { service: { gate: () => gate, catalogue: () => catalogue }, owner: {} } as unknown as TitleLibrary;
+      relStore = new SubtitleStore(join(tmp, 'rel'));
+      const server = createServer([subtitleRoutes(auth, relStore, { titles, library, onReleaseFile: (id) => landed.push(id) })]);
+      await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+      relBase = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+      relStop = () => { server.close(); server.closeAllConnections(); };
+    });
+    afterEach(() => relStop());
+    const rcall = (method: string, path: string, token: string, body?: string | Uint8Array | object): Promise<Response> => {
+      const raw = body instanceof Uint8Array || typeof body === 'string' || body === undefined;
+      return fetch(`${relBase}${path}`, { method, headers: { Authorization: `Bearer ${token}`, ...(body !== undefined && !raw ? { 'Content-Type': 'application/json' } : {}) }, body: body === undefined ? undefined : raw ? (body as string) : JSON.stringify(body) });
+    };
+
+    it('creates, takes the font and the file, calls onReleaseFile, and hides it from guests until lined up', async () => {
+      const owner = await tokenFor('Hana', true);
+      const guest = await tokenFor('Mika', false);
+      const res = await rcall('POST', '/api/subtitles', owner, meta({ release, fonts: [{ name: 'F.ttf', sha256: fontSha, size: font.length }] }));
+      expect(res.status).toBe(201);
+      const made = (await res.json()) as StoredSubtitle & { needFonts: string[] };
+      expect(made.needFonts).toEqual(['F.ttf']);
+      expect(made.source).toMatchObject({ kind: 'release', alignment: null });
+      expect((await rcall('PUT', `/api/subtitles/${made.id}/fonts/F.ttf`, owner, font)).status).toBe(200);
+      expect(landed).toEqual([]);
+      expect((await rcall('PUT', `/api/subtitles/${made.id}/file/ep2.ass`, owner, 'ass text')).status).toBe(200);
+      expect(landed).toEqual([made.id]);
+      const url = `/api/subtitles?discKey=${KEY}`;
+      expect(((await (await rcall('GET', url, owner)).json()) as StoredSubtitle[]).map((s) => s.id)).toEqual([made.id]);
+      expect(await (await rcall('GET', url, guest)).json()).toEqual([]);
+      relStore.setReleaseAlignment(made.id, Buffer.from('aligned'), { kind: 'none', reason: 'no-speech' }, { discKey: KEY, playlistId: '00002' });
+      expect(((await (await rcall('GET', url, guest)).json()) as StoredSubtitle[]).map((s) => s.id)).toEqual([made.id]);
+    });
+
+    it('refuses a font that is not the declared one with 400 bad-font and closes the connection', async () => {
+      const owner = await tokenFor('Hana', true);
+      const made = (await (await rcall('POST', '/api/subtitles', owner, meta({ release, fonts: [{ name: 'F.ttf', sha256: fontSha, size: font.length }] }))).json()) as StoredSubtitle;
+      const res = await rcall('PUT', `/api/subtitles/${made.id}/fonts/F.ttf`, owner, Buffer.from('otherbyte'));
+      expect(res.status).toBe(400);
+      expect(res.headers.get('connection')).toBe('close');
+      expect(await res.json()).toEqual({ error: 'bad-font' });
+    });
+
+    it('deleting a release upload does not tell the fansub runs', async () => {
+      const owner = await tokenFor('Hana', true);
+      const made = (await (await rcall('POST', '/api/subtitles', owner, meta({ release }))).json()) as StoredSubtitle;
+      expect((await rcall('DELETE', `/api/subtitles/${made.id}`, owner)).status).toBe(204);
+    });
+
+    it('refuses malformed release requests', async () => {
+      const owner = await tokenFor('Hana', true);
+      expect((await rcall('POST', '/api/subtitles', owner, meta({ release: { ...release, track: -1 } }))).status).toBe(400);
+      expect((await rcall('POST', '/api/subtitles', owner, meta({ fonts: [] }))).status).toBe(400);
+      expect((await rcall('POST', '/api/subtitles', owner, meta({ release, fonts: [{ name: 'F.ttf', sha256: 'zz', size: 1 }] }))).status).toBe(400);
+    });
   });
 });

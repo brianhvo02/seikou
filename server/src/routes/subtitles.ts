@@ -1,6 +1,7 @@
 import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
-import type { StoredSubtitle, SubtitleAttachment } from '@seikou/nas/nas-api';
+import { isFansub, isRelease } from '@seikou/nas/nas-api';
+import type { ReleaseSource, StoredSubtitle, SubtitleAttachment } from '@seikou/nas/nas-api';
 import { parseDiscKey } from '@seikou/nas/disc-key';
 import { LockHeldError } from '@seikou/titles/atomic-json';
 import type { Auth } from '../auth';
@@ -9,7 +10,7 @@ import type { Handler, Response } from '../http';
 import type { Library } from '../library';
 import type { FansubService } from '../fansubs/service';
 import type { DiscEvidence } from '../titles/evidence';
-import { BadNameError, EmptyBodyError, NotFoundError, FONTS_LIMIT_BYTES, SUBTITLE_LIMIT_BYTES, SubtitleStore, TooLargeError } from '../subtitle-store';
+import { BadFontError, BadNameError, EmptyBodyError, NotFoundError, FONTS_LIMIT_BYTES, SUBTITLE_LIMIT_BYTES, SubtitleStore, TooLargeError } from '../subtitle-store';
 import type { SubtitleMeta } from '../subtitle-store';
 import { decodeSegment, requestDevice } from './titles';
 import type { TitleLibrary } from './titles';
@@ -28,6 +29,8 @@ export interface SubtitleCatalogue {
   readonly titles?: TitleLibrary;
   readonly library?: Library;
   readonly fansubs?: Pick<FansubService, 'deleted' | 'stale'>;
+  /** Called with a release upload's id once its file has landed (the line-up with the disc starts there). */
+  readonly onReleaseFile?: (subtitleId: string) => void;
 }
 
 const notFound = (): Response => json(404, { error: 'not found' });
@@ -53,6 +56,28 @@ function parseFor(v: unknown): For | null {
   return null;
 }
 
+const SHA256 = /^[0-9a-f]{64}$/;
+const isSize = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+
+/** The `release` of a create request, or null when it isn't one. */
+function parseRelease(v: unknown): Omit<ReleaseSource, 'kind' | 'alignment' | 'linedUpOn'> | null {
+  if (!isObject(v) || Object.keys(v).sort().join() !== 'fileName,fileSize,group,track,trackName') return null;
+  const text = (x: unknown): x is string => typeof x === 'string' && x.length <= 500;
+  if (!(v.group === null || text(v.group)) || !text(v.fileName) || !text(v.trackName) || !isSize(v.fileSize) || !isIndex(v.track)) return null;
+  return { group: v.group, fileName: v.fileName, fileSize: v.fileSize, track: v.track, trackName: v.trackName };
+}
+
+/** The `fonts` of a create request (at most 500), or null when malformed. */
+function parseFonts(v: unknown): { name: string; sha256: string; size: number }[] | null {
+  if (!Array.isArray(v) || v.length > 500) return null;
+  const out: { name: string; sha256: string; size: number }[] = [];
+  for (const f of v) {
+    if (!isObject(f) || Object.keys(f).sort().join() !== 'name,sha256,size' || typeof f.name !== 'string' || typeof f.sha256 !== 'string' || !SHA256.test(f.sha256) || !isSize(f.size)) return null;
+    out.push({ name: f.name, sha256: f.sha256, size: f.size });
+  }
+  return out;
+}
+
 const validName = (v: unknown): v is string => typeof v === 'string' && v.length >= 1 && v.length <= MAX_NAME;
 const validLanguage = (v: unknown): v is string => typeof v === 'string' && LANGUAGE.test(v);
 const validOffset = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= MAX_OFFSET_MS;
@@ -62,16 +87,16 @@ const validOffset = (v: unknown): v is number => typeof v === 'number' && Number
  * (404 to a guest while the title gate is `owners`, as the title routes answer; a guest never sees one that isn't
  * attached); only owners create, upload, edit and delete. Behind `requireToken` (401 `unauthorized`).
  * - `GET /api/subtitles?discKey=` or `?titleId=` lists (owners only: `?all=1`, 403 otherwise; anything else 400).
- * - `POST /api/subtitles {name, language, offsetMs?, for}` (owner, 201) where `for` is an episode (title, season, number)
+ * - `POST /api/subtitles {name, language, offsetMs?, for, release?, fonts?}` (owner, 201; `release` and the fonts it brings, by name, SHA-256 and size, make a release upload and the answer adds `needFonts`; guests don't list it until it is lined up) where `for` is an episode (title, season, number)
  *   or a chapter of a disc's playlist; 400 `bad-request`, or `not-found` when the attachment does not resolve.
  * - `PATCH /api/subtitles/<id>` (owner) changes name, language, offset or attachment; 404 for an unknown id.
- * - `PUT /api/subtitles/<id>/file/<name>` and `PUT <id>/fonts/<name>` (owner) take the bytes: 400 `empty` or `bad-name`,
+ * - `PUT /api/subtitles/<id>/file/<name>` and `PUT <id>/fonts/<name>` (owner) take the bytes: 400 `empty`, `bad-name` or `bad-font`,
  *   413 `too-large`, 503 `busy` with `Retry-After: 1`. A refused `PUT` closes the connection.
  * - `GET /api/subtitles/<id>/file` and `GET <id>/fonts/<name>` download; `DELETE /api/subtitles/<id>` (owner, 204).
  * Another method on a known route is 405; a write by a device that is not an owner's is 403 `forbidden`.
  */
 export function subtitleRoutes(auth: Auth, store: SubtitleStore, catalogue: SubtitleCatalogue = {}): Handler {
-  const { titles, library, fansubs } = catalogue;
+  const { titles, library, fansubs, onReleaseFile } = catalogue;
   const evidence = (): readonly DiscEvidence[] => library?.evidence() ?? [];
   const keyOf = (discId: string): string | null => {
     const ev = evidence().find((e) => e.discId === discId);
@@ -136,7 +161,9 @@ export function subtitleRoutes(auth: Auth, store: SubtitleStore, catalogue: Subt
           || ((s.attachment.kind === 'chapter' || titleGone(s.attachment.titleId)) && keys.has(s.attachment.discKey)))))
       .map(withAttached)
       .filter((s) => owner || s.attached !== false)
-      .map((s) => (owner ? (s.source && fansubs?.stale(s) ? { ...s, stale: true } : s) : withoutUploader(s)))
+      // a release upload is the owner's alone until it is lined up
+      .filter((s) => owner || !isRelease(s) || s.source.alignment !== null)
+      .map((s) => (owner ? (isFansub(s) && fansubs?.stale(s) ? { ...s, stale: true } : s) : withoutUploader(s)))
       .sort((a, b) => a.uploadedAt - b.uploadedAt || a.id.localeCompare(b.id));
     return json(200, found, { 'Cache-Control': 'no-store' });
   };
@@ -155,10 +182,17 @@ export function subtitleRoutes(auth: Auth, store: SubtitleStore, catalogue: Subt
     const body = await readJson(req);
     const f = isObject(body) ? parseFor(body.for) : null;
     if (!isObject(body) || !f || !validName(body.name) || !validLanguage(body.language) || (body.offsetMs !== undefined && !validOffset(body.offsetMs))
-      || !Object.keys(body).every((k) => ['name', 'language', 'offsetMs', 'for'].includes(k))) return bad();
+      || !Object.keys(body).every((k) => ['name', 'language', 'offsetMs', 'for', 'release', 'fonts'].includes(k))) return bad();
+    const release = body.release === undefined ? null : parseRelease(body.release);
+    const fonts = body.fonts === undefined ? [] : parseFonts(body.fonts);
+    if ((body.release !== undefined && !release) || !fonts || (body.fonts !== undefined && !release)) return bad();
     const attachment = resolve(f);
     if (!attachment) return bad('not-found');
     const meta: SubtitleMeta = { name: body.name, language: body.language, offsetMs: (body.offsetMs as number | undefined) ?? 0, attachment, uploaderPersonId: personId };
+    if (release) {
+      const { stored, needFonts } = store.createRelease(meta, release, fonts);
+      return json(201, { ...withAttached(stored), needFonts });
+    }
     return json(201, withAttached(store.create(meta)));
   };
 
@@ -194,6 +228,13 @@ export function subtitleRoutes(auth: Auth, store: SubtitleStore, catalogue: Subt
     if (!cur) return notFound();
     // what the store allows this one: its fonts together stay under the limit, the same name replacing
     const fontRoom = FONTS_LIMIT_BYTES - cur.fonts.filter((f) => f.name !== name).reduce((n, f) => n + f.size, 0);
+    if (isRelease(cur)) {
+      const stored = kind === 'file'
+        ? await store.putReleaseFile(id, name, bodyStream(req, SUBTITLE_LIMIT_BYTES))
+        : await store.putReleaseFont(id, name, bodyStream(req, FONTS_LIMIT_BYTES));
+      if (kind === 'file') onReleaseFile?.(id);
+      return json(200, withAttached(stored));
+    }
     const stored = kind === 'file'
       ? await store.writeFile(id, name, bodyStream(req, SUBTITLE_LIMIT_BYTES))
       : await store.writeFont(id, name, bodyStream(req, Math.max(0, fontRoom)));
@@ -226,7 +267,7 @@ export function subtitleRoutes(auth: Auth, store: SubtitleStore, catalogue: Subt
           const s = store.get(id!);
           if (!store.delete(id!)) return notFound();
           // a deleted fansub's track isn't attached again by the next run
-          if (s?.source) fansubs?.deleted(s);
+          if (s && isFansub(s)) fansubs?.deleted(s);
           return { status: 204 };
         }
         return await patch(req, id!);
@@ -240,6 +281,7 @@ export function subtitleRoutes(auth: Auth, store: SubtitleStore, catalogue: Subt
       return await download(part === 'file' && shape === 'file' ? store.filePath(id!) : store.fontPath(id!, name!));
     } catch (err) {
       if (err instanceof EmptyBodyError) return refuse(bad('empty'));
+      if (err instanceof BadFontError) return refuse(bad('bad-font'));
       if (err instanceof BadNameError) return refuse(bad('bad-name'));
       if (err instanceof NotFoundError) return refuse(notFound());
       if (err instanceof TooLargeError || err instanceof BodyTooLargeError) return refuse(json(413, { error: 'too-large' }));

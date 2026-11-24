@@ -1,9 +1,10 @@
+import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FansubSource, StoredSubtitle } from '@seikou/nas/nas-api';
-import { BadNameError, EmptyBodyError, SubtitleStore, TooLargeError, type SubtitleMeta } from './subtitle-store';
+import { BadFontError, BadNameError, EmptyBodyError, SubtitleStore, TooLargeError, type SubtitleMeta } from './subtitle-store';
 
 // Counts the store's disk reads, so a test can say a listing or a budget check never walks the folders.
 const reads = vi.hoisted(() => ({ n: 0 }));
@@ -319,6 +320,85 @@ describe('SubtitleStore', () => {
       expect(readFileSync(s.filePath(f.id)!, 'utf8')).toBe('b');
       expect(readFileSync(s.originalPath(f.id)!, 'utf8')).toBe('o');
       expect(s.get(f.id)!.source!.alignment?.kind).toBe('original');
+    });
+  });
+
+  describe('release uploads', () => {
+    const REL = { group: 'Grp', fileName: 'ep1.mkv', fileSize: 1000, track: 3, trackName: 'English' };
+    const sha = (b: Buffer): string => createHash('sha256').update(b).digest('hex');
+    const font = (text: string): { name: string; sha256: string; size: number; data: Buffer } => ({ name: `${text}.ttf`, data: Buffer.from(text), sha256: sha(Buffer.from(text)), size: text.length });
+    const decl = (f: { name: string; sha256: string; size: number }): { name: string; sha256: string; size: number } => ({ name: f.name, sha256: f.sha256, size: f.size });
+
+    it('a release upload keeps its original and its fonts in the pool, counting toward the 2 GB', async () => {
+      const s = new SubtitleStore(dir, { maxTotalBytes: 100, now: () => clock });
+      const f = font('Xx');
+      const { stored, needFonts } = s.createRelease(META, REL, [decl(f)]);
+      expect(needFonts).toEqual(['Xx.ttf']);
+      await s.putReleaseFont(stored.id, 'Xx.ttf', body(f.data));
+      const done = await s.putReleaseFile(stored.id, 'a.ass', bytes(40));
+      expect(done).toMatchObject({ fileSize: 40, source: { kind: 'release', alignment: null } });
+      expect(readFileSync(s.originalPath(stored.id)!, 'utf8')).toBe('A'.repeat(40));
+      expect(readFileSync(s.fontPath(stored.id, 'Xx.ttf')!, 'utf8')).toBe('Xx');
+      // file and original together are 80 of the 100 bytes
+      const other = s.create(META);
+      await expect(s.writeFile(other.id, 'o.srt', bytes(21))).rejects.toBeInstanceOf(TooLargeError);
+      await s.writeFile(other.id, 'o.srt', bytes(20));
+      const again = new SubtitleStore(dir, { maxTotalBytes: 100, now: () => clock });
+      const third = again.create(META);
+      await expect(again.writeFile(third.id, 't.srt', bytes(1))).rejects.toBeInstanceOf(TooLargeError);
+      // never against the fansub budget
+      expect(again.fansubSwap([], [], []).room).toBe(20 * 1024 ** 3);
+    });
+
+    it('fonts the pool holds are not asked for again', async () => {
+      const s = make();
+      const f = font('Yy');
+      const a = s.createRelease(META, REL, [decl(f)]);
+      await s.putReleaseFont(a.stored.id, 'Yy.ttf', body(f.data));
+      expect(s.createRelease(META, REL, [decl(f)]).needFonts).toEqual([]);
+    });
+
+    it("a font whose bytes don't match its declared sha256 is refused", async () => {
+      const s = make();
+      const f = font('Zz');
+      const { stored } = s.createRelease(META, REL, [decl(f)]);
+      await expect(s.putReleaseFont(stored.id, 'Zz.ttf', body('Qq'))).rejects.toBeInstanceOf(BadFontError);
+      expect(existsSync(join(dir, 'subtitles', '.fonts', f.sha256))).toBe(false);
+      expect(leftovers(stored.id)).toEqual([]);
+    });
+
+    it('the 50 MB counts only fonts the pool does not hold', async () => {
+      const s = make();
+      const mib = 1024 * 1024;
+      const big = [1, 2].map((n) => ({ name: `f${n}.ttf`, sha256: String(n).repeat(64), size: 30 * mib }));
+      expect(() => s.createRelease(META, REL, big)).toThrow(TooLargeError);
+      // pooled fonts (as a fansub keeps them) cost nothing
+      const pooled = [Buffer.alloc(30 * mib, 1), Buffer.alloc(30 * mib, 2)];
+      const fmeta = { ...META, source: { kind: 'fansub', group: 'G', tracker: 'nyaa', rank: 'best', toshoFileId: 1, track: 1, trackName: 'En', alignment: { kind: 'original' }, linedUpOn: null } as unknown as FansubSource };
+      s.createFansub(fmeta, { name: 'a.ass', data: Buffer.from('a'), original: Buffer.from('o') }, pooled.map((data, n) => ({ name: `p${n}.ttf`, data })));
+      const r = s.createRelease(META, REL, pooled.map((data, n) => ({ name: `p${n}.ttf`, sha256: sha(data), size: data.length })));
+      expect(r.needFonts).toEqual([]);
+    });
+
+    it('does not list a release upload for guests until it is lined up, and keeps the original when it is', async () => {
+      const s = make();
+      const { stored } = s.createRelease(META, REL, []);
+      await s.putReleaseFile(stored.id, 'a.ass', body('raw'));
+      expect(s.get(stored.id)!.source).toMatchObject({ alignment: null });
+      const on = { discKey: 'disc-a', playlistId: '00001' };
+      const r = s.setReleaseAlignment(stored.id, Buffer.from('aligned!'), { kind: 'none', reason: 'low-confidence' }, on)!;
+      expect(r).toMatchObject({ fileSize: 8, source: { kind: 'release', alignment: { kind: 'none' }, linedUpOn: on } });
+      expect(readFileSync(s.filePath(stored.id)!, 'utf8')).toBe('aligned!');
+      expect(readFileSync(s.originalPath(stored.id)!, 'utf8')).toBe('raw');
+      expect(make().get(stored.id)!.source).toMatchObject({ alignment: { kind: 'none' } });
+    });
+
+    it('an unfinished release upload is swept after an hour', () => {
+      const s = make();
+      const { stored } = s.createRelease(META, REL, []);
+      clock += 61 * 60_000;
+      expect(s.list()).toEqual([]);
+      expect(s.get(stored.id)).toBeNull();
     });
   });
 });
