@@ -1,3 +1,4 @@
+import { isFansub } from '@seikou/nas/nas-api';
 import type { FansubPick, FansubPickRequest, PlaceSubtitleSource, StoredSubtitle } from '@seikou/nas/nas-api';
 import { pickedSubtitles } from '@seikou/engine/controller/drop-files';
 import type { PlayerController, PlayerSnapshot } from '@seikou/engine/controller/player-controller';
@@ -106,7 +107,7 @@ export class StoredSubtitlePicker {
     const { nas, controller, places } = this.deps;
     const opens = controller.discOpens;
     const current = (): boolean => gen === this.generation && controller.discOpens === opens;
-    const fansub = s.pick === true && s.source !== undefined && origin !== undefined
+    const fansub = s.pick === true && isFansub(s) && origin !== undefined
       ? { releaseId: origin.releaseId, fileId: s.source.toshoFileId, track: s.source.track, trackName: placeTrackName(origin.trackName) }
       : null;
     const [code, failed] = s.pick === true ? [FANSUB_NOTICE_CODE, PICK_FAILED] : [NOTICE_CODE, STORED_PICK_FAILED];

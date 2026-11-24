@@ -45,6 +45,7 @@ const clock = (ms: number): string => {
 
 function trackMark(s: StoredSubtitle): { text: string; tone: MarkTone; rank: number } | null {
   const a = s.source!.alignment;
+  if (a === null) return null; // a release upload still waiting to be lined up
   if (a.kind === 'none') return { text: "couldn't line up · set by hand", tone: 'bad', rank: 3 };
   if (a.kind === 'split') {
     const first = a.parts.find((p) => p.fromMs > 0) ?? a.parts[0];

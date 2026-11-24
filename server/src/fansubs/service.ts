@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import type {
   FansubAlignment, FansubEpisodeMark, FansubSeasonLine, FansubSource, FansubTitleState, StoredSubtitle, SubtitleAttachment,
 } from '@seikou/nas/nas-api';
+import { isFansub } from '@seikou/nas/nas-api';
 import type { DiscActivity } from '../disc-activity';
 import type { AudioDecoder } from '@seikou/fansubs/audio-decoder';
 import type { LevelDiscSource } from '../levels/level-discs';
@@ -199,8 +200,8 @@ export class FansubService {
 
   /** The delete route deleted a fansub: its track isn't attached again until the owner asks. */
   deleted(subtitle: StoredSubtitle): void {
+    if (!isFansub(subtitle)) return;
     const { source, attachment } = subtitle;
-    if (!source) return;
     if (attachment.titleId === undefined) {
       this.log(`fansubs: deleted subtitle ${subtitle.id} names no title; its track isn't remembered`);
       return;
@@ -240,14 +241,14 @@ export class FansubService {
   async realign(subtitleId: string): Promise<StoredSubtitle | null> {
     const s = this.opts.store.get(subtitleId);
     const original = s ? this.opts.store.originalPath(subtitleId) : null;
-    if (!s?.source || original === null) return null;
+    if (!s || !isFansub(s) || original === null) return null;
     const target = this.target(s);
     if (!target) return null;
     const disc = await this.opts.discs(target.discId);
     const duration = this.opts.durationMs(target.discId, target.playlistId);
     if (!disc || duration === null) return null;
     // A file's tracks share the offset of its track with the most dialogue (a signs track has too little to go on).
-    const siblings = this.opts.store.list().filter((o) => o.source?.toshoFileId === s.source!.toshoFileId && o.attachment.discKey === s.attachment.discKey);
+    const siblings = this.opts.store.list().filter((o) => isFansub(o) && o.source.toshoFileId === s.source.toshoFileId && o.attachment.discKey === s.attachment.discKey);
     let base = readFileSync(original, 'utf8');
     let most = dialogueIntervals(base).length;
     for (const o of siblings) {
@@ -271,7 +272,7 @@ export class FansubService {
   useOriginal(subtitleId: string): StoredSubtitle | null {
     const s = this.opts.store.get(subtitleId);
     const original = s ? this.opts.store.originalPath(subtitleId) : null;
-    if (!s?.source || original === null) return null;
+    if (!s || !isFansub(s) || original === null) return null;
     return this.opts.store.replaceFile(subtitleId, readFileSync(original), { ...s.source, alignment: { kind: 'original' } });
   }
 
@@ -603,12 +604,12 @@ export class FansubService {
       ? { kind: 'chapter', discKey, playlistId: ep.playlistId, chapter: 0, titleId }
       : { kind: 'episode', discKey, playlistId: ep.playlistId, titleId, seasonId: unit.seasonId, episode: ep.number };
     // The episode's earlier fansubs make way for the new ones; the owner's edits to a track carry over to its new copy.
-    const earlier = store.list().filter((s) => {
+    const earlier = store.list().filter((s): s is StoredSubtitle & { source: FansubSource } => {
       const a = s.attachment;
-      if (!s.source || a.titleId !== titleId) return false;
+      if (!isFansub(s) || a.titleId !== titleId) return false;
       return unit.season === null ? a.kind === 'chapter' : a.kind === 'episode' && a.seasonId === unit.seasonId && a.episode === ep.number;
     });
-    const kept = new Map(earlier.map((s) => [trackKey(s.source!.toshoFileId, s.source!.track), s]));
+    const kept = new Map(earlier.map((s) => [trackKey(s.source.toshoFileId, s.source.track), s]));
     const files = fetched.map(({ track, text }) => ({ track, data: Buffer.from(retime(text, alignment)), original: Buffer.from(text) }));
     const fit = store.fansubSwap(earlier.map((s) => s.id), files, fonts ?? []);
     if (fit.keep > fit.room && fit.swap > fit.room) {

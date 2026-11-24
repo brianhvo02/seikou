@@ -123,7 +123,7 @@ export function storedForEncode(items: readonly StoredSubtitle[], entry: EncodeS
  * times are the playlist's, so back by the episode's start), or left it in its own timing (the episode's, at 0).
  */
 export function encodePickStartUs(pick: StoredSubtitle, episodeStartMs: number): number {
-  const kind = pick.source?.alignment.kind;
+  const kind = pick.source?.alignment?.kind;
   return (kind === 'offset' || kind === 'split') && episodeStartMs !== 0 ? -episodeStartMs * 1000 : 0;
 }
 

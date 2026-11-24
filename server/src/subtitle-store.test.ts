@@ -315,10 +315,10 @@ describe('SubtitleStore', () => {
       const s = make();
       const f = s.createFansub(FMETA, { name: 'a.ass', data: Buffer.from('a'), original: Buffer.from('o') }, []);
       const r = s.replaceFile(f.id, Buffer.from('b'), { ...SOURCE, alignment: { kind: 'original' } });
-      expect(r!.source!.alignment.kind).toBe('original');
+      expect(r!.source!.alignment?.kind).toBe('original');
       expect(readFileSync(s.filePath(f.id)!, 'utf8')).toBe('b');
       expect(readFileSync(s.originalPath(f.id)!, 'utf8')).toBe('o');
-      expect(s.get(f.id)!.source!.alignment.kind).toBe('original');
+      expect(s.get(f.id)!.source!.alignment?.kind).toBe('original');
     });
   });
 });

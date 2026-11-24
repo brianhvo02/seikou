@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import SevenZip from '7z-wasm';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { isFansub } from '@seikou/nas/nas-api';
 import type { DiscSlot, EpisodeRef, StoredSubtitle, TitleDetail, TitleSummary } from '@seikou/nas/nas-api';
 import { SPEECH_BURSTS } from '../../../tests/helpers/speech-bursts';
 import { DiscActivity } from '../disc-activity';
@@ -220,9 +221,9 @@ describe('FansubService', () => {
 
     // Both tracks of a file share the Full track's offset.
     for (const s of [...one, ...two]) {
-      const a = s.source!.alignment;
-      expect(a.kind).toBe('offset');
-      if (a.kind === 'offset') expect(Math.abs(a.offsetMs + 800)).toBeLessThanOrEqual(20);
+      const a = isFansub(s) ? s.source.alignment : null;
+      expect(a?.kind).toBe('offset');
+      if (a?.kind === 'offset') expect(Math.abs(a.offsetMs + 800)).toBeLessThanOrEqual(20);
     }
     // The stored file is moved back onto the disc's speech; the original stays as fetched.
     const aligned = readFileSync(store.filePath(one[0]!.id)!, 'utf8');
@@ -252,9 +253,9 @@ describe('FansubService', () => {
     const again = await svc.realign(full!.id);
     expect(again?.source?.linedUpOn).toEqual({ discKey: 'd.speech', playlistId: '00001' });
     expect(again?.attachment).toMatchObject({ kind: 'episode', playlistId: '00001', episode: 1 });
-    const a = again!.source!.alignment;
-    expect(a.kind).toBe('offset');
-    if (a.kind === 'offset') expect(Math.abs(a.offsetMs + 800)).toBeLessThanOrEqual(20);
+    const a = isFansub(again!) ? again.source.alignment : null;
+    expect(a?.kind).toBe('offset');
+    if (a?.kind === 'offset') expect(Math.abs(a.offsetMs + 800)).toBeLessThanOrEqual(20);
     expect(svc.stale(again!)).toBe(false);
   }, 60_000);
 

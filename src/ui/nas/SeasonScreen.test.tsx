@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import type { FansubTitleState, SeasonDetail, StoredSubtitle } from '@seikou/nas/nas-api';
+import type { FansubAlignment, FansubTitleState, SeasonDetail, StoredSubtitle } from '@seikou/nas/nas-api';
 import type { NasClient } from './nas-client';
 import { SeasonScreen } from './SeasonScreen';
 
@@ -15,7 +15,7 @@ const SEASON: SeasonDetail = {
   ],
 };
 
-const track = (id: string, trackName: string, episode: number, alignment: NonNullable<StoredSubtitle['source']>['alignment']): StoredSubtitle => ({
+const track = (id: string, trackName: string, episode: number, alignment: FansubAlignment): StoredSubtitle => ({
   id, name: `GroupA ${trackName}`, language: 'en', offsetMs: 0, fileName: `${id}.ass`, fileSize: 10, fonts: [],
   attachment: { kind: 'episode', discKey: 'f.k', playlistId: '0000' + episode, titleId: 't1', seasonId: 's1', episode },
   uploadedAt: 1,
