@@ -71,3 +71,16 @@ export function canUpload(rows: readonly ReleaseRow[]): boolean {
   const going = rows.filter((r) => r.state === 'read' && r.ticked.size > 0);
   return going.length > 0 && going.every((r) => r.episode !== null);
 }
+
+/**
+ * The episodes in the seasons ahead of `seasonId`, for numbering that runs on across seasons: over the seasons in order,
+ * each AniList season (`anilist:<id>#season`) counts its highest episode number, as the NAS counts it for Find fansubs.
+ */
+export function seasonBefore(seasons: readonly { readonly id: string; readonly episodes: readonly { readonly number: number }[] | null }[], seasonId: string): number {
+  let before = 0;
+  for (const s of seasons) {
+    if (s.id === seasonId) return before;
+    if (/^anilist:\d+#season$/.test(s.id)) before += Math.max(0, ...(s.episodes ?? []).map((e) => e.number));
+  }
+  return before;
+}

@@ -7,13 +7,17 @@ import { canUpload, releaseLanguage, releaseRow, withExtract, type ReleaseRow } 
 import { subtitleErrorMessage, uploadRelease } from './subtitle-model';
 
 /** Reads one MKV's text tracks, telling the share read (0 to 1) as it goes. */
-export type ExtractMkv = (file: File, onProgress: (p: number) => void) => Promise<MkvTextExtract>;
+export type ExtractMkv = (file: File, onProgress: (p: number) => void, signal?: AbortSignal) => Promise<MkvTextExtract>;
 
 /** The default reader: the MKV worker, one file at a time (the caller's queue), ended with its answer. */
-export const extractInWorker: ExtractMkv = (file, onProgress) =>
+export const extractInWorker: ExtractMkv = (file, onProgress, signal) =>
   new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./mkv-extract-worker.ts', import.meta.url), { type: 'module' });
     const done = (): void => worker.terminate();
+    signal?.addEventListener('abort', () => {
+      done();
+      reject(new Error('Cancelled.'));
+    });
     worker.onmessage = (e: MessageEvent<{ progress?: number; extract?: MkvTextExtract; error?: string }>) => {
       const m = e.data;
       if (m.progress !== undefined) return onProgress(m.progress);
@@ -55,22 +59,27 @@ export function ReleaseUpload({ nas, files, season, episodes, targetOf, extract 
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ sent: number; total: number } | null>(null);
   const [done, setDone] = useState<number | null>(null);
+  /** Files whose ticked tracks are stored; a retry leaves them alone. */
+  const [sentFiles, setSentFiles] = useState<ReadonlySet<File>>(new Set());
   const [failures, setFailures] = useState<string[]>([]);
   const languages = useRef<readonly string[]>([]);
   const extractRef = useRef(extract);
   extractRef.current = extract;
 
+  /** The read restarts only for other files, not for a parent's new array of the same ones. */
+  const filesKey = files.map((f) => `${f.name}:${f.size}:${f.lastModified}`).join('\n');
   const patch = useCallback((file: File, change: (r: ReleaseRow) => ReleaseRow): void => setRows((rs) => rs.map((r) => (r.file === file ? change(r) : r))), []);
 
   // Read the files one at a time; the form stays usable meanwhile.
   useEffect(() => {
     let live = true;
+    const abort = new AbortController();
     void (async () => {
       languages.current = await nas.fansubLanguages().catch(() => []);
       for (const file of files) {
         if (!live) return;
         try {
-          const found = await extractRef.current(file, (p) => live && patch(file, (r) => ({ ...r, progress: p })));
+          const found = await extractRef.current(file, (p) => live && patch(file, (r) => ({ ...r, progress: p })), abort.signal);
           if (live) patch(file, (r) => withExtract(r, found, languages.current));
         } catch (err) {
           if (live) patch(file, (r) => ({ ...r, state: 'failed', error: err instanceof Error ? err.message : String(err) }));
@@ -79,10 +88,13 @@ export function ReleaseUpload({ nas, files, season, episodes, targetOf, extract 
     })();
     return () => {
       live = false;
+      abort.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [files]);
+  }, [filesKey]);
 
+  /** The rows still to send. */
+  const pending = rows.map((r) => (sentFiles.has(r.file) ? { ...r, ticked: new Set<number>() } : r));
   const toggle = (file: File, number: number): void =>
     patch(file, (r) => {
       const ticked = new Set(r.ticked);
@@ -91,12 +103,12 @@ export function ReleaseUpload({ nas, files, season, episodes, targetOf, extract 
     });
 
   const upload = async (): Promise<void> => {
-    if (busy || !canUpload(rows)) return;
+    if (busy || !canUpload(pending)) return;
     setBusy(true);
     onBusy?.(true);
     setError(null);
     setFailures([]);
-    const going = rows.filter((r) => r.state === 'read' && r.ticked.size > 0);
+    const going = rows.filter((r) => r.state === 'read' && r.ticked.size > 0 && !sentFiles.has(r.file));
     const total = going.reduce((n, r) => n + (r.extract?.tracks.filter((t) => r.ticked.has(t.number)).reduce((m, t) => m + t.text.length, 0) ?? 0), 0) || 1;
     const stored: StoredSubtitle[] = [];
     const failed: string[] = [];
@@ -105,6 +117,7 @@ export function ReleaseUpload({ nas, files, season, episodes, targetOf, extract 
       try {
         const target = await targetOf(row.episode!);
         stored.push(...(await uploadRelease(nas, row, target, (sent) => setProgress({ sent: before + sent, total: Math.max(total, before + sent) }))));
+        setSentFiles((s) => new Set(s).add(row.file));
       } catch (err) {
         failed.push(`${row.file.name}: ${subtitleErrorMessage(err)}`);
       }
@@ -114,9 +127,9 @@ export function ReleaseUpload({ nas, files, season, episodes, targetOf, extract 
     onBusy?.(false);
     setProgress(null);
     setFailures(failed);
-    if (failed.length === 0) setDone(stored.length);
-    if (stored.length > 0 && failed.length === 0) onDone(stored);
-    else if (failed.length > 0) setError(`${failed.length === 1 ? 'A file' : 'Some files'} didn't upload.`);
+    if (stored.length > 0) setDone((d) => (d ?? 0) + stored.length);
+    if (stored.length > 0) onDone(stored);
+    if (failed.length > 0) setError(`${failed.length === 1 ? 'A file' : 'Some files'} didn't upload.`);
   };
 
   return (
@@ -144,7 +157,7 @@ export function ReleaseUpload({ nas, files, season, episodes, targetOf, extract 
               {row.extract.tracks.length === 0 && <span className="owner-message">This file has no text subtitles.</span>}
               {row.extract.tracks.map((t) => (
                 <label key={t.number} className="release-track-row">
-                  <input type="checkbox" data-testid="release-track" checked={row.ticked.has(t.number)} disabled={busy} onChange={() => toggle(row.file, t.number)} />
+                  <input type="checkbox" data-testid="release-track" checked={row.ticked.has(t.number)} disabled={busy || sentFiles.has(row.file)} onChange={() => toggle(row.file, t.number)} />
                   <span>{`${kindLabel(t.kind)} · ${releaseLanguage(t.language)}${t.name ? ` · ${t.name}` : ''} · ${t.dialogueLines} lines`}</span>
                 </label>
               ))}
@@ -169,7 +182,7 @@ export function ReleaseUpload({ nas, files, season, episodes, targetOf, extract 
         </p>
       )}
       <div className="owner-buttons">
-        <button type="button" className="owner-primary" data-testid="release-upload" disabled={busy || !canUpload(rows)} onClick={() => void upload()}>
+        <button type="button" className="owner-primary" data-testid="release-upload" disabled={busy || !canUpload(pending)} onClick={() => void upload()}>
           {busy ? 'Uploading…' : 'Upload'}
         </button>
       </div>
