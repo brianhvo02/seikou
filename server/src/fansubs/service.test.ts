@@ -611,12 +611,64 @@ describe('FansubService', () => {
       const { svc, store } = setup({ tosho: (t) => ({ ...t, download: async (url, o, max) => { downloads.push(url); return t.download(url, o, max); } }) });
       const result = await svc.runTitle(TITLE);
       expect(fansubsOf(store, 2).map((s) => s.id)).toEqual(before);
-      expect(store.get(id)).toMatchObject({ fileSize: FULL.length, source: { kind: 'release', alignment: null } });
+      // kept as uploaded (the line-up resumed at start may have marked it, with no disc length to go on)
+      expect(store.get(id)).toMatchObject({ fileSize: FULL.length, source: { kind: 'release' } });
       // nothing of episode 2's release was fetched
       expect(downloads.filter((u) => /\/202\b|202-/.test(u))).toEqual([]);
       expect(downloads.length).toBeGreaterThan(0);
       expect(fansubsOf(store, 1)).toHaveLength(2);
       expect(result.episodes[`${SEASON}#1`]).toEqual({ status: 'attached' });
+    });
+
+    it('a release upload made while the episode is fetched stops the fansubs being attached there', async () => {
+      let made: Promise<string> | null = null;
+      const { svc, store } = setup({
+        tosho: (t) => ({ ...t, download: async (url, o, max) => {
+          // made while the track is fetched; its file is still on its way when the episode would be attached
+          if (url === trackUrl(202, 0) && !made) made = releaseUpload(store, 2, 2, FULL);
+          return t.download(url, o, max);
+        } }),
+      });
+      const result = await svc.runTitle(TITLE);
+      expect(made).not.toBeNull();
+      const id = await made!;
+      expect(fansubsOf(store, 2)).toEqual([]);
+      expect(store.get(id)?.fileSize).toBe(FULL.length);
+      expect(result.episodes[`${SEASON}#2`]).toEqual({ status: 'attached' });
+      expect(fansubsOf(store, 1)).toHaveLength(2);
+    });
+
+    it('a line-up still waiting when the server stopped runs at start', async () => {
+      const store = new SubtitleStore(dataDir);
+      const id = await releaseUpload(store, 1, 2, FULL);
+      const lined = await releaseUpload(store, 1, 3, SIGNS, { fileName: '[GroupS] Starfall Wanderer - 01.mkv' });
+      store.setReleaseAlignment(lined, Buffer.from(SIGNS), { kind: 'original' }, { discKey: 'd.speech', playlistId: '00000' });
+      const fake = fakeAligner(OFFSET);
+      const { store: again } = setup({ aligner: fake.align });
+      await vi.waitFor(() => expect(alignmentOf(again, id)).toEqual(OFFSET));
+      expect(alignmentOf(again, lined)).toEqual({ kind: 'original' });
+      expect(fake.calls).toEqual([FULL]);
+    });
+
+    it("deleting the first track while the file's line-up waits still lines up the others", async () => {
+      let open!: () => void;
+      const gate = new Promise<void>((r) => { open = r; });
+      const fake = fakeAligner(OFFSET);
+      const { svc, store, activity, clock } = setup({ aligner: fake.align, sleep: async () => { await gate; } });
+      // another file's line-up runs first, so this file's waits in the queue
+      const other = await releaseUpload(store, 1, 2, FULL, { fileName: '[GroupS] Starfall Wanderer - 01.mkv' });
+      const first = await releaseUpload(store, 1, 2, FULL);
+      const second = await releaseUpload(store, 1, 3, SIGNS);
+      activity.note();
+      svc.lineUpRelease(other);
+      svc.lineUpRelease(first);
+      svc.lineUpRelease(second);
+      await new Promise((r) => setTimeout(r, 10));
+      store.delete(first);
+      clock.t += 200_000;
+      open();
+      await vi.waitFor(() => expect(alignmentOf(store, second)).toEqual(OFFSET));
+      expect(fake.calls).toEqual([FULL, SIGNS]);
     });
 
     it('a release upload counts as attached in the episode marks', async () => {

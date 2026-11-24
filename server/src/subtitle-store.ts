@@ -199,6 +199,11 @@ export class SubtitleStore {
     return out;
   }
 
+  /** Every release upload, those whose file hasn't landed yet included (`list` leaves them out). */
+  releases(): StoredSubtitle[] {
+    return this.index.values().filter(isRelease);
+  }
+
   /** Changes the named fields and saves; null when the upload does not exist. */
   update(id: string, patch: Partial<Pick<StoredSubtitle, 'name' | 'language' | 'offsetMs' | 'attachment'>>): StoredSubtitle | null {
     return this.edit(id, (cur) => {

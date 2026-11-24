@@ -156,6 +156,10 @@ export class FansubService {
     this.aligner = opts.aligner ?? align;
     // A run that was going when the process stopped is over.
     opts.state.clearRunning();
+    // Line-ups the process stopped before are queued again: a release upload stays hidden until it is lined up.
+    for (const s of opts.store.list()) {
+      if (isRelease(s) && s.fileSize > 0 && s.source.alignment === null) this.lineUpRelease(s.id);
+    }
   }
 
   /** Runs a title now or after the one running; a title already queued or running gives that run's answer. */
@@ -258,10 +262,11 @@ export class FansubService {
       this.place(s, NOT_ASS, this.target(s) ?? this.attachedOn(s));
       return;
     }
-    const key = `release:${s.attachment.discKey}:${s.source.fileSize}:${s.source.fileName}`;
+    const file = { discKey: s.attachment.discKey, fileName: s.source.fileName, fileSize: s.source.fileSize };
+    const key = `release:${file.discKey}:${file.fileSize}:${file.fileName}`;
     // a line-up of the same file still waiting takes this track too; one already running may have missed it
     if (this.queue.some((j) => j.key === key)) return;
-    this.enqueue(key, false, null, (job) => this.lineUpFile(subtitleId, job), undefined, false).catch((e: unknown) => {
+    this.enqueue(key, false, null, (job) => this.lineUpFile(file, job), undefined, false).catch((e: unknown) => {
       if (!this.closed) this.log(`fansubs: line-up of release upload ${subtitleId}: ${e instanceof Error ? e.message : String(e)}`);
     });
   }
@@ -349,10 +354,12 @@ export class FansubService {
    * every track of the file except one the owner set to its original timing. With no disc to line up on, the tracks
    * show at their own timing, marked for the owner.
    */
-  private async lineUpFile(subtitleId: string, job: Job): Promise<void> {
+  private async lineUpFile(file: { discKey: string; fileName: string; fileSize: number }, job: Job): Promise<void> {
     await this.waitIdle(job);
-    const s = this.opts.store.get(subtitleId);
-    if (!s || !isRelease(s) || s.fileSize === 0) return;
+    // the file's tracks as they are now: one that joined may since have been deleted or moved to another disc
+    const s = this.opts.store.list().find((o) => isRelease(o) && o.attachment.discKey === file.discKey && o.source.fileName === file.fileName
+      && o.source.fileSize === file.fileSize && o.fileSize > 0 && !isSrt(o));
+    if (!s) return;
     const members = this.siblings(s);
     const target = this.target(s);
     const alignment = (target ? await this.alignOn(target, members, s, job.controller.signal) : null) ?? UNSURE;
@@ -610,9 +617,9 @@ export class FansubService {
     return line(used);
   }
 
-  /** Whether an episode (a movie's playlist) holds a release upload, whether or not it is lined up yet. */
+  /** Whether an episode (a movie's playlist) holds a release upload, lined up or not, its file landed or still on its way. */
   private holdsRelease(titleId: string, unit: Unit, ep: UnitEpisode): boolean {
-    return this.opts.store.list().some((s) => isRelease(s) && this.onEpisode(s, titleId, unit, ep));
+    return this.opts.store.releases().some((s) => this.onEpisode(s, titleId, unit, ep));
   }
 
   /** Whether a subtitle is attached to this episode of the title, or to the movie. */
@@ -712,6 +719,9 @@ export class FansubService {
       ? { kind: 'chapter', discKey, playlistId: ep.playlistId, chapter: 0, titleId }
       : { kind: 'episode', discKey, playlistId: ep.playlistId, titleId, seasonId: unit.seasonId, episode: ep.number };
     // The episode's earlier fansubs make way for the new ones; the owner's edits to a track carry over to its new copy.
+    // A release upload made on the episode while its tracks were fetched: it is left alone all the same. From here to
+    // the last `createFansub` nothing awaits, so none can arrive unseen.
+    if (this.holdsRelease(titleId, unit, ep)) return { status: 'attached' };
     // Only fansubs: an owner's upload, a release upload above all, is never deleted here.
     const earlier = store.list().filter((s): s is StoredSubtitle & { source: FansubSource } => isFansub(s) && this.onEpisode(s, titleId, unit, ep));
     const kept = new Map(earlier.map((s) => [trackKey(s.source.toshoFileId, s.source.track), s]));
