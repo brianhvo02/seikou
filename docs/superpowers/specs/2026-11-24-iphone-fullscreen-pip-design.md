@@ -1,7 +1,9 @@
 # Picture in Picture and video fullscreen through the element path: design
 
-Status: first slice built on branch `iphone-fullscreen-pip` (2026-11-24, unattended night run). Decisions marked
-*(My call: …)* are for the owner to review. Roadmap row: "iPhone fullscreen and PiP through a `<video>`".
+Status: built on branch `iphone-fullscreen-pip` (2026-11-24, unattended night run), with text subtitles in Picture in
+Picture added after the first slice (§4.5) once the iPhone showed it draws a video's WebVTT cues there. Decisions
+marked *(My call: …)* are for the owner to review. Roadmap row: "iPhone fullscreen and PiP through a `<video>`".
+Device results are in §7.
 
 ## 1. What we found first (on the owner's iPhone 17 Pro, iOS 27.2, 2026-11-24)
 
@@ -42,10 +44,11 @@ Goals (this slice):
 
 Non-goals (left for later, in the roadmap row):
 
-- Subtitles and menus inside PiP or native fullscreen. PiP and native fullscreen show the video's own pixels only:
-  PG, IG and BD-J graphics and text subtitles are not there. *(My call: WebVTT text tracks for SRT and ASS are not in
-  this slice — the ASS renderer's look can't be kept in WebVTT, PG are bitmaps, and the slice should first prove the
-  transport and the clock on a phone. The Picture in Picture menu item says so.)*
+- PG subtitles, ASS styling and signs, and menus inside PiP or native fullscreen. PiP and native fullscreen show the
+  video's own pixels and its text tracks only: PG, IG and BD-J graphics are not there, and text subtitles come along as
+  plain text (§4.5). *(My call: first planned as a non-goal; built once the iPhone showed WebVTT cues in its Picture in
+  Picture window, because added ASS files are the owner's main subtitles. Signs are left out rather than shown
+  out of place.)*
 - PiP for canvas-only video (MPEG-2, VC-1, AV1 encodes, a playlist with a shader set on): no `captureStream()` of the
   transferred canvas. The control is disabled there with the reason. *(My call: the roadmap says start from the
   element path; a canvas capture is a second experiment.)*
@@ -137,12 +140,46 @@ that has element fullscreen, so the fallback can be tried on this iPhone and in 
 - A notice the first time PiP is entered while subtitles are on: "Subtitles and menus don't show in Picture in
   Picture." (once per disc open).
 
+### 4.5 Text subtitles on the video's text track
+
+While the element is presented, `ElementVideoOutput` posts `setTextCues { on: true }` (and `false` when it ends); the
+engine then sends `textCue { text }` whenever the plain text of what shows changes. `TextRendererLike.plainText` gives
+it: SRT cues' text with styles dropped, and `AssRenderer.plainText` (`@seikou/ass`'s `plain-text.ts`): override blocks
+dropped, `\N` as a line break, `\h` as a space, events with `\pos`, `\move`, `\org`, `\clip` or a drawing left out,
+one entry per distinct text in file order. The page keeps one `VTTCue` spanning all media time on the element's own
+text track (`showing` only while presented, so the page's inline video never shows it under the canvas), replaced on
+every change. *(My call: one "what shows now" cue rather than the file's cue list — it follows offsets, episode
+placement and file changes the engine already handles, and costs one event per change.)*
+
+### 4.6 Media Session
+
+`PlatformSession` also handles `seekto` (a system scrubber's seek to a time) and tells the Media Session the
+playlist's length and position (`setPositionState`, with `playbackState`) when they change beyond what it reckons
+itself, so the lock screen and the PiP window's ±10 s buttons (which iOS draws from the Media Session's
+`seekbackward` and `seekforward` handlers) stay right.
+
 ## 5. Constraints
 
 - No user-agent sniffing: everything is feature-detected.
 - Browser APIs stay behind injectable interfaces (the video and document likes), as the project's testability pattern
   asks.
 - The engine still never imports BD-J; the protocol changes first (`preferElement`, `elementPreference`).
+
+## 7. Results on the owner's iPhone 17 Pro (iOS 27.2, 2026-11-24, safaridriver over the disc server)
+
+- Element fullscreen of the player root works (the old known issue is stale for this iOS).
+- Picture in Picture from the element path opens on one tap; from the canvas path it opened on one tap for disc3 and
+  needed the second tap for disc-speech (the reopen took longer than Safari's activation window, about a second).
+- In Picture in Picture the video stayed on the audio clock: A/V offset mean within 5 ms, largest under 11 ms
+  (disc3 640×360 and disc-speech).
+- `pause()`, `play()` and a `currentTime` seek on the presented element (what the system controls call) paused,
+  played and sought the player; a seek reached 100 s of a 150 s playlist once the media source's duration spanned it
+  (before that fix the scrubber stopped at what had been appended).
+- `?fullscreen=video`: the video's own fullscreen opened from a tap, the player paused and played through the element,
+  and a Top Menu call in fullscreen closed it with the menu playing on the page.
+- An added SRT file showed in the Picture in Picture window, line by line in time.
+- Not checked (a script can't reach them): the Picture in Picture window's own buttons, the system fullscreen
+  player's controls, leaving Safari with Picture in Picture open (audio may be suspended), and rotation.
 
 ## 6. Testing
 
