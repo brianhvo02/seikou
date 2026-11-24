@@ -18,6 +18,8 @@ export interface AudioWasm {
   audio_channels(handle: number): number;
   /** The FFmpeg AVChannel id of output channel `index` of the last audio_decode. */
   audio_channel(handle: number, index: number): number;
+  /** The decoder's FFmpeg profile after the last packet (DTS: 60–62 when XLL was decoded, 50 for High Resolution or a core with extension parts). */
+  audio_profile(handle: number): number;
   /** The sample rate of the last decoded frame, in Hz. */
   audio_sample_rate(handle: number): number;
   /** Flushes the decoder's state (after a seek). */
@@ -58,6 +60,8 @@ export interface DecodedFrame {
   readonly channels: ChannelLayout;
   /** Interleaved, `channels.length` samples a frame (a copy, safe to keep). */
   readonly samples: Float32Array;
+  /** The decoder's FFmpeg profile after this packet (what DTS actually decoded); absent where nobody asks. */
+  readonly profile?: number;
 }
 
 /** One FFmpeg decoder instance inside the shared module; decodes whole packets to interleaved float in their own layout. */
@@ -102,7 +106,7 @@ export class WasmFrameDecoder {
     if (frames < 0) throw new AudioFrameError(frames);
     const n = frames === 0 ? 0 : this.wasm.audio_channels(this.handle);
     const samples = new Float32Array(this.wasm.memory.buffer, this.outPtr, frames * n).slice();
-    return { sampleRate: this.wasm.audio_sample_rate(this.handle), channels: n === 0 ? [] : this.channelLayout(n), samples };
+    return { sampleRate: this.wasm.audio_sample_rate(this.handle), channels: n === 0 ? [] : this.channelLayout(n), samples, profile: this.wasm.audio_profile(this.handle) };
   }
 
   /** The layout of the last decode, kept while it doesn't change. */

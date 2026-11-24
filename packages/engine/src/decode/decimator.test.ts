@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { Decimator } from './decimator';
 import type { PcmChunk } from './lpcm';
+import { STEREO, applyMix, mixMatrix } from '../audio/channel-map';
 
 function tone(rate: number, frames: number, hz: number, ptsUs = 0): PcmChunk {
   const stereo = new Float32Array(frames * 2);
@@ -60,6 +61,31 @@ describe('Decimator', () => {
     expect(out.channels).toHaveLength(6);
     expect(out.samples.length).toBe(out.frames * 6);
     for (let c = 0; c < 6; c++) expect(out.samples[4000 * 6 + c]).toBeCloseTo(c / 10, 3);
+  });
+
+  it('reuses its scratch buffers from chunk to chunk', () => {
+    const d = new Decimator(4);
+    d.process(tone(192_000, 160, 440));
+    const first = d.scratch;
+    d.process(tone(192_000, 160, 440, 1000));
+    d.process(tone(192_000, 100, 440, 2000));
+    expect(d.scratch.work).toBe(first.work);
+    expect(d.scratch.history).toBe(first.history);
+    expect(d.scratch.acc).toBe(first.acc);
+  });
+
+  it('gives the same stereo when 7.1 is folded before decimating as after (both are linear)', () => {
+    const layout = ['FL', 'FR', 'FC', 'LFE', 'BL', 'BR', 'SL', 'SR'] as const;
+    const frames = 1920;
+    const samples = new Float32Array(frames * 8);
+    for (let i = 0; i < frames; i++) for (let c = 0; c < 8; c++) samples[i * 8 + c] = 0.1 * Math.sin((2 * Math.PI * 220 * (c + 1) * i) / 96_000);
+    const chunk = { ptsUs: 0, sampleRate: 96_000, frames, channels: layout, samples };
+    const m = mixMatrix(layout, STEREO);
+    const fold = (c: PcmChunk): PcmChunk => ({ ...c, channels: STEREO, samples: applyMix(c.samples, c.frames, c.channels.length, m, 2) });
+    const after = fold(new Decimator(2).process(chunk));
+    const before = new Decimator(2).process(fold(chunk));
+    expect(before.frames).toBe(after.frames);
+    for (let i = 0; i < before.samples.length; i++) expect(before.samples[i]).toBeCloseTo(after.samples[i], 5);
   });
 
   it('rejects impossible factors and input rates', () => {

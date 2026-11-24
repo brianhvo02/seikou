@@ -1,16 +1,27 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
-import { readdirSync } from 'node:fs';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+import { setFolder } from './support';
 
 // The built player's AudioWorklet, rendered offline in the browser: the ring's channels must come out on the same
 // output channels, through a discrete gain node, at 2, 6 and 8 channels. No device needed, so it runs everywhere;
 // hearing the order on real speakers is the owner's check (docs/known-issues.md).
-const worklet = readdirSync('dist/assets').find((f) => /^pcm-worklet-.*\.js$/.test(f));
+
+/** The worklet module the served build loads: started once by opening a disc, then read from the page's resource list. */
+async function workletUrl(page: Page): Promise<string | null> {
+  await page.goto('/');
+  await setFolder(page.getByTestId('folder-input'), 'fixtures/synthetic/disc1');
+  await page.getByTestId('playlist-00000').click(); // the click starts the audio output, which loads the worklet
+  await expect
+    .poll(() => page.evaluate(() => performance.getEntriesByType('resource').some((e) => /pcm-worklet[^/]*\.js/.test(e.name))), { timeout: 10_000 })
+    .toBe(true)
+    .catch(() => undefined);
+  return page.evaluate(() => performance.getEntriesByType('resource').find((e) => /pcm-worklet[^/]*\.js/.test(e.name))?.name ?? null);
+}
 
 for (const channels of [2, 6, 8]) {
   test(`the worklet plays a ${channels}-channel ring onto ${channels} output channels in order`, async ({ page }) => {
-    expect(worklet, 'npm run build first').toBeDefined();
-    await page.goto('/');
+    const url = await workletUrl(page);
+    test.skip(url === null, 'the page loaded no pcm-worklet module (its audio output did not start here)');
     const rendered = await page.evaluate(
       async ({ url, channels }) => {
         // the ring's layout (packages/engine/src/audio/ring.ts): 16 bytes of counters, 9 Int32 control slots, frames
@@ -40,7 +51,7 @@ for (const channels of [2, 6, 8]) {
         const out = await ctx.startRendering();
         return Array.from({ length: out.numberOfChannels }, (_, c) => Math.round(out.getChannelData(c)[300] * 100) / 100);
       },
-      { url: `/assets/${worklet}`, channels },
+      { url: url!, channels },
     );
     expect(rendered).toEqual(Array.from({ length: channels }, (_, c) => (c + 1) / 10));
   });

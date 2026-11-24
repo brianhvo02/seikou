@@ -4366,6 +4366,8 @@ export class Player {
     if (!inRange) return;
     for (let chunk of result.chunks) {
       if (chunk.sampleRate !== OUTPUT_SAMPLE_RATE) {
+        // Both are linear: fold to fewer output channels first, so the filter runs on 2 channels rather than 6 or 8.
+        if (chunk.channels.length > writer.outputLayout.length) chunk = writer.mixToOutput(chunk);
         const factor = chunk.sampleRate / OUTPUT_SAMPLE_RATE;
         if (!s.decimator || s.decimator.factor !== factor) s.decimator = new Decimator(factor);
         chunk = s.decimator.process(chunk);
@@ -4434,6 +4436,18 @@ export class Player {
     s.eof = true;
     // an asynchronous decoder gives up what it holds; pullAudio hands it on
     for (const d of s.audioDecoders.values()) void d.flush?.();
+    // a synchronous one gives up the packet it held for the next (the last E-AC-3 or DTS-HD packet)
+    for (const [codingType, d] of s.audioDecoders) {
+      if (!d.end || !s.audioActive) continue;
+      let result: AudioDecodeResult;
+      try {
+        result = d.end();
+      } catch (err) {
+        this.audioDecoderFailed(s, err);
+        break;
+      }
+      this.writeAudio(s, result, codingType, true);
+    }
     // without a picture the video read counts as delivered too: up to the last item's OUT time when its data was all
     // there (an IG-only menu loop plays to its end), else as far as the reader knows
     if (!this.hasPicture(s)) s.readEndUs = s.pipeline.doneUs ?? -Infinity;

@@ -8,6 +8,9 @@ export class Decimator {
   private history: Float32Array;
   private channels = 2;
   private phase = 0;
+  /** Scratch reused from chunk to chunk: the history followed by the chunk (grown when a chunk is longer), and the sums. */
+  private work = new Float32Array(0);
+  private acc = new Float64Array(2);
 
   constructor(
     readonly factor: number,
@@ -39,20 +42,22 @@ export class Decimator {
     const f = this.factor;
     const taps = this.coeffs.length;
     const ch = input.channels.length;
+    const historyFrames = taps - 1;
     if (ch !== this.channels) {
       this.channels = ch;
-      this.history = new Float32Array((taps - 1) * ch);
+      this.history = new Float32Array(historyFrames * ch);
+      this.acc = new Float64Array(ch);
       this.phase = 0;
     }
-    const historyFrames = taps - 1;
     const total = historyFrames + input.frames;
-    const buf = new Float32Array(total * ch);
+    if (this.work.length < total * ch) this.work = new Float32Array(total * ch);
+    const buf = this.work;
     buf.set(this.history);
     buf.set(input.samples.subarray(0, input.frames * ch), this.history.length);
 
     const firstIndex = (f - this.phase) % f;
     const out = new Float32Array((Math.ceil(input.frames / f) + 1) * ch);
-    const acc = new Float64Array(ch);
+    const acc = this.acc;
     let frames = 0;
     for (let n = firstIndex; n < input.frames; n += f) {
       const end = historyFrames + n;
@@ -66,7 +71,7 @@ export class Decimator {
       frames++;
     }
     this.phase = (this.phase + input.frames) % f;
-    this.history = buf.slice((total - historyFrames) * ch);
+    this.history.set(buf.subarray((total - historyFrames) * ch, total * ch));
     return {
       ptsUs: input.ptsUs + (firstIndex * 1e6) / input.sampleRate,
       sampleRate: input.sampleRate / f,
@@ -76,6 +81,12 @@ export class Decimator {
     };
   }
 
+  /** The scratch buffers, for tests to see they are reused. @internal */
+  get scratch(): { readonly work: Float32Array; readonly history: Float32Array; readonly acc: Float64Array } {
+    return { work: this.work, history: this.history, acc: this.acc };
+  }
+
+  /** Clears the filter's history (after a seek). */
   reset(): void {
     this.history.fill(0);
     this.phase = 0;

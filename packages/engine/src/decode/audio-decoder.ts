@@ -1,7 +1,7 @@
 import { OUTPUT_SAMPLE_RATE } from '../audio/ring';
 import { CodingType, codingName } from '@seikou/bdmv/stream-types';
 import { layoutName, type ChannelLayout, type OutputChannels } from '../audio/channel-map';
-import { AudioFramer, type FramerKind } from './audio-frames';
+import { AudioFramer, type AudioFrame, type FramerKind } from './audio-frames';
 import { UnsupportedCodecError } from './decoder';
 import { decodeLpcm, type PcmChunk } from './lpcm';
 import { AC3_CORE_EXTENSION, TrueHdCoreFilter } from './truehd-core';
@@ -46,6 +46,11 @@ export interface AudioDecoder {
   takeOutput?(): AudioDecodeResult;
   /** An asynchronous decoder: at the end of input, makes it give up what it holds (handed on by takeOutput). */
   flush?(): Promise<void>;
+  /**
+   * A synchronous decoder that holds a packet back until the next one starts (an E-AC-3 access unit, a DTS-HD core
+   * with its extension substream): at the end of input, the PCM of that last packet.
+   */
+  end?(): AudioDecodeResult;
   /**
    * An asynchronous decoder: the time of the oldest unit given to decode() whose PCM has not come out yet, or null.
    * Silence for missing audio is never filled past it, so late PCM is not lost.
@@ -141,6 +146,7 @@ export class FramedWasmDecoder implements AudioDecoder {
   /** Set once a frame came out at a good rate; survives reset() because the stream is then known to be good. */
   private producedGood = false;
   private lastChannels: ChannelLayout | null = null;
+  private lastPart: AudioDecoding['part'] | null = null;
 
   constructor(
     private readonly codingType: number,
@@ -149,13 +155,23 @@ export class FramedWasmDecoder implements AudioDecoder {
     private readonly unitFilter: UnitFilter | null,
     private readonly rates: ReadonlySet<number> = LOSSY_RATES,
     private readonly part: AudioDecoding['part'] = 'plain',
+    /** What a frame's FFmpeg profile says was decoded, where the decoder can fall back quietly (DTS-HD's XLL). */
+    private readonly partOf: ((profile: number | undefined) => AudioDecoding['part']) | null = null,
   ) {}
 
   decode(unit: AudioUnit): AudioDecodeResult {
     if (this.unitFilter && !this.unitFilter.accept(unit)) return { chunks: [], failedFrames: 0 };
+    return this.decodeFrames(this.framer.push(unit.data, unit.ptsUs));
+  }
+
+  end(): AudioDecodeResult {
+    return this.decodeFrames(this.framer.flush());
+  }
+
+  private decodeFrames(frames: readonly AudioFrame[]): AudioDecodeResult {
     const chunks: PcmChunk[] = [];
     let failedFrames = 0;
-    for (const frame of this.framer.push(unit.data, unit.ptsUs)) {
+    for (const frame of frames) {
       let out: DecodedFrame;
       try {
         out = this.frames.decode(frame.data);
@@ -176,6 +192,7 @@ export class FramedWasmDecoder implements AudioDecoder {
       }
       this.producedGood = true;
       this.lastChannels = out.channels;
+      if (this.partOf) this.lastPart = this.partOf(out.profile);
       chunks.push({ ptsUs: frame.ptsUs, sampleRate: out.sampleRate, frames: out.samples.length / out.channels.length, channels: out.channels, samples: out.samples });
     }
     return { chunks, failedFrames };
@@ -192,8 +209,21 @@ export class FramedWasmDecoder implements AudioDecoder {
   }
 
   decoding(): AudioDecoding | null {
-    return this.lastChannels ? { part: this.part, channels: this.lastChannels } : null;
+    return this.lastChannels ? { part: this.lastPart ?? this.part, channels: this.lastChannels } : null;
   }
+}
+
+/**
+ * What FFmpeg's dca decoder decoded, from its profile: DTS-HD Master Audio counts as whole only with XLL decoded
+ * (profiles 60–62), High Resolution with its extensions (50) too; anything else is its core (dcadec falls back to the
+ * core quietly when XLL fails). @internal
+ */
+export function dtsHdPart(codingType: number): (profile: number | undefined) => AudioDecoding['part'] {
+  return (profile) => {
+    if (profile === undefined) return 'full';
+    if (profile >= 60 && profile <= 62) return 'full';
+    return profile === 50 && codingType === CodingType.DTSHD ? 'full' : 'core';
+  };
 }
 
 /** Stream time a lossless decoder may run without output while its core is there, before the core takes over. */
@@ -263,6 +293,10 @@ export class LosslessDecoder implements AudioDecoder {
     return result;
   }
 
+  end(): AudioDecodeResult {
+    return (this.core ?? this.whole).end?.() ?? { chunks: [], failedFrames: 0 };
+  }
+
   private fallBack(reason: string): AudioDecoder {
     this.fallbackReason = reason;
     this.log(`${codingName(this.codingType)}: playing the core from here (${reason})`);
@@ -320,8 +354,8 @@ export function createAudioDecoderFactory(loadWasm: () => Promise<AudioWasm>): A
     const module = await getWasm();
     const out = options.outputChannels ?? 2;
     const hasCore = codingType === CodingType.TRUEHD || codingType === CodingType.DTSHD || codingType === CodingType.DTSHD_MASTER;
-    const framed = (framer: FramerKind, codec: WasmCodecId, filter: UnitFilter | null, rates: ReadonlySet<number>, part: AudioDecoding['part']): FramedWasmDecoder =>
-      new FramedWasmDecoder(codingType, new AudioFramer(framer), new WasmFrameDecoder(module, codec, out), filter, rates, part);
+    const framed = (framer: FramerKind, codec: WasmCodecId, filter: UnitFilter | null, rates: ReadonlySet<number>, part: AudioDecoding['part'], partOf: ((p: number | undefined) => AudioDecoding['part']) | null = null): FramedWasmDecoder =>
+      new FramedWasmDecoder(codingType, new AudioFramer(framer), new WasmFrameDecoder(module, codec, out), filter, rates, part, partOf);
     const core = (): FramedWasmDecoder =>
       codingType === CodingType.TRUEHD
         ? framed('ac3', WasmCodec.AC3, new TrueHdCoreFilter(), LOSSY_RATES, 'core')
@@ -331,7 +365,7 @@ export function createAudioDecoderFactory(loadWasm: () => Promise<AudioWasm>): A
     const whole =
       codingType === CodingType.TRUEHD
         ? framed('truehd', WasmCodec.TRUEHD, new TrueHdMlpFilter(), LOSSLESS_RATES, 'full')
-        : framed('dtshd', WasmCodec.DTS_FULL, null, LOSSLESS_RATES, 'full');
+        : framed('dtshd', WasmCodec.DTS_FULL, null, LOSSLESS_RATES, 'full', dtsHdPart(codingType));
     return new LosslessDecoder(codingType, whole, core, options.nowMs, options.log);
   };
 }

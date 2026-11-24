@@ -52,11 +52,12 @@ export class AudioWriter {
     if (chunk.sampleRate !== this.ring.sampleRate) {
       throw new Error(`chunk sample rate ${chunk.sampleRate} does not match output ${this.ring.sampleRate}`);
     }
-    this.queue.push(this.toOutput(chunk));
+    this.queue.push(this.mixToOutput(chunk));
     this.drain();
   }
 
-  private toOutput(chunk: PcmChunk): PcmChunk {
+  /** The chunk mixed to the ring's channels (the same chunk when it already has them). */
+  mixToOutput(chunk: PcmChunk): PcmChunk {
     if (sameLayout(chunk.channels, this.layout)) return chunk;
     if (!this.mix || !sameLayout(this.mix.source, chunk.channels)) this.mix = { source: chunk.channels, matrix: mixMatrix(chunk.channels, this.layout) };
     const samples = applyMix(chunk.samples, chunk.frames, chunk.channels.length, this.mix.matrix, this.layout.length);

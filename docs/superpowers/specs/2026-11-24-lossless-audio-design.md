@@ -86,7 +86,8 @@ audible and battery matters.)*
 - **DTS-HD** (kind `dtshd`): a core frame and the extension substream (EXSS, sync `64 58 20 25`) after it make one
   packet, as FFmpeg's parser builds it, with the core padded to 4 bytes (the EXSS is 4-byte aligned, and padding bytes
   between them are skipped by the resync). A packet is emitted when the next core starts, like an E-AC-3 access unit,
-  so the last frame before the end of input is not played (an existing known issue, now also DTS-HD's).
+  and at the end of input the player asks the decoder for the packet it held (`AudioDecoder.end`), which also plays
+  the last E-AC-3 access unit (an old known issue).
 - DTS core (kind `dts`) and AC-3 are unchanged.
 
 ### Which decoder (`decode/audio-decoder.ts`)
@@ -100,10 +101,14 @@ channel count and the memory profile's new `losslessAudio` (desktop `true`, cons
   packets; without: today's core path.
 - Everything else as today.
 
+FFmpeg's `dca` falls back to the core quietly when XLL fails, so the shim exports the decoder's profile after each
+packet (`audio_profile`) and DTS-HD Master Audio is labelled whole only at profiles 60–62 (High Resolution at 50),
+else "core" (`dtsHdPart`).
+
 **Fallback to the core** (`LosslessDecoder`), once per stream, from the next unit, logged and visible in the label:
 the lossless decoder throws `UnsupportedCodecError` (say, a rate other than 48, 96 or 192 kHz), no lossless output
 has come 2 s of stream time after the first unit while the core is there (TrueHD with a broken or missing MLP part),
-more than 50 frames fail in a row, or decoding costs more than 25 % of real time measured over 5 s of audio (the
+8 frames fail in a row (the player itself gives up on a stream at 50), or decoding costs more than 25 % of real time measured over 5 s of audio (the
 engine worker also feeds video; at 25 % something is badly wrong, since a desktop measures under 1 %). *(My call:
 25 % over 5 s — high enough that a desktop never trips it, low enough that a slow machine falls back before the
 video decoder starves; the measured cost is in the report.)*
@@ -123,8 +128,12 @@ operating systems use for 7.1). `mixMatrix(source, output)` builds a gain matrix
   into the ear-level speaker below them; `LFE2` joins `LFE`.
 - **Stereo** uses today's coefficients exactly: `FC` −3 dB to both, each surround and back −3 dB to its side, `BC`
   −6 dB to both, `LFE` dropped, mono to both at 1.
-- One normaliser for all outputs: 1 / max(1, largest row sum), which is today's LPCM and shim rule for stereo and is 1
-  (passthrough) whenever nothing folds.
+- Normalising: a stereo fold keeps one normaliser for both sides, 1 / max(1, largest row sum), today's LPCM and shim
+  rule; a 5.1 or 7.1 output normalises each speaker's row on its own (1 / its sum when over 1), so 7.1 folded to 5.1
+  scales only the side rows and the fronts, centre and LFE stay at 1. Nothing folded stays at 1 (passthrough).
+- The player folds to the output's channels *before* decimating 96 or 192 kHz audio when the output has fewer
+  channels (both are linear, so the result is the same, and the filter runs on 2 channels instead of 8); the
+  `Decimator` reuses its scratch buffers.
 
 `AudioWriter.enqueue` remixes a chunk whose channels differ from the ring's (cached matrix per source layout), so
 decoders give their native layout and nothing else changes. `decodeLpcm` now returns the native layout (no fold); the
@@ -161,8 +170,8 @@ encode's) still gives stereo.
   description: the coding name, plus ", lossless" (TrueHD, DTS-HD MA decoded whole) or ", Dolby Digital core" /
   ", DTS core", plus the decoded layout ("stereo", "5.1", "7.1"; after the decoder's own downmix). The new
   `Telemetry.audioOutputChannels` is the ring's channel count.
-- The snapshot's `audioDecoding` (`'lossless' | 'core' | null`) marks the selected track in the Audio menu with a
-  small "lossless" or "core" after its label.
+- The snapshot's `audioDecoding` (`{ part: 'full' | 'core' | 'plain'; description }` or null, from the engine's
+  `audioDecoding` event) marks the selected track in the Audio menu with a small "lossless" or "core".
 
 ## Constraints
 

@@ -26,7 +26,7 @@ emconfigure ./configure \
 emmake make -j"$(nproc)" libavcodec/libavcodec.a libavutil/libavutil.a
 emcc -Oz -I/build/ffmpeg /out/shim.c libavcodec/libavcodec.a libavutil/libavutil.a \
   -sSTANDALONE_WASM --no-entry -sALLOW_MEMORY_GROWTH=1 -sFILESYSTEM=0 -sSTACK_SIZE=1MB \
-  -sEXPORTED_FUNCTIONS=_audio_open,_audio_decode,_audio_channels,_audio_channel,_audio_sample_rate,_audio_reset,_audio_close,_malloc,_free \
+  -sEXPORTED_FUNCTIONS=_audio_open,_audio_decode,_audio_channels,_audio_channel,_audio_sample_rate,_audio_profile,_audio_reset,_audio_close,_malloc,_free \
   -o /build/audio.wasm
 cp /build/audio.wasm /out/audio.wasm
 cd /out && sha256sum audio.wasm > audio.wasm.sha256

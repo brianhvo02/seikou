@@ -46,6 +46,7 @@ describe('WasmFrameDecoder allocation failures', () => {
       },
       audio_channels: () => 2,
       audio_channel: (_h: number, i: number) => i,
+      audio_profile: () => 0,
       audio_sample_rate: () => 48000,
       audio_reset: () => undefined,
       audio_close: () => {

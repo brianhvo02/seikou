@@ -113,12 +113,18 @@ EMSCRIPTEN_KEEPALIVE int audio_decode(Decoder *d, const uint8_t *in, int len, fl
   return total;
 }
 
-/* The channel count of the last audio_decode's output (0 when it gave none). */
+/* The channel count of the last audio_decode's output; 0 when that packet put out no frame (the layout is then unset). */
 EMSCRIPTEN_KEEPALIVE int audio_channels(Decoder *d) { return d->channels; }
 
-/* The AVChannel of output channel i of the last audio_decode. */
+/* The AVChannel of output channel i of the last audio_decode; -1 for an index beyond audio_channels (none when it was 0). */
 EMSCRIPTEN_KEEPALIVE int audio_channel(Decoder *d, int i) { return i >= 0 && i < d->channels ? (int)d->layout[i] : -1; }
 
 EMSCRIPTEN_KEEPALIVE int audio_sample_rate(Decoder *d) { return d->ctx->sample_rate; }
+
+/*
+ * The decoder's profile after the last packet (AV_PROFILE_*): for DTS it says what was decoded, since dcadec falls back
+ * to the core quietly on an XLL error (DTS-HD MA 60-62 with XLL, HRA 50 for a core with extension substream parts).
+ */
+EMSCRIPTEN_KEEPALIVE int audio_profile(Decoder *d) { return d->ctx->profile; }
 
 EMSCRIPTEN_KEEPALIVE void audio_reset(Decoder *d) { avcodec_flush_buffers(d->ctx); }

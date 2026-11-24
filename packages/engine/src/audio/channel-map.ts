@@ -125,8 +125,9 @@ function surroundRoute(s: Speaker, source: ReadonlySet<Speaker>, out: ReadonlySe
 /**
  * The gains that mix `source` into `output`, as an `output.length × source.length` row-major matrix. A speaker the
  * output has passes at 1; others fold (−3 dB) into their neighbours; a fold to stereo keeps the coefficients Seikou
- * has always used (centre and each surround −3 dB, back centre −6 dB, LFE left out, mono to both at full level). One
- * normaliser, 1 / max(1, largest row sum), keeps a full-scale mix from clipping and is 1 when nothing folds.
+ * has always used (centre and each surround −3 dB, back centre −6 dB, LFE left out, mono to both at full level) and its
+ * one normaliser, 1 / max(1, largest row sum). A surround output normalises each speaker's row on its own (1 / its sum
+ * when over 1), so a fold into the sides doesn't lower the fronts and centre; nothing folded stays at 1.
  * @internal
  */
 export function mixMatrix(source: ChannelLayout, output: ChannelLayout): Float64Array {
@@ -144,16 +145,26 @@ export function mixMatrix(source: ChannelLayout, output: ChannelLayout): Float64
       if (i !== undefined) m[i * source.length + j] += gain;
     }
   });
-  if (!mono) {
+  if (!mono && stereo) {
+    // one normaliser for both sides, as Seikou always folded to stereo
     let max = 1;
-    for (let i = 0; i < output.length; i++) {
-      let sum = 0;
-      for (let j = 0; j < source.length; j++) sum += m[i * source.length + j];
-      if (sum > max) max = sum;
-    }
+    for (let i = 0; i < output.length; i++) max = Math.max(max, rowSum(m, i, source.length));
     if (max > 1) for (let k = 0; k < m.length; k++) m[k] /= max;
+  } else if (!mono) {
+    // per speaker: only a row that takes a fold (say the sides taking 7.1's backs) is scaled, so the fronts, the
+    // centre's dialogue and the LFE keep their level
+    for (let i = 0; i < output.length; i++) {
+      const sum = rowSum(m, i, source.length);
+      if (sum > 1) for (let j = 0; j < source.length; j++) m[i * source.length + j] /= sum;
+    }
   }
   return m;
+}
+
+function rowSum(m: Float64Array, row: number, width: number): number {
+  let sum = 0;
+  for (let j = 0; j < width; j++) sum += m[row * width + j];
+  return sum;
 }
 
 /** Whether two layouts are the same channels in the same order. @internal */

@@ -44,11 +44,19 @@ describe('mixMatrix', () => {
     expect(gain(back51, SURROUND_71, 'BL', 'BL')).toBe(0);
   });
 
-  it('folds 7.1 into 5.1 with the backs -3 dB into the sides, normalised', () => {
+  it('folds 7.1 into 5.1 with the backs -3 dB into the sides, normalising only the side rows', () => {
     const norm = 1 / (1 + K);
     expect(gain(SURROUND_71, SURROUND_51, 'BL', 'SL')).toBeCloseTo(K * norm, 12);
     expect(gain(SURROUND_71, SURROUND_51, 'SL', 'SL')).toBeCloseTo(norm, 12);
-    expect(gain(SURROUND_71, SURROUND_51, 'LFE', 'LFE')).toBeCloseTo(norm, 12);
+    // fronts, centre (dialogue) and LFE keep their level
+    for (const s of ['FL', 'FR', 'FC', 'LFE']) expect(gain(SURROUND_71, SURROUND_51, s, s)).toBe(1);
+  });
+
+  it('keeps the fronts at full level when 7.1 (wide) folds its front-of-centre pair on 7.1', () => {
+    const wide: ChannelLayout = ['FL', 'FR', 'FC', 'LFE', 'BL', 'BR', 'FLC', 'FRC'];
+    expect(gain(wide, SURROUND_71, 'LFE', 'LFE')).toBe(1);
+    expect(gain(wide, SURROUND_71, 'FL', 'FL')).toBeCloseTo(1 / (1 + K), 12);
+    expect(gain(wide, SURROUND_71, 'FC', 'FC')).toBeCloseTo(1 / (1 + 2 * K), 12);
   });
 
   it('folds 7.1 (wide) front-of-centre channels into the front and centre on 7.1', () => {

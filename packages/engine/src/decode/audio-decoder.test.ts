@@ -5,7 +5,7 @@ import { loadNodeAudioWasm } from '../../../../tests/helpers/audio-wasm';
 import { lpcmPayload } from '../../../../tests/helpers/synthetic-disc';
 import { CodingType } from '@seikou/bdmv/stream-types';
 import { AudioFramer } from './audio-frames';
-import { FramedWasmDecoder, LosslessDecoder, createAudioDecoderFactory, type AudioDecodeResult, type AudioDecoder, type AudioUnit } from './audio-decoder';
+import { FramedWasmDecoder, LosslessDecoder, dtsHdPart, createAudioDecoderFactory, type AudioDecodeResult, type AudioDecoder, type AudioUnit } from './audio-decoder';
 import type { DecodedFrame } from './wasm-audio';
 import { UnsupportedCodecError } from './decoder';
 
@@ -159,5 +159,79 @@ describe('LosslessDecoder', () => {
     const f = new LosslessDecoder(CodingType.TRUEHD, fast, () => scripted([], [], 'core'), () => fastNow);
     for (let i = 0; i < 100; i++) f.decode(u(i * 100_000));
     expect(f.fallbackReason).toBeNull();
+  });
+});
+
+describe('end of input', () => {
+  /** DTS core frame with NBLKS = 15 (512 samples) and an extension substream after it. */
+  function dtsHdPacket(fill: number): Uint8Array {
+    const core = new Uint8Array(1008).fill(fill);
+    const fsize = core.length - 1;
+    core.set([0x7f, 0xfe, 0x80, 0x01, 0xfc, (15 << 2) | (fsize >> 12), (fsize >> 4) & 0xff, ((fsize & 0x0f) << 4) | 0x0f]);
+    const ext = new Uint8Array(300);
+    ext.set([0x64, 0x58, 0x20, 0x25, 0x00]);
+    const bits = (16n << 16n) | BigInt(ext.length - 1);
+    ext[5] = Number((bits >> 19n) & 0xffn);
+    ext[6] = Number((bits >> 11n) & 0xffn);
+    ext[7] = Number((bits >> 3n) & 0xffn);
+    ext[8] = Number((bits & 0x7n) << 5n);
+    const out = new Uint8Array(core.length + ext.length);
+    out.set(core);
+    out.set(ext, core.length);
+    return out;
+  }
+  const frames = (seen: number[]): { decode: (f: Uint8Array) => DecodedFrame; reset: () => void; close: () => void } => ({
+    decode: (f) => {
+      seen.push(f[20]!);
+      return { sampleRate: 48_000, channels: ['FL', 'FR'], samples: new Float32Array(2 * 512) };
+    },
+    reset: () => undefined,
+    close: () => undefined,
+  });
+
+  it('plays the DTS-HD packet held for the next one when the input ends', () => {
+    const seen: number[] = [];
+    const d = new FramedWasmDecoder(CodingType.DTSHD_MASTER, new AudioFramer('dtshd'), frames(seen), null);
+    expect(d.decode({ data: dtsHdPacket(1), ptsUs: 0 }).chunks).toHaveLength(0); // held: its extension could follow
+    expect(d.decode({ data: dtsHdPacket(2), ptsUs: 10_667 }).chunks).toHaveLength(1);
+    const last = d.end();
+    expect(last.chunks.map((c) => c.ptsUs)).toEqual([10_667]);
+    expect(seen).toEqual([1, 2]);
+    expect(d.end().chunks).toHaveLength(0);
+  });
+
+  it('LosslessDecoder hands end() to the decoder in use', () => {
+    const seen: number[] = [];
+    const whole = new FramedWasmDecoder(CodingType.DTSHD_MASTER, new AudioFramer('dtshd'), frames(seen), null);
+    const d = new LosslessDecoder(CodingType.DTSHD_MASTER, whole, () => whole, () => 0);
+    d.decode({ data: dtsHdPacket(5), ptsUs: 0 });
+    expect(d.end().chunks).toHaveLength(1);
+  });
+});
+
+describe('DTS-HD: what was decoded, from the profile', () => {
+  it('calls Master Audio whole only with XLL decoded, and High Resolution whole with its extensions', () => {
+    const ma = dtsHdPart(CodingType.DTSHD_MASTER);
+    expect([60, 61, 62, 50, 20].map(ma)).toEqual(['full', 'full', 'full', 'core', 'core']);
+    const hra = dtsHdPart(CodingType.DTSHD);
+    expect([50, 30, 20].map(hra)).toEqual(['full', 'core', 'core']);
+  });
+
+  it('turns the label to core when dcadec falls back quietly, and back when XLL returns', () => {
+    const profiles = [60, 50, 60];
+    const frames = { decode: (): DecodedFrame => ({ sampleRate: 48_000, channels: ['FL', 'FR'], samples: new Float32Array(1024), profile: profiles.shift() }), reset: () => undefined, close: () => undefined };
+    const d = new FramedWasmDecoder(CodingType.DTSHD_MASTER, new AudioFramer('dts'), frames, null, new Set([48_000]), 'full', dtsHdPart(CodingType.DTSHD_MASTER));
+    const core = (fill: number): Uint8Array => {
+      const f = new Uint8Array(1008).fill(fill);
+      const fsize = f.length - 1;
+      f.set([0x7f, 0xfe, 0x80, 0x01, 0xfc, (15 << 2) | (fsize >> 12), (fsize >> 4) & 0xff, ((fsize & 0x0f) << 4) | 0x0f]);
+      return f;
+    };
+    const parts: Array<string | undefined> = [];
+    for (let i = 0; i < 3; i++) {
+      d.decode({ data: core(i + 1), ptsUs: i * 10_667 });
+      parts.push(d.decoding()?.part);
+    }
+    expect(parts).toEqual(['full', 'core', 'full']);
   });
 });

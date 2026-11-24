@@ -642,6 +642,27 @@ describe('Player', () => {
     expect(lastState(h)).toBe('ended');
   });
 
+  it('asks a decoder that holds a packet back for it at the end of input', async () => {
+    let ends = 0;
+    const factory: AudioDecoderFactory = async (codingType) => {
+      const d = await fakeAudioFactory()(codingType);
+      return {
+        ...d,
+        end: () => {
+          ends++;
+          return { chunks: [], failedFrames: 0 };
+        },
+      };
+    };
+    const h = await harness(CodingType.AC3, { createAudioDecoder: factory });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilPlaying(h);
+    expect(ends).toBe(0);
+    await h.play(9000);
+    expect(lastState(h)).toBe('ended');
+    expect(ends).toBe(1);
+  });
+
   it('counts no underruns when the audio runs out at the end of the playlist', async () => {
     const h = await harness(CodingType.LPCM);
     await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
