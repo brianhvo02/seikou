@@ -696,3 +696,7 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .disc-prefs .pref-row select { min-width: 0; }
 @media (max-width: 480px) { .disc-prefs .pref-row { grid-template-columns: 1fr; gap: 4px; } }
 .prefs-link { background: none; border: none; font: inherit; cursor: pointer; }
+.release-upload { display: flex; flex-direction: column; gap: 12px; }
+.release-row { display: flex; flex-direction: column; gap: 6px; padding-bottom: 10px; border-bottom: 1px solid var(--rim); }
+.release-name { overflow-wrap: anywhere; }
+.release-track-row { display: flex; align-items: center; gap: 8px; }

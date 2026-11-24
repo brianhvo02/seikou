@@ -537,6 +537,22 @@ describe('PlaceSaver', () => {
     expect(t.store.files.get(KEY)?.map((f) => f.name)).toEqual(['font.ttf', 'ep2.ass']);
   });
 
+  it('a pick whose fonts pass 50 MB keeps its subtitle files and the fonts that fit', async () => {
+    const t = setup();
+    const sized = (name: string, size: number): File => {
+      const f = new File([new Uint8Array(1)], name);
+      Object.defineProperty(f, 'size', { value: size });
+      return f;
+    };
+    const fonts = Array.from({ length: 12 }, (_, i) => sized(`f${String(i).padStart(2, '0')}.ttf`, MAX_TEXT_FILE_BYTES));
+    await t.saver.addTextFiles([new File(['a'], 'ep1 [2] English.ass'), new File(['b'], 'ep1 [3] Signs.ass'), ...fonts]);
+    // the scripts always, then fonts while the set stays within 50 MB: nine of 5 MB fit beside two bytes of script
+    expect(t.store.files.get(KEY)?.map((f) => f.name)).toEqual(['ep1 [2] English.ass', 'ep1 [3] Signs.ass', ...fonts.slice(0, 9).map((f) => f.name)]);
+    // fonts added later fill what is left, earlier ones staying
+    await t.saver.addTextFiles([sized('late.otf', 3)]);
+    expect(t.store.files.get(KEY)?.map((f) => f.name).at(-1)).toBe('late.otf');
+  });
+
   it("gives text files their sizes, keeps their bytes for this device, and sends at most 64", async () => {
     const t = setup();
     const ass = new File(['[Script Info]'], 'ep1.ass');

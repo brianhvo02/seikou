@@ -1,8 +1,9 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { open } from 'node:fs/promises';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { open, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { FansubSource, StoredSubtitle } from '@seikou/nas/nas-api';
+import { isFansub, isRelease } from '@seikou/nas/nas-api';
+import type { FansubAlignment, FansubSource, ReleaseSource, StoredSubtitle } from '@seikou/nas/nas-api';
 import { isCode, lockFile, replaceAtomically, syncDir, writeSynced } from '@seikou/titles/atomic-json';
 import { SubtitleIndex } from './subtitle-index';
 
@@ -44,6 +45,14 @@ export class NotFoundError extends Error {
   }
 }
 
+/** A font whose bytes aren't the ones the upload declared (its SHA-256 or size differs). */
+export class BadFontError extends Error {
+  constructor() {
+    super('bad font');
+    this.name = 'BadFontError';
+  }
+}
+
 /** A file name that isn't a plain name with an allowed extension. */
 export class BadNameError extends Error {
   constructor() {
@@ -59,8 +68,9 @@ function checkName(name: string, ext: RegExp): void {
   if (name.length < 1 || Buffer.byteLength(name) > 255 || /[/\\\0]/.test(name) || name === '.' || name === '..' || !ext.test(name)) throw new BadNameError();
 }
 
-/** What counts against the 2 GB total: owner uploads only; fansubs have their own budget. */
+/** What counts against the 2 GB total as an owner's own upload: the files and fonts of an upload with no source (a release upload is counted by the index, with its original; fansubs have their own budget). */
 const total = (s: StoredSubtitle): number => (s.source ? 0 : s.fileSize + s.fonts.reduce((n, f) => n + f.size, 0));
+const SHA256_RE = /^[0-9a-f]{64}$/;
 const sha256 = (data: Buffer): string => createHash('sha256').update(data).digest('hex');
 
 /**
@@ -138,7 +148,7 @@ export class SubtitleStore {
   }
 
   /** Runs `fn` on an upload's meta under its lock; a returned meta is written, null leaves it alone. */
-  private edit<T>(id: string, fn: (cur: StoredSubtitle) => { next: StoredSubtitle | null; result: T }): T | null {
+  private edit<T>(id: string, fn: (cur: StoredSubtitle) => { next: StoredSubtitle | null; result: T; original?: number }): T | null {
     const dir = this.dir(id);
     if (dir === null) return null;
     const file = join(dir, 'meta.json');
@@ -152,10 +162,10 @@ export class SubtitleStore {
     try {
       const cur = this.read(dir);
       if (!cur) return null;
-      const { next, result } = fn(cur);
+      const { next, result, original } = fn(cur);
       if (next) {
         replaceAtomically(file, JSON.stringify(next));
-        this.index.set(next);
+        this.index.set(next, original);
       }
       return result;
     } finally {
@@ -187,6 +197,11 @@ export class SubtitleStore {
       else if (this.now() - s.uploadedAt > STALE_UPLOAD_MS) this.delete(s.id);
     }
     return out;
+  }
+
+  /** Every release upload, those whose file hasn't landed yet included (`list` leaves them out). */
+  releases(): StoredSubtitle[] {
+    return this.index.values().filter(isRelease);
   }
 
   /** Changes the named fields and saves; null when the upload does not exist. */
@@ -227,7 +242,7 @@ export class SubtitleStore {
     let oldFiles = 0;
     for (const id of new Set(oldIds)) {
       const s = this.index.get(id);
-      if (!s?.source) continue;
+      if (!s || !isFansub(s)) continue;
       oldFiles += s.fileSize + this.index.originalSize(id);
       for (const f of s.fonts) {
         if (!f.hash) continue;
@@ -279,7 +294,8 @@ export class SubtitleStore {
       writeFileSync(join(dir, 'sub', file.name), file.data, { mode: 0o600 });
       writeFileSync(join(dir, 'original', file.name), file.original, { mode: 0o600 });
       mkdirSync(join(this.root(), '.fonts'), { recursive: true });
-      for (const [hash, data] of fresh) {
+      // every font whose pool file is missing, even one the index lists (a release can declare a font it never sent)
+      for (const { hash, data } of entries) {
         const dest = this.poolFile(hash);
         if (existsSync(dest)) continue;
         const temp = `${dest}.tmp-${randomBytes(6).toString('hex')}`;
@@ -302,7 +318,7 @@ export class SubtitleStore {
   /** Rewrites a fansub's aligned file (a re-alignment) and its source; the original stays. */
   replaceFile(id: string, data: Buffer, source: FansubSource): StoredSubtitle | null {
     return this.edit(id, (cur) => {
-      if (!cur.source || data.length === 0) return { next: null, result: null };
+      if (!isFansub(cur) || data.length === 0) return { next: null, result: null };
       const dest = join(this.root(), id, 'sub', cur.fileName);
       const temp = `${dest}.tmp-${randomBytes(6).toString('hex')}`;
       writeSynced(temp, data);
@@ -312,7 +328,120 @@ export class SubtitleStore {
     });
   }
 
-  /** The path of a fansub's unaligned original file, or null when there is none. */
+  /**
+   * Makes a release upload (a track pulled from a picked MKV) with no file yet, its fonts declared by name, SHA-256
+   * and size. Answers the names of the fonts the pool doesn't hold, which the client then uploads. The fonts that
+   * are new together stay under 50 MiB (those the pool holds cost nothing): past it the track keeps the fonts that
+   * fit, in order, and is marked `fontsMissing`, as it is when `opts.fontsMissing` says the client dropped some.
+   */
+  createRelease(
+    meta: SubtitleMeta, release: Omit<ReleaseSource, 'kind' | 'alignment' | 'linedUpOn'>,
+    fonts: readonly { name: string; sha256: string; size: number }[],
+    opts: { readonly fontsMissing?: boolean } = {},
+  ): { stored: StoredSubtitle; needFonts: string[] } {
+    const names = new Set<string>();
+    for (const f of fonts) {
+      checkName(f.name, FONT_EXT);
+      if (names.has(f.name) || !SHA256_RE.test(f.sha256) || !Number.isInteger(f.size) || f.size <= 0) throw new BadNameError();
+      names.add(f.name);
+    }
+    const pooled = this.index.pooled();
+    const fresh = new Set<string>();
+    const kept: { name: string; sha256: string; size: number }[] = [];
+    let add = 0;
+    for (const f of fonts) {
+      if (pooled.has(f.sha256) || fresh.has(f.sha256)) {
+        kept.push(f);
+        continue;
+      }
+      if (add + f.size > FONTS_LIMIT_BYTES) continue;
+      add += f.size;
+      fresh.add(f.sha256);
+      kept.push(f);
+    }
+    const missing = opts.fontsMissing === true || kept.length < fonts.length;
+    const id = randomBytes(8).toString('hex');
+    const stored: StoredSubtitle = {
+      ...meta, id, fileName: '', fileSize: 0, uploadedAt: this.now(),
+      fonts: kept.map((f) => ({ name: f.name, size: f.size, hash: f.sha256 })),
+      source: { ...release, kind: 'release', alignment: null, linedUpOn: null },
+      ...(missing ? { fontsMissing: true } : {}),
+    };
+    const dir = join(this.root(), id);
+    mkdirSync(dir, { recursive: true });
+    replaceAtomically(join(dir, 'meta.json'), JSON.stringify(stored));
+    this.index.set(stored);
+    return { stored, needFonts: kept.filter((f) => !existsSync(this.poolFile(f.sha256))).map((f) => f.name) };
+  }
+
+  /** Stores a release upload's file as `sub/` and as the unaligned `original/`, both counting toward the 2 GB; replaces an earlier one, and the upload waits to be lined up again. */
+  async putReleaseFile(id: string, fileName: string, body: AsyncIterable<Buffer>): Promise<StoredSubtitle> {
+    checkName(fileName, SUBTITLE_EXT);
+    const s = this.get(id);
+    if (!s || !isRelease(s)) throw new NotFoundError();
+    const used = this.index.ownerBytes() - s.fileSize - this.index.originalSize(id);
+    const { temp, size } = await this.stream(id, body, Math.min(SUBTITLE_LIMIT_BYTES, Math.floor((this.maxTotal - used) / 2)));
+    try {
+      if (size === 0) throw new EmptyBodyError();
+      const result = this.edit(id, (cur) => {
+        if (!isRelease(cur)) return { next: null, result: null };
+        if (this.index.ownerBytes() - cur.fileSize - this.index.originalSize(id) + 2 * size > this.maxTotal) throw new TooLargeError();
+        for (const sub of ['sub', 'original']) mkdirSync(join(this.root(), id, sub), { recursive: true });
+        copyFileSync(temp, join(this.root(), id, 'original', fileName));
+        renameSync(temp, join(this.root(), id, 'sub', fileName));
+        if (cur.fileName && cur.fileName !== fileName) for (const sub of ['sub', 'original']) rmSync(join(this.root(), id, sub, cur.fileName), { force: true });
+        // a new file waits to be lined up again, hidden from guests meanwhile
+        const next: StoredSubtitle = { ...cur, fileName, fileSize: size, source: { ...cur.source, alignment: null, linedUpOn: null } };
+        return { next, result: next, original: size };
+      });
+      if (!result) throw new NotFoundError();
+      syncDir(join(this.root(), id, 'sub'));
+      syncDir(join(this.root(), id, 'original'));
+      return result;
+    } catch (err) {
+      rmSync(temp, { force: true });
+      throw err;
+    }
+  }
+
+  /** Stores one of a release upload's declared fonts in the pool, once its bytes match the declared SHA-256 and size (else `BadFontError`, nothing kept). */
+  async putReleaseFont(id: string, fontName: string, body: AsyncIterable<Buffer>): Promise<StoredSubtitle> {
+    checkName(fontName, FONT_EXT);
+    const s = this.get(id);
+    if (!s || !isRelease(s)) throw new NotFoundError();
+    const font = s.fonts.find((f) => f.name === fontName);
+    if (!font?.hash) throw new BadNameError();
+    const { temp, size } = await this.stream(id, body, font.size);
+    try {
+      if (size !== font.size || createHash('sha256').update(await readFile(temp)).digest('hex') !== font.hash) throw new BadFontError();
+      mkdirSync(join(this.root(), '.fonts'), { recursive: true });
+      const dest = this.poolFile(font.hash);
+      if (existsSync(dest)) rmSync(temp, { force: true });
+      else renameSync(temp, dest);
+      syncDir(join(this.root(), '.fonts'));
+    } catch (err) {
+      rmSync(temp, { force: true });
+      throw err;
+    }
+    const now = this.get(id);
+    if (!now) throw new NotFoundError();
+    return now;
+  }
+
+  /** Rewrites a release upload's aligned `sub/` file (the original stays) and records how it was lined up and on what; null when it isn't a release upload. */
+  setReleaseAlignment(id: string, data: Buffer, alignment: FansubAlignment, linedUpOn: { discKey: string; playlistId: string }): StoredSubtitle | null {
+    return this.edit(id, (cur) => {
+      if (!isRelease(cur) || data.length === 0 || !cur.fileName) return { next: null, result: null };
+      const dest = join(this.root(), id, 'sub', cur.fileName);
+      const temp = `${dest}.tmp-${randomBytes(6).toString('hex')}`;
+      writeSynced(temp, data);
+      renameSync(temp, dest);
+      const next: StoredSubtitle = { ...cur, fileSize: data.length, source: { ...cur.source, alignment, linedUpOn } };
+      return { next, result: next };
+    });
+  }
+
+  /** The path of a fansub's (or release upload's) unaligned original file, or null when there is none. */
   originalPath(id: string): string | null {
     const s = this.get(id);
     return s?.source && s.fileSize > 0 ? join(this.root(), id, 'original', s.fileName) : null;

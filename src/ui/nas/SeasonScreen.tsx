@@ -120,6 +120,8 @@ interface SeasonScreenProps {
   readonly season: SeasonDetail;
   /** The title's seasons' ids: an episode upload naming none of them is listed to owners as not attached. */
   readonly seasonIds: readonly string[];
+  /** The episodes in the seasons ahead of this one (`seasonBefore`), for a release's running numbers. */
+  readonly seasonsBefore?: number;
   readonly onBack: () => void;
   readonly onOpen: OpenDisc;
   /** For owners: "File differently…" on the discs, and uploading and managing subtitles. */
@@ -130,7 +132,7 @@ type Tab = 'episodes' | 'discs';
 const TABS: readonly Tab[] = ['episodes', 'discs'];
 
 /** A season: Episodes and Discs tabs, or the discs alone when its episodes aren't known. */
-export function SeasonScreen({ nas, titleId, seriesName, heading, season, seasonIds, onBack, onOpen, owner }: SeasonScreenProps): ReactElement {
+export function SeasonScreen({ nas, titleId, seriesName, heading, season, seasonIds, seasonsBefore, onBack, onOpen, owner }: SeasonScreenProps): ReactElement {
   const episodes = season.episodes;
   /** Places by disc id and playlist id; null until known (or when the NAS has none to give). */
   const [progress, setProgress] = useState<Readonly<Record<string, Readonly<Record<string, PlaylistProgress>>>> | null>(null);
@@ -218,6 +220,8 @@ export function SeasonScreen({ nas, titleId, seriesName, heading, season, season
             }}
             onCancel={() => setAdding(false)}
             onBusy={setUploading}
+            onUploaded={reload}
+            seasonsBefore={seasonsBefore}
           />
         </div>
       )}

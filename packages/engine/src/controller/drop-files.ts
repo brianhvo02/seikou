@@ -2,8 +2,8 @@ import { walkEntries, type EntryLike } from './entry-walk';
 
 /** Subtitle and font files from a pick or a drop (folders walked one level of subfolders deep). */
 
-/** Lower-case subtitle file extensions recognised in a pick. */
-export const SUBTITLE_EXTENSIONS: readonly string[] = ['.srt', '.ass', '.ssa'];
+/** Lower-case subtitle source extensions recognised in a pick (an .mkv is read for its text tracks before it is loaded). */
+export const SUBTITLE_EXTENSIONS: readonly string[] = ['.srt', '.ass', '.ssa', '.mkv'];
 /** Lower-case font file extensions recognised in a pick (not `.woff2`). */
 export const FONT_EXTENSIONS: readonly string[] = ['.ttf', '.otf', '.ttc', '.woff'];
 
@@ -20,11 +20,12 @@ export function splitPick(files: readonly File[]): { readonly subtitles: readonl
 /**
  * The subtitle files of a pick as `loadSubtitleFiles` takes them: those named as subtitles, or every file when nothing
  * is named as a subtitle or a font (the engine detects SRT or ASS by content). Empty for fonts alone, which don't
- * replace the text set.
+ * replace the text set. An `.mkv` is never among them: the host reads its text tracks first (`mkv-extract`) and
+ * passes those, so one that reaches here is left out rather than read whole as text.
  */
 export function pickedSubtitles(files: readonly File[]): readonly File[] {
   const { subtitles, fonts } = splitPick(files);
-  return subtitles.length || fonts.length ? subtitles : files;
+  return subtitles.length || fonts.length ? subtitles.filter((f) => !hasExtension(f, ['.mkv'])) : files;
 }
 
 /** The files of a drop: plain files, and the files of dropped folders and of their subfolders (one level). */

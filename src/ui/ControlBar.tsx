@@ -11,6 +11,7 @@ import { ShaderMenu } from './ShaderMenu';
 import { VideoOutputMenu } from './VideoOutputMenu';
 import { deinterlaceSetting, videoOutputSetting } from './video-output';
 import type { ShaderModel, ShaderModelState } from './shader-model';
+import type { MkvListedTrack } from './mkv-pick';
 import { SubtitleMenu, type StoredSubtitles } from './SubtitleMenu';
 import type { ToshoSearch } from './ToshoSearch';
 import { formatTime } from './format';
@@ -129,6 +130,11 @@ interface ControlBarProps {
   onMenuOpenChange(open: boolean): void;
   /** Subtitle files or fonts the user picked, as they go to the controller (the player keeps them for a resume). */
   onSubtitleFiles?(files: readonly File[]): void;
+  /** Takes a pick of subtitle files in place of `controller.loadSubtitleFiles` (it expands MKVs first, then loads and remembers). */
+  onPickSubtitleFiles?(files: readonly File[]): void;
+  /** The other text tracks of the MKVs picked on this disc, and the pick of one. */
+  readonly mkvTracks?: readonly MkvListedTrack[];
+  onPickMkvTrack?(t: MkvListedTrack): void;
   /** A NAS disc's stored subtitles for the playing playlist, for the Subtitles menu; absent for other discs. */
   readonly storedSubtitles?: StoredSubtitles | null;
   /** A NAS disc's Anime Tosho search, in the Subtitles menu. */
@@ -152,7 +158,7 @@ interface ControlBarProps {
  * tooltip. `visible` false hides the bar with a CSS class and keeps it mounted. Everything is driven by `snapshot` and
  * the `controller`'s commands.
  */
-export function ControlBar({ controller, snapshot, shaderModel, shaderState, visible, onOpenPlaylists, onFullscreen, onMenuKey, remoteOpen, onToggleRemote, onMenuOpenChange, onSubtitleFiles, storedSubtitles = null, toshoSearch = null, quality = null, encode = null, onPreferences }: ControlBarProps): ReactElement {
+export function ControlBar({ controller, snapshot, shaderModel, shaderState, visible, onOpenPlaylists, onFullscreen, onMenuKey, remoteOpen, onToggleRemote, onMenuOpenChange, onSubtitleFiles, onPickSubtitleFiles, mkvTracks = [], onPickMkvTrack, storedSubtitles = null, toshoSearch = null, quality = null, encode = null, onPreferences }: ControlBarProps): ReactElement {
   const videoOutput = useSyncExternalStore(videoOutputSetting().subscribe, videoOutputSetting().get);
   const deinterlace = useSyncExternalStore(deinterlaceSetting().subscribe, deinterlaceSetting().get);
   const playing = snapshot.engineState === 'playing' || snapshot.engineState === 'buffering';
@@ -220,7 +226,10 @@ export function ControlBar({ controller, snapshot, shaderModel, shaderState, vis
           stored={storedSubtitles}
           search={toshoSearch}
           onSelect={(choice) => controller.selectSubtitle(choice)}
+          mkvTracks={mkvTracks}
+          onPickMkvTrack={(t) => onPickMkvTrack?.(t)}
           onLoadFiles={(files) => {
+            if (onPickSubtitleFiles) return onPickSubtitleFiles(files);
             void controller.loadSubtitleFiles(files);
             onSubtitleFiles?.(files);
           }}

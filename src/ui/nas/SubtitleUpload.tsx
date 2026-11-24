@@ -1,7 +1,8 @@
-import { useEffect, useId, useRef, useState, type FormEvent, type ReactElement } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactElement } from 'react';
 import type { DiscManifest, StoredSubtitle, SubtitleFor } from '@seikou/nas/nas-api';
 import { formatTime } from '../format';
 import type { NasClient } from './nas-client';
+import { ReleaseUpload } from './ReleaseUpload';
 import { LANGUAGES, editPatch, offsetFrom, playlistChoices, subtitleErrorMessage, uploadSubtitle, validateUpload, type PlaylistChoice, type SubtitleTarget } from './subtitle-model';
 
 /** A disc's manifest, fetched once per screen. */
@@ -50,6 +51,10 @@ interface SubtitleUploadProps {
   readonly onCancel: () => void;
   /** Told when a write starts and when it ends (the screen keeps the sheet open meanwhile). */
   readonly onBusy?: (busy: boolean) => void;
+  /** Told when release tracks were stored, so the screen can reload its list (the sheet stays open to say what happens next). */
+  readonly onUploaded?: () => void;
+  /** The episodes in the seasons ahead of this one, to map a release's running numbers onto it. */
+  readonly seasonsBefore?: number;
 }
 
 /**
@@ -57,7 +62,7 @@ interface SubtitleUploadProps {
  * season, or a disc, playlist and chapter), a language, a name and a default offset. With `editing`, the same form
  * changes an upload's name, language, offset and attachment.
  */
-export function SubtitleUpload({ nas, target, manifestOf, editing, discIdOfKey = () => null, onDone, onCancel, onBusy }: SubtitleUploadProps): ReactElement {
+export function SubtitleUpload({ nas, target, manifestOf, editing, discIdOfKey = () => null, onDone, onCancel, onBusy, onUploaded, seasonsBefore = 0 }: SubtitleUploadProps): ReactElement {
   const ids = useId();
   const [initial] = useState(() => prefillOf(editing, target, discIdOfKey));
   const [files, setFiles] = useState<File[]>([]);
@@ -96,6 +101,7 @@ export function SubtitleUpload({ nas, target, manifestOf, editing, discIdOfKey =
 
   const loaded = playlists !== null && playlists.discId === discId && 'choices' in playlists ? playlists.choices : null;
   const playlist = loaded?.find((p) => p.id === playlistId) ?? null;
+  const mkvs = useMemo(() => files.filter((f) => /\.mkv$/i.test(f.name)), [files]);
   const subtitleName = files.find((f) => /\.(?:srt|ass|ssa)$/i.test(f.name))?.name;
 
   const forOf = (): SubtitleFor | string => {
@@ -150,15 +156,45 @@ export function SubtitleUpload({ nas, target, manifestOf, editing, discIdOfKey =
   };
 
   const field = (id: string): string => `${ids}-${id}`;
+  if (!editing && mkvs.length > 0) {
+    const season = target.season;
+    // A movie's release goes to its main playlist, as Find fansubs attaches a movie's.
+    const targetOf = async (episode: number): Promise<SubtitleFor> => {
+      if (season) return { kind: 'episode', titleId: target.titleId, seasonId: season.id, episode };
+      const disc = target.discs[0];
+      if (!disc) throw new Error('This title has no disc to attach the subtitles to.');
+      const choice = playlistChoices(await manifestOf(disc.discId))[0];
+      if (!choice) throw new Error('This disc has no playlist of a minute or more.');
+      return { kind: 'chapter', discId: disc.discId, playlistId: choice.id, chapter: 0, titleId: target.titleId };
+    };
+    return (
+      <div className="subtitle-upload" data-testid="subtitle-upload" aria-label="Upload subtitles from releases">
+        <ReleaseUpload
+          nas={nas}
+          files={mkvs}
+          season={{ seasonId: season?.id ?? '', titleId: target.titleId, count: season?.episodes.length ?? 1, before: seasonsBefore }}
+          episodes={season?.episodes ?? []}
+          targetOf={targetOf}
+          onBusy={onBusy}
+          onDone={() => onUploaded?.()}
+        />
+        <div className="owner-buttons">
+          <button type="button" onClick={onCancel}>
+            Close
+          </button>
+        </div>
+      </div>
+    );
+  }
   return (
     <form className="owner-form subtitle-upload" data-testid="subtitle-upload" aria-label={editing ? `Edit ${editing.name}` : 'Upload subtitles'} onSubmit={(e) => void submit(e)}>
       {!editing && (
         <label className="owner-field">
-          Subtitle file and its fonts
+          Subtitle file and its fonts, or release MKVs
           <input
             type="file"
             multiple
-            accept=".srt,.ass,.ssa,.ttf,.otf,.ttc,.woff"
+            accept=".srt,.ass,.ssa,.ttf,.otf,.ttc,.woff,.mkv"
             data-testid="subtitle-upload-files"
             disabled={busy}
             onChange={(e) => {

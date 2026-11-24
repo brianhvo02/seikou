@@ -1,3 +1,4 @@
+import { seasonBefore } from './release-model';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import type { SeasonDetail, TitleDetail, TitleKind, TitleSummary } from '@seikou/nas/nas-api';
 import { DynamicRangeBadge } from './DynamicRangeBadge';
@@ -557,7 +558,7 @@ export function TitleLibrary({ nas, controller, history, playingRoute, places, o
     const season = seasonKey === 'extras' ? extrasSeason(detail) : detail.seasons.find((s) => seasonKey !== null && openId !== null && s.id === seasonIdOf(openId, seasonKey));
     if (season) {
       return (
-        <SeasonScreen nas={nas} titleId={detail.title.id} seriesName={displayName(detail.title)} heading={seasonLabel(season)} season={season} seasonIds={seasonIdsOf(detail)} onBack={closeSeason} onOpen={openDisc} owner={filing} />
+        <SeasonScreen nas={nas} titleId={detail.title.id} seriesName={displayName(detail.title)} heading={seasonLabel(season)} season={season} seasonIds={seasonIdsOf(detail)} seasonsBefore={seasonBefore(detail.seasons, season.id)} onBack={closeSeason} onOpen={openDisc} owner={filing} />
       );
     }
     return <SeriesScreen nas={nas} detail={detail} onBack={back} onSeason={openSeason} onExtras={() => openSeason('extras')} onTitle={openTitle} onOpen={openDisc} owner={filing} />;

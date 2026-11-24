@@ -1,14 +1,16 @@
+import { isRelease } from '@seikou/nas/nas-api';
 import type { StoredSubtitle } from '@seikou/nas/nas-api';
 
 /**
  * The subtitle store's metas in memory, so a listing or a budget check never walks the disk: each upload by id,
  * the pooled fonts with how many fansubs use each, and running byte totals (owner uploads against their 2 GB,
- * fansubs' files, originals and pooled fonts against theirs). Loaded once from `meta.json`s; the store keeps
+ * fansubs' files, originals and pooled fonts against theirs; a release upload's file and original count with the
+ * owner's). Loaded once from `meta.json`s; the store keeps
  * it current on every write.
  */
 export class SubtitleIndex {
   private readonly byId = new Map<string, { s: StoredSubtitle; original: number }>();
-  private readonly pool = new Map<string, { size: number; refs: number }>();
+  private readonly pool = new Map<string, { size: number; refs: number; fansubRefs: number }>();
   private owner = 0;
   private fansubFiles = 0;
   private poolBytes = 0;
@@ -66,19 +68,27 @@ export class SubtitleIndex {
       this.owner += sign * (s.fileSize + s.fonts.reduce((n, f) => n + f.size, 0));
       return;
     }
-    this.fansubFiles += sign * (s.fileSize + original);
+    // A release upload counts with the owner's (file and original); its fonts are pooled and cost the owner nothing more.
+    const release = isRelease(s);
+    if (release) this.owner += sign * (s.fileSize + original);
+    else this.fansubFiles += sign * (s.fileSize + original);
     for (const f of s.fonts) {
       if (!f.hash) continue;
       const cur = this.pool.get(f.hash);
+      const fansub = release ? 0 : 1;
       if (sign > 0) {
-        if (cur) cur.refs++;
-        else {
-          this.pool.set(f.hash, { size: f.size, refs: 1 });
-          this.poolBytes += f.size;
+        if (cur) {
+          cur.refs++;
+          cur.fansubRefs += fansub;
+          if (fansub && cur.fansubRefs === 1) this.poolBytes += cur.size;
+        } else {
+          this.pool.set(f.hash, { size: f.size, refs: 1, fansubRefs: fansub });
+          if (fansub) this.poolBytes += f.size;
         }
-      } else if (cur && --cur.refs <= 0) {
-        this.pool.delete(f.hash);
-        this.poolBytes -= cur.size;
+      } else if (cur) {
+        cur.fansubRefs -= fansub;
+        if (fansub && cur.fansubRefs === 0) this.poolBytes -= cur.size;
+        if (--cur.refs <= 0) this.pool.delete(f.hash);
       }
     }
   }

@@ -871,7 +871,7 @@ describe('subtitles', () => {
     const worker = new FakeWorker();
     const c = new PlayerController(worker, new FakeAudio());
     let read = false;
-    const huge = { name: 'movie.mkv', size: 4 * 1024 ** 3, arrayBuffer: async () => { read = true; return new ArrayBuffer(0); } } as unknown as File;
+    const huge = { name: 'movie.mp4', size: 4 * 1024 ** 3, arrayBuffer: async () => { read = true; return new ArrayBuffer(0); } } as unknown as File;
     await c.loadSubtitleFile(huge);
     expect(read).toBe(false);
     expect(worker.posted).toEqual([]);

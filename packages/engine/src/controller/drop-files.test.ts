@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { collectDroppedFiles, splitPick } from './drop-files';
+import { collectDroppedFiles, pickedSubtitles, splitPick } from './drop-files';
 
 const f = (name: string) => new File(['x'], name);
 
@@ -36,5 +36,23 @@ describe('collectDroppedFiles', () => {
     const broken = { isFile: true, isDirectory: false, name: 'a.srt', file: (_ok: unknown, fail: (err: unknown) => void) => fail(new Error('NotFoundError')) };
     const list = { length: 1, 0: { kind: 'file', webkitGetAsEntry: () => broken, getAsFile: () => f('a.srt') } } as unknown as DataTransferItemList;
     expect((await collectDroppedFiles(list)).map((x) => x.name)).toEqual(['a.srt']);
+  });
+});
+
+describe('splitPick with an MKV', () => {
+  it('splitPick counts .mkv as a subtitle source', () => {
+    const out = splitPick([f('Show 01.MKV'), f('x.ttf')]);
+    expect(out.subtitles.map((x) => x.name)).toEqual(['Show 01.MKV']);
+    expect(out.fonts.map((x) => x.name)).toEqual(['x.ttf']);
+  });
+});
+
+describe('pickedSubtitles', () => {
+  it('never hands on an .mkv, which the app expands first, so one is not read as text', () => {
+    expect(pickedSubtitles([f('Show 01.mkv'), f('a.ass'), f('x.ttf')]).map((x) => x.name)).toEqual(['a.ass']);
+    expect(pickedSubtitles([f('Show 01.MKV')])).toEqual([]);
+    expect(pickedSubtitles([f('Show 01.mkv'), f('x.ttf')])).toEqual([]);
+    // nothing named: every file, for the engine to detect
+    expect(pickedSubtitles([f('subs'), f('more')]).map((x) => x.name)).toEqual(['subs', 'more']);
   });
 });

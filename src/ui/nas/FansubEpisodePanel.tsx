@@ -52,7 +52,7 @@ export function FansubEpisodePanel({ nas, target, manifestOf, tracks, mark, onCh
           <div key={s.id} className="fansub-track" data-testid="fansub-track" data-id={s.id}>
             <div className="fansub-track-main">
               <span className="fansub-chip" title={s.name}>{trackChip(s)}</span>
-              <span className="title-muted">{[s.source?.group, languageTag(s.language), offset].filter((x) => x).join(' · ')}</span>
+              <span className="title-muted">{[s.source?.kind === 'release' ? (s.source.group ?? 'Release') : s.source?.group, languageTag(s.language), offset].filter((x) => x).join(' · ')}</span>
               {m && <span className="fansub-mark" data-tone={m.tone}>{m.text}</span>}
             </div>
             <span className="admin-confirm">

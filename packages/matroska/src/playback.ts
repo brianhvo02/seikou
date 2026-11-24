@@ -74,15 +74,25 @@ export interface MatroskaFile {
   blocksFrom(timeMs: number, signal?: AbortSignal): AsyncIterable<MkvBlock>;
 }
 
-interface Cue {
+/**
+ * One CueTrackPositions on the Segment's timeline.
+ * @internal
+ */
+export interface Cue {
   timeMs: number;
   track: number;
   /** Absolute offset of the cluster's header. */
   clusterPos: number;
   durationMs: number | undefined;
+  /** CueRelativePosition: the block's offset from the first byte of the cluster's data, when the cue has one. */
+  relativePos: number | undefined;
 }
 
-interface ClusterRef {
+/**
+ * Where one cluster is.
+ * @internal
+ */
+export interface ClusterRef {
   /** Absolute offset of the cluster's id. */
   pos: number;
   /** Offset of the cluster's data. */
@@ -96,14 +106,18 @@ const SEEK_TARGETS = new Set<number>([Id.Info, Id.Tracks, Id.Attachments, Id.Cha
 /** Top-level elements looked at for a SeekHead before giving up and scanning. */
 const SEEK_HEAD_SEARCH = 8;
 
-interface Scan {
+/** @internal */
+export interface Scan {
   /** Absolute offset of the first element with each id in `SEEK_TARGETS`. */
   found: Map<number, number>;
   clusters: ClusterRef[];
 }
 
-/** Visits every top-level element header, noting where the elements of interest and the clusters are. */
-async function scanTopLevel(segStart: number, segEnd: number, headerAt: HeaderAt, signal?: AbortSignal): Promise<Scan> {
+/**
+ * Visits every top-level element header, noting where the elements of interest and the clusters are.
+ * @internal
+ */
+export async function scanTopLevel(segStart: number, segEnd: number, headerAt: HeaderAt, signal?: AbortSignal): Promise<Scan> {
   const found = new Map<number, number>();
   const clusters: ClusterRef[] = [];
   for (let pos = segStart; pos < segEnd; ) {
@@ -221,7 +235,9 @@ function cuesOf(node: EbmlNode | undefined, segStart: number, scale: number): Cu
       const cluster = uintChild(pos, Id.CueClusterPosition);
       if (track === undefined || cluster === undefined) continue;
       const duration = uintChild(pos, Id.CueDuration);
+      const relative = uintChild(pos, Id.CueRelativePosition);
       out.push({
+        relativePos: relative === undefined ? undefined : Number(relative),
         timeMs: (Number(time) * scale) / 1e6,
         track: Number(track),
         clusterPos: segStart + Number(cluster),
@@ -280,9 +296,32 @@ export async function openMatroska(reader: RangeReader, signal?: AbortSignal): P
   }
 }
 
-async function open(reader: RangeReader, signal?: AbortSignal): Promise<MatroskaFile> {
-  const { segStart, segEnd, headerAt } = await locateSegment(reader, signal);
+/**
+ * What opening reads of a file: the Segment's place, Info's scale, the tracks, the Cues and, when
+ * the SeekHead was not usable, the clusters found by the scan.
+ * @internal
+ */
+export interface Structure {
+  segStart: number;
+  segEnd: number;
+  headerAt: HeaderAt;
+  scale: number;
+  tracksEl: EbmlNode;
+  tracks: MkvTrack[];
+  info: EbmlNode;
+  /** The clusters when the file was scanned, else null. */
+  clusters: ClusterRef[] | null;
+  positions: Map<number, number>;
+  cues: Cue[];
+}
 
+/**
+ * Reads the structure of the file with no Cluster read (as `openMatroska` does) but leaves
+ * Attachments, Chapters and Tags unread.
+ * @internal
+ */
+export async function readStructure(reader: RangeReader, signal?: AbortSignal): Promise<Structure> {
+  const { segStart, segEnd, headerAt } = await locateSegment(reader, signal);
   let positions = await readSeekHead(reader, segStart, segEnd, headerAt, signal);
   let clusters: ClusterRef[] | null = null;
   if (positions !== null) {
@@ -295,7 +334,6 @@ async function open(reader: RangeReader, signal?: AbortSignal): Promise<Matroska
     positions = scan.found;
     clusters = scan.clusters;
   }
-
   const infoPos = positions.get(Id.Info);
   const tracksPos = positions.get(Id.Tracks);
   if (infoPos === undefined || tracksPos === undefined) throw new MkvReadError(`the file has no ${infoPos === undefined ? 'Info' : 'Tracks'} element`);
@@ -303,15 +341,23 @@ async function open(reader: RangeReader, signal?: AbortSignal): Promise<Matroska
   const tracksEl = await readMaster(reader, headerAt, tracksPos, signal);
   const scale = Number(uintChild(info, Id.TimestampScale) ?? 1_000_000n);
   const tracks = (tracksEl.children ?? []).filter((n) => n.id === Id.TrackEntry).map(trackOf);
-  const at = (id: number): number | undefined => positions!.get(id);
+  const cuesPos = positions.get(Id.Cues);
+  const cues = cuesPos === undefined ? [] : cuesOf(await readMaster(reader, headerAt, cuesPos, signal), segStart, scale);
+  return { segStart, segEnd, headerAt, scale, tracksEl, tracks, info, clusters, positions, cues };
+}
+
+async function open(reader: RangeReader, signal?: AbortSignal): Promise<MatroskaFile> {
+  const structure = await readStructure(reader, signal);
+  const { segEnd, headerAt, scale, tracks, info, positions, cues } = structure;
+  const segStart = structure.segStart;
+  let clusters = structure.clusters;
+  const at = (id: number): number | undefined => positions.get(id);
   const chaptersPos = at(Id.Chapters);
   const tagsPos = at(Id.Tags);
-  const cuesPos = at(Id.Cues);
   const attachmentsPos = at(Id.Attachments);
   const attachments = attachmentsPos === undefined ? [] : await readAttachments(reader, headerAt, attachmentsPos, signal);
   const chapters = chaptersPos === undefined ? [] : chaptersOf(await readMaster(reader, headerAt, chaptersPos, signal));
   const tags = tagsPos === undefined ? {} : tagsOf(await readMaster(reader, headerAt, tagsPos, signal));
-  const cues = cuesPos === undefined ? [] : cuesOf(await readMaster(reader, headerAt, cuesPos, signal), segStart, scale);
 
   const video = tracks.find((t) => t.type === 1)?.number;
   const subtitleTracks = new Set(tracks.filter((t) => t.type === 17).map((t) => t.number));

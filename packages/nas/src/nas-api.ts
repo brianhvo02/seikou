@@ -452,6 +452,19 @@ export interface SubtitleCreate {
   readonly offsetMs?: number;
   /** What the subtitle is for. */
   readonly for: SubtitleFor;
+  /** Set for a track pulled from a release's MKV: what the file says about it. */
+  readonly release?: Omit<ReleaseSource, 'kind' | 'alignment' | 'linedUpOn'>;
+  /** The fonts the upload will bring, by name, SHA-256 and size, so the NAS can say which its pool lacks. */
+  readonly fonts?: readonly { readonly name: string; readonly sha256: string; readonly size: number }[];
+  /** With `release`: the client left out some of the file's fonts (names the store can't take), so the upload is marked missing fonts. */
+  readonly fontsMissing?: true;
+}
+/**
+ * The answer to `POST /api/subtitles` for a release upload: the fonts of the request the NAS's pool doesn't hold.
+ * @internal
+ */
+export interface SubtitleCreateRelease {
+  readonly needFonts: readonly string[];
 }
 /**
  * The body of `PATCH /api/subtitles/<id>`: any of these.
@@ -478,8 +491,8 @@ export interface StoredSubtitle {
   readonly attached?: boolean;
   /** Set by the route for owners: a fansub lined up on a disc or playlist the episode no longer resolves to. */
   readonly stale?: boolean;
-  /** Where a fansub came from; absent for an owner upload. */
-  readonly source?: FansubSource;
+  /** Where a fansub or a release track came from; absent for a plain owner upload. */
+  readonly source?: FansubSource | ReleaseSource;
   /** A fansub whose script names fonts its archive didn't carry. */
   readonly fontsMissing?: boolean;
   /** Set only by the picks route: a viewer's own Anime Tosho pick, served from `fansubs/picks/<id>/`, not the store. */
@@ -595,6 +608,32 @@ export interface FansubSource {
   readonly alignment: FansubAlignment;
   /** The disc and playlist the timing was worked out against. */
   readonly linedUpOn: { readonly discKey: string; readonly playlistId: string };
+}
+
+/** A subtitle track an owner pulled from a release's MKV, and the disc and playlist it was lined up on. */
+export interface ReleaseSource {
+  readonly kind: 'release';
+  /** The release group, when the file name gives one. */
+  readonly group: string | null;
+  /** The MKV's name and size in bytes, and the track's number and name in it. */
+  readonly fileName: string;
+  readonly fileSize: number;
+  readonly track: number;
+  readonly trackName: string;
+  /** How the timing was lined up; null while the upload waits to be. */
+  readonly alignment: FansubAlignment | null;
+  /** The disc and playlist the timing was worked out against; null while waiting. */
+  readonly linedUpOn: { readonly discKey: string; readonly playlistId: string } | null;
+}
+
+/** True for a stored subtitle that came from a release's MKV. */
+export function isRelease(s: StoredSubtitle): s is StoredSubtitle & { source: ReleaseSource } {
+  return s.source?.kind === 'release';
+}
+
+/** True for a stored subtitle that came from Anime Tosho. */
+export function isFansub(s: StoredSubtitle): s is StoredSubtitle & { source: FansubSource } {
+  return s.source?.kind === 'fansub';
 }
 
 /**

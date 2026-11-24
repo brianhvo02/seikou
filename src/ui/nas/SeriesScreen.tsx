@@ -83,6 +83,7 @@ export function SeriesScreen({ nas, detail, onBack, onSeason, onExtras, onTitle,
             }}
             onCancel={() => setAdding(false)}
             onBusy={setUploading}
+            onUploaded={reload}
           />
         </div>
       )}

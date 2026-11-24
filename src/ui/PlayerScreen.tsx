@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type DragEvent, type MouseEvent, type PointerEvent, type ReactElement } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type DragEvent, type MouseEvent, type PointerEvent, type ReactElement } from 'react';
 import type { PlayerController, PlayerSnapshot } from '@seikou/engine/controller/player-controller';
 import { ControlBar } from './ControlBar';
 import { badgeText, pickAt } from './nas/level-model';
@@ -14,6 +14,9 @@ import type { PlayingRoute } from './nas/playing-route';
 import { RelayBadge } from './nas/RelayBadge';
 import type { ShaderModel, ShaderModelState } from './shader-model';
 import { collectDroppedFiles, splitPick } from '@seikou/engine/controller/drop-files';
+import { extractInWorker } from './mkv-extract-client';
+import { expandMkvPicks, markCurrentTrack, MkvPickCache, type MkvListedTrack } from './mkv-pick';
+import { resolveDiscPreferences } from './disc-preferences';
 import { checkCapabilities } from './capabilities';
 import { HdrBadge } from './HdrBadge';
 import { FULLSCREEN_HINT_TEXT, evaluateFullscreenHint, markFullscreenHintDismissed, safeLocalStorage, toggleFullscreen } from './fullscreen';
@@ -354,6 +357,35 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
     void controller.loadSubtitleFiles(files);
     rememberSubtitleFiles(files);
   };
+  // MKVs picked or dropped here are read once (in a worker) and their other text tracks offered in the Subtitles menu.
+  const mkvCache = useMemo(() => new MkvPickCache((file) => extractInWorker(file, () => undefined)), []);
+  const [mkvTracks, setMkvTracks] = useState<readonly MkvListedTrack[]>([]);
+  const discOpensNow = controller.discOpens;
+  useEffect(() => {
+    mkvCache.clear();
+    setMkvTracks([]);
+  }, [mkvCache, discOpensNow]);
+  /** A pick or a drop: each MKV becomes its track's file and fonts first, then the files go the way they always did. */
+  const pickSubtitleFiles = (files: readonly File[]): void => {
+    if (!files.some((f) => f.name.toLowerCase().endsWith('.mkv'))) return loadSubtitleFiles(files);
+    const language = preferences ? (resolveDiscPreferences(preferences.current(), navigator.language).pgLanguage ?? null) : null;
+    const opens = controller.discOpens;
+    expandMkvPicks(files, { subtitleLanguage: language }, mkvCache.extract).then(
+      (expanded) => {
+        if (controller.discOpens !== opens) return; // the disc changed while the file was read: the pick isn't for this one
+        for (const message of expanded.notices) controller.showNotice('mkv-subtitles', message);
+        setMkvTracks(expanded.tracks);
+        if (expanded.files.length > 0) loadSubtitleFiles(expanded.files);
+      },
+      (err: unknown) => controller.discOpens === opens && controller.showNotice('mkv-subtitles', `Couldn't read the subtitles: ${err instanceof Error ? err.message : String(err)}`),
+    );
+  };
+  const pickMkvTrack = (t: MkvListedTrack): void => {
+    const files = mkvCache.filesFor(t.source, t.track.number);
+    if (!files) return;
+    setMkvTracks((list) => markCurrentTrack(list, t.source, t.track.number));
+    loadSubtitleFiles(files);
+  };
   const rememberSubtitleFiles = (files: readonly File[]): void => {
     if (replacesTextSet(files)) {
       // a local pick replaces a stored subtitle, and one still loading (picked, or re-added for a resume)
@@ -640,7 +672,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
     // read synchronously: the item list is unusable once the event returns
     void collectDroppedFiles(e.dataTransfer.items).then((files) => {
       const { subtitles, fonts } = splitPick(files);
-      if (subtitles.length || fonts.length) loadSubtitleFiles([...subtitles, ...fonts]);
+      if (subtitles.length || fonts.length) pickSubtitleFiles([...subtitles, ...fonts]);
     });
   };
 
@@ -992,6 +1024,9 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
         onToggleRemote={() => setRemoteOpen((o) => !o)}
         onMenuOpenChange={setMenuOpen}
         onSubtitleFiles={rememberSubtitleFiles}
+        onPickSubtitleFiles={pickSubtitleFiles}
+        mkvTracks={mkvTracks}
+        onPickMkvTrack={pickMkvTrack}
         storedSubtitles={storedSubtitles}
         toshoSearch={toshoSearch}
         quality={quality}

@@ -92,6 +92,8 @@ export function requireToken(auth: Auth): Handler {
 /** Every route after health: pairing and sessions open, everything else behind a token. */
 export function appHandlers(opts: AppOptions): Handler[] {
   const { auth } = opts;
+  // a release upload's landed file is lined up with the disc by the fansub service's queue
+  const fansubService = opts.fansubs?.service;
   return [
     pairRoutes(auth, { now: opts.now ?? Date.now, trustProxy: opts.trustProxy ?? (() => false), registrar: opts.registrar, issueTicket: opts.issueTicket }),
     requireToken(auth),
@@ -99,7 +101,7 @@ export function appHandlers(opts: AppOptions): Handler[] {
     ...(opts.playbackStore ? [playbackRoutes(auth, opts.playbackStore, { titles: opts.titles, library: opts.library, encodes: opts.encodes, encodesWaitMs: opts.encodesWaitMs })] : []),
     ...(opts.playerSettingsStore ? [playerSettingsRoutes(auth, opts.playerSettingsStore)] : []),
     ...(opts.fansubs ? [fansubRoutes(auth, opts.fansubs, opts.titles)] : []),
-    ...(opts.subtitleStore ? [subtitleRoutes(auth, opts.subtitleStore, { titles: opts.titles, library: opts.library, fansubs: opts.fansubs?.service })] : []),
+    ...(opts.subtitleStore ? [subtitleRoutes(auth, opts.subtitleStore, { titles: opts.titles, library: opts.library, fansubs: fansubService, ...(fansubService ? { onReleaseFile: (id: string) => fansubService.lineUpRelease(id) } : {}) })] : []),
     adminRoutes(auth, {
       library: opts.library, bdjStore: opts.bdjStore, publicBase: opts.publicBase, appUrl: opts.appUrl, rendezvousUrl: opts.rendezvousUrl, registrar: opts.registrar, registrarDeadlineMs: opts.registrarDeadlineMs,
       titles: opts.titles, relay: opts.relay, levels: opts.levels, now: opts.now, lookupTimeoutMs: opts.lookupTimeoutMs,
