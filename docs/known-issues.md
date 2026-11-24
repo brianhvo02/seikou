@@ -216,12 +216,15 @@ what would change that decision.
   to SDR). `?hdrgain=<n>` (1 to 10) tunes it. *Revisit when* the owner has judged it by eye on the iPhone and on Windows
   with HDR on, or a web API gives the SDR white level.
 - **Where the HDR overlay route isn't taken.** It needs WebGPU in the engine worker with extended tone mapping kept
-  (`getConfiguration().toneMapping.mode`): Safari 26+ and Chrome have it; Playwright's Firefox on the Mac has no WebGPU
-  adapter, so its overlays stay SDR. A float16 2D canvas is no route: Safari ignores `colorType` (reads stay 8-bit),
+  (`getConfiguration().toneMapping.mode`). Measured to have it: Safari 27.2 on an iPhone 17 Pro, headless Chrome 158
+  and Playwright's WebKit on a Mac; Playwright's Firefox on the Mac has no WebGPU adapter, so its overlays stay SDR.
+  Other browsers and versions are unmeasured. A float16 2D canvas is no route: Safari ignores `colorType` (reads stay 8-bit),
   Chrome stores values above 1 but has no extended mode for a 2D canvas (`toneMapping` is ignored, and
   `configureHighDynamicRange` exists on neither canvas), and both reject the `rec2100-*` colour spaces (measured
-  2026-11-16 and 2026-11-24). A lost GPU device puts the overlays back on the SDR canvas for the rest of the page's life.
-  The presenter costs one copy and one draw of the overlay layer per repaint that changed something.
+  2026-11-16 and 2026-11-24). A lost GPU device puts the overlays back on the SDR canvas until one more presenter is
+  made (at the next HDR element session or when the page shows again); a second loss keeps them SDR for the page's life.
+  The presenter costs one copy and one draw of the overlay layer per repaint that changed something: under 0.1 ms on
+  the engine thread in headless Chrome, 2.5 to 3 ms in Playwright's WebKit, unmeasured on an iPhone.
 
 ## Deinterlacing
 

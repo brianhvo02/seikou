@@ -16,8 +16,9 @@ dim and grey next to the picture. BT.2408 puts graphics, subtitles included, at 
 
 ## Goals
 
-- Over HDR video on an HDR display, draw every overlay (PG, text, IG, the BD-J plane, the BD-J background still that
-  shows until the element's first frame) with its white at graphics white instead of SDR white.
+- Over HDR video on an HDR display, draw every overlay (PG, text, IG, the BD-J plane) with its white at graphics white
+  instead of SDR white. The BD-J background still that shows until the element's first frame stays SDR on the visible
+  canvas: it is a picture under the overlays, not graphics over video. *(My call, after review.)*
 - Do it from the engine worker, where the overlays are drawn today, on the browsers that can.
 - Detect the capability; anything less falls back to today's SDR drawing, and SDR playback (the canvas path, SDR
   streams on the element, an SDR display) is never changed.
@@ -102,18 +103,37 @@ the reason, for telemetry) when anything is missing:
 It configures `rgba16float`, `alphaMode: 'premultiplied'`, `colorSpace: 'srgb'`, extended tone mapping. `present`
 copies the layer into a texture (`copyExternalImageToTexture`, premultiplied) recreated when the size changes, and draws
 one full-screen triangle with the WGSL form of `scalePremultiplied` (gain in a uniform). `clear` presents a cleared
-texture. A lost device calls `onLost`, after which the engine stops using it (the overlays go back to the 2D canvas)
-and doesn't try again for the disc. *(My call: no retry after a lost device — the SDR fallback is what plays today,
-and a device lost twice is likelier than a fix.)*
+`clear` (leaving HDR overlay mode) destroys the copy and unconfigures the context, so its float16 buffers are freed until
+the next present reconfigures it. A lost device (or an uncaptured GPU error, `device.onuncapturederror`) calls
+`onLost`; a lost or disposed presenter unconfigures the context and resets the canvas's size, so the page never keeps
+showing its last overlay over the SDR one the compositor draws from then on. The engine then makes one more presenter, at
+the next HDR element session or when the page is shown again (iOS loses GPU devices when Safari goes to the
+background), and a second loss is final for the page's canvas. *(My call, after review: one rebuild, so a trip to
+the background doesn't cost the HDR overlays for the page's life, while a device that keeps failing isn't retried.)*
 
 ### Compositor
 
-`CompositorLike` gains `setHdrPresenter?(presenter, gain)` (null to stop), `startPlaylist`'s element option gains
-`hdr`, and `present?()`, which the player calls at the end of every paint that drew. The compositor is in HDR overlay
-mode while it is in element mode for an HDR stream and has a presenter. In that mode its drawing target is a 2D layer
-canvas of the visible canvas's size instead of the visible canvas (which it clears once, so nothing SDR stays over the
-video), and `present()` hands the layer to the presenter. Leaving the mode (the next playlist, the element failing over
-to the canvas path, the presenter taken away) clears the HDR canvas and draws on the visible canvas again.
+`CompositorLike` gains `setHdrPresenter?(presenter, { gain, maxPixels, place })` (null to stop), `startPlaylist`'s
+options gain `hdr`, and `present?()`, which the player calls at the end of every paint that drew. The compositor is in
+HDR overlay mode while it is in element mode for an HDR stream and has a presenter. In that mode its drawing target is
+a 2D layer covering only the overlay rectangle (the union of the 1920×1080 menu rectangle and the picture's rectangle,
+both fitted in the visible canvas), scaled down when it has more pixels than the memory profile's
+`hdrOverlayMaxPixels` (3840×2160 desktop, 1920×1080 constrained); its context is transformed so every overlay draws at
+the visible canvas's coordinates, as before. The visible canvas is cleared (it keeps only the BD-J still), `place` is
+told the rectangle as fractions of the visible canvas whenever it changes (the engine sends `hdrOverlayPlace`, and the
+controller sets the HDR canvas's `left`, `top`, `width` and `height` in percent), and `present()` hands the layer to
+the presenter. Leaving the mode (the next playlist, the element failing over to the canvas path, the presenter taken
+away) clears the presenter and draws on the visible canvas again.
+*(My call, after review: the overlay rectangle rather than the whole canvas, since every overlay is drawn inside it,
+and a cap from the memory profile. On a 2556×1179 phone canvas the layer is 2096×1179 uncapped and 1920×1080 capped:
+about 8 MB of 2D layer, 8 MB of `rgba8unorm` copy and two or more 16 MB float16 buffers, some 50 MB, against about
+75–100 MB for the whole canvas.)*
+
+Two things to check by eye: premultiplied edges, where the shader unpremultiplies with `clamp(rgb / a)` (an
+antialiased or blurred edge whose stored colour exceeds its alpha is clamped, which should not show); and a one-frame
+flicker when the mode switches (the visible canvas is cleared as the layer starts, and the HDR canvas shows the layer
+from the next present; on leaving, the HDR canvas is emptied before the visible canvas is drawn again at the next
+paint).
 
 ### Engine
 
@@ -125,7 +145,9 @@ to the canvas path, the presenter taken away) clears the HDR canvas and draws on
   WebGPU device is never opened on an SDR display or for SDR discs. It is handed to the compositor while the display
   reports HDR and taken back when it stops (an iPhone dimmed into low power, a window dragged to an SDR monitor).
 - `Telemetry.hdrOverlay`: `{ displayHdr, presenter: 'none' | 'pending' | 'webgpu' | 'unavailable' | 'lost', reason,
-  active, gain }`, null until the page attached an HDR canvas.
+  active, gain, layer, presentMs }`, null until the page attached an HDR canvas. `presentMs` is the time the engine's
+  thread spends in `present()` (last, mean, max, count): the copy and the draw are queued there, and the GPU's own work
+  is not counted.
 
 ### Page
 
@@ -134,6 +156,8 @@ does), reads `matchMedia('(dynamic-range: high)')` and sends its changes (`displ
 embedders). `PlayerScreen` renders `<canvas data-testid="hdr-overlay-canvas">` over the video canvas, never taking
 pointer events, and passes `?hdrgain=` (owner tuning). The E2E tests replace the page's `(dynamic-range: high)` query,
 as the HDR badge's tests already do, so no test flag is needed.
+*(My call, after review: `?hdrgain=` lasts for the page load and stays out of the help pages, since it is the owner's
+tuning until a default or a setting is chosen; CLAUDE.md, the known issue and the roadmap row name it.)*
 *(My call: the controller, not the app, watches `(dynamic-range: high)`, as it already asks the page's media
 capabilities for the element path: an embedder gets the right behaviour from one call.)*
 
@@ -142,7 +166,10 @@ capabilities for the element path: an embedder gets the right behaviour from one
 - SDR playback is untouched: the mode needs the element path, an HDR stream, a display reporting HDR and a working
   presenter. The visible canvas keeps its 2D context and alpha.
 - The presenter's work happens only on a repaint that drew (the player already skips frames where nothing over the
-  video changed), so a feature with no subtitle on screen costs one cleared present.
+  video changed). Animated ASS and a BD-J plane that flushes every frame upload the whole layer every paint. Measured
+  headless with `fixtures/ass/anim/anim.ass` over disc-hdr (about 89 presents in 6 s): Chrome 158 0.08 ms mean, 0.5 ms
+  max on the engine thread; Playwright WebKit 2.5–3.0 ms mean, 4–5.5 ms max (it copies synchronously), the same at a
+  1280×720 layer and at 1920×1080. Not measured on the iPhone, because the branch isn't on an origin the phone trusts.
 - No new resources across origins (`require-corp` unaffected).
 
 ## How it is tested
@@ -150,8 +177,10 @@ capabilities for the element path: an embedder gets the right behaviour from one
 - Unit: the maths on known values (PQ 0.5806 → 203, HLG 0.75 → 203, gain 2.03, encoded white 1.362, alpha and black),
   `clampGain`; the presenter's detection with fake GPUs (each failure answers null with its reason; extended kept gives
   a presenter; `present` copies, sets the gain and draws; a lost device calls back); the compositor's mode switch with
-  fake canvases (draws go to the layer, the visible canvas is cleared, `present` hands over the layer, leaving clears);
-  the player's lazy creation, display changes and fallback with a fake presenter; the controller's matchMedia wiring.
+  fake canvases (draws go to the layer of the overlay rectangle, capped, the visible canvas is cleared and keeps the
+  still, `present` hands over the layer, leaving clears); the presenter emptying its canvas on loss, dispose and clear,
+  and an uncaptured error as a loss; the player's lazy creation, display changes, fallback, one rebuild after a loss
+  (page shown again, next HDR session) and none after a second; the controller's matchMedia wiring and placement.
 - Browser (`tests/e2e/element-path.spec.ts`, with `(dynamic-range: high)` replaced): disc-hdr on the element path
   shows its PG subtitle through the HDR canvas (telemetry `hdrOverlay` presenter `webgpu`, `active`, gain 2.03, still
   so after the subtitle has been presented; `unavailable` where the browser has no adapter); on a display without HDR
@@ -164,3 +193,4 @@ capabilities for the element path: an embedder gets the right behaviour from one
 
 - The right gain per browser and platform (above), and whether the owner wants a setting.
 - Firefox: no WebGPU adapter in Playwright's Firefox on the Mac; it falls back.
+- The present time and memory on the iPhone itself.
