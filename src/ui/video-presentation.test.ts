@@ -76,7 +76,7 @@ describe('present', () => {
   });
   it('asks for one more tap when the browser refuses after the move', async () => {
     const r = await present(deps({ enter: async () => { throw new Error('NotAllowedError: The request is not triggered by a user activation.'); } }));
-    expect(r).toEqual({ kind: 'again' });
+    expect(r).toEqual({ kind: 'again', message: 'NotAllowedError: The request is not triggered by a user activation.' });
     expect(presentMessage('pip', r)).toBe('Picture in Picture is ready: tap Picture in Picture again.');
   });
   it('passes on why the engine kept the canvas, and a move that never showed a picture', async () => {

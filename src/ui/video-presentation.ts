@@ -91,7 +91,7 @@ export function exitPresentation(video: PresentableVideo, doc: PresentableDocume
 export type PresentResult =
   | { readonly kind: 'entered' }
   /** The playlist moved to the element path after the browser's activation ran out: one more tap enters. */
-  | { readonly kind: 'again' }
+  | { readonly kind: 'again'; readonly message: string }
   | { readonly kind: 'unavailable'; readonly reason: ElementPreferenceReason | 'no-picture' }
   | { readonly kind: 'failed'; readonly message: string };
 
@@ -135,8 +135,8 @@ export async function present(deps: PresentDeps): Promise<PresentResult> {
   try {
     await deps.enter();
     return { kind: 'entered' };
-  } catch {
-    return { kind: 'again' };
+  } catch (e) {
+    return { kind: 'again', message: errorText(e) };
   }
 }
 

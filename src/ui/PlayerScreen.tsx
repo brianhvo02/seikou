@@ -565,6 +565,7 @@ export function PlayerScreen({ controller, snapshot, shaderModel, shaderState, n
         controller.showNotice(mode === 'pip' ? 'pip' : 'video-fullscreen', message);
         return;
       }
+      controller.dismissNotice(mode === 'pip' ? 'pip' : 'video-fullscreen'); // a "tap again" from before
       const s = controller.getSnapshot();
       const overlays = (s.subtitles !== null && s.subtitles.selected !== 'off') || s.menuActive || s.bdjMenuVisible;
       if (overlays && !pipOverlaysNoticed.current) {
