@@ -6,7 +6,7 @@
  * Ported from libass 0.17.5 (ass_render.c): the filter flags of render_and_combine_glyphs, the positions of
  * quantize_transform, quantize_blur, restore_blur, the composition of ass_composite_construct, render_text,
  * render_glyph (rectangle and karaoke split), blend_vector_clip (as a canvas clip), the BorderStyle 3 box of
- * get_bitmap_glyph; (ass_bitmap.c):
+ * get_bitmap_glyph, add_background (BorderStyle 4); (ass_bitmap.c):
  * ass_fix_outline, ass_synth_blur (the `\be` passes), be_blur_pre, be_blur_post; (c/c_be_blur.c): ass_be_blur_c;
  * (ass_font.c): the strengths of ass_glyph_embolden and ass_glyph_italicize and the decoration
  * rectangles of ass_get_glyph_outline. libass is ISC-licensed; see packages/ass/NOTICE. Modified for Seikou, 2026.
@@ -942,6 +942,27 @@ function applyClip(ctx: OffscreenCanvasRenderingContext2D, rc: RasterContext, ev
   }
 }
 
+/**
+ * add_background: BorderStyle 4's one opaque rectangle behind the whole event, in the back colour with the fade, the
+ * event box (before collisions move it) widened by the shadow offsets that are positive, clamped to the frame; null
+ * for other border styles or an empty rectangle. It is drawn under the event and never clipped.
+ */
+export function backgroundBox(ev: FrameEvent, frame: { readonly width: number; readonly height: number }): { x: number; y: number; w: number; h: number; color: number } | null {
+  const s = ev.layout.text.state;
+  if (s.borderStyle !== 4) return null;
+  const lround = (v: number): number => (v < 0 ? -Math.round(-v) : Math.round(v));
+  const sizeX = s.shadowX > 0 ? lround(s.shadowX * s.borderScaleX) : 0;
+  const sizeY = s.shadowY > 0 ? lround(s.shadowY * s.borderScaleY) : 0;
+  const top0 = ev.box.top - ev.shiftY;
+  const clamp = (v: number, max: number): number => Math.min(max, Math.max(0, v));
+  const left = clamp(ev.box.left - sizeX, frame.width);
+  const top = clamp(top0 - sizeY, frame.height);
+  const right = clamp(ev.box.left + ev.box.width + sizeX, frame.width);
+  const bottom = clamp(top0 + ev.box.height + sizeY, frame.height);
+  if (right - left < 1 || bottom - top < 1) return null;
+  return { x: left, y: top, w: right - left, h: bottom - top, color: applyFade(s.c[3], s.fade) };
+}
+
 /** Composites an event's runs into one canvas: shadows, then borders, then fills, clipped; null when nothing shows. */
 export function renderEvent(rc: RasterContext, ev: FrameEvent, frame: { readonly width: number; readonly height: number }): RenderedEvent | null {
   const runs = eventRuns(ev).map((idx, i) => renderRun(rc, ev, idx, i));
@@ -949,14 +970,23 @@ export function renderEvent(rc: RasterContext, ev: FrameEvent, frame: { readonly
   if (ev.layout.text.state.borderStyle !== 4) for (const r of runs) if (r.shadow) layers.push(r.shadow);
   for (const r of runs) if (r.border) layers.push(r.border);
   for (const r of runs) if (r.fill) layers.push(r.fill);
-  if (!layers.length) return null;
-  const x0 = Math.floor(Math.min(...layers.map((l) => l.x)));
-  const y0 = Math.floor(Math.min(...layers.map((l) => l.y)));
-  const x1 = Math.ceil(Math.max(...layers.map((l) => l.x + l.w)));
-  const y1 = Math.ceil(Math.max(...layers.map((l) => l.y + l.h)));
+  const bg = backgroundBox(ev, frame);
+  const boxes: readonly { x: number; y: number; w: number; h: number }[] = bg ? [...layers, bg] : layers;
+  if (!boxes.length) return null;
+  const x0 = Math.floor(Math.min(...boxes.map((l) => l.x)));
+  const y0 = Math.floor(Math.min(...boxes.map((l) => l.y)));
+  const x1 = Math.ceil(Math.max(...boxes.map((l) => l.x + l.w)));
+  const y1 = Math.ceil(Math.max(...boxes.map((l) => l.y + l.h)));
   const out = rc.createCanvas(x1 - x0, y1 - y0);
   const ctx = out.getContext('2d')!; // drawn, never read: stays on the GPU
   ctx.translate(-x0, -y0);
+  if (bg) {
+    const color = rc.mapColor ? rc.mapColor(bg.color) : bg.color;
+    ctx.globalAlpha = (255 - (color & 0xff)) / 255;
+    ctx.fillStyle = `rgb(${color >>> 24},${(color >>> 16) & 0xff},${(color >>> 8) & 0xff})`;
+    ctx.fillRect(bg.x, bg.y, bg.w, bg.h);
+    ctx.globalAlpha = 1;
+  }
   applyClip(ctx, rc, ev, frame);
   let scratch: OffscreenCanvas | null = null;
   for (const layer of layers) {

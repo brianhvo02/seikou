@@ -7,7 +7,7 @@ import { createFixedMeasurer } from './measure';
 import { parseAss } from './parse';
 import type { RenderSettings } from './state';
 import {
-  beBlur, blurVariance, dilate, FILTER_BORDER_STYLE_3, FILTER_FILL_IN_BORDER, FILTER_FILL_IN_SHADOW, FILTER_NONZERO_BORDER,
+  backgroundBox, beBlur, blurVariance, dilate, FILTER_BORDER_STYLE_3, FILTER_FILL_IN_BORDER, FILTER_FILL_IN_SHADOW, FILTER_NONZERO_BORDER,
   FILTER_NONZERO_SHADOW, fixOutline, gaussianBlur, layerKey, quantizePositions, quantizeShadow, renderEvent, runFlags,
   type RasterContext,
 } from './raster';
@@ -231,5 +231,50 @@ Dialogue: 0,0:00:00.00,0:00:05.00,Default,,0,0,0,,{\\blur2\\t(0,4000,\\frz90)}bl
   it('draws a reshaped blurred run directly where canvases filter, through the masks where they do not', () => {
     expect(runShapeChange(true)).toBe(1); // only the first frame, before the shape changes
     expect(runShapeChange(false)).toBe(3);
+  });
+});
+
+describe('backgroundBox (add_background, BorderStyle 4)', () => {
+  const settings: RenderSettings = { frameWidth: 1920, frameHeight: 1080, storageWidth: 1920, storageHeight: 1080, fontScale: 1 };
+  const script = (style: string, events: string): string => `[Script Info]
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,DejaVu Sans,64,&H00FFFFFF,&H000000FF,&H00000000,&H40302010,0,0,0,0,100,100,0,0,${style},40,40,50,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+${events}`;
+  async function frame(style: string, events: string, t = 500) {
+    const fonts = new AssFonts({ load: async () => {}, unload: () => {} }, await readFontFile('DejaVuSans.ttf', new Uint8Array(readFileSync('fixtures/ass/fonts/DejaVuSans.ttf'))));
+    return new FrameBuilder(parseAss(script(style, events)), fonts, createFixedMeasurer(0.5)).build(t, settings);
+  }
+  it('is the event box widened by positive shadows, in the back colour', async () => {
+    const f = await frame('4,2,3,2', 'Dialogue: 0,0:00:00.00,0:00:05.00,Default,,0,0,0,,{\\xshad5\\yshad-2}boxed');
+    const ev = f.events[0]!;
+    const b = backgroundBox(ev, { width: 1920, height: 1080 })!;
+    expect(b).toEqual({ x: ev.box.left - 5, y: ev.box.top, w: ev.box.width + 10, h: ev.box.height, color: 0x10203040 }); // &H40302010 is AABBGGRR
+  });
+  it('is null for other border styles and clamped to the frame', async () => {
+    const one = await frame('1,2,3,2', 'Dialogue: 0,0:00:00.00,0:00:05.00,Default,,0,0,0,,plain');
+    expect(backgroundBox(one.events[0]!, { width: 1920, height: 1080 })).toBeNull();
+    const edge = await frame('4,2,8,7', 'Dialogue: 0,0:00:00.00,0:00:05.00,Default,,0,0,0,,{\\pos(0,0)}corner');
+    const b = backgroundBox(edge.events[0]!, { width: 1920, height: 1080 })!;
+    expect(b.x).toBe(0);
+    expect(b.y).toBe(0);
+  });
+  it('takes the fade, and the place before collisions', async () => {
+    const f = await frame('4,2,0,2', [
+      'Dialogue: 0,0:00:00.00,0:00:05.00,Default,,0,0,0,,{\\fad(0,1000)}first',
+      'Dialogue: 0,0:00:00.00,0:00:05.00,Default,,0,0,0,,second',
+    ].join('\n'), 4500);
+    const moved = f.events.find((e) => e.shiftY !== 0)!;
+    expect(backgroundBox(moved, { width: 1920, height: 1080 })!.y).toBe(moved.box.top - moved.shiftY);
+    const faded = f.events.find((e) => e.index === 0)!;
+    expect(backgroundBox(faded, { width: 1920, height: 1080 })!.color & 0xff).toBeGreaterThan(0x40);
   });
 });
