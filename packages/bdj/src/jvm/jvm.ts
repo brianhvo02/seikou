@@ -58,6 +58,8 @@ export interface JvmOptions {
    * Policy without 'unsafe-eval') the JVM runs interpreted whatever this says.
    */
   readonly jit?: JitMode;
+  /** The heat at which `on` compiles a method (default JIT_THRESHOLD); for measurements. */
+  readonly jitThreshold?: number;
 }
 
 /** JvmOptions.jit. */
@@ -68,6 +70,8 @@ export interface JitStats {
   /** The mode in effect: `off` when asked for or when code generation is unavailable. */
   readonly mode: JitMode;
   readonly compiled: number;
+  /** Time spent generating and compiling the methods' JavaScript, in ms. */
+  readonly compileMs: number;
   readonly refused: Readonly<Record<string, number>>;
   readonly failed: number;
   /** The first few failed compiles, as `class.method(desc): message`. */
@@ -117,6 +121,8 @@ export class Jvm {
   readonly jitThreshold: number;
   private readonly jitMode: JitMode;
   private jitCompiled = 0;
+  /** Time spent compiling methods (the interpreter adds to it). */
+  jitCompileMs = 0;
   private jitFailed = 0;
   private readonly jitRefused: Record<string, number> = {};
   private readonly jitFailures: string[] = [];
@@ -140,12 +146,12 @@ export class Jvm {
       mode = 'off';
     }
     this.jitMode = mode;
-    this.jitThreshold = mode === 'off' ? Infinity : mode === 'force' ? 0 : JIT_THRESHOLD;
+    this.jitThreshold = mode === 'off' ? Infinity : mode === 'force' ? 0 : (opts.jitThreshold ?? JIT_THRESHOLD);
   }
 
   /** What the JIT has done so far. */
   jitStats(): JitStats {
-    return { mode: this.jitMode, compiled: this.jitCompiled, refused: { ...this.jitRefused }, failed: this.jitFailed, failures: [...this.jitFailures] };
+    return { mode: this.jitMode, compiled: this.jitCompiled, compileMs: this.jitCompileMs, refused: { ...this.jitRefused }, failed: this.jitFailed, failures: [...this.jitFailures] };
   }
 
   /**

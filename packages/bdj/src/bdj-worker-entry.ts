@@ -29,8 +29,12 @@ const fetchBytes = async (url: string): Promise<Uint8Array> => {
   return new Uint8Array(await response.arrayBuffer());
 };
 
+// Test-only: the page's ?nojit=1 reaches this worker in its name (provider.ts) and keeps Java interpreted.
+const testFlags = new Set(((self as unknown as { name?: string }).name ?? '').split(':')[1]?.split(',') ?? []);
+
 runBdjWorker(globalThis as unknown as BdjPort, {
   extraIntrinsics: registerClassLibraryIntrinsics,
+  jit: testFlags.has('nojit') ? 'off' : 'on',
   // a failed load is remembered for this worker's session (one BD-J entry): later fonts fail at once rather than each
   // waiting for the fetch's timeout again (natives/fonts.ts, fonts/system-fonts.ts)
   loadFreeType: () => (freeType ??= loadFreeType(fetch(freetypeWasmUrl, { signal: AbortSignal.timeout(ASSET_FETCH_TIMEOUT_MS) }))),

@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { createRing, renderQuantum, ringViews } from '@seikou/engine/audio/ring';
 import { registerClassLibraryIntrinsics } from '@seikou/bdj-classlib/intrinsics';
 import { runBdjWorker, type BdjPort, type BdjWorkerHandle } from '@seikou/bdj/bdj-worker';
+import type { JitMode } from '@seikou/bdj/jvm/jvm';
 import { GraphicsPlaneReader, GraphicsPlaneWriter, planeHash } from '@seikou/bdj/graphics-plane';
 import type { TraceEntry } from '@seikou/bdj/host';
 import type { ClassLibrarySource } from '@seikou/bdj/runtime';
@@ -148,7 +149,9 @@ function inProcessWorker(onToBdj: (m: ToBdj) => void, onFromBdj: (m: FromBdj) =>
       handle?.runtime?.jvm.threads.halt();
     },
   };
-  handle = runBdjWorker(port, { extraIntrinsics: registerClassLibraryIntrinsics, ...testBdjFonts, createStore: () => store });
+  // BDJ_JIT=off|on|force in the environment runs the JVM with that JIT mode (a check by hand; the default is the player's)
+  const jit = (process.env.BDJ_JIT ?? 'on') as JitMode;
+  handle = runBdjWorker(port, { extraIntrinsics: registerClassLibraryIntrinsics, ...testBdjFonts, createStore: () => store, jit, ...(process.env.BDJ_JIT_THRESHOLD ? { jitThreshold: Number(process.env.BDJ_JIT_THRESHOLD) } : {}) });
   onHandle(handle);
   return worker;
 }

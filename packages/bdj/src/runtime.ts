@@ -24,7 +24,7 @@ import { lineNumber } from './jvm/natives/lang';
 import type { NativeTable } from './jvm/natives/index';
 import { registerHaviNatives } from './jvm/natives/havi';
 import { registerLibblurayNatives } from './jvm/natives/libbluray';
-import type { StackTrace } from './jvm/jvm';
+import type { JitMode, StackTrace } from './jvm/jvm';
 import type { JThread } from './jvm/threads';
 import { JavaThrowable } from './jvm/values';
 import type { JObject, JValue } from './jvm/values';
@@ -51,6 +51,10 @@ export interface BdjRuntimeDeps {
   readonly yieldTask?: () => Promise<void>;
   /** JvmOptions.extraIntrinsics: the class library's intrinsics, which the engine does not carry. */
   readonly extraIntrinsics?: (table: NativeTable) => void;
+  /** JvmOptions.jit: compiling hot Java methods to JavaScript (default on). */
+  readonly jit?: JitMode;
+  /** JvmOptions.jitThreshold (measurements). */
+  readonly jitThreshold?: number;
   /** Receives Java's output and the runtime's own lines (events, failures), one line at a time. */
   readonly log: (line: string) => void;
   /**
@@ -169,6 +173,8 @@ export class BdjRuntime {
       setTimer: deps.setTimer,
       ...(deps.yieldTask ? { yieldTask: deps.yieldTask } : {}),
       ...(deps.extraIntrinsics ? { extraIntrinsics: deps.extraIntrinsics } : {}),
+      ...(deps.jit ? { jit: deps.jit } : {}),
+      ...(deps.jitThreshold ? { jitThreshold: deps.jitThreshold } : {}),
       stdout: (s) => this.output(s),
       stderr: (s) => this.output(s),
       ...(deps.memory ? { classBytesBudget: deps.memory.classBytes } : {}),

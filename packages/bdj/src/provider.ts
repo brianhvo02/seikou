@@ -21,6 +21,12 @@ import { StatusBlockWriter, createStatusBlock } from './status-block';
 
 export { bdjMissing } from './requirements';
 
+/** The BD-J worker's name: `bdj`, with the engine worker's test flags after a colon as in its own name. */
+function bdjWorkerName(): string {
+  const flags = ((self as unknown as { name?: string }).name ?? '').split(':')[1];
+  return flags ? `bdj:${flags}` : 'bdj';
+}
+
 /** What the host gives seikouBdjProvider; read in the engine worker, where the provider runs. */
 export interface SeikouBdjOptions {
   /** What this browser lacks to run BD-J (bdjMissing on the engine worker's global). */
@@ -41,8 +47,9 @@ export interface SeikouBdjOptions {
 export function seikouBdjProvider(options: SeikouBdjOptions): BdjProvider {
   return {
     missing: options.missing,
-    // a literal new Worker(new URL(...)) so the bundler builds the BD-J worker as its own chunk
-    createWorker: options.createWorker ?? (() => new Worker(new URL('./bdj-worker-entry.ts', import.meta.url), { type: 'module' })),
+    // a literal new Worker(new URL(...)) so the bundler builds the BD-J worker as its own chunk; its name carries the
+    // engine worker's test flags (bdjWorkerFlags)
+    createWorker: options.createWorker ?? (() => new Worker(new URL('./bdj-worker-entry.ts', import.meta.url), { type: 'module', name: bdjWorkerName() })),
     loadClassLibrary: options.loadClassLibrary,
     ...(options.decodeImage ? { decodeImage: options.decodeImage } : {}),
     REGISTER_WORDS,

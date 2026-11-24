@@ -70,7 +70,10 @@ export interface JitRuntime {
 export const JIT_MAX_CODE_BYTES = 16 * 1024;
 
 /** Why a method is not compiled. */
-export type JitRefusal = 'native' | 'too-long' | 'jsr' | 'opcode' | 'stack' | 'constant';
+export type JitRefusal = 'native' | 'too-long' | 'frame' | 'jsr' | 'opcode' | 'stack' | 'constant';
+
+/** A frame of more locals and stack slots than this stays interpreted (each becomes a JS variable). */
+export const JIT_MAX_FRAME_SLOTS = 400;
 
 /** The stack depth before each instruction and the blocks of a method, or why it can't be compiled. */
 export interface JitAnalysis {
@@ -376,6 +379,22 @@ export function analyse(m: JMethod): JitAnalysis {
   return { starts, depth, leaders };
 }
 
+/** The locals the method's instructions store to (the others never change while it runs, so are never written back). */
+function writtenLocals(code: Uint8Array, a: JitAnalysis): Set<number> {
+  const out = new Set<number>();
+  for (const pc of a.starts) {
+    const op = code[pc]!;
+    if (op >= 0x36 && op <= 0x3a) out.add(code[pc + 1]!);
+    else if (op >= 0x3b && op <= 0x4e) out.add((op - 0x3b) % 4);
+    else if (op === 0x84) out.add(code[pc + 1]!);
+    else if (op === 0xc4) {
+      const w = code[pc + 1]!;
+      if ((w >= 0x36 && w <= 0x3a) || w === 0x84) out.add(u16(code, pc + 2));
+    }
+  }
+  return out;
+}
+
 /** Compiles `m`, or answers why it stays interpreted. */
 export function compileMethod(m: JMethod, rt: JitRuntime): CompiledMethod | JitRefusal {
   let a: JitAnalysis;
@@ -424,8 +443,26 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
   const spAt = new Int32Array(code.length + 1).fill(-1);
   const refund = new Int32Array(code.length + 1);
   const out: string[] = [];
-  const S = (i: number): string => `stack[${i}]`;
-  const L = (n: number): string => `locals[${n}]`;
+  // The operand stack's slots and the locals live in JS variables (s<i>, l<n>) while the compiled code runs, and go back
+  // to the frame (spill) before anything else can see the frame: a call, a throw, an exit; after a call the frame's
+  // stack is read back (it holds the result).
+  const maxStack = m.code!.maxStack;
+  const maxLocals = Math.max(m.code!.maxLocals, m.argSlots);
+  if (maxStack + maxLocals > JIT_MAX_FRAME_SLOTS) throw new Refused('frame');
+  const S = (i: number): string => `s${i}`;
+  const L = (n: number): string => `l${n}`;
+  const written = writtenLocals(code, a);
+  const spillLocals = [...written].sort((x, y) => x - y).map((n) => `locals[${n}] = l${n};`).join(' ');
+  const spill = (d: number): string => {
+    let out = spillLocals;
+    for (let i = 0; i < d; i++) out += ` stack[${i}] = s${i};`;
+    return out;
+  };
+  const spillAll = spill(maxStack);
+  let reloadStack = '';
+  for (let i = 0; i < maxStack; i++) reloadStack += `s${i} = stack[${i}]; `;
+  let reloadLocals = '';
+  for (let n = 0; n < maxLocals; n++) reloadLocals += `l${n} = locals[${n}]; `;
   const resolved = (index: number): unknown => cls.resolved[index];
 
   // blocks, in bytecode order: [leader index, end index)
@@ -443,7 +480,7 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
     if (d0 === undefined) continue; // unreachable: the default case hands it to the interpreter if it ever runs
     const n = bj - bi;
     out.push(`case ${leader}:`);
-    out.push(`if (budget < ${n}) { f.pc = ${leader}; f.sp = ${d0}; R.exit = 1; return budget; } budget -= ${n};`);
+    out.push(`if (budget < ${n}) { ${spill(d0)} f.pc = ${leader}; f.sp = ${d0}; R.exit = 1; return budget; } budget -= ${n};`);
     for (let ii = bi; ii < bj; ii++) {
       const pc = a.starts[ii]!;
       const sp = a.depth[ii];
@@ -461,7 +498,7 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
    * thread may go on, continue at its pc here, as the outer loop would.
    */
   function exitOuter(rem: number): string {
-    return `${rem ? `budget += ${rem}; ` : ''}if (t.frames[t.frames.length - 1] === f && t.state === 'runnable' && !jvm.threads.preempted) { pc = f.pc; continue; } R.exit = 0; return budget;`;
+    return `${rem ? `budget += ${rem}; ` : ''}if (t.frames[t.frames.length - 1] === f && t.state === 'runnable' && !jvm.threads.preempted) { ${reloadStack}pc = f.pc; continue; } R.exit = 0; return budget;`;
   }
 
   function branch(target: number): string {
@@ -667,7 +704,7 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
         return (
           `f.pc = ${pc}; ${at} { const fld = R.resolveField(jvm, cls, ${idx}); ` +
           `if (!fld.isStatic) throw new R.PendingThrow('java/lang/IncompatibleClassChangeError', 'Expected static field ' + R.externalName(fld.cls.name) + '.' + fld.name); ` +
-          `if (fld.cls.state !== 'initialized') { f.sp = ${sp}; if (!R.ensureInit(jvm, t, f, fld.cls)) { ${exitOuter(rem)} } } ${access} }`
+          `if (fld.cls.state !== 'initialized') { ${spill(sp)} f.sp = ${sp}; if (!R.ensureInit(jvm, t, f, fld.cls)) { ${exitOuter(rem)} } } ${access} }`
         );
       }
       case 0xb4: case 0xb5: {
@@ -697,7 +734,7 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
           select = `let target = m; if (m.cls.isInterface) target = R.selectMethod(recv.cls, m) ?? m; else if (m.vtableIndex >= 0) target = recv.cls.vtable[m.vtableIndex];`;
         }
         return (
-          `f.pc = ${pc}; ${at} { const m = ${mm}; const recv = stack[${sp} - m.argSlots]; if (recv === null) ${NPE} ${select} ` +
+          `f.pc = ${pc}; ${at} ${spill(sp)} { const m = ${mm}; const recv = ${m0 ? S(sp - m0.argSlots) : `stack[${sp} - m.argSlots]`}; if (recv === null) ${NPE} ${select} ` +
           `if (target.access & 0x0400) throw new R.PendingThrow('java/lang/AbstractMethodError', R.externalName(recv.cls.name) + '.' + m.name + m.desc); ` +
           `f.sp = ${sp}; R.call(jvm, t, f, target, ${next}); } ${exitOuter(rem)}`
         );
@@ -718,10 +755,10 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
           ) {
             target = cls.superClass!.findMethod(m0.name, m0.desc) ?? m0;
           }
-          return `f.pc = ${pc}; ${at} if (stack[${sp - m0.argSlots}] === null) ${NPE} f.sp = ${sp}; R.call(jvm, t, f, ${k(target)}, ${next}); ${exitOuter(rem)}`;
+          return `f.pc = ${pc}; ${at} if (${S(sp - m0.argSlots)} === null) ${NPE} ${spill(sp)} f.sp = ${sp}; R.call(jvm, t, f, ${k(target)}, ${next}); ${exitOuter(rem)}`;
         }
         return (
-          `f.pc = ${pc}; ${at} { let m = R.resolveMethod(jvm, cls, ${idx}); if (stack[${sp} - m.argSlots] === null) ${NPE} ` +
+          `f.pc = ${pc}; ${at} ${spill(sp)} { let m = R.resolveMethod(jvm, cls, ${idx}); if (stack[${sp} - m.argSlots] === null) ${NPE} ` +
           `if (m.name !== '<init>' && (m.access & 0x0002) === 0 && !m.cls.isInterface && m.cls !== cls && (cls.access & 0x0020) !== 0 && cls.isSubclassOf(m.cls)) m = cls.superClass.findMethod(m.name, m.desc) ?? m; ` +
           `f.sp = ${sp}; R.call(jvm, t, f, m, ${next}); } ${exitOuter(rem)}`
         );
@@ -732,7 +769,7 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
         const mm = m0 ? k(m0) : `R.resolveMethod(jvm, cls, ${idx})`;
         const init = m0 && m0.isStatic && m0.cls.state === 'initialized' ? '' : `if (m.cls.state !== 'initialized' && !R.ensureInit(jvm, t, f, m.cls)) { ${exitOuter(rem)} } `;
         return (
-          `f.pc = ${pc}; ${at} { const m = ${mm}; ` +
+          `f.pc = ${pc}; ${at} ${spill(sp)} { const m = ${mm}; ` +
           `if (!m.isStatic) throw new R.PendingThrow('java/lang/IncompatibleClassChangeError', 'Expected static method ' + R.externalName(m.cls.name) + '.' + m.name + m.desc); ` +
           `f.sp = ${sp}; ${init}R.call(jvm, t, f, m, ${next}); } ${exitOuter(rem)}`
         );
@@ -742,7 +779,7 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
         const next = pc + 5;
         const mm = m0 ? k(m0) : `R.resolveMethod(jvm, cls, ${idx})`;
         return (
-          `f.pc = ${pc}; ${at} { const m = ${mm}; const recv = stack[${sp} - m.argSlots]; if (recv === null) ${NPE} ` +
+          `f.pc = ${pc}; ${at} ${spill(sp)} { const m = ${mm}; const recv = ${m0 ? S(sp - m0.argSlots) : `stack[${sp} - m.argSlots]`}; if (recv === null) ${NPE} ` +
           `if (!recv.cls.isSubclassOf(m.cls)) throw new R.PendingThrow('java/lang/IncompatibleClassChangeError', 'Class ' + R.externalName(recv.cls.name) + ' does not implement the requested interface ' + R.externalName(m.cls.name)); ` +
           `const target = R.selectMethod(recv.cls, m); ` +
           `if (!target || target.isAbstract) throw new R.PendingThrow('java/lang/AbstractMethodError', R.externalName(recv.cls.name) + '.' + m.name + m.desc); ` +
@@ -751,7 +788,7 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
       }
       case 0xba:
         return (
-          `f.pc = ${pc}; ${at} { const site = f.method.callSites?.get(${pc}); ` +
+          `f.pc = ${pc}; ${at} ${spill(sp)} { const site = f.method.callSites?.get(${pc}); ` +
           `if (!site) throw new R.LoadPending(R.linkCallSite(jvm, t, f.method, ${pc}, ${idx})); ` +
           `f.sp = ${sp}; R.call(jvm, t, f, site, ${pc + 5}); } ${exitOuter(rem)}`
         );
@@ -761,7 +798,7 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
         return (
           `f.pc = ${pc}; ${at} { const c = R.resolveClass(jvm, cls, ${idx}); ` +
           `if (c.isInterface || c.access & 0x0400) throw new R.PendingThrow('java/lang/InstantiationError', R.externalName(c.name)); ` +
-          `if (c.state !== 'initialized') { f.sp = ${sp}; if (!R.ensureInit(jvm, t, f, c)) { ${exitOuter(rem)} } } ${S(sp)} = jvm.heap.newObject(c); }`
+          `if (c.state !== 'initialized') { ${spill(sp)} f.sp = ${sp}; if (!R.ensureInit(jvm, t, f, c)) { ${exitOuter(rem)} } } ${S(sp)} = jvm.heap.newObject(c); }`
         );
       }
       case 0xbc: {
@@ -782,7 +819,7 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
       case 0xbe:
         return `${at} { const arr = ${S(sp - 1)}; if (arr === null) ${NPE} ${S(sp - 1)} = arr.data.length; }`;
       case 0xbf:
-        return `f.pc = ${pc}; ${at} { const e = ${S(sp - 1)}; if (e === null) ${NPE} R.throwInto(jvm, t, e); } ${exitOuter(rem)}`;
+        return `f.pc = ${pc}; ${at} { const e = ${S(sp - 1)}; if (e === null) ${NPE} ${spill(sp)} f.sp = ${sp}; R.throwInto(jvm, t, e); } ${exitOuter(rem)}`;
       case 0xc0: {
         const c = resolved(idx) as JClass | undefined;
         return (
@@ -795,11 +832,11 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
         return `${c ? '' : `f.pc = ${pc}; `}${at} { const o = ${S(sp - 1)}; ${S(sp - 1)} = o !== null && o.cls.isSubclassOf(${c ? k(c) : `R.resolveClass(jvm, cls, ${idx})`}) ? 1 : 0; }`;
       }
       case 0xc2:
-        return `f.pc = ${pc}; ${at} { const o = ${S(sp - 1)}; if (o === null) ${NPE} if (!jvm.threads.monitorEnter(t, o)) { f.sp = ${sp}; ${exitOuter(rem)} } }`;
+        return `f.pc = ${pc}; ${at} { const o = ${S(sp - 1)}; if (o === null) ${NPE} if (!jvm.threads.monitorEnter(t, o)) { ${spill(sp)} f.sp = ${sp}; ${exitOuter(rem)} } }`;
       case 0xc3:
         return (
           `f.pc = ${pc}; ${at} { const o = ${S(sp - 1)}; if (o === null) ${NPE} jvm.threads.monitorExit(t, o); ` +
-          `if (jvm.threads.preempted) { f.pc = ${pc + 1}; f.sp = ${sp - 1}; R.exit = 2; return budget${rem ? ` + ${rem}` : ''}; } }`
+          `if (jvm.threads.preempted) { ${spill(sp - 1)} f.pc = ${pc + 1}; f.sp = ${sp - 1}; R.exit = 2; return budget${rem ? ` + ${rem}` : ''}; } }`
         );
       case 0xc4: {
         const w = code[pc + 1]!;
@@ -820,13 +857,13 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
         const dims = code[pc + 3]!;
         const base = sp - dims;
         return (
-          `f.pc = ${pc}; ${at} { const c = R.resolveClass(jvm, cls, ${idx}); const counts = stack.slice(${base}, ${sp}); ` +
+          `f.pc = ${pc}; ${at} { const c = R.resolveClass(jvm, cls, ${idx}); const counts = [${Array.from({ length: dims }, (_, i) => S(base + i)).join(', ')}]; ` +
           `if (counts.some((n) => n < 0)) throw new R.PendingThrow('java/lang/NegativeArraySizeException'); ${S(base)} = R.multiArray(jvm, c, counts, 0); }`
         );
       }
       case 0xcb: {
         const target = pc + s16(code, pc + 1);
-        return `f.pc = ${pc}; f.sp = ${sp}; ${at} { const next = f.method.loopHooks.get(${pc})(jvm, t, f.method, locals); pc = next === R.DECLINE ? ${target} : next; continue; }`;
+        return `f.pc = ${pc}; ${spill(sp)} f.sp = ${sp}; ${at} { const next = f.method.loopHooks.get(${pc})(jvm, t, f.method, locals); ${reloadLocals}pc = next === R.DECLINE ? ${target} : next; continue; }`;
       }
     }
     throw new Refused(op === 0xa8 || op === 0xa9 || op === 0xc9 ? 'jsr' : 'opcode');
@@ -837,16 +874,20 @@ function generate(m: JMethod, a: JitAnalysis): { body: string; consts: unknown[]
 return function compiled(jvm, t, f, budget) {
 const stack = f.stack, locals = f.locals;
 let pc = f.pc;
+${Array.from({ length: maxLocals }, (_, n) => `let l${n} = locals[${n}];`).join(' ')}
+${Array.from({ length: maxStack }, (_, i) => `let s${i} = stack[${i}];`).join(' ')}
 try {
 for (;;) {
 switch (pc) {
 ${out.join('\n')}
 default: {
+${spillAll}
 f.pc = pc; const d = SP[pc]; if (d !== undefined && d >= 0) f.sp = d; R.exit = 1; return budget;
 }
 }
 }
 } catch (e) {
+${spillAll}
 budget += REF[pc]; f.pc = pc; R.caught(jvm, t, f, e, SP[pc]); R.exit = 0; return budget;
 }
 };`;
