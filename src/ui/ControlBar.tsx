@@ -123,6 +123,8 @@ interface ControlBarProps {
   onOpenPlaylists(): void;
   /** Absent where the browser has no fullscreen API: the button is not shown. */
   onFullscreen?(): void;
+  /** Absent where the browser has no Picture in Picture for a video: the button is not shown. */
+  onPictureInPicture?(): void;
   /** Top Menu / Pop-up and the remote send menu keys through the same UO check as the keyboard. */
   onMenuKey(key: 'topMenu' | 'popup'): void;
   readonly remoteOpen: boolean;
@@ -154,11 +156,11 @@ interface ControlBarProps {
  * The player's control bar: seek bar with chapter ticks, previous and next chapter, play and pause, time, mute and
  * volume, then the Audio, Quality (`quality`), Subtitles, Chapters (`encode`), Shaders, Video output (not for an
  * `encode`, whose AV1 always plays on the canvas) and Settings (`encode`) menus, and the buttons Top Menu and Pop-up
- * (when the disc has them), Remote (HDMV or BD-J), Titles or Playlists (Close for an encode) and Fullscreen (when `onFullscreen` is given). A control the disc's UO mask forbids is disabled with a
+ * (when the disc has them), Remote (HDMV or BD-J), Titles or Playlists (Close for an encode), Picture in Picture (when `onPictureInPicture` is given) and Fullscreen (when `onFullscreen` is given). A control the disc's UO mask forbids is disabled with a
  * tooltip. `visible` false hides the bar with a CSS class and keeps it mounted. Everything is driven by `snapshot` and
  * the `controller`'s commands.
  */
-export function ControlBar({ controller, snapshot, shaderModel, shaderState, visible, onOpenPlaylists, onFullscreen, onMenuKey, remoteOpen, onToggleRemote, onMenuOpenChange, onSubtitleFiles, onPickSubtitleFiles, mkvTracks = [], onPickMkvTrack, storedSubtitles = null, toshoSearch = null, quality = null, encode = null, onPreferences }: ControlBarProps): ReactElement {
+export function ControlBar({ controller, snapshot, shaderModel, shaderState, visible, onOpenPlaylists, onFullscreen, onPictureInPicture, onMenuKey, remoteOpen, onToggleRemote, onMenuOpenChange, onSubtitleFiles, onPickSubtitleFiles, mkvTracks = [], onPickMkvTrack, storedSubtitles = null, toshoSearch = null, quality = null, encode = null, onPreferences }: ControlBarProps): ReactElement {
   const videoOutput = useSyncExternalStore(videoOutputSetting().subscribe, videoOutputSetting().get);
   const deinterlace = useSyncExternalStore(deinterlaceSetting().subscribe, deinterlaceSetting().get);
   const playing = snapshot.engineState === 'playing' || snapshot.engineState === 'buffering';
@@ -287,6 +289,11 @@ export function ControlBar({ controller, snapshot, shaderModel, shaderState, vis
         ) : (
           <button type="button" data-testid={hdmv ? 'titles' : undefined} onClick={onOpenPlaylists}>
             {hdmv ? 'Titles' : 'Playlists'}
+          </button>
+        )}
+        {onPictureInPicture && (
+          <button type="button" aria-label="Picture in Picture" data-testid="pip-button" onClick={onPictureInPicture}>
+            ⧉
           </button>
         )}
         {onFullscreen && (

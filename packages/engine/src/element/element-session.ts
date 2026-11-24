@@ -28,6 +28,8 @@ export interface ElementSessionDeps {
   nextGeneration(): number;
   /** Whether this session is still the player's current one: output after teardown goes nowhere. */
   isCurrent(): boolean;
+  /** The playlist's length (µs), sent with each videoReset; absent where it isn't known. */
+  durationUs?(): number;
   /** An init segment went out with the stream's display and coded sizes; `first` for the session's first, which turns the compositor transparent. */
   shown(size: ElementPictureSize, first: boolean): void;
 }
@@ -148,7 +150,8 @@ export class ElementSession {
     this.stalled = false;
     this.freshBuffered = false;
     this.segmentsSent = 0;
-    this.deps.emit({ type: 'videoReset', startUs, paused, generation: this.generation });
+    const durationUs = this.deps.durationUs?.();
+    this.deps.emit({ type: 'videoReset', startUs, paused, generation: this.generation, ...(durationUs !== undefined && durationUs > 0 ? { durationUs } : {}) });
   }
 
   /** The remuxer's output goes to the page, its bytes transferred; the first init turns the compositor transparent. */

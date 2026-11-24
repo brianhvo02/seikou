@@ -5,9 +5,12 @@ import { ClockBlockWriter } from '../element/clock-block';
 import { ELEMENT_TIME_OFFSET_US } from '../element/fmp4';
 import {
   ElementVideoOutput,
+  type ElementTransport,
   type MediaSourceLike,
   type SourceBufferLike,
+  type VideoElementEvent,
   type VideoElementLike,
+  vttCueText,
 } from './element-output';
 
 const OFFSET_S = ELEMENT_TIME_OFFSET_US / 1e6;
@@ -91,11 +94,32 @@ class FakeSourceBuffer implements SourceBufferLike {
 
 class FakeMediaSource implements MediaSourceLike {
   readyState = 'closed';
+  private durationValue = NaN;
+  /** As MSE: a duration under the end of what a buffer holds is refused. */
+  get duration(): number {
+    return this.durationValue;
+  }
+  set duration(d: number) {
+    for (const b of this.buffers) for (const [, end] of b.ranges) if (d < end) throw new Error('InvalidStateError: buffered past the duration');
+    this.durationValue = d;
+  }
   buffers: FakeSourceBuffer[] = [];
   types: string[] = [];
   ended = 0;
   private open: Array<() => void> = [];
+  removedBuffers: SourceBufferLike[] = [];
+  /** As Chrome: a second source buffer is refused once one took data. */
+  refuseSecond = false;
+  removeSourceBuffer(b: SourceBufferLike): void {
+    this.removedBuffers.push(b);
+    this.buffers = this.buffers.filter((x) => x !== b);
+  }
   addSourceBuffer(type: string): SourceBufferLike {
+    if (this.refuseSecond && this.types.length > 0) {
+      const e = new Error('This MediaSource has reached the limit of SourceBuffer objects');
+      e.name = 'QuotaExceededError';
+      throw e;
+    }
     this.types.push(type);
     const sb = new FakeSourceBuffer();
     this.buffers.push(sb);
@@ -125,6 +149,7 @@ class FakeVideo implements VideoElementLike {
   src = '';
   paused = true;
   seeking = false;
+  ended = false;
   /** Writes of disableRemotePlayback and src, in order. */
   writes: string[] = [];
   plays = 0;
@@ -140,6 +165,14 @@ class FakeVideo implements VideoElementLike {
   private nextId = 1;
   private listeners: Record<string, Array<() => void>> = {};
   constructor() {
+    let time = 0;
+    Object.defineProperty(this, 'currentTime', {
+      get: () => time,
+      set: (v: number) => {
+        time = v;
+        this.later('seeking');
+      },
+    });
     let rate = 1;
     let src = '';
     let remote = false;
@@ -170,12 +203,28 @@ class FakeVideo implements VideoElementLike {
     const error = this.playError;
     this.playError = null;
     if (error) return Promise.reject(error);
+    if (this.paused) this.later('play');
     this.paused = false;
     return Promise.resolve();
   }
   pause(): void {
     this.pauses++;
+    if (!this.paused) this.later('pause');
     this.paused = true;
+  }
+  /** Fires an event a moment later, as a browser queues it. */
+  private later(type: 'play' | 'pause' | 'seeking'): void {
+    queueMicrotask(() => this.fire(type));
+  }
+  /** The system's controls pause the element (Picture in Picture, a video's fullscreen). */
+  userPause(): void {
+    this.paused = true;
+    this.later('pause');
+  }
+  /** The system's controls play the element. */
+  userPlay(): void {
+    this.paused = false;
+    this.later('play');
   }
   requestVideoFrameCallback(cb: FrameCb): number {
     const id = this.nextId++;
@@ -189,10 +238,25 @@ class FakeVideo implements VideoElementLike {
   getVideoPlaybackQuality(): { totalVideoFrames: number; droppedVideoFrames: number } {
     return this.quality;
   }
-  addEventListener(type: 'waiting' | 'playing' | 'error', fn: () => void): void {
+  addEventListener(type: VideoElementEvent, fn: () => void): void {
     (this.listeners[type] ??= []).push(fn);
   }
-  fire(type: 'waiting' | 'playing' | 'error'): void {
+  tracks: Array<{ mode: 'disabled' | 'hidden' | 'showing'; cues: unknown[]; addCue(c: unknown): void; removeCue(c: unknown): void }> = [];
+  addTextTrack(): { mode: 'disabled' | 'hidden' | 'showing'; cues: unknown[]; addCue(c: unknown): void; removeCue(c: unknown): void } {
+    const t = {
+      mode: 'hidden' as 'disabled' | 'hidden' | 'showing',
+      cues: [] as unknown[],
+      addCue(c: unknown) {
+        this.cues.push(c);
+      },
+      removeCue(c: unknown) {
+        this.cues = this.cues.filter((x) => x !== c);
+      },
+    };
+    this.tracks.push(t);
+    return t;
+  }
+  fire(type: VideoElementEvent): void {
     for (const fn of this.listeners[type] ?? []) fn();
   }
   removeAttribute(name: string): void {
@@ -214,7 +278,9 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 5; i++) await Promise.resolve();
 };
 
-function setup(opts: { failAppends?: boolean; noMediaSource?: boolean; playable?: (query: ElementQuery) => boolean; noAnimationFrame?: boolean } = {}) {
+function setup(opts: { failAppends?: boolean; noMediaSource?: boolean; playable?: (query: ElementQuery) => boolean; noAnimationFrame?: boolean; presented?: { value: boolean }; managed?: boolean } = {}) {
+  const transports: ElementTransport[] = [];
+  const sources: FakeMediaSource[] = [];
   const video = new FakeVideo();
   const ms = new FakeMediaSource();
   const posted: EngineCommand[] = [];
@@ -227,9 +293,15 @@ function setup(opts: { failAppends?: boolean; noMediaSource?: boolean; playable?
     createMediaSource: () => {
       if (opts.noMediaSource) return null;
       created++;
-      return { source: ms, url: 'blob:ms', revoke: () => revoked++ };
+      if (created > 1) {
+        const next = new FakeMediaSource();
+        sources.push(next);
+        return { source: next, url: `blob:ms${created}`, revoke: () => revoked++, ...(opts.managed ? { managed: true } : {}) };
+      }
+      return { source: ms, url: 'blob:ms', revoke: () => revoked++, ...(opts.managed ? { managed: true } : {}) };
     },
     ...(opts.failAppends ? { failAppends: true } : {}),
+    ...(opts.presented ? { presented: () => opts.presented!.value, onTransport: (t: ElementTransport) => transports.push(t), makeCue: (start: number, end: number, text: string) => ({ start, end, text }) } : {}),
     playable: async (query) => {
       const playable = (opts.playable ?? (() => true))(query);
       return { playable, check: { mse: playable, decodingInfo: query.hdr ? playable : null } };
@@ -280,6 +352,8 @@ function setup(opts: { failAppends?: boolean; noMediaSource?: boolean; playable?
     timers,
     revoked: () => revoked,
     created: () => created,
+    transports,
+    sources,
   };
 }
 
@@ -289,8 +363,8 @@ const seg = (n: number, startUs: number, endUs: number): EngineEvent => ({ type:
 const reset = (startUs: number, paused = false, generation = 1): EngineEvent => ({ type: 'videoReset', startUs, paused, generation });
 
 /** A session opened at `startUs`, its init appended, the buffer ready. */
-function opened(startUs = 0, paused = false, generation = 1) {
-  const t = setup();
+function opened(startUs = 0, paused = false, generation = 1, presented?: { value: boolean }, managed = false) {
+  const t = setup({ ...(presented ? { presented } : {}), ...(managed ? { managed } : {}) });
   t.out.handle(reset(startUs, paused, generation));
   t.out.handle(init());
   t.ms.fireOpen();
@@ -964,5 +1038,297 @@ describe('ElementVideoOutput', () => {
     };
     t.out.setPlaying(false);
     expect(ops.slice(-2)).toEqual(['read', 'pause']);
+  });
+});
+
+describe('ElementVideoOutput and the system controls of a presented element', () => {
+  /** An element placed and playing on a running clock, presented as `presented` says. */
+  async function playingSession(presented: { value: boolean }) {
+    const t = opened(0, false, 1, presented);
+    const clock = new ClockBlockWriter(t.out.clock);
+    clock.write(1_000_000, true, 5000);
+    appendSegment(t, 1, 0, 2);
+    t.out.setPlaying(true);
+    await flush();
+    expect(t.video.paused).toBe(false);
+    return t;
+  }
+
+  it("ignores its own play, pause and seeks", async () => {
+    const presented = { value: true };
+    const t = await playingSession(presented);
+    t.out.setPlaying(false);
+    await flush();
+    t.out.handle(reset(3_000_000, false, 2));
+    appendSegment(t, 2, 3, 5);
+    await flush();
+    expect(t.transports).toEqual([]);
+  });
+
+  it('a pause from the system controls while presented pauses the player', async () => {
+    const t = await playingSession({ value: true });
+    t.video.userPause();
+    await flush();
+    expect(t.transports).toEqual([{ kind: 'pause' }]);
+  });
+
+  it('a play from the system controls while the player is paused: the element waits for the clock, and the player plays', async () => {
+    const t = await playingSession({ value: true });
+    t.out.setPlaying(false);
+    await flush();
+    const pauses = t.video.pauses;
+    t.video.userPlay();
+    await flush();
+    expect(t.transports).toEqual([{ kind: 'play' }]);
+    expect(t.video.paused).toBe(true);
+    expect(t.video.pauses).toBe(pauses + 1);
+  });
+
+  it('a seek from the system controls while presented seeks the player in playlist time', async () => {
+    const t = await playingSession({ value: true });
+    t.video.currentTime = OFFSET_S + 42.5; // as the scrubber sets it: not one of the output's own times
+    await flush();
+    expect(t.transports).toEqual([{ kind: 'seek', timeUs: 42_500_000 }]);
+  });
+
+  it("the element's own pause at the end of its stream is not the user's, nor the seek to the start a play from there makes", async () => {
+    const t = await playingSession({ value: true });
+    t.out.handle({ type: 'videoEnded' });
+    expect(t.ms.ended).toBe(1);
+    // the element plays to its end and pauses there by itself; the engine ends the playlist on its own clock
+    t.video.ended = true;
+    t.video.userPause();
+    await flush();
+    expect(t.transports).toEqual([]);
+    // the system's play on an ended element seeks to its start first: no seek of the player
+    t.video.currentTime = 0;
+    t.video.userPlay();
+    await flush();
+    expect(t.transports.filter((x) => x.kind === 'seek')).toEqual([]);
+    // a new session forgets the end
+    t.video.ended = false;
+    t.out.handle(reset(0, false, 2));
+    if (t.sb().updating) t.sb().finish(); // the removal of what the last session left
+    appendSegment(t, 2, 0, 2);
+    await flush();
+    t.video.currentTime = OFFSET_S + 1;
+    await flush();
+    expect(t.transports.at(-1)).toEqual({ kind: 'seek', timeUs: 1_000_000 });
+  });
+
+  it('two of its own seeks before the first seeking event are both its own', async () => {
+    const t = await playingSession({ value: true });
+    const clock = new ClockBlockWriter(t.out.clock);
+    clock.write(1_500_000, false, 5000); // the engine's clock holds: the element pauses and seeks to the held frame
+    t.video.presentFrame(OFFSET_S + 1.4, 4000);
+    t.out.handle(reset(5_000_000, false, 2));
+    if (t.sb().updating) t.sb().finish(); // the removal of what the last session left
+    appendSegment(t, 2, 5, 7); // placed at 5 s: a second seek, before either event has fired
+    expect(t.video.currentTime).toBe(OFFSET_S + 5);
+    await flush();
+    expect(t.transports).toEqual([]);
+  });
+
+  it('outside a presentation nothing goes to the player, and a stray play is paused again', async () => {
+    const t = await playingSession({ value: false });
+    t.video.userPause();
+    t.video.currentTime = OFFSET_S + 7;
+    await flush();
+    expect(t.transports).toEqual([]);
+    t.out.setPlaying(false);
+    await flush();
+    t.video.userPlay();
+    await flush();
+    expect(t.transports).toEqual([]);
+    expect(t.video.paused).toBe(true);
+  });
+});
+
+describe('ElementVideoOutput and the media source duration', () => {
+  it("sets the playlist's end in media time once the source is open, so a system scrubber spans the playlist", () => {
+    const t = setup();
+    t.out.handle({ type: 'videoReset', startUs: 0, paused: false, generation: 1, durationUs: 150_000_000 });
+    t.out.handle(init());
+    expect(Number.isNaN(t.ms.duration)).toBe(true);
+    t.ms.fireOpen();
+    expect(t.ms.duration).toBe(150 + OFFSET_S);
+  });
+});
+
+describe('ElementVideoOutput and the text track of a presented element', () => {
+  it('asks for text cues while presented, shows them as one cue on the element, and stops after', () => {
+    const presented = { value: false };
+    const t = opened(0, false, 1, presented);
+    presented.value = true;
+    t.video.fire('enterpictureinpicture');
+    expect(commands(t.posted, 'setTextCues')).toEqual([{ type: 'setTextCues', on: true }]);
+    const track = t.video.tracks[0]!;
+    expect(track.mode).toBe('showing');
+    t.out.handle({ type: 'textCue', text: 'Hello\nthere' });
+    expect(track.cues).toEqual([{ start: 0, end: 1e7, text: 'Hello\nthere' }]);
+    t.out.handle({ type: 'textCue', text: null });
+    expect(track.cues).toEqual([]);
+    t.out.handle({ type: 'textCue', text: 'Again' });
+    presented.value = false;
+    t.video.fire('leavepictureinpicture');
+    expect(commands(t.posted, 'setTextCues').at(-1)).toEqual({ type: 'setTextCues', on: false });
+    // the presentation ended: once that has held a moment, the playlist goes back to the path the setting picks
+    expect(commands(t.posted, 'preferElement')).toEqual([]);
+    t.fireTimers();
+    expect(commands(t.posted, 'preferElement')).toEqual([{ type: 'preferElement', on: false }]);
+    expect(track.mode).toBe('disabled');
+    expect(track.cues).toEqual([]);
+    // a second presentation reuses the track
+    presented.value = true;
+    t.video.fire('webkitbeginfullscreen');
+    expect(t.video.tracks).toHaveLength(1);
+    expect(track.mode).toBe('showing');
+  });
+});
+
+describe('ElementVideoOutput and a shorter next playlist', () => {
+  it("sets the new playlist's end once what the last one left is removed", () => {
+    const t = setup();
+    t.out.handle({ type: 'videoReset', startUs: 0, paused: false, generation: 1, durationUs: 20_000_000 });
+    t.out.handle(init());
+    t.ms.fireOpen();
+    t.sb().finish(); // init
+    appendSegment(t, 1, 0, 20);
+    expect(t.ms.duration).toBe(30);
+    t.out.handle({ type: 'videoReset', startUs: 0, paused: false, generation: 2, durationUs: 5_000_000 });
+    expect(t.ms.duration).toBe(30); // the removal runs first
+    t.sb().finish();
+    expect(t.ms.duration).toBe(15);
+  });
+});
+
+describe('vttCueText', () => {
+  it('escapes what WebVTT would read as tags or entities', () => {
+    expect(vttCueText('a < b & c > d\n<i>x</i> &amp;')).toBe('a &lt; b &amp; c &gt; d\n&lt;i&gt;x&lt;/i&gt; &amp;amp;');
+  });
+});
+
+describe('ElementVideoOutput and a presentation that only seems to end', () => {
+  it('keeps the preference when the element is presented again within a moment (WebKit reports the mode in steps)', () => {
+    const presented = { value: true };
+    const t = opened(0, false, 1, presented);
+    t.video.fire('webkitbeginfullscreen');
+    presented.value = false;
+    t.video.fire('webkitpresentationmodechanged');
+    presented.value = true;
+    t.video.fire('webkitpresentationmodechanged');
+    t.fireTimers();
+    expect(commands(t.posted, 'preferElement')).toEqual([]);
+  });
+});
+
+describe('ElementVideoOutput across a playlist change while presented', () => {
+  it('keeps the media source for the next session, so Picture in Picture stays open, and releases it once nothing shows it', async () => {
+    const presented = { value: true };
+    const t = opened(0, false, 1, presented, true);
+    appendSegment(t, 1, 0, 2);
+    t.out.handle({ type: 'videoElementStop' });
+    expect(t.video.removedAttrs).toEqual([]);
+    expect(t.revoked()).toBe(0);
+    // the next session resets and refills the same source
+    t.out.handle({ type: 'videoReset', startUs: 0, paused: false, generation: 2, durationUs: 4_000_000 });
+    t.out.handle(init('hvc1.2.4.L120.90'));
+    expect(t.created()).toBe(1);
+    const old = t.sb();
+    old.finish(); // the removal of what the last session left
+    // a new buffer for the next session (Safari on iPhone keeps an old buffer's end and stretches the duration to it)
+    expect(t.ms.removedBuffers).toEqual([old]);
+    expect(t.ms.types.at(-1)).toBe('video/mp4; codecs="hvc1.2.4.L120.90"');
+    expect(t.sb()).not.toBe(old);
+    expect(t.sb().appended).toHaveLength(1); // the init went into the new buffer
+    t.sb().finish();
+    expect(t.ms.duration).toBe(14);
+    // a stop whose next playlist goes to the canvas: the source goes once the presentation ends
+    t.out.handle({ type: 'videoElementStop' });
+    expect(t.revoked()).toBe(0);
+    presented.value = false;
+    t.video.fire('leavepictureinpicture');
+    expect(t.revoked()).toBe(1);
+    expect(t.video.removedAttrs).toEqual(['src']);
+  });
+
+  it('releases the element at a stop when it is not presented, as before', () => {
+    const t = opened(0, false, 1, { value: false });
+    t.out.handle({ type: 'videoElementStop' });
+    expect(t.revoked()).toBe(1);
+  });
+});
+
+describe('ElementVideoOutput after a held session, by browser', () => {
+  it('a ManagedMediaSource gets its new buffer even when a second reset comes before the next init', () => {
+    const t = opened(0, false, 1, { value: true }, true);
+    appendSegment(t, 1, 0, 2);
+    t.out.handle({ type: 'videoElementStop' });
+    t.out.handle(reset(0, false, 2));
+    if (t.sb().updating) t.sb().finish();
+    t.out.handle(reset(3_000_000, false, 3)); // a seek, or a jump to a mark, before the init
+    if (t.sb().updating) t.sb().finish();
+    const old = t.sb();
+    t.out.handle(init());
+    if (old.updating) old.finish();
+    expect(t.ms.removedBuffers).toEqual([old]);
+    expect(t.sb()).not.toBe(old);
+  });
+
+  it('a reset after the init queued the new buffer, before it ran, still gets one at the next init', () => {
+    const t = opened(0, false, 1, { value: true }, true);
+    appendSegment(t, 1, 0, 2);
+    t.out.handle({ type: 'videoElementStop' });
+    t.out.handle(reset(0, false, 2));
+    const old = t.sb();
+    t.out.handle(init('hvc1.2.4.L120.90')); // queued behind the removal still in flight
+    t.out.handle(reset(1_000_000, false, 3)); // drops it
+    if (old.updating) old.finish();
+    t.out.handle(init('hvc1.2.4.L120.90'));
+    if (old.updating) old.finish();
+    expect(t.ms.removedBuffers).toEqual([old]);
+    expect(t.ms.types.at(-1)).toBe('video/mp4; codecs="hvc1.2.4.L120.90"');
+  });
+
+  it('elsewhere (Chrome) the kept buffer is reused, changing its codec, and no second buffer is asked for', () => {
+    const t = opened(0, false, 1, { value: true }, false);
+    t.ms.refuseSecond = true;
+    appendSegment(t, 1, 0, 2);
+    t.out.handle({ type: 'videoElementStop' });
+    t.out.handle(reset(0, false, 2));
+    t.out.handle(init('hvc1.2.4.L120.90'));
+    if (t.sb().updating) t.sb().finish();
+    expect(t.ms.removedBuffers).toEqual([]);
+    expect(t.ms.types).toHaveLength(1);
+    expect(t.sb().changed).toEqual(['video/mp4; codecs="hvc1.2.4.L120.90"']);
+    expect(commands(t.posted, 'videoElementFailed')).toEqual([]);
+  });
+
+  it('a refused new buffer starts the session over on a media source of its own, without failing the element path', () => {
+    const t = opened(0, false, 1, { value: true }, true);
+    t.ms.refuseSecond = true;
+    appendSegment(t, 1, 0, 2);
+    t.out.handle({ type: 'videoElementStop' });
+    t.out.handle(reset(0, false, 2));
+    t.out.handle(init());
+    if (t.sb().updating) t.sb().finish(); // the removal; then the refused buffer
+    expect(t.created()).toBe(2);
+    expect(t.revoked()).toBe(1);
+    expect(commands(t.posted, 'videoElementFailed')).toEqual([]);
+    const next = t.sources[0]!;
+    next.fireOpen();
+    expect(next.buffers[0]!.appended).toHaveLength(1); // the init, into the new source
+  });
+
+  it('a reset that drops a queued codec change leaves the change owed', () => {
+    const t = opened(0, false, 1);
+    appendSegment(t, 1, 0, 2);
+    t.out.handle(reset(0, false, 2));
+    t.out.handle(init('hvc1.2.4.L120.90')); // queued behind the removal
+    t.out.handle(reset(1_000_000, false, 3)); // dropped before it ran
+    if (t.sb().updating) t.sb().finish();
+    t.out.handle(init('hvc1.2.4.L120.90'));
+    if (t.sb().updating) t.sb().finish();
+    expect(t.sb().changed).toEqual(['video/mp4; codecs="hvc1.2.4.L120.90"']);
   });
 });

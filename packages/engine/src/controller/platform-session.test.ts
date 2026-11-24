@@ -8,6 +8,7 @@ function setup(opts: { wakeLock?: boolean; mediaSession?: boolean; rejectLock?: 
   const controller = {
     togglePlay: vi.fn(),
     seekBy: vi.fn(),
+    seek: vi.fn(),
     getSnapshot: () => snap,
     subscribe: (l: () => void) => {
       listeners.add(l);
@@ -29,10 +30,13 @@ function setup(opts: { wakeLock?: boolean; mediaSession?: boolean; rejectLock?: 
         ? new Promise<typeof sentinel>((r) => void (deferred = r))
         : Promise.resolve(sentinel),
   );
-  const handlers = new Map<string, ((d?: { seekOffset?: number }) => void) | null>();
+  const handlers = new Map<string, ((d?: { seekOffset?: number; seekTime?: number }) => void) | null>();
+  const positions: Array<{ duration: number; position: number; playbackRate: number } | undefined> = [];
   const mediaSession = {
     metadata: null as unknown,
-    setActionHandler: (a: string, h: ((d?: { seekOffset?: number }) => void) | null) => void handlers.set(a, h),
+    playbackState: 'none' as 'none' | 'paused' | 'playing',
+    setActionHandler: (a: string, h: ((d?: { seekOffset?: number; seekTime?: number }) => void) | null) => void handlers.set(a, h),
+    setPositionState: (p?: { duration: number; position: number; playbackRate: number }) => void positions.push(p),
   };
   class Meta {
     constructor(readonly init: { title: string; artist?: string }) {}
@@ -44,9 +48,10 @@ function setup(opts: { wakeLock?: boolean; mediaSession?: boolean; rejectLock?: 
   let hidden = false;
   let onVis = (): void => {};
   const visibility: VisibilityLike = { hidden: () => hidden, onChange: (cb) => void (onVis = cb) };
-  const session = new PlatformSession(nav, controller, visibility);
+  const clock = { ms: 0 };
+  const session = new PlatformSession(nav, controller, visibility, () => clock.ms);
   const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0));
-  return { resolveLock: () => deferred?.(sentinel), fireRelease: () => releaseListeners.forEach((l) => l()), session, controller, set, request, release, handlers, mediaSession, flush, setHidden: (h: boolean) => { hidden = h; onVis(); } };
+  return { clock, positions, resolveLock: () => deferred?.(sentinel), fireRelease: () => releaseListeners.forEach((l) => l()), session, controller, set, request, release, handlers, mediaSession, flush, setHidden: (h: boolean) => { hidden = h; onVis(); } };
 }
 
 describe('PlatformSession', () => {
@@ -190,5 +195,33 @@ describe('PlatformSession', () => {
       t.set({ engineState: 'playing' });
       t.session.dispose();
     }).not.toThrow();
+  });
+});
+
+describe('PlatformSession position and seekto', () => {
+  it('a seek to a time from the system scrubber seeks the player', () => {
+    const t = setup();
+    t.handlers.get('seekto')?.({ seekTime: 42.5 });
+    expect(t.controller.seek).toHaveBeenCalledWith(42_500_000);
+    t.handlers.get('seekto')?.({});
+    expect(t.controller.seek).toHaveBeenCalledTimes(1);
+  });
+
+  it('tells the position on a new playlist, a pause and a seek, and not while it runs as reckoned', () => {
+    const t = setup();
+    t.set({ currentPlaylistId: '00000', durationUs: 100_000_000, timeUs: 0, engineState: 'playing' });
+    expect(t.positions).toEqual([{ duration: 100, position: 0, playbackRate: 1 }]);
+    expect(t.mediaSession.playbackState).toBe('playing');
+    t.clock.ms = 5000;
+    t.set({ timeUs: 5_000_000 });
+    expect(t.positions).toHaveLength(1);
+    t.clock.ms = 6000;
+    t.set({ timeUs: 60_000_000 }); // a seek
+    expect(t.positions.at(-1)).toEqual({ duration: 100, position: 60, playbackRate: 1 });
+    t.set({ engineState: 'paused' });
+    expect(t.positions).toHaveLength(3);
+    expect(t.mediaSession.playbackState).toBe('paused');
+    t.set({ engineState: 'buffering' }); // buffering counts as playing
+    expect(t.mediaSession.playbackState).toBe('playing');
   });
 });

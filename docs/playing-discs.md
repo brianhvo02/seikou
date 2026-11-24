@@ -90,6 +90,15 @@ Many older discs, and most live concerts and TV shows, are interlaced (480i, 576
 - It works on the canvas path, and where the browser has WebGL2. Without WebGL2, or if the graphics chip fails during a disc, the frames are drawn as they are. On a computer that draws WebGL in software (no graphics chip, as in many virtual machines), a simpler deinterlacer runs instead: it shows every field as a whole picture, but film isn't recognised, so film discs move with a slight judder. In Firefox on a Mac, H.264 discs are deinterlaced too, with slightly softer colour around moving edges, because Firefox's decoder has already mixed the two fields' colour.
 - HDR discs are never affected: UHD discs are progressive.
 
+## Picture in Picture and fullscreen
+
+**Picture in Picture** (the ⧉ button in the control bar, where the browser has it: Safari, Chrome) shows the video in a small window over other apps and pages. **Fullscreen** (⛶, or `F`) fills the screen with the whole player: subtitles, menus and controls.
+
+- Picture in Picture shows the video alone. Subtitle files you added (SRT or ASS) are given to the video as plain captions, without their styling and without signs, and show where the browser draws a video's captions in Picture in Picture (on an iPhone they have been seen only while the window's controls show); the disc's own subtitles and disc menus stay on the page. The player says which the first time. Its play, pause, skip and seek controls drive the player, whose sound stays in step with the picture. When a playlist ends, the disc moves on as it does on the page, also while you are in another tab or app.
+- It needs H.264 or HEVC video. MPEG-2 and VC-1 discs, encoded episodes, and a playlist with video shaders on can't use it, and the player says why. The video output setting **Canvas** keeps it off too.
+- When the video is drawn on the canvas (most H.264 discs, under Auto), the first tap moves the playlist to the video element at the same place, then opens Picture in Picture. If that takes longer than the browser allows after a tap (about a second in Safari on iPhone), the player asks you to tap Picture in Picture once more. When Picture in Picture closes, the playlist goes back to the canvas at the same place. Meanwhile an interlaced disc (1080i and the like) is shown as the browser decodes it, not deinterlaced by the player; it is deinterlaced again once it is back on the canvas.
+- Where a browser can't make the page fullscreen but can show a video fullscreen (Safari on some iPhones), Fullscreen shows the video alone in the system's player, the same way, with the same limits. It waits while a disc menu is shown, and closes when a menu comes up so you can use it.
+
 ## Controls
 
 ### Keyboard

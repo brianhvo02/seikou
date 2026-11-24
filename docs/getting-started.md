@@ -46,7 +46,7 @@ Safari and Firefox do not keep folder permissions, so you pick the folder each t
 The player installs as an app (a "progressive web app"):
 
 - Chrome on desktop and Android: use the install option in the browser's menu or address bar.
-- Safari on iPhone and iPad: Share, then **Add to Home Screen**. Fullscreen on iPhone also needs this.
+- Safari on iPhone and iPad: Share, then **Add to Home Screen**. On an iPhone whose Safari can't make a page fullscreen, the Fullscreen button shows the video alone in the system's player instead (see [Picture in Picture and fullscreen](playing-discs.md#picture-in-picture-and-fullscreen)).
 - Safari on Mac: File, then **Add to Dock**.
 
 ## Offline use

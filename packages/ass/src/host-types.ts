@@ -31,6 +31,11 @@ export interface TextRendererLike {
   changed(timeUs: number, opts: TextRenderOptions): boolean;
   /** Whether anything shows at `timeUs`. */
   visible(timeUs: number, opts: TextRenderOptions): boolean;
+  /**
+   * What shows at `timeUs` as plain text, one entry per cue or event (lines joined by `\n`), for a place that can't
+   * draw it (a video's text track in Picture in Picture); positioned signs and drawings are left out.
+   */
+  plainText?(timeUs: number, opts: TextRenderOptions): readonly string[];
 }
 
 /** The memory limits `AssRenderer` reads; the engine's `MemoryProfile` satisfies it structurally. */

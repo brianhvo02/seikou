@@ -7,6 +7,7 @@
  * SPDX-License-Identifier: LGPL-3.0-or-later
  */
 
+import { plainText } from './plain-text';
 import type { AssRendererLimits, Rect, TextRendererLike, TextRenderOptions } from './host-types';
 import type { AssFonts } from './fonts';
 import { FrameBuilder, type FrameEvent } from './frame';
@@ -178,6 +179,16 @@ export class AssRenderer implements TextRendererLike {
     if (this.lastAnimated && Math.abs(t - this.lastRenderT) >= ANIMATION_STEP_MS) return true;
     const key = this.activeKey(t);
     return key !== this.lastActive || (key !== '' && opts.scale !== this.lastScale);
+  }
+
+  /**
+   * The dialogue showing at `timeUs` as plain text (override tags dropped; positioned signs and drawings left out), one
+   * entry per distinct event in file order.
+   * @example ../examples/ass-renderer.browser.ts#plainText
+   */
+  plainText(timeUs: number, opts: TextRenderOptions): string[] {
+    const events = this.track.events;
+    return plainText(this.builder.activeIndices(AssRenderer.ms(timeUs, opts)).map((i) => events[i]!));
   }
 
   /**

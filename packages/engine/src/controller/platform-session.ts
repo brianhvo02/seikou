@@ -5,7 +5,7 @@ interface SentinelLike {
   addEventListener?(type: 'release', cb: () => void): void;
 }
 
-type ActionHandler = (details?: { seekOffset?: number }) => void;
+type ActionHandler = (details?: { seekOffset?: number; seekTime?: number }) => void;
 
 /** The slice of `navigator` this class uses, injectable so Node tests need no browser. */
 export interface NavigatorLike {
@@ -13,14 +13,20 @@ export interface NavigatorLike {
   readonly mediaSession?: {
     metadata: unknown;
     setActionHandler(action: string, handler: ActionHandler | null): void;
+    /** Whether the system shows the media as playing or paused. */
+    playbackState?: 'none' | 'paused' | 'playing';
+    /** Where the system's controls (lock screen, Picture in Picture) draw their position; Safari and Chrome have it. */
+    setPositionState?(state?: { duration: number; position: number; playbackRate: number }): void;
   };
   readonly MediaMetadata?: new (init: { title: string; artist?: string }) => unknown;
 }
 
-type ControllerLike = Pick<PlayerController, 'togglePlay' | 'seekBy' | 'getSnapshot' | 'subscribe'>;
+type ControllerLike = Pick<PlayerController, 'togglePlay' | 'seekBy' | 'getSnapshot' | 'subscribe'> & Partial<Pick<PlayerController, 'seek'>>;
 
 const SEEK_SECONDS = 10;
-const ACTIONS = ['play', 'pause', 'seekbackward', 'seekforward'] as const;
+const ACTIONS = ['play', 'pause', 'seekbackward', 'seekforward', 'seekto'] as const;
+/** How far (seconds) the system's own reckoning of the position may drift from the player's before it is told again. */
+const POSITION_SLACK_S = 1;
 
 function chapterNumber(s: PlayerSnapshot): number | null {
   let n: number | null = null;
@@ -31,7 +37,8 @@ function chapterNumber(s: PlayerSnapshot): number | null {
 }
 
 /**
- * Screen wake lock while playing, and Media Session metadata and transport handlers (play, pause, seek by 10 s).
+ * Screen wake lock while playing, and Media Session metadata, position and transport handlers (play, pause, seek by 10 s,
+ * and a seek to a time, from a system scrubber).
  * Main thread only; it follows a `PlayerController` through its store interface and has no worker of its own.
  * @example ../../examples/platform-session.ts#construct
  */
@@ -41,11 +48,15 @@ export class PlatformSession {
   private disposed = false;
   private metaKey: string | null = null;
   private readonly unsubscribe: () => void;
+  /** The position last told to the Media Session: playlist, length, position (s), when (ms), whether it ran. */
+  private told: { readonly key: string; readonly positionS: number; readonly atMs: number; readonly playing: boolean } | null = null;
 
+  /** `nowMs` (performance.now by default) times the position told to the Media Session. */
   constructor(
     private readonly nav: NavigatorLike,
     private readonly controller: ControllerLike,
     private readonly visibility: VisibilityLike = documentVisibility(),
+    private readonly nowMs: () => number = () => performance.now(),
   ) {
     this.installHandlers();
     this.unsubscribe = controller.subscribe(() => this.sync());
@@ -95,6 +106,9 @@ export class PlatformSession {
     });
     set('seekbackward', (d) => this.controller.seekBy(-(d?.seekOffset ?? SEEK_SECONDS) * 1_000_000));
     set('seekforward', (d) => this.controller.seekBy((d?.seekOffset ?? SEEK_SECONDS) * 1_000_000));
+    set('seekto', (d) => {
+      if (d?.seekTime !== undefined && Number.isFinite(d.seekTime)) this.controller.seek?.(Math.max(0, d.seekTime) * 1_000_000);
+    });
   }
 
   /** Playing or buffering: the wake lock and the Media Session both treat buffering as playing. */
@@ -112,6 +126,34 @@ export class PlatformSession {
       this.releaseLock();
     }
     this.syncMetadata(s);
+    this.syncPosition(s);
+  }
+
+  /**
+   * Tells the Media Session the playlist's length and position when they change beyond what it reckons itself (it
+   * runs the position on at the playback rate while playing): a new playlist, a pause or play, or a seek.
+   */
+  private syncPosition(s: PlayerSnapshot): void {
+    const ms = this.nav.mediaSession;
+    if (!ms?.setPositionState || s.durationUs <= 0) return;
+    const duration = s.durationUs / 1e6;
+    const positionS = Math.min(Math.max(0, s.timeUs / 1e6), duration);
+    const playing = this.playing(); // buffering counts as playing, as for the wake lock and the handlers
+    const key = `${s.currentPlaylistId ?? ''}\u0000${duration}`;
+    const now = this.nowMs();
+    const t = this.told;
+    if (t && t.key === key && t.playing === playing) {
+      const reckoned = t.positionS + (t.playing ? (now - t.atMs) / 1000 : 0);
+      if (Math.abs(reckoned - positionS) <= POSITION_SLACK_S) return;
+    }
+    this.told = { key, positionS, atMs: now, playing };
+    try {
+      // a paused position is told with rate 1 too (0 is refused); playbackState says it holds
+      if ('playbackState' in ms) ms.playbackState = playing ? 'playing' : 'paused';
+      ms.setPositionState({ duration, position: positionS, playbackRate: 1 });
+    } catch {
+      // a position the browser rejects: the system keeps its own
+    }
   }
 
   private requestLock(): void {

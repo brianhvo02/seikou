@@ -1,5 +1,18 @@
-/** Which fullscreen API the page uses: the standard one or the WebKit-prefixed one. */
-export type FullscreenKind = 'standard' | 'webkit';
+/**
+ * Which fullscreen the player uses: the standard API or the WebKit-prefixed one on the player (its picture, subtitles,
+ * menus and controls), or `video`, the video element's own fullscreen (WebKit's `webkitEnterFullscreen`) where page
+ * elements can't go fullscreen: the system then shows the video alone, with its own controls.
+ */
+export type FullscreenKind = 'standard' | 'webkit' | 'video';
+
+/**
+ * The fullscreen the player uses: the document's API when it has one, else the video's own where video elements have
+ * it, else none. `flag` is the page's `?fullscreen=` (test-only): `video` forces the video's own where it exists.
+ */
+export function fullscreenKind(caps: { readonly fullscreen: 'standard' | 'webkit' | null; readonly videoFullscreen: boolean }, flag: string | null = null): FullscreenKind | null {
+  if (flag === 'video' && caps.videoFullscreen) return 'video';
+  return caps.fullscreen ?? (caps.videoFullscreen ? 'video' : null);
+}
 
 interface WebkitDocument {
   webkitFullscreenElement?: Element | null;
@@ -9,8 +22,8 @@ interface WebkitElement {
   webkitRequestFullscreen?(): void;
 }
 
-/** Enters or leaves fullscreen with the standard API, or the WebKit-prefixed one (Safari on macOS and iPadOS). */
-export function toggleFullscreen(doc: Document, element: HTMLElement, kind: FullscreenKind): void {
+/** Enters or leaves fullscreen on `element` with the standard API, or the WebKit-prefixed one (Safari on macOS and iPadOS). */
+export function toggleFullscreen(doc: Document, element: HTMLElement, kind: 'standard' | 'webkit'): void {
   if (kind === 'webkit') {
     const d = doc as unknown as WebkitDocument;
     if (d.webkitFullscreenElement) d.webkitExitFullscreen?.();
@@ -34,7 +47,7 @@ export interface FullscreenHintInput {
   readonly dismissed: boolean;
 }
 
-/** The hint shows only where there is no fullscreen API, on a touch device, outside an installed app, until dismissed. */
+/** The hint shows only where there is no fullscreen at all (not even the video's own), on a touch device, outside an installed app, until dismissed. */
 export function shouldShowFullscreenHint({ fullscreen, coarsePointer, standalone, dismissed }: FullscreenHintInput): boolean {
   return fullscreen === null && coarsePointer && !standalone && !dismissed;
 }

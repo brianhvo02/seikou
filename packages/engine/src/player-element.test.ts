@@ -215,7 +215,8 @@ describe('Player on the element path', () => {
     expect(query).toBeLessThan(reset);
     expect(reset).toBeLessThan(init);
     expect(ofType(h, 'videoElementQuery')[0]!.codec).toMatch(/^avc1\./);
-    expect(ofType(h, 'videoReset')[0]).toEqual({ type: 'videoReset', startUs: 0, paused: false, generation: expect.any(Number) });
+    expect(ofType(h, 'videoReset')[0]).toEqual({ type: 'videoReset', startUs: 0, paused: false, generation: expect.any(Number), durationUs: expect.any(Number) });
+    expect(ofType(h, 'videoReset')[0]!.durationUs).toBeGreaterThan(7_900_000);
     expect(ofType(h, 'videoInit')[0]).toMatchObject({ codec: expect.stringMatching(/^avc1\./), width: expect.any(Number), height: expect.any(Number) });
     const segments = ofType(h, 'videoSegment');
     expect(segments.length).toBeGreaterThan(2);
@@ -294,7 +295,7 @@ describe('Player on the element path', () => {
     await h.player.handle({ type: 'seek', timeUs: 5_000_000 });
     await h.play(100);
     const after = h.events.slice(before);
-    expect(after).toContainEqual({ type: 'videoReset', startUs: 5_000_000, paused: true, generation: expect.any(Number) });
+    expect(after).toContainEqual({ type: 'videoReset', startUs: 5_000_000, paused: true, generation: expect.any(Number), durationUs: expect.any(Number) });
     // the reset comes before the new init and the segments from the target's entry
     const reset = after.findIndex((e) => e.type === 'videoReset');
     const init = after.findIndex((e) => e.type === 'videoInit');
@@ -972,4 +973,160 @@ describe('Player choosing the path', () => {
     await h.play(300);
     expect(h.events.slice(before).filter((e) => e.type === 'playlistCleared')).toHaveLength(0);
   });
+});
+
+describe('Player asked to prefer the element path (preferElement)', () => {
+  const preferences = (h: Harness) => ofType(h, 'elementPreference');
+  const timeAfter = (h: Harness, index: number): number | undefined => h.events.slice(index).find((e): e is Extract<EngineEvent, { type: 'time' }> => e.type === 'time')?.timeUs;
+
+  it('moves an SDR playlist on the canvas to the element path at the same time, with no notice, for the rest of the disc', async () => {
+    const h = await harness({ path: 'auto' });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    await h.play(1500);
+    expect(telemetries(h).at(-1)).toMatchObject({ videoPath: 'canvas' });
+    const at = clockNow(h);
+    const before = h.events.length;
+    await h.player.handle({ type: 'preferElement' });
+    expect(preferences(h).at(-1)).toEqual({ type: 'elementPreference', outcome: 'reopening' });
+    await untilState(h, 'playing');
+    await h.play(600);
+    const after = h.events.slice(before);
+    expect(after.filter((e) => e.type === 'playlistCleared')).toHaveLength(1);
+    expect(after.filter((e) => e.type === 'notice')).toHaveLength(0);
+    const reset = after.find((e): e is Extract<EngineEvent, { type: 'videoReset' }> => e.type === 'videoReset');
+    expect(reset?.startUs).toBeGreaterThan(at - 300_000);
+    expect(timeAfter(h, before)).toBeGreaterThan(at - 300_000);
+    expect(telemetries(h).at(-1)).toMatchObject({ videoPath: 'element' });
+    // another playlist of the same disc keeps the element path
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00001' });
+    await untilState(h, 'playing');
+    await h.play(300);
+    expect(telemetries(h).at(-1)).toMatchObject({ videoPath: 'element' });
+    // asked again on the element: nothing to do
+    await h.player.handle({ type: 'preferElement' });
+    expect(preferences(h).at(-1)).toEqual({ type: 'elementPreference', outcome: 'element' });
+    // a new disc forgets the preference
+    await h.player.handle({ type: 'open', disc: { kind: 'files', entries: discEntries(fixtureDiscFiles('disc1')) } });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    await h.play(300);
+    expect(telemetries(h).at(-1)).toMatchObject({ videoPath: 'canvas' });
+  }, 30_000);
+
+  it('dropping the preference (the presentation ended) reopens an SDR playlist on the canvas at the same time, and leaves HDR on the element', async () => {
+    const h = await harness({ path: 'auto' });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    await h.player.handle({ type: 'preferElement' });
+    await untilState(h, 'playing');
+    await h.play(1500);
+    expect(telemetries(h).at(-1)).toMatchObject({ videoPath: 'element' });
+    const at = clockNow(h);
+    const before = h.events.length;
+    await h.player.handle({ type: 'preferElement', on: false });
+    await untilState(h, 'playing');
+    await h.play(600);
+    const after = h.events.slice(before);
+    expect(after.filter((e) => e.type === 'elementPreference')).toHaveLength(0);
+    expect(after.filter((e) => e.type === 'videoElementStop')).toHaveLength(1);
+    expect(after.filter((e) => e.type === 'notice')).toHaveLength(0);
+    expect(timeAfter(h, before)).toBeGreaterThan(at - 300_000);
+    expect(telemetries(h).at(-1)).toMatchObject({ videoPath: 'canvas' });
+
+    const hdr = await harness({ path: 'auto', files: fixtureDiscFiles('disc-hdr') });
+    await hdr.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(hdr, 'playing');
+    await hdr.player.handle({ type: 'preferElement' });
+    await hdr.player.handle({ type: 'preferElement', on: false });
+    await hdr.play(300);
+    expect(hdr.events.filter((e) => e.type === 'videoElementStop')).toHaveLength(0);
+  }, 30_000);
+
+  it('answers unavailable with no playlist, under the Canvas setting, with a shader set on, and after the element failed', async () => {
+    const none = await harness({ path: 'auto' });
+    await none.player.handle({ type: 'preferElement' });
+    expect(preferences(none).at(-1)).toEqual({ type: 'elementPreference', outcome: 'unavailable', reason: 'no-playlist' });
+
+    const canvas = await harness({ path: 'canvas' });
+    await canvas.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(canvas, 'playing');
+    await canvas.player.handle({ type: 'preferElement' });
+    expect(preferences(canvas).at(-1)).toEqual({ type: 'elementPreference', outcome: 'unavailable', reason: 'canvas' });
+
+    const shaders = await harness({ path: 'auto', shaders: true });
+    await shaders.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(shaders, 'playing');
+    await shaders.player.handle({ type: 'preferElement' });
+    expect(preferences(shaders).at(-1)).toEqual({ type: 'elementPreference', outcome: 'unavailable', reason: 'shaders' });
+
+    const failed = await harness({ path: 'element' });
+    await failed.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(failed, 'playing');
+    await failed.player.handle({ type: 'videoElementFailed', message: 'an append failed', generation: failed.page.generation });
+    await untilState(failed, 'playing');
+    await failed.player.handle({ type: 'preferElement' });
+    expect(preferences(failed).at(-1)).toEqual({ type: 'elementPreference', outcome: 'unavailable', reason: 'element-failed' });
+  }, 30_000);
+
+  it('answers unavailable for video the element path cannot carry (MPEG-2)', async () => {
+    const h = await harness({ path: 'auto', files: fixtureDiscFiles('disc-mpeg2') });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await vi.waitFor(async () => {
+      await h.play(100);
+      expect(lastState(h)).toMatch(/playing|buffering/);
+    });
+    await h.player.handle({ type: 'preferElement' });
+    expect(preferences(h).at(-1)).toEqual({ type: 'elementPreference', outcome: 'unavailable', reason: 'codec' });
+  }, 20_000);
+
+  it('answers unavailable when the page said its element cannot play the stream', async () => {
+    const h = await harness({ path: 'element', playable: false });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    await h.player.handle({ type: 'preferElement' });
+    expect(preferences(h).at(-1)).toEqual({ type: 'elementPreference', outcome: 'unavailable', reason: 'refused' });
+  }, 20_000);
+});
+
+describe('Player ticking while the page is hidden', () => {
+  it('on the element path a hidden page (no animation frames) still ticks, on a timer, so the playlist ends', async () => {
+    const h = await harness({ audio: false });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    // the harness gives no animation frames: nothing ticks unless the test does, until the page is hidden
+    h.clock.ms += 20_000;
+    await new Promise((r) => setTimeout(r, 450));
+    expect(lastState(h)).toBe('playing');
+    await h.player.handle({ type: 'visibility', hidden: true });
+    await vi.waitFor(() => expect(lastState(h)).toBe('ended'), { timeout: 3000 });
+  }, 20_000);
+
+  it('ticks on the timer while hidden before a playlist has chosen its path, so a playlist started hidden plays on the element and ends', async () => {
+    // the page answers the element question only once the test attaches it: until then the session has no element
+    const h = await harness({ audio: false, attachLate: true });
+    await h.player.handle({ type: 'visibility', hidden: true });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await vi.waitFor(() => expect(ofType(h, 'videoElementQuery').length).toBeGreaterThan(0), { timeout: 3000 });
+    await h.attach();
+    await vi.waitFor(() => expect(lastState(h)).toBe('playing'), { timeout: 3000 });
+    h.clock.ms += 20_000;
+    await vi.waitFor(() => expect(lastState(h)).toBe('ended'), { timeout: 3000 });
+  }, 20_000);
+
+  it('goes on ticking on the timer across a playlist change while hidden, so the next playlist plays on the element and ends', async () => {
+    const h = await harness({ audio: false });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    await h.player.handle({ type: 'visibility', hidden: true });
+    h.clock.ms += 20_000;
+    await vi.waitFor(() => expect(lastState(h)).toBe('ended'), { timeout: 3000 });
+    const before = h.events.length;
+    // the next playlist starts while hidden: no session's element exists yet, and still nothing but the timer ticks
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00001' });
+    await vi.waitFor(() => expect(lastState(h)).toBe('playing'), { timeout: 3000 });
+    expect(h.events.slice(before).some((e) => e.type === 'videoReset')).toBe(true);
+    h.clock.ms += 20_000;
+    await vi.waitFor(() => expect(lastState(h)).toBe('ended'), { timeout: 3000 });
+  }, 20_000);
 });

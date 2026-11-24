@@ -18,14 +18,46 @@ export interface VideoElementLike {
   src: string;
   readonly paused: boolean;
   readonly seeking: boolean;
+  /** The element played to the end of its stream (after endOfStream): it pauses there by itself. */
+  readonly ended: boolean;
   play(): Promise<void>;
   pause(): void;
   requestVideoFrameCallback(cb: (now: number, meta: { mediaTime: number; expectedDisplayTime: number }) => void): number;
   cancelVideoFrameCallback(id: number): void;
   getVideoPlaybackQuality(): { totalVideoFrames: number; droppedVideoFrames: number };
-  addEventListener(type: 'waiting' | 'playing' | 'error', fn: () => void): void;
+  addEventListener(type: VideoElementEvent, fn: () => void): void;
+  /** Adds a text track (absent in tests that don't need one): it carries the subtitles while the element is presented. */
+  addTextTrack?(kind: 'subtitles', label: string, language: string): TextTrackLike;
   removeAttribute(name: string): void;
   load(): void;
+}
+
+/**
+ * The element events the output listens to: its own stalls and errors, play, pause and seeks (the system's controls),
+ * and the presentation changes of Picture in Picture and WebKit's video fullscreen.
+ * @internal
+ */
+export type VideoElementEvent =
+  | 'waiting'
+  | 'playing'
+  | 'error'
+  | 'play'
+  | 'pause'
+  | 'seeking'
+  | 'enterpictureinpicture'
+  | 'leavepictureinpicture'
+  | 'webkitpresentationmodechanged'
+  | 'webkitbeginfullscreen'
+  | 'webkitendfullscreen';
+
+/**
+ * The parts of a `TextTrack` the element output uses.
+ * @internal
+ */
+export interface TextTrackLike {
+  mode: 'disabled' | 'hidden' | 'showing';
+  addCue(cue: unknown): void;
+  removeCue(cue: unknown): void;
 }
 
 /**
@@ -34,7 +66,11 @@ export interface VideoElementLike {
  */
 export interface MediaSourceLike {
   readonly readyState: string;
+  /** Seconds; set to the playlist's end in media time so a system player's scrubber spans the playlist. */
+  duration: number;
   addSourceBuffer(type: string): SourceBufferLike;
+  /** Removes a source buffer (absent in tests that never replace one). */
+  removeSourceBuffer?(buffer: SourceBufferLike): void;
   endOfStream(): void;
   addEventListener(type: 'sourceopen', fn: () => void): void;
 }
@@ -67,7 +103,7 @@ export interface SourceBufferLike {
  */
 export interface ElementOutputDeps {
   video: VideoElementLike;
-  createMediaSource(): { source: MediaSourceLike; url: string; revoke(): void } | null;
+  createMediaSource(): { source: MediaSourceLike; url: string; revoke(): void; readonly managed?: boolean } | null;
   playable(query: ElementQuery): Promise<{ readonly playable: boolean; readonly check: ElementCheck }>;
   epochMs(): number;
   timeOrigin: number;
@@ -79,14 +115,56 @@ export interface ElementOutputDeps {
    * makes, so a new element doesn't ask the browser again; without it the output keeps its own.
    */
   answers?: Map<string, Promise<ElementAnswer>>;
+  /**
+   * Whether the system shows the element now (Picture in Picture, or the video's own fullscreen), where its own controls
+   * act on it: a play, pause or seek the output didn't make is then the user's. Never presented without it.
+   */
+  presented?(): boolean;
+  /** The user played, paused or sought the element through the system's controls while it was presented. */
+  onTransport?(t: ElementTransport): void;
+  /** Makes a text cue (`new VTTCue(start, end, text)`) for the element's text track; without it no subtitles are carried. */
+  makeCue?(startS: number, endS: number, text: string): unknown;
   /** Test-only: every append fails with an error that is not a `QuotaExceededError`, so the element fails at once. */
   failAppends?: boolean;
 }
 
+/**
+ * What the user did to a presented element through the system's controls: play, pause, or a seek to a playlist time.
+ * @internal
+ */
+export type ElementTransport = { readonly kind: 'play' } | { readonly kind: 'pause' } | { readonly kind: 'seek'; readonly timeUs: number };
+
+/**
+ * `text` as a WebVTT cue's text: `&`, `<` and `>` escaped, since a cue's text is parsed for tags and entities (an ASS
+ * line's `<` would otherwise start a tag and vanish).
+ * @internal
+ */
+export function vttCueText(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** How long (ms) a presentation must stay ended before the playlist goes back to the setting's path. */
+const PRESENTATION_END_SETTLE_MS = 500;
+
+/** The end of the one cue the text track shows (seconds of media time): later than any playlist. */
+const CUE_END_S = 1e7;
+/** How close (seconds) a `seeking` element's time must lie to a time the output set to count as the output's own. */
+const OWN_SEEK_SLACK_S = 0.05;
+/** The most times the output set whose `seeking` it still waits for. */
+const OWN_SEEKS_KEPT = 8;
+
 type Op =
   | { readonly k: 'append'; readonly bytes: Uint8Array; readonly segment: boolean; readonly retried: boolean }
   | { readonly k: 'remove'; readonly start: number; readonly end: number }
-  | { readonly k: 'change'; readonly type: string }
+  | { readonly k: 'change'; readonly type: string; readonly codec: string }
+  /**
+   * Replaces the source buffer with a new one of `type` (a session that follows one held while presented): Safari on
+   * iPhone keeps a buffer's highest end through a removal and stretches the duration back to it on every append, so a
+   * shorter next playlist would show the last one's length.
+   */
+  | { readonly k: 'rebuffer'; readonly type: string; readonly codec: string }
+  /** Sets the media source's duration: queued after a reset's removal, since a duration under what is buffered is refused. */
+  | { readonly k: 'duration'; readonly s: number }
   | { readonly k: 'end' };
 
 interface Attached {
@@ -94,6 +172,8 @@ interface Attached {
   readonly revoke: () => void;
   /** The first init's type, which the source buffer is made with; a codec change queued since runs as an operation. */
   readonly firstType: string;
+  /** A `ManagedMediaSource` (Safari on iPhone), whose reused buffer stretches the duration back (see the rebuffer operation). */
+  readonly managed: boolean;
   buffer: SourceBufferLike | null;
 }
 
@@ -193,6 +273,31 @@ export class ElementVideoOutput {
    * expectedDisplayTime is off the page's clock; null until the first such frame starts the measuring.
    */
   private refresh: RefreshEstimate | null = null;
+  /** play() and pause() calls whose `play` and `pause` events are still to come: those events are the output's own. */
+  private ownPlays = 0;
+  private ownPauses = 0;
+  /** Times (media seconds) the output set whose `seeking` is still to come. */
+  private ownSeeks: number[] = [];
+  /**
+   * The element reached the end of its stream since the last reset: its own `pause` there is not the user's, and the
+   * seek to the start a play from the system's controls makes on an ended element is not a seek of the player.
+   */
+  private endedSeen = false;
+  /** Whether the engine sends textCue events: while the element is presented. */
+  private cuesOn = false;
+  /** The session stopped while the element was presented: its media source is kept for the next session (holdForNext). */
+  private held = false;
+  /** The session after a held one: its init replaces the source buffer (the rebuffer operation) instead of reusing it. */
+  private afterHold = false;
+  /** Whether the system showed the element, as last settled (a presentation's end counts once it has held). */
+  private wasPresented = false;
+  /** Cancels the look, a moment after a presentation seemed to end, whether it really did. */
+  private cancelEndedCheck: (() => void) | null = null;
+  /** The element's text track (made the first time it is presented) and the cue it shows. */
+  private textTrack: TextTrackLike | null = null;
+  private cue: unknown = null;
+  /** The playlist's end in media time (seconds), from the last videoReset: the media source's duration, once set. */
+  private durationS: number | null = null;
 
   /** Mutes the element, plays it inline, and listens to its stalls and errors. */
   constructor(private readonly deps: ElementOutputDeps) {
@@ -224,6 +329,129 @@ export class ElementVideoOutput {
     video.addEventListener('error', () => {
       if (this.attached) this.fail('the video element failed');
     });
+    video.addEventListener('pause', () => this.onPauseEvent());
+    video.addEventListener('play', () => this.onPlayEvent());
+    video.addEventListener('seeking', () => this.onSeekingEvent());
+    for (const type of ['enterpictureinpicture', 'leavepictureinpicture', 'webkitpresentationmodechanged', 'webkitbeginfullscreen', 'webkitendfullscreen'] as const) {
+      video.addEventListener(type, () => this.onPresentationChange());
+    }
+  }
+
+  /**
+   * The system started or stopped showing the element: while it does, the engine sends the showing text subtitles as
+   * plain text (setTextCues) and the element's own text track shows them, since the canvas can't be seen there.
+   */
+  private onPresentationChange(): void {
+    const presented = this.presented();
+    // a source kept for a next playlist that never came to the element is released once nothing shows it
+    if (!presented && this.held) this.detach();
+    // the presentation ended: the playlist goes back to the path the video output setting picks (preferElement off),
+    // once it has stayed ended a moment (WebKit reports the mode in steps while it enters and leaves)
+    if (this.wasPresented && !presented) {
+      this.cancelEndedCheck?.();
+      this.cancelEndedCheck = this.deps.setTimer(() => {
+        this.cancelEndedCheck = null;
+        if (!this.presented()) {
+          this.wasPresented = false;
+          this.deps.post({ type: 'preferElement', on: false });
+        }
+      }, PRESENTATION_END_SETTLE_MS);
+    } else if (presented) {
+      this.cancelEndedCheck?.();
+      this.cancelEndedCheck = null;
+      this.wasPresented = true;
+    }
+    const on = presented && this.deps.makeCue !== undefined && this.deps.video.addTextTrack !== undefined;
+    if (on === this.cuesOn) return;
+    this.cuesOn = on;
+    if (on && !this.textTrack) this.textTrack = this.deps.video.addTextTrack!('subtitles', 'Subtitles', '');
+    this.showCue(null);
+    if (this.textTrack) this.textTrack.mode = on ? 'showing' : 'disabled';
+    this.deps.post({ type: 'setTextCues', on });
+  }
+
+  /** Shows `text` as the text track's one cue, spanning every media time, or none. */
+  private showCue(text: string | null): void {
+    const track = this.textTrack;
+    if (!track) return;
+    if (this.cue !== null) {
+      try {
+        track.removeCue(this.cue);
+      } catch {
+        // already gone
+      }
+      this.cue = null;
+    }
+    if (text === null || !this.cuesOn || !this.deps.makeCue) return;
+    this.cue = this.deps.makeCue(0, CUE_END_S, text);
+    track.addCue(this.cue);
+  }
+
+  /** Whether the system shows the element now (deps.presented), where play, pause and seeks the output didn't make are the user's. */
+  private presented(): boolean {
+    return this.deps.presented?.() === true;
+  }
+
+  private pauseVideo(): void {
+    this.ownPauses++;
+    this.deps.video.pause();
+  }
+
+  private playVideo(): Promise<void> {
+    this.ownPlays++;
+    return this.deps.video.play();
+  }
+
+  private seekVideo(mediaS: number): void {
+    this.ownSeeks.push(mediaS);
+    if (this.ownSeeks.length > OWN_SEEKS_KEPT) this.ownSeeks.shift();
+    this.deps.video.currentTime = mediaS;
+  }
+
+  /**
+   * A `pause`: the output's own, or the user's from the system's controls while the element is presented and the
+   * engine plays, which pauses the player (the sound is the engine's, not the muted element's).
+   */
+  private onPauseEvent(): void {
+    if (this.ownPauses > 0) {
+      this.ownPauses--;
+      return;
+    }
+    // an element at the end of its stream pauses by itself: the engine ends the playlist on its clock
+    if (this.deps.video.ended) {
+      this.endedSeen = true;
+      return;
+    }
+    if (!this.attached || !this.presented() || !this.playing) return;
+    this.deps.onTransport?.({ kind: 'pause' });
+  }
+
+  /**
+   * A `play`: the output's own, or one it didn't make while the engine is paused, which it pauses again at once, since
+   * the element starts only on the engine's clock; while presented that play is the user's and plays the player.
+   */
+  private onPlayEvent(): void {
+    if (this.ownPlays > 0) {
+      this.ownPlays--;
+      return;
+    }
+    if (!this.attached || this.playing) return;
+    this.pauseVideo();
+    if (this.presented()) this.deps.onTransport?.({ kind: 'play' });
+  }
+
+  /** A `seeking` to a time the output didn't set, while presented: the user's seek, in playlist time. */
+  private onSeekingEvent(): void {
+    const t = this.deps.video.currentTime;
+    const own = this.ownSeeks.findIndex((s) => Math.abs(s - t) <= OWN_SEEK_SLACK_S);
+    if (own >= 0) {
+      // one event per time set: two sets before the first event both read the later time, so each event answers the
+      // oldest set still waiting, not the one it matched
+      this.ownSeeks.shift();
+      return;
+    }
+    if (!this.attached || this.pendingStart || !this.presented() || this.endedSeen) return;
+    this.deps.onTransport?.({ kind: 'seek', timeUs: Math.max(0, Math.round(t * 1e6) - ELEMENT_TIME_OFFSET_US) });
   }
 
   /** Acts on an engine event; true when it was one of the element path's events. */
@@ -238,6 +466,7 @@ export class ElementVideoOutput {
       case 'videoReset':
         if (!this.disposed) {
           this.generation = e.generation;
+          this.durationS = e.durationUs !== undefined ? (e.durationUs + ELEMENT_TIME_OFFSET_US) / 1e6 : null;
           this.reset(e.startUs, e.paused);
         }
         return true;
@@ -257,7 +486,13 @@ export class ElementVideoOutput {
         }
         return true;
       case 'videoElementStop':
-        this.detach();
+        // the system shows the element (Picture in Picture): emptying it would close that, so its media source stays
+        // for the next playlist's session, which resets and refills it; otherwise the element is released
+        if (this.attached && this.presented()) this.holdForNext();
+        else this.detach();
+        return true;
+      case 'textCue':
+        this.showCue(e.text);
         return true;
       default:
         return false;
@@ -285,12 +520,32 @@ export class ElementVideoOutput {
 
   /** Releases the element and stops every callback; the output is unusable after. */
   dispose(): void {
+    this.cancelEndedCheck?.();
+    this.cancelEndedCheck = null;
     this.detach();
     this.disposed = true;
   }
 
+  /**
+   * The session stopped while the system shows the element: the element pauses on its last frame and keeps its media
+   * source, which the next session's reset empties and its init refills (changing the codec if it must).
+   */
+  private holdForNext(): void {
+    this.held = true;
+    this.cancelStart();
+    this.queue = [];
+    this.pendingStart = null;
+    this.playing = false;
+    this.stalled = false;
+    if (!this.deps.video.paused) this.pauseVideo();
+  }
+
   private reset(startUs: number, paused: boolean): void {
+    // a reset before the next init (a seek, a jump to a mark) keeps it: the rebuffer is still owed
+    this.afterHold = this.afterHold || this.held;
+    this.held = false;
     this.failed = false;
+    this.endedSeen = false;
     this.appended = 0;
     this.pendingStart = { startUs };
     this.playing = !paused;
@@ -301,9 +556,12 @@ export class ElementVideoOutput {
     this.queue = [];
     const a = this.attached;
     if (!a) return;
-    if (!this.deps.video.paused) this.deps.video.pause();
+    if (!this.deps.video.paused) this.pauseVideo();
     const b = a.buffer;
-    if (!b) return;
+    if (!b) {
+      this.queueDuration();
+      return;
+    }
     if (a.source.readyState === 'open') {
       try {
         b.abort();
@@ -312,8 +570,15 @@ export class ElementVideoOutput {
       }
     }
     this.inFlight = null;
-    if (b.buffered.length > 0) this.queue.push({ k: 'remove', start: 0, end: Infinity });
+    // after a held session the removal also reopens a source its end of stream closed, so a buffer can be added
+    if (b.buffered.length > 0 || this.afterHold) this.queue.push({ k: 'remove', start: 0, end: Infinity });
+    this.queueDuration();
     this.pump();
+  }
+
+  /** Queues the playlist's end as the media source's duration, so a system player's scrubber spans the playlist. */
+  private queueDuration(): void {
+    if (this.durationS !== null) this.queue.push({ k: 'duration', s: this.durationS });
   }
 
   private init(bytes: Uint8Array, codec: string): void {
@@ -323,7 +588,7 @@ export class ElementVideoOutput {
         this.fail('this browser has no MediaSource');
         return;
       }
-      const a: Attached = { source: made.source, revoke: made.revoke, firstType: mimeType(codec), buffer: null };
+      const a: Attached = { source: made.source, revoke: made.revoke, firstType: mimeType(codec), managed: made.managed === true, buffer: null };
       this.attached = a;
       this.bufferCodec = codec;
       // WebKit's ManagedMediaSource opens only when remote playback is off (or an AirPlay source is given).
@@ -336,11 +601,19 @@ export class ElementVideoOutput {
       }, SOURCE_OPEN_TIMEOUT_MS);
       this.startFrames();
       this.armSyncTimer();
-    } else if (codec !== this.bufferCodec) {
-      this.queue.push({ k: 'change', type: mimeType(codec) });
-      this.bufferCodec = codec;
+      this.queueDuration();
+    } else if (this.afterHold && this.attached.managed && this.attached.source.removeSourceBuffer) {
+      // cleared when the operation runs: a reset before it drops the queue, and the next init queues it again
+      this.queue.push({ k: 'rebuffer', type: mimeType(codec), codec });
+    } else {
+      // elsewhere the buffer is reused (Chrome allows one source buffer per media source once one took data)
+      this.afterHold = false;
+      if (codec !== this.bufferCodec) this.queue.push({ k: 'change', type: mimeType(codec), codec });
     }
     this.queue.push({ k: 'append', bytes, segment: false, retried: false });
+    // and once more after it: Safari on iPhone (ManagedMediaSource) stretches the duration to the last session's end when
+    // the next init segment goes into the same buffer, which a scrubber would show until the end of stream
+    this.queueDuration();
     if (this.attached?.source.readyState === 'open') this.onSourceOpen(this.attached);
     this.pump();
   }
@@ -356,6 +629,32 @@ export class ElementVideoOutput {
       this.fail(`the source buffer could not be made (${errorMessage(e)})`);
       return;
     }
+    this.useBuffer(a, b);
+    this.pump();
+  }
+
+  /**
+   * The browser refused a new source buffer on the kept media source: the session starts over on a media source of its
+   * own, which ends the system's presentation, rather than failing the element path. The init and segments queued for
+   * the new buffer go into the new source; where the session is placed and whether it plays are kept.
+   */
+  private restartSource(codec: string): void {
+    const rest = this.queue;
+    const pending = this.pendingStart;
+    const playing = this.playing;
+    this.detach();
+    this.pendingStart = pending;
+    this.playing = playing;
+    const first = rest.findIndex((o) => o.k === 'append' && !o.segment);
+    const initOp = first >= 0 ? rest[first] : undefined;
+    if (!initOp || initOp.k !== 'append') return;
+    this.init(initOp.bytes, codec);
+    for (const o of rest.slice(first + 1)) if (o.k === 'append' && o.segment) this.queue.push(o);
+    this.pump();
+  }
+
+  /** Makes `b` the source's buffer and listens to it. */
+  private useBuffer(a: Attached, b: SourceBufferLike): void {
     a.buffer = b;
     b.addEventListener('updateend', () => this.onUpdateEnd(a, b));
     b.addEventListener('error', () => {
@@ -365,7 +664,6 @@ export class ElementVideoOutput {
     b.addEventListener('bufferedchange', () => {
       if (a === this.attached && a.buffer === b && !this.failed) this.reportBuffered(b);
     });
-    this.pump();
   }
 
   private onUpdateEnd(a: Attached, b: SourceBufferLike): void {
@@ -377,7 +675,7 @@ export class ElementVideoOutput {
       if (op.segment && this.pendingStart) {
         const { startUs } = this.pendingStart;
         this.pendingStart = null;
-        this.deps.video.currentTime = (startUs + ELEMENT_TIME_OFFSET_US) / 1e6;
+        this.seekVideo((startUs + ELEMENT_TIME_OFFSET_US) / 1e6);
         this.applyPlaying();
       }
       const behind = this.behindRemoval();
@@ -406,6 +704,31 @@ export class ElementVideoOutput {
           } catch (e) {
             this.fail(`the codec could not be changed (${errorMessage(e)})`);
             return;
+          }
+          this.bufferCodec = op.codec; // set as it runs: a reset that drops the operation leaves the buffer as it was
+          break;
+        case 'rebuffer': {
+          let fresh: SourceBufferLike;
+          try {
+            a.source.removeSourceBuffer?.(b);
+            fresh = a.source.addSourceBuffer(op.type);
+          } catch {
+            this.restartSource(op.codec);
+            return;
+          }
+          this.afterHold = false;
+          this.bufferCodec = op.codec;
+          this.useBuffer(a, fresh);
+          this.pump(); // the rest of the queue goes into the new buffer
+          return;
+        }
+        case 'duration':
+          if (a.source.readyState === 'open' && !(Math.abs(a.source.duration - op.s) <= 1e-3)) {
+            try {
+              a.source.duration = op.s;
+            } catch {
+              // refused (something past it is still buffered): kept as the browser has it
+            }
           }
           break;
         case 'end':
@@ -494,7 +817,7 @@ export class ElementVideoOutput {
         // element at that cached position (measured 13 to 110 ms behind where it played to): reading it first pauses the
         // element where it is, as other browsers do, so the picture stops where the sound did
         void video.currentTime;
-        video.pause();
+        this.pauseVideo();
       }
       return;
     }
@@ -511,7 +834,7 @@ export class ElementVideoOutput {
       if (start.catchUp) this.catchUps++;
       video.playbackRate = start.rate;
       const a = this.attached;
-      video.play().catch((e: unknown) => {
+      this.playVideo().catch((e: unknown) => {
         // a pause (ours, or a reset's) while play() was pending rejects with AbortError: no failure. Anything else is a
         // refusal (NotAllowedError: iOS Low Power Mode refuses a muted play started outside a gesture) or an error, and
         // the element would sit on its placed frame under running sound
@@ -597,8 +920,8 @@ export class ElementVideoOutput {
       // the engine plays but its clock holds (a still at a play item's end): the element stops on the held clock's
       // frame instead of playing on and being pulled back, and starts again, as at a start, once the clock moves
       void video.currentTime;
-      video.pause();
-      video.currentTime = (published.clockUs + ELEMENT_TIME_OFFSET_US) / 1e6;
+      this.pauseVideo();
+      this.seekVideo((published.clockUs + ELEMENT_TIME_OFFSET_US) / 1e6);
       this.applyPlaying();
       return;
     }
@@ -609,7 +932,7 @@ export class ElementVideoOutput {
     // videoSync carries clock minus frame time, as the canvas path measures it.
     if (action.offsetUs !== null) this.offsets.push(-action.offsetUs);
     if (action.seekToUs !== null) {
-      video.currentTime = (action.seekToUs + ELEMENT_TIME_OFFSET_US) / 1e6;
+      this.seekVideo((action.seekToUs + ELEMENT_TIME_OFFSET_US) / 1e6);
       video.playbackRate = action.rate;
     } else if (Math.abs(action.rate - video.playbackRate) >= MIN_RATE_CHANGE) {
       video.playbackRate = action.rate;
@@ -648,6 +971,8 @@ export class ElementVideoOutput {
 
   /** Cancels callbacks, drops the queue, detaches the source from the element and revokes its URL. */
   private detach(): void {
+    this.afterHold = false;
+    this.held = false;
     if (this.frameId !== null) {
       this.deps.video.cancelVideoFrameCallback(this.frameId);
       this.frameId = null;
@@ -670,7 +995,7 @@ export class ElementVideoOutput {
     this.attached = null;
     if (!a) return;
     const video = this.deps.video;
-    if (!video.paused) video.pause();
+    if (!video.paused) this.pauseVideo();
     video.removeAttribute('src');
     video.load();
     a.revoke();

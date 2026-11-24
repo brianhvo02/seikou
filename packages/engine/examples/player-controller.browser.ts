@@ -217,6 +217,13 @@ async function tour(controller: PlayerController, canvas: HTMLCanvasElement, sen
 
   await textSubtitles(controller);
 
+  // #region preferElement
+  // before Picture in Picture: the playing playlist moves to the page's <video> where it can
+  const preference = await controller.preferElement();
+  console.log(preference.outcome === 'unavailable' ? `stays on the canvas: ${preference.reason}` : preference.outcome);
+  // #endregion
+  check(['element', 'reopening', 'unavailable'].includes(preference.outcome), `unexpected preference ${preference.outcome}`);
+
   // #region closeDisc
   controller.closeDisc(); // the snapshot starts over, keeping volume and mute
   // #endregion

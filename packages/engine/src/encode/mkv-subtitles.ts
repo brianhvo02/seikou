@@ -154,6 +154,11 @@ export class MkvAssTrack implements TextRendererLike {
   visible(timeUs: number, opts: TextRenderOptions): boolean {
     return this.rendererValue?.visible(timeUs, opts) ?? false;
   }
+
+  /** The dialogue showing at `timeUs` as plain text (none before a renderer is attached). */
+  plainText(timeUs: number, opts: TextRenderOptions): readonly string[] {
+    return this.rendererValue?.plainText(timeUs, opts) ?? [];
+  }
 }
 
 const MAX_QUEUED_SETS = 64;

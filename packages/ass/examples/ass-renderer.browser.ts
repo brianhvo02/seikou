@@ -46,6 +46,10 @@ export default async function example(): Promise<void> {
   console.log('shown at 2 s:', renderer.visible(2_000_000, options), 'at 5 s:', renderer.visible(5_000_000, options));
   // #endregion
 
+  // #region plainText
+  console.log(renderer.plainText(2_000_000, options)); // ['Hello world']: what a video's text track can show
+  // #endregion
+
   // #region changed
   const needsDraw = renderer.changed(2_000_000, options); // true: nothing was drawn yet
   // #endregion

@@ -133,6 +133,12 @@ export class TextSetRenderer<R extends TextRendererLike> implements TextRenderer
     return at ? at.renderer.visible(at.localUs, { ...opts, offsetUs: 0 }) : false;
   }
 
+  /** The showing file's text at `timeUs` as plain text (empty when it shows none, or its renderer can't say). */
+  plainText(timeUs: number, opts: TextRenderOptions): readonly string[] {
+    const at = this.set.at(timeUs);
+    return at?.renderer.plainText?.(at.localUs, { ...opts, offsetUs: 0 }) ?? [];
+  }
+
   /** The file showing at a playlist time, or null. */
   fileAt(timeUs: number): { readonly file: number; readonly renderer: R } | null {
     return this.set.at(timeUs);

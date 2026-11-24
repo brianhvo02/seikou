@@ -2115,6 +2115,19 @@ describe('Player text subtitles', () => {
     for (const t of withPicture) expect(t.atUs).toBe(t.pictureUs);
   });
 
+  it('while the page asks (setTextCues), sends the showing text as plain text on each change, and nothing after', async () => {
+    const h = await raw();
+    await h.player.handle({ type: 'addTextSubtitles', files: [file('sign.ass', ass('DejaVu Sans', dialogue('0:00:01.00', '0:00:02.00', '{\\i1}Hello{\\i0}\\Nthere'), dialogue('0:00:01.00', '0:00:02.00', '{\\pos(10,10)}SIGN')))], fonts: [fontFile('DejaVuSans.ttf')] });
+    await h.player.handle({ type: 'setTextCues', on: true });
+    await playUntil(h, 2_300_000);
+    const cues = () => h.events.flatMap((e) => (e.type === 'textCue' ? [e.text] : []));
+    expect(cues()).toEqual([null, 'Hello\nthere', null]);
+    await h.player.handle({ type: 'setTextCues', on: false });
+    const sent = cues().length;
+    await playUntil(h, 2_600_000);
+    expect(cues()).toHaveLength(sent);
+  });
+
   it('loads a file, selects it, and reports a visible cue only during its time', async () => {
     const h = await raw();
     await h.player.handle({ type: 'addTextSubtitles', files: [file('movie.srt', SRT)] });

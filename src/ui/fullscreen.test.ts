@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { FULLSCREEN_HINT_KEY, evaluateFullscreenHint, safeLocalStorage, isFullscreenHintDismissed, markFullscreenHintDismissed, shouldShowFullscreenHint, toggleFullscreen } from './fullscreen';
+import { FULLSCREEN_HINT_KEY, evaluateFullscreenHint, fullscreenKind, safeLocalStorage, isFullscreenHintDismissed, markFullscreenHintDismissed, shouldShowFullscreenHint, toggleFullscreen } from './fullscreen';
 
 function fakes(doc: Record<string, unknown>): { doc: Document; el: HTMLElement; elementMock: Record<string, ReturnType<typeof vi.fn>> } {
   const elementMock = { requestFullscreen: vi.fn(), webkitRequestFullscreen: vi.fn() };
@@ -33,6 +33,20 @@ describe('toggleFullscreen', () => {
   });
 });
 
+describe('fullscreenKind', () => {
+  it("takes the document's API first, the video's own where there is none, and none without either", () => {
+    expect(fullscreenKind({ fullscreen: 'standard', videoFullscreen: true })).toBe('standard');
+    expect(fullscreenKind({ fullscreen: 'webkit', videoFullscreen: false })).toBe('webkit');
+    expect(fullscreenKind({ fullscreen: null, videoFullscreen: true })).toBe('video');
+    expect(fullscreenKind({ fullscreen: null, videoFullscreen: false })).toBeNull();
+  });
+  it('?fullscreen=video forces the video’s own only where it exists', () => {
+    expect(fullscreenKind({ fullscreen: 'standard', videoFullscreen: true }, 'video')).toBe('video');
+    expect(fullscreenKind({ fullscreen: 'standard', videoFullscreen: false }, 'video')).toBe('standard');
+    expect(fullscreenKind({ fullscreen: 'standard', videoFullscreen: true }, 'other')).toBe('standard');
+  });
+});
+
 describe('shouldShowFullscreenHint', () => {
   const base = { fullscreen: null, coarsePointer: true, standalone: false, dismissed: false } as const;
   it('shows on a coarse-pointer browser tab without fullscreen', () => {
@@ -41,6 +55,7 @@ describe('shouldShowFullscreenHint', () => {
   it.each([
     { fullscreen: 'standard' as const },
     { fullscreen: 'webkit' as const },
+    { fullscreen: 'video' as const },
     { coarsePointer: false },
     { standalone: true },
     { dismissed: true },

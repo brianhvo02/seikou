@@ -1127,6 +1127,32 @@ describe('opening at a place', () => {
     await expect(beforeClose).resolves.toMatchObject({ mode: 'hdmv', title: 1 });
   });
 
+  it('preferElement asks the engine and resolves each caller with its answer, in order', async () => {
+    const worker = new FakeWorker();
+    const c = new PlayerController(worker, new FakeAudio());
+    const first = c.preferElement();
+    const second = c.preferElement();
+    expect(worker.posted).toEqual([{ type: 'preferElement' }, { type: 'preferElement' }]);
+    worker.emit({ type: 'elementPreference', outcome: 'reopening' });
+    worker.emit({ type: 'elementPreference', outcome: 'unavailable', reason: 'codec' });
+    await expect(first).resolves.toEqual({ outcome: 'reopening' });
+    await expect(second).resolves.toEqual({ outcome: 'unavailable', reason: 'codec' });
+    expect(reduceEvent(INITIAL_SNAPSHOT, { type: 'elementPreference', outcome: 'element' })).toBe(INITIAL_SNAPSHOT);
+  });
+
+  it('preferElement answers unavailable when the worker fails or the controller is disposed', async () => {
+    const failing = new FakeWorker();
+    const a = new PlayerController(failing, new FakeAudio());
+    const waiting = a.preferElement();
+    failing.onerror?.({ message: 'boom' } as ErrorEvent);
+    await expect(waiting).resolves.toEqual({ outcome: 'unavailable', reason: 'no-playlist' });
+    const b = new PlayerController(new FakeWorker(), new FakeAudio());
+    const pending = b.preferElement();
+    b.dispose();
+    await expect(pending).resolves.toEqual({ outcome: 'unavailable', reason: 'no-playlist' });
+    await expect(b.preferElement()).resolves.toEqual({ outcome: 'unavailable', reason: 'no-playlist' });
+  });
+
   it('probeVideoDecoder asks the engine once and resolves with its measurement for every caller', async () => {
     const worker = new FakeWorker();
     const c = new PlayerController(worker, new FakeAudio());

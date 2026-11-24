@@ -5,10 +5,10 @@ import type { PlayerSettings } from '../disc/player-settings';
 import type { UoOp } from '../hdmv/uo-mask';
 import type { Chapter } from '../nav/timeline';
 import type { MemoryProfileName } from '../memory-profile';
-import type { AudioTrack, BufferRequest, EncodeSpec, EngineCommand, EngineEvent, ErrorCode, MenuKey, PlaceState, PlaybackState, ShaderSetData, ShaderState, StartPoint, SubtitleChoice, Telemetry, VideoDecoderSpeed, VideoPath, DeinterlaceMode } from '../protocol';
+import type { AudioTrack, BufferRequest, ElementPreference, EncodeSpec, EngineCommand, EngineEvent, ErrorCode, MenuKey, PlaceState, PlaybackState, ShaderSetData, ShaderState, StartPoint, SubtitleChoice, Telemetry, VideoDecoderSpeed, VideoPath, DeinterlaceMode } from '../protocol';
 import { VIDEO_PROBE_DEADLINE_MS } from '../protocol';
 import { elementCheck } from './element-caps';
-import { type ElementAnswer, ElementVideoOutput, type MediaSourceLike } from './element-output';
+import { type ElementAnswer, ElementVideoOutput, type MediaSourceLike, vttCueText } from './element-output';
 import { trackLabel } from './language';
 import { DROP_WARN_RATE, DropMeter } from './drop-meter';
 
@@ -301,6 +301,10 @@ export function reduceEvent(s: PlayerSnapshot, e: EngineEvent): PlayerSnapshot {
       return s.videoElement ? { ...s, videoElement: false } : s;
     case 'videoHdr':
       return s.videoHdr === e.hdr ? s : { ...s, videoHdr: e.hdr };
+    case 'elementPreference':
+      return s; // answers preferElement (the controller resolves it)
+    case 'textCue':
+      return s; // the page's element handler shows it
     case 'videoElementQuery':
     case 'videoSegment':
     case 'videoReset':
@@ -309,6 +313,22 @@ export function reduceEvent(s: PlayerSnapshot, e: EngineEvent): PlayerSnapshot {
     case 'shaderStatus':
       return { ...s, shaders: { state: e.state, set: e.set, error: e.error }, shaderDropWarning: e.state === 'active' ? s.shaderDropWarning : null };
   }
+}
+
+/**
+ * Whether the system shows `video` itself now, with its own controls: Picture in Picture (the standard API or WebKit's
+ * presentation mode) or the video's own fullscreen (WebKit's `webkitEnterFullscreen`, or the standard API on the video).
+ */
+function videoPresented(video: HTMLVideoElement): boolean {
+  const v = video as HTMLVideoElement & { webkitPresentationMode?: string; webkitDisplayingFullscreen?: boolean };
+  const doc = video.ownerDocument as Document & { pictureInPictureElement?: Element | null };
+  return (
+    doc.pictureInPictureElement === video ||
+    doc.fullscreenElement === video ||
+    v.webkitPresentationMode === 'picture-in-picture' ||
+    v.webkitPresentationMode === 'fullscreen' ||
+    v.webkitDisplayingFullscreen === true
+  );
 }
 
 /** The browser's media source class: `MediaSource`, else Safari on iPhone's `ManagedMediaSource`; null when neither exists. */
@@ -416,6 +436,8 @@ export class PlayerController {
   /** The worker failed (reportInternalError): it will answer nothing more. */
   private engineFailed: Error | null = null;
   private disposed = false;
+  /** preferElement calls waiting for the engine's answer, oldest first (the engine answers in order). */
+  private preferWaiters: Array<(answer: ElementPreference) => void> = [];
   /** The decode speed probe asked this page load, with the resolver of its answer. */
   private speedProbe: { readonly promise: Promise<VideoDecoderSpeed | null>; resolve(speed: VideoDecoderSpeed | null): void } | null = null;
 
@@ -443,6 +465,10 @@ export class PlayerController {
       else if (e.type === 'fetchPortClosed') this.fetchPortClosed();
       else if (e.type === 'placeState') this.placeState(e);
       else if (e.type === 'videoDecoderSpeed') this.speedProbe?.resolve(e.speed);
+      else if (e.type === 'elementPreference') {
+        const { type: _type, ...answer } = e;
+        this.preferWaiters.shift()?.(answer);
+      }
       else this.update(this.withDropWarning(reduceEvent(this.snapshot, e), e));
     };
     worker.onerror = (event) => this.reportInternalError(`The player engine stopped unexpectedly: ${event.message || 'unknown error'}`);
@@ -498,6 +524,7 @@ export class PlayerController {
     this.placeWaiters = [];
     for (const w of waiters) w.reject(this.engineFailed);
     this.speedProbe?.resolve(null);
+    for (const w of this.preferWaiters.splice(0)) w({ outcome: 'unavailable', reason: 'no-playlist' });
     const s = reduceEvent(this.snapshot, { type: 'error', code: 'internal', message, paths: [] });
     this.update({ ...s, engineState: 'error' }); // the engine can't report its own state any more
   }
@@ -535,8 +562,9 @@ export class PlayerController {
   /**
    * Hands the page's `<video>` element to the engine's element video path: the controller plays the fragmented MP4 the
    * engine sends in it (through `MediaSource`, or `ManagedMediaSource` where that is all there is), keeps it on the
-   * engine's clock and tells the engine where the clock is. An element is attached once; a different one replaces the
-   * first, which is released.
+   * engine's clock and tells the engine where the clock is. While the system shows the element itself (Picture in
+   * Picture, or the video's own fullscreen), a play, pause or seek from the system's controls plays, pauses or seeks the
+   * player. An element is attached once; a different one replaces the first, which is released.
    * @example ../../examples/player-controller.browser.ts#attachVideoElement
    */
   attachVideoElement(video: HTMLVideoElement): void {
@@ -549,7 +577,8 @@ export class PlayerController {
         if (!Ctor) return null;
         const source = new Ctor();
         const url = URL.createObjectURL(source as unknown as MediaSource);
-        return { source: source as unknown as MediaSourceLike, url, revoke: () => URL.revokeObjectURL(url) };
+        const managed = (globalThis as { ManagedMediaSource?: unknown }).ManagedMediaSource;
+        return { source: source as unknown as MediaSourceLike, url, revoke: () => URL.revokeObjectURL(url), managed: managed !== undefined && Ctor === managed };
       },
       playable: ({ codec, hdr, width, height, frameRate }) =>
         elementCheck(
@@ -564,6 +593,13 @@ export class PlayerController {
           width !== undefined && height !== undefined ? { width, height, ...(frameRate !== undefined ? { frameRate } : {}) } : undefined,
         ),
       answers: this.elementAnswers,
+      presented: () => videoPresented(video),
+      ...(typeof VTTCue === 'function' ? { makeCue: (start: number, end: number, text: string) => new VTTCue(start, end, vttCueText(text)) } : {}),
+      onTransport: (t) => {
+        if (t.kind === 'pause') this.pause();
+        else if (t.kind === 'play') this.play();
+        else this.seek(t.timeUs);
+      },
       ...(this.options.failElementAppends ? { failAppends: true } : {}),
       epochMs: () => performance.timeOrigin + performance.now(),
       timeOrigin: performance.timeOrigin,
@@ -670,6 +706,21 @@ export class PlayerController {
   }
 
   /**
+   * Asks the engine to show the playing playlist in the page's `<video>` (the element path), for Picture in Picture or
+   * the video's own fullscreen: `element` when it already plays there, `reopening` when a playlist on the canvas opens
+   * again at the same time on the element path (the disc's later playlists take it too, until another disc opens), and
+   * `unavailable` with the reason otherwise (see `ElementPreferenceReason`). Resolves `unavailable` (`no-playlist`)
+   * when the engine has failed or the controller was disposed. Needs a video element attached with `attachVideoElement`.
+   * @example ../../examples/player-controller.browser.ts#preferElement
+   */
+  preferElement(): Promise<ElementPreference> {
+    if (this.engineFailed || this.disposed) return Promise.resolve({ outcome: 'unavailable', reason: 'no-playlist' });
+    const answer = new Promise<ElementPreference>((resolve) => this.preferWaiters.push(resolve));
+    this.post({ type: 'preferElement' });
+    return answer;
+  }
+
+  /**
    * How fast this device decodes 1080i MPEG-2 and VC-1 video through the engine's WASM decoder, in pictures per second
    * (the bench clips shipped with the engine, an untimed warm-up and the better of two timed passes each; sends
    * `probeVideoDecoder`). A successful answer is kept: later calls get it without asking again. Resolves null (never
@@ -700,12 +751,13 @@ export class PlayerController {
 
   /**
    * Ends the controller's pending work: a decode speed probe still waiting is answered null, and later ones answer null at
-   * once. It does not close the disc or the worker.
+   * once; a preferElement still waiting, and later ones, answer `unavailable`. It does not close the disc or the worker.
    * @example ../../examples/player-controller.browser.ts#dispose
    */
   dispose(): void {
     this.disposed = true;
     this.speedProbe?.resolve(null);
+    for (const w of this.preferWaiters.splice(0)) w({ outcome: 'unavailable', reason: 'no-playlist' });
   }
 
   private placeState(e: Extract<EngineEvent, { type: 'placeState' }>): void {

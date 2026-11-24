@@ -53,6 +53,8 @@ export type {
   NoticeCode,
   ErrorCode,
   VideoPath,
+  ElementPreference,
+  ElementPreferenceReason,
   VideoDecoderSpeed,
   DeinterlaceMode,
   DeinterlaceTelemetry,
