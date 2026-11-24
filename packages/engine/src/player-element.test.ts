@@ -215,7 +215,8 @@ describe('Player on the element path', () => {
     expect(query).toBeLessThan(reset);
     expect(reset).toBeLessThan(init);
     expect(ofType(h, 'videoElementQuery')[0]!.codec).toMatch(/^avc1\./);
-    expect(ofType(h, 'videoReset')[0]).toEqual({ type: 'videoReset', startUs: 0, paused: false, generation: expect.any(Number) });
+    expect(ofType(h, 'videoReset')[0]).toEqual({ type: 'videoReset', startUs: 0, paused: false, generation: expect.any(Number), durationUs: expect.any(Number) });
+    expect(ofType(h, 'videoReset')[0]!.durationUs).toBeGreaterThan(7_900_000);
     expect(ofType(h, 'videoInit')[0]).toMatchObject({ codec: expect.stringMatching(/^avc1\./), width: expect.any(Number), height: expect.any(Number) });
     const segments = ofType(h, 'videoSegment');
     expect(segments.length).toBeGreaterThan(2);
@@ -294,7 +295,7 @@ describe('Player on the element path', () => {
     await h.player.handle({ type: 'seek', timeUs: 5_000_000 });
     await h.play(100);
     const after = h.events.slice(before);
-    expect(after).toContainEqual({ type: 'videoReset', startUs: 5_000_000, paused: true, generation: expect.any(Number) });
+    expect(after).toContainEqual({ type: 'videoReset', startUs: 5_000_000, paused: true, generation: expect.any(Number), durationUs: expect.any(Number) });
     // the reset comes before the new init and the segments from the target's entry
     const reset = after.findIndex((e) => e.type === 'videoReset');
     const init = after.findIndex((e) => e.type === 'videoInit');

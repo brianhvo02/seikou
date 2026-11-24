@@ -707,9 +707,11 @@ export type EngineEvent =
   /**
    * Drop what the element holds and restart at playlist time `startUs` (microseconds; the element's media time is that
    * plus ELEMENT_TIME_OFFSET_US), paused or playing. Every element session begins with a videoReset, before its first videoInit.
-   * `generation` grows with every reset; the page echoes it in videoBuffered and videoStalled.
+   * `generation` grows with every reset; the page echoes it in videoBuffered and videoStalled. `durationUs` is the
+   * playlist's length, which the page gives its media source, so a system player's scrubber (Picture in Picture, a
+   * video's own fullscreen) spans the playlist rather than what has been appended.
    */
-  | { readonly type: 'videoReset'; readonly startUs: number; readonly paused: boolean; readonly generation: number }
+  | { readonly type: 'videoReset'; readonly startUs: number; readonly paused: boolean; readonly generation: number; readonly durationUs?: number }
   /** The element's video has ended: no more segments follow. */
   | { readonly type: 'videoEnded' }
   /** The element path stopped (the playlist ended or was replaced, or it fell back to the canvas): the page releases the element. */

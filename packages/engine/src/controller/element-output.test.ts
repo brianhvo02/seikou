@@ -92,6 +92,7 @@ class FakeSourceBuffer implements SourceBufferLike {
 
 class FakeMediaSource implements MediaSourceLike {
   readyState = 'closed';
+  duration = NaN;
   buffers: FakeSourceBuffer[] = [];
   types: string[] = [];
   ended = 0;
@@ -1057,5 +1058,16 @@ describe('ElementVideoOutput and the system controls of a presented element', ()
     await flush();
     expect(t.transports).toEqual([]);
     expect(t.video.paused).toBe(true);
+  });
+});
+
+describe('ElementVideoOutput and the media source duration', () => {
+  it("sets the playlist's end in media time once the source is open, so a system scrubber spans the playlist", () => {
+    const t = setup();
+    t.out.handle({ type: 'videoReset', startUs: 0, paused: false, generation: 1, durationUs: 150_000_000 });
+    t.out.handle(init());
+    expect(Number.isNaN(t.ms.duration)).toBe(true);
+    t.ms.fireOpen();
+    expect(t.ms.duration).toBe(150 + OFFSET_S);
   });
 });

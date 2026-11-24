@@ -34,6 +34,8 @@ export interface VideoElementLike {
  */
 export interface MediaSourceLike {
   readonly readyState: string;
+  /** Seconds; set to the playlist's end in media time so a system player's scrubber spans the playlist. */
+  duration: number;
   addSourceBuffer(type: string): SourceBufferLike;
   endOfStream(): void;
   addEventListener(type: 'sourceopen', fn: () => void): void;
@@ -216,6 +218,8 @@ export class ElementVideoOutput {
   private ownPauses = 0;
   /** Times (media seconds) the output set whose `seeking` is still to come. */
   private ownSeeks: number[] = [];
+  /** The media source's duration (seconds, media time) still to be set: the playlist's end, from the last videoReset. */
+  private pendingDurationS: number | null = null;
 
   /** Mutes the element, plays it inline, and listens to its stalls and errors. */
   constructor(private readonly deps: ElementOutputDeps) {
@@ -324,6 +328,7 @@ export class ElementVideoOutput {
       case 'videoReset':
         if (!this.disposed) {
           this.generation = e.generation;
+          this.pendingDurationS = e.durationUs !== undefined ? (e.durationUs + ELEMENT_TIME_OFFSET_US) / 1e6 : null;
           this.reset(e.startUs, e.paused);
         }
         return true;
@@ -479,6 +484,16 @@ export class ElementVideoOutput {
     const a = this.attached;
     const b = a?.buffer;
     if (!a || !b || this.failed) return;
+    if (this.pendingDurationS !== null && !this.inFlight && !b.updating && a.source.readyState === 'open') {
+      const d = this.pendingDurationS;
+      this.pendingDurationS = null;
+      try {
+        // a duration under what is buffered throws (a playlist shorter than the last); the end of stream sets it then
+        if (!(Math.abs(a.source.duration - d) <= 1e-3)) a.source.duration = d; // NaN before the first
+      } catch {
+        // kept as the browser has it
+      }
+    }
     while (!this.inFlight && !b.updating && this.queue.length > 0) {
       const op = this.queue.shift()!;
       switch (op.k) {

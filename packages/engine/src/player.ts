@@ -4053,6 +4053,7 @@ export class Player {
       emit: (event, transfer) => this.deps.emit(event, transfer),
       nextGeneration: () => ++this.elementResets,
       isCurrent: () => this.session === s,
+      durationUs: () => s.timeline.durationUs,
       shown: (size, first) => {
         if (!first) {
           this.compositor?.setElementSize?.(size);
