@@ -778,34 +778,6 @@ function run(jvm: Jvm, t: JThread, budget: number): ExitReason {
         // JIT_EXIT_INTERPRET: the frame's pc and sp are set; the interpreter goes on from there
       }
     }
-    budget = interpretFrame(jvm, t, f, budget, jitThreshold);
-    const exit = interpretExit;
-    if (exit === INTERPRET_EXHAUSTED) {
-      if (prof) prof.bytecodes.set(f.method, (prof.bytecodes.get(f.method) ?? 0) + (profBudget - budget - 1));
-      return 'budget';
-    }
-    if (exit === INTERPRET_YIELD) {
-      // this instruction counted, unlike at the budget check (which stops before running one)
-      if (prof) prof.bytecodes.set(f.method, (prof.bytecodes.get(f.method) ?? 0) + (profBudget - budget));
-      return 'budget';
-    }
-  }
-}
-
-/** How interpretFrame left: the outer loop goes on, the slice's budget ran out, or the slice ends after a monitorexit. */
-const INTERPRET_CONTINUE = 0;
-const INTERPRET_EXHAUSTED = 1;
-const INTERPRET_YIELD = 2;
-let interpretExit = INTERPRET_CONTINUE;
-
-/**
- * Runs frame `f` from its pc until a call, return, throw, blocked monitor or the end of the budget, and returns the
- * budget left with how it left in `interpretExit`. It is a function of its own, not a loop inside run(), so the
- * engine optimises it as a whole rather than as a loop entered on the stack, which it leaves at every call.
- */
-function interpretFrame(jvm: Jvm, t: JThread, f: JFrame, budget: number, jitThreshold: number): number {
-  interpretExit = INTERPRET_CONTINUE;
-  const jitOn = jitThreshold !== Infinity;
     const cls = f.method.cls;
     const code = f.method.code!.code;
     const stack = f.stack;
@@ -817,8 +789,8 @@ function interpretFrame(jvm: Jvm, t: JThread, f: JFrame, budget: number, jitThre
         if (--budget < 0) {
           f.pc = pc;
           f.sp = sp;
-          interpretExit = INTERPRET_EXHAUSTED;
-          return budget;
+          if (prof) prof.bytecodes.set(f.method, (prof.bytecodes.get(f.method) ?? 0) + (profBudget - budget - 1));
+          return 'budget';
         }
         const op = code[pc]!;
         // The frame's pc is needed by what can see it: calls, class initialisation and loading, exceptions made on
@@ -1342,7 +1314,7 @@ function interpretFrame(jvm: Jvm, t: JThread, f: JFrame, budget: number, jitThre
             const taken =
               op === 0x99 ? v === 0 : op === 0x9a ? v !== 0 : op === 0x9b ? v < 0 : op === 0x9c ? v >= 0 : op === 0x9d ? v > 0 : v <= 0;
             const to = pc + (taken ? (((code[pc + 1]! << 8) | code[pc + 2]!) << 16) >> 16 : 3);
-            if (to < pc && jitOn && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; return budget; }
+            if (to < pc && jitOn && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; continue outer; }
             pc = to;
             break;
           }
@@ -1353,7 +1325,7 @@ function interpretFrame(jvm: Jvm, t: JThread, f: JFrame, budget: number, jitThre
             const taken =
               op === 0x9f ? a === b : op === 0xa0 ? a !== b : op === 0xa1 ? a < b : op === 0xa2 ? a >= b : op === 0xa3 ? a > b : a <= b;
             const to = pc + (taken ? (((code[pc + 1]! << 8) | code[pc + 2]!) << 16) >> 16 : 3);
-            if (to < pc && jitOn && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; return budget; }
+            if (to < pc && jitOn && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; continue outer; }
             pc = to;
             break;
           }
@@ -1361,13 +1333,13 @@ function interpretFrame(jvm: Jvm, t: JThread, f: JFrame, budget: number, jitThre
             sp -= 2;
             const same = stack[sp] === stack[sp + 1];
             const to = pc + (same === (op === 0xa5) ? (((code[pc + 1]! << 8) | code[pc + 2]!) << 16) >> 16 : 3);
-            if (to < pc && jitOn && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; return budget; }
+            if (to < pc && jitOn && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; continue outer; }
             pc = to;
             break;
           }
           case 0xa7: { // goto
             const to = pc + ((((code[pc + 1]! << 8) | code[pc + 2]!) << 16) >> 16);
-            if (to < pc && jitOn && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; return budget; }
+            if (to < pc && jitOn && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; continue outer; }
             pc = to;
             break;
           }
@@ -1407,19 +1379,19 @@ function interpretFrame(jvm: Jvm, t: JThread, f: JFrame, budget: number, jitThre
           }
           case 0xac: case 0xae: case 0xb0: // ireturn, freturn, areturn
             ret(jvm, t, f, stack[sp - 1]!, false);
-            return budget;
+            continue outer;
           case 0xad: case 0xaf: // lreturn, dreturn
             ret(jvm, t, f, stack[sp - 2]!, true);
-            return budget;
+            continue outer;
           case 0xb1: // return
             ret(jvm, t, f, undefined, false);
-            return budget;
+            continue outer;
           case 0xb2: { // getstatic
             const fld = resolveField(jvm, cls, (code[pc + 1]! << 8) | code[pc + 2]!);
             if (!fld.isStatic) throw new PendingThrow('java/lang/IncompatibleClassChangeError', `Expected static field ${externalName(fld.cls.name)}.${fld.name}`);
             if (fld.cls.state !== 'initialized') {
               f.sp = sp;
-              if (!ensureInit(jvm, t, f, fld.cls)) return budget;
+              if (!ensureInit(jvm, t, f, fld.cls)) continue outer;
             }
             stack[sp] = fld.cls.staticValues[fld.slot]!;
             sp += fld.wide ? 2 : 1;
@@ -1431,7 +1403,7 @@ function interpretFrame(jvm: Jvm, t: JThread, f: JFrame, budget: number, jitThre
             if (!fld.isStatic) throw new PendingThrow('java/lang/IncompatibleClassChangeError', `Expected static field ${externalName(fld.cls.name)}.${fld.name}`);
             if (fld.cls.state !== 'initialized') {
               f.sp = sp;
-              if (!ensureInit(jvm, t, f, fld.cls)) return budget;
+              if (!ensureInit(jvm, t, f, fld.cls)) continue outer;
             }
             sp -= fld.wide ? 2 : 1;
             fld.cls.staticValues[fld.slot] = stack[sp]!;
@@ -1471,7 +1443,7 @@ function interpretFrame(jvm: Jvm, t: JThread, f: JFrame, budget: number, jitThre
             }
             f.sp = sp;
             call(jvm, t, f, target, pc + 3);
-            return budget;
+            continue outer;
           }
           case 0xb7: { // invokespecial
             let m = resolveMethod(jvm, cls, (code[pc + 1]! << 8) | code[pc + 2]!);
@@ -1488,15 +1460,15 @@ function interpretFrame(jvm: Jvm, t: JThread, f: JFrame, budget: number, jitThre
             }
             f.sp = sp;
             call(jvm, t, f, m, pc + 3);
-            return budget;
+            continue outer;
           }
           case 0xb8: { // invokestatic
             const m = resolveMethod(jvm, cls, (code[pc + 1]! << 8) | code[pc + 2]!);
             if (!m.isStatic) throw new PendingThrow('java/lang/IncompatibleClassChangeError', `Expected static method ${externalName(m.cls.name)}.${m.name}${m.desc}`);
             f.sp = sp;
-            if (m.cls.state !== 'initialized' && !ensureInit(jvm, t, f, m.cls)) return budget;
+            if (m.cls.state !== 'initialized' && !ensureInit(jvm, t, f, m.cls)) continue outer;
             call(jvm, t, f, m, pc + 3);
-            return budget;
+            continue outer;
           }
           case 0xb9: { // invokeinterface
             const m = resolveMethod(jvm, cls, (code[pc + 1]! << 8) | code[pc + 2]!);
@@ -1514,21 +1486,21 @@ function interpretFrame(jvm: Jvm, t: JThread, f: JFrame, budget: number, jitThre
             }
             f.sp = sp;
             call(jvm, t, f, target, pc + 5);
-            return budget;
+            continue outer;
           }
           case 0xba: { // invokedynamic: linked once per instruction, then a call of its call site
             const site = f.method.callSites?.get(pc);
             if (!site) throw new LoadPending(linkCallSite(jvm, t, f.method, pc, (code[pc + 1]! << 8) | code[pc + 2]!));
             f.sp = sp;
             call(jvm, t, f, site, pc + 5);
-            return budget;
+            continue outer;
           }
           case 0xbb: { // new
             const c = resolveClass(jvm, cls, (code[pc + 1]! << 8) | code[pc + 2]!);
             if (c.isInterface || c.access & ACC_ABSTRACT) throw new PendingThrow('java/lang/InstantiationError', externalName(c.name));
             if (c.state !== 'initialized') {
               f.sp = sp;
-              if (!ensureInit(jvm, t, f, c)) return budget;
+              if (!ensureInit(jvm, t, f, c)) continue outer;
             }
             stack[sp++] = jvm.heap.newObject(c);
             pc += 3;
@@ -1562,7 +1534,7 @@ function interpretFrame(jvm: Jvm, t: JThread, f: JFrame, budget: number, jitThre
             const e = stack[sp - 1] as JObject | null;
             if (e === null) throw new PendingThrow('java/lang/NullPointerException');
             throwInto(jvm, t, e);
-            return budget;
+            continue outer;
           }
           case 0xc0: { // checkcast
             const o = stack[sp - 1] as JObject | null;
@@ -1586,7 +1558,7 @@ function interpretFrame(jvm: Jvm, t: JThread, f: JFrame, budget: number, jitThre
             if (o === null) throw new PendingThrow('java/lang/NullPointerException');
             if (!jvm.threads.monitorEnter(t, o)) {
               f.sp = sp;
-              return budget;
+              continue outer;
             }
             sp--;
             pc++;
@@ -1601,8 +1573,9 @@ function interpretFrame(jvm: Jvm, t: JThread, f: JFrame, budget: number, jitThre
               // the monitor passed to another thread, which runs before this one goes on, as it would in parallel on HotSpot
               f.pc = pc;
               f.sp = sp;
-              interpretExit = INTERPRET_YIELD;
-              return budget;
+              // this instruction counted, unlike at the budget check (which stops before running one)
+              if (prof) prof.bytecodes.set(f.method, (prof.bytecodes.get(f.method) ?? 0) + (profBudget - budget));
+              return 'budget';
             }
             break;
           }
@@ -1650,7 +1623,7 @@ function interpretFrame(jvm: Jvm, t: JThread, f: JFrame, budget: number, jitThre
           case 0xc6: case 0xc7: { // ifnull, ifnonnull
             const isNull = stack[--sp] === null;
             const to = pc + (isNull === (op === 0xc6) ? (((code[pc + 1]! << 8) | code[pc + 2]!) << 16) >> 16 : 3);
-            if (to < pc && jitOn && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; return budget; }
+            if (to < pc && jitOn && hotLoop(f.method, jitThreshold) && !jvm.threads.preempted) { f.pc = to; f.sp = sp; continue outer; }
             pc = to;
             break;
           }
@@ -1674,8 +1647,9 @@ function interpretFrame(jvm: Jvm, t: JThread, f: JFrame, budget: number, jitThre
       f.pc = pc;
       caught(jvm, t, f, e, sp);
     }
-    return budget;
+  }
 }
+
 
 function s32(code: Uint8Array, p: number): number {
   return (code[p]! << 24) | (code[p + 1]! << 16) | (code[p + 2]! << 8) | code[p + 3]!;
