@@ -313,6 +313,22 @@ export function reduceEvent(s: PlayerSnapshot, e: EngineEvent): PlayerSnapshot {
   }
 }
 
+/**
+ * Whether the system shows `video` itself now, with its own controls: Picture in Picture (the standard API or WebKit's
+ * presentation mode) or the video's own fullscreen (WebKit's `webkitEnterFullscreen`, or the standard API on the video).
+ */
+function videoPresented(video: HTMLVideoElement): boolean {
+  const v = video as HTMLVideoElement & { webkitPresentationMode?: string; webkitDisplayingFullscreen?: boolean };
+  const doc = video.ownerDocument as Document & { pictureInPictureElement?: Element | null };
+  return (
+    doc.pictureInPictureElement === video ||
+    doc.fullscreenElement === video ||
+    v.webkitPresentationMode === 'picture-in-picture' ||
+    v.webkitPresentationMode === 'fullscreen' ||
+    v.webkitDisplayingFullscreen === true
+  );
+}
+
 /** The browser's media source class: `MediaSource`, else Safari on iPhone's `ManagedMediaSource`; null when neither exists. */
 function mediaSourceConstructor(): (new () => unknown) & { isTypeSupported(type: string): boolean } | null {
   const g = globalThis as unknown as { MediaSource?: unknown; ManagedMediaSource?: unknown };
@@ -544,8 +560,9 @@ export class PlayerController {
   /**
    * Hands the page's `<video>` element to the engine's element video path: the controller plays the fragmented MP4 the
    * engine sends in it (through `MediaSource`, or `ManagedMediaSource` where that is all there is), keeps it on the
-   * engine's clock and tells the engine where the clock is. An element is attached once; a different one replaces the
-   * first, which is released.
+   * engine's clock and tells the engine where the clock is. While the system shows the element itself (Picture in
+   * Picture, or the video's own fullscreen), a play, pause or seek from the system's controls plays, pauses or seeks the
+   * player. An element is attached once; a different one replaces the first, which is released.
    * @example ../../examples/player-controller.browser.ts#attachVideoElement
    */
   attachVideoElement(video: HTMLVideoElement): void {
@@ -573,6 +590,12 @@ export class PlayerController {
           width !== undefined && height !== undefined ? { width, height, ...(frameRate !== undefined ? { frameRate } : {}) } : undefined,
         ),
       answers: this.elementAnswers,
+      presented: () => videoPresented(video),
+      onTransport: (t) => {
+        if (t.kind === 'pause') this.pause();
+        else if (t.kind === 'play') this.play();
+        else this.seek(t.timeUs);
+      },
       ...(this.options.failElementAppends ? { failAppends: true } : {}),
       epochMs: () => performance.timeOrigin + performance.now(),
       timeOrigin: performance.timeOrigin,

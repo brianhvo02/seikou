@@ -23,7 +23,7 @@ export interface VideoElementLike {
   requestVideoFrameCallback(cb: (now: number, meta: { mediaTime: number; expectedDisplayTime: number }) => void): number;
   cancelVideoFrameCallback(id: number): void;
   getVideoPlaybackQuality(): { totalVideoFrames: number; droppedVideoFrames: number };
-  addEventListener(type: 'waiting' | 'playing' | 'error', fn: () => void): void;
+  addEventListener(type: 'waiting' | 'playing' | 'error' | 'play' | 'pause' | 'seeking', fn: () => void): void;
   removeAttribute(name: string): void;
   load(): void;
 }
@@ -79,9 +79,27 @@ export interface ElementOutputDeps {
    * makes, so a new element doesn't ask the browser again; without it the output keeps its own.
    */
   answers?: Map<string, Promise<ElementAnswer>>;
+  /**
+   * Whether the system shows the element now (Picture in Picture, or the video's own fullscreen), where its own controls
+   * act on it: a play, pause or seek the output didn't make is then the user's. Never presented without it.
+   */
+  presented?(): boolean;
+  /** The user played, paused or sought the element through the system's controls while it was presented. */
+  onTransport?(t: ElementTransport): void;
   /** Test-only: every append fails with an error that is not a `QuotaExceededError`, so the element fails at once. */
   failAppends?: boolean;
 }
+
+/**
+ * What the user did to a presented element through the system's controls: play, pause, or a seek to a playlist time.
+ * @internal
+ */
+export type ElementTransport = { readonly kind: 'play' } | { readonly kind: 'pause' } | { readonly kind: 'seek'; readonly timeUs: number };
+
+/** How close (seconds) a `seeking` element's time must lie to a time the output set to count as the output's own. */
+const OWN_SEEK_SLACK_S = 0.05;
+/** The most times the output set whose `seeking` it still waits for. */
+const OWN_SEEKS_KEPT = 8;
 
 type Op =
   | { readonly k: 'append'; readonly bytes: Uint8Array; readonly segment: boolean; readonly retried: boolean }
@@ -193,6 +211,11 @@ export class ElementVideoOutput {
    * expectedDisplayTime is off the page's clock; null until the first such frame starts the measuring.
    */
   private refresh: RefreshEstimate | null = null;
+  /** play() and pause() calls whose `play` and `pause` events are still to come: those events are the output's own. */
+  private ownPlays = 0;
+  private ownPauses = 0;
+  /** Times (media seconds) the output set whose `seeking` is still to come. */
+  private ownSeeks: number[] = [];
 
   /** Mutes the element, plays it inline, and listens to its stalls and errors. */
   constructor(private readonly deps: ElementOutputDeps) {
@@ -224,6 +247,69 @@ export class ElementVideoOutput {
     video.addEventListener('error', () => {
       if (this.attached) this.fail('the video element failed');
     });
+    video.addEventListener('pause', () => this.onPauseEvent());
+    video.addEventListener('play', () => this.onPlayEvent());
+    video.addEventListener('seeking', () => this.onSeekingEvent());
+  }
+
+  /** Whether the system shows the element now (deps.presented), where play, pause and seeks the output didn't make are the user's. */
+  private presented(): boolean {
+    return this.deps.presented?.() === true;
+  }
+
+  private pauseVideo(): void {
+    this.ownPauses++;
+    this.deps.video.pause();
+  }
+
+  private playVideo(): Promise<void> {
+    this.ownPlays++;
+    return this.deps.video.play();
+  }
+
+  private seekVideo(mediaS: number): void {
+    this.ownSeeks.push(mediaS);
+    if (this.ownSeeks.length > OWN_SEEKS_KEPT) this.ownSeeks.shift();
+    this.deps.video.currentTime = mediaS;
+  }
+
+  /**
+   * A `pause`: the output's own, or the user's from the system's controls while the element is presented and the
+   * engine plays, which pauses the player (the sound is the engine's, not the muted element's).
+   */
+  private onPauseEvent(): void {
+    if (this.ownPauses > 0) {
+      this.ownPauses--;
+      return;
+    }
+    if (!this.attached || !this.presented() || !this.playing) return;
+    this.deps.onTransport?.({ kind: 'pause' });
+  }
+
+  /**
+   * A `play`: the output's own, or one it didn't make while the engine is paused, which it pauses again at once, since
+   * the element starts only on the engine's clock; while presented that play is the user's and plays the player.
+   */
+  private onPlayEvent(): void {
+    if (this.ownPlays > 0) {
+      this.ownPlays--;
+      return;
+    }
+    if (!this.attached || this.playing) return;
+    this.pauseVideo();
+    if (this.presented()) this.deps.onTransport?.({ kind: 'play' });
+  }
+
+  /** A `seeking` to a time the output didn't set, while presented: the user's seek, in playlist time. */
+  private onSeekingEvent(): void {
+    const t = this.deps.video.currentTime;
+    const own = this.ownSeeks.findIndex((s) => Math.abs(s - t) <= OWN_SEEK_SLACK_S);
+    if (own >= 0) {
+      this.ownSeeks.splice(0, own + 1);
+      return;
+    }
+    if (!this.attached || this.pendingStart || !this.presented()) return;
+    this.deps.onTransport?.({ kind: 'seek', timeUs: Math.max(0, Math.round(t * 1e6) - ELEMENT_TIME_OFFSET_US) });
   }
 
   /** Acts on an engine event; true when it was one of the element path's events. */
@@ -301,7 +387,7 @@ export class ElementVideoOutput {
     this.queue = [];
     const a = this.attached;
     if (!a) return;
-    if (!this.deps.video.paused) this.deps.video.pause();
+    if (!this.deps.video.paused) this.pauseVideo();
     const b = a.buffer;
     if (!b) return;
     if (a.source.readyState === 'open') {
@@ -377,7 +463,7 @@ export class ElementVideoOutput {
       if (op.segment && this.pendingStart) {
         const { startUs } = this.pendingStart;
         this.pendingStart = null;
-        this.deps.video.currentTime = (startUs + ELEMENT_TIME_OFFSET_US) / 1e6;
+        this.seekVideo((startUs + ELEMENT_TIME_OFFSET_US) / 1e6);
         this.applyPlaying();
       }
       const behind = this.behindRemoval();
@@ -494,7 +580,7 @@ export class ElementVideoOutput {
         // element at that cached position (measured 13 to 110 ms behind where it played to): reading it first pauses the
         // element where it is, as other browsers do, so the picture stops where the sound did
         void video.currentTime;
-        video.pause();
+        this.pauseVideo();
       }
       return;
     }
@@ -511,7 +597,7 @@ export class ElementVideoOutput {
       if (start.catchUp) this.catchUps++;
       video.playbackRate = start.rate;
       const a = this.attached;
-      video.play().catch((e: unknown) => {
+      this.playVideo().catch((e: unknown) => {
         // a pause (ours, or a reset's) while play() was pending rejects with AbortError: no failure. Anything else is a
         // refusal (NotAllowedError: iOS Low Power Mode refuses a muted play started outside a gesture) or an error, and
         // the element would sit on its placed frame under running sound
@@ -597,8 +683,8 @@ export class ElementVideoOutput {
       // the engine plays but its clock holds (a still at a play item's end): the element stops on the held clock's
       // frame instead of playing on and being pulled back, and starts again, as at a start, once the clock moves
       void video.currentTime;
-      video.pause();
-      video.currentTime = (published.clockUs + ELEMENT_TIME_OFFSET_US) / 1e6;
+      this.pauseVideo();
+      this.seekVideo((published.clockUs + ELEMENT_TIME_OFFSET_US) / 1e6);
       this.applyPlaying();
       return;
     }
@@ -609,7 +695,7 @@ export class ElementVideoOutput {
     // videoSync carries clock minus frame time, as the canvas path measures it.
     if (action.offsetUs !== null) this.offsets.push(-action.offsetUs);
     if (action.seekToUs !== null) {
-      video.currentTime = (action.seekToUs + ELEMENT_TIME_OFFSET_US) / 1e6;
+      this.seekVideo((action.seekToUs + ELEMENT_TIME_OFFSET_US) / 1e6);
       video.playbackRate = action.rate;
     } else if (Math.abs(action.rate - video.playbackRate) >= MIN_RATE_CHANGE) {
       video.playbackRate = action.rate;
@@ -670,7 +756,7 @@ export class ElementVideoOutput {
     this.attached = null;
     if (!a) return;
     const video = this.deps.video;
-    if (!video.paused) video.pause();
+    if (!video.paused) this.pauseVideo();
     video.removeAttribute('src');
     video.load();
     a.revoke();

@@ -5,6 +5,7 @@ import { ClockBlockWriter } from '../element/clock-block';
 import { ELEMENT_TIME_OFFSET_US } from '../element/fmp4';
 import {
   ElementVideoOutput,
+  type ElementTransport,
   type MediaSourceLike,
   type SourceBufferLike,
   type VideoElementLike,
@@ -140,6 +141,14 @@ class FakeVideo implements VideoElementLike {
   private nextId = 1;
   private listeners: Record<string, Array<() => void>> = {};
   constructor() {
+    let time = 0;
+    Object.defineProperty(this, 'currentTime', {
+      get: () => time,
+      set: (v: number) => {
+        time = v;
+        this.later('seeking');
+      },
+    });
     let rate = 1;
     let src = '';
     let remote = false;
@@ -170,12 +179,28 @@ class FakeVideo implements VideoElementLike {
     const error = this.playError;
     this.playError = null;
     if (error) return Promise.reject(error);
+    if (this.paused) this.later('play');
     this.paused = false;
     return Promise.resolve();
   }
   pause(): void {
     this.pauses++;
+    if (!this.paused) this.later('pause');
     this.paused = true;
+  }
+  /** Fires an event a moment later, as a browser queues it. */
+  private later(type: 'play' | 'pause' | 'seeking'): void {
+    queueMicrotask(() => this.fire(type));
+  }
+  /** The system's controls pause the element (Picture in Picture, a video's fullscreen). */
+  userPause(): void {
+    this.paused = true;
+    this.later('pause');
+  }
+  /** The system's controls play the element. */
+  userPlay(): void {
+    this.paused = false;
+    this.later('play');
   }
   requestVideoFrameCallback(cb: FrameCb): number {
     const id = this.nextId++;
@@ -189,10 +214,10 @@ class FakeVideo implements VideoElementLike {
   getVideoPlaybackQuality(): { totalVideoFrames: number; droppedVideoFrames: number } {
     return this.quality;
   }
-  addEventListener(type: 'waiting' | 'playing' | 'error', fn: () => void): void {
+  addEventListener(type: 'waiting' | 'playing' | 'error' | 'play' | 'pause' | 'seeking', fn: () => void): void {
     (this.listeners[type] ??= []).push(fn);
   }
-  fire(type: 'waiting' | 'playing' | 'error'): void {
+  fire(type: 'waiting' | 'playing' | 'error' | 'play' | 'pause' | 'seeking'): void {
     for (const fn of this.listeners[type] ?? []) fn();
   }
   removeAttribute(name: string): void {
@@ -214,7 +239,8 @@ const flush = async (): Promise<void> => {
   for (let i = 0; i < 5; i++) await Promise.resolve();
 };
 
-function setup(opts: { failAppends?: boolean; noMediaSource?: boolean; playable?: (query: ElementQuery) => boolean; noAnimationFrame?: boolean } = {}) {
+function setup(opts: { failAppends?: boolean; noMediaSource?: boolean; playable?: (query: ElementQuery) => boolean; noAnimationFrame?: boolean; presented?: { value: boolean } } = {}) {
+  const transports: ElementTransport[] = [];
   const video = new FakeVideo();
   const ms = new FakeMediaSource();
   const posted: EngineCommand[] = [];
@@ -230,6 +256,7 @@ function setup(opts: { failAppends?: boolean; noMediaSource?: boolean; playable?
       return { source: ms, url: 'blob:ms', revoke: () => revoked++ };
     },
     ...(opts.failAppends ? { failAppends: true } : {}),
+    ...(opts.presented ? { presented: () => opts.presented!.value, onTransport: (t: ElementTransport) => transports.push(t) } : {}),
     playable: async (query) => {
       const playable = (opts.playable ?? (() => true))(query);
       return { playable, check: { mse: playable, decodingInfo: query.hdr ? playable : null } };
@@ -280,6 +307,7 @@ function setup(opts: { failAppends?: boolean; noMediaSource?: boolean; playable?
     timers,
     revoked: () => revoked,
     created: () => created,
+    transports,
   };
 }
 
@@ -289,8 +317,8 @@ const seg = (n: number, startUs: number, endUs: number): EngineEvent => ({ type:
 const reset = (startUs: number, paused = false, generation = 1): EngineEvent => ({ type: 'videoReset', startUs, paused, generation });
 
 /** A session opened at `startUs`, its init appended, the buffer ready. */
-function opened(startUs = 0, paused = false, generation = 1) {
-  const t = setup();
+function opened(startUs = 0, paused = false, generation = 1, presented?: { value: boolean }) {
+  const t = setup(presented ? { presented } : {});
   t.out.handle(reset(startUs, paused, generation));
   t.out.handle(init());
   t.ms.fireOpen();
@@ -964,5 +992,70 @@ describe('ElementVideoOutput', () => {
     };
     t.out.setPlaying(false);
     expect(ops.slice(-2)).toEqual(['read', 'pause']);
+  });
+});
+
+describe('ElementVideoOutput and the system controls of a presented element', () => {
+  /** An element placed and playing on a running clock, presented as `presented` says. */
+  async function playingSession(presented: { value: boolean }) {
+    const t = opened(0, false, 1, presented);
+    const clock = new ClockBlockWriter(t.out.clock);
+    clock.write(1_000_000, true, 5000);
+    appendSegment(t, 1, 0, 2);
+    t.out.setPlaying(true);
+    await flush();
+    expect(t.video.paused).toBe(false);
+    return t;
+  }
+
+  it("ignores its own play, pause and seeks", async () => {
+    const presented = { value: true };
+    const t = await playingSession(presented);
+    t.out.setPlaying(false);
+    await flush();
+    t.out.handle(reset(3_000_000, false, 2));
+    appendSegment(t, 2, 3, 5);
+    await flush();
+    expect(t.transports).toEqual([]);
+  });
+
+  it('a pause from the system controls while presented pauses the player', async () => {
+    const t = await playingSession({ value: true });
+    t.video.userPause();
+    await flush();
+    expect(t.transports).toEqual([{ kind: 'pause' }]);
+  });
+
+  it('a play from the system controls while the player is paused: the element waits for the clock, and the player plays', async () => {
+    const t = await playingSession({ value: true });
+    t.out.setPlaying(false);
+    await flush();
+    const pauses = t.video.pauses;
+    t.video.userPlay();
+    await flush();
+    expect(t.transports).toEqual([{ kind: 'play' }]);
+    expect(t.video.paused).toBe(true);
+    expect(t.video.pauses).toBe(pauses + 1);
+  });
+
+  it('a seek from the system controls while presented seeks the player in playlist time', async () => {
+    const t = await playingSession({ value: true });
+    t.video.currentTime = OFFSET_S + 42.5; // as the scrubber sets it: not one of the output's own times
+    await flush();
+    expect(t.transports).toEqual([{ kind: 'seek', timeUs: 42_500_000 }]);
+  });
+
+  it('outside a presentation nothing goes to the player, and a stray play is paused again', async () => {
+    const t = await playingSession({ value: false });
+    t.video.userPause();
+    t.video.currentTime = OFFSET_S + 7;
+    await flush();
+    expect(t.transports).toEqual([]);
+    t.out.setPlaying(false);
+    await flush();
+    t.video.userPlay();
+    await flush();
+    expect(t.transports).toEqual([]);
+    expect(t.video.paused).toBe(true);
   });
 });
