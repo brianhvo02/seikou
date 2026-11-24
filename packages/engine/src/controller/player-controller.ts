@@ -434,9 +434,9 @@ export class PlayerController {
   /** The worker failed (reportInternalError): it will answer nothing more. */
   private engineFailed: Error | null = null;
   private disposed = false;
-  /** The decode speed probe asked this page load, with the resolver of its answer. */
   /** preferElement calls waiting for the engine's answer, oldest first (the engine answers in order). */
   private preferWaiters: Array<(answer: ElementPreference) => void> = [];
+  /** The decode speed probe asked this page load, with the resolver of its answer. */
   private speedProbe: { readonly promise: Promise<VideoDecoderSpeed | null>; resolve(speed: VideoDecoderSpeed | null): void } | null = null;
 
   constructor(
