@@ -1101,4 +1101,32 @@ describe('Player ticking while the page is hidden', () => {
     await h.player.handle({ type: 'visibility', hidden: true });
     await vi.waitFor(() => expect(lastState(h)).toBe('ended'), { timeout: 3000 });
   }, 20_000);
+
+  it('ticks on the timer while hidden before a playlist has chosen its path, so a playlist started hidden plays on the element and ends', async () => {
+    // the page answers the element question only once the test attaches it: until then the session has no element
+    const h = await harness({ audio: false, attachLate: true });
+    await h.player.handle({ type: 'visibility', hidden: true });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await vi.waitFor(() => expect(ofType(h, 'videoElementQuery').length).toBeGreaterThan(0), { timeout: 3000 });
+    await h.attach();
+    await vi.waitFor(() => expect(lastState(h)).toBe('playing'), { timeout: 3000 });
+    h.clock.ms += 20_000;
+    await vi.waitFor(() => expect(lastState(h)).toBe('ended'), { timeout: 3000 });
+  }, 20_000);
+
+  it('goes on ticking on the timer across a playlist change while hidden, so the next playlist plays on the element and ends', async () => {
+    const h = await harness({ audio: false });
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00000' });
+    await untilState(h, 'playing');
+    await h.player.handle({ type: 'visibility', hidden: true });
+    h.clock.ms += 20_000;
+    await vi.waitFor(() => expect(lastState(h)).toBe('ended'), { timeout: 3000 });
+    const before = h.events.length;
+    // the next playlist starts while hidden: no session's element exists yet, and still nothing but the timer ticks
+    await h.player.handle({ type: 'playPlaylist', playlistId: '00001' });
+    await vi.waitFor(() => expect(lastState(h)).toBe('playing'), { timeout: 3000 });
+    expect(h.events.slice(before).some((e) => e.type === 'videoReset')).toBe(true);
+    h.clock.ms += 20_000;
+    await vi.waitFor(() => expect(lastState(h)).toBe('ended'), { timeout: 3000 });
+  }, 20_000);
 });

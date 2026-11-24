@@ -501,6 +501,8 @@ export class ElementVideoOutput {
 
   /** Releases the element and stops every callback; the output is unusable after. */
   dispose(): void {
+    this.cancelEndedCheck?.();
+    this.cancelEndedCheck = null;
     this.detach();
     this.disposed = true;
   }

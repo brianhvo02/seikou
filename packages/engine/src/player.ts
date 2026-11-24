@@ -1499,7 +1499,7 @@ export class Player {
 
   /**
    * Ticks at every frame (requestFrame). A hidden page gets no animation frames, yet the system may still show the page's
-   * video element (Picture in Picture): while the page is hidden and the element path plays, the loop ticks on a timer
+   * video element (Picture in Picture): while the page is hidden and no canvas decoder draws, the loop ticks on a timer
    * instead (HIDDEN_TICK_MS), so a playlist's end is still acted on and the element's text cues still change. Each wait
    * runs its tick once, whichever of the frame and the timer comes first.
    */
@@ -1527,9 +1527,14 @@ export class Player {
     schedule();
   }
 
-  /** Whether the render loop ticks on a timer: the page is hidden and its video element shows the playlist. */
+  /**
+   * Whether the render loop ticks on a timer: the page is hidden, unless the playlist is drawn on the canvas, which no one
+   * sees then (it keeps to animation frames, as before, so the deinterlacer's pacing isn't judged on timer ticks). Between
+   * playlists, and while a new one's path is still being chosen, the timer goes on, so the next playlist's element gets
+   * the clock and its end is acted on.
+   */
   private hiddenTicks(): boolean {
-    return this.pageHidden && this.session?.element != null;
+    return this.pageHidden && this.session?.decoder == null;
   }
 
   private async open(spec: DiscSpec, bufferFirst: BufferRequest | undefined, hold: OpenHold | null, start: StartPoint | null): Promise<void> {
