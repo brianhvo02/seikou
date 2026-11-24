@@ -10,7 +10,7 @@ const TRACKS = [
   { index: 2, codec: 'Dolby Digital (AC-3)', decoding: 'Dolby Digital (AC-3), stereo' },
   // decoded whole on a computer: the MLP part's own stereo presentation, not the AC-3 core
   { index: 3, codec: 'Dolby TrueHD', decoding: 'Dolby TrueHD, lossless, stereo' },
-  { index: 4, codec: 'DTS', decoding: 'DTS, stereo' },
+  { index: 4, codec: 'DTS', decoding: 'DTS, 5.1' }, // no embedded downmix: decoded 5.1, folded by the player
 ];
 
 async function seekTo(page: Page, fraction: number): Promise<void> {
